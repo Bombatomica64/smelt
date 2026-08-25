@@ -1065,6 +1065,60 @@ pub(crate) fn effective_class_fields(mir: &Mir, class: &MirClass) -> Vec<MirFiel
     fields
 }
 
+/// Return the flattened method set for a class: its own methods plus every
+/// inherited one it does not override.
+///
+/// Smelt flattens inheritance — a subclass struct stores its base's fields
+/// inline (see [`effective_class_fields`]) and there is no base value to
+/// delegate to at runtime. Rust has no method inheritance either, so a base
+/// method is only callable on a subclass receiver if it is emitted into the
+/// subclass's own `impl` block.
+///
+/// Without this, a class body that calls an inherited method lowered fine in
+/// the frontend (method resolution walks the base chain) but emitted Rust that
+/// does not compile: `self.fetch()` on a `B` whose `fetch` lives in `impl A`
+/// fails with `no method named 'fetch' found for reference '&B'`.
+///
+/// Ordering matches [`effective_class_fields`]: base methods first, then the
+/// class's own, with an override *replacing* the inherited slot in place so a
+/// subclass never emits two methods of the same name. Re-emitting the base body
+/// under the subclass is sound precisely because of flattening: every field the
+/// base body touches exists on the subclass, and any sibling method it calls is
+/// itself inherited by the same rule.
+pub(crate) fn effective_class_methods(mir: &Mir, class: &MirClass) -> Vec<FuncId> {
+    let mut methods = class
+        .base
+        .and_then(|base| mir.classes.iter().find(|candidate| candidate.name == base))
+        .map(|base| effective_class_methods(mir, base))
+        .unwrap_or_default();
+    for method in &class.methods {
+        match methods
+            .iter_mut()
+            .find(|candidate| method_names_match(mir, **candidate, *method))
+        {
+            Some(existing) => *existing = *method,
+            None => methods.push(*method),
+        }
+    }
+    methods
+}
+
+/// Whether two method functions declare the same method name, i.e. one
+/// overrides the other.
+fn method_names_match(mir: &Mir, left: FuncId, right: FuncId) -> bool {
+    let method_name = |id: FuncId| {
+        let function = mir.functions.get(usize::try_from(id.0).ok()?)?;
+        match function.origin {
+            smelt_mir::HirOrigin::ClassMethod { method, .. } => Some(method),
+            _ => None,
+        }
+    };
+    match (method_name(left), method_name(right)) {
+        (Some(left_name), Some(right_name)) => left_name == right_name,
+        _ => false,
+    }
+}
+
 /// Render a primitive class-level value captured by specialization.
 ///
 /// Static members are emitted as associated getter functions because owned

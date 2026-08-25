@@ -742,7 +742,8 @@ impl ModuleBuilder<'_> {
                 let field_ty = self.annotation_to_hir(&assign.annotation)?;
                 Ok(Some((field_name.to_owned(), field_ty)))
             }
-            // `self.<name> = <param>` — the field takes the parameter's type.
+            // `self.<name> = <value>` for a value whose type is knowable
+            // without lowering the constructor body.
             Stmt::Assign(assign) => {
                 let [target] = assign.targets.as_slice() else {
                     return Ok(None);
@@ -750,14 +751,60 @@ impl ModuleBuilder<'_> {
                 let Some(field_name) = self_field_target(target) else {
                     return Ok(None);
                 };
-                let Expr::Name(value) = assign.value.as_ref() else {
-                    return Ok(None);
-                };
-                Ok(param_types
-                    .get(value.id.as_str())
-                    .map(|field_ty| (field_name.to_owned(), *field_ty)))
+                Ok(self
+                    .constructor_value_type(assign.value.as_ref(), param_types)
+                    .map(|field_ty| (field_name.to_owned(), field_ty)))
             }
             _ => Ok(None),
+        }
+    }
+
+    /// The HIR type of a constructor-assigned value, when it is knowable
+    /// without lowering the constructor body.
+    ///
+    /// This pass runs before any method body is lowered, so it cannot ask the
+    /// expression lowerer for a type. Three value shapes carry one anyway:
+    ///
+    /// * a reference to an `__init__` parameter — the parameter's type;
+    /// * a scalar literal (`0`, `1.5`, `"s"`, `True`, `None`);
+    /// * a constructor call for a class already registered in this module —
+    ///   `self.inner = Inner()` — which yields that class's type.
+    ///
+    /// Anything else (a call result, an operator expression, an empty container
+    /// with no element type) returns `None` and simply does not declare a
+    /// field; guessing would be worse than leaving it undeclared.
+    fn constructor_value_type(
+        &mut self,
+        value: &Expr,
+        param_types: &HashMap<&str, TypeId>,
+    ) -> Option<TypeId> {
+        match value {
+            Expr::Name(name) => param_types.get(name.id.as_str()).copied(),
+            Expr::NumberLiteral(number) => match &number.value {
+                ruff_python_ast::Number::Int(_) => Some(self.intern_type(Type::Int)),
+                ruff_python_ast::Number::Float(_) => Some(self.intern_type(Type::Float)),
+                ruff_python_ast::Number::Complex { .. } => None,
+            },
+            Expr::StringLiteral(_) => Some(self.intern_type(Type::String)),
+            Expr::BooleanLiteral(_) => Some(self.intern_type(Type::Bool)),
+            Expr::NoneLiteral(_) => Some(self.intern_type(Type::None)),
+            // `self.<name> = Klass(..)` — a constructor call for a class this
+            // module already registered.
+            Expr::Call(call) => {
+                let Expr::Name(callee) = call.func.as_ref() else {
+                    return None;
+                };
+                let item_id = *self.items.get(callee.id.as_str())?;
+                let Item::Class(class) = self.item_ref(item_id) else {
+                    return None;
+                };
+                let class_sym = class.name;
+                Some(self.intern_type(Type::Class {
+                    name: class_sym,
+                    args: vec![],
+                }))
+            }
+            _ => None,
         }
     }
 

@@ -1011,3 +1011,88 @@ class B:
     lower_module(source, &mut ctx)?;
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// `super().__init__(...)` in a derived constructor (issue #94).
+// ---------------------------------------------------------------------------
+
+/// A derived `__init__` may run its base's initialization via `super()`.
+///
+/// Rust has no class inheritance, so the call has no callee to defer to: it
+/// lowers to constructing the base and copying its (flattened) slots onto
+/// `self`, matching the TypeScript frontend's `super(...)` lowering.
+#[test]
+fn super_init_call_lowers_in_a_derived_constructor() -> TestResult {
+    let source = py!(r#"
+class A:
+    def __init__(self, x: int) -> None:
+        self.x = x
+
+class B(A):
+    def __init__(self, x: int, y: int) -> None:
+        super().__init__(x)
+        self.y = y
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let has_base_construction = ctx.krate.bodies.iter().any(|candidate| {
+        candidate
+            .exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::New { .. }))
+    });
+    ensure(
+        has_base_construction,
+        "expected super().__init__() to construct the base class",
+    )?;
+    let _ = module;
+    Ok(())
+}
+
+/// `super()` outside a class that declares a base is rejected with a specific
+/// message rather than the generic unsupported-call diagnostic.
+#[test]
+fn super_init_without_a_base_class_is_rejected() -> TestResult {
+    let source = py!(r#"
+class A:
+    def __init__(self, x: int) -> None:
+        super().__init__()
+        self.x = x
+"#);
+    let mut ctx = HirCtx::new();
+    let errors = lower_errors(source, &mut ctx)?;
+    ensure(
+        first_error(&errors)?.message.contains("base class"),
+        "expected a specific diagnostic when the class declares no base",
+    )?;
+    Ok(())
+}
+
+/// `super().<method>()` on an ordinary method is refused explicitly.
+///
+/// Under flattening an override *replaces* the inherited slot in the derived
+/// impl, so the base body is not present to call; dispatching back through
+/// `self` would recurse forever. The limit is stated rather than silently
+/// mis-lowered.
+#[test]
+fn super_method_call_is_refused_with_a_specific_message() -> TestResult {
+    let source = py!(r#"
+class A:
+    def greet(self) -> int:
+        return 1
+
+class B(A):
+    def greet(self) -> int:
+        return super().greet() + 1
+"#);
+    let mut ctx = HirCtx::new();
+    let errors = lower_errors(source, &mut ctx)?;
+    ensure(
+        first_error(&errors)?
+            .message
+            .contains("only super().__init__() is lowered"),
+        "expected the specific super()-method diagnostic",
+    )?;
+    Ok(())
+}

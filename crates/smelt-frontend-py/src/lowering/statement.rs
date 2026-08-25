@@ -154,6 +154,11 @@ impl ModuleBuilder<'_> {
                 {
                     return Ok(());
                 }
+                if let Expr::Call(call) = s.value.as_ref()
+                    && self.super_init_statement(call, body, block)?
+                {
+                    return Ok(());
+                }
                 let expr_id = self.expression(&s.value, body)?;
                 body.push_stmt_to_block(block, HirStmt::Expr(expr_id));
                 Ok(())
@@ -472,6 +477,233 @@ impl ModuleBuilder<'_> {
             },
         );
         Ok(())
+    }
+
+    /// Lower `super().__init__(args)` inside a derived class's `__init__`.
+    ///
+    /// Rust has no class inheritance, so Smelt flattens a derived class's struct
+    /// to carry its base's fields ahead of its own (`effective_class_fields` in
+    /// `smelt-codegen-rust`). The call therefore has no callee to defer to:
+    /// nothing runs the base's initialization unless it is emitted here against
+    /// the derived `self`.
+    ///
+    /// The lowering matches the TypeScript frontend's `super(...)` handling
+    /// (`decls/super_call.rs`) and emits only ordinary HIR — no dedicated node:
+    ///
+    /// ```text
+    /// let __smelt_super: Base = Base(args);   // the base's own constructor
+    /// self.<field> = __smelt_super.<field>;   // for each inherited field
+    /// ```
+    ///
+    /// Because the base is built through its *own* constructor, everything that
+    /// constructor does runs exactly once and in order — including its own
+    /// `super().__init__(..)`. Multi-level inheritance therefore needs no
+    /// special handling: each level only ever reproduces its immediate base, and
+    /// the flattened layouts agree because a base struct's fields are a prefix
+    /// of the derived struct's.
+    ///
+    /// Returns `false` when the statement is not a `super().__init__(..)` call,
+    /// leaving it to the ordinary expression path.
+    fn super_init_statement(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<bool, SmeltError> {
+        let Some(method) = Self::super_receiver_method(call) else {
+            return Ok(false);
+        };
+        let span = self.span(call.range());
+        if method != "__init__" {
+            // A `super().m(..)` call on an ordinary method has no place to
+            // dispatch under flattening: an override replaces the inherited slot
+            // in the derived impl, so the base body is simply not present to
+            // call. Reject it explicitly rather than silently dispatching back
+            // to the override, which would recurse forever.
+            return Err(SmeltError::unsupported(
+                span,
+                format!(
+                    "super().{method}() is not supported yet; only super().__init__() is lowered"
+                ),
+            ));
+        }
+
+        // The enclosing class comes from the `self` receiver's type, which is
+        // the owning class for every method body.
+        let Some(&self_local) = self.locals.get("self") else {
+            return Err(SmeltError::unsupported(
+                span,
+                "super().__init__() requires a `self` receiver",
+            ));
+        };
+        let class_ty = Self::local_ty(body, self_local);
+        let Some(Type::Class { name: class_sym, .. }) =
+            self.ctx.krate.types.get(class_ty).cloned()
+        else {
+            return Err(SmeltError::unsupported(
+                span,
+                "super().__init__() requires a class receiver",
+            ));
+        };
+        let Some(base_sym) = self.class_base_symbol(class_sym) else {
+            return Err(SmeltError::unsupported(
+                span,
+                "super().__init__() requires the enclosing class to declare a base class",
+            ));
+        };
+        let Some(base_name) = self.ctx.krate.symbols.get(base_sym).map(ToOwned::to_owned) else {
+            return Err(SmeltError::unsupported(
+                span,
+                "super().__init__() base class name is not resolvable",
+            ));
+        };
+
+        let args = call
+            .arguments
+            .args
+            .iter()
+            .map(|arg| self.expression(arg, body))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let base_ty = self.intern_type(Type::Class {
+            name: base_sym,
+            args: vec![],
+        });
+        let constructed = body.push_expr(HirExpr {
+            kind: ExprKind::New {
+                class: base_sym,
+                args,
+            },
+            ty: base_ty,
+            span,
+        });
+        let base_local_name = self.intern_name("__smelt_super");
+        let base_local = body.push_local(LocalDecl {
+            name: Some(base_local_name),
+            ty: base_ty,
+            mutable: false,
+            span,
+        });
+        let pat = body.push_pattern(HirPattern::Binding(base_local));
+        body.push_stmt_to_block(
+            block,
+            HirStmt::Let {
+                pat,
+                ty: base_ty,
+                value: Some(constructed),
+            },
+        );
+
+        for field in self.inherited_base_fields(&base_name) {
+            let receiver = body.push_expr(HirExpr {
+                kind: ExprKind::Local(self_local),
+                ty: class_ty,
+                span,
+            });
+            let target = body.push_expr(HirExpr {
+                kind: ExprKind::Field {
+                    receiver,
+                    field: field.name,
+                },
+                ty: field.ty,
+                span,
+            });
+            let source = body.push_expr(HirExpr {
+                kind: ExprKind::Local(base_local),
+                ty: base_ty,
+                span,
+            });
+            let value = body.push_expr(HirExpr {
+                kind: ExprKind::Field {
+                    receiver: source,
+                    field: field.name,
+                },
+                ty: field.ty,
+                span,
+            });
+            body.push_stmt_to_block(block, HirStmt::Assign { target, value });
+        }
+        Ok(true)
+    }
+
+    /// Read a call whose callee is `super().<method>`, returning the method name.
+    ///
+    /// Only the zero-argument `super()` spelling is recognized: the explicit
+    /// two-argument `super(Class, self)` form selects a different MRO entry and
+    /// is not modelled.
+    fn super_receiver_method(call: &ruff_python_ast::ExprCall) -> Option<&str> {
+        let Expr::Attribute(attribute) = call.func.as_ref() else {
+            return None;
+        };
+        let Expr::Call(receiver) = attribute.value.as_ref() else {
+            return None;
+        };
+        let Expr::Name(callee) = receiver.func.as_ref() else {
+            return None;
+        };
+        if callee.id.as_str() != "super"
+            || !receiver.arguments.args.is_empty()
+            || !receiver.arguments.keywords.is_empty()
+        {
+            return None;
+        }
+        Some(attribute.attr.as_str())
+    }
+
+    /// The base-class symbol declared by a lowered class, if it has one.
+    fn class_base_symbol(&self, class_sym: Symbol) -> Option<Symbol> {
+        self.ctx.krate.items.iter().find_map(|item| match item {
+            Item::Class(class) if class.name == class_sym => class.base,
+            _ => None,
+        })
+    }
+
+    /// The instance fields a derived class inherits, walking the base chain so
+    /// a multi-level base contributes its own inherited slots too.
+    ///
+    /// Ordering matches the flattened struct layout (`effective_class_fields`):
+    /// base-most fields first. A name redeclared further down the chain keeps
+    /// the nearest declaration, mirroring how the layout replaces the inherited
+    /// slot.
+    fn inherited_base_fields(&self, base_name: &str) -> Vec<Field> {
+        let mut chain: Vec<Vec<Field>> = Vec::new();
+        let mut visited: Vec<String> = Vec::new();
+        let mut cursor = Some(base_name.to_owned());
+        while let Some(name) = cursor {
+            if visited.contains(&name) {
+                break;
+            }
+            visited.push(name.clone());
+            let Some(class) = self.ctx.krate.items.iter().find_map(|item| match item {
+                Item::Class(class)
+                    if self.ctx.krate.symbols.get(class.name) == Some(name.as_str()) =>
+                {
+                    Some(class)
+                }
+                _ => None,
+            }) else {
+                break;
+            };
+            chain.push(class.fields.clone());
+            cursor = class
+                .base
+                .and_then(|base| self.ctx.krate.symbols.get(base))
+                .map(ToOwned::to_owned);
+        }
+        // `chain` runs derived-to-base; the layout is base-first.
+        let mut fields: Vec<Field> = Vec::new();
+        for level in chain.into_iter().rev() {
+            for field in level {
+                match fields
+                    .iter_mut()
+                    .find(|existing| existing.name == field.name)
+                {
+                    Some(existing) => *existing = field,
+                    None => fields.push(field),
+                }
+            }
+        }
+        fields
     }
 
     /// Lower a nested Python function definition as a local closure value.

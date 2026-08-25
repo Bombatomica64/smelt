@@ -8,6 +8,21 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let span = self.span(call.range());
 
+        // `super().<method>(..)` never reaches here as a derived constructor's
+        // base initialization — that is intercepted as a statement, where the
+        // enclosing block is known (`super_init_statement`). Anything left is
+        // either a `super()` method call, which flattening cannot dispatch, or
+        // `super().__init__(..)` used in a value position. Both get a specific
+        // message instead of the generic unsupported-call catch-all.
+        if let Some(method) = Self::super_receiver_method(call) {
+            return Err(SmeltError::unsupported(
+                span,
+                format!(
+                    "super().{method}() is not supported yet; only super().__init__() is lowered"
+                ),
+            ));
+        }
+
         if let Some(expr) = self.stdlib_module_call_expression(call, body)? {
             return Ok(expr);
         }

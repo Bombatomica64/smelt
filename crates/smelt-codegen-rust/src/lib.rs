@@ -100,7 +100,8 @@ use deps::GeneratedDep;
 mod emitter;
 use classes::{
     class_impl_generics_text, class_name_text, class_type_args_text, class_type_params_text,
-    effective_class_fields, effective_interface_fields, inherited_trait_methods,
+    effective_class_fields, effective_class_methods, effective_interface_fields,
+    inherited_trait_methods,
     interface_impl_generics_text, interface_type_params_text, materialized_static_value_text,
 };
 use emitter::{EmitContext, FunctionEmitter};
@@ -3408,7 +3409,10 @@ fn emit_source_with_free_function_router(
             let mut emitter = FunctionEmitter::new(mir, &context, function)?;
             emitter.emit_method(&mut out)?;
         }
-        for method in &class.methods {
+        // Inherited methods are emitted into the subclass's own impl block:
+        // Smelt flattens inheritance and Rust has no method inheritance, so a
+        // base method is otherwise not callable on a subclass receiver.
+        for method in &effective_class_methods(mir, class) {
             if let Some(function) = mir
                 .functions
                 .get(id_index(method.0, "method index does not fit usize")?)
