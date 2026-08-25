@@ -887,10 +887,29 @@ impl ModuleBuilder<'_> {
                         ));
                     };
                     let field = self.intern_source_name(field_text);
+                    // A destructured field's type is the FIELD's type. Falling
+                    // back to the parameter's own type here silently mistyped
+                    // every shape not listed below: `arrays.map(({ length }) =>
+                    // length)` over `T[][]` typed `length` as `T[]`, so the
+                    // callback claimed to return a list and the emitter
+                    // coerced the number into a one-element list. Where the
+                    // field type genuinely cannot be resolved in the compact
+                    // IR, report it so the caller retries through full
+                    // closure-body lowering instead of inventing a type.
                     let field_ty = match self.ctx.krate.types.get(param_ty) {
                         Some(Type::Dict(_, value) | Type::JsMap(_, value)) => *value,
                         Some(Type::Class { .. }) => self.class_field_type(param_ty, field)?,
-                        _ => param_ty,
+                        // `length` is carried by every list and string, and it
+                        // is a number rather than the receiver's own type.
+                        Some(Type::List(_) | Type::String) if field_text == "length" => {
+                            self.ctx.krate.types.intern(Type::Float)
+                        }
+                        _ => {
+                            return Err(SmeltError::unsupported(
+                                self.span(property.span.start, property.span.end),
+                                "callback parameter destructuring needs closure-body lowering",
+                            ));
+                        }
                     };
                     params.insert(
                         binding.name.as_str(),

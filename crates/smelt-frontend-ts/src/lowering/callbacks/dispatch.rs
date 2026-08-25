@@ -602,6 +602,11 @@ impl ModuleBuilder<'_> {
             // general expression path, which models every entry form, so retry
             // there instead of reading the constant as a placeholder value.
             || error.message == "callback object constant needs closure-body lowering"
+            // A destructured callback parameter whose field type the compact IR
+            // cannot resolve. Full closure-body lowering types the field
+            // through the general member-access path, so retry there rather
+            // than mistyping the binding as the parameter's own type.
+            || error.message == "callback parameter destructuring needs closure-body lowering"
             || error
                 .message
                 .contains("resolves outside the current callback body")

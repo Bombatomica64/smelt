@@ -252,6 +252,47 @@ test("common matchers", () => {
     assert!(source.contains("deepStrictEqual(...) failed"));
 }
 
+/// A destructured callback parameter binds the FIELD's type, not the
+/// parameter's.
+///
+/// The compact callback IR resolved a destructured field's type for dicts,
+/// maps and classes, and fell back to the *parameter's own type* for
+/// everything else. Over `T[][]`, `arrays.map(({ length }) => length)`
+/// therefore typed `length` as `T[]`, so the callback claimed to return a
+/// list and the emitter coerced the number into a one-element list. That is
+/// how radash's `zip` stopped compiling: `Math.max(..)` over the mapped
+/// lengths got `expected f64, found SmeltList<SmeltUnknown>`. `length` is a
+/// number on every list and string.
+#[test]
+fn a_destructured_callback_parameter_binds_the_field_type() {
+    let source = source_for(
+        r"
+export function lengths<T>(arrays: T[][]): number[] {
+  return arrays.map(({ length }) => length);
+}
+",
+    );
+
+    assert!(
+        !source.contains("SmeltList::from(vec![SmeltUnknown::Number("),
+        "the callback must yield `length` itself, not a one-element list \
+         holding it:\n{source}"
+    );
+    // The equivalent member access has always been right; the two spellings
+    // must agree.
+    let member = source_for(
+        r"
+export function lengths<T>(arrays: T[][]): number[] {
+  return arrays.map(a => a.length);
+}
+",
+    );
+    assert!(
+        !member.contains("SmeltList::from(vec![SmeltUnknown::Number("),
+        "control: the member-access spelling must not wrap either:\n{member}"
+    );
+}
+
 /// Vitest compares primitive numbers with `Object.is` under every equality
 /// matcher, so `NaN` equals `NaN`.
 ///
