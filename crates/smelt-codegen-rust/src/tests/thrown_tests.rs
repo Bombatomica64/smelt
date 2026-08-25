@@ -338,6 +338,59 @@ const rendered = text();
     );
 }
 
+/// An unrelated closure elsewhere in the crate must not suppress the fold.
+///
+/// The fold refuses to touch a local that a closure captures, because such a
+/// local is read through the closure environment rather than through an operand
+/// the read tally can see. That guard was first written against the crate-wide
+/// closure table -- but `MirClosure::captures` records a `source_local`, and a
+/// `LocalId` is meaningful only inside its owning body. A function that
+/// happened to reuse a local number some *other* function's closure captured
+/// was therefore treated as capturing it too. In a two-function fixture nothing
+/// collided and the fold looked correct; across a real library almost every
+/// low-numbered local collided with something, and 29 of 30 throw sites
+/// silently kept their staged temporaries. Hence the many closures below: the
+/// point of the fixture is to occupy a spread of local numbers.
+#[test]
+fn a_foreign_closure_capture_does_not_suppress_the_fold() {
+    let source = source_for(
+        r#"
+export function manyClosures(values: number[]): number[] {
+  const a = 1;
+  const b = 2;
+  const c = 3;
+  const d = 4;
+  const e = 5;
+  const f = 6;
+  const g = 7;
+  const h = 8;
+  return values
+    .map(value => value * a + b)
+    .map(value => value * c + d)
+    .map(value => value * e + f)
+    .map(value => value * g + h);
+}
+
+export function thrower(size: number): number {
+  if (!Number.isInteger(size) || size <= 0) {
+    throw new Error('Size must be an integer greater than zero.');
+  }
+  return size;
+}
+"#,
+    );
+
+    assert!(
+        source.contains("smelt_throw(SmeltUnknown::Object("),
+        "the payload must still be built at the throw site when the crate \
+         contains unrelated capturing closures:\n{source}"
+    );
+    assert!(
+        !source.contains("smelt_throw(_smelt_tmp"),
+        "no staged temporary may survive into the throw:\n{source}"
+    );
+}
+
 /// A thrown `Error` must be built as one expression at the throw site.
 ///
 /// Making `throw` value-preserving gave `throw new Error(m)` a

@@ -8,6 +8,7 @@
 
 use super::*;
 use crate::{stdlib, thrown};
+use smelt_mir::ClosureId;
 
 impl FunctionEmitter<'_> {
     /// Renders the `return Err(..)` statement for a `Terminator::Throw`.
@@ -210,6 +211,51 @@ fn local_read_counts(function: &MirFunction) -> HashMap<LocalId, usize> {
     counts
 }
 
+/// Locals captured by a closure that this function creates, directly or through
+/// a nested closure.
+///
+/// `MirClosure` does not record its defining function, so ownership is
+/// recovered from the `Rvalue::Closure` sites in the body: a function owns the
+/// closures it constructs, and transitively those they construct in turn. The
+/// walk is bounded by the visited set, so a closure table that refers to itself
+/// cannot loop.
+fn closure_captured_locals(mir: &Mir, function: &MirFunction) -> HashSet<LocalId> {
+    fn collect_closure_ids(blocks: &[BasicBlock], into: &mut Vec<ClosureId>) {
+        for block in blocks {
+            for statement in &block.statements {
+                let (Statement::Assign { value, .. } | Statement::AssignPlace { value, .. }) =
+                    statement
+                else {
+                    continue;
+                };
+                if let Rvalue::Closure { id, .. } = value {
+                    into.push(*id);
+                }
+            }
+        }
+    }
+
+    let mut pending = Vec::new();
+    collect_closure_ids(&function.blocks, &mut pending);
+    let mut visited = HashSet::new();
+    let mut captured = HashSet::new();
+    while let Some(id) = pending.pop() {
+        if !visited.insert(id) {
+            continue;
+        }
+        let Some(closure) = mir
+            .closures
+            .iter()
+            .find(|candidate| candidate.id == id)
+        else {
+            continue;
+        };
+        captured.extend(closure.captures.iter().map(|capture| capture.source_local));
+        collect_closure_ids(&closure.blocks, &mut pending);
+    }
+    captured
+}
+
 /// Compiler temporaries that only exist to stage the payload of a `throw`.
 ///
 /// A source `throw new Error(msg)` lowers to a record construction, an erasure
@@ -265,11 +311,13 @@ pub(super) fn folded_throw_payload_locals(mir: &Mir, function: &MirFunction) -> 
     }
     // A local captured by a closure is read through the closure environment
     // rather than through an operand, so the read tally above cannot see it.
-    let captured = mir
-        .closures
-        .iter()
-        .flat_map(|closure| closure.captures.iter().map(|capture| capture.source_local))
-        .collect::<HashSet<_>>();
+    //
+    // Only closures *this* function creates may be consulted: `source_local` is
+    // a `LocalId`, which is meaningful only within its owning body, so scanning
+    // the crate-wide closure table would let an unrelated function's capture of
+    // its own local 12 mark this function's local 12 as captured. In a crate
+    // with many closures that silently suppresses nearly every fold.
+    let captured = closure_captured_locals(mir, function);
     let params = function.params.iter().copied().collect::<HashSet<_>>();
 
     for block in &function.blocks {
