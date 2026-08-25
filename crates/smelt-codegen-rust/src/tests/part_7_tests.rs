@@ -11055,3 +11055,144 @@ export function pick(value: unknown, index: number): unknown {
         "a missing string character on an erased receiver is `undefined`:\n{source}"
     );
 }
+
+/// A callback adapter must never be a constant.
+///
+/// A throwing arrow whose body only throws has the uninhabited return type
+/// `never`, and every coercion out of `never` renders a bare constant because
+/// there is no value to convert. The adapter that bridges such an arrow into a
+/// non-throwing `&dyn Fn() -> unknown` parameter used that constant as its
+/// whole body, so the emitted closure never mentioned — let alone called — the
+/// callback it was wrapping:
+///
+/// ```rust
+/// attempt(&mut { let _smelt_adapted_callback = ..; move || SmeltUnknown::Null })
+/// ```
+///
+/// Nothing about that is visible in the types: it compiles and returns a
+/// plausible value while the callback is silently discarded. This asserts on
+/// the emitted source so the shape cannot come back even where no runtime tier
+/// covers it.
+#[test]
+fn a_never_returning_callback_adapter_still_invokes_the_callback() {
+    let source = source_for(
+        r#"
+function attempt(func: () => unknown): unknown[] {
+  try {
+    return [null, func()];
+  } catch (error) {
+    return ["caught", null];
+  }
+}
+
+export function run(): unknown[] {
+  return attempt(() => {
+    throw new Error("boom");
+  });
+}
+"#,
+    );
+
+    assert!(
+        !source.contains("move || SmeltUnknown::Null"),
+        "the adapter must not collapse to a constant:\n{source}"
+    );
+    assert!(
+        source.contains("(_smelt_adapted_callback)()"),
+        "the adapter body must invoke the wrapped callback:\n{source}"
+    );
+}
+
+/// JavaScript `&&` and `||` select an OPERAND; the result type is the union of
+/// the operand types, not `boolean`.
+///
+/// Modelling them as boolean operators discards the value. es-toolkit's
+/// `expect(error instanceof Error && error.message).toBe('test')` became a
+/// `bool` compared against a string — statically false, so the assertion folded
+/// to `!(false)` and tested nothing. Here the guard's right operand is a
+/// concrete `String`, so the selected value must reach the caller as a string.
+#[test]
+fn a_logical_and_emits_the_selected_operand_not_a_boolean() {
+    let source = source_for(
+        r"
+export function pick(flag: boolean, value: string): string | boolean {
+  return flag && value;
+}
+",
+    );
+
+    assert!(
+        source.contains("fn pick(flag: bool, value: String) -> SmeltUnion"),
+        "`boolean && string` is the union of its operand types:\n{source}"
+    );
+    assert!(
+        source.contains("{ SmeltUnion2::M1(value.clone()) } else { SmeltUnion2::M0(flag.clone()) }"),
+        "each arm must carry the operand JavaScript selects, not a boolean:\n{source}"
+    );
+}
+
+/// The operand-selecting rule must leave the common case alone.
+///
+/// Both operands boolean means the union of the operand types IS `bool`, so the
+/// existing boolean lowering is exactly right. Widening it would route ordinary
+/// guards through a union — and one step further through `SmeltUnknown` — for
+/// no gain.
+#[test]
+fn a_boolean_logical_and_stays_a_plain_boolean() {
+    let source = source_for(
+        r"
+export function both(a: boolean, b: boolean): boolean {
+  return a && b;
+}
+",
+    );
+
+    assert!(
+        source.contains("fn both(a: bool, b: bool) -> bool"),
+        "a boolean `&&` keeps its boolean signature:\n{source}"
+    );
+    assert!(
+        !source.contains("SmeltUnknown"),
+        "a boolean `&&` must not erase anything:\n{source}"
+    );
+}
+
+/// A condition only observes truthiness, so it keeps the short-circuiting
+/// branch shape rather than materializing the selected operand.
+///
+/// `truthy(a && b) == truthy(a) && truthy(b)`, so `if (a && b)` has no reason to
+/// build a union value and test it. The branch form also keeps the right
+/// operand's own statements inside the branch: flattening the condition to a
+/// single `&&` over two already-computed temporaries evaluates the right-hand
+/// call unconditionally.
+#[test]
+fn a_logical_condition_short_circuits_the_right_operand() {
+    let source = source_for(
+        r"
+function valid(value: number): boolean {
+  return value > 0;
+}
+
+export function count(a: number, b: number): number {
+  if (valid(a) && valid(b)) {
+    return 1;
+  }
+  return 0;
+}
+",
+    );
+
+    let first = source
+        .find("valid(a.clone())")
+        .expect("the left guard should be called");
+    let second = source
+        .find("valid(b.clone())")
+        .expect("the right guard should be called");
+    let branch = source
+        .find("if _smelt_tmp")
+        .expect("the guard should branch");
+    assert!(
+        first < branch && branch < second,
+        "the right operand must be evaluated inside the branch, not before it:\n{source}"
+    );
+}

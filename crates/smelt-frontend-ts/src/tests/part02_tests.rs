@@ -3191,6 +3191,152 @@ function localDay(day: number, weekStartsOn: number): string {
     Ok(())
 }
 
+/// JavaScript `&&` yields an OPERAND, so its static type is the union of the
+/// operand types — never `boolean` just because the left operand is a guard.
+///
+/// `error instanceof Error && error.message` is the message, not `true`.
+/// Lowering it as a boolean threw the message away: es-toolkit's
+/// `expect(error instanceof Error && error.message).toBe('test')` compared a
+/// `bool` against a string, which is statically false, so the whole assertion
+/// folded to `!(false)` and could neither pass nor fail on anything real.
+#[test]
+fn lowers_logical_and_as_the_selected_operand_not_a_boolean() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+function message(error: unknown): unknown {
+  return error instanceof Error && error.message;
+}
+"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = function_body(&ctx, function_item(&ctx, module, 0)?)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Conditional { .. })
+                && ctx.krate.types.get(expr.ty) != Some(&Type::Bool)),
+        "`guard && value` must select the value operand, not collapse to a boolean"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// The operand-selecting rule must not widen the common case.
+///
+/// When both operands are already `bool` the union of the operand types IS
+/// `bool`, so `a && b` keeps the plain boolean lowering. Widening it would push
+/// ordinary guards through a union (and, one step further, through
+/// `SmeltUnknown`) for no gain, which is exactly the erasure the ABI rules
+/// forbid.
+#[test]
+fn keeps_boolean_logical_operands_as_a_boolean() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+function both(a: boolean, b: boolean): boolean {
+  return a && b;
+}
+
+function either(a: boolean, b: boolean): boolean {
+  return a || b;
+}
+"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    for index in 0..2 {
+        let body = function_body(&ctx, function_item(&ctx, module, index)?)?;
+        ensure!(
+            body.exprs.iter().all(|expr| ctx.krate.types.get(expr.ty)
+                == Some(&Type::Bool)
+                || ctx.krate.types.get(expr.ty) == Some(&Type::None)),
+            "a boolean `&&`/`||` must stay boolean all the way down"
+        );
+    }
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// A chain of same-typed operands keeps that concrete type.
+///
+/// `a && b && c` over three strings is a string in JavaScript. The boolean
+/// model produced `if cond { b } else { false }` — a `String` arm beside a
+/// `bool` arm, which is not even valid Rust.
+#[test]
+fn lowers_a_logical_and_chain_to_the_shared_operand_type() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+function last(a: string, b: string, c: string): string {
+  return a && b && c;
+}
+"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = function_body(&ctx, function_item(&ctx, module, 0)?)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .filter(|expr| matches!(expr.kind, ExprKind::Conditional { .. }))
+            .count()
+            == 2,
+        "each `&&` in the chain should select an operand"
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .filter(|expr| matches!(expr.kind, ExprKind::Conditional { .. }))
+            .all(|expr| ctx.krate.types.get(expr.ty) == Some(&Type::String)),
+        "a chain of string operands must stay `String`, not become `bool`"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// Operand types with no common shape merge into a generated union, not a
+/// boolean and not `SmeltUnknown`.
+///
+/// TypeScript types `stringValue && numberValue` as `"" | number`. A generated
+/// union is a concrete Rust enum, so the value keeps its static shape; falling
+/// back to `bool` would discard it and falling back to `SmeltUnknown` would
+/// erase it.
+#[test]
+fn lowers_mixed_operand_logical_and_to_a_union() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+function pick(a: string, b: number): string | number {
+  return a && b;
+}
+"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = function_body(&ctx, function_item(&ctx, module, 0)?)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Conditional { .. })
+                && matches!(ctx.krate.types.get(expr.ty), Some(Type::Union(_)))),
+        "mixed operands should select into a generated union"
+    );
+    ensure!(
+        !body
+            .exprs
+            .iter()
+            .any(|expr| ctx.krate.types.get(expr.ty) == Some(&Type::Unknown)),
+        "a mixed-operand `&&` must not erase to `unknown`"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
 #[test]
 fn preserves_mixed_string_numeric_logical_fallback_for_numeric_coercion() -> Result<(), String> {
     let mut ctx = HirCtx::new();

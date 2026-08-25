@@ -11,21 +11,20 @@ module examples/typescript/end-to-end/10_unary_logical/input.ts (ModuleId(0))
     #3: Float = Neg #2
     #4: Bool = %0
     #5: Bool = false
-    #6: Bool = %0
-    #7: Bool = %1
-    #8: Bool = Not #7
-    #9: Bool = %0
-    #10: Bool = false
-    #11: Bool = if #8 then #9 else #10
-    #12: Bool = if #11 then #4 else #5
-    #13: Float = %2
-    #14: None = @0(console_log)
-    #15: None = call #14(#12, #13)
+    #6: Bool = %1
+    #7: Bool = Not #6
+    #8: Bool = %0
+    #9: Bool = false
+    #10: Bool = if #7 then #8 else #9
+    #11: Bool = if #10 then #4 else #5
+    #12: Float = %2
+    #13: None = @0(console_log)
+    #14: None = call #13(#11, #12)
   stmts
     s0: let %0: Bool = #0
     s1: let %1: Bool = #1
     s2: let %2: Float = #3
-    s3: #15
+    s3: #14
 
 interned types
   t0 = Bool

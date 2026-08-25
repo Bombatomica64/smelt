@@ -2060,10 +2060,7 @@ impl ModuleBuilder<'_> {
                 if logical.operator == LogicalOperator::Coalesce {
                     return self.nullish_coalesce_expression(logical, body, type_hint);
                 }
-                if let Some(expr) = self.logical_and_numeric_value_expression(logical, body)? {
-                    return Ok(expr);
-                }
-                let cond = self.condition_expression(&logical.left, body)?;
+                let lhs = self.expression(&logical.left, body)?;
                 let rhs_narrowing = if logical.operator == LogicalOperator::And {
                     self.guard_narrowing(&logical.left, body)
                 } else {
@@ -2076,6 +2073,22 @@ impl ModuleBuilder<'_> {
                 if rhs_narrowing.is_some() {
                     self.scope.pop_narrowing_scope();
                 }
+                // JavaScript's `&&`/`||` select an OPERAND, so in this value
+                // position the result is the union of the operand types, not a
+                // boolean. `logical_operand_value_expression` builds that
+                // selection and returns `None` only where the boolean shape
+                // below is still the right one (both operands already boolean,
+                // or two operand types with no common lowered shape).
+                if let Some(expr) =
+                    self.logical_operand_value_expression(logical, body, lhs, rhs)?
+                {
+                    return Ok(expr);
+                }
+                let cond = self.lowered_condition_expression(
+                    lhs,
+                    self.expression_span(&logical.left),
+                    body,
+                )?;
                 let ty = self.ctx.krate.types.intern(Type::Bool);
                 let identity = body.push_expr(Expr {
                     kind: ExprKind::Literal(Literal::Bool(
@@ -2894,6 +2907,17 @@ impl ModuleBuilder<'_> {
         expression: &Expression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        // `&&`/`||` yield an OPERAND, not a boolean, so in a value position they
+        // lower to a union-typed selection (see
+        // `logical_operand_value_expression`). A condition only observes that
+        // operand's truthiness, which distributes over the operator, so lower
+        // the condition form directly to a boolean instead of building a union
+        // value just to test it.
+        if let Expression::LogicalExpression(logical) = Self::unparenthesized_expression(expression)
+            && let Some(cond) = self.logical_condition_expression(logical, body)?
+        {
+            return Ok(cond);
+        }
         let cond = self.expression(expression, body)?;
         self.lowered_condition_expression(cond, self.expression_span(expression), body)
     }
