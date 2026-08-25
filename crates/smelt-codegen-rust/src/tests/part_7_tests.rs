@@ -11103,6 +11103,48 @@ export function run(): unknown[] {
     );
 }
 
+/// The same rule for a `void` source rather than a `never` one.
+///
+/// `isMatch(target, source)` calls `isMatchWith(target, source, () => undefined)`:
+/// a zero-argument `void` arrow adapted into a `(a, b, prop, aParent, bParent,
+/// stack) => boolean | undefined` customizer slot. A `void` source has no value
+/// to convert either, so the coercion answered with the slot's missing-value
+/// constant `None::<bool>` and dropped the call — the same defect as the
+/// `never` case wearing a different constant. es-toolkit's `isEqual` (which
+/// passes `noop`) has the identical shape.
+///
+/// The repair is keyed on the source having no value, not on the constant, so
+/// both spellings are covered by one rule.
+#[test]
+fn a_void_callback_adapter_still_invokes_the_callback() {
+    let source = source_for(
+        r"
+function match(
+  target: unknown,
+  source: unknown,
+  customizer: (a: unknown, b: unknown) => boolean | undefined
+): boolean {
+  return customizer(target, source) ?? false;
+}
+
+export function run(target: unknown, source: unknown): boolean {
+  return match(target, source, () => undefined);
+}
+",
+    );
+
+    assert!(
+        !source.contains("move |arg0: SmeltUnknown, arg1: SmeltUnknown| None::<bool>"),
+        "the adapter must not collapse to the slot's missing-value constant:
+{source}"
+    );
+    assert!(
+        source.contains("let _ = (_smelt_adapted_callback)()"),
+        "a `void` source must still be called for its effects:
+{source}"
+    );
+}
+
 /// JavaScript `&&` and `||` select an OPERAND; the result type is the union of
 /// the operand types, not `boolean`.
 ///

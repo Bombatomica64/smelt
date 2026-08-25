@@ -3459,28 +3459,6 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             field_adjusted_return_text
         };
-        // A source callback whose return type is uninhabited (`never` — an arrow
-        // whose body only throws) has no value to convert, so every coercion
-        // above renders a bare constant (`SmeltUnknown::Null`) that does not
-        // mention the call. Handing that back as the adapter body DROPS the
-        // wrapped callback entirely: the generated closure returns the constant
-        // and the callback is never invoked, so the throw never happens and the
-        // caller's `catch` sees a success. That is the failure mode behind
-        // es-toolkit's `attempt(() => { throw new Error('test') })`, which
-        // lowered to `move || SmeltUnknown::Null`.
-        //
-        // A `never`-returning callback always diverges, so the constant is
-        // unreachable at run time; sequencing the call in front of it keeps the
-        // adapter's Rust type while restoring the effect. `let _ =` accepts the
-        // call's own Rust type whatever it is, including `!`.
-        let default_adjusted_return_text =
-            if matches!(self.mir.types.get(source.return_ty), Some(Type::Never))
-                && !default_adjusted_return_text.contains(&call_value)
-            {
-                format!("{{ let _ = {call_value}; {default_adjusted_return_text} }}")
-            } else {
-                default_adjusted_return_text
-            };
         let return_text = if self.mir.types.get(target_return_ty) == Some(&Type::None)
             && !source_returns_future
         {
@@ -3532,20 +3510,74 @@ impl<'mir> FunctionEmitter<'mir> {
         // Invariant: an adapter body that does not mention the wrapped callback
         // has silently discarded it. Such a closure still type-checks and still
         // returns a plausible value, so the defect is invisible in the generated
-        // Rust and only shows up as a test that never runs its callback. Fail
-        // the emit instead of shipping it. `_smelt_adapted_callback` survives
-        // the async rewrite (which only renames the *inner* use and keeps the
-        // `let smelt_async_callback = _smelt_adapted_callback.clone();` binding),
-        // so it is a stable marker for the bound-callback shape; the
-        // parameter-place shape is marked by the place text itself.
+        // Rust and only shows up as a test that never runs its callback.
+        // `_smelt_adapted_callback` survives the async rewrite (which only
+        // renames the *inner* use and keeps the `let smelt_async_callback =
+        // _smelt_adapted_callback.clone();` binding), so it is a stable marker
+        // for the bound-callback shape; the parameter-place shape is marked by
+        // the place text itself.
         let invocation_marker = if uses_adapted_callback {
             "_smelt_adapted_callback"
         } else {
             function_text.as_str()
         };
+        // One general repair for every coercion arm that renders a constant.
+        //
+        // A coercion answers with a bare constant — `SmeltUnknown::Null`,
+        // `None::<bool>`, `Default::default()` — precisely when the source has
+        // NO VALUE to convert: its return type is `void` (`Type::None`) or
+        // uninhabited (`Type::Never`, an arrow whose body only throws). Such an
+        // arm ignores the value text it was handed, so the adapter body loses
+        // the call and the callback is never invoked. Two shapes hit this in
+        // es-toolkit: `attempt(() => { throw new Error('test') })` (`never` ->
+        // `unknown`, emitted `move || SmeltUnknown::Null`) and `isMatch`'s
+        // `void` customizer adapted into a `boolean | undefined` slot (`void`
+        // -> `Optional(Bool)`, emitted `move || None::<bool>`).
+        //
+        // In both cases the constant is the CORRECT result — a valueless source
+        // really does produce "no value", and a diverging one never reaches the
+        // constant at all — so the repair is not to change it but to evaluate
+        // the call for its effects in front of it. `let _ =` accepts the call's
+        // own Rust type whatever it is, including `!`.
+        //
+        // The rule is deliberately keyed on the CAUSE (a source with no value)
+        // rather than on any one arm's constant, so a new arm rendering a new
+        // constant is repaired without another entry here. It stays out of the
+        // future paths: `call_value` for a future source is a `SmeltFuture`
+        // expression that always mentions the call already, and `let _ =` on a
+        // future would construct it without polling.
+        let source_has_no_value = matches!(
+            self.mir.types.get(source.return_ty),
+            Some(Type::None | Type::Never)
+        );
+        let return_text = if source_has_no_value
+            && !source_returns_future
+            && !return_text.contains(invocation_marker)
+        {
+            format!("{{ let _ = {call_value}; {return_text} }}")
+        } else {
+            return_text
+        };
+        // Anything still missing the call had a real value to convert and lost
+        // it, which is a coercion defect rather than a valueless source. Fail
+        // the emit instead of shipping a closure that silently returns a
+        // constant.
         if !return_text.contains(invocation_marker) {
+            // Name the site: a backstop that cannot say WHERE it fired forces a
+            // bisect over the whole crate. The enclosing function, the adapted
+            // callback's place, and both return types are what identify the
+            // coercion arm that dropped the value.
+            let enclosing = self.symbol_name(self.function.name).unwrap_or("<unnamed>");
+            let callback = self
+                .place_text(place)
+                .unwrap_or_else(|_| "<unrenderable place>".to_owned());
+            let source_return = self.mir.types.get(source.return_ty);
+            let target_return = self.mir.types.get(target_return_ty);
             return Err(EmitError::new(format!(
-                "callback adapter would discard the wrapped callback: emitted body `{return_text}` never invokes it"
+                "callback adapter would discard the wrapped callback: \
+                 in `{enclosing}`, adapting `{callback}` \
+                 (source return {source_return:?} -> target return {target_return:?}) \
+                 emitted body `{return_text}`, which never invokes it"
             )));
         }
         // Rust requires a block body once a closure annotates its return type.

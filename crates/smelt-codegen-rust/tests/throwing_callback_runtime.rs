@@ -370,3 +370,47 @@ test("a throwing arrow propagates through a callee that does not catch", () => {
 "#;
     run_fixture(source, "smelt_never_arrow_propagates");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_void_arrow_adapted_into_an_optional_slot_still_runs() {
+    // The `never` case's sibling: a source callback with no value to convert
+    // because it returns `void`, not because it diverges. es-toolkit's
+    // `isMatch` passes `() => undefined` into a `boolean | undefined`
+    // customizer slot, so the coercion answered with that slot's missing-value
+    // constant `None::<bool>` and dropped the call. Returning `undefined` IS
+    // the right answer for a `void` customizer — "no opinion, fall back to the
+    // structural comparison" — but the callback still has to run.
+    //
+    // The counter is the whole point: the constant and the call agree on the
+    // returned value, so only an observed side effect distinguishes a called
+    // callback from a discarded one.
+    let source = r#"
+import { test, expect } from "vitest";
+
+let calls = 0;
+
+function matchWith(
+  a: unknown,
+  b: unknown,
+  customizer: (a: unknown, b: unknown) => boolean | undefined
+): boolean {
+  const decided = customizer(a, b);
+  if (decided === undefined) {
+    return a === b;
+  }
+  return decided;
+}
+
+test("a void customizer is invoked even though it decides nothing", () => {
+  const result = matchWith(1, 1, () => {
+    calls++;
+    return undefined;
+  });
+
+  expect(result).toBe(true);
+  expect(calls).toBe(1);
+});
+"#;
+    run_fixture(source, "smelt_void_arrow_optional_adapter");
+}
