@@ -17,7 +17,7 @@ pub(super) fn arrow_block_statements<'a>(
 ) -> &'a [Statement<'a>] {
     arrow
         .get_function_body()
-        .map_or(&[] as &[Statement<'a>], |block| block.statements.as_slice())
+        .map_or_else(|| [].as_slice(), |block| block.statements.as_slice())
 }
 
 /// Return an item's original source name when available.

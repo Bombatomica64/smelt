@@ -1479,9 +1479,7 @@ impl ModuleBuilder<'_> {
                     loop_body,
                 )?;
             }
-            for statement in arrow_block_statements(arrow) {
-                self.for_each_callback_statement(statement, body, loop_body)?;
-            }
+            self.for_each_callback_body(arrow, body, loop_body)?;
             for (name, prior) in saved_locals {
                 match prior {
                     Some(local) => {
@@ -1696,9 +1694,7 @@ impl ModuleBuilder<'_> {
             } else {
                 None
             };
-        for statement in arrow_block_statements(arrow) {
-            self.for_each_callback_statement(statement, body, loop_body)?;
-        }
+        self.for_each_callback_body(arrow, body, loop_body)?;
         if let Some(index_binding) = index_binding {
             if let Some(prior) = saved_index_local {
                 self.scope.bind(index_binding.name.to_string(), prior);
@@ -1725,6 +1721,78 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a statement inside a `forEach` callback body.
+    /// Lower a `forEach` callback body, whichever form the arrow uses.
+    ///
+    /// Since oxc 0.147 a concise arrow (`value => total += value`) carries its
+    /// body as an expression rather than a block holding one
+    /// `ExpressionStatement`, so iterating block statements alone silently
+    /// dropped the whole body.
+    pub(in crate::lowering) fn for_each_callback_body(
+        &mut self,
+        arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<(), SmeltError> {
+        if let Some(body_expression) = arrow.get_expression() {
+            return self.for_each_callback_expression(body_expression, body, block);
+        }
+        for statement in arrow_block_statements(arrow) {
+            self.for_each_callback_statement(statement, body, block)?;
+        }
+        Ok(())
+    }
+
+    /// Lower one expression appearing in `forEach` callback statement position.
+    ///
+    /// An assignment needs the callback-specific treatment (global writes,
+    /// negative-index and length writes, array destructuring, and the
+    /// captured-const rejection); anything else lowers as a plain expression
+    /// statement.
+    pub(in crate::lowering) fn for_each_callback_expression(
+        &mut self,
+        expression: &Expression<'_>,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<(), SmeltError> {
+        let Expression::AssignmentExpression(assign) = expression else {
+            let value = self.expression(expression, body)?;
+            body.push_stmt_to_block(block, Stmt::Expr(value));
+            return Ok(());
+        };
+        if let Some(set) = self.try_global_assignment_expression(assign, body)? {
+            body.push_stmt_to_block(block, Stmt::Expr(set));
+            return Ok(());
+        }
+        if self.try_lower_negative_bracket_write_statement(assign, body, block)? {
+            return Ok(());
+        }
+        if self.try_lower_list_length_assignment_statement(assign, body, block)? {
+            return Ok(());
+        }
+        if self.array_destructuring_assignment_statement(assign, body, block)? {
+            return Ok(());
+        }
+        let (target, value) = self.assignment_parts(assign, body)?;
+        if let Some(local_decl) = usize::try_from(target.0)
+            .ok()
+            .and_then(|index| body.exprs.get(index))
+            .and_then(|expr| match expr.kind {
+                ExprKind::Local(local) => usize::try_from(local.0)
+                    .ok()
+                    .and_then(|index| body.locals.get(index)),
+                _ => None,
+            })
+            && !local_decl.mutable
+        {
+            return Err(SmeltError::unsupported(
+                self.span(assign.span.start, assign.span.end),
+                "callback assignment to captured const local is not supported",
+            ));
+        }
+        body.push_stmt_to_block(block, Stmt::Assign { target, value });
+        Ok(())
+    }
+
     pub(in crate::lowering) fn for_each_callback_statement(
         &mut self,
         statement: &Statement<'_>,
@@ -1734,39 +1802,8 @@ impl ModuleBuilder<'_> {
         let previous_statement_block = self.current_statement_block.replace(block);
         let result = match statement {
             Statement::ExpressionStatement(expr_stmt) => {
-                if let Expression::AssignmentExpression(assign) = &expr_stmt.expression {
-                    if let Some(set) = self.try_global_assignment_expression(assign, body)? {
-                        body.push_stmt_to_block(block, Stmt::Expr(set));
-                        return Ok(());
-                    }
-                    if self.try_lower_negative_bracket_write_statement(assign, body, block)? {
-                        return Ok(());
-                    }
-                    if self.try_lower_list_length_assignment_statement(assign, body, block)? {
-                        return Ok(());
-                    }
-                    if self.array_destructuring_assignment_statement(assign, body, block)? {
-                        return Ok(());
-                    }
-                    let (target, value) = self.assignment_parts(assign, body)?;
-                    if let Some(local_decl) = usize::try_from(target.0)
-                        .ok()
-                        .and_then(|index| body.exprs.get(index))
-                        .and_then(|expr| match expr.kind {
-                            ExprKind::Local(local) => usize::try_from(local.0)
-                                .ok()
-                                .and_then(|index| body.locals.get(index)),
-                            _ => None,
-                        })
-                        && !local_decl.mutable
-                    {
-                        return Err(SmeltError::unsupported(
-                            self.span(assign.span.start, assign.span.end),
-                            "callback assignment to captured const local is not supported",
-                        ));
-                    }
-                    body.push_stmt_to_block(block, Stmt::Assign { target, value });
-                    Ok(())
+                if matches!(&expr_stmt.expression, Expression::AssignmentExpression(_)) {
+                    self.for_each_callback_expression(&expr_stmt.expression, body, block)
                 } else {
                     self.statement_in_block(statement, body, block)
                 }

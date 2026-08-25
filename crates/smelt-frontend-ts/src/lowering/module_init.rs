@@ -538,12 +538,25 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     | Statement::ClassDeclaration(_)
                     | Statement::TSInterfaceDeclaration(_)
                     | Statement::TSNamespaceDeclaration(_)
+                    // `declare module "x"` is its own node since oxc 0.147.
+                    // It was previously a `TSModuleDeclaration` with a string
+                    // name, which the namespace pass declined to lower and this
+                    // list then skipped; keep it skipped rather than falling
+                    // through to the unsupported-statement diagnostic.
+                    | Statement::TSExternalModuleDeclaration(_)
                     | Statement::TSTypeAliasDeclaration(_)
                     // Enums are consumed during the collection phase
                     // (`collect_module_enums`): their members are const-folded
                     // rather than lowered into a statement, so skip them here.
                     | Statement::TSEnumDeclaration(_)
                     | Statement::ImportDeclaration(_)
+                    // The oxc 0.147 export split: `export const x` is an
+                    // `ExportDeclaration` and `export {a} from 'm'` an
+                    // `ExportFromDeclaration`. All three were the one
+                    // `ExportNamedDeclaration` node before, and all three are
+                    // consumed by the item pass above.
+                    | Statement::ExportDeclaration(_)
+                    | Statement::ExportFromDeclaration(_)
                     | Statement::ExportNamedDeclaration(_)
                     | Statement::ExportAllDeclaration(_)
                     | Statement::ExportDefaultDeclaration(_)

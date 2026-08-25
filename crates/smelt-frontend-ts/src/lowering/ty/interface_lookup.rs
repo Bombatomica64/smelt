@@ -345,9 +345,9 @@ impl ModuleBuilder<'_> {
         // than an `Expression`, so `A.B` is a `QualifiedName` instead of a
         // static member expression.
         let name_text = match &item.type_name {
-            oxc::ast::ast::TSTypeName::IdentifierReference(name) => name.name.to_string(),
-            oxc::ast::ast::TSTypeName::QualifiedName(qualified) => {
-                let oxc::ast::ast::TSTypeName::IdentifierReference(object) = &qualified.left else {
+            TSTypeName::IdentifierReference(name) => name.name.to_string(),
+            TSTypeName::QualifiedName(qualified) => {
+                let TSTypeName::IdentifierReference(object) = &qualified.left else {
                     return Err(SmeltError::unsupported(
                         self.span(item.span.start, item.span.end),
                         "qualified interface inheritance is not lowered yet",
@@ -355,7 +355,7 @@ impl ModuleBuilder<'_> {
                 };
                 format!("{}.{}", object.name, qualified.right.name)
             }
-            oxc::ast::ast::TSTypeName::ThisExpression(_) => {
+            TSTypeName::ThisExpression(_) => {
                 return Err(SmeltError::unsupported(
                     self.span(item.span.start, item.span.end),
                     "qualified interface inheritance is not lowered yet",

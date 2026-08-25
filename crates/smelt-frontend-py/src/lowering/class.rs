@@ -781,9 +781,9 @@ impl ModuleBuilder<'_> {
         match value {
             Expr::Name(name) => param_types.get(name.id.as_str()).copied(),
             Expr::NumberLiteral(number) => match &number.value {
-                ruff_python_ast::Number::Int(_) => Some(self.intern_type(Type::Int)),
-                ruff_python_ast::Number::Float(_) => Some(self.intern_type(Type::Float)),
-                ruff_python_ast::Number::Complex { .. } => None,
+                Number::Int(_) => Some(self.intern_type(Type::Int)),
+                Number::Float(_) => Some(self.intern_type(Type::Float)),
+                Number::Complex { .. } => None,
             },
             Expr::StringLiteral(_) => Some(self.intern_type(Type::String)),
             Expr::BooleanLiteral(_) => Some(self.intern_type(Type::Bool)),

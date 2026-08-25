@@ -10,7 +10,7 @@ use crate::lowering::{
 };
 use crate::SmeltError;
 use oxc::ast::ast::{
-    Argument, BindingPattern, Expression, Statement,
+    Argument, BindingPattern, Expression,
 };
 use oxc::span::GetSpan;
 use oxc::syntax::operator::{
@@ -282,7 +282,7 @@ impl ModuleBuilder<'_> {
         } else {
             let statements = arrow
                 .get_function_body()
-                .map_or(&[] as &[Statement<'_>], |block| block.statements.as_slice());
+                .map_or_else(|| [].as_slice(), |block| block.statements.as_slice());
             if let Err(error) = self.predeclare_local_function_declarations(statements, &mut body) {
                 errors.push(error);
             }
