@@ -905,6 +905,17 @@ impl ModuleBuilder<'_> {
                         Some(Type::List(_) | Type::String) if field_text == "length" => {
                             self.ctx.krate.types.intern(Type::Float)
                         }
+                        // An erased receiver answers a field read at runtime, so
+                        // the binding really is `unknown` -- that is the field's
+                        // own type here, not the parameter's leaking through.
+                        // This is also the only shape the closure-body fallback
+                        // handles WORSE than the compact IR: it binds the
+                        // destructured name to `Default::default()` instead of
+                        // reading the field, so routing it there would answer
+                        // `({ length }) => length < 3` with a default.
+                        Some(Type::Unknown | Type::TypeParam { .. }) => {
+                            self.ctx.krate.types.intern(Type::Unknown)
+                        }
                         _ => {
                             return Err(SmeltError::unsupported(
                                 self.span(property.span.start, property.span.end),

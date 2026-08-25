@@ -278,6 +278,30 @@ export function lengths<T>(arrays: T[][]): number[] {
         "the callback must yield `length` itself, not a one-element list \
          holding it:\n{source}"
     );
+    // An ERASED receiver must keep reading the field at runtime. Its binding
+    // really is `unknown`, so the old parameter-type fallback happened to be
+    // right there -- and routing it to the closure-body fallback instead is
+    // worse, because that path binds the destructured name to
+    // `Default::default()` and never reads the field. remeda's
+    // `binarySearchCutoffIndex(["a", "ab", ..], ({ length }) => length < 3)`
+    // answered from a default and returned the wrong index.
+    let erased = source_for(
+        r"
+export function cutoff<T>(array: readonly T[], predicate: (value: T) => boolean): number {
+  return array.filter(predicate).length;
+}
+
+export function run(): number {
+  return cutoff(['a', 'ab', 'abc'], ({ length }) => length < 3);
+}
+",
+    );
+    assert!(
+        !erased.contains("let length: SmeltUnknown = "),
+        "a destructured field of an erased parameter must be read, not bound to \
+         a default:\n{erased}"
+    );
+
     // The equivalent member access has always been right; the two spellings
     // must agree.
     let member = source_for(
