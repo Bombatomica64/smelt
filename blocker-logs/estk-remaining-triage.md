@@ -86,3 +86,35 @@ Both were passing for the wrong reason and now fail honestly:
 - `initial` "all elements except the last for a large array" — both
   `Array(1000)...` and `Array(999)...` were empty, so the assertion compared
   `[]` to `[]`.
+
+## `throw new Error(...)` discards the Error object (largest single remaining root)
+
+Found by reading generated code, not yet fixed. Every `throw` in the generated
+crate collapses its operand to a bare message string:
+
+```rust
+// src/array/chunk.ts:26 — throw new Error('Size must be an integer greater than zero.');
+return Err(smelt_throw(SmeltUnknown::String("Size must be an integer greater than zero.".to_owned())));
+```
+
+`grep -c 'smelt_throw(SmeltUnknown::Object'` over the whole generated crate
+returns **zero matches** — no thrown value anywhere carries an error object,
+even though Smelt models one elsewhere (`{ __smelt_error: "Error", message: ..,
+cause: .. }`, which the `new Error(msg, { cause })` work already produces and
+reads back). So the loss is in the `throw` path specifically, not in Error
+construction.
+
+Everything downstream of a thrown error is therefore wrong:
+`error instanceof Error` is false, `error.message` is `undefined`, and
+`.rejects.toThrow('msg')` cannot match. This is not confined to promises — it
+is every `throw` in the library — but the promise specs are where it shows up
+most.
+
+Failing tests that plausibly depend on it (~10-14): all six
+`expect(...).rejects.toThrow(...)` rows, `attemptAsync` ×2 (`expect(error
+instanceof Error && error.message)`), `attempt` `toEqual([new Error('test'),
+null])`, `limitAsync` "propagates callback errors", and the three `retry` rows
+that surface as an uncaught `SmeltThrown` carrying `{__smelt_error, message}`.
+
+This is the best-value next family: one root, crisply located, and it unblocks
+assertions across the promise, util and error areas at once.
