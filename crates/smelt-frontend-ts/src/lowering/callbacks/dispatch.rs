@@ -8,9 +8,68 @@ use crate::lowering::{
     Expr, ExprKind, Expression, FunctionType, HashMap, Item, Literal, LogicalOperator, ModuleBuilder,
     ObjectPropertyKind, PropertyKey, SmeltError, Span, Type, UnaryOp, UnaryOperator, UnknownKind,
 };
+use crate::{ObjectConst, ObjectConstValue};
 use oxc::span::GetSpan;
 
 impl ModuleBuilder<'_> {
+    /// Rebuild a folded object constant as a compact callback dict literal.
+    ///
+    /// Callback bodies are lowered by the side-effect-free [`CallbackExpr`] IR,
+    /// which has no way to name a module-scoped constant. Reads of an object
+    /// constant therefore have to recreate its value in place, exactly as
+    /// [`Self::object_const_expression`] does for ordinary bodies, so that
+    /// `table[runtimeKey]` inside a callback stays a real runtime lookup with
+    /// the constant's own key/value types instead of degrading to `null`.
+    ///
+    /// Returns `None` when an entry holds a value the compact IR cannot
+    /// represent (a `RegExp` literal or a captured HIR expression). The caller
+    /// turns that into a closure-body fallback rather than a wrong value.
+    pub(in crate::lowering) fn const_object_callback_expression(
+        &mut self,
+        object: &ObjectConst,
+    ) -> Option<CallbackExpr> {
+        let mut entries = Vec::with_capacity(object.entries.len());
+        for entry in &object.entries {
+            let key = self.intern_exact_source_name(&entry.key);
+            let value = self.const_object_value_callback_expression(&entry.value, entry.value_ty)?;
+            entries.push((key, value));
+        }
+        Some(CallbackExpr {
+            kind: CallbackExprKind::DictLit(entries),
+            ty: object.ty,
+        })
+    }
+
+    /// Rebuild one folded object-constant value as a compact callback expression.
+    ///
+    /// Mirrors [`Self::object_const_value_expression`] for the callback IR:
+    /// literals become literals, nested arrays and objects recurse, and value
+    /// forms with no callback representation report `None`.
+    fn const_object_value_callback_expression(
+        &mut self,
+        value: &ObjectConstValue,
+        ty: smelt_hir::TypeId,
+    ) -> Option<CallbackExpr> {
+        match value {
+            ObjectConstValue::Literal(literal) => Some(CallbackExpr {
+                kind: CallbackExprKind::Literal(literal.clone()),
+                ty,
+            }),
+            ObjectConstValue::List(items) => {
+                let items = items
+                    .iter()
+                    .map(|item| self.const_object_value_callback_expression(&item.value, item.ty))
+                    .collect::<Option<Vec<_>>>()?;
+                Some(CallbackExpr {
+                    kind: CallbackExprKind::ListLit(items),
+                    ty,
+                })
+            }
+            ObjectConstValue::Object(nested) => self.const_object_callback_expression(nested),
+            ObjectConstValue::RegExp { .. } | ObjectConstValue::Expr(_) => None,
+        }
+    }
+
     /// Lower either an inline arrow callback or a local closure callback value.
     pub(in crate::lowering) fn callback_argument(
         &mut self,
@@ -537,6 +596,12 @@ impl ModuleBuilder<'_> {
             // routes the identifier through the general expression path, which
             // reads a value item of any type, so retry there.
             || error.message == "callback item references must resolve to callable values"
+            // A module-level object constant whose entries the compact callback
+            // IR cannot recreate (a `RegExp` literal or a captured expression
+            // value). Full closure-body lowering rebuilds the object through the
+            // general expression path, which models every entry form, so retry
+            // there instead of reading the constant as a placeholder value.
+            || error.message == "callback object constant needs closure-body lowering"
             || error
                 .message
                 .contains("resolves outside the current callback body")
@@ -600,6 +665,24 @@ impl ModuleBuilder<'_> {
                     return Ok(CallbackExpr {
                         kind: CallbackExprKind::ListLit(items),
                         ty: collection.ty,
+                    });
+                }
+                // A module-level object constant (`const table: Record<string,
+                // string> = { ... }`) read from inside a callback. Without this
+                // the name falls through to the forward-callable placeholder
+                // below and silently becomes `null`, which then const-folds a
+                // `table[key] || fallback` guard to `false` even though `key` is
+                // a runtime callback parameter. Rebuild the constant as a dict
+                // literal so the read stays a real runtime lookup with the
+                // object constant's own precise type.
+                if !self.scope.is_bound(identifier.name.as_str())
+                    && let Some(object) = self.consts.object(identifier.name.as_str()).cloned()
+                {
+                    return self.const_object_callback_expression(&object).ok_or_else(|| {
+                        SmeltError::unsupported(
+                            self.span(identifier.span.start, identifier.span.end),
+                            "callback object constant needs closure-body lowering",
+                        )
                     });
                 }
                 // An enclosing local is lexically nearer than an imported or
