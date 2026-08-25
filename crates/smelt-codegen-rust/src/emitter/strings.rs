@@ -559,14 +559,36 @@ impl FunctionEmitter<'_> {
         Ok(())
     }
 
+    /// Renders the `Error.prototype.toString` arm of an erased JavaScript `ToString`.
+    ///
+    /// JavaScript does not stringify an `Error` as `[object Object]`: it has an
+    /// own `toString` that yields `"name"`, `"message"`, or `"name: message"`
+    /// depending on which halves are non-empty. Smelt models an error as a record
+    /// carrying the `__smelt_error` class marker (see
+    /// `error_object_constructor_expression`), so the rule keys off that marker
+    /// exactly as the sibling `__smelt_regexp` arm keys off its own -- it is a
+    /// general rule for every error value, not a per-library spelling.
+    ///
+    /// The name is read from an explicit `name` field first (a subclass
+    /// constructor may assign one) and falls back to the marker's class name, so
+    /// `new TypeError('m')` renders `"TypeError: m"`.
+    ///
+    /// The arm consumes an owned `SmeltObject` bound as `value` and must be placed
+    /// before the generic `SmeltUnknown::Object(_)` arm, which would otherwise
+    /// shadow it.
+    pub(super) fn js_error_to_string_arm_text() -> &'static str {
+        "SmeltUnknown::Object(value) if value.contains_key(\"__smelt_error\") => { let smelt_error_name = match value.get(\"name\") { Some(SmeltUnknown::String(name)) => name, _ => match value.get(\"__smelt_error\") { Some(SmeltUnknown::String(class)) => class, _ => \"Error\".to_owned() } }; let smelt_error_message = match value.get(\"message\") { Some(SmeltUnknown::String(message)) => message, _ => String::new() }; if smelt_error_message.is_empty() { smelt_error_name } else if smelt_error_name.is_empty() { smelt_error_message } else { format!(\"{smelt_error_name}: {smelt_error_message}\") } }, "
+    }
+
     /// Renders the JavaScript `ToString` coercion of an owned erased value.
     ///
     /// `scrutinee_text` must be an owned `SmeltUnknown` expression (the match
     /// arms consume string payloads). The mapping mirrors JS primitive string
     /// coercion; structured values use the platform object placeholder.
     pub(super) fn js_string_coercion_match_text(scrutinee_text: &str) -> String {
+        let error_arm = Self::js_error_to_string_arm_text();
         format!(
-            "match {scrutinee_text} {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Object(value) if value.contains_key(\"__smelt_regexp\") => smelt_regexp_literal(&value), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}"
+            "match {scrutinee_text} {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Object(value) if value.contains_key(\"__smelt_regexp\") => smelt_regexp_literal(&value), {error_arm}SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}"
         )
     }
 
@@ -616,8 +638,9 @@ impl FunctionEmitter<'_> {
                 // present value projects back to `SmeltUnknown` before the erased
                 // string-coercion match.
                 let scrutinee = self.erase_concrete_union_text("value", *inner);
+                let error_arm = Self::js_error_to_string_arm_text();
                 Ok(format!(
-                    "{text}.map_or_else(String::new, |value| match {scrutinee} {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }})"
+                    "{text}.map_or_else(String::new, |value| match {scrutinee} {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, {error_arm}SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }})"
                 ))
             }
             Some(Type::Tuple(_) | Type::Optional(_) | Type::Future(_)) => {

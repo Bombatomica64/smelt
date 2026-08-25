@@ -223,3 +223,117 @@ const caught = run();
         "the shared catch should recover either payload:\n{source}"
     );
 }
+
+#[test]
+fn throwing_an_error_constructor_emits_the_error_record() {
+    // The payload ABI was in place, but the *throw statement* never handed it an
+    // error: the frontend narrowed `new Error(m)` down to `m` before the operand
+    // ever reached MIR, so every throw in a generated crate entered the channel
+    // as `smelt_throw(SmeltUnknown::String(..))`. Downstream, `error instanceof
+    // Error` was false, `error.message` was `undefined`, and `error.name` was
+    // unreadable — even though the identical construction used as a *value* built
+    // the full record. This pins the throw site to the record.
+    let source = source_for(
+        r#"
+function boom(): void {
+  throw new RangeError("out of range");
+}
+
+boom();
+"#,
+    );
+
+    assert!(
+        source.contains("smelt_throw("),
+        "throw should enter the payload-preserving error channel:\n{source}"
+    );
+    assert!(
+        !source.contains(r#"smelt_throw(SmeltUnknown::String("out of range".to_owned()))"#),
+        "throw must not collapse an Error to its message string:\n{source}"
+    );
+    assert!(
+        source.contains(r#"("__smelt_error".to_owned(), SmeltUnknown::String("RangeError".to_owned()))"#),
+        "the thrown record must carry the spelled error class:\n{source}"
+    );
+    assert!(
+        source.contains(r#"("message".to_owned(), SmeltUnknown::String("out of range".to_owned()))"#),
+        "the thrown record must carry the message:\n{source}"
+    );
+}
+
+#[test]
+fn throwing_an_error_from_a_callback_emits_the_error_record() {
+    // A `throw` inside an arrow lowers through the reduced callback expression
+    // language, which carried its own copy of the narrowing: `new Error(m)`
+    // became `m`, and any other construction became the empty string. Fixing the
+    // statement path alone would have left this shape — the one
+    // `attempt(() => { throw ... })` uses — still throwing a bare string.
+    let source = source_for(
+        r#"
+function apply(f: () => number): number {
+  return f();
+}
+
+function run(): number {
+  return apply(() => {
+    throw new Error("callback boom");
+  });
+}
+
+run();
+"#,
+    );
+
+    assert!(
+        !source.contains(r#"smelt_throw(SmeltUnknown::String("callback boom".to_owned()))"#),
+        "a callback throw must not collapse an Error to its message string:\n{source}"
+    );
+    assert!(
+        source.contains(r#"("__smelt_error".to_owned(), SmeltUnknown::String("Error".to_owned()))"#),
+        "a callback-thrown Error must carry the class marker:\n{source}"
+    );
+    assert!(
+        source.contains(r#"("message".to_owned(), SmeltUnknown::String("callback boom".to_owned()))"#),
+        "a callback-thrown Error must carry the message:\n{source}"
+    );
+}
+
+#[test]
+fn erased_error_stringifies_through_error_prototype_to_string() {
+    // Now that a thrown `Error` survives as an object, the JavaScript `ToString`
+    // of that object must be `Error.prototype.toString` (`"name: message"`), not
+    // the generic `[object Object]` placeholder. While the payload was a bare
+    // string, `String(err)` happened to read the message; without this rule,
+    // preserving the object would have replaced that with useless text.
+    //
+    // The rule keys off the `__smelt_error` marker, exactly as the sibling
+    // `__smelt_regexp` arm keys off its own, so it holds for every error value
+    // rather than for one spelling.
+    let source = source_for(
+        r#"
+function boom(): void {
+  throw new Error("kaboom");
+}
+
+function text(): string {
+  try {
+    boom();
+    return "no throw";
+  } catch (error) {
+    return String(error);
+  }
+}
+
+const rendered = text();
+"#,
+    );
+
+    assert!(
+        source.contains(r#"SmeltUnknown::Object(value) if value.contains_key("__smelt_error")"#),
+        "the erased ToString must have an Error.prototype.toString arm:\n{source}"
+    );
+    assert!(
+        source.contains(r#"format!("{smelt_error_name}: {smelt_error_message}")"#),
+        "the Error arm must render `name: message`:\n{source}"
+    );
+}

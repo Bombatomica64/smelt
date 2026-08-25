@@ -1020,6 +1020,19 @@ impl ModuleBuilder<'_> {
                     ty: self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty)),
                 })
             }
+            // A built-in `Error` construction inside a callback builds the same
+            // erased error record the ordinary expression path builds (see
+            // `error_object_constructor_expression`), so a `throw new Error(m)`
+            // written inside an arrow reaches its `catch` as an error object
+            // rather than as the bare message string it used to collapse to.
+            Expression::NewExpression(new_expr) if matches!(
+                &new_expr.callee,
+                Expression::Identifier(callee)
+                    if Self::is_builtin_error_constructor(callee.name.as_str())
+            ) =>
+            {
+                self.callback_error_object_expression(new_expr, params, body)
+            }
             Expression::NewExpression(new_expr) if matches!(
                 &new_expr.callee,
                 Expression::Identifier(callee)

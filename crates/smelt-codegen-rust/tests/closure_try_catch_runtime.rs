@@ -145,14 +145,22 @@ fn a_closure_catch_observes_the_thrown_payload() {
     // channel; the discarded-handler path never produced that arm at all, so a
     // `catch` binding in a closure could not observe any payload.
     //
-    // The assertion reads the payload through `String(err)` rather than
-    // `err.message` deliberately. `throw new Error(msg)` currently lowers to a
-    // bare `SmeltUnknown::String` payload rather than an error object — at
-    // function level too, so it is not a closure defect and not this change's to
-    // fix — which makes `err.message` `undefined` everywhere. `String(err)` is
-    // still load-bearing: it yields `"kaboom"` only if the Smelt channel ran. The
-    // sibling `Err(__smelt_panic)` arm rebuilds a message *record*, so had that
-    // arm been taken instead this would read `"[object Object]"`.
+    // Both projections of the payload are asserted, and each pins a different
+    // half of the fix.
+    //
+    // `err.message` is `"kaboom"` only because the thrown operand is now the
+    // whole `Error` object. `throw new Error(msg)` used to be narrowed to `msg`
+    // at the throw site, so every `catch` saw a bare `SmeltUnknown::String` and
+    // `err.message` was `undefined` everywhere.
+    //
+    // `String(err)` is `"Error: kaboom"` because an erased error stringifies
+    // through `Error.prototype.toString`, not through the generic object
+    // placeholder. While the payload was a bare string this read `"kaboom"` by
+    // accident; had the payload become an object without the `toString` rule it
+    // would read the useless `"[object Object]"`.
+    //
+    // Both are also load-bearing for the original closure defect this tier was
+    // written for: they are non-empty only if the Smelt error channel ran at all.
     let source = r#"
 import { test, expect } from "vitest";
 
@@ -169,7 +177,16 @@ test("a catch binding inside a closure sees the thrown payload", () => {
       return String(err);
     }
   };
-  expect(run()).toBe("kaboom");
+  const message = (): string => {
+    try {
+      boom();
+      return "no throw";
+    } catch (err: any) {
+      return err.message;
+    }
+  };
+  expect(run()).toBe("Error: kaboom");
+  expect(message()).toBe("kaboom");
 });
 "#;
     run_fixture(source, "smelt_closure_catch_payload");

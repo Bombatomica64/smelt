@@ -1689,32 +1689,28 @@ impl ModuleBuilder<'_> {
         }))
     }
 
-    /// Lower a thrown expression to the string message carried by HIR throws.
-    pub(super) fn throw_message_expression(
+    /// Lower a thrown expression, preserving the operand as an ordinary value.
+    ///
+    /// `throw` in JavaScript is value-preserving for *any* operand:
+    /// `throw new TypeError(x)`, `throw 'a string'`, `throw {code: 1}` and
+    /// `throw someCaughtValue` all deliver exactly the value that was written to
+    /// the `catch`. This function therefore does nothing more than lower the
+    /// operand through the normal expression path, which already gives
+    /// `new Error(..)` its erased `{ __smelt_error, message, cause?, errors? }`
+    /// record (see `error_object_constructor_expression`).
+    ///
+    /// It previously narrowed a thrown `new Error(msg)` to `msg` alone, so the
+    /// error object was destroyed at the throw site: every `catch` saw a bare
+    /// `SmeltUnknown::String`, which made `error instanceof Error` false,
+    /// `error.message` `undefined`, and `error.name` unreadable. Only the throw
+    /// *statement* narrowed -- the same construction used as a value already kept
+    /// the record -- so the two spellings disagreed about what an `Error` is.
+    pub(super) fn throw_operand_expression(
         &mut self,
         argument: &Expression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        if let Expression::NewExpression(new_expr) = argument
-            && matches!(&new_expr.callee, Expression::Identifier(callee) if Self::is_builtin_error_constructor(callee.name.as_str()))
-        {
-            return self.error_constructor_expression(new_expr, body);
-        }
         self.expression(argument, body)
-    }
-
-    /// Lower `new Error(message)` to the message expression used by HIR throws.
-    ///
-    /// HIR throws carry only the string message, so the retained `cause`
-    /// option and `AggregateError` `errors` list are lowered for their source
-    /// effects and discarded here; the record-building value path
-    /// (`error_object_constructor_expression`) keeps them.
-    pub(super) fn error_constructor_expression(
-        &mut self,
-        new_expr: &oxc::ast::ast::NewExpression<'_>,
-        body: &mut Body,
-    ) -> Result<smelt_hir::ExprId, SmeltError> {
-        Ok(self.error_constructor_parts(new_expr, body)?.message)
     }
 
     /// Lower the positional pieces of a builtin Error construction exactly once.

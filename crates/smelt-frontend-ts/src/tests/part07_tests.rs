@@ -944,3 +944,146 @@ describe("suite", () => {
     )?;
     assert_unsupported_ts(&errors, "mixed test registration and runtime sequence")
 }
+
+/// Return the operand of the first `Stmt::Throw` anywhere in the crate.
+///
+/// `Stmt::Throw` may live directly in a body's statement list or inside a
+/// nested block, and the throw of interest may sit in a closure body, so every
+/// body's flat statement arena is scanned rather than one block's statement ids.
+fn first_throw_expr_kind(ctx: &HirCtx) -> Option<(ExprKind, usize)> {
+    for (body_index, body) in ctx.krate.bodies.iter().enumerate() {
+        for stmt in &body.stmts {
+            if let Stmt::Throw(expr) = stmt {
+                return Some((body.exprs[expr.0 as usize].kind.clone(), body_index));
+            }
+        }
+    }
+    None
+}
+
+/// Return whether a HIR expression is the erased `Error` record.
+///
+/// The record is a `DictLit` whose first entry is the `__smelt_error` class
+/// marker, optionally wrapped in the `UnknownCast` that erases it for the
+/// exception channel.
+fn is_error_record(body: &smelt_hir::Body, kind: &ExprKind) -> bool {
+    let kind = match kind {
+        ExprKind::UnknownCast { value, .. } => &body.exprs[value.0 as usize].kind,
+        other => other,
+    };
+    let ExprKind::DictLit(entries) = kind else {
+        return false;
+    };
+    entries.iter().any(|(key, _)| {
+        matches!(
+            &body.exprs[key.0 as usize].kind,
+            ExprKind::Literal(Literal::String(text)) if text == "__smelt_error"
+        )
+    })
+}
+
+#[test]
+fn throwing_an_error_keeps_the_error_object() -> Result<(), String> {
+    // `throw` is value-preserving in JavaScript, but the throw *statement* used
+    // to narrow `new Error(m)` down to `m`, so every `catch` received a bare
+    // string. `error instanceof Error` was then false, `error.message` was
+    // `undefined`, and `error.name` was unreadable — while the very same
+    // construction written as a value (`const e = new Error(m)`) kept the whole
+    // record. This pins the throw statement to that same record.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+export function boom(): number {
+  throw new Error("kaboom");
+}
+"#),
+        &mut ctx,
+    )?;
+    let (kind, body_index) = first_throw_expr_kind(&ctx).ok_or("no throw statement lowered")?;
+    ensure!(
+        is_error_record(&ctx.krate.bodies[body_index], &kind),
+        "a thrown `new Error(..)` must stay the erased error record, not its message",
+    );
+    Ok(())
+}
+
+#[test]
+fn throwing_an_error_subclass_records_the_spelled_class() -> Result<(), String> {
+    // The `__smelt_error` marker carries the *spelled* class name so `.name`
+    // reads truthfully and a `catch` can tell a `TypeError` from an `Error`.
+    // Narrowing to the message erased that distinction along with everything
+    // else.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+export function boom(): number {
+  throw new TypeError("bad type");
+}
+"#),
+        &mut ctx,
+    )?;
+    let (kind, body_index) = first_throw_expr_kind(&ctx).ok_or("no throw statement lowered")?;
+    let body = &ctx.krate.bodies[body_index];
+    ensure!(is_error_record(body, &kind), "expected an error record");
+    ensure!(
+        crate_has_expr(&ctx, |kind| matches!(
+            kind,
+            ExprKind::Literal(Literal::String(text)) if text == "TypeError"
+        )),
+        "the record must carry the spelled class name",
+    );
+    Ok(())
+}
+
+#[test]
+fn throwing_a_bare_string_is_not_wrapped_in_an_error() -> Result<(), String> {
+    // JavaScript does not wrap a thrown primitive: `throw 'a string'` delivers
+    // exactly that string. Preserving the operand must not tip over into
+    // synthesizing an `Error` for operands that never had one.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+export function boom(): number {
+  throw "a bare string";
+}
+"#),
+        &mut ctx,
+    )?;
+    let (kind, body_index) = first_throw_expr_kind(&ctx).ok_or("no throw statement lowered")?;
+    ensure!(
+        !is_error_record(&ctx.krate.bodies[body_index], &kind),
+        "a thrown primitive must not be wrapped into an error record",
+    );
+    ensure!(
+        matches!(&kind, ExprKind::Literal(Literal::String(text)) if text == "a bare string"),
+        "a thrown string literal must stay that literal",
+    );
+    Ok(())
+}
+
+#[test]
+fn throwing_an_error_inside_a_callback_keeps_the_error_object() -> Result<(), String> {
+    // A `throw` written inside an arrow lowers through the reduced callback
+    // expression language, which had its own, separate narrowing: it stripped
+    // `new Error(m)` to `m` and replaced every other construction with the empty
+    // string. Fixing only the statement path would have left every
+    // `attempt(() => { throw new Error(..) })`-shaped callback still throwing a
+    // bare string.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+export function run(apply: (f: () => number) => number): number {
+  return apply(() => {
+    throw new Error("callback boom");
+  });
+}
+"#),
+        &mut ctx,
+    )?;
+    let (kind, body_index) = first_throw_expr_kind(&ctx).ok_or("no throw statement lowered")?;
+    ensure!(
+        is_error_record(&ctx.krate.bodies[body_index], &kind),
+        "a callback-thrown `new Error(..)` must stay the erased error record",
+    );
+    Ok(())
+}
