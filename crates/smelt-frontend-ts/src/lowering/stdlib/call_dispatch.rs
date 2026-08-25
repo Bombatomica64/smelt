@@ -655,7 +655,16 @@ impl<'builder> ModuleBuilder<'builder> {
             } else {
                 None
             };
+            // The resolved item has no rest slot of its own, so a name-keyed
+            // rest is only credible when this call cannot be explained by the
+            // item's fixed arity: a non-variadic function cannot absorb more
+            // arguments than it has parameters. Without that condition a
+            // same-named variadic export elsewhere (compat's `omit(object,
+            // ...paths)`) is adopted for a fixed-arity callee whose matching
+            // slot merely happens to be a list (`omit(obj, keys: K[])`), and
+            // the array argument is packed into a spurious one-element list.
             if rest.is_none()
+                && call.arguments.len() > params.len()
                 && let Some(candidate) =
                     self.functions.rest(callee_ident.name.as_str())
                 && candidate.index < params.len()
@@ -702,8 +711,11 @@ impl<'builder> ModuleBuilder<'builder> {
             // compat rest leaks in and packs the trailing positional argument
             // into a spurious array. Mirrors the `function_rests` guard above:
             // the concretely resolved item is the source of truth for whether a
-            // parameter slot is variadic.
+            // parameter slot is variadic. The same arity condition applies: a
+            // call the item's own fixed arity already accounts for needs no
+            // rest, so adopting one here can only mis-pack an argument.
             if rest.is_none()
+                && call.arguments.len() > params.len()
                 && let Some(signature) = &selected_overload
                 && let Some(index) = signature.rest
                 && let Some(Type::List(item_ty)) = signature
