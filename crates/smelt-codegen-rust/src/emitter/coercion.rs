@@ -75,9 +75,20 @@ impl FunctionEmitter<'_> {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) && self.concrete_union_members(target).is_none()
         {
+            // A JS element read flowing into an erased slot keeps its own
+            // fallibility, exactly as the `Option<..>` target above does: an
+            // out-of-range read is `undefined`, so it must erase to
+            // `SmeltUnknown::Undefined` rather than be made total first and
+            // erase as the element type's missing value (`''`, `0`, `[]`).
+            if let Some(read) = self.erased_element_read_text(operand)? {
+                return Ok(read);
+            }
             return self.erase(operand);
         }
         if self.is_erased_class_type(target) {
+            if let Some(read) = self.erased_element_read_text(operand)? {
+                return Ok(read);
+            }
             return self.erase(operand);
         }
         // JavaScript keeps `null` and `undefined` distinct under `===`

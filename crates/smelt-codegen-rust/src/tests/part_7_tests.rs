@@ -10934,3 +10934,124 @@ export function put(arr: number[], index: number, value: number): void {
         "a write to a negative normalized index must still fail loudly:\n{source}"
     );
 }
+
+#[test]
+fn an_element_read_in_an_erased_slot_stays_fallible() {
+    // Sibling of `an_element_read_in_an_optional_slot_stays_fallible`, and the
+    // two must agree: an out-of-range element read is `undefined` in
+    // JavaScript, so the `Option<..>` target answers `None` and the ERASED
+    // target must answer `SmeltUnknown::Undefined`.
+    //
+    // The erased target used to make the read TOTAL first and erase afterwards,
+    // so the miss became the element type's own missing value and erased as
+    // THAT: `row[i] = b[i]` for `b: string[]` stored `''`, and for
+    // `number[]` it stored `0`. Both are values JavaScript never produces here.
+    let source = source_for(
+        r"
+export function fill(b: string[], n: number[], nested: string[][], i: number): unknown[] {
+  const row: unknown[] = [0, 0, 0];
+  row[0] = b[i];
+  row[1] = n[i];
+  row[2] = nested[i];
+  return row;
+}
+",
+    );
+
+    assert!(
+        !source.contains("SmeltUnknown::String(b.get("),
+        "the read must not be made total and erased as the element default:\n{source}"
+    );
+    assert!(
+        !source.contains("b.get({ let len = b.len()")
+            || !source.contains("unwrap_or(String::new()).clone())"),
+        "a missing `string` element must not erase as the empty string:\n{source}"
+    );
+    assert!(
+        !source.contains("SmeltUnknown::Number(n.get("),
+        "a missing `number` element must not erase as zero:\n{source}"
+    );
+    assert!(
+        !source.contains("{ let smelt_l = nested.get("),
+        "a missing nested-list element must not erase as an empty array:\n{source}"
+    );
+    assert_eq!(
+        source.matches(".cloned().map(|value| ").count(),
+        3,
+        "each of the three reads keeps its own fallibility:\n{source}"
+    );
+    for tail in [
+        ".cloned().map(|value| SmeltUnknown::String(value)).unwrap_or(SmeltUnknown::Undefined)",
+        ".cloned().map(|value| SmeltUnknown::Number(value as f64)).unwrap_or(SmeltUnknown::Undefined)",
+        "collect::<Vec<_>>())) }).unwrap_or(SmeltUnknown::Undefined)",
+    ] {
+        assert!(
+            source.contains(tail),
+            "the miss must erase as `undefined`, not as the element default \
+             (`{tail}`):\n{source}"
+        );
+    }
+}
+
+#[test]
+fn an_element_read_in_a_concrete_slot_stays_total() {
+    // The erased-target rule must not leak into a CONCRETE destination. There
+    // is no `undefined` to put in a `Vec<f64>` or a `Vec<String>`, so a store
+    // into a concrete list keeps the existing total read and its element
+    // missing value. Making that read fallible would not type-check, and
+    // widening the slot to hold a hole is a storage question, not a
+    // read-coercion one.
+    let source = source_for(
+        r"
+export function copy(b: string[], n: number[], i: number): void {
+  const s: string[] = [''];
+  const m: number[] = [0];
+  s[0] = b[i];
+  m[0] = n[i];
+}
+",
+    );
+
+    assert!(
+        source.contains(".cloned().unwrap_or(String::new()).clone();"),
+        "a concrete `string` slot keeps the total read:\n{source}"
+    );
+    assert!(
+        source.contains(".cloned().unwrap_or(0.0).clone();"),
+        "a concrete `number` slot keeps the total read:\n{source}"
+    );
+    assert!(
+        !source.contains(".cloned().map(|value| "),
+        "no fallible erased read belongs in a concrete slot:\n{source}"
+    );
+}
+
+#[test]
+fn an_element_read_on_an_erased_receiver_misses_to_undefined() {
+    // The same rule with the receiver erased instead of the destination: when
+    // the base is a `SmeltUnknown` the read goes through `unknown_index_text`,
+    // which answered `SmeltUnknown::Null` for an out-of-range array or string
+    // index. That is the `zipWith` defect — ragged inputs produced `"3null"`
+    // where JavaScript produces `"3undefined"`. A missing OBJECT PROPERTY is a
+    // separate question and deliberately still answers `Null`.
+    let source = source_for(
+        r"
+export function pick(value: unknown, index: number): unknown {
+  return (value as any)[index];
+}
+",
+    );
+
+    assert!(
+        source.contains(
+            "and_then(|index| values.get(index).cloned()).unwrap_or(SmeltUnknown::Undefined)"
+        ),
+        "a missing array element on an erased receiver is `undefined`:\n{source}"
+    );
+    assert!(
+        source.contains(
+            "value.chars().nth(index).map(|ch| SmeltUnknown::String(ch.to_string()))).unwrap_or(SmeltUnknown::Undefined)"
+        ),
+        "a missing string character on an erased receiver is `undefined`:\n{source}"
+    );
+}
