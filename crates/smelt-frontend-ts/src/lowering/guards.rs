@@ -1691,16 +1691,14 @@ impl ModuleBuilder<'_> {
         // or as a block with one expression statement. Since oxc 0.147 the
         // concise form carries the expression directly instead of wrapping it in
         // an `ExpressionStatement`, so both shapes are read here.
-        let body_expression = match executor.get_expression() {
-            Some(expression) => expression,
-            None => {
-                let [Statement::ExpressionStatement(expr_stmt)] =
-                    arrow_block_statements(executor)
-                else {
-                    return None;
-                };
-                &expr_stmt.expression
-            }
+        let body_expression = if let Some(expression) = executor.get_expression() {
+            expression
+        } else {
+            let [Statement::ExpressionStatement(expr_stmt)] = arrow_block_statements(executor)
+            else {
+                return None;
+            };
+            &expr_stmt.expression
         };
         let Expression::CallExpression(call) = body_expression else {
             return None;

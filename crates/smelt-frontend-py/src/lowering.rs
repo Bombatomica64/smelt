@@ -317,6 +317,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 stmt,
                 Stmt::FunctionDef(_) | Stmt::ClassDef(_) | Stmt::Import(_) | Stmt::ImportFrom(_)
             ) || is_module_all_assignment(stmt)
+                || is_type_param_declaration(stmt)
                 || self.is_constructed_constant_assignment(stmt)
             {
                 continue; // already lowered in Pass 1

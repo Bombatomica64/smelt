@@ -5,6 +5,10 @@ impl ModuleBuilder<'_> {
         for decorator in &func.decorator_list {
             match decorator_simple_name(decorator) {
                 Some("classmethod") => is_classmethod = true,
+                // A `@property` getter is an ordinary instance method here; the
+                // read-only descriptor that exposes it under field syntax is
+                // registered separately by `property_descriptor`.
+                Some("property") => {}
                 Some(_) if self.is_materialized_descriptor_callable(func) => {}
                 Some(other) => {
                     return Err(SmeltError::unsupported_decorator(
@@ -25,6 +29,63 @@ impl ModuleBuilder<'_> {
             }
         }
         Ok(is_classmethod)
+    }
+
+    /// Whether a method is a source `@property` getter.
+    ///
+    /// Only the read side is recognized: `@property` itself, not the paired
+    /// `@name.setter` / `@name.deleter`, which stay unsupported and are reported
+    /// by [`Self::is_classmethod`]'s decorator check.
+    fn is_property_getter(&self, func: &StmtFunctionDef) -> bool {
+        // A manifest-backed descriptor already declares this member, with richer
+        // information than the source getter carries (write type, data-descriptor
+        // precedence, materialized instance state). Registering a source
+        // descriptor as well would declare the member twice.
+        if self.is_materialized_descriptor_callable(func) {
+            return false;
+        }
+        func.decorator_list
+            .iter()
+            .any(|decorator| decorator_simple_name(decorator) == Some("property"))
+    }
+
+    /// Build the read-only descriptor a source `@property` getter declares.
+    ///
+    /// Python exposes a property under *field* syntax (`value.ok_value`) while
+    /// the source defines it as a method. Smelt already models exactly that
+    /// shape for host-materialized descriptors — a `Descriptor` whose `getter`
+    /// is a class method — and codegen emits `receiver.getter()` for a read
+    /// whose getter lives on the receiver's own class. Registering the property
+    /// as such a descriptor therefore reuses the whole existing path instead of
+    /// adding a second property mechanism.
+    ///
+    /// The descriptor is read-only (`write_ty: None`, `data_descriptor: false`)
+    /// because a bare `@property` has no setter; assigning through it is an
+    /// error in Python too.
+    fn property_descriptor(
+        &mut self,
+        func: &StmtFunctionDef,
+        getter: ItemId,
+    ) -> Result<smelt_hir::Descriptor, SmeltError> {
+        let read_ty = match self.item_ref(getter) {
+            Item::Function(function) => function.return_ty,
+            _ => {
+                return Err(SmeltError::unsupported(
+                    self.span(func.range()),
+                    format!("property '{}' did not lower as a method", func.name),
+                ));
+            }
+        };
+        Ok(smelt_hir::Descriptor {
+            name: self.intern_name(func.name.as_str()),
+            read_ty,
+            write_ty: None,
+            getter: Some(getter),
+            setter: None,
+            data_descriptor: false,
+            is_static: false,
+            value_fields: Vec::new(),
+        })
     }
 
     /// Synthesise an `__init__` method for a `@dataclass` class.
