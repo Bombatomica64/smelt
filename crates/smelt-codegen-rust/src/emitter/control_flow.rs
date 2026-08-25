@@ -362,6 +362,11 @@ impl FunctionEmitter<'_> {
     ) -> Result<(), EmitError> {
         match statement {
             Statement::Assign { dest, value } => {
+                // The payload of a `throw` is built at the throw site instead of
+                // being staged in a temporary; see `emitter::throw`.
+                if self.is_folded_throw_payload(*dest) {
+                    return Ok(());
+                }
                 let local = self.local_decl(*dest)?;
                 let name = self.local_name(*dest)?;
                 if matches!(value, Rvalue::Closure { .. }) && !self.local_has_uses(*dest) {

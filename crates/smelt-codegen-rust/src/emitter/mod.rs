@@ -1045,6 +1045,9 @@ pub(crate) struct FunctionEmitter<'mir> {
     declared_locals: RefCell<HashSet<LocalId>>,
     /// Locals that must be declared before structured block emission.
     predeclared_locals: HashSet<LocalId>,
+    /// Compiler temporaries folded into the `throw` expression that consumes
+    /// them, so neither their declaration nor their assignment is emitted.
+    folded_throw_payloads: HashSet<LocalId>,
     /// Cached termination queries for this function CFG.
     termination_cache: RefCell<HashMap<smelt_mir::BlockId, bool>>,
     /// Cached loop-exit shape queries keyed by block, continue target, and break target.

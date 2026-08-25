@@ -72,4 +72,246 @@ impl FunctionEmitter<'_> {
             _ => self.default_value(exception_ty),
         }
     }
+
+    /// Whether a local's assignment is folded into a `throw` expression.
+    ///
+    /// See [`folded_throw_payload_locals`] for what qualifies. Callers use this
+    /// to suppress both the local's declaration and its assignment statement,
+    /// because the value is rendered at the throw site instead.
+    pub(super) fn is_folded_throw_payload(&self, local: LocalId) -> bool {
+        self.folded_throw_payloads.contains(&local)
+    }
+
+    /// Renders a folded throw-payload local as the expression it was assigned.
+    ///
+    /// The local is written once, so its single assignment is unambiguous. The
+    /// rvalue is rendered at the local's own declared type, exactly as the
+    /// suppressed assignment statement would have rendered it, so folding
+    /// changes where the expression appears and nothing about what it means.
+    /// Nested folded locals resolve recursively because rendering an rvalue
+    /// renders its operands through [`FunctionEmitter::operand_text`], which
+    /// routes back here.
+    pub(super) fn folded_throw_payload_text(
+        &self,
+        local: LocalId,
+    ) -> Result<Option<String>, EmitError> {
+        if !self.is_folded_throw_payload(local) {
+            return Ok(None);
+        }
+        let ty = self.local_decl(local)?.ty;
+        for block in &self.function.blocks {
+            for statement in &block.statements {
+                if let Statement::Assign { dest, value } = statement
+                    && *dest == local
+                {
+                    return Ok(Some(self.rvalue_text_for_dest(value, ty)?));
+                }
+            }
+        }
+        Ok(None)
+    }
+}
+
+/// Whether an rvalue is a *pure value construction* that may be folded into the
+/// expression that consumes it.
+///
+/// Folding moves an rvalue from its own statement into its single consumer, so
+/// it may only be applied to rvalues that (a) build a value out of already-read
+/// operands, (b) have no side effect of their own, and (c) render the same text
+/// whether or not they are being assigned to a named destination. The variants
+/// listed here are the value constructors: a copy/move, the four collection
+/// literals, a class instance, and the `unknown` erasure. Everything else —
+/// calls, mutating list/set/map operations, generator steps, closure creation —
+/// is deliberately excluded, because reordering it relative to its neighbours
+/// or re-rendering it without a destination local is not obviously sound.
+fn is_foldable_payload_rvalue(value: &Rvalue) -> bool {
+    matches!(
+        value,
+        Rvalue::Use(_)
+            | Rvalue::List(_)
+            | Rvalue::Set(_)
+            | Rvalue::Dict(_)
+            | Rvalue::Tuple(_)
+            | Rvalue::Struct { .. }
+            | Rvalue::UnknownCast { .. }
+    )
+}
+
+/// Count every read of every local in a function body.
+///
+/// Reads are counted through the canonical [`Rvalue::for_each_operand`] walk so
+/// the tally cannot silently miss an rvalue variant, plus the phi incoming
+/// operands, the place bases an assignment reads before writing, and the
+/// terminator operands.
+fn local_read_counts(function: &MirFunction) -> HashMap<LocalId, usize> {
+    let mut counts: HashMap<LocalId, usize> = HashMap::new();
+    fn count_place(counts: &mut HashMap<LocalId, usize>, place: &Place) {
+        match place {
+            Place::Local(local) | Place::Field { base: local, .. } => {
+                *counts.entry(*local).or_default() += 1;
+            }
+            Place::Index { base, index } => {
+                *counts.entry(*base).or_default() += 1;
+                count_operand(counts, index);
+            }
+        }
+    }
+    fn count_operand(counts: &mut HashMap<LocalId, usize>, operand: &Operand) {
+        if let Operand::Copy(place) | Operand::Move(place) = operand {
+            count_place(counts, place);
+        }
+    }
+    for block in &function.blocks {
+        for phi in &block.phis {
+            for (_, operand) in &phi.incoming {
+                count_operand(&mut counts, operand);
+            }
+        }
+        for statement in &block.statements {
+            match statement {
+                Statement::Assign { value, .. } => {
+                    value.for_each_operand(|operand| count_operand(&mut counts, operand));
+                }
+                Statement::AssignPlace { place, value } => {
+                    match place {
+                        Place::Local(_) => {}
+                        Place::Field { base, .. } => *counts.entry(*base).or_default() += 1,
+                        Place::Index { base, index } => {
+                            *counts.entry(*base).or_default() += 1;
+                            count_operand(&mut counts, index);
+                        }
+                    }
+                    value.for_each_operand(|operand| count_operand(&mut counts, operand));
+                }
+                Statement::StorageLive(_) | Statement::StorageDead(_) => {}
+            }
+        }
+        let Some(terminator) = &block.terminator else {
+            continue;
+        };
+        match terminator {
+            Terminator::Goto(_) | Terminator::Unreachable => {}
+            Terminator::Call { callee, args, .. } => {
+                if let Callee::Indirect(operand) = callee {
+                    count_operand(&mut counts, operand);
+                }
+                for arg in args {
+                    count_operand(&mut counts, arg);
+                }
+            }
+            Terminator::Await { future, .. } => count_operand(&mut counts, future),
+            Terminator::Switch { cond, .. } => count_operand(&mut counts, cond),
+            Terminator::Match { scrutinee, .. } => count_operand(&mut counts, scrutinee),
+            Terminator::Return(operand) | Terminator::Throw(operand) => {
+                count_operand(&mut counts, operand);
+            }
+        }
+    }
+    counts
+}
+
+/// Compiler temporaries that only exist to stage the payload of a `throw`.
+///
+/// A source `throw new Error(msg)` lowers to a record construction, an erasure
+/// of that record to `SmeltUnknown`, and a `Terminator::Throw` reading the
+/// erased temporary — MIR is three-address, so each step needs its own local.
+/// Emitted verbatim that is five lines of Rust (two declarations, two
+/// assignments and the `return Err(..)`) for one source-level statement, where
+/// a team writing this Rust by hand would build the payload as one expression
+/// at the throw site. Worse, the staged locals are bare `SmeltUnknown`
+/// bindings that read as erasure in their own right even though they are only
+/// the interior of the exception-payload boundary.
+///
+/// This returns the locals whose assignment can be folded into the throw
+/// expression instead: the trailing run of statements in a block that ends in
+/// `Terminator::Throw`, where each statement assigns a compiler temporary that
+/// is written once, read once, and read only by a statement that is itself
+/// being folded (or by the throw terminator). Because the folded statements are
+/// a *contiguous suffix* of the block and every folded rvalue is a pure value
+/// construction ([`is_foldable_payload_rvalue`]), moving them into the throw
+/// expression cannot reorder them past anything observable.
+///
+/// The scope is deliberately the throw terminator and nothing else. The same
+/// staging happens before ordinary `return`s and calls, and a general
+/// single-use-temporary inliner would collapse those too, but it would also
+/// rewrite essentially every generated function at once — including bindings
+/// whose emitted text depends on having a named destination, and bindings whose
+/// lifetime the borrow checker is currently relying on.
+pub(super) fn folded_throw_payload_locals(mir: &Mir, function: &MirFunction) -> HashSet<LocalId> {
+    let mut folded = HashSet::new();
+    if !function
+        .blocks
+        .iter()
+        .any(|block| matches!(block.terminator, Some(Terminator::Throw(_))))
+    {
+        return folded;
+    }
+    let read_counts = local_read_counts(function);
+    let mut assign_counts: HashMap<LocalId, usize> = HashMap::new();
+    for block in &function.blocks {
+        for statement in &block.statements {
+            match statement {
+                Statement::Assign { dest, .. } => *assign_counts.entry(*dest).or_default() += 1,
+                Statement::AssignPlace {
+                    place: Place::Local(local),
+                    ..
+                } => *assign_counts.entry(*local).or_default() += 1,
+                _ => {}
+            }
+        }
+        for phi in &block.phis {
+            *assign_counts.entry(phi.dest).or_default() += 1;
+        }
+    }
+    // A local captured by a closure is read through the closure environment
+    // rather than through an operand, so the read tally above cannot see it.
+    let captured = mir
+        .closures
+        .iter()
+        .flat_map(|closure| closure.captures.iter().map(|capture| capture.source_local))
+        .collect::<HashSet<_>>();
+    let params = function.params.iter().copied().collect::<HashSet<_>>();
+
+    for block in &function.blocks {
+        let Some(Terminator::Throw(
+            Operand::Copy(Place::Local(thrown)) | Operand::Move(Place::Local(thrown)),
+        )) = &block.terminator
+        else {
+            continue;
+        };
+        // Locals the throw expression will read once the suffix is folded in.
+        let mut wanted = HashSet::from([*thrown]);
+        for statement in block.statements.iter().rev() {
+            let Statement::Assign { dest, value } = statement else {
+                break;
+            };
+            if !wanted.remove(dest)
+                || !is_foldable_payload_rvalue(value)
+                || params.contains(dest)
+                || captured.contains(dest)
+                || !matches!(
+                    function
+                        .locals
+                        .get(id_index(dest.0, "local index").unwrap_or(usize::MAX)),
+                    Some(LocalDecl {
+                        kind: LocalKind::Temp,
+                        ..
+                    })
+                )
+                || assign_counts.get(dest).copied().unwrap_or(0) != 1
+                || read_counts.get(dest).copied().unwrap_or(0) != 1
+            {
+                break;
+            }
+            folded.insert(*dest);
+            value.for_each_operand(|operand| {
+                if let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) =
+                    operand
+                {
+                    wanted.insert(*local);
+                }
+            });
+        }
+    }
+    folded
 }

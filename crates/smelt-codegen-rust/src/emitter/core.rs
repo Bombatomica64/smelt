@@ -44,7 +44,11 @@ impl<'mir> FunctionEmitter<'mir> {
             .unwrap_or(none_ty);
         let names = Self::local_names(mir, function)?;
         let declared_locals = function.params.iter().copied().collect();
-        let predeclared_locals = predeclared_locals_for_function(mir, function);
+        let folded_throw_payloads = throw::folded_throw_payload_locals(mir, function);
+        let predeclared_locals = predeclared_locals_for_function(mir, function)
+            .difference(&folded_throw_payloads)
+            .copied()
+            .collect();
         Ok(Self {
             mir,
             context,
@@ -53,6 +57,7 @@ impl<'mir> FunctionEmitter<'mir> {
             mutable_locals: assigned_locals(mir, context, function),
             declared_locals: RefCell::new(declared_locals),
             predeclared_locals,
+            folded_throw_payloads,
             termination_cache: RefCell::new(HashMap::new()),
             loop_exit_cache: RefCell::new(HashMap::new()),
             borrowed_callback_names: HashSet::new(),
@@ -1824,6 +1829,7 @@ impl<'mir> FunctionEmitter<'mir> {
             mutable_locals: HashSet::new(),
             declared_locals: RefCell::new(HashSet::new()),
             predeclared_locals: HashSet::new(),
+            folded_throw_payloads: HashSet::new(),
             termination_cache: RefCell::new(HashMap::new()),
             loop_exit_cache: RefCell::new(HashMap::new()),
             borrowed_callback_names: HashSet::new(),
@@ -1878,6 +1884,7 @@ impl<'mir> FunctionEmitter<'mir> {
             mutable_locals: HashSet::new(),
             declared_locals: RefCell::new(HashSet::new()),
             predeclared_locals: HashSet::new(),
+            folded_throw_payloads: HashSet::new(),
             termination_cache: RefCell::new(HashMap::new()),
             loop_exit_cache: RefCell::new(HashMap::new()),
             borrowed_callback_names: HashSet::new(),
@@ -1922,6 +1929,7 @@ impl<'mir> FunctionEmitter<'mir> {
             mutable_locals: HashSet::new(),
             declared_locals: RefCell::new(HashSet::new()),
             predeclared_locals: HashSet::new(),
+            folded_throw_payloads: HashSet::new(),
             termination_cache: RefCell::new(HashMap::new()),
             loop_exit_cache: RefCell::new(HashMap::new()),
             borrowed_callback_names: HashSet::new(),
@@ -1962,6 +1970,7 @@ impl<'mir> FunctionEmitter<'mir> {
             mutable_locals: HashSet::new(),
             declared_locals: RefCell::new(HashSet::new()),
             predeclared_locals: HashSet::new(),
+            folded_throw_payloads: HashSet::new(),
             termination_cache: RefCell::new(HashMap::new()),
             loop_exit_cache: RefCell::new(HashMap::new()),
             borrowed_callback_names: HashSet::new(),
@@ -2000,6 +2009,14 @@ impl<'mir> FunctionEmitter<'mir> {
     /// Converts an operand to its Rust text representation.
     /// Converts an operand to its Rust text representation.
     pub(super) fn operand_text(&self, operand: &Operand) -> Result<String, EmitError> {
+        // A throw-payload temporary is rendered as the expression it was
+        // assigned, at the point that consumes it; the staging statement and
+        // declaration are suppressed elsewhere. See `emitter::throw`.
+        if let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) = operand
+            && let Some(text) = self.folded_throw_payload_text(*local)?
+        {
+            return Ok(text);
+        }
         match operand {
             Operand::Copy(place) => {
                 if matches!(

@@ -337,3 +337,94 @@ const rendered = text();
         "the Error arm must render `name: message`:\n{source}"
     );
 }
+
+/// A thrown `Error` must be built as one expression at the throw site.
+///
+/// Making `throw` value-preserving gave `throw new Error(m)` a
+/// `{__smelt_error, message}` record payload. MIR is three-address, so the
+/// record and its erasure to `SmeltUnknown` each landed in their own temporary,
+/// and one source statement emitted five lines of Rust: two `let` declarations,
+/// two assignments, and the `return Err(..)`. Two of those lines were bare
+/// `SmeltUnknown` bindings that read as erasure in their own right even though
+/// they were only the interior of the exception-payload boundary.
+///
+/// A team writing this Rust by hand would construct the payload inside
+/// `smelt_throw(..)`. The emitter therefore folds the temporaries that only
+/// stage a throw payload into the throw expression.
+#[test]
+fn thrown_error_payload_is_built_at_the_throw_site() {
+    let source = source_for(
+        r#"
+export function chunk(size: number): number {
+  if (size <= 0) {
+    throw new Error('Size must be an integer greater than zero.');
+  }
+  return size;
+}
+"#,
+    );
+
+    assert!(
+        source.contains("smelt_throw(SmeltUnknown::Object("),
+        "the thrown payload should be constructed inside smelt_throw:\n{source}"
+    );
+    assert!(
+        source.contains("Size must be an integer greater than zero."),
+        "the thrown message should survive into the throw expression:\n{source}"
+    );
+    assert!(
+        !source.contains(": SmeltUnknown;"),
+        "a thrown payload must not spill an erased SmeltUnknown temporary:\n{source}"
+    );
+    assert!(
+        !source.contains("SmeltRecord<String, SmeltUnknown>;"),
+        "a thrown payload must not spill a staged record temporary:\n{source}"
+    );
+    for line in source.lines() {
+        assert!(
+            !(line.contains("_smelt_tmp") && line.contains("SmeltUnknown::Object(")),
+            "the payload should not be assigned to a temporary first:\n{source}"
+        );
+    }
+}
+
+/// Folding the throw payload must not disturb a throw of a plain value.
+///
+/// `throw` is value-preserving for every operand, so the fold is keyed on the
+/// shape of the MIR (a write-once, read-once temporary staged immediately
+/// before the throw), never on the operand being an `Error`. A thrown string
+/// literal is already a constant operand with nothing to fold, and a thrown
+/// object literal folds its record construction the same way an `Error` does —
+/// both must still reach `smelt_throw` carrying their own value.
+#[test]
+fn throwing_a_plain_value_keeps_its_own_payload() {
+    let source = source_for(
+        r#"
+export function keep(value: unknown): unknown {
+  return value;
+}
+
+export function reject(flag: boolean): number {
+  if (flag) {
+    throw 'negative';
+  }
+  throw { code: 1 };
+}
+"#,
+    );
+
+    assert!(
+        source.contains("smelt_throw(SmeltUnknown::String(\"negative\".to_owned()))"),
+        "a thrown string must stay a string payload:\n{source}"
+    );
+    assert!(
+        source.contains("\"code\".to_owned()"),
+        "a thrown object literal must keep its own fields:\n{source}"
+    );
+    for line in source.lines() {
+        assert!(
+            !(line.contains("_smelt_tmp") && line.contains("\"code\".to_owned()")),
+            "the object payload should be built at the throw site:\n{source}"
+        );
+    }
+}
