@@ -2283,12 +2283,14 @@ fn lowers_array_length_constructor_as_list_container() -> Result<(), String> {
     let module_id = lower_ok(ts!("const result = new Array<number[]>(3);"), &mut ctx)?;
     let module = module(&ctx, module_id)?;
     let body = module_body(&ctx, module)?;
+    // `new Array<T>(3)` allocates LENGTH 3 in JavaScript, so it lowers to a
+    // sized allocation, not the empty list container it used to build (which
+    // dropped the length and left every `.length`-driven consumer empty).
     ensure!(
-        body.exprs.iter().any(|expr| matches!(
-            expr.kind,
-            ExprKind::ListLit(ref items) if items.is_empty()
-        )),
-        "expected Array constructor to lower as an empty list container",
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListFromLength { .. })),
+        "expected Array constructor to lower as a sized list allocation",
     );
     ensure!(
         body.exprs.iter().any(|expr| matches!(

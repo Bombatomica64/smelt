@@ -337,33 +337,7 @@ impl FunctionEmitter<'_> {
                         let base_text = self.local_value_text(*base)?;
                         let index_text =
                             self.normalized_read_index_text(&format!("{base_text}.len()"), index)?;
-                        // JS out-of-bounds element access is `undefined`, not
-                        // `null`. A type parameter that is in scope for the
-                        // current generic function is a real Rust generic, so
-                        // its missing value is `Default::default()` (a `T`), not
-                        // the erased `SmeltUnknown::Undefined` used for genuinely
-                        // erased element types.
-                        let item_is_in_scope_type_param = matches!(
-                            self.mir.types.get(*item_ty),
-                            Some(Type::TypeParam { name })
-                                if self.current_function_has_type_param(*name)
-                        );
-                        // A concrete generated union element is a tagged
-                        // `SmeltUnion…`, not a `SmeltUnknown`, so its missing
-                        // value must be a union value (`default_value` produces
-                        // one) rather than the erased `SmeltUnknown::Undefined`
-                        // used for genuinely erased element types.
-                        let missing = if item_is_in_scope_type_param {
-                            self.default_value(*item_ty)?
-                        } else if matches!(
-                            self.mir.types.get(*item_ty),
-                            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-                        ) && self.concrete_union_members(*item_ty).is_none()
-                        {
-                            "SmeltUnknown::Undefined".to_owned()
-                        } else {
-                            self.default_value(*item_ty)?
-                        };
+                        let missing = self.element_missing_value_text(*item_ty)?;
                         Ok(format!(
                             "{base_text}.get({index_text}).cloned().unwrap_or({missing})"
                         ))
@@ -768,6 +742,39 @@ impl FunctionEmitter<'_> {
             index,
             "usize::try_from(normalized).expect(\"negative index out of bounds\")",
         )
+    }
+
+    /// The value a list slot holds when JavaScript would answer `undefined`.
+    ///
+    /// This is the one "missing element" notion the emitter has, and two places
+    /// must agree on it: an out-of-range element READ (`arr[99]`), and the holes
+    /// `Array(n)` allocates at construction. If they disagreed, `Array(3)[0]`
+    /// and `[][0]` would answer differently for the same element type.
+    ///
+    /// JS out-of-bounds element access is `undefined`, not `null`. A type
+    /// parameter that is in scope for the current generic function is a real
+    /// Rust generic, so its missing value is `Default::default()` (a `T`), not
+    /// the erased `SmeltUnknown::Undefined` used for genuinely erased element
+    /// types. A concrete generated union element is likewise a tagged
+    /// `SmeltUnion…`, so its missing value must be a union value
+    /// (`default_value` produces one) rather than an erased tag.
+    pub(super) fn element_missing_value_text(&self, item_ty: TypeId) -> Result<String, EmitError> {
+        let item_is_in_scope_type_param = matches!(
+            self.mir.types.get(item_ty),
+            Some(Type::TypeParam { name })
+                if self.current_function_has_type_param(*name)
+        );
+        if item_is_in_scope_type_param {
+            return self.default_value(item_ty);
+        }
+        if matches!(
+            self.mir.types.get(item_ty),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) && self.concrete_union_members(item_ty).is_none()
+        {
+            return Ok("SmeltUnknown::Undefined".to_owned());
+        }
+        self.default_value(item_ty)
     }
 
     /// Converts an element index into a Rust `usize` expression for a READ.

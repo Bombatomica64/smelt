@@ -2385,6 +2385,10 @@ impl ModuleBuilder<'_> {
             }
             Expression::CallExpression(call) => {
                 let value = self.call_expression(call, body)?;
+                // A bare `Array(n)` allocation takes the contextual list type
+                // when it has one, exactly as the `new Array(n)` spelling does
+                // below; the two forms must stay in lockstep.
+                let value = self.adopt_contextual_list_allocation_type(value, type_hint, body);
                 let statically_callable = body
                     .exprs
                     .get(usize::try_from(value.0).unwrap_or(usize::MAX))
@@ -2471,7 +2475,8 @@ impl ModuleBuilder<'_> {
                 self.expression_with_hint(&parenthesized.expression, body, type_hint)
             }
             Expression::NewExpression(new_expr) => {
-                self.new_expression_with_hint(new_expr, body, type_hint)
+                let value = self.new_expression_with_hint(new_expr, body, type_hint)?;
+                Ok(self.adopt_contextual_list_allocation_type(value, type_hint, body))
             }
             Expression::TemplateLiteral(tpl) => self.template_literal_expression(tpl, body),
             Expression::PrivateFieldExpression(member) => self.private_field_member(

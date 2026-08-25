@@ -5961,6 +5961,65 @@ fn lowers_array_from_length_without_mapper() -> Result<(), String> {
 }
 
 #[test]
+fn lowers_array_length_allocation_to_a_sized_list() -> Result<(), String> {
+    // `Array(n)` and `new Array(n)` allocate a list of LENGTH `n` in
+    // JavaScript. Both used to lower to an empty `ListLit`, discarding the
+    // length, so any consumer looping over `.length` saw nothing. They now
+    // lower to the same `ListFromLength` allocation `Array.from({ length })`
+    // uses, keeping the two spellings in lockstep.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!("const bare = Array(3);\nconst constructed = new Array(3);"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .filter(|expr| matches!(expr.kind, ExprKind::ListFromLength { .. }))
+            .count()
+            == 2,
+        "Array(n) and new Array(n) must both allocate a sized list"
+    );
+    Ok(())
+}
+
+#[test]
+fn lowers_array_element_arguments_to_a_list_literal() -> Result<(), String> {
+    // ECMAScript splits on the argument list: exactly one numeric argument is a
+    // length, anything else is an element list. `Array('a')` was rejected as a
+    // non-numeric length and `Array(1, 2)` as "at most one length argument".
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!("const single = Array('a');\nconst several = Array(1, 2, 3);"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs.iter().any(
+            |expr| matches!(&expr.kind, ExprKind::ListLit(items) if items.len() == 1)
+        ),
+        "Array('a') must build a one-element list"
+    );
+    ensure!(
+        body.exprs.iter().any(
+            |expr| matches!(&expr.kind, ExprKind::ListLit(items) if items.len() == 3)
+        ),
+        "Array(1, 2, 3) must build a three-element list"
+    );
+    ensure!(
+        !body
+            .exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListFromLength { .. })),
+        "an element argument list must not be read as a length"
+    );
+    Ok(())
+}
+
+#[test]
 fn lowers_zero_arg_computed_member_function_calls() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
