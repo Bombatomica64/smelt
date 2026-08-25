@@ -9,6 +9,7 @@ use crate::lowering::{
     Literal, LocalDecl, LogicalOperator, ModuleBuilder, ObjectPropertyKind, Param, PropertyKey,
     SimpleAssignmentTarget, SmeltError, Span, Statement, Stmt, Type, UnknownKind,
 };
+use super::super::support::arrow_block_statements;
 use oxc::span::GetSpan;
 
 /// The body form of a callback lowered through a real HIR closure body.
@@ -1073,10 +1074,10 @@ impl ModuleBuilder<'_> {
         outer_body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let span = self.span(arrow.span.start, arrow.span.end);
-        let body_kind = if arrow.expression {
+        let body_kind = if arrow.is_expression() {
             ClosureBodyKind::ArrowExpression(arrow)
         } else {
-            ClosureBodyKind::Statements(&arrow.body.statements)
+            ClosureBodyKind::Statements(arrow_block_statements(arrow))
         };
         self.closure_body_expr_from_parts(
             &arrow.params,
@@ -1700,19 +1701,14 @@ impl ModuleBuilder<'_> {
         &self,
         arrow: &'a oxc::ast::ast::ArrowFunctionExpression<'a>,
     ) -> Result<&'a Expression<'a>, SmeltError> {
-        if arrow.expression {
-            let [Statement::ExpressionStatement(statement)] = arrow.body.statements.as_slice()
-            else {
-                return Err(SmeltError::unsupported(
-                    self.span(arrow.body.span.start, arrow.body.span.end),
-                    "expression-bodied closures must contain one expression",
-                ));
-            };
-            Ok(&statement.expression)
+        // A concise body is the expression itself since oxc 0.147, rather than a
+        // block holding one `ExpressionStatement`.
+        if let Some(body_expression) = arrow.get_expression() {
+            Ok(body_expression)
         } else {
-            let [Statement::ReturnStatement(statement)] = arrow.body.statements.as_slice() else {
+            let [Statement::ReturnStatement(statement)] = arrow_block_statements(arrow) else {
                 return Err(SmeltError::unsupported(
-                    self.span(arrow.body.span.start, arrow.body.span.end),
+                    self.arrow_body_span(arrow),
                     "block-bodied closures currently require a single return statement",
                 ));
             };
@@ -1857,7 +1853,16 @@ impl ModuleBuilder<'_> {
                         nested_params.insert(binding.name.as_str().to_owned());
                     }
                 }
-                for statement in &arrow.body.statements {
+                // A concise body carries the expression directly (oxc 0.147),
+                // so it must be walked too or its captures are missed.
+                if let Some(body_expression) = arrow.get_expression() {
+                    self.collect_expression_capture_names(
+                        body_expression,
+                        &nested_params,
+                        captures,
+                    );
+                }
+                for statement in arrow_block_statements(arrow) {
                     self.collect_statement_capture_names(statement, &nested_params, captures);
                 }
             }
@@ -1954,7 +1959,16 @@ impl ModuleBuilder<'_> {
                         nested_params.insert(binding.name.as_str().to_owned());
                     }
                 }
-                for statement in &arrow.body.statements {
+                // A concise body carries the expression directly (oxc 0.147),
+                // so it must be walked too or its captures are missed.
+                if let Some(body_expression) = arrow.get_expression() {
+                    self.collect_expression_capture_names(
+                        body_expression,
+                        &nested_params,
+                        captures,
+                    );
+                }
+                for statement in arrow_block_statements(arrow) {
                     self.collect_statement_capture_names(statement, &nested_params, captures);
                 }
             }

@@ -7,7 +7,7 @@ use crate::lowering::state::interface_registry::LoweredInterface;
 use crate::lowering::{InterfaceHeritageRef, ModuleBuilder};
 use oxc::ast::ast::{
     Argument, AssignmentTarget, BindingPattern, ChainElement, Declaration, Expression, Statement,
-    TSModuleDeclarationBody, TSModuleDeclarationName, TSSignature,
+    TSNamespaceDeclarationBody, TSSignature,
 };
 use oxc::span::GetSpan;
 use oxc::syntax::operator::{AssignmentOperator, BinaryOperator, UnaryOperator};
@@ -16,6 +16,7 @@ use smelt_hir::{
     Literal, LocalDecl, MatchArm, MethodSig, ParamSig, Pattern, SetProjectionOp, Stmt, Type,
     UnaryOp, Visibility,
 };
+use crate::lowering::support::arrow_block_statements;
 
 impl ModuleBuilder<'_> {
     /// Prefix a local type declaration with the active TypeScript namespace path.
@@ -560,42 +561,32 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower TypeScript namespace declarations that contain exported type declarations.
+    /// Since oxc 0.147 an identifier-named `namespace Foo {}` is a
+    /// `TSNamespaceDeclaration` with a plain `BindingIdentifier` id and a
+    /// non-optional body. A string-named ambient module (`declare module "x"`)
+    /// is a separate `TSExternalModuleDeclaration` node, which this frontend
+    /// does not lower — matching the previous behaviour, where a string module
+    /// name yielded `None` and the declaration was skipped.
     pub(in crate::lowering) fn type_namespace_declaration(
         &mut self,
-        module_decl: &oxc::ast::ast::TSModuleDeclaration<'_>,
+        module_decl: &oxc::ast::ast::TSNamespaceDeclaration<'_>,
     ) -> Result<Vec<smelt_hir::ItemId>, SmeltError> {
-        let Some(namespace_name) = Self::type_namespace_name(&module_decl.id) else {
-            return Ok(Vec::new());
-        };
-        self.types.push_namespace(namespace_name);
-        let result = self.type_namespace_body(module_decl.body.as_ref());
+        self.types.push_namespace(module_decl.id.name.to_string());
+        let result = self.type_namespace_body(&module_decl.body);
         self.types.pop_namespace();
         result
-    }
-
-    /// Return the source namespace identifier for namespace declarations.
-    pub(in crate::lowering) fn type_namespace_name(
-        name: &TSModuleDeclarationName<'_>,
-    ) -> Option<String> {
-        match name {
-            TSModuleDeclarationName::Identifier(ident) => Some(ident.name.to_string()),
-            TSModuleDeclarationName::StringLiteral(_) => None,
-        }
     }
 
     /// Lower exported type declarations from a namespace body.
     pub(in crate::lowering) fn type_namespace_body(
         &mut self,
-        body: Option<&TSModuleDeclarationBody<'_>>,
+        body: &TSNamespaceDeclarationBody<'_>,
     ) -> Result<Vec<smelt_hir::ItemId>, SmeltError> {
-        let Some(body) = body else {
-            return Ok(Vec::new());
-        };
         match body {
-            TSModuleDeclarationBody::TSModuleDeclaration(module_decl) => {
+            TSNamespaceDeclarationBody::TSNamespaceDeclaration(module_decl) => {
                 self.type_namespace_declaration(module_decl)
             }
-            TSModuleDeclarationBody::TSModuleBlock(block) => {
+            TSNamespaceDeclarationBody::TSModuleBlock(block) => {
                 let mut items = Vec::new();
                 for statement in &block.body {
                     match statement {
@@ -605,21 +596,18 @@ impl ModuleBuilder<'_> {
                         Statement::TSInterfaceDeclaration(interface) => {
                             items.push(self.interface_declaration(interface)?);
                         }
-                        Statement::TSModuleDeclaration(module_decl) => {
+                        Statement::TSNamespaceDeclaration(module_decl) => {
                             items.extend(self.type_namespace_declaration(module_decl)?);
                         }
-                        Statement::ExportNamedDeclaration(export) => {
-                            let Some(decl) = &export.declaration else {
-                                continue;
-                            };
-                            match decl {
+                        Statement::ExportDeclaration(export) => {
+                            match &export.declaration {
                                 Declaration::TSTypeAliasDeclaration(alias) => {
                                     items.push(self.type_alias_declaration(alias)?);
                                 }
                                 Declaration::TSInterfaceDeclaration(interface) => {
                                     items.push(self.interface_declaration(interface)?);
                                 }
-                                Declaration::TSModuleDeclaration(module_decl) => {
+                                Declaration::TSNamespaceDeclaration(module_decl) => {
                                     items.extend(self.type_namespace_declaration(module_decl)?);
                                 }
                                 _ => {}
@@ -682,7 +670,7 @@ impl ModuleBuilder<'_> {
                 self.interface_declaration(interface)?;
                 Ok(())
             }
-            Statement::TSModuleDeclaration(_) => Ok(()),
+            Statement::TSNamespaceDeclaration(_) => Ok(()),
             Statement::ExpressionStatement(expr_stmt) => {
                 if let Expression::SequenceExpression(sequence) =
                     Self::unparenthesized_expression(&expr_stmt.expression)
@@ -1453,7 +1441,7 @@ impl ModuleBuilder<'_> {
                 span,
             });
             let entry_pat = body.push_pattern(Pattern::Binding(entry_local));
-            let loop_body = body.push_block(self.span(arrow.body.span.start, arrow.body.span.end));
+            let loop_body = body.push_block(self.arrow_body_span(arrow));
             let mut param_names = Vec::new();
             for param in arrow.params.items.iter().take(2) {
                 Self::binding_pattern_names(&param.pattern, &mut param_names);
@@ -1491,7 +1479,7 @@ impl ModuleBuilder<'_> {
                     loop_body,
                 )?;
             }
-            for statement in &arrow.body.statements {
+            for statement in arrow_block_statements(arrow) {
                 self.for_each_callback_statement(statement, body, loop_body)?;
             }
             for (name, prior) in saved_locals {
@@ -1639,7 +1627,7 @@ impl ModuleBuilder<'_> {
             );
             counter_local
         });
-        let loop_body = body.push_block(self.span(arrow.body.span.start, arrow.body.span.end));
+        let loop_body = body.push_block(self.arrow_body_span(arrow));
         if item_binding.is_none() {
             let item_value = body.push_expr(Expr {
                 kind: ExprKind::Local(item_local),
@@ -1708,7 +1696,7 @@ impl ModuleBuilder<'_> {
             } else {
                 None
             };
-        for statement in &arrow.body.statements {
+        for statement in arrow_block_statements(arrow) {
             self.for_each_callback_statement(statement, body, loop_body)?;
         }
         if let Some(index_binding) = index_binding {
@@ -2653,7 +2641,7 @@ impl ModuleBuilder<'_> {
             return Ok(false);
         };
         let callback = self.test_arrow_callback(callback_arg, "lifecycle callbacks")?;
-        for statement in &callback.body.statements {
+        for statement in arrow_block_statements(callback) {
             self.statement_in_block(statement, body, block)?;
         }
         Ok(true)

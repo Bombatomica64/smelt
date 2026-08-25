@@ -69,8 +69,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
         for statement in &program.body {
             let class = match statement {
                 Statement::ClassDeclaration(class) => Some(class),
-                Statement::ExportNamedDeclaration(export) => match &export.declaration {
-                    Some(Declaration::ClassDeclaration(class)) => Some(class),
+                Statement::ExportDeclaration(export) => match &export.declaration {
+                    Declaration::ClassDeclaration(class) => Some(class),
                     _ => None,
                 },
                 _ => None,
@@ -387,7 +387,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 }
                 continue;
             }
-            if let Statement::TSModuleDeclaration(module_decl) = statement {
+            if let Statement::TSNamespaceDeclaration(module_decl) = statement {
                 match self.type_namespace_declaration(module_decl) {
                     Ok(items) => module.items.extend(items),
                     Err(error) => errors.push(error),
@@ -464,8 +464,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 }
                 continue;
             }
-            if let Statement::ExportNamedDeclaration(export) = statement
-                && let Some(decl) = &export.declaration
+            if let Statement::ExportDeclaration(export) = statement
+                && let decl = &export.declaration
             {
                 if let Declaration::FunctionDeclaration(function) = decl {
                     if function.declare {
@@ -511,7 +511,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         Ok(item) => module.items.push(item),
                         Err(error) => errors.push(error),
                     }
-                } else if let Declaration::TSModuleDeclaration(module_decl) = decl {
+                } else if let Declaration::TSNamespaceDeclaration(module_decl) = decl {
                     match self.type_namespace_declaration(module_decl) {
                         Ok(items) => module.items.extend(items),
                         Err(error) => errors.push(error),
@@ -524,6 +524,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 }
             } else if let Statement::ExportNamedDeclaration(export) = statement {
                 self.reexport_named_declaration(export, &mut module);
+            } else if let Statement::ExportFromDeclaration(export) = statement {
+                self.reexport_from_declaration(export, &mut module);
             } else if let Statement::ExportAllDeclaration(export) = statement {
                 self.reexport_all_declaration(export, &mut module);
             }
@@ -535,7 +537,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 Statement::FunctionDeclaration(_)
                     | Statement::ClassDeclaration(_)
                     | Statement::TSInterfaceDeclaration(_)
-                    | Statement::TSModuleDeclaration(_)
+                    | Statement::TSNamespaceDeclaration(_)
                     | Statement::TSTypeAliasDeclaration(_)
                     // Enums are consumed during the collection phase
                     // (`collect_module_enums`): their members are const-folded
@@ -642,8 +644,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             .filter_map(|statement| {
                 let class = match statement {
                     Statement::ClassDeclaration(class) => class,
-                    Statement::ExportNamedDeclaration(export) => {
-                        let Some(Declaration::ClassDeclaration(class)) = &export.declaration else {
+                    Statement::ExportDeclaration(export) => {
+                        let Declaration::ClassDeclaration(class) = &export.declaration else {
                             return None;
                         };
                         class
@@ -667,8 +669,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             .filter_map(|statement| {
                 let interface = match statement {
                     Statement::TSInterfaceDeclaration(interface) => interface,
-                    Statement::ExportNamedDeclaration(export) => {
-                        let Some(Declaration::TSInterfaceDeclaration(interface)) =
+                    Statement::ExportDeclaration(export) => {
+                        let Declaration::TSInterfaceDeclaration(interface) =
                             &export.declaration
                         else {
                             return None;
@@ -705,8 +707,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 Statement::TSEnumDeclaration(decl) => {
                     self.collect_enum_declaration(decl);
                 }
-                Statement::ExportNamedDeclaration(export) => {
-                    if let Some(Declaration::TSEnumDeclaration(decl)) = &export.declaration {
+                Statement::ExportDeclaration(export) => {
+                    if let Declaration::TSEnumDeclaration(decl) = &export.declaration {
                         self.collect_enum_declaration(decl);
                     }
                 }
@@ -722,8 +724,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 Statement::VariableDeclaration(variable) => {
                     self.collect_module_global_decl(variable);
                 }
-                Statement::ExportNamedDeclaration(export) => {
-                    if let Some(Declaration::VariableDeclaration(variable)) = &export.declaration {
+                Statement::ExportDeclaration(export) => {
+                    if let Declaration::VariableDeclaration(variable) = &export.declaration {
                         self.collect_module_global_decl(variable);
                     }
                 }
@@ -882,8 +884,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         errors,
                     );
                 }
-                Statement::ExportNamedDeclaration(export) => {
-                    if let Some(Declaration::VariableDeclaration(variable)) = &export.declaration {
+                Statement::ExportDeclaration(export) => {
+                    if let Declaration::VariableDeclaration(variable) = &export.declaration {
                         self.register_mutable_global_decl(
                             variable,
                             &mutated,
@@ -1038,7 +1040,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     Self::collect_mutated_names_in_const_callables(&mut collector, decl);
                     continue;
                 }
-                Statement::ExportNamedDeclaration(export) => export.declaration.as_ref(),
+                Statement::ExportDeclaration(export) => Some(&export.declaration),
                 Statement::ExportDefaultDeclaration(_) => None,
                 _ => None,
             };
@@ -1471,8 +1473,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 {
                     self.collect_overload_signature(function);
                 }
-                Statement::ExportNamedDeclaration(export) => {
-                    if let Some(Declaration::FunctionDeclaration(function)) = &export.declaration
+                Statement::ExportDeclaration(export) => {
+                    if let Declaration::FunctionDeclaration(function) = &export.declaration
                         && is_implemented_overload_signature(function, implemented_functions)
                     {
                         self.collect_overload_signature(function);
@@ -1609,8 +1611,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     }
                     self.collect_forward_function_type(function);
                 }
-                Statement::ExportNamedDeclaration(export) => {
-                    let Some(Declaration::FunctionDeclaration(function)) = &export.declaration
+                Statement::ExportDeclaration(export) => {
+                    let Declaration::FunctionDeclaration(function) = &export.declaration
                     else {
                         continue;
                     };
@@ -1745,8 +1747,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         errors.push(error);
                     }
                 }
-                Statement::ExportNamedDeclaration(export) => {
-                    let Some(Declaration::FunctionDeclaration(function)) = &export.declaration
+                Statement::ExportDeclaration(export) => {
+                    let Declaration::FunctionDeclaration(function) = &export.declaration
                     else {
                         continue;
                     };
@@ -1772,15 +1774,15 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     Statement::TSTypeAliasDeclaration(alias) => {
                         drop(self.type_alias_declaration(alias));
                     }
-                    Statement::TSModuleDeclaration(module_decl) => {
+                    Statement::TSNamespaceDeclaration(module_decl) => {
                         drop(self.type_namespace_declaration(module_decl));
                     }
-                    Statement::ExportNamedDeclaration(export) => {
-                        if let Some(Declaration::TSTypeAliasDeclaration(alias)) =
+                    Statement::ExportDeclaration(export) => {
+                        if let Declaration::TSTypeAliasDeclaration(alias) =
                             &export.declaration
                         {
                             drop(self.type_alias_declaration(alias));
-                        } else if let Some(Declaration::TSModuleDeclaration(module_decl)) =
+                        } else if let Declaration::TSNamespaceDeclaration(module_decl) =
                             &export.declaration
                         {
                             drop(self.type_namespace_declaration(module_decl));
@@ -1956,23 +1958,34 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Lower `export { name } from "module"` metadata and local aliases.
+    /// Alias locally declared items re-exported by name: `export { a, b as c }`.
+    ///
+    /// Since oxc 0.147 this node carries no `source`; the `... from "module"`
+    /// form is a separate `ExportFromDeclaration`, handled by
+    /// [`Self::reexport_from_declaration`].
     pub(super) fn reexport_named_declaration(
         &mut self,
         export: &oxc::ast::ast::ExportNamedDeclaration<'_>,
         module: &mut Module,
     ) {
-        let Some(source) = &export.source else {
-            for specifier in &export.specifiers {
-                let local = module_export_name(&specifier.local);
-                let exported = module_export_name(&specifier.exported);
-                if let Some(item) = self.items.get(&local).copied() {
-                    self.items.insert(exported.clone(), item);
-                    self.ctx.export_aliases.insert(exported, item);
-                }
+        let _ = module;
+        for specifier in &export.specifiers {
+            let local = module_export_name(&specifier.local);
+            let exported = module_export_name(&specifier.exported);
+            if let Some(item) = self.items.get(&local).copied() {
+                self.items.insert(exported.clone(), item);
+                self.ctx.export_aliases.insert(exported, item);
             }
-            return;
-        };
-        let source_text = source.value.as_str();
+        }
+    }
+
+    /// Lower `export { name } from "module"` metadata and local aliases.
+    pub(super) fn reexport_from_declaration(
+        &mut self,
+        export: &oxc::ast::ast::ExportFromDeclaration<'_>,
+        module: &mut Module,
+    ) {
+        let source_text = export.source.value.as_str();
         let span = self.span(export.span.start, export.span.end);
         for specifier in &export.specifiers {
             let imported = module_export_name(&specifier.local);
@@ -2734,11 +2747,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 Statement::FunctionDeclaration(function) => {
                     referrer_spans.push((function.span.start, function.span.end));
                 }
-                Statement::ExportNamedDeclaration(export) => match &export.declaration {
-                    Some(Declaration::FunctionDeclaration(function)) => {
+                Statement::ExportDeclaration(export) => match &export.declaration {
+                    Declaration::FunctionDeclaration(function) => {
                         referrer_spans.push((function.span.start, function.span.end));
                     }
-                    Some(Declaration::VariableDeclaration(variable)) => {
+                    Declaration::VariableDeclaration(variable) => {
                         if variable.kind != oxc::ast::ast::VariableDeclarationKind::Const {
                             continue;
                         }
@@ -2814,10 +2827,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
         let mut referenced = HashSet::new();
         for statement in &program.body {
-            let Statement::ExportNamedDeclaration(export) = statement else {
+            let Statement::ExportDeclaration(export) = statement else {
                 continue;
             };
-            let Some(Declaration::VariableDeclaration(variable)) = &export.declaration else {
+            let Declaration::VariableDeclaration(variable) = &export.declaration else {
                 continue;
             };
             for declarator in &variable.declarations {

@@ -11,6 +11,7 @@ use smelt_hir::{
     Type, UnaryOp, UnknownKind,
 };
 use smelt_stdlib::RuleId;
+use crate::lowering::support::arrow_block_statements;
 
 impl ModuleBuilder<'_> {
     /// Return whether a source constructor name resolves to a modeled TypeScript stdlib class.
@@ -1686,7 +1687,7 @@ impl ModuleBuilder<'_> {
     pub(super) fn promise_executor_timer_call<'a>(
         executor: &'a oxc::ast::ast::ArrowFunctionExpression<'a>,
     ) -> Option<&'a oxc::ast::ast::CallExpression<'a>> {
-        let [statement] = executor.body.statements.as_slice() else {
+        let [statement] = arrow_block_statements(executor) else {
             return None;
         };
         let Statement::ExpressionStatement(expr_stmt) = statement else {
