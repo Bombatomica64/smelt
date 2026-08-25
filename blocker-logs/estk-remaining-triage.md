@@ -118,3 +118,28 @@ that surface as an uncaught `SmeltThrown` carrying `{__smelt_error, message}`.
 
 This is the best-value next family: one root, crisply located, and it unblocks
 assertions across the promise, util and error areas at once.
+
+## Three more roots, split out of the `zip`/`unzip`/`at` cluster
+
+The erased-element-read fix moved only `zipWith` of the six failures it was
+aimed at. Investigating the rest split them into three genuinely distinct
+roots — none of them a read-coercion bug:
+
+- **`zip` — the two `undefined`-to-string directions disagree.** `zip_160`
+  already emits `unwrap_or(SmeltUnknown::Undefined)`, so the read is right. The
+  spec lowers both sides to `(f64, String)` tuples; extracting the actual value
+  maps `SmeltUnknown::Undefined => "undefined"`, while the expected literal
+  `[3, undefined]` lowers to `(3.0, String::new())`. JS says
+  `String(undefined) === "undefined"`, so the constant coercion and the erased
+  extraction must agree — or the tuple should never have been typed
+  `(f64, String)`.
+- **`unzip` — a nested lvalue store never reaches its target.**
+  `result[i][j] = zipped[j][i]` lowers as `_tmp = result.get(i).cloned()`
+  followed by a write into `_tmp`. `SmeltList::clone` deep-copies, so the store
+  is lost. Confirmed minimally: `grid[0][0] = 'a'` then reading it back gives
+  `undefined`. This is a place-projection bug and likely affects any nested
+  index assignment.
+- **`at` — a typed list cannot hold a hole.** `at<T>` writes `arr[index]` into
+  `result: SmeltList<T>`, so a miss stores `Default::default()`. There is no
+  `undefined` to put in a `Vec<T>`. This is the same storage question `Array(n)`
+  raised, and it now has two callers wanting an answer.
