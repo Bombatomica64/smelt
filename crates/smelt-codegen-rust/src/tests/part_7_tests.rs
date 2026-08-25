@@ -10917,3 +10917,44 @@ def read(o: Ok) -> int:
         "a property is computed, so it must not also become a struct field:\n{source}"
     );
 }
+
+/// A method call on a union receiver dispatches by matching the tagged enum,
+/// with no dynamic erasure.
+///
+/// The emitter has always been able to do this (`union_method_text`); what was
+/// missing was the Python frontend emitting an ordinary `Method` expression for
+/// a union-typed receiver instead of rejecting it. The arms are concrete
+/// classes, so the call must stay concrete — routing it through `SmeltUnknown`
+/// would be exactly the "reconcile concrete union arms" erasure the project
+/// forbids.
+#[test]
+fn python_union_receiver_method_dispatches_statically() {
+    let source = source_for_py(
+        r"
+class Ok:
+    def is_ok(self) -> bool:
+        return True
+
+class Err:
+    def is_ok(self) -> bool:
+        return False
+
+def check(r: Ok | Err) -> bool:
+    return r.is_ok()
+",
+    );
+
+    let check_body = source
+        .split("fn check(")
+        .nth(1)
+        .unwrap_or_else(|| panic!("expected a generated `check`:\n{source}"));
+    assert!(
+        check_body.contains("M0(value) => value.is_ok()")
+            && check_body.contains("M1(value) => value.is_ok()"),
+        "each union arm must call its own concrete method:\n{source}"
+    );
+    assert!(
+        !check_body.contains("SmeltUnknown"),
+        "a concrete union receiver must not erase to a dynamic value:\n{source}"
+    );
+}

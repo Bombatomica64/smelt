@@ -103,24 +103,32 @@ fn is_module_all_assignment(stmt: &Stmt) -> bool {
 /// on the constructor name only, which is the general rule these three PEPs
 /// define, not a per-library pattern.
 fn is_type_param_declaration(stmt: &Stmt) -> bool {
+    type_param_declaration_name(stmt).is_some()
+}
+
+/// The name a type-parameter declaration binds, or `None` for any other
+/// statement. See [`is_type_param_declaration`].
+fn type_param_declaration_name(stmt: &Stmt) -> Option<&str> {
     const TYPE_PARAM_CONSTRUCTORS: [&str; 3] = ["TypeVar", "ParamSpec", "TypeVarTuple"];
 
     let Stmt::Assign(assign) = stmt else {
-        return false;
+        return None;
     };
-    let [Expr::Name(_)] = assign.targets.as_slice() else {
-        return false;
+    let [Expr::Name(target)] = assign.targets.as_slice() else {
+        return None;
     };
     let Expr::Call(call) = assign.value.as_ref() else {
-        return false;
+        return None;
     };
     let constructor = match call.func.as_ref() {
         Expr::Name(name) => name.id.as_str(),
         // `typing.TypeVar("T")` / `typing_extensions.ParamSpec("P")`.
         Expr::Attribute(attribute) => attribute.attr.as_str(),
-        _ => return false,
+        _ => return None,
     };
-    TYPE_PARAM_CONSTRUCTORS.contains(&constructor)
+    TYPE_PARAM_CONSTRUCTORS
+        .contains(&constructor)
+        .then(|| target.id.as_str())
 }
 
 /// Whether a class-body assignment is `CPython` metadata rather than a class

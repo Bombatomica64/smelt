@@ -1225,3 +1225,155 @@ class Ok:
     )?;
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Type aliases and union-receiver method dispatch.
+// ---------------------------------------------------------------------------
+
+/// All three type-alias spellings resolve to the type they name.
+#[test]
+fn type_alias_spellings_resolve() -> TestResult {
+    for source in [
+        // PEP 613: the explicit `TypeAlias` annotation.
+        py!(r#"
+from typing import TypeAlias, Union
+
+class Ok:
+    def is_ok(self) -> bool:
+        return True
+
+class Err:
+    def is_ok(self) -> bool:
+        return False
+
+Result: TypeAlias = Union[Ok, Err]
+
+def check(r: Result) -> bool:
+    return r.is_ok()
+"#),
+        // Pre-3.12 idiom: a bare assignment of a type expression.
+        py!(r#"
+class Ok:
+    def is_ok(self) -> bool:
+        return True
+
+class Err:
+    def is_ok(self) -> bool:
+        return False
+
+Result = Ok | Err
+
+def check(r: Result) -> bool:
+    return r.is_ok()
+"#),
+        // PEP 695 statement form.
+        py!(r#"
+class Ok:
+    def is_ok(self) -> bool:
+        return True
+
+class Err:
+    def is_ok(self) -> bool:
+        return False
+
+type Result = Ok | Err
+
+def check(r: Result) -> bool:
+    return r.is_ok()
+"#),
+    ] {
+        let mut ctx = HirCtx::new();
+        lower_module(source, &mut ctx)?;
+    }
+    Ok(())
+}
+
+/// An ordinary value assignment is not mistaken for a type alias.
+///
+/// A type alias is *skipped* during module-body lowering, so a false match would
+/// silently delete the assignment. The module body must still bind the value.
+#[test]
+fn value_assignment_is_not_a_type_alias() -> TestResult {
+    let source = py!(r#"
+LIMIT = 10
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let module_body = body(&ctx, module.body.ok_or("expected a module body")?)?;
+    ensure(
+        module_body
+            .stmts
+            .iter()
+            .any(|stmt| matches!(stmt, smelt_hir::Stmt::Let { .. })),
+        "a value assignment must still lower as a binding, not be skipped as an alias",
+    )?;
+    Ok(())
+}
+
+/// A parameterised alias substitutes its arguments positionally, so
+/// `Pair[int, str]` really is `(int, str)` and not the declared placeholders.
+#[test]
+fn parameterised_type_alias_substitutes_arguments() -> TestResult {
+    let source = py!(r#"
+from typing import Tuple, TypeAlias, TypeVar
+
+A = TypeVar("A")
+B = TypeVar("B")
+
+Pair: TypeAlias = Tuple[A, B]
+
+def first(p: Pair[int, str]) -> int:
+    return p[0]
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let Item::Function(function) = item(
+        &ctx,
+        *module.items.last().ok_or("expected a function item")?,
+    )?
+    else {
+        return Err("expected Function item".to_owned());
+    };
+    let param_ty = function
+        .params
+        .first()
+        .map(|param| param.ty)
+        .ok_or("expected a parameter")?;
+    let Some(Type::Tuple(items)) = ctx.krate.types.get(param_ty) else {
+        return Err("expected the alias to lower to a tuple".to_owned());
+    };
+    ensure_eq(&items.len(), &2, "tuple arity")?;
+    ensure(
+        matches!(ctx.krate.types.get(items[0]), Some(Type::Int))
+            && matches!(ctx.krate.types.get(items[1]), Some(Type::String)),
+        "alias parameters must be replaced by the supplied arguments",
+    )?;
+    Ok(())
+}
+
+/// A union receiver dispatches when every arm declares the method, and is
+/// refused when one does not.
+#[test]
+fn union_receiver_requires_every_arm_to_declare_the_method() -> TestResult {
+    let source = py!(r#"
+class Ok:
+    def is_ok(self) -> bool:
+        return True
+
+class Err:
+    def other(self) -> bool:
+        return False
+
+def check(r: Ok | Err) -> bool:
+    return r.is_ok()
+"#);
+    let mut ctx = HirCtx::new();
+    let errors = lower_errors(source, &mut ctx)?;
+    ensure(
+        !errors.is_empty(),
+        "a union arm missing the method must not dispatch",
+    )?;
+    Ok(())
+}
