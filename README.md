@@ -128,10 +128,10 @@ Fork the repo and submit a pr :)
 
 | Metric | Coverage |
 | --- | ---: |
-| Functions | 81.99% |
-| Lines | 76.81% |
-| Regions | 75.14% |
-| Branches | 64.99% |
+| Functions | 82.00% |
+| Lines | 76.83% |
+| Regions | 75.16% |
+| Branches | 65.00% |
 
 ### Per Crate
 
@@ -140,7 +140,7 @@ Fork the repo and submit a pr :)
 | `smelt-asyncio` | 100.00% | 90.91% | 0.00% |
 | `smelt-codegen-rust` | 85.36% | 80.34% | 62.94% |
 | `smelt-frontend-py` | 80.35% | 76.38% | 68.56% |
-| `smelt-frontend-ts` | 84.04% | 76.82% | 65.86% |
+| `smelt-frontend-ts` | 84.05% | 76.87% | 65.89% |
 | `smelt-hir` | 69.29% | 38.53% | 59.44% |
 | `smelt-mir` | 77.58% | 76.60% | 69.60% |
 | `smelt-py-types` | 80.00% | 90.32% | 70.37% |
@@ -150,6 +150,7 @@ Fork the repo and submit a pr :)
 | `smelt-test` | 90.52% | 90.25% | 61.36% |
 | `smelt-transpiler` | 75.12% | 74.60% | 59.38% |
 <!-- COVERAGE:END -->
+
 
 
 
