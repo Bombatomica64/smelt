@@ -106,7 +106,7 @@ pub(crate) fn thrown_value_expr(error_text: &str) -> String {
 /// the ABI itself.
 pub(crate) fn panic_payload_record_expr(message_text: &str) -> String {
     format!(
-        "SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"__smelt_error\".to_owned(), SmeltUnknown::String(\"Error\".to_owned())), (\"message\".to_owned(), SmeltUnknown::String({message_text}))])))"
+        "SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"__smelt_error\".to_owned(), SmeltUnknown::String(\"Error\".to_owned())), (\"message\".to_owned(), SmeltUnknown::String({message_text}))])))"
     )
 }
 

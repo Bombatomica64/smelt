@@ -1634,7 +1634,7 @@ impl FunctionEmitter<'_> {
                 self.value_at_type(expected, self.type_id(Type::Unknown)?)?
             )),
             Rvalue::DateTimezoneContext { timezone } => Ok(format!(
-                "{{ let smelt_timezone_name = {}; let smelt_timezone: chrono_tz::Tz = smelt_timezone_name.parse().expect(\"invalid IANA time zone\"); ::std::rc::Rc::new(move |value: SmeltUnknown| -> SmeltUnknown {{ let timestamp_ms = match value {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => chrono::DateTime::parse_from_rfc3339(&value).map(|date| date.timestamp_millis() as f64).unwrap_or_else(|_| value.parse::<f64>().unwrap_or(f64::NAN)), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}; let local_timestamp_ms = if timestamp_ms.is_finite() {{ chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).map_or(f64::NAN, |date| date.with_timezone(&smelt_timezone).naive_local().and_utc().timestamp_millis() as f64) }} else {{ f64::NAN }}; SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"__smelt_date\".to_owned(), SmeltUnknown::Number(local_timestamp_ms)), (\"__smelt_timezone\".to_owned(), SmeltUnknown::String(smelt_timezone_name.clone()))]))) }}) }}",
+                "{{ let smelt_timezone_name = {}; let smelt_timezone: chrono_tz::Tz = smelt_timezone_name.parse().expect(\"invalid IANA time zone\"); ::std::rc::Rc::new(move |value: SmeltUnknown| -> SmeltUnknown {{ let timestamp_ms = match value {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => chrono::DateTime::parse_from_rfc3339(&value).map(|date| date.timestamp_millis() as f64).unwrap_or_else(|_| value.parse::<f64>().unwrap_or(f64::NAN)), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}; let local_timestamp_ms = if timestamp_ms.is_finite() {{ chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).map_or(f64::NAN, |date| date.with_timezone(&smelt_timezone).naive_local().and_utc().timestamp_millis() as f64) }} else {{ f64::NAN }}; SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"__smelt_date\".to_owned(), SmeltUnknown::Number(local_timestamp_ms)), (\"__smelt_timezone\".to_owned(), SmeltUnknown::String(smelt_timezone_name.clone()))]))) }}) }}",
                 self.operand_text(timezone)?
             )),
             Rvalue::DateToIsoString { timestamp_ms } => self.date_to_iso_string_text(timestamp_ms),
@@ -2014,13 +2014,13 @@ impl FunctionEmitter<'_> {
         {
             let callable_text = self.erase(callable)?;
             let mut entries = vec![format!(
-                "smelt_object.insert(\"__smelt_call\".to_owned(), {callable_text});"
+                "smelt_object.push((\"__smelt_call\".to_owned(), {callable_text}));"
             )];
             for (key, value) in props {
                 let key_text = self.symbol_source_name(*key)?;
                 let value_text = self.erase(value)?;
                 entries.push(format!(
-                    "smelt_object.insert({key_text:?}.to_owned(), {value_text});"
+                    "smelt_object.push(({key_text:?}.to_owned(), {value_text}));"
                 ));
             }
             // Dynamic record sources (`Object.assign(fn, def)` with a variable
@@ -2031,11 +2031,11 @@ impl FunctionEmitter<'_> {
             for spread in spreads {
                 let spread_text = self.erase(spread)?;
                 entries.push(format!(
-                    "if let SmeltUnknown::Object(smelt_spread) = {spread_text} {{ for (smelt_key, smelt_value) in smelt_spread.iter() {{ if smelt_key != \"__smelt_call\" {{ smelt_object.insert(smelt_key, smelt_value); }} }} }}"
+                    "if let SmeltUnknown::Object(smelt_spread) = {spread_text} {{ for (smelt_key, smelt_value) in smelt_spread.iter() {{ if smelt_key != \"__smelt_call\" {{ smelt_object.push((smelt_key, smelt_value)); }} }} }}"
                 ));
             }
             return Ok(format!(
-                "{{ let mut smelt_object = ::std::collections::HashMap::new(); {} SmeltUnknown::Object(SmeltObject::new(smelt_object)) }}",
+                "{{ let mut smelt_object = Vec::new(); {} SmeltUnknown::Object(SmeltObject::new(smelt_object)) }}",
                 entries.join(" ")
             ));
         }
@@ -2381,7 +2381,7 @@ impl FunctionEmitter<'_> {
                 format!("(*{receiver_text}.last_index.borrow() as f64)")
             }
             "constructor" => {
-                "SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([])))"
+                "SmeltUnknown::Object(SmeltObject::new(Vec::from([])))"
                     .to_owned()
             }
             _ => "SmeltUnknown::Null".to_owned(),

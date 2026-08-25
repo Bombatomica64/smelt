@@ -725,6 +725,79 @@ const entries = Object.entries(bag);
     );
 }
 
+/// Erasing a record to a JavaScript object must carry the record's key order
+/// across, not re-derive it.
+///
+/// `SmeltObject` has always CARRIED an `order` vector — `iter`/`keys`/`values`
+/// and the serde impl all read it — but its constructors used to take an
+/// unordered `HashMap` and recover an order by SORTING the keys. Every erasure
+/// site fed them `record.iter().collect()`, so the ordered entry stream the
+/// record had just produced was dropped into a hash map and then alphabetised:
+/// `{ foo: 1, bar: 2, baz: 3 }` erased to an object whose `Object.keys` read
+/// `["bar", "baz", "foo"]`. The constructors now take the ordered entry
+/// sequence, which is the only form that can express a JavaScript object's key
+/// order at all.
+#[test]
+fn erasing_a_record_to_an_object_keeps_the_source_key_order() {
+    let source = source_for(
+        r"
+const plain = { foo: 1, bar: 2, baz: 3 };
+const erased: unknown = plain;
+",
+    );
+
+    assert!(
+        source.contains("fn new(entries: Vec<(String, SmeltUnknown)>) -> Self"),
+        "{source}"
+    );
+    assert!(
+        source.contains("fn with_id(id: usize, entries: Vec<(String, SmeltUnknown)>) -> Self"),
+        "{source}"
+    );
+    // No constructor may guess an order back out of an unordered map.
+    assert!(
+        !source.contains("let mut order = values.keys().cloned().collect::<Vec<_>>(); order.sort();"),
+        "{source}"
+    );
+}
+
+/// JavaScript own-key order is not plain insertion order: array-index keys come
+/// first in ascending numeric order, then the remaining string keys in insertion
+/// order (`OrdinaryOwnPropertyKeys`). Both erased containers must therefore place
+/// a newly inserted key rather than push it, so `{ b: 1, 2: "x", a: 3, 1: "y" }`
+/// enumerates as `1, 2, b, a`. The ordering is maintained at insert time so
+/// `keys()` stays a plain read of one ordered structure.
+#[test]
+fn object_and_record_inserts_follow_javascript_own_key_order() {
+    let source = source_for(
+        r#"
+const mixed = { b: 1, 2: "x", a: 3, 1: "y" };
+const erased: unknown = mixed;
+"#,
+    );
+
+    assert!(
+        source.contains("fn smelt_canonical_array_index(key: &str) -> Option<u32>"),
+        "{source}"
+    );
+    assert!(
+        source.contains("fn smelt_js_key_order_position<K: SmeltPropertyKey>(order: &[K], key: &K) -> usize"),
+        "{source}"
+    );
+    // Both containers place the key; neither appends unconditionally.
+    assert_eq!(
+        source
+            .matches("let position = smelt_js_key_order_position(&order, &key); order.insert(position, key.clone());")
+            .count(),
+        2,
+        "{source}"
+    );
+    assert!(
+        !source.contains("{ self.order.borrow_mut().push(key.clone()); }"),
+        "{source}"
+    );
+}
+
 #[test]
 fn preserves_unknown_elements_when_casting_to_erased_type_level_helpers() {
     let source = source_for(
@@ -3224,7 +3297,7 @@ function assign(value: unknown): unknown {
         "{source}"
     );
     assert!(
-        source.contains("*other = SmeltUnknown::Object(SmeltObject::new(map));"),
+        source.contains("*other = SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"name\".to_owned(), SmeltUnknown::String(\"Grace\".to_owned()))])));"),
         "{source}"
     );
 }
@@ -9464,19 +9537,19 @@ fn typed_array_length_is_the_element_count_not_the_byte_count() {
         source_for("export function f(value: any): any { return (value as any).slice(0); }");
     assert!(
         generated.contains(
-            "fields.insert(\"length\".to_owned(), SmeltUnknown::Number((byte_length / stride) as f64))"
+            "(\"length\".to_owned(), SmeltUnknown::Number((byte_length / stride) as f64))"
         ),
         "`length` must be the element count:\n{generated}"
     );
     assert!(
         generated.contains(
-            "fields.insert(\"byteLength\".to_owned(), SmeltUnknown::Number(byte_length as f64))"
+            "(\"byteLength\".to_owned(), SmeltUnknown::Number(byte_length as f64))"
         ),
         "`byteLength` must stay the byte count:\n{generated}"
     );
     assert!(
-        generated.contains("fields.insert(\"buffer\".to_owned(), buffer)")
-            && generated.contains("fields.insert(\"byteOffset\".to_owned()"),
+        generated.contains("fields.push((\"buffer\".to_owned(), buffer))")
+            && generated.contains("fields.push((\"byteOffset\".to_owned()"),
         "a view must record the buffer it windows and its offset:\n{generated}"
     );
     // `slice`/`subarray` bounds are element indices for a view and byte indices for

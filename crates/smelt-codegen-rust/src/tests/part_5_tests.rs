@@ -997,7 +997,7 @@ const asRecord: unknown = obj;
     // (a legitimate dynamic boundary), never in `SmeltRecord`'s.
     assert!(
         source.contains(
-            "object.insert(\"__smelt_map\".to_owned(), SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), pairs)))"
+            "let object = Vec::from([(\"__smelt_map\".to_owned(), SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), pairs)))])"
         ),
         "{source}"
     );

@@ -511,11 +511,11 @@ impl FunctionEmitter<'_> {
                     let base_name = self.local_name(*base)?.to_owned();
                     if rendered_value.contains(&base_name) {
                         out.push_str(&format!(
-                            "    {{ let smelt_value = {rendered_value}; match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert({field_name:?}.to_owned(), smelt_value); }}, other => {{ let mut map = ::std::collections::HashMap::new(); map.insert({field_name:?}.to_owned(), smelt_value); *other = SmeltUnknown::Object(SmeltObject::new(map)); }} }} }}\n"
+                            "    {{ let smelt_value = {rendered_value}; match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert({field_name:?}.to_owned(), smelt_value); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), smelt_value)]))); }} }} }}\n"
                         ));
                     } else {
                         out.push_str(&format!(
-                            "    match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert({field_name:?}.to_owned(), {rendered_value}); }}, other => {{ let mut map = ::std::collections::HashMap::new(); map.insert({field_name:?}.to_owned(), {rendered_value}); *other = SmeltUnknown::Object(SmeltObject::new(map)); }} }}\n"
+                            "    match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert({field_name:?}.to_owned(), {rendered_value}); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), {rendered_value})]))); }} }}\n"
                         ));
                     }
                     return Ok(());

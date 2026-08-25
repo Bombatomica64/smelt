@@ -219,7 +219,7 @@ fn emit_construct(writer: &mut CodeWriter) {
     ));
     writer.line("    match kind {");
     // Error: `new Constructor(message, { cause })`.
-    writer.line("        \"error\" => { let mut fields = ::std::collections::HashMap::new(); fields.insert(\"__smelt_error\".to_owned(), SmeltUnknown::String(\"Error\".to_owned())); let mut it = args.into_iter(); if let Some(message) = it.next() { fields.insert(\"message\".to_owned(), message); } if let Some(SmeltUnknown::Object(options)) = it.next() { if let Some(cause) = options.get(\"cause\") { fields.insert(\"cause\".to_owned(), cause); } } SmeltUnknown::Object(SmeltObject::new(fields)) }");
+    writer.line("        \"error\" => { let mut fields = Vec::from([(\"__smelt_error\".to_owned(), SmeltUnknown::String(\"Error\".to_owned()))]); let mut it = args.into_iter(); if let Some(message) = it.next() { fields.push((\"message\".to_owned(), message)); } if let Some(SmeltUnknown::Object(options)) = it.next() { if let Some(cause) = options.get(\"cause\") { fields.push((\"cause\".to_owned(), cause)); } } SmeltUnknown::Object(SmeltObject::new(fields)) }");
     // Byte buffers: length | byte-backed source | element array.
     writer.line(format!(
         "        {plain_byte_kinds} => {{ let marker = {kind_marker_table}.into_iter().find(|(entry, _)| *entry == kind).map_or(\"__smelt_arraybuffer\", |(_, marker)| marker); {construct}(marker, args) }}",
@@ -255,7 +255,7 @@ fn emit_prototype(writer: &mut CodeWriter) {
     writer.line("/// and `===` the bare global reference.");
     writer.line("thread_local! { static SMELT_MARKER_PROTOS: ::std::cell::RefCell<::std::collections::HashMap<&'static str, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }");
     writer.line(format!(
-        "fn smelt_reflected_prototype(kind: &'static str) -> SmeltUnknown {{ SMELT_MARKER_PROTOS.with(|cache| cache.borrow_mut().entry(kind).or_insert_with(|| {{ let ctor = {namespace}(smelt_reflected_kind_class(kind)); SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"constructor\".to_owned(), ctor)]))) }}).clone()) }}",
+        "fn smelt_reflected_prototype(kind: &'static str) -> SmeltUnknown {{ SMELT_MARKER_PROTOS.with(|cache| cache.borrow_mut().entry(kind).or_insert_with(|| {{ let ctor = {namespace}(smelt_reflected_kind_class(kind)); SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"constructor\".to_owned(), ctor)]))) }}).clone()) }}",
         namespace = host::BUILTIN_NAMESPACE,
     ));
 }
@@ -294,7 +294,7 @@ fn emit_builtin_namespace(writer: &mut CodeWriter) {
     writer.line("/// through a captured reference constructs instead of answering `null`.");
     writer.line("thread_local! { static SMELT_BUILTIN_NAMESPACES: ::std::cell::RefCell<::std::collections::HashMap<String, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }");
     writer.line(format!(
-        "fn {namespace}(name: &str) -> SmeltUnknown {{ SMELT_BUILTIN_NAMESPACES.with(|cache| cache.borrow_mut().entry(name.to_owned()).or_insert_with(|| {{ let record = SmeltObject::new(::std::collections::HashMap::from([(\"__smelt_builtin_namespace\".to_owned(), SmeltUnknown::Bool(true)), (\"name\".to_owned(), SmeltUnknown::String(name.to_owned()))])); if let Some(kind) = smelt_builtin_construct_kind(name) {{ record.insert(\"__smelt_call\".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| Ok({construct}(kind, args))))); }} SmeltUnknown::Object(record) }}).clone()) }}",
+        "fn {namespace}(name: &str) -> SmeltUnknown {{ SMELT_BUILTIN_NAMESPACES.with(|cache| cache.borrow_mut().entry(name.to_owned()).or_insert_with(|| {{ let record = SmeltObject::new(Vec::from([(\"__smelt_builtin_namespace\".to_owned(), SmeltUnknown::Bool(true)), (\"name\".to_owned(), SmeltUnknown::String(name.to_owned()))])); if let Some(kind) = smelt_builtin_construct_kind(name) {{ record.insert(\"__smelt_call\".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| Ok({construct}(kind, args))))); }} SmeltUnknown::Object(record) }}).clone()) }}",
         namespace = host::BUILTIN_NAMESPACE,
         construct = host::REFLECTED_CONSTRUCT,
     ));

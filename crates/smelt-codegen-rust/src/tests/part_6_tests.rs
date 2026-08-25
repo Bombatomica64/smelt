@@ -298,7 +298,7 @@ function wrap(call: (...args: string[]) => void): unknown {
     );
 
     assert!(
-        source.contains("smelt_object.insert(\"__smelt_call\".to_owned()"),
+        source.contains("smelt_object.push((\"__smelt_call\".to_owned()"),
         "{source}"
     );
     assert!(
@@ -890,7 +890,7 @@ function shallowClone(obj: object): object {
     // instance is still classified as a class instance, not a plain object.
     assert!(
         source.contains(
-            "SmeltUnknown::String(sentinel) if sentinel == \"__smelt_proto:class\" => { fields.insert(\"__smelt_class\".to_owned(), SmeltUnknown::Bool(true)); }"
+            "SmeltUnknown::String(sentinel) if sentinel == \"__smelt_proto:class\" => { fields.push((\"__smelt_class\".to_owned(), SmeltUnknown::Bool(true))); }"
         ),
         "a class prototype must carry the class marker onto the fresh object: {source}"
     );
