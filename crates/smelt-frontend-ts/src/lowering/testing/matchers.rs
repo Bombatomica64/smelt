@@ -697,7 +697,8 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) {
         let failure_block = body.push_block(self.span(span.start, span.end));
-        let message = self.string_literal_expr(message, span, body);
+        let message = self.test_failure_message(message, span);
+        let message = self.string_literal_expr(&message, span, body);
         body.push_stmt_to_block(failure_block, Stmt::Throw(message));
         let failure_stmt = Stmt::If {
             cond,
@@ -709,6 +710,68 @@ impl ModuleBuilder<'_> {
         } else {
             body.push_stmt(failure_stmt);
         }
+    }
+
+    /// Build the runtime message thrown by a failed synthesized assertion.
+    ///
+    /// A generated assertion throws a plain string, so on its own a failing
+    /// suite reports only which matcher failed -- with hundreds of generated
+    /// tests that is not enough to find the source assertion. Vitest prints
+    /// the failing expression and its location, so this appends the same two
+    /// things: the source text of the assertion call and `path:line:column`.
+    /// The matcher prefix is left untouched so callers that match on it keep
+    /// working.
+    fn test_failure_message(&self, message: &str, span: oxc::span::Span) -> String {
+        let (line, column) = self.line_column(span.start);
+        let path = self.path.as_str();
+        match self.assertion_snippet(span) {
+            Some(snippet) => format!("{message}: {snippet} ({path}:{line}:{column})"),
+            None => format!("{message} ({path}:{line}:{column})"),
+        }
+    }
+
+    /// Resolve a byte offset in this module's source to a 1-based line and column.
+    ///
+    /// Columns count UTF-8 characters rather than bytes so the location lines
+    /// up with what an editor shows for non-ASCII spec sources.
+    fn line_column(&self, offset: u32) -> (usize, usize) {
+        let offset = usize::try_from(offset).unwrap_or(usize::MAX);
+        let Some(prefix) = self.source.get(..offset) else {
+            return (0, 0);
+        };
+        let line = prefix.bytes().filter(|byte| *byte == b'\n').count() + 1;
+        let column = prefix
+            .rsplit_once('\n')
+            .map_or(prefix, |(_, last)| last)
+            .chars()
+            .count()
+            + 1;
+        (line, column)
+    }
+
+    /// Render the source text of an assertion as a single-line message fragment.
+    ///
+    /// Newlines and runs of whitespace are collapsed so a multi-line `expect`
+    /// call still reads as one line, and long assertions are truncated on a
+    /// character boundary to keep failure output scannable.
+    fn assertion_snippet(&self, span: oxc::span::Span) -> Option<String> {
+        const MAX_CHARS: usize = 120;
+        let start = usize::try_from(span.start).ok()?;
+        let end = usize::try_from(span.end).ok()?;
+        let text = self.source.get(start..end)?;
+        let mut snippet = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        if snippet.is_empty() {
+            return None;
+        }
+        if snippet.chars().count() > MAX_CHARS {
+            let cut = snippet
+                .char_indices()
+                .nth(MAX_CHARS)
+                .map_or(snippet.len(), |(index, _)| index);
+            snippet.truncate(cut);
+            snippet.push_str("...");
+        }
+        Some(snippet)
     }
 
     /// Create a boolean unary expression for synthesized test assertions.

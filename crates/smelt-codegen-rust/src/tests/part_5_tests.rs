@@ -252,6 +252,40 @@ test("common matchers", () => {
     assert!(source.contains("deepStrictEqual(...) failed"));
 }
 
+/// A failed assertion must name the source assertion and its location.
+///
+/// Generated suites throw a plain string, so without the snippet and
+/// `path:line:column` suffix a large generated suite reports only which
+/// matcher failed, which is not enough to find the offending spec line.
+#[test]
+fn generated_assertion_failures_carry_source_snippet_and_location() {
+    let source = source_for(
+        r#"
+import { test, expect } from "vitest";
+
+test("located", () => {
+  expect(1 + 1).toEqual(2);
+  expect([
+    1,
+    2,
+  ]).toHaveLength(2);
+});
+"#,
+    );
+
+    assert!(
+        source.contains("expect(...).toEqual(...) failed: expect(1 + 1).toEqual(2) (<memory>:5:3)"),
+        "{source}"
+    );
+    // A multi-line assertion collapses onto one line so the message stays scannable.
+    assert!(
+        source.contains(
+            "expect(...).toHaveLength(...) failed: expect([ 1, 2, ]).toHaveLength(2) (<memory>:6:3)"
+        ),
+        "{source}"
+    );
+}
+
 #[test]
 fn emits_identity_bearing_erased_arrays_for_strict_matchers() {
     let source = source_for(
