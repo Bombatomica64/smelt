@@ -724,6 +724,26 @@ impl ModuleBuilder<'_> {
         let receiver = self.expression(&attr.value, body)?;
         let receiver_ty = Self::expr_ty(body, receiver);
         let method = attr.attr.as_str();
+        // A union receiver dispatches statically when every arm declares the
+        // method; see `union_method_return_ty`.
+        if let Some(return_ty) = self.union_method_return_ty(receiver_ty, method) {
+            let args = call
+                .arguments
+                .args
+                .iter()
+                .map(|arg| self.expression(arg, body))
+                .collect::<Result<Vec<_>, _>>()?;
+            let method_sym = self.intern_name(method);
+            return Ok(Some(body.push_expr(HirExpr {
+                kind: ExprKind::Method {
+                    receiver,
+                    method: method_sym,
+                    args,
+                },
+                ty: return_ty,
+                span: self.span(call.range()),
+            })));
+        }
         if self.class_method_dispatch(receiver_ty, method).is_none() {
             return Ok(None);
         }
@@ -847,6 +867,52 @@ impl ModuleBuilder<'_> {
             ty: return_ty,
             span,
         }))
+    }
+
+    /// The result type of calling `method` on a *union* receiver, when every
+    /// arm supports it.
+    ///
+    /// A union of classes is a real tagged enum in the generated Rust, and the
+    /// emitter already dispatches such a call by matching the tag and invoking
+    /// each arm's concrete method (`union_method_text`). What it needs from the
+    /// frontend is an ordinary [`ExprKind::Method`] whose receiver happens to be
+    /// union-typed; MIR turns that into `Rvalue::UnionMethod`.
+    ///
+    /// Dispatch is allowed only when *every* member is a class that declares the
+    /// method as an instance method — the same rule Python and TypeScript apply
+    /// to a union member access. A receiver-free member (`@classmethod` /
+    /// `@staticmethod`) is excluded because it has no receiver to dispatch
+    /// through.
+    ///
+    /// The result type is the union of the arms' return types, collapsed to a
+    /// single type when they agree. Deliberately *not* erased to a dynamic
+    /// value: the arms are concrete, so the static shape survives the call.
+    fn union_method_return_ty(&mut self, receiver_ty: TypeId, method: &str) -> Option<TypeId> {
+        let Some(Type::Union(members)) = self.ctx.krate.types.get(receiver_ty).cloned() else {
+            return None;
+        };
+        if members.is_empty() {
+            return None;
+        }
+        let mut return_tys: Vec<TypeId> = Vec::new();
+        for member in members {
+            let dispatch = self.class_method_dispatch(member, method)?;
+            if dispatch.receiver_free {
+                return None;
+            }
+            let Item::Function(function) = self.item_ref(dispatch.item) else {
+                return None;
+            };
+            let return_ty = function.return_ty;
+            if !return_tys.contains(&return_ty) {
+                return_tys.push(return_ty);
+            }
+        }
+        match return_tys.as_slice() {
+            [single] => Some(*single),
+            [] => None,
+            _ => Some(self.intern_type(Type::Union(return_tys))),
+        }
     }
 
     /// Resolve a class method by receiver type and name, classifying its

@@ -215,9 +215,268 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Whether a module-level statement declares a *type alias*.
+    ///
+    /// Three spellings are recognized, all of which are unambiguously
+    /// type-level in valid typed Python:
+    ///
+    /// * `Result: TypeAlias = Ok | Err` — the explicit PEP 613 annotation;
+    /// * `type Result = Ok | Err` — the PEP 695 statement;
+    /// * `Result = Union[Ok, Err]` / `Result = Ok | Err` — the pre-3.12 idiom,
+    ///   accepted only when the right-hand side is itself a type expression
+    ///   (`Union[..]`/`Optional[..]` or a PEP 604 `|` chain), so an ordinary
+    ///   value assignment is never mistaken for an alias.
+    fn is_type_alias_statement(stmt: &Stmt) -> bool {
+        Self::type_alias_parts(stmt).is_some()
+    }
+
+    /// Split a type-alias statement into its declared name and aliased type
+    /// expression, or `None` when the statement is not an alias.
+    fn type_alias_parts(stmt: &Stmt) -> Option<(&str, &Expr)> {
+        /// Whether an annotation names PEP 613's `TypeAlias`.
+        fn is_type_alias_marker(annotation: &Expr) -> bool {
+            match annotation {
+                Expr::Name(name) => name.id.as_str() == "TypeAlias",
+                Expr::Attribute(attribute) => attribute.attr.as_str() == "TypeAlias",
+                Expr::StringLiteral(literal) => literal.value.to_str() == "TypeAlias",
+                _ => false,
+            }
+        }
+
+        /// Whether an expression is unambiguously a *type* expression.
+        ///
+        /// Only the forms that cannot appear as ordinary program data: a
+        /// `Union[..]`/`Optional[..]` subscript, or a PEP 604 `A | B` chain of
+        /// type names.
+        fn is_type_expression(value: &Expr) -> bool {
+            match value {
+                Expr::Subscript(subscript) => matches!(
+                    expr_type_name(&subscript.value),
+                    Some("Union" | "Optional")
+                ),
+                Expr::BinOp(binary) => {
+                    binary.op == Operator::BitOr
+                        && is_type_operand(&binary.left)
+                        && is_type_operand(&binary.right)
+                }
+                _ => false,
+            }
+        }
+
+        /// One side of a PEP 604 union: a name, a qualified name, `None`, a
+        /// subscripted generic, or a nested union.
+        fn is_type_operand(value: &Expr) -> bool {
+            match value {
+                Expr::Name(_) | Expr::Attribute(_) | Expr::NoneLiteral(_) => true,
+                Expr::Subscript(_) => true,
+                Expr::BinOp(binary) => {
+                    binary.op == Operator::BitOr
+                        && is_type_operand(&binary.left)
+                        && is_type_operand(&binary.right)
+                }
+                _ => false,
+            }
+        }
+
+        match stmt {
+            // `type Result = Ok | Err` (PEP 695).
+            Stmt::TypeAlias(alias) => match alias.name.as_ref() {
+                Expr::Name(name) => Some((name.id.as_str(), alias.value.as_ref())),
+                _ => None,
+            },
+            // `Result: TypeAlias = Ok | Err` (PEP 613).
+            Stmt::AnnAssign(assign) => {
+                let Expr::Name(target) = assign.target.as_ref() else {
+                    return None;
+                };
+                if !is_type_alias_marker(&assign.annotation) {
+                    return None;
+                }
+                assign
+                    .value
+                    .as_deref()
+                    .map(|value| (target.id.as_str(), value))
+            }
+            // `Result = Union[Ok, Err]` (pre-3.12 idiom).
+            Stmt::Assign(assign) => {
+                let [Expr::Name(target)] = assign.targets.as_slice() else {
+                    return None;
+                };
+                is_type_expression(&assign.value)
+                    .then(|| (target.id.as_str(), assign.value.as_ref()))
+            }
+            _ => None,
+        }
+    }
+
+    /// Register a module-level type alias, returning whether the statement was
+    /// one.
+    ///
+    /// The aliased type is lowered eagerly through the ordinary annotation path,
+    /// so `Result: TypeAlias = Ok | Err` resolves to the same `Type::Union` an
+    /// inline `Ok | Err` annotation produces — which is what lets a method call
+    /// on a `Result` receiver dispatch across the union's arms.
+    ///
+    /// A right-hand side the annotation lowerer cannot represent is skipped
+    /// rather than reported: the alias then stays unresolved and any *use* of it
+    /// reports at the use site, where the diagnostic points at real code.
+    fn register_type_alias_statement(&mut self, stmt: &Stmt) -> bool {
+        let Some((name, value)) = Self::type_alias_parts(stmt) else {
+            return false;
+        };
+        let name = name.to_owned();
+        let mut params = Vec::new();
+        self.collect_alias_params(value, &mut params);
+        if let Ok(ty) = self.annotation_to_hir(value) {
+            self.type_aliases.insert(name, TypeAliasDef { ty, params });
+        }
+        true
+    }
+
+    /// Collect the type-parameter names an alias's right-hand side mentions, in
+    /// first-appearance order.
+    ///
+    /// Pre-PEP-695 Python does not declare an alias's parameters; they are
+    /// simply whichever `TypeVar`s appear in the aliased expression, and a
+    /// subscripted use supplies them left to right. Walking the source
+    /// expression (rather than the lowered type) keeps that order exact.
+    fn collect_alias_params(&self, value: &Expr, params: &mut Vec<String>) {
+        match value {
+            Expr::Name(name) => {
+                let name = name.id.as_str();
+                if self.type_param_names.iter().any(|known| known == name)
+                    && !params.iter().any(|seen| seen == name)
+                {
+                    params.push(name.to_owned());
+                }
+            }
+            Expr::Subscript(subscript) => {
+                self.collect_alias_params(&subscript.value, params);
+                self.collect_alias_params(&subscript.slice, params);
+            }
+            Expr::Tuple(tuple) => {
+                for element in &tuple.elts {
+                    self.collect_alias_params(element, params);
+                }
+            }
+            Expr::BinOp(binary) => {
+                self.collect_alias_params(&binary.left, params);
+                self.collect_alias_params(&binary.right, params);
+            }
+            _ => {}
+        }
+    }
+
+    /// Resolve a subscripted type alias (`Result[int, str]`) by substituting the
+    /// supplied arguments for the alias's parameters.
+    ///
+    /// Returns `None` when the base name is not an alias, so the ordinary
+    /// generic handling still runs. A use that supplies the wrong number of
+    /// arguments substitutes what it can and leaves the rest as declared, which
+    /// keeps the alias usable while `ty` reports the arity error at the source.
+    fn alias_subscript_annotation(
+        &mut self,
+        sub: &ruff_python_ast::ExprSubscript,
+    ) -> Result<Option<TypeId>, SmeltError> {
+        let Some(name) = expr_type_name(&sub.value) else {
+            return Ok(None);
+        };
+        let Some(alias) = self.type_aliases.get(name).cloned() else {
+            return Ok(None);
+        };
+        let arg_exprs: Vec<&Expr> = match sub.slice.as_ref() {
+            Expr::Tuple(tuple) => tuple.elts.iter().collect(),
+            single => vec![single],
+        };
+        let mut substitutions = HashMap::new();
+        for (param, arg) in alias.params.iter().zip(arg_exprs) {
+            let arg_ty = self.annotation_to_hir(arg)?;
+            substitutions.insert(param.clone(), arg_ty);
+        }
+        Ok(Some(self.substitute_alias_params(alias.ty, &substitutions)))
+    }
+
+    /// Replace an alias's parameter placeholders with concrete arguments.
+    ///
+    /// The Python frontend lowers an unresolved annotation name to an
+    /// argument-free `Type::Class` placeholder, so a parameter appears as a
+    /// class whose name matches. Only that shape is rewritten; every other type
+    /// is rebuilt with its children substituted.
+    fn substitute_alias_params(
+        &mut self,
+        ty: TypeId,
+        substitutions: &HashMap<String, TypeId>,
+    ) -> TypeId {
+        if substitutions.is_empty() {
+            return ty;
+        }
+        let Some(kind) = self.ctx.krate.types.get(ty).cloned() else {
+            return ty;
+        };
+        let substitute_all = |builder: &mut Self, items: &[TypeId]| {
+            items
+                .iter()
+                .map(|item| builder.substitute_alias_params(*item, substitutions))
+                .collect::<Vec<_>>()
+        };
+        match kind {
+            Type::Class { name, args } => {
+                if args.is_empty()
+                    && let Some(param_name) = self.ctx.krate.symbols.get(name)
+                    && let Some(replacement) = substitutions.get(param_name)
+                {
+                    return *replacement;
+                }
+                let args = substitute_all(self, &args);
+                self.intern_type(Type::Class { name, args })
+            }
+            Type::TypeParam { name } => self
+                .ctx
+                .krate
+                .symbols
+                .get(name)
+                .and_then(|param_name| substitutions.get(param_name).copied())
+                .unwrap_or(ty),
+            Type::Union(items) => {
+                let items = substitute_all(self, &items);
+                self.intern_type(Type::Union(items))
+            }
+            Type::Tuple(items) => {
+                let items = substitute_all(self, &items);
+                self.intern_type(Type::Tuple(items))
+            }
+            Type::Optional(inner) => {
+                let inner = self.substitute_alias_params(inner, substitutions);
+                self.intern_type(Type::Optional(inner))
+            }
+            Type::List(item) => {
+                let item = self.substitute_alias_params(item, substitutions);
+                self.intern_type(Type::List(item))
+            }
+            Type::Set(item) => {
+                let item = self.substitute_alias_params(item, substitutions);
+                self.intern_type(Type::Set(item))
+            }
+            Type::Future(item) => {
+                let item = self.substitute_alias_params(item, substitutions);
+                self.intern_type(Type::Future(item))
+            }
+            Type::Dict(key, value) => {
+                let key = self.substitute_alias_params(key, substitutions);
+                let value = self.substitute_alias_params(value, substitutions);
+                self.intern_type(Type::Dict(key, value))
+            }
+            _ => ty,
+        }
+    }
+
     /// Lower a bare name in annotation position (e.g. `int`, `str`, `MyClass`).
     fn name_annotation(&mut self, name: &str, range: TextRange) -> Result<TypeId, SmeltError> {
         let span = self.span(range);
+        // A module-level type alias resolves to the type it names.
+        if let Some(alias) = self.type_aliases.get(name) {
+            return Ok(alias.ty);
+        }
         match name {
             "int" => Ok(self.intern_type(Type::Int)),
             "float" => Ok(self.intern_type(Type::Float)),
@@ -255,6 +514,10 @@ impl ModuleBuilder<'_> {
         &mut self,
         sub: &ruff_python_ast::ExprSubscript,
     ) -> Result<TypeId, SmeltError> {
+        // `Result[int, str]` — a parameterised module-level alias.
+        if let Some(aliased) = self.alias_subscript_annotation(sub)? {
+            return Ok(aliased);
+        }
         let span = self.span(sub.range);
         let type_name = expr_type_name(&sub.value).unwrap_or("");
 

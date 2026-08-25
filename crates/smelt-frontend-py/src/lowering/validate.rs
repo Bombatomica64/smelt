@@ -84,6 +84,73 @@ fn is_module_all_assignment(stmt: &Stmt) -> bool {
     }
 }
 
+/// Whether an assignment *declares a type parameter* rather than a runtime value.
+///
+/// `T = TypeVar("T")` (PEP 484), `P = ParamSpec("P")` (PEP 612), and
+/// `Ts = TypeVarTuple("Ts")` (PEP 646) are declarations consumed by the type
+/// system. Python *requires* the statement — a bare `Generic[T]` will not
+/// compile without it — but it binds nothing the program ever reads at runtime.
+///
+/// Smelt resolves a type-parameter reference structurally instead: a
+/// `Generic[T]` marker base supplies a class's parameters
+/// (`generic_marker_type_params`), and an unresolved annotation name lowers to
+/// a placeholder class type that later phases match against them. So the
+/// declaration has nothing to lower, and treating it as an ordinary call is what
+/// made the statement Python demands into a hard error.
+///
+/// The bare and `typing.`-qualified spellings are both recognized, and the alias
+/// spelling (`from typing import TypeVar as TV`) is deliberately not: this keys
+/// on the constructor name only, which is the general rule these three PEPs
+/// define, not a per-library pattern.
+fn is_type_param_declaration(stmt: &Stmt) -> bool {
+    type_param_declaration_name(stmt).is_some()
+}
+
+/// The name a type-parameter declaration binds, or `None` for any other
+/// statement. See [`is_type_param_declaration`].
+fn type_param_declaration_name(stmt: &Stmt) -> Option<&str> {
+    const TYPE_PARAM_CONSTRUCTORS: [&str; 3] = ["TypeVar", "ParamSpec", "TypeVarTuple"];
+
+    let Stmt::Assign(assign) = stmt else {
+        return None;
+    };
+    let [Expr::Name(target)] = assign.targets.as_slice() else {
+        return None;
+    };
+    let Expr::Call(call) = assign.value.as_ref() else {
+        return None;
+    };
+    let constructor = match call.func.as_ref() {
+        Expr::Name(name) => name.id.as_str(),
+        // `typing.TypeVar("T")` / `typing_extensions.ParamSpec("P")`.
+        Expr::Attribute(attribute) => attribute.attr.as_str(),
+        _ => return None,
+    };
+    TYPE_PARAM_CONSTRUCTORS
+        .contains(&constructor)
+        .then(|| target.id.as_str())
+}
+
+/// Whether a class-body assignment is `CPython` metadata rather than a class
+/// variable.
+///
+/// `__slots__` declares the instance attribute storage and `__match_args__` the
+/// positional order used by structural pattern matching. Both describe a shape
+/// Smelt already derives from the lowered class — fields and their declaration
+/// order — so re-materializing them as class variables would duplicate the
+/// class's own definition, and rejecting them (they are tuples, not literals)
+/// blocked classes that merely declare their layout the idiomatic way.
+///
+/// This is the class-body counterpart to skipping `__all__` at module level.
+fn is_class_metadata_assignment(assign: &StmtAssign) -> bool {
+    const CLASS_METADATA_NAMES: [&str; 2] = ["__slots__", "__match_args__"];
+
+    let [Expr::Name(target)] = assign.targets.as_slice() else {
+        return false;
+    };
+    CLASS_METADATA_NAMES.contains(&target.id.as_str())
+}
+
 /// Return whether a raise statement is the simple `StopIteration` sentinel form.
 fn is_stop_iteration_raise(raise_stmt: &ruff_python_ast::StmtRaise) -> bool {
     match raise_stmt.exc.as_deref() {

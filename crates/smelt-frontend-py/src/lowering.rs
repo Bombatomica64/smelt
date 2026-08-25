@@ -50,6 +50,16 @@ pub(crate) struct SpecializationData {
     effects: Vec<smelt_specialize::EffectReplay>,
 }
 
+/// A module-level type alias and the parameters it is generic over.
+#[derive(Debug, Clone)]
+pub(crate) struct TypeAliasDef {
+    /// The aliased type, with its parameters left as placeholders.
+    ty: TypeId,
+    /// Type-parameter names the alias abstracts over, in first-appearance
+    /// order — the order a subscripted use (`Result[int, str]`) supplies them.
+    params: Vec<String>,
+}
+
 /// Stateful Python-module lowering context.
 pub(crate) struct ModuleBuilder<'ctx> {
     /// Source file ID for spans created while lowering.
@@ -82,6 +92,10 @@ pub(crate) struct ModuleBuilder<'ctx> {
     class_static_methods: HashMap<String, HashMap<String, ItemId>>,
     /// Class fields keyed by class name while a class body is being lowered.
     class_fields: HashMap<String, Vec<Field>>,
+    /// Module-level type aliases (`Result: TypeAlias = Ok | Err`) by source name.
+    type_aliases: HashMap<String, TypeAliasDef>,
+    /// Names declared by `TypeVar`/`ParamSpec`/`TypeVarTuple`, in source order.
+    type_param_names: Vec<String>,
     /// Imported module/package namespaces available by local module name.
     module_namespaces: HashMap<String, HashMap<String, ItemId>>,
     /// Pytest fixture functions available to tests in this module.
@@ -241,6 +255,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             class_methods,
             class_static_methods,
             class_fields: HashMap::new(),
+            type_aliases: HashMap::new(),
+            type_param_names: Vec::new(),
             module_namespaces,
             pytest_fixtures: HashMap::new(),
             current_async: false,
@@ -302,6 +318,15 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 self.import_stmt(import, &mut hir_module);
             } else if let Stmt::ImportFrom(import) = stmt {
                 self.import_from_stmt(import, &mut hir_module);
+            } else if let Some(name) = type_param_declaration_name(stmt) {
+                // Recorded so a parameterised alias can order its parameters.
+                let name = name.to_owned();
+                if !self.type_param_names.contains(&name) {
+                    self.type_param_names.push(name);
+                }
+            } else if self.register_type_alias_statement(stmt) {
+                // A type alias declares no runtime binding; see
+                // `register_type_alias_statement`.
             } else if let Stmt::Assign(assign) = stmt {
                 match self.constructed_constant_assign(assign, &mut hir_module) {
                     Ok(()) => {}
@@ -317,6 +342,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 stmt,
                 Stmt::FunctionDef(_) | Stmt::ClassDef(_) | Stmt::Import(_) | Stmt::ImportFrom(_)
             ) || is_module_all_assignment(stmt)
+                || is_type_param_declaration(stmt)
+                || Self::is_type_alias_statement(stmt)
                 || self.is_constructed_constant_assignment(stmt)
             {
                 continue; // already lowered in Pass 1

@@ -18,6 +18,8 @@ struct ClassBodyLowering {
     enum_members: HashMap<String, i64>,
     /// Abstract-method signatures collected from `@abstractmethod` members.
     abstract_methods: Vec<MethodSig>,
+    /// Read-only descriptors declared by source `@property` getters.
+    property_descriptors: Vec<smelt_hir::Descriptor>,
 }
 
 impl ModuleBuilder<'_> {
@@ -270,6 +272,7 @@ impl ModuleBuilder<'_> {
             self.reserve_class_method_slots(class, class_name_str, class_sym, materialized.is_some())?;
         let mut enum_members = HashMap::new();
         let mut abstract_methods = Vec::new();
+        let mut property_descriptors = Vec::new();
 
         // Instance fields Python declares by assignment in `__init__` rather
         // than by a class-level annotation. Seeded before the body walk so that
@@ -324,6 +327,12 @@ impl ModuleBuilder<'_> {
                 // A bare `NAME = <literal>` in a non-enum class body declares a
                 // class variable (a static member shared by the class). Lower it
                 // to a materialized static field resolvable via `Class.NAME`.
+                // Class-body dunder metadata (`__slots__`, `__match_args__`)
+                // configures `CPython`'s attribute storage and structural-pattern
+                // machinery. It declares no class variable: Smelt derives both
+                // from the class's own lowered shape, exactly as `__all__` is
+                // skipped at module level.
+                Stmt::Assign(assign) if is_class_metadata_assignment(assign) => {}
                 Stmt::Assign(assign) if !is_int_enum => {
                     if let Some(static_field) = self.class_var_static_field(assign)? {
                         static_fields_out.push(static_field);
@@ -384,6 +393,11 @@ impl ModuleBuilder<'_> {
                         // then dispatches receiver-free (its `owner` becomes
                         // `ClassStaticMethod`), so it is bookkept as a static
                         // method and registered in `class_static_methods`.
+                        // A source `@property` getter lowers as an ordinary
+                        // instance method *and* registers a read-only descriptor,
+                        // so `obj.name` reads resolve to the getter's return type
+                        // and codegen emits the `obj.name()` call.
+                        let is_property = self.is_property_getter(func);
                         let is_classmethod = self.is_classmethod(func)?;
                         let mid = self.class_method_with_receiver(
                             class_name_str,
@@ -394,6 +408,10 @@ impl ModuleBuilder<'_> {
                             reserved_slot,
                         )?;
                         self.rename_materialized_descriptor_callable(class_name_str, func, mid)?;
+                        if is_property {
+                            let descriptor = self.property_descriptor(func, mid)?;
+                            property_descriptors.push(descriptor);
+                        }
                         if is_classmethod {
                             static_methods.push(mid);
                             self.class_static_methods
@@ -470,6 +488,7 @@ impl ModuleBuilder<'_> {
                 is_int_enum,
                 enum_members,
                 abstract_methods,
+                property_descriptors,
             },
             class_item_id,
         ))
@@ -502,12 +521,13 @@ impl ModuleBuilder<'_> {
         let method_ids = &mut lowered.method_ids;
         let mut constructor_id = lowered.constructor_id;
 
-        let descriptors = if let Some(manifest_class) = materialized {
+        let mut descriptors = std::mem::take(&mut lowered.property_descriptors);
+        descriptors.extend(if let Some(manifest_class) = materialized {
             self.merge_materialized_class_fields(class_name_str, manifest_class, fields, span);
             self.lower_materialized_descriptors(manifest_class, span)?
         } else {
             Vec::new()
-        };
+        });
         let descriptor_names = descriptors
             .iter()
             .map(|descriptor| descriptor.name)

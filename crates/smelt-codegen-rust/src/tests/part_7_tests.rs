@@ -10875,3 +10875,86 @@ class C(B):
         "both inherited slots must reach the leaf instance:\n{source}"
     );
 }
+
+/// A Python `@property` getter emits a Rust method, and a read through the
+/// property's *field* syntax emits the call.
+///
+/// Python spells the definition as a method and the use as a field; Rust has no
+/// properties, so the hand-written mapping is a plain method plus a call at the
+/// use site. The property must not become a struct field of its own.
+#[test]
+fn python_property_emits_a_getter_method_and_call() {
+    let source = source_for_py(
+        r"
+class Ok:
+    def __init__(self, value: int) -> None:
+        self._value = value
+
+    @property
+    def ok_value(self) -> int:
+        return self._value
+
+def read(o: Ok) -> int:
+    return o.ok_value
+",
+    );
+
+    assert!(
+        source.contains("fn ok_value(&self) -> i64"),
+        "the property getter must emit as a method:\n{source}"
+    );
+    assert!(
+        source.contains("o.ok_value()"),
+        "a property read must emit the getter call, not a field access:\n{source}"
+    );
+    let struct_body = source
+        .split("struct Ok {")
+        .nth(1)
+        .and_then(|rest| rest.split('}').next())
+        .unwrap_or_else(|| panic!("expected a generated `struct Ok`:\n{source}"));
+    assert!(
+        !struct_body.contains("ok_value"),
+        "a property is computed, so it must not also become a struct field:\n{source}"
+    );
+}
+
+/// A method call on a union receiver dispatches by matching the tagged enum,
+/// with no dynamic erasure.
+///
+/// The emitter has always been able to do this (`union_method_text`); what was
+/// missing was the Python frontend emitting an ordinary `Method` expression for
+/// a union-typed receiver instead of rejecting it. The arms are concrete
+/// classes, so the call must stay concrete — routing it through `SmeltUnknown`
+/// would be exactly the "reconcile concrete union arms" erasure the project
+/// forbids.
+#[test]
+fn python_union_receiver_method_dispatches_statically() {
+    let source = source_for_py(
+        r"
+class Ok:
+    def is_ok(self) -> bool:
+        return True
+
+class Err:
+    def is_ok(self) -> bool:
+        return False
+
+def check(r: Ok | Err) -> bool:
+    return r.is_ok()
+",
+    );
+
+    let check_body = source
+        .split("fn check(")
+        .nth(1)
+        .unwrap_or_else(|| panic!("expected a generated `check`:\n{source}"));
+    assert!(
+        check_body.contains("M0(value) => value.is_ok()")
+            && check_body.contains("M1(value) => value.is_ok()"),
+        "each union arm must call its own concrete method:\n{source}"
+    );
+    assert!(
+        !check_body.contains("SmeltUnknown"),
+        "a concrete union receiver must not erase to a dynamic value:\n{source}"
+    );
+}

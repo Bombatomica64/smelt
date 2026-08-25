@@ -1096,3 +1096,284 @@ class B(A):
     )?;
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Type-parameter declarations and `@property` getters.
+// ---------------------------------------------------------------------------
+
+/// `T = TypeVar("T")` is a type-system declaration, not a runtime call.
+///
+/// Python *requires* the statement — `Generic[T]` will not compile without it —
+/// so rejecting it made the only correct spelling of a generic class an error.
+#[test]
+fn typevar_declaration_lowers_with_a_generic_class() -> TestResult {
+    let source = py!(r#"
+from typing import Generic, TypeVar
+
+T = TypeVar("T")
+
+class Box(Generic[T]):
+    value: T
+    def __init__(self, value: T) -> None:
+        self.value = value
+"#);
+    let mut ctx = HirCtx::new();
+    lower_module(source, &mut ctx)?;
+    Ok(())
+}
+
+/// `ParamSpec` and `TypeVarTuple`, and the `typing.`-qualified spelling, are
+/// the same kind of declaration and are skipped the same way.
+#[test]
+fn param_spec_and_qualified_type_param_declarations_lower() -> TestResult {
+    let source = py!(r#"
+import typing
+from typing import ParamSpec, TypeVar, TypeVarTuple
+
+P = ParamSpec("P")
+Ts = TypeVarTuple("Ts")
+U = typing.TypeVar("U")
+V = TypeVar("V", bound=int)
+
+def identity(value: V) -> V:
+    return value
+"#);
+    let mut ctx = HirCtx::new();
+    lower_module(source, &mut ctx)?;
+    Ok(())
+}
+
+/// A `@property` getter lowers as an instance method and registers a read-only
+/// descriptor, so the property is readable through field syntax.
+#[test]
+fn property_getter_lowers_as_a_readable_descriptor() -> TestResult {
+    let source = py!(r#"
+class Ok:
+    def __init__(self, value: int) -> None:
+        self._value = value
+
+    @property
+    def ok_value(self) -> int:
+        return self._value
+
+def read(o: Ok) -> int:
+    return o.ok_value
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let class_item_id = module
+        .items
+        .iter()
+        .find(|&&item_id| matches!(item(&ctx, item_id), Ok(Item::Class(_))))
+        .copied()
+        .ok_or("expected a class item")?;
+    let Item::Class(class) = item(&ctx, class_item_id)? else {
+        return Err("expected Class item".to_owned());
+    };
+    ensure_eq(&class.descriptors.len(), &1, "property descriptor count")?;
+    ensure_eq(
+        &symbol(&ctx, class.descriptors[0].name)?,
+        &"ok_value",
+        "descriptor name",
+    )?;
+    ensure(
+        class.descriptors[0].getter.is_some(),
+        "the descriptor must carry the source getter",
+    )?;
+    ensure(
+        class.descriptors[0].write_ty.is_none() && !class.descriptors[0].data_descriptor,
+        "a bare @property is read-only",
+    )?;
+    Ok(())
+}
+
+/// `__slots__` and `__match_args__` are `CPython` metadata, not class variables.
+///
+/// Both are tuples, so the class-variable rule (a single name bound to a
+/// literal) rejected them and blocked any class that declares its layout the
+/// idiomatic way.
+#[test]
+fn class_metadata_assignments_are_skipped() -> TestResult {
+    let source = py!(r#"
+class Ok:
+    __match_args__ = ("ok_value",)
+    __slots__ = ("_value",)
+
+    def __init__(self, value: int) -> None:
+        self._value = value
+
+    @property
+    def ok_value(self) -> int:
+        return self._value
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let class_item_id = module
+        .items
+        .iter()
+        .find(|&&item_id| matches!(item(&ctx, item_id), Ok(Item::Class(_))))
+        .copied()
+        .ok_or("expected a class item")?;
+    let Item::Class(class) = item(&ctx, class_item_id)? else {
+        return Err("expected Class item".to_owned());
+    };
+    ensure(
+        class.static_fields.is_empty(),
+        "class metadata must not materialize as static fields",
+    )?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Type aliases and union-receiver method dispatch.
+// ---------------------------------------------------------------------------
+
+/// All three type-alias spellings resolve to the type they name.
+#[test]
+fn type_alias_spellings_resolve() -> TestResult {
+    for source in [
+        // PEP 613: the explicit `TypeAlias` annotation.
+        py!(r#"
+from typing import TypeAlias, Union
+
+class Ok:
+    def is_ok(self) -> bool:
+        return True
+
+class Err:
+    def is_ok(self) -> bool:
+        return False
+
+Result: TypeAlias = Union[Ok, Err]
+
+def check(r: Result) -> bool:
+    return r.is_ok()
+"#),
+        // Pre-3.12 idiom: a bare assignment of a type expression.
+        py!(r#"
+class Ok:
+    def is_ok(self) -> bool:
+        return True
+
+class Err:
+    def is_ok(self) -> bool:
+        return False
+
+Result = Ok | Err
+
+def check(r: Result) -> bool:
+    return r.is_ok()
+"#),
+        // PEP 695 statement form.
+        py!(r#"
+class Ok:
+    def is_ok(self) -> bool:
+        return True
+
+class Err:
+    def is_ok(self) -> bool:
+        return False
+
+type Result = Ok | Err
+
+def check(r: Result) -> bool:
+    return r.is_ok()
+"#),
+    ] {
+        let mut ctx = HirCtx::new();
+        lower_module(source, &mut ctx)?;
+    }
+    Ok(())
+}
+
+/// An ordinary value assignment is not mistaken for a type alias.
+///
+/// A type alias is *skipped* during module-body lowering, so a false match would
+/// silently delete the assignment. The module body must still bind the value.
+#[test]
+fn value_assignment_is_not_a_type_alias() -> TestResult {
+    let source = py!(r#"
+LIMIT = 10
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let module_body = body(&ctx, module.body.ok_or("expected a module body")?)?;
+    ensure(
+        module_body
+            .stmts
+            .iter()
+            .any(|stmt| matches!(stmt, smelt_hir::Stmt::Let { .. })),
+        "a value assignment must still lower as a binding, not be skipped as an alias",
+    )?;
+    Ok(())
+}
+
+/// A parameterised alias substitutes its arguments positionally, so
+/// `Pair[int, str]` really is `(int, str)` and not the declared placeholders.
+#[test]
+fn parameterised_type_alias_substitutes_arguments() -> TestResult {
+    let source = py!(r#"
+from typing import Tuple, TypeAlias, TypeVar
+
+A = TypeVar("A")
+B = TypeVar("B")
+
+Pair: TypeAlias = Tuple[A, B]
+
+def first(p: Pair[int, str]) -> int:
+    return p[0]
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let Item::Function(function) = item(
+        &ctx,
+        *module.items.last().ok_or("expected a function item")?,
+    )?
+    else {
+        return Err("expected Function item".to_owned());
+    };
+    let param_ty = function
+        .params
+        .first()
+        .map(|param| param.ty)
+        .ok_or("expected a parameter")?;
+    let Some(Type::Tuple(items)) = ctx.krate.types.get(param_ty) else {
+        return Err("expected the alias to lower to a tuple".to_owned());
+    };
+    ensure_eq(&items.len(), &2, "tuple arity")?;
+    ensure(
+        matches!(ctx.krate.types.get(items[0]), Some(Type::Int))
+            && matches!(ctx.krate.types.get(items[1]), Some(Type::String)),
+        "alias parameters must be replaced by the supplied arguments",
+    )?;
+    Ok(())
+}
+
+/// A union receiver dispatches when every arm declares the method, and is
+/// refused when one does not.
+#[test]
+fn union_receiver_requires_every_arm_to_declare_the_method() -> TestResult {
+    let source = py!(r#"
+class Ok:
+    def is_ok(self) -> bool:
+        return True
+
+class Err:
+    def other(self) -> bool:
+        return False
+
+def check(r: Ok | Err) -> bool:
+    return r.is_ok()
+"#);
+    let mut ctx = HirCtx::new();
+    let errors = lower_errors(source, &mut ctx)?;
+    ensure(
+        !errors.is_empty(),
+        "a union arm missing the method must not dispatch",
+    )?;
+    Ok(())
+}
