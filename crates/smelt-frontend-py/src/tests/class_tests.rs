@@ -894,3 +894,120 @@ def f(c: C) -> int:
     )?;
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Instance fields declared by assignment in `__init__` (issue #94).
+// ---------------------------------------------------------------------------
+
+/// A field assigned from an `__init__` parameter is declared with that
+/// parameter's type, so a method call through the field dispatches statically.
+///
+/// Without the implicit declaration the class lowers with no fields at all, and
+/// `field_type`'s fieldless-class fallback types `self.inner` as `B` itself —
+/// so `self.inner.a()` looked for `a` on `B`, found nothing, and fell through
+/// to the unsupported-call diagnostic.
+#[test]
+fn constructor_assigned_field_supports_method_dispatch() -> TestResult {
+    let source = py!(r#"
+class A:
+    def a(self) -> int:
+        return 1
+
+class B:
+    def __init__(self, inner: A) -> None:
+        self.inner = inner
+    def b(self) -> int:
+        return self.inner.a()
+"#);
+    let mut ctx = HirCtx::new();
+    lower_module(source, &mut ctx)?;
+    Ok(())
+}
+
+/// The implicitly declared field carries the parameter's real type, not the
+/// enclosing class's. Passing it to a function typed for the field's class must
+/// type-check.
+#[test]
+fn constructor_assigned_field_has_the_parameter_type() -> TestResult {
+    let source = py!(r#"
+class A:
+    def a(self) -> int:
+        return 1
+
+def take(x: A) -> int:
+    return x.a()
+
+class B:
+    def __init__(self, inner: A) -> None:
+        self.inner = inner
+    def b(self) -> int:
+        return take(self.inner)
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let class_item_id = module
+        .items
+        .iter()
+        .rev()
+        .find(|&&item_id| matches!(item(&ctx, item_id), Ok(Item::Class(_))))
+        .copied()
+        .ok_or("expected a class item")?;
+    let Item::Class(class) = item(&ctx, class_item_id)? else {
+        return Err("expected Class item".to_owned());
+    };
+    ensure_eq(&class.fields.len(), &1, "implicit field count")?;
+    ensure_eq(
+        &symbol(&ctx, class.fields[0].name)?,
+        &"inner",
+        "implicit field name",
+    )?;
+    Ok(())
+}
+
+/// An explicit class-level annotation still wins: the field is declared once,
+/// with the annotated type, and the `__init__` assignment does not duplicate it.
+#[test]
+fn class_level_annotation_wins_over_constructor_assignment() -> TestResult {
+    let source = py!(r#"
+class Point:
+    x: int
+    def __init__(self, x: int) -> None:
+        self.x = x
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let class_item_id = module
+        .items
+        .iter()
+        .rev()
+        .find(|&&item_id| matches!(item(&ctx, item_id), Ok(Item::Class(_))))
+        .copied()
+        .ok_or("expected a class item")?;
+    let Item::Class(class) = item(&ctx, class_item_id)? else {
+        return Err("expected Class item".to_owned());
+    };
+    ensure_eq(&class.fields.len(), &1, "field count (no duplicate)")?;
+    Ok(())
+}
+
+/// `self.<name>: T = <value>` inside `__init__` declares the field from its own
+/// annotation, even when the value is not a plain parameter reference.
+#[test]
+fn annotated_constructor_assignment_declares_field() -> TestResult {
+    let source = py!(r#"
+class A:
+    def a(self) -> int:
+        return 1
+
+class B:
+    def __init__(self) -> None:
+        self.inner: A = A()
+    def b(self) -> int:
+        return self.inner.a()
+"#);
+    let mut ctx = HirCtx::new();
+    lower_module(source, &mut ctx)?;
+    Ok(())
+}

@@ -14,8 +14,9 @@
 //! consumes the types it resolves. `ty` already understands call-result types,
 //! unions/narrowing, generics, and — crucially — types that live in the
 //! **vendored typeshed stubs** rather than user source. The feasibility of
-//! embedding it was proven by `crates/smelt-py-ty-spike`; this crate
-//! productionizes that spike into a small, stable query surface.
+//! embedding it was proven by a since-removed spike crate (the design record
+//! lives in `specs/python-type-checking-with-ty.md`); this crate productionizes
+//! that spike into a small, stable query surface.
 //!
 //! # The stable query surface
 //!

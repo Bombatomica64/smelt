@@ -359,15 +359,35 @@ impl ModuleBuilder<'_> {
     }
 
     /// `x: T [= value]` → `Stmt::Let { pat, ty, value }`.
+    ///
+    /// An *attribute* target (`self.field: T = value`) is not a new binding —
+    /// the field is already declared, either by a class-level annotation or by
+    /// this very statement via
+    /// [`Self::implicit_constructor_fields`](crate::lowering::ModuleBuilder::implicit_constructor_fields).
+    /// It therefore lowers as an ordinary assignment to the field place, with
+    /// the annotation supplying the expected type for the value.
     fn ann_assign(
         &mut self,
         ann: &StmtAnnAssign,
         body: &mut Body,
         block: smelt_hir::BlockId,
     ) -> Result<(), SmeltError> {
+        if matches!(ann.target.as_ref(), Expr::Attribute(_)) {
+            let ty = self.annotation_to_hir(&ann.annotation)?;
+            let target = self.expression(&ann.target, body)?;
+            let Some(value) = ann.value.as_deref() else {
+                return Err(SmeltError::unsupported(
+                    self.span(ann.range()),
+                    "an annotated attribute declaration requires a value",
+                ));
+            };
+            let value = self.expression_with_hint(value, body, Some(ty))?;
+            body.push_stmt_to_block(block, HirStmt::Assign { target, value });
+            return Ok(());
+        }
         let Expr::Name(target_name) = ann.target.as_ref() else {
             return Err(SmeltError::unsupported(
-                self.span(ann.range),
+                self.span(ann.range()),
                 "annotated assignment target must be a simple name",
             ));
         };
