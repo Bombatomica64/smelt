@@ -533,7 +533,7 @@ impl ModuleBuilder<'_> {
                 ty: throwing_function_ty,
                 span: self.span(arrow.span.start, arrow.span.end),
             });
-            let try_block = body.push_block(self.span(arrow.body.span.start, arrow.body.span.end));
+            let try_block = body.push_block(self.arrow_body_span(arrow));
             let call_expr = body.push_expr(Expr {
                 kind: ExprKind::ClosureCall {
                     callee,
@@ -2541,7 +2541,9 @@ impl ModuleBuilder<'_> {
             // local write.
             if let BindingPattern::BindingIdentifier(binding) = &declarator.id
                 && let Some(Expression::ArrowFunctionExpression(arrow)) = &declarator.init
-                && declarator.kind == oxc::ast::ast::VariableDeclarationKind::Const
+                // Since oxc 0.147 the declaration kind lives on the parent
+                // `VariableDeclaration`, not on each declarator.
+                && decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
             {
                 let annotated_ty = declarator
                     .type_annotation
@@ -2637,7 +2639,7 @@ impl ModuleBuilder<'_> {
                         &declarator.id,
                         value,
                         annotated_ty,
-                        matches!(declarator.kind, oxc::ast::ast::VariableDeclarationKind::Let),
+                        matches!(decl.kind, oxc::ast::ast::VariableDeclarationKind::Let),
                         body,
                         block,
                     )?;

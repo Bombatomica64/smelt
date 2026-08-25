@@ -154,6 +154,11 @@ impl ModuleBuilder<'_> {
                 {
                     return Ok(());
                 }
+                if let Expr::Call(call) = s.value.as_ref()
+                    && self.super_init_statement(call, body, block)?
+                {
+                    return Ok(());
+                }
                 let expr_id = self.expression(&s.value, body)?;
                 body.push_stmt_to_block(block, HirStmt::Expr(expr_id));
                 Ok(())
@@ -359,15 +364,35 @@ impl ModuleBuilder<'_> {
     }
 
     /// `x: T [= value]` → `Stmt::Let { pat, ty, value }`.
+    ///
+    /// An *attribute* target (`self.field: T = value`) is not a new binding —
+    /// the field is already declared, either by a class-level annotation or by
+    /// this very statement via
+    /// [`Self::implicit_constructor_fields`](crate::lowering::ModuleBuilder::implicit_constructor_fields).
+    /// It therefore lowers as an ordinary assignment to the field place, with
+    /// the annotation supplying the expected type for the value.
     fn ann_assign(
         &mut self,
         ann: &StmtAnnAssign,
         body: &mut Body,
         block: smelt_hir::BlockId,
     ) -> Result<(), SmeltError> {
+        if matches!(ann.target.as_ref(), Expr::Attribute(_)) {
+            let ty = self.annotation_to_hir(&ann.annotation)?;
+            let target = self.expression(&ann.target, body)?;
+            let Some(value) = ann.value.as_deref() else {
+                return Err(SmeltError::unsupported(
+                    self.span(ann.range()),
+                    "an annotated attribute declaration requires a value",
+                ));
+            };
+            let value = self.expression_with_hint(value, body, Some(ty))?;
+            body.push_stmt_to_block(block, HirStmt::Assign { target, value });
+            return Ok(());
+        }
         let Expr::Name(target_name) = ann.target.as_ref() else {
             return Err(SmeltError::unsupported(
-                self.span(ann.range),
+                self.span(ann.range()),
                 "annotated assignment target must be a simple name",
             ));
         };
@@ -454,7 +479,254 @@ impl ModuleBuilder<'_> {
         Ok(())
     }
 
+    /// Lower `super().__init__(args)` inside a derived class's `__init__`.
+    ///
+    /// Rust has no class inheritance, so Smelt flattens a derived class's struct
+    /// to carry its base's fields ahead of its own (`effective_class_fields` in
+    /// `smelt-codegen-rust`). The call therefore has no callee to defer to:
+    /// nothing runs the base's initialization unless it is emitted here against
+    /// the derived `self`.
+    ///
+    /// The lowering matches the TypeScript frontend's `super(...)` handling
+    /// (`decls/super_call.rs`) and emits only ordinary HIR — no dedicated node:
+    ///
+    /// ```text
+    /// let __smelt_super: Base = Base(args);   // the base's own constructor
+    /// self.<field> = __smelt_super.<field>;   // for each inherited field
+    /// ```
+    ///
+    /// Because the base is built through its *own* constructor, everything that
+    /// constructor does runs exactly once and in order — including its own
+    /// `super().__init__(..)`. Multi-level inheritance therefore needs no
+    /// special handling: each level only ever reproduces its immediate base, and
+    /// the flattened layouts agree because a base struct's fields are a prefix
+    /// of the derived struct's.
+    ///
+    /// Returns `false` when the statement is not a `super().__init__(..)` call,
+    /// leaving it to the ordinary expression path.
+    fn super_init_statement(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<bool, SmeltError> {
+        let Some(method) = Self::super_receiver_method(call) else {
+            return Ok(false);
+        };
+        let span = self.span(call.range());
+        if method != "__init__" {
+            // A `super().m(..)` call on an ordinary method has no place to
+            // dispatch under flattening: an override replaces the inherited slot
+            // in the derived impl, so the base body is simply not present to
+            // call. Reject it explicitly rather than silently dispatching back
+            // to the override, which would recurse forever.
+            return Err(SmeltError::unsupported(
+                span,
+                format!(
+                    "super().{method}() is not supported yet; only super().__init__() is lowered"
+                ),
+            ));
+        }
+
+        // The enclosing class comes from the `self` receiver's type, which is
+        // the owning class for every method body.
+        let Some(&self_local) = self.locals.get("self") else {
+            return Err(SmeltError::unsupported(
+                span,
+                "super().__init__() requires a `self` receiver",
+            ));
+        };
+        let class_ty = Self::local_ty(body, self_local);
+        let Some(Type::Class { name: class_sym, .. }) =
+            self.ctx.krate.types.get(class_ty).cloned()
+        else {
+            return Err(SmeltError::unsupported(
+                span,
+                "super().__init__() requires a class receiver",
+            ));
+        };
+        let Some(base_sym) = self.class_base_symbol(class_sym) else {
+            return Err(SmeltError::unsupported(
+                span,
+                "super().__init__() requires the enclosing class to declare a base class",
+            ));
+        };
+        let Some(base_name) = self.ctx.krate.symbols.get(base_sym).map(ToOwned::to_owned) else {
+            return Err(SmeltError::unsupported(
+                span,
+                "super().__init__() base class name is not resolvable",
+            ));
+        };
+
+        let args = call
+            .arguments
+            .args
+            .iter()
+            .map(|arg| self.expression(arg, body))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let base_ty = self.intern_type(Type::Class {
+            name: base_sym,
+            args: vec![],
+        });
+        let constructed = body.push_expr(HirExpr {
+            kind: ExprKind::New {
+                class: base_sym,
+                args,
+            },
+            ty: base_ty,
+            span,
+        });
+        let base_local_name = self.intern_name("__smelt_super");
+        let base_local = body.push_local(LocalDecl {
+            name: Some(base_local_name),
+            ty: base_ty,
+            mutable: false,
+            span,
+        });
+        let pat = body.push_pattern(HirPattern::Binding(base_local));
+        body.push_stmt_to_block(
+            block,
+            HirStmt::Let {
+                pat,
+                ty: base_ty,
+                value: Some(constructed),
+            },
+        );
+
+        for field in self.inherited_base_fields(&base_name) {
+            let receiver = body.push_expr(HirExpr {
+                kind: ExprKind::Local(self_local),
+                ty: class_ty,
+                span,
+            });
+            let target = body.push_expr(HirExpr {
+                kind: ExprKind::Field {
+                    receiver,
+                    field: field.name,
+                },
+                ty: field.ty,
+                span,
+            });
+            let source = body.push_expr(HirExpr {
+                kind: ExprKind::Local(base_local),
+                ty: base_ty,
+                span,
+            });
+            let value = body.push_expr(HirExpr {
+                kind: ExprKind::Field {
+                    receiver: source,
+                    field: field.name,
+                },
+                ty: field.ty,
+                span,
+            });
+            body.push_stmt_to_block(block, HirStmt::Assign { target, value });
+        }
+        Ok(true)
+    }
+
+    /// Read a call whose callee is `super().<method>`, returning the method name.
+    ///
+    /// Only the zero-argument `super()` spelling is recognized: the explicit
+    /// two-argument `super(Class, self)` form selects a different MRO entry and
+    /// is not modelled.
+    fn super_receiver_method(call: &ruff_python_ast::ExprCall) -> Option<&str> {
+        let Expr::Attribute(attribute) = call.func.as_ref() else {
+            return None;
+        };
+        let Expr::Call(receiver) = attribute.value.as_ref() else {
+            return None;
+        };
+        let Expr::Name(callee) = receiver.func.as_ref() else {
+            return None;
+        };
+        if callee.id.as_str() != "super"
+            || !receiver.arguments.args.is_empty()
+            || !receiver.arguments.keywords.is_empty()
+        {
+            return None;
+        }
+        Some(attribute.attr.as_str())
+    }
+
+    /// The base-class symbol declared by a lowered class, if it has one.
+    fn class_base_symbol(&self, class_sym: Symbol) -> Option<Symbol> {
+        self.ctx.krate.items.iter().find_map(|item| match item {
+            Item::Class(class) if class.name == class_sym => class.base,
+            _ => None,
+        })
+    }
+
+    /// The instance fields a derived class inherits, walking the base chain so
+    /// a multi-level base contributes its own inherited slots too.
+    ///
+    /// Ordering matches the flattened struct layout (`effective_class_fields`):
+    /// base-most fields first. A name redeclared further down the chain keeps
+    /// the nearest declaration, mirroring how the layout replaces the inherited
+    /// slot.
+    fn inherited_base_fields(&self, base_name: &str) -> Vec<Field> {
+        let mut chain: Vec<Vec<Field>> = Vec::new();
+        let mut visited: Vec<String> = Vec::new();
+        let mut cursor = Some(base_name.to_owned());
+        while let Some(name) = cursor {
+            if visited.contains(&name) {
+                break;
+            }
+            visited.push(name.clone());
+            let Some(class) = self.ctx.krate.items.iter().find_map(|item| match item {
+                Item::Class(class)
+                    if self.ctx.krate.symbols.get(class.name) == Some(name.as_str()) =>
+                {
+                    Some(class)
+                }
+                _ => None,
+            }) else {
+                break;
+            };
+            chain.push(class.fields.clone());
+            cursor = class
+                .base
+                .and_then(|base| self.ctx.krate.symbols.get(base))
+                .map(ToOwned::to_owned);
+        }
+        // `chain` runs derived-to-base; the layout is base-first.
+        let mut fields: Vec<Field> = Vec::new();
+        for level in chain.into_iter().rev() {
+            for field in level {
+                match fields
+                    .iter_mut()
+                    .find(|existing| existing.name == field.name)
+                {
+                    Some(existing) => *existing = field,
+                    None => fields.push(field),
+                }
+            }
+        }
+        fields
+    }
+
     /// Lower a nested Python function definition as a local closure value.
+    ///
+    /// # Return type
+    ///
+    /// The closure's return type is *not* required to be annotated. A nested
+    /// closure body is a single `return <expr>`, so the accurate return type is
+    /// the HIR type the frontend already computes for that expression while
+    /// lowering it into a [`CallbackExpr`]. The body is therefore lowered first
+    /// and its type used directly when the source omits `-> T` (issue #93:
+    /// idiomatic Python omits annotations, and the actual returned type is the
+    /// one lowering must follow). A declared `-> T` still wins when present and
+    /// is checked against the lowered body, so an explicit source contract is
+    /// never silently widened.
+    ///
+    /// # Parameter types
+    ///
+    /// Parameter types must be known *before* the body is lowered (they seed the
+    /// callback parameter environment), so they come from the annotation when
+    /// present and otherwise from `ty`'s resolved type for that parameter node.
+    /// A parameter `ty` cannot resolve stays an explicit error rather than being
+    /// routed through an erased ABI.
     fn nested_function_closure(
         &mut self,
         func: &StmtFunctionDef,
@@ -466,31 +738,26 @@ impl ModuleBuilder<'_> {
                 "async nested closures need async closure-body lowering",
             ));
         }
-        let return_ty = func
+        let declared_return_ty = func
             .returns
             .as_deref()
-            .ok_or_else(|| {
-                SmeltError::unsupported(
-                    self.span(func.range),
-                    "nested closure return type must be explicit",
-                )
-            })
-            .and_then(|annotation| self.annotation_to_hir(annotation))?;
+            .map(|annotation| self.annotation_to_hir(annotation))
+            .transpose()?;
         let mut params = Vec::new();
         let mut callback_params = HashMap::new();
         let mut defaults = Vec::new();
         for (index, param_with_default) in func.parameters.iter_non_variadic_params().enumerate() {
             let param = &param_with_default.parameter;
-            let param_ty = param
-                .annotation
-                .as_deref()
-                .ok_or_else(|| {
+            let param_ty = match param.annotation.as_deref() {
+                Some(annotation) => self.annotation_to_hir(annotation)?,
+                // No annotation: consult `ty` (issue #93) before erroring.
+                None => self.resolved_param_ty(param).ok_or_else(|| {
                     SmeltError::type_constraint(
                         self.span(param.range),
                         "nested closure parameters must have explicit type annotations",
                     )
-                })
-                .and_then(|annotation| self.annotation_to_hir(annotation))?;
+                })?,
+            };
             params.push(param_ty);
             callback_params.insert(
                 param.name.as_str(),
@@ -573,12 +840,21 @@ impl ModuleBuilder<'_> {
             )
         })?;
         let callback = self.python_callback_expr(return_expr, &callback_params, body)?;
-        if callback.ty != return_ty {
-            return Err(SmeltError::unsupported(
-                self.span(return_stmt.range),
-                "nested closure return type does not match its annotation",
-            ));
-        }
+        // With no declared `-> T`, the lowered body's own type *is* the closure's
+        // return type; with one, the declaration is the contract and the body
+        // must satisfy it exactly.
+        let return_ty = match declared_return_ty {
+            None => callback.ty,
+            Some(declared) => {
+                if callback.ty != declared {
+                    return Err(SmeltError::unsupported(
+                        self.span(return_stmt.range),
+                        "nested closure return type does not match its annotation",
+                    ));
+                }
+                declared
+            }
+        };
         let name_text = func.name.as_str();
         let name = self.intern_name(name_text);
         let ty = self.intern_type(Type::Function(FunctionType {
@@ -786,7 +1062,7 @@ impl ModuleBuilder<'_> {
         };
         if raises_call.arguments.args.is_empty() {
             return Err(SmeltError::unsupported(
-                self.span(raises_call.range),
+                self.span(raises_call.range()),
                 "pytest.raises requires an expected exception type",
             ));
         }

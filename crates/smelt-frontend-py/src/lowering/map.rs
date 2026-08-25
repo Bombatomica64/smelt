@@ -14,7 +14,7 @@ impl ModuleBuilder<'_> {
             "items" => DictProjectionOp::Entries,
             _ => return Ok(None),
         };
-        let span = self.span(call.range);
+        let span = self.span(call.range());
         if !call.arguments.args.is_empty() {
             return Err(SmeltError::unsupported(
                 span,
@@ -82,7 +82,7 @@ impl ModuleBuilder<'_> {
         if module.id.as_str() != "requests" {
             return Ok(None);
         }
-        let span = self.span(call.range);
+        let span = self.span(call.range());
         if call.arguments.args.len() != 1 {
             return Err(SmeltError::unsupported(
                 span,
@@ -134,7 +134,7 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         }
 
-        let span = self.span(call.range);
+        let span = self.span(call.range());
         match smelt_asyncio::classify_attr(attr.attr.as_str()) {
             smelt_asyncio::AsyncioApi::Gather => {
                 let args = call

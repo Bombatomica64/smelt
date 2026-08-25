@@ -19,7 +19,7 @@ impl ModuleBuilder<'_> {
         let Some(item_id) = self.class_static_method_item(class_name, method_name) else {
             return Ok(None);
         };
-        let span = self.span(call.range);
+        let span = self.span(call.range());
         let return_ty = match self.item_ref(item_id) {
             Item::Function(function) => function.return_ty,
             Item::Class(_) | Item::Interface(_) | Item::TypeAlias(_) | Item::Const(_) | Item::MutableGlobal(_) => {
@@ -120,7 +120,7 @@ impl ModuleBuilder<'_> {
         else {
             return Ok(None);
         };
-        let span = self.span(call.range);
+        let span = self.span(call.range());
         let return_ty = match self.item_ref(item_id) {
             Item::Function(function) => function.return_ty,
             Item::Class(_) | Item::Interface(_) | Item::TypeAlias(_) | Item::Const(_) | Item::MutableGlobal(_) => {
@@ -161,7 +161,7 @@ impl ModuleBuilder<'_> {
         }
         let [cls_expr, value_expr] = call.arguments.args.as_ref() else {
             return Err(SmeltError::unsupported(
-                self.span(call.range),
+                self.span(call.range()),
                 "int.__new__ currently supports cls and integer value arguments",
             ));
         };
@@ -180,7 +180,7 @@ impl ModuleBuilder<'_> {
                 args: vec![value],
             },
             ty,
-            span: self.span(call.range),
+            span: self.span(call.range()),
         })))
     }
 
@@ -249,7 +249,7 @@ impl ModuleBuilder<'_> {
         let Some(item_id) = self.module_member_item(attr) else {
             return Ok(None);
         };
-        let span = self.span(call.range);
+        let span = self.span(call.range());
         match self.item_ref(item_id) {
             Item::Class(class) => {
                 let class_sym = class.name;

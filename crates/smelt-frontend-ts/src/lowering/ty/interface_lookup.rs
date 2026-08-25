@@ -341,18 +341,21 @@ impl ModuleBuilder<'_> {
         &mut self,
         item: &oxc::ast::ast::TSInterfaceHeritage<'_>,
     ) -> Result<(smelt_hir::Symbol, Vec<smelt_hir::TypeId>), SmeltError> {
-        let name_text = match &item.expression {
-            Expression::Identifier(name) => name.name.to_string(),
-            Expression::StaticMemberExpression(member) => {
-                let Expression::Identifier(object) = &member.object else {
+        // Since oxc 0.147 an interface's heritage carries a `TSTypeName` rather
+        // than an `Expression`, so `A.B` is a `QualifiedName` instead of a
+        // static member expression.
+        let name_text = match &item.type_name {
+            TSTypeName::IdentifierReference(name) => name.name.to_string(),
+            TSTypeName::QualifiedName(qualified) => {
+                let TSTypeName::IdentifierReference(object) = &qualified.left else {
                     return Err(SmeltError::unsupported(
                         self.span(item.span.start, item.span.end),
                         "qualified interface inheritance is not lowered yet",
                     ));
                 };
-                format!("{}.{}", object.name, member.property.name)
+                format!("{}.{}", object.name, qualified.right.name)
             }
-            _ => {
+            TSTypeName::ThisExpression(_) => {
                 return Err(SmeltError::unsupported(
                     self.span(item.span.start, item.span.end),
                     "qualified interface inheritance is not lowered yet",

@@ -35,7 +35,7 @@ impl ModuleBuilder<'_> {
         };
         if call.arguments.args.len() != 1 || !call.arguments.keywords.is_empty() {
             return Err(SmeltError::unsupported(
-                self.span(call.range),
+                self.span(call.range()),
                 "primitive conversions currently support exactly one positional argument",
             ));
         }
@@ -53,7 +53,7 @@ impl ModuleBuilder<'_> {
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::PrimitiveCast { op, operand },
             ty,
-            span: self.span(call.range),
+            span: self.span(call.range()),
         })))
     }
 
@@ -71,7 +71,7 @@ impl ModuleBuilder<'_> {
         }
         if call.arguments.args.len() != 1 || !call.arguments.keywords.is_empty() {
             return Err(SmeltError::unsupported(
-                self.span(call.range),
+                self.span(call.range()),
                 "sum() currently supports exactly one list argument",
             ));
         }
@@ -95,7 +95,7 @@ impl ModuleBuilder<'_> {
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::ListSum { list },
             ty: *item_ty,
-            span: self.span(call.range),
+            span: self.span(call.range()),
         })))
     }
 
@@ -115,7 +115,7 @@ impl ModuleBuilder<'_> {
         };
         if call.arguments.args.len() != 1 || !call.arguments.keywords.is_empty() {
             return Err(SmeltError::unsupported(
-                self.span(call.range),
+                self.span(call.range()),
                 "all() and any() currently support exactly one bool list argument",
             ));
         }
@@ -137,7 +137,7 @@ impl ModuleBuilder<'_> {
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::ListBoolFold { op, list },
             ty,
-            span: self.span(call.range),
+            span: self.span(call.range()),
         })))
     }
 
@@ -160,7 +160,7 @@ impl ModuleBuilder<'_> {
         }
         if call.arguments.args.len() != 1 {
             return Err(SmeltError::unsupported(
-                self.span(call.range),
+                self.span(call.range()),
                 "sorted() currently supports exactly one list argument",
             ));
         }
@@ -193,7 +193,7 @@ impl ModuleBuilder<'_> {
                 reverse,
             },
             ty: list_ty,
-            span: self.span(call.range),
+            span: self.span(call.range()),
         })))
     }
 
@@ -264,7 +264,7 @@ impl ModuleBuilder<'_> {
         }
         if call.arguments.args.len() != 1 || !call.arguments.keywords.is_empty() {
             return Err(SmeltError::unsupported(
-                self.span(call.range),
+                self.span(call.range()),
                 "reversed() currently supports exactly one list argument and no keywords",
             ));
         }
@@ -279,7 +279,7 @@ impl ModuleBuilder<'_> {
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::ListReversed { list },
             ty: list_ty,
-            span: self.span(call.range),
+            span: self.span(call.range()),
         })))
     }
 
@@ -297,7 +297,7 @@ impl ModuleBuilder<'_> {
         }
         if call.arguments.args.len() != 1 || !call.arguments.keywords.is_empty() {
             return Err(SmeltError::unsupported(
-                self.span(call.range),
+                self.span(call.range()),
                 "enumerate() currently supports exactly one iterable argument and no start",
             ));
         }
@@ -318,7 +318,7 @@ impl ModuleBuilder<'_> {
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::ListEnumerate { list },
             ty,
-            span: self.span(call.range),
+            span: self.span(call.range()),
         })))
     }
 
@@ -336,7 +336,7 @@ impl ModuleBuilder<'_> {
         }
         if call.arguments.args.len() != 2 || !call.arguments.keywords.is_empty() {
             return Err(SmeltError::unsupported(
-                self.span(call.range),
+                self.span(call.range()),
                 "zip() currently supports exactly two iterable arguments",
             ));
         }
@@ -367,7 +367,7 @@ impl ModuleBuilder<'_> {
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::ListZip { left, right },
             ty,
-            span: self.span(call.range),
+            span: self.span(call.range()),
         })))
     }
 
@@ -383,7 +383,7 @@ impl ModuleBuilder<'_> {
         if name.id.as_str() != "range" {
             return Ok(None);
         }
-        let span = self.span(call.range);
+        let span = self.span(call.range());
         if !call.arguments.keywords.is_empty() {
             return Err(SmeltError::unsupported(
                 span,
@@ -451,7 +451,7 @@ impl ModuleBuilder<'_> {
         }
         if call.arguments.args.len() != 1 {
             return Err(SmeltError::unsupported(
-                self.span(call.range),
+                self.span(call.range()),
                 "list.extend() requires exactly one list argument",
             ));
         }
@@ -471,7 +471,7 @@ impl ModuleBuilder<'_> {
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::ListExtend { list, other },
             ty,
-            span: self.span(call.range),
+            span: self.span(call.range()),
         })))
     }
 
@@ -489,7 +489,7 @@ impl ModuleBuilder<'_> {
         }
         if call.arguments.args.len() != 2 {
             return Err(SmeltError::unsupported(
-                self.span(call.range),
+                self.span(call.range()),
                 "list.insert() requires index and item arguments",
             ));
         }
@@ -520,7 +520,7 @@ impl ModuleBuilder<'_> {
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::ListInsert { list, index, item },
             ty,
-            span: self.span(call.range),
+            span: self.span(call.range()),
         })))
     }
 
@@ -538,7 +538,7 @@ impl ModuleBuilder<'_> {
         }
         if call.arguments.args.len() != 1 {
             return Err(SmeltError::unsupported(
-                self.span(call.range),
+                self.span(call.range()),
                 "list.index() currently supports exactly one item argument",
             ));
         }
@@ -559,7 +559,7 @@ impl ModuleBuilder<'_> {
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::ListIndex { list, item },
             ty,
-            span: self.span(call.range),
+            span: self.span(call.range()),
         })))
     }
 
@@ -577,7 +577,7 @@ impl ModuleBuilder<'_> {
         }
         if call.arguments.args.len() != 1 {
             return Err(SmeltError::unsupported(
-                self.span(call.range),
+                self.span(call.range()),
                 "list.remove() requires exactly one item argument",
             ));
         }
@@ -598,7 +598,7 @@ impl ModuleBuilder<'_> {
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::ListRemove { list, item },
             ty,
-            span: self.span(call.range),
+            span: self.span(call.range()),
         })))
     }
 
@@ -620,7 +620,7 @@ impl ModuleBuilder<'_> {
         }
         if !call.arguments.args.is_empty() {
             return Err(SmeltError::unsupported(
-                self.span(call.range),
+                self.span(call.range()),
                 "list.sort() currently supports no positional arguments",
             ));
         }
@@ -652,7 +652,7 @@ impl ModuleBuilder<'_> {
                 reverse,
             },
             ty,
-            span: self.span(call.range),
+            span: self.span(call.range()),
         })))
     }
 }

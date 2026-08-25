@@ -11,6 +11,7 @@ use smelt_hir::{
     Type, UnaryOp, UnknownKind,
 };
 use smelt_stdlib::RuleId;
+use crate::lowering::support::arrow_block_statements;
 
 impl ModuleBuilder<'_> {
     /// Return whether a source constructor name resolves to a modeled TypeScript stdlib class.
@@ -1722,13 +1723,22 @@ impl ModuleBuilder<'_> {
     pub(super) fn promise_executor_timer_call<'a>(
         executor: &'a oxc::ast::ast::ArrowFunctionExpression<'a>,
     ) -> Option<&'a oxc::ast::ast::CallExpression<'a>> {
-        let [statement] = executor.body.statements.as_slice() else {
-            return None;
+        // The executor is written either concisely (`resolve => setTimeout(..)`)
+        // or as a block with one expression statement. Since oxc 0.147 the
+        // concise form carries the expression directly instead of wrapping it in
+        // an `ExpressionStatement`, so both shapes are read here.
+        let body_expression = match executor.get_expression() {
+            Some(expression) => expression,
+            None => {
+                let [Statement::ExpressionStatement(expr_stmt)] =
+                    arrow_block_statements(executor)
+                else {
+                    return None;
+                };
+                &expr_stmt.expression
+            }
         };
-        let Statement::ExpressionStatement(expr_stmt) = statement else {
-            return None;
-        };
-        let Expression::CallExpression(call) = &expr_stmt.expression else {
+        let Expression::CallExpression(call) = body_expression else {
             return None;
         };
         let Expression::Identifier(callee) = &call.callee else {

@@ -1654,6 +1654,19 @@ impl ModuleBuilder<'_> {
         Span::new(self.file_id, start, end)
     }
 
+    /// Get the span of an arrow function's body.
+    ///
+    /// Since oxc 0.147 an arrow's body is an `ArrowFunctionBody` enum — either a
+    /// block or a concise expression — so the span comes from `GetSpan` rather
+    /// than from a `FunctionBody` field.
+    pub(in crate::lowering) fn arrow_body_span(
+        &self,
+        arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
+    ) -> Span {
+        let span = arrow.body.span();
+        self.span(span.start, span.end)
+    }
+
     /// Get the span of a statement.
     pub(in crate::lowering) fn statement_span(&self, statement: &Statement<'_>) -> Span {
         let span = statement.span();

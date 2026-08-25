@@ -17,12 +17,12 @@ impl ModuleBuilder<'_> {
             name: Some(raised_sym),
             ty: bool_ty,
             mutable: true,
-            span: self.span(call.range),
+            span: self.span(call.range()),
         });
         let false_expr = body.push_expr(HirExpr {
             kind: ExprKind::Literal(Literal::Bool(false)),
             ty: bool_ty,
-            span: self.span(call.range),
+            span: self.span(call.range()),
         });
         let raised_pat = body.push_pattern(HirPattern::Binding(raised_local));
         body.push_stmt_to_block(
@@ -34,7 +34,7 @@ impl ModuleBuilder<'_> {
             },
         );
 
-        let try_body = body.push_block(self.span(call.range));
+        let try_body = body.push_block(self.span(call.range()));
         let callee = self.expression(&call.arguments.args[1], body)?;
         let args = call
             .arguments
@@ -46,23 +46,23 @@ impl ModuleBuilder<'_> {
         let value = body.push_expr(HirExpr {
             kind: ExprKind::Call { callee, args },
             ty: self.intern_type(Type::None),
-            span: self.span(call.range),
+            span: self.span(call.range()),
         });
         body.push_stmt_to_block(try_body, HirStmt::Expr(value));
 
         let catch_binding = match_expr
             .is_some()
-            .then(|| self.pytest_raises_hidden_exception_local(call.range, body));
-        let catch_body = body.push_block(self.span(call.range));
+            .then(|| self.pytest_raises_hidden_exception_local(call.range(), body));
+        let catch_body = body.push_block(self.span(call.range()));
         let raised_target = body.push_expr(HirExpr {
             kind: ExprKind::Local(raised_local),
             ty: bool_ty,
-            span: self.span(call.range),
+            span: self.span(call.range()),
         });
         let true_expr = body.push_expr(HirExpr {
             kind: ExprKind::Literal(Literal::Bool(true)),
             ty: bool_ty,
-            span: self.span(call.range),
+            span: self.span(call.range()),
         });
         body.push_stmt_to_block(
             catch_body,
@@ -74,7 +74,7 @@ impl ModuleBuilder<'_> {
         if let (Some(exception_local), Some(pattern)) = (catch_binding, match_expr) {
             self.push_pytest_raises_match_assert(
                 (exception_local, pattern),
-                call.range,
+                call.range(),
                 body,
                 catch_body,
             );
@@ -92,7 +92,7 @@ impl ModuleBuilder<'_> {
         let raised_check = body.push_expr(HirExpr {
             kind: ExprKind::Local(raised_local),
             ty: bool_ty,
-            span: self.span(call.range),
+            span: self.span(call.range()),
         });
         let missing_raise = body.push_expr(HirExpr {
             kind: ExprKind::UnaryOp {
@@ -100,11 +100,11 @@ impl ModuleBuilder<'_> {
                 operand: raised_check,
             },
             ty: bool_ty,
-            span: self.span(call.range),
+            span: self.span(call.range()),
         });
-        let failure_block = body.push_block(self.span(call.range));
+        let failure_block = body.push_block(self.span(call.range()));
         let message =
-            self.string_literal_expr("pytest.raises(...) did not raise", call.range, body);
+            self.string_literal_expr("pytest.raises(...) did not raise", call.range(), body);
         body.push_stmt_to_block(failure_block, HirStmt::Throw(message));
         body.push_stmt_to_block(
             block,

@@ -22,7 +22,7 @@ impl ModuleBuilder<'_> {
         call: &ruff_python_ast::ExprCall,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let span = self.span(call.range);
+        let span = self.span(call.range());
         if call.arguments.args.len() != 1 {
             return Err(SmeltError::unsupported(
                 span,
@@ -68,7 +68,7 @@ impl ModuleBuilder<'_> {
         if module.id.as_str() != "math" {
             return Ok(None);
         }
-        let span = self.span(call.range);
+        let span = self.span(call.range());
         match attr.attr.as_str() {
             "sqrt" | "sin" | "cos" | "tan" | "asin" | "acos" | "atan" | "log" | "log10"
             | "log2" | "exp" => {
@@ -267,7 +267,7 @@ impl ModuleBuilder<'_> {
         if module.id.as_str() != "random" {
             return Ok(None);
         }
-        let span = self.span(call.range);
+        let span = self.span(call.range());
         match rule {
             RuleId::PyRandomRandom => {
                 if !call.arguments.args.is_empty() {
@@ -338,7 +338,7 @@ impl ModuleBuilder<'_> {
         call: &ruff_python_ast::ExprCall,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let span = self.span(call.range);
+        let span = self.span(call.range());
         let Expr::Name(name) = call.func.as_ref() else {
             return Err(SmeltError::unsupported(
                 span,
@@ -401,7 +401,7 @@ impl ModuleBuilder<'_> {
             "upper" => StringCaseOp::Upper,
             _ => return Ok(None),
         };
-        let span = self.span(call.range);
+        let span = self.span(call.range());
         if !call.arguments.args.is_empty() {
             return Err(SmeltError::unsupported(
                 span,

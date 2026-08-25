@@ -41,7 +41,6 @@ counted files account for only ~3,861 of 100,394 counted lines (~3.9%). So the
 | smelt-stdlib | 408 | 75.5% | 100.0% | 100 | 7 |
 | smelt-test | 482 | 90.2% | 61.4% | 47 | 11 |
 | smelt-py-types | 298 | 87.2% | 68.5% | 38 | 6 |
-| smelt-py-ty-spike | 123 | **0.0%** | — | 123 | 12 |
 
 The two crates that look alarming — `smelt-hir` at 30.1% and `smelt-specialize`
 at 36.1% branches — have specific, fixable causes, covered below. `smelt-mir`'s
@@ -373,7 +372,8 @@ on this branch is the real test of that assumption.**
 
 Three small cleanups worth folding in:
 
-- `smelt-py-ty-spike` is at 0.0% across 123 lines and 12 functions — if it is a
+- (Resolved: `smelt-py-ty-spike` was removed once `smelt-py-types` superseded
+  it.) It was at 0.0% across 123 lines and 12 functions — if it is a
   finished spike, delete it rather than carry it in the denominator.
 - `KNOWN_COMPILE_FAILURES`' `async_await` entry is a known real bug still
   awaiting a fix.
