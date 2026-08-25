@@ -370,6 +370,10 @@ fn needs_timer_helpers(mir: &Mir) -> bool {
                     | AsyncOp::Promise
                     | AsyncOp::Then
                     | AsyncOp::Catch
+                    // `Promise.race` is backed by `smelt_promise_race`, which
+                    // lives with the timer helpers because it drives the same
+                    // cooperative promise-task queue.
+                    | AsyncOp::Race
                     | AsyncOp::SpawnLocal,
                 ..
             }
@@ -2263,6 +2267,9 @@ fn emit_source_with_free_function_router(
             writer.line("    static SMELT_NEXT_TIMER_ID: ::std::cell::Cell<u64> = const { ::std::cell::Cell::new(1) };");
             writer.line("    static SMELT_TIMERS: ::std::cell::RefCell<Vec<SmeltTimer>> = const { ::std::cell::RefCell::new(Vec::new()) };");
             writer.line("    static SMELT_PROMISE_TASKS: ::std::cell::RefCell<Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = ()>>>>> = const { ::std::cell::RefCell::new(Vec::new()) };");
+            writer.line("    // Non-zero while a `Promise.race` driver owns the event loop; see");
+            writer.line("    // `smelt_promise_race`.");
+            writer.line("    static SMELT_RACE_DEPTH: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) };");
             writer.line("}");
             writer.blank_line();
             writer.line(format!(
@@ -2274,6 +2281,7 @@ fn emit_source_with_free_function_router(
             writer.line("    SMELT_TIMER_EPOCH.with(|epoch| epoch.set(None));");
             writer.line("    SMELT_TIMERS.with(|timers| timers.borrow_mut().clear());");
             writer.line("    SMELT_PROMISE_TASKS.with(|tasks| tasks.borrow_mut().clear());");
+            writer.line("    SMELT_RACE_DEPTH.with(|depth| depth.set(0));");
             writer.line("}");
             writer.blank_line();
             writer.line(format!(
@@ -2467,7 +2475,12 @@ fn emit_source_with_free_function_router(
             // over-fire it a tick early and, for a funnel, collapse the burst to
             // idle before the next `call`.
             writer.line("    'idle: {");
-            writer.line("        if delay_ms != 0 || fired_any { break 'idle; }");
+            writer.line("        // A `Promise.race` driver owns the clock while it is running: if a");
+            writer.line("        // racer advanced time here, polling one racer could fire ANOTHER");
+            writer.line("        // racer's timer, so both settle in the same round and the winner");
+            writer.line("        // stops being the one that finished first. Yield instead and let");
+            writer.line("        // `smelt_promise_race` take exactly one timer step per round.");
+            writer.line("        if delay_ms != 0 || fired_any || SMELT_RACE_DEPTH.with(::std::cell::Cell::get) > 0 { break 'idle; }");
             writer.line("        let tasks_pending = SMELT_PROMISE_TASKS.with(|tasks| !tasks.borrow().is_empty());");
             writer.line("        if tasks_pending { break 'idle; }");
             writer.line("        let earliest = SMELT_TIMERS.with(|timers| timers.borrow().iter().filter(|timer| timer.id < id_barrier).map(|timer| timer.due_ms).min());");
@@ -2486,7 +2499,78 @@ fn emit_source_with_free_function_router(
                 "    {drain_promise_tasks}().await;",
                 drain_promise_tasks = smelt_stdlib::runtime_symbols::timers::DRAIN_PROMISE_TASKS,
             ));
-            writer.line("    tokio::task::yield_now().await;");
+            // The trailing cooperative yield keeps a spin-waiting caller from
+            // monopolising the executor. Under a `Promise.race` driver it instead
+            // costs a whole extra round to observe a settled racer: the spin loop
+            // already yielded once this iteration, so this second suspension lands
+            // BEFORE the re-check of the result cell, and the driver would take
+            // another timer step in the meantime — settling a later racer and
+            // handing it the win. The driver is the scheduler while it runs, so it
+            // supplies the yield itself.
+            writer.line("    if SMELT_RACE_DEPTH.with(::std::cell::Cell::get) == 0 { tokio::task::yield_now().await; }");
+            writer.line("}");
+            writer.blank_line();
+            // `Promise.race` on the virtual clock. Every generated promise value
+            // is a spin-loop future that, when polled, advances virtual time by
+            // at most one timer step and then yields. So within a single poll
+            // round each racer can fire its own timer, and two racers whose
+            // timers are due at different virtual instants both become settled
+            // before anyone observes either. `tokio::select!` picks a branch in
+            // randomized order and returns the first one that reports `Ready`,
+            // which made the winner a coin flip: `withTimeout(() => delay(1000),
+            // 50)` resolved with the 1000 ms work about half the time instead of
+            // rejecting with the 50 ms timeout.
+            //
+            // Polling the racers in source order fixes that without touching the
+            // clock: a racer settles only on the poll AFTER the step that fired
+            // its timer, so the racer whose timer was due earlier is always
+            // `Ready` in an earlier round, and ties inside one timer instant fall
+            // to the earlier-listed racer exactly as JS resolves same-tick ties by
+            // registration order. Losers are dropped when the vector goes out of
+            // scope, matching `select!`'s cancellation.
+            writer.line(format!(
+                "async fn {promise_race}<T>(mut racers: Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>>) -> Result<T, Box<dyn std::error::Error>> {{",
+                promise_race = smelt_stdlib::runtime_symbols::timers::PROMISE_RACE,
+            ));
+            // The depth guard is a `Drop` type so the count is restored on every
+            // exit path, including the early `return` that a settled racer takes.
+            writer.line("    struct SmeltRaceGuard;");
+            writer.line("    impl Drop for SmeltRaceGuard { fn drop(&mut self) { SMELT_RACE_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1))); } }");
+            writer.line("    SMELT_RACE_DEPTH.with(|depth| depth.set(depth.get().saturating_add(1)));");
+            writer.line("    let _smelt_race_guard = SmeltRaceGuard;");
+            writer.line("    loop {");
+            writer.line(format!(
+                "        let waker = {noop_waker}();",
+                noop_waker = smelt_stdlib::runtime_symbols::timers::NOOP_WAKER,
+            ));
+            writer.line("        let mut cx = ::std::task::Context::from_waker(&waker);");
+            writer.line("        for racer in racers.iter_mut() {");
+            writer.line("            if let ::std::task::Poll::Ready(result) = ::std::future::Future::poll(racer.as_mut(), &mut cx) { return result; }");
+            writer.line("        }");
+            writer.line(format!(
+                "        {drain_promise_tasks}().await;",
+                drain_promise_tasks = smelt_stdlib::runtime_symbols::timers::DRAIN_PROMISE_TASKS,
+            ));
+            // Every racer is pending, so the event loop is idle: take exactly ONE
+            // timer step — advance to the earliest pending due time and fire the
+            // timers due at that instant — then re-poll everyone. Timers scheduled
+            // by those callbacks are held back by the id barrier so they run on the
+            // next round, the same deferral a zero-delay sleep applies.
+            writer.line("        let id_barrier = SMELT_NEXT_TIMER_ID.with(::std::cell::Cell::get);");
+            writer.line("        let earliest = SMELT_TIMERS.with(|timers| timers.borrow().iter().filter(|timer| timer.id < id_barrier).map(|timer| timer.due_ms).min());");
+            writer.line("        if let Some(earliest) = earliest {");
+            writer.line("            smelt_virtual_advance_to(earliest);");
+            writer.line(format!(
+                "            {drain_due_timers}(id_barrier);",
+                drain_due_timers = smelt_stdlib::runtime_symbols::timers::DRAIN_DUE_TIMERS,
+            ));
+            writer.line(format!(
+                "            {drain_promise_tasks}().await;",
+                drain_promise_tasks = smelt_stdlib::runtime_symbols::timers::DRAIN_PROMISE_TASKS,
+            ));
+            writer.line("        }");
+            writer.line("        tokio::task::yield_now().await;");
+            writer.line("    }");
             writer.line("}");
             writer.blank_line();
         }

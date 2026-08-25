@@ -2188,6 +2188,26 @@ impl FunctionEmitter<'_> {
             } else {
                 receiver_text.to_owned()
             };
+            // `AbortController`/`AbortSignal` methods live on the host prototype,
+            // not as own fields of the erased marker record, so the own-field read
+            // below answers `null` for them and every `signal?.addEventListener(…)`
+            // collapsed to a no-op default callback — the reason an aborted signal
+            // never cancelled a pending `delay`. Bind them to the shared abort
+            // record through the same runtime helper the non-optional receiver
+            // path uses (see `place.rs`); the guard keeps ordinary objects that
+            // happen to own a field of that name on the plain read.
+            if matches!(
+                field_name,
+                "abort"
+                    | "addEventListener"
+                    | "removeEventListener"
+                    | "dispatchEvent"
+                    | "throwIfAborted"
+            ) {
+                return Ok(format!(
+                    "match {scrutinee} {{ SmeltUnknown::Object(map) if (map.contains_key(\"__smelt_abortcontroller\") || map.contains_key(\"__smelt_abortsignal\")) && !map.contains_key({field_name:?}) => smelt_abort_method(map.clone(), {field_name:?}), SmeltUnknown::Object(map) => match map.get({field_name:?}).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Object(mut getter) if getter.contains_key(\"__smelt_get\") => match getter.remove(\"__smelt_get\") {{ Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| panic!(\"{{}}\", error)), _ => SmeltUnknown::Null }}, value => value }}, _ => SmeltUnknown::Null }}"
+                ));
+            }
             return Ok(format!(
                 "match {scrutinee} {{ SmeltUnknown::Object(map) => match map.get({field_name:?}).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Object(mut getter) if getter.contains_key(\"__smelt_get\") => match getter.remove(\"__smelt_get\") {{ Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| panic!(\"{{}}\", error)), _ => SmeltUnknown::Null }}, value => value }}, _ => SmeltUnknown::Null }}"
             ));

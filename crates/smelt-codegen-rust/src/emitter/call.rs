@@ -200,12 +200,28 @@ impl FunctionEmitter<'_> {
                     }
                     [single] => format!("{single}.await?"),
                     _ => {
-                        let arms = rendered_args
+                        // `tokio::select!` polls its branches in a randomized
+                        // order and returns the first branch that reports
+                        // `Ready` in a poll round. On the virtual clock every
+                        // racer can settle within the same round (each poll of a
+                        // promise spin-loop advances time by one timer step), so
+                        // the winner was a coin flip rather than the racer that
+                        // settled first. `smelt_promise_race` polls in source
+                        // order instead — see its prelude docs.
+                        let pushes = rendered_args
                             .iter()
-                            .map(|arg| format!("value = {arg} => value"))
+                            .map(|arg| {
+                                format!(
+                                    "smelt_racers.push(Box::pin(::std::future::IntoFuture::into_future({arg})));"
+                                )
+                            })
                             .collect::<Vec<_>>()
-                            .join(", ");
-                        format!("tokio::select! {{ {arms} }}?")
+                            .join(" ");
+                        format!(
+                            "{{ let mut smelt_racers: Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<_, Box<dyn std::error::Error>>>>>> = Vec::new(); {pushes} {promise_race}(smelt_racers).await? }}",
+                            promise_race =
+                                smelt_stdlib::runtime_symbols::timers::PROMISE_RACE,
+                        )
                     }
                 };
                 Ok(format!(

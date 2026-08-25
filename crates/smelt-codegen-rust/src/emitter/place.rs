@@ -121,7 +121,7 @@ impl FunctionEmitter<'_> {
                             | "throwIfAborted"
                     ) {
                         return Ok(format!(
-                            "match {scrutinee} {{ SmeltUnknown::Object(map) if map.contains_key(\"__smelt_abortcontroller\") || map.contains_key(\"__smelt_abortsignal\") => smelt_abort_method(map, {field_name:?}), SmeltUnknown::Object(map) => smelt_get_object_field(&map, {field_name:?}), _ => SmeltUnknown::Undefined }}"
+                            "match {scrutinee} {{ SmeltUnknown::Object(map) if (map.contains_key(\"__smelt_abortcontroller\") || map.contains_key(\"__smelt_abortsignal\")) && !map.contains_key({field_name:?}) => smelt_abort_method(map, {field_name:?}), SmeltUnknown::Object(map) => smelt_get_object_field(&map, {field_name:?}), _ => SmeltUnknown::Undefined }}"
                         ));
                     }
                     // `Function.prototype.apply`/`call` must resolve when the
