@@ -1784,13 +1784,16 @@ test("common matchers", () => {
     let body = function_body(&ctx, test_fn)?;
 
     ensure!(test_fn.is_test);
+    // Numeric operands compare with `Object.is` (`StrictNotEq`) under every
+    // equality matcher, so `expect(1 + 1).toEqual(2)` is a strict comparison
+    // while the structural matchers stay `NotEq`.
     ensure!(
         body.exprs
             .iter()
             .filter(|expr| matches!(
                 expr.kind,
                 ExprKind::BinOp {
-                    op: BinOp::NotEq,
+                    op: BinOp::NotEq | BinOp::StrictNotEq,
                     ..
                 }
             ))

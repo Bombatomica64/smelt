@@ -252,6 +252,41 @@ test("common matchers", () => {
     assert!(source.contains("deepStrictEqual(...) failed"));
 }
 
+/// Vitest compares primitive numbers with `Object.is` under every equality
+/// matcher, so `NaN` equals `NaN`.
+///
+/// Only `toBe` used the `Object.is` comparison; `toEqual` and `toStrictEqual`
+/// emitted a plain `!=`, which on `f64` reports `NaN != NaN`. Assertions like
+/// `expect(mean([])).toEqual(NaN)` therefore failed on the value they wanted.
+/// Objects and arrays keep structural comparison under the deep matchers --
+/// only `toBe` compares those by reference.
+#[test]
+fn deep_matchers_compare_numbers_with_object_is() {
+    let source = source_for(
+        r#"
+import { test, expect } from "vitest";
+
+function mean(values: number[]): number {
+  return values.length === 0 ? NaN : values[0];
+}
+
+test("nan", () => {
+  expect(mean([])).toEqual(NaN);
+  expect(mean([])).toStrictEqual(NaN);
+  expect([1]).toEqual([1]);
+});
+"#,
+    );
+
+    let same_value = source.matches("is_nan() && ").count();
+    assert!(
+        same_value >= 2,
+        "toEqual/toStrictEqual on numbers must use the Object.is comparison: {source}"
+    );
+    // The list assertion stays structural rather than becoming a reference check.
+    assert!(source.contains("expect(...).toEqual(...) failed"), "{source}");
+}
+
 /// A failed assertion must name the source assertion and its location.
 ///
 /// Generated suites throw a plain string, so without the snippet and

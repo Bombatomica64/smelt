@@ -238,8 +238,17 @@ impl ModuleBuilder<'_> {
         } else {
             self.argument(expected_arg, body)?
         };
-        let use_strict_identity = matcher == TestMatcher::Be
-            && self.test_to_be_needs_strict_identity(actual, expected, body);
+        // Vitest compares primitive numbers with `Object.is` under every
+        // equality matcher, not just `toBe`. Only `toBe` additionally treats
+        // objects and arrays by reference, so the identity rule stays gated on
+        // it while the numeric rule applies to the deep matchers too.
+        let use_strict_identity = match matcher {
+            TestMatcher::Be => self.test_to_be_needs_strict_identity(actual, expected, body),
+            TestMatcher::Equal | TestMatcher::StrictEqual => {
+                self.test_numbers_need_same_value(actual, expected, body)
+            }
+            _ => false,
+        };
         let mut failed = if use_strict_identity {
             let op = if inverted {
                 BinOp::StrictEq
@@ -278,6 +287,31 @@ impl ModuleBuilder<'_> {
         expected: smelt_hir::ExprId,
         body: &Body,
     ) -> bool {
+        if self.test_numbers_need_same_value(actual, expected, body) {
+            return true;
+        }
+        let actual_ty = self.type_param_constraint_or_self(Self::expr_ty(body, actual));
+        let expected_ty = self.type_param_constraint_or_self(Self::expr_ty(body, expected));
+        let actual_ref = self.test_to_be_identity_type(actual_ty);
+        let expected_ref = self.test_to_be_identity_type(expected_ty);
+        if actual_ref || expected_ref {
+            return true;
+        }
+        self.test_to_be_erased_type(actual_ty) && self.test_to_be_erased_type(expected_ty)
+    }
+
+    /// Return whether a numeric comparison needs JavaScript `Object.is`.
+    ///
+    /// Vitest compares primitive numbers with `Object.is`, so `NaN` equals
+    /// `NaN`. Rust's `!=` on `f64` reports `NaN != NaN`, which made every
+    /// `expect(mean([])).toEqual(NaN)`-shaped assertion fail even though the
+    /// value was the expected `NaN`.
+    pub(in crate::lowering) fn test_numbers_need_same_value(
+        &self,
+        actual: smelt_hir::ExprId,
+        expected: smelt_hir::ExprId,
+        body: &Body,
+    ) -> bool {
         if Self::test_to_be_nan_literal(actual, body)
             || Self::test_to_be_nan_literal(expected, body)
         {
@@ -285,21 +319,13 @@ impl ModuleBuilder<'_> {
         }
         let actual_ty = self.type_param_constraint_or_self(Self::expr_ty(body, actual));
         let expected_ty = self.type_param_constraint_or_self(Self::expr_ty(body, expected));
-        if matches!(
+        matches!(
             self.ctx.krate.types.get(actual_ty),
             Some(Type::Int | Type::Float)
         ) && matches!(
             self.ctx.krate.types.get(expected_ty),
             Some(Type::Int | Type::Float)
-        ) {
-            return true;
-        }
-        let actual_ref = self.test_to_be_identity_type(actual_ty);
-        let expected_ref = self.test_to_be_identity_type(expected_ty);
-        if actual_ref || expected_ref {
-            return true;
-        }
-        self.test_to_be_erased_type(actual_ty) && self.test_to_be_erased_type(expected_ty)
+        )
     }
 
     /// Return whether an assertion operand is the JavaScript `NaN` literal.
