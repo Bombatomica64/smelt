@@ -11,6 +11,7 @@ use crate::lowering::{
     Function, FunctionOwner, HashSet, Item, LocalDecl, MethodSig, ModuleBuilder, Param, ParamSig,
     Program, SmeltError, Span, Statement, Type, Visibility,
 };
+use crate::lowering::support::arrow_block_statements;
 
 impl ModuleBuilder<'_> {
     /// Return whether a statement list constructs, type-tests, or extends the
@@ -83,8 +84,8 @@ impl ModuleBuilder<'_> {
     ) -> impl Iterator<Item = &'a oxc::ast::ast::Function<'a>> {
         program.body.iter().filter_map(|statement| match statement {
             Statement::FunctionDeclaration(function) => Some(function.as_ref()),
-            Statement::ExportNamedDeclaration(export) => match &export.declaration {
-                Some(Declaration::FunctionDeclaration(function)) => Some(function.as_ref()),
+            Statement::ExportDeclaration(export) => match &export.declaration {
+                Declaration::FunctionDeclaration(function) => Some(function.as_ref()),
                 _ => None,
             },
             _ => None,
@@ -104,11 +105,11 @@ impl ModuleBuilder<'_> {
             Statement::FunctionDeclaration(function) => {
                 Self::function_body_uses_constructor_function(name, function)
             }
-            Statement::ExportNamedDeclaration(export) => match &export.declaration {
-                Some(Declaration::FunctionDeclaration(function)) => {
+            Statement::ExportDeclaration(export) => match &export.declaration {
+                Declaration::FunctionDeclaration(function) => {
                     Self::function_body_uses_constructor_function(name, function)
                 }
-                Some(Declaration::VariableDeclaration(variable)) => {
+                Declaration::VariableDeclaration(variable) => {
                     variable.declarations.iter().any(|declarator| {
                         declarator.init.as_ref().is_some_and(|init| {
                             Self::expression_uses_constructor_function(name, init)
@@ -224,7 +225,7 @@ impl ModuleBuilder<'_> {
                     })
             }
             Expression::ArrowFunctionExpression(arrow) => {
-                Self::statements_use_function_as_constructor(name, &arrow.body.statements)
+                Self::statements_use_function_as_constructor(name, arrow_block_statements(arrow))
             }
             Expression::FunctionExpression(function) => function
                 .body

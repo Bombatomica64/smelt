@@ -2465,9 +2465,12 @@ impl ModuleBuilder<'_> {
         &mut self,
         class: &oxc::ast::ast::Class<'_>,
     ) -> Result<(Option<smelt_hir::Symbol>, Vec<smelt_hir::TypeId>), SmeltError> {
-        let Some(super_class) = &class.super_class else {
+        // Since oxc 0.147 the superclass expression and its type arguments live
+        // together on `Class::heritage`.
+        let Some(heritage) = &class.heritage else {
             return Ok((None, Vec::new()));
         };
+        let super_class = &heritage.expression;
         let name = match super_class {
             Expression::Identifier(identifier) => identifier.name.to_string(),
             Expression::StaticMemberExpression(member) => {
@@ -2544,8 +2547,8 @@ impl ModuleBuilder<'_> {
                 format!("base class `{name}` is not declared"),
             ));
         }
-        let args = class
-            .super_type_arguments
+        let args = heritage
+            .type_arguments
             .as_ref()
             .map(|type_args| {
                 type_args

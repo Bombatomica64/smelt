@@ -5,9 +5,10 @@
 use crate::lowering::{
     Argument, BinOp, BindingPattern, Body, CallbackCallArg, CallbackExpr, CallbackExprKind,
     CaptureMode, ClosureCapture, Expr, ExprKind, Expression, FunctionType, HashMap, Item,
-    Literal, LocalDecl, ModuleBuilder, Param, SmeltError, Span, Statement, Type, UnaryOp,
+    Literal, LocalDecl, ModuleBuilder, Param, SmeltError, Span, Type, UnaryOp,
 };
 use oxc::span::GetSpan;
+use crate::lowering::support::arrow_block_statements;
 
 impl ModuleBuilder<'_> {
     /// Resolve a callback function symbol back to its normal HIR item.
@@ -1279,17 +1280,11 @@ impl ModuleBuilder<'_> {
                 );
             }
         }
-        if arrow.expression {
-            let [Statement::ExpressionStatement(statement)] = arrow.body.statements.as_slice()
-            else {
-                return Err(SmeltError::unsupported(
-                    self.span(arrow.body.span.start, arrow.body.span.end),
-                    "expression-bodied callbacks must contain one expression",
-                ));
-            };
-            self.callback_expression(&statement.expression, &params, body)
+        // A concise body is the expression itself since oxc 0.147.
+        if let Some(body_expression) = arrow.get_expression() {
+            self.callback_expression(body_expression, &params, body)
         } else {
-            self.callback_block_expression(&arrow.body.statements, &mut params, body)
+            self.callback_block_expression(arrow_block_statements(arrow), &mut params, body)
         }
     }
 

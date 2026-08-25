@@ -10,7 +10,7 @@ use crate::lowering::{
 };
 use crate::SmeltError;
 use oxc::ast::ast::{
-    Argument, BindingPattern, Expression, Statement,
+    Argument, BindingPattern, Expression,
 };
 use oxc::span::GetSpan;
 use oxc::syntax::operator::{
@@ -112,7 +112,8 @@ impl ModuleBuilder<'_> {
         let saved_return_ty = self.current_return_ty;
         self.current_async = arrow.r#async;
         self.current_return_ty = declared_return_ty;
-        let mut body = Body::new(None, self.span(arrow.body.span.start, arrow.body.span.end));
+        let arrow_body_span = arrow.body.span();
+        let mut body = Body::new(None, self.span(arrow_body_span.start, arrow_body_span.end));
         let mut params = Vec::new();
         for (param_index, param) in arrow.params.items.iter().enumerate() {
             let param_annotation_ty = match param
@@ -260,45 +261,35 @@ impl ModuleBuilder<'_> {
 
         let mut errors = Vec::new();
         let mut inferred_return_ty = None;
-        if arrow.expression {
-            match arrow.body.statements.as_slice() {
-                [Statement::ExpressionStatement(statement)] => {
-                    // An async expression-bodied arrow's declared return type is
-                    // `Promise<Inner>`; the body expression produces `Inner` and
-                    // the async wrapper adds the promise. Hint the body at the
-                    // awaited inner type (unwrapping one `Future` layer for async
-                    // bodies) so a literal array/tuple body keeps its own value
-                    // type rather than being coerced to the future type.
-                    let body_hint = self.return_statement_value_hint();
-                    match self.expression_with_hint(
-                        &statement.expression,
-                        &mut body,
-                        body_hint,
-                    ) {
-                        Ok(value) => {
-                            inferred_return_ty = Some(Self::expr_ty(&body, value));
-                            body.push_stmt(Stmt::Return(Some(value)));
-                        }
-                        Err(error) => errors.push(error),
-                    }
+        // Since oxc 0.147 an arrow's body is an `ArrowFunctionBody` enum rather
+        // than a `FunctionBody` plus a separate `expression` flag, so a concise
+        // body is the expression itself instead of a lone `ExpressionStatement`.
+        if let Some(body_expression) = arrow.get_expression() {
+            // An async expression-bodied arrow's declared return type is
+            // `Promise<Inner>`; the body expression produces `Inner` and
+            // the async wrapper adds the promise. Hint the body at the
+            // awaited inner type (unwrapping one `Future` layer for async
+            // bodies) so a literal array/tuple body keeps its own value
+            // type rather than being coerced to the future type.
+            let body_hint = self.return_statement_value_hint();
+            match self.expression_with_hint(body_expression, &mut body, body_hint) {
+                Ok(value) => {
+                    inferred_return_ty = Some(Self::expr_ty(&body, value));
+                    body.push_stmt(Stmt::Return(Some(value)));
                 }
-                _ => errors.push(SmeltError::unsupported(
-                    self.span(arrow.body.span.start, arrow.body.span.end),
-                    "expression-bodied arrow functions must contain one expression",
-                )),
+                Err(error) => errors.push(error),
             }
         } else {
-            if let Err(error) =
-                self.predeclare_local_function_declarations(&arrow.body.statements, &mut body)
-            {
+            let statements = arrow
+                .get_function_body()
+                .map_or_else(|| [].as_slice(), |block| block.statements.as_slice());
+            if let Err(error) = self.predeclare_local_function_declarations(statements, &mut body) {
                 errors.push(error);
             }
-            if let Err(error) =
-                self.predeclare_local_arrow_callbacks(&arrow.body.statements, &mut body)
-            {
+            if let Err(error) = self.predeclare_local_arrow_callbacks(statements, &mut body) {
                 errors.push(error);
             }
-            for statement in &arrow.body.statements {
+            for statement in statements {
                 if let Err(error) = self.statement(statement, &mut body) {
                     errors.push(error);
                 }
@@ -318,7 +309,8 @@ impl ModuleBuilder<'_> {
             return Err(error);
         }
         let inferred_return_ty = inferred_return_ty.or_else(|| {
-            (arrow.r#async || !arrow.expression).then(|| self.ctx.krate.types.intern(Type::None))
+            (arrow.r#async || !arrow.is_expression())
+                .then(|| self.ctx.krate.types.intern(Type::None))
         });
         let return_ty = if arrow.r#async {
             declared_return_ty.or_else(|| {

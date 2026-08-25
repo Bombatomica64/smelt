@@ -11,6 +11,7 @@ use oxc::ast::ast::{
 };
 use oxc::span::GetSpan;
 use smelt_hir::{Body, Function, FunctionOwner, Item, LocalDecl, Pattern, Span, Stmt, Type};
+use crate::lowering::support::arrow_block_statements;
 
 impl ModuleBuilder<'_> {
     /// Lower a `describe` test-suite declaration and its inherited hooks.
@@ -60,7 +61,7 @@ impl ModuleBuilder<'_> {
     /// and literal table bindings from enclosing `describe.each` rows.
     pub(in crate::lowering) fn describe_body_declarations<'a>(
         &mut self,
-        statements: &'a oxc::allocator::Vec<'a, Statement<'a>>,
+        statements: &'a [Statement<'a>],
         group_name: &str,
         inherited_setup: Vec<&'a Statement<'a>>,
         inherited_before_each: Vec<&'a oxc::ast::ast::ArrowFunctionExpression<'a>>,
@@ -210,7 +211,7 @@ impl ModuleBuilder<'_> {
     /// callbacks into one emitted Rust type.
     fn enter_test_suite_class_scope(
         &mut self,
-        statements: &oxc::allocator::Vec<'_, Statement<'_>>,
+        statements: &[Statement<'_>],
     ) -> ClassScopeSnapshot {
         let scope = self.classes.snapshot_scope();
         for statement in statements {
@@ -339,7 +340,7 @@ impl ModuleBuilder<'_> {
         self.unroll_test_loop(
             param_name,
             array.elements.iter(),
-            &arrow.body.statements,
+            arrow_block_statements(arrow),
             group_name,
             setup,
             before_each,
@@ -409,7 +410,7 @@ impl ModuleBuilder<'_> {
         &mut self,
         param_name: &'a str,
         elements: impl Iterator<Item = &'a ArrayExpressionElement<'a>>,
-        body: &'a oxc::allocator::Vec<'a, Statement<'a>>,
+        body: &'a [Statement<'a>],
         group_name: &str,
         setup: &[&'a Statement<'a>],
         before_each: &[&'a oxc::ast::ast::ArrowFunctionExpression<'a>],
@@ -646,7 +647,7 @@ impl ModuleBuilder<'_> {
         let saved_async = self.current_async;
         let class_scope = self.test_case_class_scope();
         self.current_async = arrow.r#async;
-        let mut body = Body::new(None, self.span(arrow.body.span.start, arrow.body.span.end));
+        let mut body = Body::new(None, self.arrow_body_span(arrow));
         let mut errors = Vec::new();
         for (name, value) in table_bindings {
             if let Err(error) = self.bind_table_value(name, *value, &mut body) {
@@ -654,7 +655,7 @@ impl ModuleBuilder<'_> {
             }
         }
         if let Err(error) =
-            self.synthesize_setup_constructor_functions(setup, &arrow.body.statements)
+            self.synthesize_setup_constructor_functions(setup, arrow_block_statements(arrow))
         {
             errors.push(error);
         }
@@ -664,28 +665,28 @@ impl ModuleBuilder<'_> {
             }
         }
         for hook in before_each {
-            for statement in &hook.body.statements {
+            for statement in arrow_block_statements(hook) {
                 if let Err(error) = self.test_case_statement(statement, &mut body) {
                     errors.push(error);
                 }
             }
         }
         if let Err(error) =
-            self.predeclare_local_function_declarations(&arrow.body.statements, &mut body)
+            self.predeclare_local_function_declarations(arrow_block_statements(arrow), &mut body)
         {
             errors.push(error);
         }
-        if let Err(error) = self.predeclare_local_arrow_callbacks(&arrow.body.statements, &mut body)
+        if let Err(error) = self.predeclare_local_arrow_callbacks(arrow_block_statements(arrow), &mut body)
         {
             errors.push(error);
         }
-        for statement in &arrow.body.statements {
+        for statement in arrow_block_statements(arrow) {
             if let Err(error) = self.test_case_statement(statement, &mut body) {
                 errors.push(error);
             }
         }
         for hook in after_each {
-            for statement in &hook.body.statements {
+            for statement in arrow_block_statements(hook) {
                 if let Err(error) = self.test_case_statement(statement, &mut body) {
                     errors.push(error);
                 }
@@ -798,7 +799,7 @@ impl ModuleBuilder<'_> {
             }
         }
         for hook in before_each {
-            for statement in &hook.body.statements {
+            for statement in arrow_block_statements(hook) {
                 if let Err(error) = self.test_case_statement(statement, &mut body) {
                     errors.push(error);
                 }
@@ -820,7 +821,7 @@ impl ModuleBuilder<'_> {
             }
         }
         for hook in after_each {
-            for statement in &hook.body.statements {
+            for statement in arrow_block_statements(hook) {
                 if let Err(error) = self.test_case_statement(statement, &mut body) {
                     errors.push(error);
                 }
@@ -973,7 +974,7 @@ impl ModuleBuilder<'_> {
             let mut bindings = inherited_bindings.to_vec();
             bindings.extend(self.table_bindings(arrow, row)?);
             items.extend(self.describe_body_declarations(
-                &arrow.body.statements,
+                arrow_block_statements(arrow),
                 &row_group,
                 setup.to_vec(),
                 before_each.to_vec(),
@@ -1421,7 +1422,7 @@ impl ModuleBuilder<'_> {
         &self,
         call: &'a oxc::ast::ast::CallExpression<'a>,
         context: &str,
-    ) -> Result<&'a oxc::allocator::Vec<'a, Statement<'a>>, SmeltError> {
+    ) -> Result<&'a [Statement<'a>], SmeltError> {
         for argument in call.arguments.iter().skip(1).rev() {
             match argument {
                 Argument::ArrowFunctionExpression(arrow) => {
@@ -1431,7 +1432,7 @@ impl ModuleBuilder<'_> {
                             format!("{context} with parameters are not lowered yet"),
                         ));
                     }
-                    return Ok(&arrow.body.statements);
+                    return Ok(arrow_block_statements(arrow));
                 }
                 Argument::FunctionExpression(function) => {
                     if !function.params.items.is_empty() || function.params.rest.is_some() {

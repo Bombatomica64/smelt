@@ -6,6 +6,20 @@ use super::{
     Program, PropertyKey, Statement, TSAccessibility, UnknownKind, Visibility,
 };
 
+/// The statements of an arrow function's block body.
+///
+/// Since oxc 0.147 an arrow's body is an `ArrowFunctionBody` enum, so a concise
+/// (expression) body has no statement list at all. Callers that only handle a
+/// block body get an empty slice; callers that must distinguish the two forms
+/// use `ArrowFunctionExpression::get_expression` instead.
+pub(super) fn arrow_block_statements<'a>(
+    arrow: &'a oxc::ast::ast::ArrowFunctionExpression<'a>,
+) -> &'a [Statement<'a>] {
+    arrow
+        .get_function_body()
+        .map_or_else(|| [].as_slice(), |block| block.statements.as_slice())
+}
+
 /// Return an item's original source name when available.
 pub(super) fn item_name<'a>(krate: &'a smelt_hir::Crate, item: &Item) -> Option<&'a str> {
     let symbol = match item {
@@ -124,8 +138,8 @@ pub(super) fn implemented_function_names(program: &Program<'_>) -> HashSet<Strin
                     names.insert(id.name.to_string());
                 }
             }
-            Statement::ExportNamedDeclaration(export) => {
-                if let Some(Declaration::FunctionDeclaration(function)) = &export.declaration
+            Statement::ExportDeclaration(export) => {
+                if let Declaration::FunctionDeclaration(function) = &export.declaration
                     && function.body.is_some()
                     && let Some(id) = &function.id
                 {
@@ -218,11 +232,14 @@ pub(super) fn statement_terminates(statement: &Statement<'_>) -> bool {
         | Statement::TSTypeAliasDeclaration(_)
         | Statement::TSInterfaceDeclaration(_)
         | Statement::TSEnumDeclaration(_)
-        | Statement::TSModuleDeclaration(_)
+        | Statement::TSNamespaceDeclaration(_)
+        | Statement::TSExternalModuleDeclaration(_)
         | Statement::TSGlobalDeclaration(_)
         | Statement::TSImportEqualsDeclaration(_)
         | Statement::ImportDeclaration(_)
         | Statement::ExportAllDeclaration(_)
+        | Statement::ExportDeclaration(_)
+        | Statement::ExportFromDeclaration(_)
         | Statement::ExportDefaultDeclaration(_)
         | Statement::ExportNamedDeclaration(_)
         | Statement::TSExportAssignment(_)

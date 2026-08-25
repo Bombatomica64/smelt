@@ -992,7 +992,7 @@ impl<'builder> ModuleBuilder<'builder> {
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         use oxc::allocator::{Allocator, Box as ArenaBox, CloneIn};
-        use oxc::ast::AstBuilder;
+        use oxc::ast::builder::AstBuilder;
         use oxc::ast::ast::{
             CallExpression, IdentifierName, StaticMemberExpression, TSTypeParameterInstantiation,
         };
