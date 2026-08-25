@@ -336,7 +336,7 @@ impl FunctionEmitter<'_> {
                         // read arms below.
                         let base_text = self.local_value_text(*base)?;
                         let index_text =
-                            self.normalized_index_text(&format!("{base_text}.len()"), index)?;
+                            self.normalized_read_index_text(&format!("{base_text}.len()"), index)?;
                         // JS out-of-bounds element access is `undefined`, not
                         // `null`. A type parameter that is in scope for the
                         // current generic function is a real Rust generic, so
@@ -375,7 +375,7 @@ impl FunctionEmitter<'_> {
                             return Ok(self.null_value_text());
                         };
                         let base_text = self.local_value_text(*base)?;
-                        let index_text = self.normalized_index_text(
+                        let index_text = self.normalized_read_index_text(
                             &format!("{base_text}.as_ref().map_or(0, Vec::len)"),
                             index,
                         )?;
@@ -429,7 +429,7 @@ impl FunctionEmitter<'_> {
                     }
                     Some(Type::String) => {
                         let base_text = self.local_value_text(*base)?;
-                        let index_text = self.normalized_index_text(
+                        let index_text = self.normalized_read_index_text(
                             &format!("{base_text}.chars().count()"),
                             index,
                         )?;
@@ -752,16 +752,55 @@ impl FunctionEmitter<'_> {
     }
 
     /// Gets the type of a place.
-    /// Converts a Python-style element index into a Rust `usize` expression.
+    /// Converts an element index into a Rust `usize` expression for a WRITE.
     ///
-    /// Negative indexes are offset from the collection length. Bounds are not
-    /// clamped because Python element indexing raises when the normalized index
-    /// is still outside the collection; the generated Rust keeps that behavior
-    /// with `expect` on negative conversion and the eventual indexed lookup.
+    /// Negative indexes are offset from the collection length. An index that is
+    /// still negative after normalization cannot address a slot, so the write
+    /// form keeps the panic: silently redirecting the store to some other slot
+    /// would corrupt the collection.
     pub(super) fn normalized_index_text(
         &self,
         len_expr: &str,
         index: &Operand,
+    ) -> Result<String, EmitError> {
+        self.normalized_index_text_with_fallback(
+            len_expr,
+            index,
+            "usize::try_from(normalized).expect(\"negative index out of bounds\")",
+        )
+    }
+
+    /// Converts an element index into a Rust `usize` expression for a READ.
+    ///
+    /// JavaScript element reads are total: `arr[-1]` and `arr[arr.length]` are
+    /// `undefined`, never an error. A positive out-of-range index already
+    /// reaches that behavior through `Vec::get` returning `None`, so a still
+    /// negative normalized index must reach it too. Converting the miss to
+    /// `usize::MAX` (never a valid slot of a live `Vec`, whose capacity is
+    /// bounded by `isize::MAX` bytes) makes the subsequent `get` miss instead
+    /// of panicking, so both directions of out-of-range agree.
+    pub(super) fn normalized_read_index_text(
+        &self,
+        len_expr: &str,
+        index: &Operand,
+    ) -> Result<String, EmitError> {
+        self.normalized_index_text_with_fallback(
+            len_expr,
+            index,
+            "usize::try_from(normalized).unwrap_or(usize::MAX)",
+        )
+    }
+
+    /// Shared body of the read/write index normalizers.
+    ///
+    /// `usize_conversion` is the trailing expression that turns the normalized
+    /// `i64` (bound as `normalized`) into a `usize`; it is the only part that
+    /// differs between a read (miss) and a write (panic).
+    fn normalized_index_text_with_fallback(
+        &self,
+        len_expr: &str,
+        index: &Operand,
+        usize_conversion: &str,
     ) -> Result<String, EmitError> {
         let index_ty = self.operand_ty(index)?;
         let index_text = if matches!(self.mir.types.get(index_ty), Some(Type::Int | Type::Float)) {
@@ -770,8 +809,67 @@ impl FunctionEmitter<'_> {
             self.value_at_type(index, self.type_id(Type::Float)?)?
         };
         Ok(format!(
-            "{{ let len = {len_expr} as i64; let index = {index_text} as i64; let normalized = if index < 0 {{ len + index }} else {{ index }}; usize::try_from(normalized).expect(\"negative index out of bounds\") }}"
+            "{{ let len = {len_expr} as i64; let index = {index_text} as i64; let normalized = if index < 0 {{ len + index }} else {{ index }}; {usize_conversion} }}"
         ))
+    }
+
+    /// A JS element read that flows into an optional slot keeps its fallibility.
+    ///
+    /// `arr[i]` has TypeScript type `T` (without `noUncheckedIndexedAccess`),
+    /// so a source function such as `last<T>(arr: T[]): T | undefined` lowers to
+    /// an infallible read coerced into `Option<T>` — which produced
+    /// `Some(Default::default())` for an out-of-range index instead of `None`.
+    /// When the coercion target is `Option<..>` the read itself is the natural
+    /// `Option` producer, so emit `get(..).cloned()` and let the miss stay a
+    /// miss. Returns `None` when the operand is not an element read this rule
+    /// applies to, leaving the caller's ordinary coercion in place.
+    pub(super) fn optional_element_read_text(
+        &self,
+        operand: &Operand,
+        inner: TypeId,
+    ) -> Result<Option<String>, EmitError> {
+        let (Operand::Copy(Place::Index { base, index }) | Operand::Move(Place::Index { base, index })) =
+            operand
+        else {
+            return Ok(None);
+        };
+        let base_ty = self.local_decl(*base)?.ty;
+        // A `Match` receiver has its own keyed-read lowering; leave it alone.
+        if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
+            && self.is_match_class_symbol(*name)?
+        {
+            return Ok(None);
+        }
+        match self.mir.types.get(base_ty).cloned() {
+            Some(Type::List(item_ty)) => {
+                let base_text = self.local_value_text(*base)?;
+                let index_text =
+                    self.normalized_read_index_text(&format!("{base_text}.len()"), index)?;
+                let read = format!("{base_text}.get({index_text}).cloned()");
+                if item_ty == inner {
+                    return Ok(Some(read));
+                }
+                // `T[][i]` where the element is itself optional collapses the
+                // two layers the same way JS does: a missing slot and a present
+                // `undefined` are both `undefined`.
+                if self.mir.types.get(item_ty) == Some(&Type::Optional(inner)) {
+                    return Ok(Some(format!("{read}.flatten()")));
+                }
+                let Ok(mapped) = self.value_at_type_text("value", item_ty, inner) else {
+                    return Ok(None);
+                };
+                Ok(Some(format!("{read}.map(|value| {mapped})")))
+            }
+            Some(Type::String) if self.mir.types.get(inner) == Some(&Type::String) => {
+                let base_text = self.local_value_text(*base)?;
+                let index_text = self
+                    .normalized_read_index_text(&format!("{base_text}.chars().count()"), index)?;
+                Ok(Some(format!(
+                    "{base_text}.chars().nth({index_text}).map(|ch| ch.to_string())"
+                )))
+            }
+            _ => Ok(None),
+        }
     }
 
     /// Emit a runtime index read for values whose concrete shape is erased.

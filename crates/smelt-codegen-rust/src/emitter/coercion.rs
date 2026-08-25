@@ -140,6 +140,13 @@ impl FunctionEmitter<'_> {
             return self.extract(operand, target);
         }
         if let Some(Type::Optional(inner)) = self.mir.types.get(target) {
+            // A JS element read flowing into an optional slot keeps its own
+            // fallibility instead of being made total and then re-wrapped in
+            // `Some(..)`. Without this, `last<T>(arr: T[]): T | undefined`
+            // returned `Some(Default::default())` for an empty array.
+            if let Some(read) = self.optional_element_read_text(operand, *inner)? {
+                return Ok(read);
+            }
             let operand_ty = self.operand_ty(operand)?;
             if matches!(self.mir.types.get(operand_ty), Some(Type::Optional(source_inner)) if matches!(self.mir.types.get(*source_inner), Some(Type::Unknown)))
                 && (matches!(

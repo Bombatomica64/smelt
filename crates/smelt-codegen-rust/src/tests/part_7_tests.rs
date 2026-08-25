@@ -1717,14 +1717,22 @@ export function localize(enNumber: number): string {
 
 #[test]
 fn coerces_non_string_regex_replace_callback_result() {
-    // The callback's result flows through an erased record lookup, so it is
-    // typed `unknown` (`SmeltUnknown`), which is not `AsRef<str>`. The regex
-    // replacement must ToString it so the `Replacer` closure yields a `String`.
+    // A replacer callback whose result is not a `String` is not a valid
+    // `Replacer`, so the regex replacement must coerce it with the JavaScript
+    // `ToString` match. Here the callback returns an `unknown` read out of an
+    // erased parameter, the shape that carries no static type at all.
+    //
+    // This test used to spell the same idea as `htmlEscapes[match]` against a
+    // module-level `Record<string, string>` constant. That read is NOT erased —
+    // the constant is a concrete string-to-string map — and it only looked
+    // erased because a callback could not resolve an object constant at all and
+    // silently read it as `null`. Since that defect was fixed the es-toolkit
+    // `escape` shape produces a `String` directly and needs no coercion, so the
+    // coercion rule is pinned here on a value that is genuinely dynamic.
     let source = source_for(
         r#"
-const htmlEscapes: Record<string, string> = { "&": "&amp;" };
-export function escape(str: string): string {
-  return str.replace(/[&<>"']/g, (match) => htmlEscapes[match]);
+export function replaceAll(str: string, table: unknown): string {
+  return str.replace(/[&<>"']/g, (match) => (table as Record<string, unknown>)[match]);
 }
 "#,
     );
@@ -10768,5 +10776,88 @@ export function guarded(func: () => any, recover: (err: any) => any): any {
         body.contains("catch_unwind"),
         "the `try`/`catch` fork must still be emitted, not dropped along with \
          the bogus back edge:\n{body}"
+    );
+}
+
+#[test]
+fn an_element_read_in_an_optional_slot_stays_fallible() {
+    // `arr[i]` has TypeScript type `T` (there is no
+    // `noUncheckedIndexedAccess` in play), so `last<T>(arr: T[]): T | undefined`
+    // used to lower to an INFALLIBLE read that was then re-wrapped:
+    // `Some(arr.get(..).cloned().unwrap_or(Default::default()))`. That makes
+    // `last([])` answer `Some(0.0)` where JavaScript answers `undefined`. The
+    // read is the natural `Option` producer, so a coercion into an `Option<T>`
+    // slot must keep the miss a miss.
+    let source = source_for(
+        r"
+export function last<T>(arr: readonly T[]): T | undefined {
+  return arr[arr.length - 1];
+}
+
+export function head<T>(arr: readonly T[]): T | undefined {
+  return arr[0];
+}
+",
+    );
+
+    assert!(
+        !source.contains("Some(arr.get("),
+        "the read must not be made total and re-wrapped in `Some(..)`:\n{source}"
+    );
+    assert!(
+        !source.contains("unwrap_or(Default::default())"),
+        "an out-of-range element must be `None`, not the element default:\n{source}"
+    );
+    assert_eq!(
+        source.matches(".cloned();").count(),
+        2,
+        "both functions must return the bare `get(..).cloned()` option:\n{source}"
+    );
+}
+
+#[test]
+fn an_element_read_never_panics_on_a_negative_normalized_index() {
+    // A positive out-of-range index already produced the JavaScript answer
+    // (`Vec::get` misses and the emitter substitutes the missing value), but a
+    // still-negative normalized index went through
+    // `usize::try_from(normalized).expect("negative index out of bounds")` and
+    // aborted the program. `[][-1]` is `undefined` in JavaScript, so both
+    // directions of out-of-range must agree. `usize::MAX` is never a live slot
+    // of a `Vec`, so converting the miss to it makes the following `get` miss.
+    let source = source_for(
+        r"
+export function pick(arr: number[], index: number): number {
+  return arr[index];
+}
+",
+    );
+
+    assert!(
+        !source.contains("negative index out of bounds"),
+        "an element READ must not panic on an out-of-range index:\n{source}"
+    );
+    assert!(
+        source.contains("usize::try_from(normalized).unwrap_or(usize::MAX)"),
+        "the normalized index must degrade to a miss:\n{source}"
+    );
+}
+
+#[test]
+fn an_element_write_still_rejects_a_negative_normalized_index() {
+    // The read relaxation must not leak into the WRITE path. A store to a slot
+    // that does not exist cannot silently pick a different slot, and
+    // `usize::MAX` would ask the resize helper for an impossible allocation, so
+    // the write keeps the panic.
+    let source = source_for(
+        r"
+export function put(arr: number[], index: number, value: number): void {
+  arr[index] = value;
+}
+",
+    );
+
+    assert!(
+        source.contains("usize::try_from(normalized).expect(\"negative index out of bounds\")"),
+        "a write to a negative normalized index must still fail loudly:\n{source}"
     );
 }
