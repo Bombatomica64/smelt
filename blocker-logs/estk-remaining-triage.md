@@ -40,6 +40,47 @@ Counts are failing tests at the 150 baseline.
 | 6 | `isEqualWith` | One spec; customizer-returns-undefined fallbacks over typed-array views, buffers, errors, and circular arrays. The `primitives` row is fixed: its `Object(...)`-boxed pairs already compared correctly (the tag probe knows the wrapper markers), and the real defect was the pair table's `[null, undefined, false]` rows lowering identically to `[null, null, true]` -- see the mixed-nullish array-literal fix. | queued |
 | ~10 | `clone` / `cloneDeep` | Map, RegExp, Error, class instances, `String` objects. Overlaps the dynamic-prototype work already noted in the compat manifest. | queued, root identified |
 
+### `flow` / `flowRight` / `partial` / `partialRight`: a property assigned onto a function is dropped
+
+Six of the remaining failures across these four modules are the rows named
+"curried function" or "placeholders", and they share one root with `curry`.
+
+`curry.ts` attaches a symbol to a FUNCTION value three times --
+`curry.placeholder = curryPlaceholder` at module scope (onto a function
+declaration) and `wrapper.placeholder = curryPlaceholder` twice (onto a local
+function expression) -- then reads it back as `item === curry.placeholder`.
+
+The assignments are dropped. Generated `curry_1967` (the module init) mints the
+symbol and immediately discards it:
+
+```rust
+pub(crate) fn curry_1967() -> () {
+    let curry_placeholder: SmeltUnknown = SmeltUnknown::Symbol("Symbol(curry.placeholder)@10319".to_owned());
+    return;
+}
+```
+
+so the read resolves to `null` and the filter predicate compares against the
+wrong value entirely:
+
+```rust
+// source: partialArgs.filter(item => item === curry.placeholder)
+let _smelt_tmp_4: bool = closure_arg_0.clone().js_strict_eq(&SmeltUnknown::Null.clone());
+```
+
+`holders` therefore counts `null`s -- always zero for real arguments -- so
+`length` never accounts for a placeholder and the curried call applies its
+arguments in the wrong positions.
+
+The representation already exists: erased callable objects carry a
+`__smelt_call` slot alongside ordinary fields, which is how `.call` on a
+callable object resolves. The missing piece is the assignment path (a static
+property store onto a function declaration or function expression) and the
+matching read, so the stored field is found instead of answering `null`.
+
+Worth doing before the `toBe` work below: it is a single root behind six
+failures in four modules, and probably more once `curry` itself behaves.
+
 ### `clone` / `cloneDeep`: the root is `toBe`, not `clone`
 
 `clone` itself is correct for the Map case -- a runtime probe on the generated
