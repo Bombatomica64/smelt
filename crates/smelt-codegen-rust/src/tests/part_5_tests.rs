@@ -1067,3 +1067,64 @@ const asRecord: unknown = obj;
         "{source}"
     );
 }
+
+/// An array literal that writes both `null` and `undefined` must keep the two
+/// spellings apart.
+///
+/// They share one HIR type (`Type::None`), so the element-type join used to
+/// answer `Optional(bool)` -- a single empty state for two distinct values.
+/// Both then lowered to `None::<bool>` and the rows became byte-identical:
+/// es-toolkit's `isEqualWith` primitives table answered `true` for its
+/// `[null, undefined, false]` row because it generated the same Rust as
+/// `[null, null, true]`.
+///
+/// The element type is `unknown` here by necessity, not convenience -- see
+/// `array_literal_mixes_nullish_spellings` for why no concrete type, union, or
+/// scoped generic can hold `bool | null | undefined` under the canonical
+/// optional/union flattening.
+#[test]
+fn mixed_nullish_array_literal_keeps_both_spellings() {
+    let source = source_for(
+        r"
+export function pairs(): boolean[] {
+  const pairs = [
+    [null, undefined, false],
+    [undefined, null, false],
+  ];
+  return pairs.map(pair => pair[0] === pair[1]);
+}
+",
+    );
+    assert!(
+        !source.contains("vec![None::<bool>, None::<bool>"),
+        "`null` and `undefined` must not collapse into the same `Option` empty \
+         state:\n{source}"
+    );
+    assert!(
+        source.contains("SmeltUnknown::Null, SmeltUnknown::Undefined")
+            && source.contains("SmeltUnknown::Undefined, SmeltUnknown::Null"),
+        "each row must keep its own nullish tags in order:\n{source}"
+    );
+}
+
+/// A literal whose only nullish spelling is uniform still uses `Option`.
+///
+/// The mixed-spelling boundary above must not widen every nullable literal --
+/// one spelling has one empty state, so `Optional(T)` represents it exactly and
+/// the concrete element type is kept.
+#[test]
+fn uniformly_nullish_array_literal_stays_optional() {
+    let source = source_for(
+        r"
+export function rows(): number {
+  const row = [1, 2, null];
+  return row.length;
+}
+",
+    );
+    assert!(
+        source.contains("Vec<Option<f64>>"),
+        "a single nullish spelling must stay a concrete `Option`:\n{source}"
+    );
+}
+
