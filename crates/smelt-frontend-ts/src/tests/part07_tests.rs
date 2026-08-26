@@ -607,6 +607,190 @@ export function makeCounter(): Counter {
     Ok(())
 }
 
+/// Every distinct `Literal::Symbol` spelling anywhere in the lowered crate.
+///
+/// A symbol's runtime identity IS its spelling (comparisons are string
+/// comparisons on the opaque tag), so a source symbol that reaches two lowering
+/// paths must produce one spelling, not two.
+fn distinct_symbol_literals(ctx: &HirCtx) -> Vec<String> {
+    let mut spellings = Vec::new();
+    for body in &ctx.krate.bodies {
+        for expr in &body.exprs {
+            if let ExprKind::Literal(Literal::Symbol(value)) = &expr.kind
+                && !spellings.contains(value)
+            {
+                spellings.push(value.clone());
+            }
+        }
+    }
+    spellings.sort();
+    spellings
+}
+
+/// A static property written onto a module-level function declaration round
+/// trips: the read resolves to the written value, and a `unique symbol` keeps
+/// the identity (description included) it had at its definition site.
+///
+/// The definition and the read reach the symbol through different lowering
+/// paths — the ordinary call path and the const-initializer folding path — so
+/// the test asserts the crate contains exactly ONE symbol spelling. Two
+/// spellings mean the read compares unequal to the value that was written,
+/// which is the placeholder-sentinel defect.
+#[test]
+fn module_function_static_property_read_matches_the_written_symbol() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+const marker: unique symbol = Symbol('marker');
+function outer(n: number): number {
+  return n + 1;
+}
+outer.marker = marker;
+export function probe(): boolean {
+  const x: unknown = 1;
+  return x === outer.marker;
+}
+"),
+        &mut ctx,
+    )?;
+    let spellings = distinct_symbol_literals(&ctx);
+    ensure_eq!(spellings.len(), 1);
+    ensure!(
+        spellings
+            .first()
+            .is_some_and(|spelling| spelling.starts_with("Symbol(marker)@")),
+        "symbol spelling lost its description: {spellings:?}"
+    );
+    Ok(())
+}
+
+/// Repeated writes to the same static property are last-write-wins in source
+/// order: the read resolves to the final value, not the first.
+#[test]
+fn module_function_static_property_last_write_wins() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+function outer(n: number): number {
+  return n + 1;
+}
+outer.tag = 'first';
+outer.tag = 'second';
+export function probe(): string {
+  return outer.tag;
+}
+"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = named_function_item(&ctx, module, "probe")?;
+    let body = function_body(&ctx, function)?;
+    let strings = body
+        .exprs
+        .iter()
+        .filter_map(|expr| match &expr.kind {
+            ExprKind::Literal(Literal::String(value)) => Some(value.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    ensure_eq!(strings, vec!["second".to_owned()]);
+    Ok(())
+}
+
+/// The read inside a *callback* body resolves to the same value as the read in
+/// an ordinary body.
+///
+/// This is the es-toolkit `curry` shape: the sentinel is compared inside
+/// `args.filter(item => item === curry.placeholder)`. The compact callback IR is
+/// lowered by its own member path, which used to project a positional field off
+/// the function value and answer with a null, so the filter never matched.
+#[test]
+fn function_static_property_read_inside_a_callback_matches_the_written_value()
+-> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+export function curry(n: number): number {
+  return n;
+}
+export function probe(items: unknown[]): unknown[] {
+  return items.filter(item => item === curry.placeholder);
+}
+const curryPlaceholder: unique symbol = Symbol('curry.placeholder');
+curry.placeholder = curryPlaceholder;
+"),
+        &mut ctx,
+    )?;
+    let spellings = distinct_symbol_literals(&ctx);
+    ensure_eq!(spellings.len(), 1);
+    ensure!(
+        spellings
+            .first()
+            .is_some_and(|spelling| spelling.starts_with("Symbol(curry.placeholder)@")),
+        "symbol spelling lost its description: {spellings:?}"
+    );
+    // The source has no record/class receiver, so ANY field projection in the
+    // lowered crate is the bogus one this test exists to prevent, and the
+    // sentinel must appear inside the callback body rather than only in the
+    // module initializer.
+    let mut field_reads = 0_usize;
+    let mut symbol_reads = 0_usize;
+    for body in &ctx.krate.bodies {
+        for expr in &body.exprs {
+            match &expr.kind {
+                ExprKind::Field { .. } => field_reads += 1,
+                ExprKind::Literal(Literal::Symbol(_)) => symbol_reads += 1,
+                _ => {}
+            }
+        }
+    }
+    ensure_eq!(field_reads, 0);
+    ensure!(
+        symbol_reads >= 2,
+        "expected the sentinel in both the module initializer and the callback, saw {symbol_reads}"
+    );
+    Ok(())
+}
+
+/// Reading a static property that was never written is a diagnostic, not a
+/// silent positional field access on a value that has no fields.
+#[test]
+fn read_of_unwritten_function_static_property_is_diagnosed() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r"
+function outer(n: number): number {
+  return n + 1;
+}
+outer.written = 1;
+export function probe(): number {
+  return outer.unwritten;
+}
+"),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&errors, "is not a modeled property of a function value")
+}
+
+/// The universal `Function.prototype` members stay resolvable on any function
+/// value, so the unmodeled-property rejection does not swallow them.
+#[test]
+fn universal_function_members_still_resolve_on_a_function_value() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+function outer(n: number): number {
+  return n + 1;
+}
+export function probe(): unknown {
+  return outer.prototype;
+}
+"),
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
 #[test]
 fn callable_local_conditional_property_write_falls_through() -> Result<(), String> {
     // Regression: a property write onto a callable local inside a conditional
@@ -676,10 +860,18 @@ export function makeCounter(): Counter {
     assert_unsupported_ts(&errors, "after it escapes")
 }
 
+/// The `type X = { (): void; m(): boolean }` spelling of a callable object
+/// lowers to the same callable-interface class the `interface` spelling
+/// produces, so the collected `throttled.isThrottled` write is consumed into a
+/// typed `CallableObjectAssign` instead of being dropped.
+///
+/// The return position here carries no type hint at all (the arrow's return
+/// type is inferred), so consumption falls back to the interface the local was
+/// *declared* at — the `debounce`/`throttle` shape in radash.
 #[test]
-fn callable_property_collection_does_not_leak_across_arrow_item_lowering() -> Result<(), String> {
+fn callable_object_type_alias_spelling_consumes_property_writes() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    lower_ok(
+    let module_id = lower_ok(
         ts!(r"
 type Throttled = {
   (): void;
@@ -697,6 +889,182 @@ export const throttle = () => {
 "),
         &mut ctx,
     )?;
+    let module = module(&ctx, module_id)?;
+    let function = named_function_item(&ctx, module, "throttle")?;
+    let body = function_body(&ctx, function)?;
+    let assign_ty = body
+        .exprs
+        .iter()
+        .find_map(|expr| match &expr.kind {
+            ExprKind::CallableObjectAssign { props, .. } if props.len() == 1 => Some(expr.ty),
+            _ => None,
+        })
+        .ok_or_else(|| "expected a CallableObjectAssign expression".to_owned())?;
+    // The alias name is the interface name: one spelling, one generated class.
+    ensure!(matches!(
+        ctx.krate.types.get(assign_ty),
+        Some(Type::Class { name, .. }) if ctx.krate.symbols.get(*name) == Some("Throttled")
+    ));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// An *intersection* of a call signature with an object type is the same
+/// callable object, so it too consumes its property writes — the es-toolkit
+/// `curry` shape, whose return type is
+/// `((...args: any[]) => any) & { placeholder: … }`.
+///
+/// The surface is anonymous, so it lowers to a synthetic interface named from
+/// its structure rather than from any source name.
+#[test]
+fn callable_object_intersection_spelling_consumes_property_writes() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+const curryPlaceholder: unique symbol = Symbol('curry.placeholder');
+
+export function curry(
+  func: (...args: any[]) => any
+): ((...args: any[]) => any) & { placeholder: typeof curryPlaceholder } {
+  const wrapper = function (...partialArgs: any[]) {
+    return func(...partialArgs);
+  };
+  wrapper.placeholder = curryPlaceholder;
+  return wrapper;
+}
+"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = named_function_item(&ctx, module, "curry")?;
+    let body = function_body(&ctx, function)?;
+    let assign_ty = body
+        .exprs
+        .iter()
+        .find_map(|expr| match &expr.kind {
+            ExprKind::CallableObjectAssign { props, .. } if props.len() == 1 => Some(expr.ty),
+            _ => None,
+        })
+        .ok_or_else(|| "expected a CallableObjectAssign expression".to_owned())?;
+    let Some(Type::Class { name, .. }) = ctx.krate.types.get(assign_ty) else {
+        return Err("callable object construction is not typed at a class".to_owned());
+    };
+    // A synthetic interface, carrying both the call slot and the written member.
+    let interface = ctx
+        .krate
+        .items
+        .iter()
+        .find_map(|item| match item {
+            smelt_hir::Item::Interface(interface) if interface.name == *name => Some(interface),
+            _ => None,
+        })
+        .ok_or_else(|| "expected a synthesized interface item".to_owned())?;
+    let field_names = interface
+        .fields
+        .iter()
+        .filter_map(|field| ctx.krate.symbols.get(field.name))
+        .collect::<Vec<_>>();
+    ensure!(field_names.contains(&"placeholder"));
+    ensure!(field_names.contains(&"__smelt_call"));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// Two occurrences of the same anonymous callable-object surface share one
+/// synthesized interface rather than generating a struct per occurrence.
+#[test]
+fn identical_anonymous_callable_object_surfaces_share_one_interface() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+export function first(): ((value: number) => number) & { tag: string } {
+  const wrapper = function (value: number): number {
+    return value;
+  };
+  wrapper.tag = 'first';
+  return wrapper;
+}
+export function second(): ((value: number) => number) & { tag: string } {
+  const wrapper = function (value: number): number {
+    return value;
+  };
+  wrapper.tag = 'second';
+  return wrapper;
+}
+"),
+        &mut ctx,
+    )?;
+    let synthesized = ctx
+        .krate
+        .items
+        .iter()
+        .filter(|item| {
+            matches!(item, smelt_hir::Item::Interface(interface)
+                if ctx.krate.symbols.get(interface.name)
+                    .is_some_and(|name| name.starts_with("SmeltCallableObject")))
+        })
+        .count();
+    ensure_eq!(synthesized, 1usize);
+    Ok(())
+}
+
+/// A type literal with only call signatures stays a plain function type: the
+/// synthesis claims a surface only when it is callable *and* carries members.
+#[test]
+fn call_signature_only_type_literal_stays_a_function_type() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+type Plain = { (value: number): number };
+export function apply(func: Plain, value: number): number {
+  return func(value);
+}
+"),
+        &mut ctx,
+    )?;
+    let synthesized = ctx
+        .krate
+        .items
+        .iter()
+        .filter(|item| matches!(item, smelt_hir::Item::Interface(_)))
+        .count();
+    ensure_eq!(synthesized, 0usize);
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// The `interface` spelling of the same callable object still consumes its
+/// property writes into a typed `CallableObjectAssign`, so the
+/// collected-but-never-consumed check does not fire on the working path.
+#[test]
+fn callable_interface_alias_spelling_consumes_property_writes() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+interface Throttled {
+  (): void;
+  isThrottled(): boolean;
+}
+
+export const throttle = (): Throttled => {
+  let timer: number | undefined = undefined;
+  const throttled: Throttled = () => {
+    timer = 1;
+  };
+  throttled.isThrottled = () => timer !== undefined;
+  return throttled;
+};
+"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = named_function_item(&ctx, module, "throttle")?;
+    let body = function_body(&ctx, function)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::CallableObjectAssign { .. }))
+    );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }

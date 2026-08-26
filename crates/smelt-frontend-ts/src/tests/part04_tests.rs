@@ -6636,8 +6636,14 @@ const columns = ['documentId', 'locale', 'publishedAt'].filter((name) => model.a
 
 #[test]
 fn lowers_nested_function_self_property_references() -> Result<(), String> {
+    // A static property assigned onto a function declared INSIDE another body is
+    // not collected: the function-statics prepass records module-scope function
+    // declarations as const items, and a nested declaration is not in that
+    // prepass. The read used to lower to a positional field access on a value
+    // that has no fields (rendered as a null downstream); it is now reported
+    // instead of answering with garbage.
     let mut ctx = HirCtx::new();
-    lower_ok(
+    let errors = lowering_errors(
         ts!(r"
 function createFetch() {
   function strapiFetch(url: string) {
@@ -6654,7 +6660,7 @@ function createFetch() {
 "),
         &mut ctx,
     )?;
-    Ok(())
+    assert_unsupported_ts(&errors, "is not a modeled property of a function value")
 }
 
 #[test]

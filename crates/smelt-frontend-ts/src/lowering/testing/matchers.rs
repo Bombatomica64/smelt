@@ -2559,6 +2559,7 @@ impl ModuleBuilder<'_> {
                     body,
                     block,
                 )?;
+                self.record_declared_callable_interface(binding.name.as_str(), annotated_ty);
                 continue;
             }
             let annotated_ty = declarator
@@ -2645,11 +2646,41 @@ impl ModuleBuilder<'_> {
                     )?;
                 }
             }
+            if let BindingPattern::BindingIdentifier(binding) = &declarator.id {
+                self.record_declared_callable_interface(binding.name.as_str(), annotated_ty);
+            }
             for update in deferred_updates {
                 body.push_stmt_to_block(block, update);
             }
         }
         Ok(())
+    }
+
+    /// Remember that a local was declared at a callable-interface type.
+    ///
+    /// The annotation on `const debounced: DebounceFunction<TArgs> = …` is the
+    /// only place that says which struct the property writes collected onto that
+    /// local belong to. A value that leaves through a position with a type hint
+    /// (an annotated return, an annotated parameter) rediscovers it from the
+    /// hint, but a `return` from a function with an *inferred* return type has
+    /// no hint at all — without this the collected writes would be dropped. Only
+    /// a callable interface is recorded; every other annotation is irrelevant to
+    /// the callable-object construction and is ignored.
+    pub(in crate::lowering) fn record_declared_callable_interface(
+        &mut self,
+        name: &str,
+        annotated_ty: Option<smelt_hir::TypeId>,
+    ) {
+        let Some(annotated_ty) = annotated_ty else {
+            return;
+        };
+        if !self.type_is_callable_interface(annotated_ty) {
+            return;
+        }
+        let Some(local) = self.scope.lookup(name) else {
+            return;
+        };
+        self.scope.record_callable_local_interface(local, annotated_ty);
     }
 
     /// Register `const { A: B } = await import('./mod')` bindings as import aliases.

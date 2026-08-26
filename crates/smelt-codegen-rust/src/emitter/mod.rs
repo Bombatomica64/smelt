@@ -1014,16 +1014,64 @@ fn closure_definitions(
 
 /// Return whether a type recursively contains a function value.
 fn type_contains_function(mir: &Mir, ty: TypeId) -> bool {
+    type_contains_function_seen(mir, ty, &mut HashSet::new())
+}
+
+/// [`type_contains_function`] with the cycle guard a class hop needs.
+///
+/// A class is a *storage* type like any container: its emitted Rust struct owns
+/// its declared fields, and every function-typed field is stored as an owned
+/// `'static` handle (`Rc<dyn Fn..>` / `SmeltErasedFunction`), which no borrowed
+/// `&dyn Fn` can be placed into. A callable-object class is the case that makes
+/// this load-bearing — its synthetic `__smelt_call` slot IS a function field, so
+/// a function returning one retains any callback parameter it captured, exactly
+/// as a function returning a bare callback does. Stopping the walk at
+/// `Type::Class` left such a parameter borrowed and the capture then failed
+/// borrowck in the generated crate ("coercion requires that `'1` must outlive
+/// `'static`" in es-toolkit `curry`/`curryRight`).
+///
+/// `seen` guards the class hop: a class may name itself through a field
+/// (`interface Node { next: Node }`), and the type graph is otherwise acyclic.
+fn type_contains_function_seen(mir: &Mir, ty: TypeId, seen: &mut HashSet<TypeId>) -> bool {
+    if !seen.insert(ty) {
+        return false;
+    }
     match mir.types.get(ty) {
         Some(Type::Function(_)) => true,
         Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
-            type_contains_function(mir, *item)
+            type_contains_function_seen(mir, *item, seen)
         }
         Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
-            type_contains_function(mir, *key) || type_contains_function(mir, *value)
+            type_contains_function_seen(mir, *key, seen)
+                || type_contains_function_seen(mir, *value, seen)
         }
-        Some(Type::Tuple(items) | Type::Union(items)) => {
-            items.iter().any(|item| type_contains_function(mir, *item))
+        Some(Type::Tuple(items) | Type::Union(items)) => items
+            .iter()
+            .any(|item| type_contains_function_seen(mir, *item, seen)),
+        // `Type::Class` names either a class or an interface: both emit a Rust
+        // struct that OWNS its declared fields, so both are storage. Checking
+        // only `mir.classes` would miss every interface-shaped struct — which is
+        // exactly the callable-object case, since a callable object lowers to an
+        // interface carrying the synthetic `__smelt_call` function slot.
+        Some(Type::Class { name, args }) => {
+            let field_types = mir
+                .classes
+                .iter()
+                .find(|class| class.name == *name)
+                .map(|class| &class.fields)
+                .or_else(|| {
+                    mir.interfaces
+                        .iter()
+                        .find(|interface| interface.name == *name)
+                        .map(|interface| &interface.fields)
+                });
+            args.iter()
+                .any(|arg| type_contains_function_seen(mir, *arg, seen))
+                || field_types.is_some_and(|fields| {
+                    fields
+                        .iter()
+                        .any(|field| type_contains_function_seen(mir, field.ty, seen))
+                })
         }
         _ => false,
     }

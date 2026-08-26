@@ -1410,8 +1410,46 @@ impl ModuleBuilder<'_> {
                 })
             }
             Expression::StaticMemberExpression(member) => {
+                // A static property hung off a module-level function declaration
+                // (`curry.placeholder`) is a module const, NOT a field of the
+                // function value — a function value has no field storage, so the
+                // generic field path below would answer with a positional index
+                // into nothing. The compact callback IR cannot name an item, so
+                // the recorded value is recreated in place exactly as an object
+                // constant read is, which yields the same value the non-callback
+                // read resolves to. See `lowering::function_statics`.
+                if let Some((literal, ty)) =
+                    self.function_static_property_callback_literal(member)?
+                {
+                    return Ok(CallbackExpr {
+                        kind: CallbackExprKind::Literal(literal),
+                        ty,
+                    });
+                }
                 let receiver = self.callback_expression(&member.object, params, body)?;
                 let field = self.intern_source_name(member.property.name.as_str());
+                // Same rule the ordinary member-read path applies: a function
+                // value has no field storage, so an unmodeled property on one
+                // cannot be projected. Without this the catch-all `_` arm below
+                // types it `Unknown` and emits a positional field access into
+                // nothing.
+                if matches!(self.ctx.krate.types.get(receiver.ty), Some(Type::Function(_)))
+                    && !Self::is_universal_function_member(member.property.name.as_str())
+                    && !self
+                        .types
+                        .callable_fields(receiver.ty)
+                        .is_some_and(|fields| fields.iter().any(|item| item.name == field))
+                {
+                    return Err(SmeltError::unsupported(
+                        self.span(member.span.start, member.span.end),
+                        format!(
+                            "`{}` is not a modeled property of a function value; only a declared \
+                             callable-interface member or a static property assigned onto a \
+                             module-level function declaration resolves",
+                            member.property.name
+                        ),
+                    ));
+                }
                 let ty = match self.ctx.krate.types.get(receiver.ty) {
                     Some(Type::Dict(_, value) | Type::JsMap(_, value)) => *value,
                     Some(Type::Optional(_)) => self.class_field_type(receiver.ty, field)?,

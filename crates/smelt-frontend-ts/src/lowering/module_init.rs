@@ -581,6 +581,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }
         }
 
+        // A module-scope `fn.prop = value` claimed onto a function-typed *local*
+        // is only ever restored by a callable-interface coercion; nothing else
+        // consumes the module body's registry, so a leftover here is a write
+        // that would vanish from the output.
+        self.report_unconsumed_callable_props(&mut errors);
+
         // TypeScript declarations are visible throughout their module. A class
         // may therefore implement an interface declared later in the file. Its
         // eager validation skips that not-yet-lowered shape; validate every
