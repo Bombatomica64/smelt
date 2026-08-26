@@ -1776,6 +1776,25 @@ impl<'builder> ModuleBuilder<'builder> {
         {
             return false;
         }
+        // A union receiver has no *single* method item — `resolve_method`
+        // deliberately returns `ItemId(u32::MAX)` for it, because dispatch
+        // happens per tagged-union arm rather than through one function. The
+        // item-id test below therefore rejects a perfectly concrete union, and
+        // the caller then lowers the call as a callable *field* read, routing it
+        // through the erased `SmeltUnknown` call ABI: the receiver is converted
+        // with `into_smelt_unknown`, the method looked up as a dynamic object
+        // field, and invoked dynamically — even though every arm is a class with
+        // that method and the emitter can already match the tag and call it
+        // (`union_method_text`).
+        //
+        // So a union whose every arm declares the method counts as concrete
+        // here, exactly as it does on the callback path.
+        if matches!(
+            self.ctx.krate.types.get(receiver_ty),
+            Some(Type::Union(_))
+        ) {
+            return self.receiver_declares_method(receiver_ty, method);
+        }
         self.resolve_method(receiver_ty, method, member.span)
             .is_ok_and(|(_, item)| item.0 != u32::MAX)
     }

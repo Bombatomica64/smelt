@@ -1119,7 +1119,7 @@ impl ModuleBuilder<'_> {
                 span,
             )
             .ok()?;
-        let declared_method = self.callback_receiver_declares_method(receiver_ty, method);
+        let declared_method = self.receiver_declares_method(receiver_ty, method);
         if declared_method {
             return Some(body.push_expr(Expr {
                 kind: ExprKind::Method {
@@ -1144,7 +1144,11 @@ impl ModuleBuilder<'_> {
     /// closure calls. A class method—and a method common to every class arm of
     /// a union—must remain `ExprKind::Method` so MIR can dispatch it through the
     /// concrete class or tagged-union representation.
-    fn callback_receiver_declares_method(
+    ///
+    /// The ordinary (non-callback) member-call path applies the same rule, so
+    /// this is shared rather than duplicated: see
+    /// `static_member_is_concrete_class_method`.
+    pub(in crate::lowering) fn receiver_declares_method(
         &self,
         receiver_ty: smelt_hir::TypeId,
         method: smelt_hir::Symbol,
@@ -1154,7 +1158,7 @@ impl ModuleBuilder<'_> {
                 !items.is_empty()
                     && items
                         .iter()
-                        .all(|item| self.callback_receiver_declares_method(*item, method))
+                        .all(|item| self.receiver_declares_method(*item, method))
             }
             Some(Type::Class { name, .. }) => {
                 let item_method = self.class_by_symbol(*name).is_some_and(|class| {

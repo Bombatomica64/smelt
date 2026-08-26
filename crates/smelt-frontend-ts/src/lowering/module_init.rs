@@ -523,7 +523,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     }
                 }
             } else if let Statement::ExportNamedDeclaration(export) = statement {
-                self.reexport_named_declaration(export, &mut module);
+                self.reexport_named_declaration(export);
             } else if let Statement::ExportFromDeclaration(export) = statement {
                 self.reexport_from_declaration(export, &mut module);
             } else if let Statement::ExportAllDeclaration(export) = statement {
@@ -1979,9 +1979,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     pub(super) fn reexport_named_declaration(
         &mut self,
         export: &oxc::ast::ast::ExportNamedDeclaration<'_>,
-        module: &mut Module,
     ) {
-        let _ = module;
         for specifier in &export.specifiers {
             let local = module_export_name(&specifier.local);
             let exported = module_export_name(&specifier.exported);
