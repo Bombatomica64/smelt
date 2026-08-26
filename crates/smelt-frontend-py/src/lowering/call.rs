@@ -397,12 +397,25 @@ impl ModuleBuilder<'_> {
                             .iter()
                             .map(|param| param.ty)
                             .collect::<Vec<_>>();
+                        let param_names = function
+                            .params
+                            .iter()
+                            .map(|param| {
+                                self.ctx
+                                    .krate
+                                    .symbols
+                                    .get(param.name)
+                                    .unwrap_or("")
+                                    .to_owned()
+                            })
+                            .collect::<Vec<_>>();
                         let defaults = vec![None; params.len()];
                         let args = self.callable_call_args(
                             call,
                             body,
                             &CallableCallSignature {
                                 params: &params,
+                                param_names: Some(&param_names),
                                 vararg: variadics.and_then(|v| v.vararg),
                                 kwarg: variadics.and_then(|v| v.kwarg),
                                 defaults: &defaults,
@@ -454,6 +467,7 @@ impl ModuleBuilder<'_> {
             body,
             &CallableCallSignature {
                 params: &function.params,
+                param_names: None,
                 vararg: callback_meta.as_ref().and_then(|callback| callback.vararg),
                 kwarg: callback_meta.as_ref().and_then(|callback| callback.kwarg),
                 defaults: &defaults,
@@ -487,6 +501,7 @@ impl ModuleBuilder<'_> {
             body,
             &CallableCallSignature {
                 params: &function.params,
+                param_names: None,
                 vararg: None,
                 kwarg: None,
                 defaults: &defaults,
@@ -508,8 +523,11 @@ impl ModuleBuilder<'_> {
         signature: &CallableCallSignature<'_>,
     ) -> Result<Vec<smelt_hir::ExprId>, SmeltError> {
         let span = self.span(call.range());
-        let supplied_arg_count = call.arguments.args.len();
-        if signature.kwarg.is_none() && !call.arguments.keywords.is_empty() {
+        let supplied_positional_count = call.arguments.args.len();
+        if signature.param_names.is_none()
+            && signature.kwarg.is_none()
+            && !call.arguments.keywords.is_empty()
+        {
             return Err(SmeltError::unsupported(
                 span,
                 format!(
@@ -523,14 +541,7 @@ impl ModuleBuilder<'_> {
             .map(|meta| meta.index)
             .or_else(|| signature.kwarg.map(|meta| meta.index))
             .unwrap_or(signature.params.len());
-        let required_arg_count = signature
-            .defaults
-            .iter()
-            .take(packed_param_start)
-            .position(Option::is_some)
-            .unwrap_or(packed_param_start);
-        if supplied_arg_count < required_arg_count
-            || (signature.vararg.is_none() && supplied_arg_count > packed_param_start)
+        if signature.vararg.is_none() && supplied_positional_count > packed_param_start
         {
             return Err(SmeltError::unsupported(
                 span,
@@ -545,7 +556,7 @@ impl ModuleBuilder<'_> {
         // recover its parameter/return types from a `Callable[...]` parameter
         // (a bare lambda has no annotations of its own); it is otherwise inert
         // because the argument type is re-checked against the parameter below.
-        let mut args = call
+        let positional = call
             .arguments
             .args
             .iter()
@@ -555,7 +566,53 @@ impl ModuleBuilder<'_> {
                 self.expression_with_hint(arg, body, signature.params.get(index).copied())
             })
             .collect::<Result<Vec<_>, _>>()?;
-        for index in supplied_arg_count..packed_param_start {
+        let mut fixed_args = vec![None; packed_param_start];
+        for (index, arg) in positional.into_iter().enumerate() {
+            fixed_args[index] = Some(arg);
+        }
+        let mut extra_keywords = Vec::new();
+        for keyword in &call.arguments.keywords {
+            let Some(name) = keyword.arg.as_ref().map(|name| name.as_str()) else {
+                extra_keywords.push(keyword);
+                continue;
+            };
+            let named_index = signature.param_names.and_then(|names| {
+                names
+                    .iter()
+                    .take(packed_param_start)
+                    .position(|candidate| candidate == name)
+            });
+            let Some(index) = named_index else {
+                extra_keywords.push(keyword);
+                continue;
+            };
+            if fixed_args[index].is_some() {
+                return Err(SmeltError::unsupported(
+                    self.span(keyword.range),
+                    format!(
+                        "{} call supplies parameter '{name}' more than once",
+                        signature.label
+                    ),
+                ));
+            }
+            fixed_args[index] = Some(self.expression_with_hint(
+                &keyword.value,
+                body,
+                signature.params.get(index).copied(),
+            )?);
+        }
+        if signature.kwarg.is_none() && !extra_keywords.is_empty() {
+            return Err(SmeltError::unsupported(
+                span,
+                format!("{} call has an unknown keyword argument", signature.label),
+            ));
+        }
+        let mut args = Vec::with_capacity(signature.params.len());
+        for (index, supplied) in fixed_args.into_iter().enumerate() {
+            if let Some(arg) = supplied {
+                args.push(arg);
+                continue;
+            }
             let Some(default) = signature.defaults.get(index).and_then(|default| *default) else {
                 return Err(SmeltError::unsupported(
                     span,
@@ -583,7 +640,7 @@ impl ModuleBuilder<'_> {
             }));
         }
         if let Some(meta) = signature.kwarg {
-            args.push(self.kwargs_argument(&call.arguments.keywords, meta.value_ty, span, body)?);
+            args.push(self.kwargs_argument(&extra_keywords, meta.value_ty, span, body)?);
         }
         for (arg, expected) in args.iter().zip(signature.params) {
             if Self::expr_ty(body, *arg) != *expected {
@@ -602,7 +659,7 @@ impl ModuleBuilder<'_> {
     /// Packs Python keyword arguments into the lowered `**kwargs` dictionary argument.
     fn kwargs_argument(
         &mut self,
-        keywords: &[ruff_python_ast::Keyword],
+        keywords: &[&ruff_python_ast::Keyword],
         value_ty: TypeId,
         span: Span,
         body: &mut Body,

@@ -53,6 +53,36 @@ def add(x: int, y: int) -> int:
     Ok(())
 }
 
+/// Named arguments bind to declared parameters and are emitted in declaration
+/// order, just as a hand-written Rust call would be.
+#[test]
+fn function_keyword_arguments_bind_declared_parameters() -> TestResult {
+    let source = py!(r#"
+def subtract(left: int, right: int) -> int:
+    return left - right
+
+answer: int = subtract(right=2, left=5)
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let module_body = body(&ctx, module.body.ok_or("expected module body")?)?;
+    let call_args = module_body.exprs.iter().find_map(|expr| match &expr.kind {
+        ExprKind::Call { args, .. } => Some(args),
+        _ => None,
+    });
+    let call_args = call_args.ok_or("expected function call")?;
+    let values = call_args
+        .iter()
+        .map(|arg| match &module_body.exprs[usize::try_from(arg.0).unwrap_or(usize::MAX)].kind {
+            ExprKind::Literal(Literal::Int(value)) => Ok(*value),
+            _ => Err("expected integer keyword argument".to_owned()),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    ensure_eq(&values, &vec![5, 2], "keyword argument order")?;
+    Ok(())
+}
+
 #[test]
 fn module_all_assignment_is_ignored() -> TestResult {
     let source = py!(r#"

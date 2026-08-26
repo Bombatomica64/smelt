@@ -162,6 +162,8 @@ struct FunctionVariadics {
 struct CallableCallSignature<'a> {
     /// Parameter types in lowered call order.
     params: &'a [TypeId],
+    /// Source parameter names when the callable declaration is available.
+    param_names: Option<&'a [String]>,
     /// Positional vararg metadata when source `*args` are packed.
     vararg: Option<VarArgParam>,
     /// Keyword vararg metadata when source `**kwargs` are packed.
