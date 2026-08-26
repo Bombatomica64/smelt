@@ -1067,3 +1067,109 @@ const asRecord: unknown = obj;
         "{source}"
     );
 }
+
+/// An array literal that writes both `null` and `undefined` must keep the two
+/// spellings apart.
+///
+/// They share one HIR type (`Type::None`), so the element-type join used to
+/// answer `Optional(bool)` -- a single empty state for two distinct values.
+/// Both then lowered to `None::<bool>` and the rows became byte-identical:
+/// es-toolkit's `isEqualWith` primitives table answered `true` for its
+/// `[null, undefined, false]` row because it generated the same Rust as
+/// `[null, null, true]`.
+///
+/// The element type is `unknown` here by necessity, not convenience -- see
+/// `array_literal_mixes_nullish_spellings` for why no concrete type, union, or
+/// scoped generic can hold `bool | null | undefined` under the canonical
+/// optional/union flattening.
+#[test]
+fn mixed_nullish_array_literal_keeps_both_spellings() {
+    let source = source_for(
+        r"
+export function pairs(): boolean[] {
+  const pairs = [
+    [null, undefined, false],
+    [undefined, null, false],
+  ];
+  return pairs.map(pair => pair[0] === pair[1]);
+}
+",
+    );
+    assert!(
+        !source.contains("vec![None::<bool>, None::<bool>"),
+        "`null` and `undefined` must not collapse into the same `Option` empty \
+         state:\n{source}"
+    );
+    assert!(
+        source.contains("SmeltUnknown::Null, SmeltUnknown::Undefined")
+            && source.contains("SmeltUnknown::Undefined, SmeltUnknown::Null"),
+        "each row must keep its own nullish tags in order:\n{source}"
+    );
+}
+
+/// A literal whose only nullish spelling is uniform still uses `Option`.
+///
+/// The mixed-spelling boundary above must not widen every nullable literal --
+/// one spelling has one empty state, so `Optional(T)` represents it exactly and
+/// the concrete element type is kept.
+#[test]
+fn uniformly_nullish_array_literal_stays_optional() {
+    let source = source_for(
+        r"
+export function rows(): number {
+  const row = [1, 2, null];
+  return row.length;
+}
+",
+    );
+    assert!(
+        source.contains("Vec<Option<f64>>"),
+        "a single nullish spelling must stay a concrete `Option`:\n{source}"
+    );
+}
+
+
+
+/// `fn.call(thisArg, arg)` must not pass `thisArg` as a positional argument.
+///
+/// Smelt erases the JavaScript `this` binding for these callables -- a source
+/// `function (this: any, arg)` lowers to a one-parameter closure with no `this`
+/// slot in the ABI -- so the leading operand of `.call` is a receiver, not an
+/// argument. `Function.prototype.apply` already dropped it; `.call` passed it
+/// through, which bound the callee's FIRST parameter to the `this` object.
+///
+/// es-toolkit's `memoize` is the reproduction: it calls `fn.call(this, arg)`,
+/// so `memoize((x: number) => x + 10)(5)` added 10 to the `this` object instead
+/// of to 5. `flow`, `overArgs` and `result` call their callbacks the same way.
+///
+/// The receiver must be an erased generic callable for this to bite: a callee
+/// with a concrete function type expands to its own arity and drops the extra
+/// operand on its own.
+#[test]
+fn call_method_does_not_pass_this_as_an_argument() {
+    let source = source_for(
+        r"
+export function wrap<F extends (...args: any) => any>(fn: F): F {
+  const wrapped = function (this: unknown, arg: Parameters<F>[0]): ReturnType<F> {
+    return fn.call(this, arg);
+  };
+  return wrapped as F;
+}
+",
+    );
+    let packed = source
+        .lines()
+        .find_map(|line| {
+            let start = line.find("smelt_call_args: Vec<SmeltUnknown> = Into::into(vec![")?;
+            let rest = &line[start..];
+            let end = rest.find(']')?;
+            Some(rest[..=end].to_owned())
+        })
+        .expect("the erased call must pack an argument list");
+    assert!(
+        !packed.contains(','),
+        "`fn.call(this, arg)` must pack ONE argument, not the `this` operand \
+         too, but packed `{packed}`:\n{source}"
+    );
+}
+

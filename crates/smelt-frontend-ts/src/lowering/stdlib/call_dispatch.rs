@@ -1566,9 +1566,41 @@ impl<'builder> ModuleBuilder<'builder> {
                 && let Some(Type::Function(function)) =
                     self.ctx.krate.types.get(function_ty).cloned()
             {
+                // `fn.call(thisArg, a, b)` binds `this` from the LEADING operand
+                // and passes only the rest positionally. Whether that operand is
+                // also a positional ARGUMENT depends on the callee's own ABI, and
+                // the call's arity settles it -- the same way a same-named
+                // variadic sibling's rest slot is settled by arity rather than by
+                // the slot's type.
+                //
+                // A plain function or closure has no receiver slot: Smelt erases
+                // the JavaScript `this` binding for it, so a source
+                // `function (this: any, arg)` lowers to a ONE-parameter closure
+                // and the leading operand must be dropped, exactly as
+                // `callback_apply_method_to_body_expr` drops it for `apply`.
+                // Passing it through bound the callee's first parameter to the
+                // `this` object: es-toolkit's `memoize` calls `fn.call(this, arg)`,
+                // so `memoize((x: number) => x + 10)(5)` added 10 to the `this`
+                // object instead of to 5. `flow` and `overArgs` do the same.
+                //
+                // A class METHOD does have a receiver slot -- it is lowered
+                // receiver-first, `(Example, String)` for `greet(name: string)` --
+                // so there the leading operand IS the first parameter and dropping
+                // it shifts every argument left. The decorated-member parity
+                // fixture reaches exactly that shape once the specializer
+                // materializes `value.call(this, name)` against the concrete
+                // method.
+                //
+                // A fixed-arity callee whose parameter count already accounts for
+                // every operand is the receiver-first case; anything else (an
+                // arity that only fits without the receiver, or a variadic callee,
+                // which declares no receiver slot to fill) drops it.
+                let receiver_is_positional = function.rest.is_none()
+                    && function.params.len() == call.arguments.len();
                 let args = call
                     .arguments
                     .iter()
+                    .skip(usize::from(!receiver_is_positional))
                     .map(|argument| self.argument(argument, body))
                     .collect::<Result<Vec<_>, _>>()?;
                 return Ok(Some(body.push_expr(Expr {
