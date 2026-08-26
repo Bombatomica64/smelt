@@ -283,6 +283,24 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Whether a type is a *declared* class or interface — one this program
+    /// actually materializes as a concrete Rust struct.
+    ///
+    /// `Type::Class` is overloaded in the TypeScript frontend: it names both a
+    /// real declared class and the placeholder an unresolved/opaque type name
+    /// lowers to. Predicates that ask "is this a dynamic JavaScript surface?"
+    /// mean the *placeholder* sense, so they must not sweep up a declared class
+    /// that has a concrete Rust representation. This mirrors the emitter's own
+    /// discriminator (`is_erased_class_type`): a class type is erased exactly
+    /// when neither a class nor an interface of that name is materialized.
+    pub(in crate::lowering) fn declared_class_type(&self, ty: smelt_hir::TypeId) -> bool {
+        let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(ty) else {
+            return false;
+        };
+        let name = *name;
+        self.class_by_symbol(name).is_some() || self.find_interface(name).is_some()
+    }
+
     /// Return whether a type comes from an erased JavaScript surface.
     pub(in crate::lowering) fn erased_or_union_surface(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {

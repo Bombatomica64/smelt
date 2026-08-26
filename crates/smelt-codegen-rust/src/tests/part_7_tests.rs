@@ -11468,3 +11468,41 @@ const v = check(new Ok());
         "static dispatch must not wrap the return type in `Result`:\n{source}"
     );
 }
+
+/// A conditional whose branches are two *declared* classes unifies to the
+/// generated tagged union, not to `String`.
+///
+/// `Type::Class` spells both a declared class and an unresolved opaque name, so
+/// `is_string_compatible_type` accepts any class — a JS value can always be
+/// coerced to a string. Applying that to *unification* made
+/// `flag ? new A() : new B()` come out as `String`, and the emitter then
+/// declared a `String` local and assigned the class values into it: output that
+/// does not compile. Two declared classes do have a concrete common
+/// representation, so they unify to their union.
+#[test]
+fn conditional_over_declared_classes_unifies_to_a_union() {
+    let source = source_for(
+        r"
+class A { v(): number { return 1; } }
+class B { v(): number { return 2; } }
+function pick(flag: boolean): A | B { return flag ? new A() : new B(); }
+function use1(x: A | B): number { return x.v(); }
+const r = use1(pick(true));
+",
+    );
+
+    let pick_body = source
+        .split("fn pick(")
+        .nth(1)
+        .and_then(|rest| rest.split("\nfn ").next())
+        .unwrap_or_else(|| panic!("expected a generated `pick`:\n{source}"));
+    assert!(
+        !pick_body.contains(": String"),
+        "two declared classes must not unify to `String`:\n{source}"
+    );
+    assert!(
+        pick_body.contains("::M0(") && pick_body.contains("::M1("),
+        "each branch must be wrapped into its union arm:\n{source}"
+    );
+}
+
