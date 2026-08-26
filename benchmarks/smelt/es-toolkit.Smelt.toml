@@ -1,0 +1,61 @@
+[project]
+name = "es-toolkit"
+version = "0.0.0"
+description = "es-toolkit Smelt probe"
+
+[sources]
+roots = ["src"]
+
+entries = ["src/index.ts"]
+# Spec files excluded from the whole-crate build because they depend on host
+# globals Smelt's non-DOM profile deliberately does not model, or hit a known
+# lowering blocker. Any one unbuildable file aborts the entire crate build, so
+# these specs would otherwise block every es-toolkit test from running. Each
+# entry lists what it needs; remove an entry once Smelt models it.
+exclude = [
+  # `document` / `HTMLElement` (DOM)
+  "src/object/cloneDeep.dom.spec.ts",   # @vitest-environment happy-dom; document.createElement, HTMLElement
+  "src/compat/object/clone.spec.ts",    # document.createElement, document.body
+  "src/compat/object/cloneWith.spec.ts", # document.createElement, document.body
+  "src/compat/predicate/isElement.spec.ts", # document (isElement DOM checks)
+]
+# `Blob` / `File` are modeled as marker records with real `type`/`size`/
+# `content` (and `name`/`lastModified` for File), so the former Blob/File
+# excludes are back in the build:
+#   src/object/cloneDeep.spec.ts, src/predicate/isBlob.spec.ts,
+#   src/predicate/isFile.spec.ts
+# Note: isBlob/isFile specs reassign `globalThis.File`/`globalThis.Blob`
+# (monkey-patching, a Smelt non-goal); they build, but the environment-absence
+# test cases will fail at runtime because presence guards fold at compile time.
+# `src/object/clone.spec.ts` is back in the build now that the Error constructor
+# lowering accepts the ES2022 options form (`new Error(msg, { cause })`,
+# `new AggregateError(errors, msg, { cause })`) and retains `cause`/`errors` on
+# the error record. The constructor + read-back path is verified end to end; the
+# spec's own `clone` round-trip still exercises dynamic `Object.getPrototypeOf` /
+# `prototype.constructor` / `new Constructor(...)` reconstruction, so some of its
+# runtime assertions remain gated on that separate dynamic-prototype work.
+# Deliberately NOT excluded (host/ECMA globals now modeled as values/namespaces):
+#   src/predicate/isFunction.spec.ts    -> `Proxy` (transparent value closure)
+#   src/predicate/isPlainObject.spec.ts -> `Intl` namespace + `Proxy`; still
+#     reaches `class extends Object` and `Request`, other work
+#   src/compat/object/cloneDeepWith.spec.ts -> `encodeURI` value closure
+#   src/compat/function/delay.spec.ts   -> `setTimeout` value closure
+# After the excludes above, `smelt build` still aborts earlier at
+# src/predicate/isEqualWith.spec.ts ("const item expression shape is not
+# supported for inlining yet"), which is other work; the host-global fixes above
+# clear files that sort after that abort, so they do not move the abort point.
+
+[output]
+target = "./dist-bench"
+crate-name = "es_toolkit_bench"
+build = false
+
+[rust]
+edition = "2024"
+
+[strict]
+typescript = true
+python = true
+
+[runtime]
+clone-strategy = "aggressive"

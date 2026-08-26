@@ -1,0 +1,26 @@
+[project]
+name = "remeda-v2-34-1"
+version = "2.34.1"
+description = "Remeda v2.34.1 full Smelt build probe"
+
+[sources]
+roots = ["packages/remeda/src"]
+
+entries = [
+  "packages/remeda/src/index.ts",
+]
+
+[output]
+target = "./dist-bench"
+crate-name = "remeda_bench"
+build = false
+
+[rust]
+edition = "2024"
+
+[strict]
+typescript = true
+python = true
+
+[runtime]
+clone-strategy = "aggressive"
