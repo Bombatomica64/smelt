@@ -6,12 +6,15 @@ Reporting rules:
 *   A row is published only when the TypeScript and Rust checksums agree. Rows that
     disagree are listed separately as parity failures -- if the two sides did not
     compute the same answer, comparing their speed says nothing.
-*   Throughput ratio is Rust / TypeScript, so >1x means the generated Rust is faster
-    and <1x means it is slower. The summary uses the geometric mean, which is the
-    correct average for ratios.
-*   Memory is reported twice: absolute process peak RSS, and peak minus the
-    library-loaded-but-idle baseline. The first is what an operator sees; the second
-    isolates what the workload itself allocated.
+*   Throughput is Rust relative to TypeScript. Because the ratios here span five
+    orders of magnitude, sub-parity rows are printed as "N x slower" rather than as a
+    decimal that would round to 0.00. The summary uses the geometric mean, which is
+    the correct average for ratios.
+*   Memory is reported as absolute process peak RSS on both sides, plus a
+    "retained/op" column: peak RSS above the idle baseline, divided by iterations. A
+    workload that frees what it allocates holds a flat peak however long it runs, so
+    that column is near zero; a large value means memory is retained per call, which
+    is a leak rather than a footprint.
 
 Usage:
     python3 benchmarks/report.py [--in results.json] [--out benchmarks/RESULTS.md]
@@ -45,9 +48,35 @@ def mib(v: float | int | None) -> str:
 
 
 def ratio_str(r: float) -> str:
+    """Format a Rust/TS throughput ratio.
+
+    Ratios here span five orders of magnitude, so a fixed `.2f` collapses almost
+    every row to a meaningless `0.00×`. Below parity the reciprocal is the readable
+    form, and that is what gets shown.
+    """
     if r >= 1:
-        return f"**{r:.2f}×**"
-    return f"{r:.2f}× *({1 / r:.0f}× slower)*"
+        return f"**{r:.2f}× faster**"
+    inv = 1 / r
+    if inv < 10:
+        return f"{inv:.1f}× slower"
+    return f"{inv:,.0f}× slower"
+
+
+def per_op_retained(row: dict, base_rs: int | None) -> str:
+    """Peak RSS above the idle baseline, divided by iterations.
+
+    A workload that frees what it allocates holds a roughly constant peak no matter
+    how long it runs, so this number is near zero. A large value means memory is
+    being retained per call — the signature of a leak rather than a footprint.
+    """
+    rs = row.get("rust")
+    if not rs or base_rs is None or not rs.get("iterations"):
+        return "—"
+    delta = rs["peak_rss_bytes"] - base_rs
+    per_op = delta / rs["iterations"]
+    if per_op < 1024:
+        return f"{per_op:.0f} B"
+    return f"{per_op / 1024:,.0f} KiB"
 
 
 def spread(observations: list[float] | None) -> str:
@@ -81,19 +110,17 @@ def library_section(lib: str, rows: list[dict], baselines: dict) -> list[str]:
     rust_only = [r for r in rows if r.get("rust") and not r.get("ts")]
 
     out += [
-        "| Case | TS ops/s | Rust ops/s | Rust / TS | TS peak RSS | Rust peak RSS | "
-        "TS workload MiB | Rust workload MiB | TS noise | Rust noise |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| Case | TS ops/s | Rust ops/s | Throughput | TS peak RSS | Rust peak RSS | "
+        "Rust retained/op | TS noise | Rust noise |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for r in matched:
         ts, rs = r["ts"], r["rust"]
         ratio = rs["ops_per_sec"] / ts["ops_per_sec"]
-        ts_delta = ts["peak_rss_bytes"] - base_ts if base_ts else None
-        rs_delta = rs["peak_rss_bytes"] - base_rs if base_rs else None
         out.append(
             f"| `{r['case']}` | {human_ops(ts['ops_per_sec'])} | {human_ops(rs['ops_per_sec'])} | "
             f"{ratio_str(ratio)} | {mib(ts['peak_rss_bytes'])} | {mib(rs['peak_rss_bytes'])} | "
-            f"{mib(ts_delta)} | {mib(rs_delta)} | {spread(r.get('ts_observations'))} | "
+            f"{per_op_retained(r, base_rs)} | {spread(r.get('ts_observations'))} | "
             f"{spread(r.get('rust_observations'))} |"
         )
     out.append("")
@@ -103,9 +130,14 @@ def library_section(lib: str, rows: list[dict], baselines: dict) -> list[str]:
         geo = math.exp(sum(math.log(x) for x in ratios) / len(ratios))
         faster = sum(1 for x in ratios if x > 1)
         out += [
-            f"**Geometric mean throughput ratio: {geo:.2f}×** "
-            f"(generated Rust is faster in {faster} of {len(ratios)} cases; "
-            f"range {min(ratios):.2f}×–{max(ratios):.2f}×).",
+            f"**Geometric mean: the generated Rust is {1 / geo:,.0f}× slower** than the "
+            f"TypeScript across these {len(ratios)} cases "
+            f"(faster in {faster}; best {ratio_str(max(ratios))}, "
+            f"worst {ratio_str(min(ratios))}).",
+            "",
+            f"Idle memory, by contrast, is {base_ts / base_rs:.0f}× smaller "
+            f"({mib(base_rs)} MiB vs {mib(base_ts)} MiB)."
+            if base_ts and base_rs else "",
             "",
         ]
 
@@ -160,7 +192,8 @@ def main() -> int:
         f"- Node: {meta['node']}",
         f"- rustc: {meta['rustc']}",
         "",
-        "See `benchmarks/README.md` for the methodology and for how to reproduce this.",
+        "See `benchmarks/README.md` for the methodology and for how to reproduce this,",
+        "and `benchmarks/FINDINGS.md` for what these numbers point at in the emitter.",
         "",
     ]
     for lib in sorted(by_lib):

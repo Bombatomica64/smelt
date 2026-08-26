@@ -179,6 +179,23 @@ pub fn cpu_seconds() -> (f64, f64) {
     (user / hz, sys / hz)
 }
 
+/// Live entry counts of the runtime prelude's process-wide identity tables.
+///
+/// These exist so a benchmark can tell a workload's real memory footprint apart from
+/// runtime bookkeeping that never gets released. `SMELT_LIST_IDENTITIES` and friends
+/// are insert-only maps keyed on an allocation's address; nothing ever removes an
+/// entry, so they grow for the lifetime of the process. If a case's peak RSS rises
+/// with iteration count, these counters say whether that is why.
+///
+/// The JS side has no twin for this and does not need one — it is measuring the
+/// generated runtime, not the language.
+pub fn identity_table_sizes() -> (usize, usize, usize) {
+    let lists = SMELT_LIST_IDENTITIES.with(|m| m.borrow().len());
+    let promises = SMELT_PROMISE_IDENTITIES.with(|m| m.borrow().len());
+    let functions = SMELT_FUNCTION_ORIGINS.with(|m| m.borrow().len());
+    (lists, promises, functions)
+}
+
 // ---------------------------------------------------------------------------
 // The timing protocol. Same phases, same budgets, same statistic as the JS side.
 // ---------------------------------------------------------------------------

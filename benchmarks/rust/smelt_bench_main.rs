@@ -53,10 +53,12 @@ fn main() {
         std::process::exit(2);
     };
     let (user, sys) = smelt_bench_harness::cpu_seconds();
+    let (lists, promises, functions) = smelt_bench_harness::identity_table_sizes();
     println!(
         "{{\"kind\":\"result\",\"case\":\"{}\",\"ns_per_op_median\":{},\"ns_per_op_best\":{},\
 \"ops_per_sec\":{},\"samples\":{},\"iterations\":{},\"checksum\":{},\
-\"peak_rss_bytes\":{},\"rss_bytes\":{},\"cpu_user_s\":{},\"cpu_sys_s\":{}}}",
+\"peak_rss_bytes\":{},\"rss_bytes\":{},\"cpu_user_s\":{},\"cpu_sys_s\":{},\
+\"identity_lists\":{},\"identity_promises\":{},\"identity_functions\":{}}}",
         json_escape(&case),
         m.ns_per_op_median,
         m.ns_per_op_best,
@@ -67,6 +69,9 @@ fn main() {
         smelt_bench_harness::peak_rss_bytes(),
         smelt_bench_harness::current_rss_bytes(),
         user,
-        sys
+        sys,
+        lists,
+        promises,
+        functions
     );
 }
