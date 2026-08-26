@@ -222,3 +222,39 @@ roots — none of them a read-coercion bug:
   `result: SmeltList<T>`, so a miss stores `Default::default()`. There is no
   `undefined` to put in a `Vec<T>`. This is the same storage question `Array(n)`
   raised, and it now has two callers wanting an answer.
+
+### `allKeyed`: erased `SmeltUnknown::Promise` values in a record (NARROWED, NOT YET VERIFIED)
+
+Four of `allKeyed`'s seven tests fail, and the pass/fail split is a clean
+discriminator -- every FAILING test builds its object with `Promise.resolve`
+or `Promise.reject`; every PASSING test uses either no promise at all
+(plain values, empty object) or the `new Promise(resolve => setTimeout(...))`
+constructor.
+
+Note which test passes: "should resolve promises concurrently, not
+sequentially", which times two 50ms sleeps and asserts `elapsed < 90`. So
+concurrency is NOT the defect. The `Promise.all` list path does await its
+futures in a `for` loop rather than joining them, which looks sequential at
+a glance, but `from_future_primed` runs each async body's synchronous prefix
+at creation and that timing test passes -- do not chase this as a
+concurrency bug (I did, briefly; it is not one).
+
+The failing shape is value-flattening. `Promise.resolve(1)` in an object
+literal lowers to `SmeltUnknown::Promise(...)` stored in the record:
+
+```rust
+let _smelt_tmp_4: SmeltRecord<String, SmeltUnknown> = SmeltRecord::from([
+    ("a".to_owned(), { let smelt_future = _smelt_tmp_1; SmeltUnknown::Promise(SmeltPromise::from_future(...
+```
+
+`all_keyed` then receives an erased object whose values are themselves
+promises, takes the `item_is_erased` branch of `AsyncOp::All` in
+`crates/smelt-codegen-rust/src/emitter/call.rs`, and is supposed to unwrap
+each with `smelt_await_flatten`. The tests that need that unwrap are exactly
+the ones failing, so the defect is somewhere in that chain -- the
+`SmeltUnknown::Promise` -> `SmeltFuture<SmeltUnknown>` conversion, the single
+flatten level, or the `result[keys[i]] = values[i]` write-back.
+
+NOT yet confirmed by running: narrowing this further needs the es-toolkit
+generated suite, and the exact assertion diff should be read before changing
+any emitter code.
