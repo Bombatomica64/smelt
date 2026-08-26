@@ -1128,3 +1128,47 @@ export function rows(): number {
     );
 }
 
+
+
+/// `fn.call(thisArg, arg)` must not pass `thisArg` as a positional argument.
+///
+/// Smelt erases the JavaScript `this` binding for these callables -- a source
+/// `function (this: any, arg)` lowers to a one-parameter closure with no `this`
+/// slot in the ABI -- so the leading operand of `.call` is a receiver, not an
+/// argument. `Function.prototype.apply` already dropped it; `.call` passed it
+/// through, which bound the callee's FIRST parameter to the `this` object.
+///
+/// es-toolkit's `memoize` is the reproduction: it calls `fn.call(this, arg)`,
+/// so `memoize((x: number) => x + 10)(5)` added 10 to the `this` object instead
+/// of to 5. `flow`, `overArgs` and `result` call their callbacks the same way.
+///
+/// The receiver must be an erased generic callable for this to bite: a callee
+/// with a concrete function type expands to its own arity and drops the extra
+/// operand on its own.
+#[test]
+fn call_method_does_not_pass_this_as_an_argument() {
+    let source = source_for(
+        r"
+export function wrap<F extends (...args: any) => any>(fn: F): F {
+  const wrapped = function (this: unknown, arg: Parameters<F>[0]): ReturnType<F> {
+    return fn.call(this, arg);
+  };
+  return wrapped as F;
+}
+",
+    );
+    let packed = source
+        .lines()
+        .find_map(|line| {
+            let start = line.find("smelt_call_args: Vec<SmeltUnknown> = Into::into(vec![")?;
+            let rest = &line[start..];
+            let end = rest.find(']')?;
+            Some(rest[..=end].to_owned())
+        })
+        .expect("the erased call must pack an argument list");
+    assert!(
+        !packed.contains(','),
+        "`fn.call(this, arg)` must pack ONE argument, not the `this` operand \
+         too, but packed `{packed}`:\n{source}"
+    );
+}

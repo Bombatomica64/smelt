@@ -1566,9 +1566,23 @@ impl<'builder> ModuleBuilder<'builder> {
                 && let Some(Type::Function(function)) =
                     self.ctx.krate.types.get(function_ty).cloned()
             {
+                // `fn.call(thisArg, a, b)` binds `this` from the LEADING operand
+                // and passes only the rest positionally. Smelt erases the
+                // JavaScript `this` binding for these callables -- a source
+                // `function (this: any, arg)` lowers to a one-parameter closure
+                // with no `this` slot -- so the leading operand is dropped here
+                // exactly as `callback_apply_method_to_body_expr` drops it for
+                // `apply`.
+                //
+                // Passing it through bound the receiver's FIRST parameter to the
+                // `this` object: es-toolkit's `memoize` calls `fn.call(this, arg)`,
+                // so `memoize((x: number) => x + 10)(5)` added 10 to the `this`
+                // object instead of to 5. `flow` and `overArgs` call their
+                // callbacks the same way.
                 let args = call
                     .arguments
                     .iter()
+                    .skip(1)
                     .map(|argument| self.argument(argument, body))
                     .collect::<Result<Vec<_>, _>>()?;
                 return Ok(Some(body.push_expr(Expr {
