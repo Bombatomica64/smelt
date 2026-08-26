@@ -38,7 +38,40 @@ Counts are failing tests at the 150 baseline.
 | ~34 | promise / timer | `allKeyed`, `attempt`, `attemptAsync`, `delay` abort, `withTimeout`, `retry` delays, `limitAsync`, `semaphore`, `reduceAsync`, `debounce`, `throttle`, plus 4 concurrency tests (`filterAsync`/`flatMapAsync`/`forEachAsync`/`mapAsync` all assert `maxRunning === 10`, i.e. real concurrent scheduling, not sequential awaits). | queued |
 | ~15 | host predicates | `isBrowser`, `isNode`, `isBuffer`, `isSymbol`, `isFunction`, `isFile`, `isError` on a subclass, `isPlainObject`, `isJSONValue`, `isJSON` (panics on invalid JSON instead of returning false), `isLength`, `isNull`/`isUndefined` type-predicate filters. Several are environment-presence questions rather than lowering defects. | queued |
 | 6 | `isEqualWith` | One spec; customizer-returns-undefined fallbacks over typed-array views, buffers, errors, and circular arrays. The `primitives` row is fixed: its `Object(...)`-boxed pairs already compared correctly (the tag probe knows the wrapper markers), and the real defect was the pair table's `[null, undefined, false]` rows lowering identically to `[null, null, true]` -- see the mixed-nullish array-literal fix. | queued |
-| ~10 | `clone` / `cloneDeep` | Map, RegExp, Error, class instances, `String` objects. Overlaps the dynamic-prototype work already noted in the compat manifest. | queued |
+| ~10 | `clone` / `cloneDeep` | Map, RegExp, Error, class instances, `String` objects. Overlaps the dynamic-prototype work already noted in the compat manifest. | queued, root identified |
+
+### `clone` / `cloneDeep`: the root is `toBe`, not `clone`
+
+`clone` itself is correct for the Map case -- a runtime probe on the generated
+crate shows `clone(map)` returning a FRESH identity (object id 1 -> 6) with its
+`[object Map]` tag intact, built through the reflected
+`Object.getPrototypeOf(obj).constructor` path, which already works.
+
+The failure is in the matcher. `toBe` (reference identity) and `toEqual`
+(structural) compile to the SAME operation for a `Map` local:
+
+```rust
+_smelt_tmp_4 = cloned_map.clone() != map.clone();   // toEqual  -- structural, correct
+_smelt_tmp_5 = cloned_map != map;                   // not.toBe -- same op, should be identity
+```
+
+so `expect(clonedMap).not.toBe(map)` cannot distinguish a fresh Map from its
+original. Two changes are needed together:
+
+1. `test_to_be_identity_type` (`lowering/testing/matchers.rs`) lists `List`,
+   `Dict`, `Set`, `Tuple`, `Class` and `Function` but NOT `JsMap`, so a `Map`
+   never reaches the strict-identity path. `Type::JsMap` exists only to preserve
+   the source `Map` spelling through interning, and it is a reference exactly
+   like the `Dict` it shares machinery with -- this is an oversight.
+2. Even with (1), codegen emits structural `!=`: two CONCRETE reference operands
+   fall past `binary_ops.rs`'s erased/nullish arms to the generic emitter. An
+   id comparison exists (`left.id == right.id`) but only for `Optional`
+   operands whose inner type is a string-keyed `Dict`. `SmeltJsMap` carries an
+   `id`, so the fix is a concrete strict-equality arm for reference types.
+
+Change (1) alone is a no-op (measured: 950/109 either way) and was reverted
+rather than left in unverified; both halves must land together, with a full
+three-corpus sweep since it changes `toBe` for every reference type.
 | 3 | `memoize` | Custom/immutable cache implementations panic with `missing field`. The unary/resolver/`this`-context rows are fixed: `fn.call(this, arg)` was passing the `this` operand as a positional argument, so the callee's first parameter bound to it. Same root fixed `overArgs` and `result` outright and reduced `flow`/`partial`. | queued |
 
 Latent, unexercised by any corpus: the closure-body `.call` path
