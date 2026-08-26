@@ -10958,3 +10958,45 @@ def check(r: Ok | Err) -> bool:
         "a concrete union receiver must not erase to a dynamic value:\n{source}"
     );
 }
+
+/// A TypeScript method call on a union receiver dispatches by matching the
+/// tagged enum instead of erasing the receiver.
+///
+/// `resolve_method` has always computed the per-arm result type for a union and
+/// documented that "MIR retains the typed call and dispatches over the concrete
+/// tagged-union arms". What defeated it was the callable-field path running
+/// first: its concreteness guard demanded a single method item, which a union
+/// deliberately never has, so the call was lowered as a dynamic field read and
+/// invoked through the `SmeltUnknown` call ABI.
+#[test]
+fn typescript_union_receiver_method_dispatches_statically() {
+    let source = source_for(
+        r"
+class Ok { isOk(): boolean { return true; } }
+class Err { isOk(): boolean { return false; } }
+function check(r: Ok | Err): boolean { return r.isOk(); }
+const v = check(new Ok());
+",
+    );
+
+    let check_body = source
+        .split("fn check(")
+        .nth(1)
+        .and_then(|rest| rest.split("\nfn ").next())
+        .unwrap_or_else(|| panic!("expected a generated `check`:\n{source}"));
+    assert!(
+        check_body.contains("M0(value) => value.is_ok()")
+            && check_body.contains("M1(value) => value.is_ok()"),
+        "each union arm must call its own concrete method:\n{source}"
+    );
+    assert!(
+        !check_body.contains("SmeltUnknown"),
+        "a concrete union receiver must not erase to a dynamic value:\n{source}"
+    );
+    // The dynamic call ABI is fallible, so erasing also infected the signature
+    // with a `Result`. Static dispatch cannot throw.
+    assert!(
+        check_body.starts_with("r: SmeltUnion5) -> bool"),
+        "static dispatch must not wrap the return type in `Result`:\n{source}"
+    );
+}
