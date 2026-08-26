@@ -11506,3 +11506,46 @@ const r = use1(pick(true));
     );
 }
 
+
+/// An unannotated arrow passed to a *generic* function is contextually typed
+/// from the instantiation its sibling arguments imply, not from the callee's
+/// raw type parameters.
+///
+/// The declared parameter type of `fn` is `(item: T) => U`. Handing that to the
+/// arrow as its contextual type bound the closure's parameter to a type
+/// variable outside its own scope, which lowered to `SmeltUnknown` — and then
+/// the already-concrete `number[]` argument had to be erased to match the
+/// instantiation, and the result un-erased again. One missing annotation cost
+/// four erasure sites. The bindings are recoverable from the value arguments,
+/// which is what this asserts.
+#[test]
+fn unannotated_arrow_into_generic_callee_stays_concrete() {
+    let source = source_for(
+        r"
+function mapArr<T, U>(arr: T[], fn: (item: T) => U): U[] {
+  const out: U[] = [];
+  for (const item of arr) { out.push(fn(item)); }
+  return out;
+}
+const nums: number[] = [1, 2, 3];
+const doubled = mapArr(nums, (x) => x * 2);
+",
+    );
+
+    let main_body = source
+        .split("fn main()")
+        .nth(1)
+        .unwrap_or_else(|| panic!("expected a generated `main`:\n{source}"));
+    assert!(
+        !main_body.contains("SmeltUnknown"),
+        "the call site must stay concrete, with no erasure round-trip:\n{source}"
+    );
+    assert!(
+        main_body.contains("closure_arg_0: f64"),
+        "the arrow parameter must be contextually typed as `f64`:\n{source}"
+    );
+    assert!(
+        main_body.contains("SmeltList<f64>"),
+        "the concrete argument must not be re-erased to call the instantiation:\n{source}"
+    );
+}
