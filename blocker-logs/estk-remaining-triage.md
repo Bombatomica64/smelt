@@ -334,3 +334,31 @@ not the problem.
 One loose end: `sortKeys`'s third failure passes a REAL compare function,
 which should take the `Some` branch and work. That one is not explained by
 this defect and needs its own look after this is fixed.
+
+#### Follow-up: the third `sortKeys` failure is `localeCompare`, a separate root
+
+The loose end noted above is closed. `should sort keys with a custom compare
+function` passes a REAL comparator, so it takes the `Some` branch and is not
+affected by the no-comparator defect. It fails for its own reason: the
+comparator body is `(a, b) => b.localeCompare(a)`, and
+`String.prototype.localeCompare` is not a modeled builtin. The member read
+resolves to `SmeltUnknown::Null`, which is then CALLED:
+
+```rust
+let smelt_source_value = SmeltUnknown::Null.clone();          // b.localeCompare
+let smelt_function = match smelt_source_value { SmeltUnknown::Function(f) => Some(f), ... };
+let _smelt_tmp_3: SmeltUnknown = (_smelt_tmp_2)(closure_arg_0.clone());
+```
+
+So `sortKeys` needs BOTH fixes to go green: the default comparator, and
+`localeCompare`. For the ASCII cases the corpus exercises, `localeCompare` is
+an ordinary lexicographic comparison returning a negative / zero / positive
+number, so modeling it is small — and it is a plain missing builtin, not a
+design problem.
+
+Note the shared shape with the function-property defect recorded above: an
+UNMODELED MEMBER SILENTLY BECOMES A VALUE (`Null` here, a bogus `.fieldN`
+there) instead of being diagnosed, and the wrong value then flows into a
+call or a comparison. The in-flight function-statics work adds a diagnostic
+for the function-receiver case; the same treatment for unmodeled string
+methods would have surfaced this immediately rather than at runtime.
