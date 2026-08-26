@@ -293,3 +293,44 @@ story.
 NOT verified by running. The next step is the actual assertion diff for one
 host-object row and one circular row; do not change the engine, which the
 `isEqual` result shows is already correct.
+
+### `sort()` with an absent comparator is a NO-OP (CONFIRMED BY CONSTRUCTION)
+
+`Array.prototype.sort` with no comparator, or with an `undefined` one, must
+use the JS default: coerce each element to a string and compare
+lexicographically. Smelt instead makes every pair compare EQUAL, so the list
+comes back unchanged.
+
+The whole chain is visible in the generated output and the prelude, in
+`third_party/es-toolkit/dist-smelt/src/sortKeys.rs` for
+`Object.keys(object).sort(compareKeys)`:
+
+```rust
+// absent comparator collapses to Undefined ...
+compare_keys.map(|f| SmeltUnknown::Number((f)(a, b) as f64)).unwrap_or(SmeltUnknown::Undefined)
+// ... which smelt_into_f64 turns into 0.0 (the `_ => 0.0` arm) ...
+sort_by(|left, right| {
+    let ordering = (smelt_comparator)(left, right).smelt_into_f64();
+    if ordering < 0.0 { Less } else if ordering > 0.0 { Greater } else { Equal }
+})
+```
+
+`0.0` is neither `< 0.0` nor `> 0.0`, so every pair is `Equal`, and Rust's
+`sort_by` is stable -- the input order survives untouched.
+
+This is GENERAL, not a sortKeys quirk: it hits every `.sort()` with no
+argument or an undefined one, anywhere in any corpus. `sortKeys` just makes
+it obvious because all three of its tests fail, including "should sort
+object keys alphabetically by default".
+
+The fix is a real default comparator (string coercion + lexicographic
+compare) selected when no callable comparator is supplied -- not a tweak to
+the `0.0` arm of `smelt_into_f64`, which is correct for other callers.
+
+Ruled out while finding this: `SmeltRecord` DOES model insertion order (it
+carries an `order: Vec<K>` beside its `HashMap`), so the rebuilt object is
+not the problem.
+
+One loose end: `sortKeys`'s third failure passes a REAL compare function,
+which should take the `Some` branch and work. That one is not explained by
+this defect and needs its own look after this is fixed.
