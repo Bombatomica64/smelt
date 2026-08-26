@@ -84,6 +84,11 @@ identity tables (`SMELT_LIST_IDENTITIES`, `SMELT_PROMISE_IDENTITIES`,
 itself. `benchmarks/rust/smelt_bench_harness.rs::identity_table_sizes` exists to make
 that distinction checkable rather than assumed.
 
+The control case is in the same report: remeda's `flat` does not go through this
+lowering, and it retains **76 bytes per op** against es-toolkit `flatten`'s 367 KiB —
+while running at 4,809 ops/s, within 1.1x of the TypeScript and by far the closest row
+in the whole table. Same operation, same harness; the difference is the cycle.
+
 The standard Rust idiom is for the closure's self-reference to be a `Weak`, upgraded
 at the call site. A long-running service built from this output would grow without
 bound today.
@@ -145,8 +150,8 @@ instantiations, which prices erasure with no JavaScript involved on either side:
 
 | Case | Instantiation | ops/s |
 | --- | --- | ---: |
-| `unique` | `T = SmeltUnknown` (what an erased caller gets) | 12.3 |
-| `unique_typed` | `T = f64` (what a caller with a real `number[]` gets) | 19.0 |
+| `unique` | `T = SmeltUnknown` (what an erased caller gets) | 12.9 |
+| `unique_typed` | `T = f64` (what a caller with a real `number[]` gets) | 19.2 |
 
 **~1.5× throughput, for free, purely from the element type being known.** That is the
 `CLAUDE.md` north star measured directly: the generic path is already there, and every
