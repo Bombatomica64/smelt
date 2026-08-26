@@ -258,3 +258,38 @@ flatten level, or the `result[keys[i]] = values[i]` write-back.
 NOT yet confirmed by running: narrowing this further needs the es-toolkit
 generated suite, and the exact assertion diff should be read before changing
 any emitter code.
+
+### `isEqualWith`: the six remaining failures are the wrapper, not the engine (NARROWED, NOT YET VERIFIED)
+
+All six remaining `isEqualWith` failures are named "when customizer returns
+undefined" -- the fallback path -- and they cover array views, buffers, error
+objects, circular arrays, transitive circular arrays, and arrays with
+differing non-index properties.
+
+The decisive fact: `isEqual` has ZERO failures. `src/predicate/isEqual.ts` is
+literally `isEqualWith(a, b, noop)`, so the shared engine
+(`is_equal_with_529`, from `src/predicate/isEqualWith.ts`) already handles
+every one of those six shapes correctly. Whatever is broken is in the compat
+wrapper `src/compat/predicate/isEqualWith.ts`, not the comparison itself.
+
+Two things I ruled OUT by reading the generated Rust, so nobody re-checks
+them:
+
+- The customizer's "no opinion" is NOT collapsed to `false`. The engine takes
+  `Option<bool>`, and the wrapper closure's fall-off-end correctly yields
+  `Ok::<Option<bool>, _>(None::<bool>)`.
+- The wrapper does reach the same engine; both paths call
+  `is_equal_with_529`.
+
+So the difference is confined to what the wrapper's closure does that `noop`
+does not: call the user customizer, then test `a instanceof Map` and
+`a instanceof Set` (closing over the OUTER `a`/`b`, which is the real source
+semantics), then recurse through `Array.from` + `after(2, ...)`. A plausible
+shape is those `instanceof` probes misbehaving on host objects (Buffer,
+Error, TypedArray) and diverting into the `Array.from` path -- but that would
+not by itself explain the two circular-array rows, so it is not the whole
+story.
+
+NOT verified by running. The next step is the actual assertion diff for one
+host-object row and one circular row; do not change the engine, which the
+`isEqual` result shows is already correct.
