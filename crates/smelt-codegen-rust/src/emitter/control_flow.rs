@@ -362,6 +362,11 @@ impl FunctionEmitter<'_> {
     ) -> Result<(), EmitError> {
         match statement {
             Statement::Assign { dest, value } => {
+                // The payload of a `throw` is built at the throw site instead of
+                // being staged in a temporary; see `emitter::throw`.
+                if self.is_folded_throw_payload(*dest) {
+                    return Ok(());
+                }
                 let local = self.local_decl(*dest)?;
                 let name = self.local_name(*dest)?;
                 if matches!(value, Rvalue::Closure { .. }) && !self.local_has_uses(*dest) {
@@ -511,11 +516,11 @@ impl FunctionEmitter<'_> {
                     let base_name = self.local_name(*base)?.to_owned();
                     if rendered_value.contains(&base_name) {
                         out.push_str(&format!(
-                            "    {{ let smelt_value = {rendered_value}; match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert({field_name:?}.to_owned(), smelt_value); }}, other => {{ let mut map = ::std::collections::HashMap::new(); map.insert({field_name:?}.to_owned(), smelt_value); *other = SmeltUnknown::Object(SmeltObject::new(map)); }} }} }}\n"
+                            "    {{ let smelt_value = {rendered_value}; match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert({field_name:?}.to_owned(), smelt_value); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), smelt_value)]))); }} }} }}\n"
                         ));
                     } else {
                         out.push_str(&format!(
-                            "    match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert({field_name:?}.to_owned(), {rendered_value}); }}, other => {{ let mut map = ::std::collections::HashMap::new(); map.insert({field_name:?}.to_owned(), {rendered_value}); *other = SmeltUnknown::Object(SmeltObject::new(map)); }} }}\n"
+                            "    match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert({field_name:?}.to_owned(), {rendered_value}); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), {rendered_value})]))); }} }}\n"
                         ));
                     }
                     return Ok(());
@@ -768,6 +773,41 @@ impl FunctionEmitter<'_> {
             } => self.emit_match(scrutinee, arms, *default, out),
             Terminator::Return(operand) => {
                 let body_return_ty = self.body_return_ty();
+                // `async function f(): Promise<T> { return p; }` ADOPTS `p` in
+                // JavaScript: the returned promise is awaited and `f`'s promise
+                // settles with *its* result, never with the promise object. Smelt
+                // used to route this through the ordinary return coercion, which
+                // saw a `Future<T>` flowing into a `T` slot and erased it with
+                // `SmeltPromise::from_future` — so `await f()` handed back the
+                // inner promise itself (`[object Promise]`) and a rejection inside
+                // it never surfaced at the caller. That is what made
+                // `withTimeout`, whose whole body is `return Promise.race([...])`,
+                // both resolve with the wrong value and never reject on timeout.
+                // Awaiting here is the general rule, not a promise-library
+                // special case: a `Promise<Promise<T>>` is unspellable in
+                // TypeScript, so an async body whose declared return type is not
+                // itself a future can only mean adoption.
+                if self.function.is_async
+                    && !self.function.is_generator
+                    && !matches!(self.function.origin, HirOrigin::ClassConstructor { .. })
+                    && let Some(&Type::Future(item_ty)) =
+                        self.mir.types.get(self.operand_ty(operand)?)
+                    && !matches!(self.mir.types.get(body_return_ty), Some(Type::Future(_)))
+                {
+                    let future_text = self.operand_text(operand)?;
+                    out.push_str(&format!(
+                        "    let smelt_adopted = {future_text}.await?;\n"
+                    ));
+                    if body_return_ty == self.none_ty {
+                        out.push_str("    let _ = smelt_adopted;\n");
+                        out.push_str("    return Ok(());\n");
+                    } else {
+                        let value =
+                            self.value_at_type_text("smelt_adopted", item_ty, body_return_ty)?;
+                        out.push_str(&format!("    return Ok({value});\n"));
+                    }
+                    return Ok(());
+                }
                 if matches!(self.function.origin, HirOrigin::ClassConstructor { .. }) {
                     if self.function.can_throw {
                         out.push_str(&format!(

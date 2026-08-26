@@ -247,9 +247,9 @@ result: int = sum_two(2, 3)
 
     assert!(source.contains("|closure_arg_0: i64, closure_arg_1: i64|"));
     assert!(source.contains("vec![closure_arg_0.clone(), closure_arg_1.clone()]"));
-    assert!(
-        source.contains("usize::try_from(normalized).expect(\"negative index out of bounds\")")
-    );
+    // An element READ never panics: a still-negative normalized index misses
+    // (`usize::MAX`) exactly like a positive out-of-range index does.
+    assert!(source.contains("usize::try_from(normalized).unwrap_or(usize::MAX)"));
     assert!(source.contains("(2, 3)"));
 }
 
@@ -272,9 +272,9 @@ def run() -> int:
     );
 
     assert!(source.contains("|closure_arg_0: SmeltList<i64>|"));
-    assert!(
-        source.contains("usize::try_from(normalized).expect(\"negative index out of bounds\")")
-    );
+    // An element READ never panics: a still-negative normalized index misses
+    // (`usize::MAX`) exactly like a positive out-of-range index does.
+    assert!(source.contains("usize::try_from(normalized).unwrap_or(usize::MAX)"));
     assert!(source.contains("vec![2, 3, 4]"));
     assert!(
         source.contains(
@@ -839,6 +839,91 @@ export function build(total: number): number[] {
     assert!(
         source.contains("result[smelt_assign_index] = i"),
         "indexed writes should fill the list built by Array(total): {source}"
+    );
+}
+
+#[test]
+fn array_length_allocation_emits_holes_not_an_empty_vec() {
+    // `Array(n)` / `new Array(n)` allocate LENGTH `n` in JavaScript: `.length`
+    // is `n` and every slot reads `undefined`. Both used to lower to `vec![]`,
+    // which dropped the length and made every `.length`-driven loop over the
+    // result (`fill`, `zip`, `zipWith`, `unzip`) run zero iterations.
+    let source = source_for(
+        r"
+export function bare(n: number): unknown[] {
+  return Array(n);
+}
+export function constructed(n: number): unknown[] {
+  return new Array(n);
+}
+",
+    );
+
+    assert_eq!(
+        source.matches("vec![SmeltUnknown::Undefined; array_from_length]").count(),
+        2,
+        "both Array(n) spellings must allocate n holes: {source}"
+    );
+}
+
+#[test]
+fn array_length_allocation_holes_match_out_of_range_reads() {
+    // A hole is the element type's MISSING VALUE — the very value an
+    // out-of-range read of the same list answers — so construction and reads
+    // cannot disagree. A `number[]` allocation therefore stays a `Vec<f64>` of
+    // `0.0` holes instead of being erased to `SmeltUnknown` and mapped back.
+    let source = source_for(
+        r"
+export function numbers(n: number): number[] {
+  const result: number[] = Array(n);
+  return result;
+}
+export function strings(n: number): string[] {
+  const result: string[] = new Array(n);
+  return result;
+}
+",
+    );
+
+    assert!(
+        source.contains("vec![0.0; array_from_length]"),
+        "a number[] allocation must hold f64 holes: {source}"
+    );
+    assert!(
+        source.contains("vec![String::new(); array_from_length]"),
+        "a string[] allocation must hold String holes: {source}"
+    );
+    assert!(
+        !source.contains("SmeltUnknown::Undefined; array_from_length"),
+        "a concretely typed allocation must not erase its holes: {source}"
+    );
+}
+
+#[test]
+fn array_arguments_that_are_not_a_length_build_elements() {
+    // ECMAScript splits `Array(...)` on the ARGUMENT LIST, not the callee:
+    // exactly one numeric argument is a length, and any other argument list is
+    // an element list. `Array('a')` was rejected as a non-numeric length and
+    // `Array(1, 2, 3)` as "at most one length argument"; both are ordinary
+    // array construction.
+    let source = source_for(
+        r"
+export function single(): string[] {
+  return Array('a');
+}
+export function several(): number[] {
+  return Array(1, 2, 3);
+}
+",
+    );
+
+    assert!(
+        source.contains(r#"vec!["a".to_owned()]"#),
+        "a single non-numeric argument is one element: {source}"
+    );
+    assert!(
+        source.contains("vec![1.0, 2.0, 3.0]"),
+        "several arguments are the elements: {source}"
     );
 }
 

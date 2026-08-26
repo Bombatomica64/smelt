@@ -865,7 +865,7 @@ mod tests {
     /// had.
     #[test]
     fn panic_recovery_payload_is_a_boundary() {
-        let recovery = "            let e = SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"__smelt_error\".to_owned(), SmeltUnknown::String(\"Error\".to_owned())), (\"message\".to_owned(), SmeltUnknown::String(__smelt_error))])));";
+        let recovery = "            let e = SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"__smelt_error\".to_owned(), SmeltUnknown::String(\"Error\".to_owned())), (\"message\".to_owned(), SmeltUnknown::String(__smelt_error))])));";
         assert_eq!(
             classify_line(recovery, false),
             Category::LegitimateBoundary,
@@ -873,7 +873,7 @@ mod tests {
         );
         // The same record shape built from a program value (a source
         // `new Error(message)`) is NOT reclassified by this marker.
-        let program_error = "            let e = SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"__smelt_error\".to_owned(), SmeltUnknown::String(\"Error\".to_owned())), (\"message\".to_owned(), SmeltUnknown::String(message.clone()))])));";
+        let program_error = "            let e = SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"__smelt_error\".to_owned(), SmeltUnknown::String(\"Error\".to_owned())), (\"message\".to_owned(), SmeltUnknown::String(message.clone()))])));";
         assert_eq!(
             classify_line(program_error, false),
             Category::AvoidableErasure,

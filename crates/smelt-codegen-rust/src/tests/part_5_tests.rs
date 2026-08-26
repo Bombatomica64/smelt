@@ -252,6 +252,140 @@ test("common matchers", () => {
     assert!(source.contains("deepStrictEqual(...) failed"));
 }
 
+/// A destructured callback parameter binds the FIELD's type, not the
+/// parameter's.
+///
+/// The compact callback IR resolved a destructured field's type for dicts,
+/// maps and classes, and fell back to the *parameter's own type* for
+/// everything else. Over `T[][]`, `arrays.map(({ length }) => length)`
+/// therefore typed `length` as `T[]`, so the callback claimed to return a
+/// list and the emitter coerced the number into a one-element list. That is
+/// how radash's `zip` stopped compiling: `Math.max(..)` over the mapped
+/// lengths got `expected f64, found SmeltList<SmeltUnknown>`. `length` is a
+/// number on every list and string.
+#[test]
+fn a_destructured_callback_parameter_binds_the_field_type() {
+    let source = source_for(
+        r"
+export function lengths<T>(arrays: T[][]): number[] {
+  return arrays.map(({ length }) => length);
+}
+",
+    );
+
+    assert!(
+        !source.contains("SmeltList::from(vec![SmeltUnknown::Number("),
+        "the callback must yield `length` itself, not a one-element list \
+         holding it:\n{source}"
+    );
+    // An ERASED receiver must keep reading the field at runtime. Its binding
+    // really is `unknown`, so the old parameter-type fallback happened to be
+    // right there -- and routing it to the closure-body fallback instead is
+    // worse, because that path binds the destructured name to
+    // `Default::default()` and never reads the field. remeda's
+    // `binarySearchCutoffIndex(["a", "ab", ..], ({ length }) => length < 3)`
+    // answered from a default and returned the wrong index.
+    let erased = source_for(
+        r"
+export function cutoff<T>(array: readonly T[], predicate: (value: T) => boolean): number {
+  return array.filter(predicate).length;
+}
+
+export function run(): number {
+  return cutoff(['a', 'ab', 'abc'], ({ length }) => length < 3);
+}
+",
+    );
+    assert!(
+        !erased.contains("let length: SmeltUnknown = "),
+        "a destructured field of an erased parameter must be read, not bound to \
+         a default:\n{erased}"
+    );
+
+    // The equivalent member access has always been right; the two spellings
+    // must agree.
+    let member = source_for(
+        r"
+export function lengths<T>(arrays: T[][]): number[] {
+  return arrays.map(a => a.length);
+}
+",
+    );
+    assert!(
+        !member.contains("SmeltList::from(vec![SmeltUnknown::Number("),
+        "control: the member-access spelling must not wrap either:\n{member}"
+    );
+}
+
+/// Vitest compares primitive numbers with `Object.is` under every equality
+/// matcher, so `NaN` equals `NaN`.
+///
+/// Only `toBe` used the `Object.is` comparison; `toEqual` and `toStrictEqual`
+/// emitted a plain `!=`, which on `f64` reports `NaN != NaN`. Assertions like
+/// `expect(mean([])).toEqual(NaN)` therefore failed on the value they wanted.
+/// Objects and arrays keep structural comparison under the deep matchers --
+/// only `toBe` compares those by reference.
+#[test]
+fn deep_matchers_compare_numbers_with_object_is() {
+    let source = source_for(
+        r#"
+import { test, expect } from "vitest";
+
+function mean(values: number[]): number {
+  return values.length === 0 ? NaN : values[0];
+}
+
+test("nan", () => {
+  expect(mean([])).toEqual(NaN);
+  expect(mean([])).toStrictEqual(NaN);
+  expect([1]).toEqual([1]);
+});
+"#,
+    );
+
+    let same_value = source.matches("is_nan() && ").count();
+    assert!(
+        same_value >= 2,
+        "toEqual/toStrictEqual on numbers must use the Object.is comparison: {source}"
+    );
+    // The list assertion stays structural rather than becoming a reference check.
+    assert!(source.contains("expect(...).toEqual(...) failed"), "{source}");
+}
+
+/// A failed assertion must name the source assertion and its location.
+///
+/// Generated suites throw a plain string, so without the snippet and
+/// `path:line:column` suffix a large generated suite reports only which
+/// matcher failed, which is not enough to find the offending spec line.
+#[test]
+fn generated_assertion_failures_carry_source_snippet_and_location() {
+    let source = source_for(
+        r#"
+import { test, expect } from "vitest";
+
+test("located", () => {
+  expect(1 + 1).toEqual(2);
+  expect([
+    1,
+    2,
+  ]).toHaveLength(2);
+});
+"#,
+    );
+
+    assert!(
+        source.contains("expect(...).toEqual(...) failed: expect(1 + 1).toEqual(2) (<memory>:5:3)"),
+        "{source}"
+    );
+    // A multi-line assertion collapses onto one line so the message stays scannable.
+    assert!(
+        source.contains(
+            "expect(...).toHaveLength(...) failed: expect([ 1, 2, ]).toHaveLength(2) (<memory>:6:3)"
+        ),
+        "{source}"
+    );
+}
+
 #[test]
 fn emits_identity_bearing_erased_arrays_for_strict_matchers() {
     let source = source_for(
@@ -928,7 +1062,7 @@ const asRecord: unknown = obj;
     // (a legitimate dynamic boundary), never in `SmeltRecord`'s.
     assert!(
         source.contains(
-            "object.insert(\"__smelt_map\".to_owned(), SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), pairs)))"
+            "let object = Vec::from([(\"__smelt_map\".to_owned(), SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), pairs)))])"
         ),
         "{source}"
     );

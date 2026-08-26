@@ -67,6 +67,17 @@ pub mod timers {
     /// Builds a no-op `Waker` used to poll detached futures. Defined in the
     /// prelude and referenced only by other prelude helpers.
     pub const NOOP_WAKER: &str = "smelt_noop_waker";
+
+    /// Settles with the racer that finishes FIRST; backs `Promise.race`.
+    ///
+    /// `tokio::select!` cannot back `Promise.race` on the virtual clock: it
+    /// polls its branches in a randomized order and returns whichever branch
+    /// first reports `Ready` in a poll round, while each generated promise
+    /// spin-loop advances the virtual clock by one timer step per poll. Two
+    /// racers therefore settle in the same round and the winner is a coin flip.
+    /// This helper polls the racers in source order instead, so the racer whose
+    /// timer fired earlier is observed first.
+    pub const PROMISE_RACE: &str = "smelt_promise_race";
 }
 
 /// JSON / dynamic-`unknown` boundary helpers.

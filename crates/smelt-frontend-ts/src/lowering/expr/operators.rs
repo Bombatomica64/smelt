@@ -11,8 +11,8 @@ use crate::lowering::{
     Argument, ArrayExpressionElement, AsyncOp, BinOp, BinaryOperator, BindingPattern, Body,
     CaptureMode, ClosureCapture, DictProjectionOp, Expr, ExprKind, Expression, Field, FunctionType,
     HashSet, Item, Literal, LocalDecl, LogicalOperator, ModuleBuilder, ObjectPropertyKind, Param,
-    PrimitiveCastOp, PropertyKey, PropertyKind, SetProjectionOp, SmeltError, Span, Statement, Type,
-    UnaryOp, UnaryOperator,
+    Pattern, PrimitiveCastOp, PropertyKey, PropertyKind, SetProjectionOp, SmeltError, Span,
+    Statement, Stmt, Type, UnaryOp, UnaryOperator,
 };
 use oxc::span::GetSpan;
 
@@ -238,11 +238,22 @@ impl ModuleBuilder<'_> {
 
     /// Shared core for `Array(...)` and `new Array(...)` construction.
     ///
-    /// JavaScript creates a sparse array here; Smelt models the later indexed
-    /// writes and only needs the list container type at construction time. A
-    /// single array-literal argument (`Array([1, 2])`) builds that literal, a
-    /// single numeric argument (`Array(3)`) preallocates a list, and an optional
-    /// type argument supplies the element type.
+    /// ECMAScript gives the two spellings identical behaviour and splits on the
+    /// ARGUMENT LIST, not on the callee: exactly one numeric argument is a
+    /// LENGTH, and every other argument list is an ELEMENT list. So `Array(3)`
+    /// is a length-3 array of holes, while `Array('a')` is `['a']`,
+    /// `Array(1, 2, 3)` is `[1, 2, 3]`, and `Array()` is `[]`.
+    ///
+    /// The length form lowers to `ListFromLength`, which allocates `n` slots
+    /// holding the element type's missing value — the very value an
+    /// out-of-range read of the same list answers. Lowering it to an empty list
+    /// instead (the previous behaviour) lost the length: every consumer that
+    /// drives a loop off `.length` (`fill`, `zip`, `zipWith`, `unzip`) then ran
+    /// zero iterations and returned an empty array.
+    ///
+    /// A single array-literal argument (`Array([1, 2])`) keeps its established
+    /// literal lowering. An optional type argument supplies the element type for
+    /// either form.
     pub(in crate::lowering) fn lower_array_construction(
         &mut self,
         arguments: &[Argument<'_>],
@@ -251,54 +262,133 @@ impl ModuleBuilder<'_> {
         end: u32,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        if arguments.len() > 1 {
-            return Err(SmeltError::unsupported(
-                self.span(start, end),
-                "Array(...) supports at most one length argument",
-            ));
-        }
-        if let Some(Argument::ArrayExpression(array)) = arguments.first() {
+        if let [Argument::ArrayExpression(array)] = arguments {
             return self.array_expression(array, body, None);
         }
-        if let Some(length) = arguments.first() {
-            let length = self.argument(length, body)?;
-            // The preallocation length is only used to size the (initially empty)
-            // list, which Smelt models through later indexed writes, so the value
-            // itself is discarded. Accept any numeric-like type plus the erased /
-            // optional-numeric surfaces that flow from JS `number | undefined`
-            // parameters; only reject clearly non-numeric arguments.
-            let length_ty = Self::expr_ty(body, length);
-            let numeric = self.is_numeric_like_type(length_ty)
-                || matches!(
-                    self.ctx.krate.types.get(length_ty),
-                    Some(Type::Int | Type::Float)
-                )
-                || self.optional_numeric_surface(length_ty)
-                || self.erased_or_union_surface(length_ty);
-            if !numeric {
-                return Err(SmeltError::unsupported(
-                    self.span(start, end),
-                    "Array(...) length must be numeric",
-                ));
-            }
-        }
-        let item_ty = if let Some(type_args) = type_arguments {
+        let annotated_item_ty = if let Some(type_args) = type_arguments {
             let [item] = type_args.params.as_slice() else {
                 return Err(SmeltError::unsupported(
                     self.span(start, end),
                     "Array(...) supports exactly one type argument",
                 ));
             };
-            self.ts_type_to_hir(item)?
+            Some(self.ts_type_to_hir(item)?)
         } else {
-            self.ctx.krate.types.intern(Type::Unknown)
+            None
         };
+        if let [length_arg] = arguments {
+            let length = self.argument(length_arg, body)?;
+            // Accept any numeric-like type plus the erased / optional-numeric
+            // surfaces that flow from JS `number | undefined` parameters. A
+            // clearly non-numeric single argument is an element, not a length.
+            let length_ty = Self::expr_ty(body, length);
+            let is_length = self.is_numeric_like_type(length_ty)
+                || matches!(
+                    self.ctx.krate.types.get(length_ty),
+                    Some(Type::Int | Type::Float)
+                )
+                || self.optional_numeric_surface(length_ty)
+                || self.erased_or_union_surface(length_ty);
+            if is_length {
+                // The allocation count must reach the emitter as a JS number;
+                // optional and erased numeric surfaces are cast the same way
+                // `Array.from({ length })` casts them.
+                let length = if matches!(
+                    self.ctx.krate.types.get(length_ty),
+                    Some(Type::Int | Type::Float)
+                ) {
+                    length
+                } else {
+                    let float_ty = self.ctx.krate.types.intern(Type::Float);
+                    body.push_expr(Expr {
+                        kind: ExprKind::PrimitiveCast {
+                            op: PrimitiveCastOp::ToJsNumber,
+                            operand: length,
+                        },
+                        ty: float_ty,
+                        span: self.span(start, end),
+                    })
+                };
+                let item_ty = annotated_item_ty
+                    .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                let ty = self.ctx.krate.types.intern(Type::List(item_ty));
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::ListFromLength { length },
+                    ty,
+                    span: self.span(start, end),
+                }));
+            }
+            let item_ty = annotated_item_ty.unwrap_or(length_ty);
+            let ty = self.ctx.krate.types.intern(Type::List(item_ty));
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::ListLit(vec![length]),
+                ty,
+                span: self.span(start, end),
+            }));
+        }
+        let mut items = Vec::with_capacity(arguments.len());
+        for argument in arguments {
+            if matches!(argument, Argument::SpreadElement(_)) {
+                return Err(SmeltError::unsupported(
+                    self.span(start, end),
+                    "Array(...) does not support spread arguments",
+                ));
+            }
+            items.push(self.argument(argument, body)?);
+        }
+        let item_ty = annotated_item_ty.unwrap_or_else(|| {
+            if items.is_empty() {
+                self.ctx.krate.types.intern(Type::Unknown)
+            } else {
+                self.array_literal_item_type(&items, body)
+            }
+        });
         let ty = self.ctx.krate.types.intern(Type::List(item_ty));
         Ok(body.push_expr(Expr {
-            kind: ExprKind::ListLit(Vec::new()),
+            kind: ExprKind::ListLit(items),
             ty,
             span: self.span(start, end),
         }))
+    }
+
+    /// Let a length-only list allocation adopt the contextual list type.
+    ///
+    /// `Array(n)` names no element type of its own, so it lowers as
+    /// `list[unknown]`. When the value flows into a position that already knows
+    /// the list type (`const rows: number[] = Array(n)`), adopting that type
+    /// keeps the allocation concrete: its holes are then built as the element
+    /// type's own missing value (`0.0`) instead of erased `SmeltUnknown`
+    /// holes a later coercion has to map back element by element — which is
+    /// both an erasure round-trip and a disagreement with what an out-of-range
+    /// read of the same list answers. Array literals already take contextual
+    /// types this way; a length-only allocation is the same shape with the
+    /// elements left implicit.
+    ///
+    /// Only an untyped (`list[unknown]`) allocation adopts, and only from a list
+    /// hint; every other expression and hint is returned untouched.
+    pub(in crate::lowering) fn adopt_contextual_list_allocation_type(
+        &mut self,
+        value: smelt_hir::ExprId,
+        type_hint: Option<smelt_hir::TypeId>,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let Some(hint) = type_hint else {
+            return value;
+        };
+        if !matches!(self.ctx.krate.types.get(hint), Some(Type::List(_))) {
+            return value;
+        }
+        let unknown_list_ty = {
+            let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+            self.ctx.krate.types.intern(Type::List(unknown_ty))
+        };
+        if let Some(expr) = body.exprs.get_mut(usize::try_from(value.0).unwrap_or(usize::MAX))
+            && matches!(expr.kind, ExprKind::ListFromLength { .. })
+            && expr.ty == unknown_list_ty
+        {
+            expr.ty = hint;
+        }
+        value
     }
 
     /// Lower supported string split calls into HIR string runtime calls.
@@ -1243,12 +1333,223 @@ impl ModuleBuilder<'_> {
         };
         let lhs = self.expression(&logical.left, body)?;
         let rhs = self.expression(&logical.right, body)?;
+        let span = self.span(logical.span.start, logical.span.end);
+        if let Some(expr) = self.logical_operand_value_expression(logical, body, lhs, rhs)? {
+            return Ok(expr);
+        }
         let ty = self.ctx.krate.types.intern(Type::Bool);
         Ok(body.push_expr(Expr {
             kind: ExprKind::BinOp { op, lhs, rhs },
             ty,
-            span: self.span(logical.span.start, logical.span.end),
+            span,
         }))
+    }
+
+    /// Lower `a && b` / `a || b` in a VALUE position to the operand JavaScript
+    /// actually yields.
+    ///
+    /// JavaScript's logical operators are selectors, not boolean operators:
+    /// `a && b` evaluates to `a` when `a` is falsy and to `b` otherwise, and
+    /// `a || b` evaluates to `a` when `a` is truthy and to `b` otherwise. The
+    /// static type of the whole expression is therefore the union of the two
+    /// operand types, not `boolean`.
+    ///
+    /// Modelling it as a boolean throws the operand away. es-toolkit's
+    /// `expect(error instanceof Error && error.message).toBe('test')` lowered to
+    /// a `bool`, so the comparison against a string was statically false and the
+    /// assertion folded to `!(false)` — a test that could never fail and never
+    /// checked anything.
+    ///
+    /// Returns `None` (so the caller keeps the boolean `BinOp`) when:
+    ///
+    /// * both operands are already `bool`, which is the overwhelmingly common
+    ///   case and where the boolean lowering is exactly right — widening it
+    ///   would push ordinary guards through a union for nothing; or
+    /// * the two operand types have no common lowered shape, i.e.
+    ///   [`Self::conditional_branch_type`] (the same unification a ternary uses,
+    ///   so `a && b` and `a ? b : a` agree) cannot merge them. Degrading to the
+    ///   previous boolean shape keeps lowering succeeding where it succeeds
+    ///   today rather than erasing the value to `unknown` to force a merge.
+    ///
+    /// The left operand is bound to a temporary first: it is read twice (once
+    /// for the truthiness test, once as the selected value) and re-emitting the
+    /// expression would evaluate it twice.
+    pub(in crate::lowering) fn logical_operand_value_expression(
+        &mut self,
+        logical: &oxc::ast::ast::LogicalExpression<'_>,
+        body: &mut Body,
+        lhs: smelt_hir::ExprId,
+        rhs: smelt_hir::ExprId,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let lhs_ty = Self::expr_ty(body, lhs);
+        let rhs_ty = Self::expr_ty(body, rhs);
+        if lhs_ty == bool_ty && rhs_ty == bool_ty {
+            return Ok(None);
+        }
+        let ty = match self.conditional_branch_type(
+            rhs_ty,
+            lhs_ty,
+            None,
+            logical.span.start,
+            logical.span.end,
+        ) {
+            Ok(ty) => ty,
+            // No closer common shape exists (a `string` operand beside a
+            // `number` one, say). TypeScript's answer for `a && b` is the
+            // literal union of the operand types, and a generated union is a
+            // concrete Rust enum — not erasure — so build it rather than
+            // falling back to a boolean that discards the value.
+            Err(_) => self
+                .ctx
+                .krate
+                .types
+                .intern(Type::Union(vec![lhs_ty, rhs_ty])),
+        };
+        // `conditional_branch_type` is allowed to answer `unknown` for a merge
+        // it cannot name, which is right when an operand is ALREADY erased (the
+        // `error instanceof Error && error.message` case, where `error` is
+        // source `unknown`) and wrong when both operands are concrete: erasing
+        // two known shapes to reconcile them is the avoidable erasure the ABI
+        // rules forbid. A generated union names that merge exactly.
+        let ty = if self.ctx.krate.types.get(ty) == Some(&Type::Unknown)
+            && !self.type_contains_unknown(lhs_ty)
+            && !self.type_contains_unknown(rhs_ty)
+        {
+            self.ctx
+                .krate
+                .types
+                .intern(Type::Union(vec![lhs_ty, rhs_ty]))
+        } else {
+            ty
+        };
+        let span = self.span(logical.span.start, logical.span.end);
+        // Bind the left operand so the truthiness test and the selected value
+        // read one evaluation.
+        let selector = body.push_local(LocalDecl {
+            name: Some(self.intern_source_name("smelt_logical")),
+            ty: lhs_ty,
+            mutable: false,
+            span,
+        });
+        let selector_pat = body.push_pattern(Pattern::Binding(selector));
+        let let_stmt = Stmt::Let {
+            pat: selector_pat,
+            ty: lhs_ty,
+            value: Some(lhs),
+        };
+        if let Some(block) = self.current_statement_block {
+            body.push_stmt_to_block(block, let_stmt);
+        } else {
+            body.push_stmt(let_stmt);
+        }
+        let selector_read = body.push_expr(Expr {
+            kind: ExprKind::Local(selector),
+            ty: lhs_ty,
+            span,
+        });
+        let Ok(cond) = self.lowered_condition_expression(selector_read, span, body) else {
+            return Ok(None);
+        };
+        let selector_value = body.push_expr(Expr {
+            kind: ExprKind::Local(selector),
+            ty: lhs_ty,
+            span,
+        });
+        let (then_expr, else_expr) = if logical.operator == LogicalOperator::And {
+            (rhs, selector_value)
+        } else {
+            (selector_value, rhs)
+        };
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Conditional {
+                cond,
+                then_expr,
+                else_expr,
+            },
+            ty,
+            span,
+        })))
+    }
+
+    /// Lower `a && b` / `a || b` that is consumed only for its truthiness.
+    ///
+    /// A condition observes nothing but the truthiness of the operand
+    /// [`Self::logical_operand_value_expression`] selects, and
+    /// `truthy(a && b) == truthy(a) && truthy(b)` (likewise for `||`). Lowering
+    /// the condition form straight to a boolean `BinOp` therefore keeps
+    /// `if (a && b)` as a plain Rust `&&` instead of materializing a union value
+    /// and then testing it — the value-yielding rule is only needed where the
+    /// value escapes.
+    ///
+    /// Returns `None` when this is not a plain `&&`/`||`, or when either operand
+    /// has no truthiness lowering, so the caller falls back to lowering the
+    /// logical expression as a value and testing that.
+    pub(in crate::lowering) fn logical_condition_expression(
+        &mut self,
+        logical: &oxc::ast::ast::LogicalExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if logical.operator == LogicalOperator::Coalesce {
+            return Ok(None);
+        }
+        // `(typeof X === 'object' && X) || ...` folds to the detected global
+        // before either operand is lowered; its absent-alias operands (`&&
+        // window` in a non-browser build) cannot be lowered at all, so the fold
+        // has to run first here too.
+        if let Some(expr) = self.global_detection_chain_expression(logical, body) {
+            return self
+                .lowered_condition_expression(
+                    expr,
+                    self.span(logical.span.start, logical.span.end),
+                    body,
+                )
+                .map(Some);
+        }
+        let Ok(cond) = self.condition_expression(&logical.left, body) else {
+            return Ok(None);
+        };
+        // `x instanceof T && x.field` narrows `x` for the right operand exactly
+        // as it does in the value form.
+        let rhs_narrowing = if logical.operator == LogicalOperator::And {
+            self.guard_narrowing(&logical.left, body)
+        } else {
+            None
+        };
+        if let Some(narrowing) = rhs_narrowing.clone() {
+            self.scope.push_narrowing_scope(narrowing);
+        }
+        let rhs = self.expression(&logical.right, body);
+        if rhs_narrowing.is_some() {
+            self.scope.pop_narrowing_scope();
+        }
+        let Ok(rhs) = rhs else {
+            return Ok(None);
+        };
+        // A `Conditional`, not a boolean `BinOp`: MIR lowers the arms into
+        // branches, so the right operand's own statements only run when the
+        // left operand did not already decide the answer. A `BinOp` would hoist
+        // them and evaluate both sides unconditionally, losing short-circuiting.
+        let ty = self.ctx.krate.types.intern(Type::Bool);
+        let identity = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(logical.operator == LogicalOperator::Or)),
+            ty,
+            span: self.expression_span(&logical.left),
+        });
+        let (then_expr, else_expr) = if logical.operator == LogicalOperator::And {
+            (rhs, identity)
+        } else {
+            (identity, rhs)
+        };
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Conditional {
+                cond,
+                then_expr,
+                else_expr,
+            },
+            ty,
+            span: self.span(logical.span.start, logical.span.end),
+        })))
     }
 
     /// Lower JavaScript `left && numeric` expressions in numeric value contexts.

@@ -502,17 +502,30 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Converts `Array.from({ length })` into a sparse-like unknown vector.
+    /// Converts a length-only array allocation (`Array(n)`, `new Array(n)`,
+    /// `Array.from({ length: n })`) into a Rust vector of `n` holes.
+    ///
+    /// JavaScript allocates a sparse array of LENGTH `n` here, not an empty one:
+    /// `Array(3).length` is `3` and `Array(3)[0]` is `undefined`. Emitting an
+    /// empty `vec![]` silently broke every consumer that drives a loop off
+    /// `.length` (`fill`, `zip`, `unzip`) because the loop body never ran.
+    ///
+    /// A hole is materialised as the element type's missing value — exactly the
+    /// value an out-of-range READ of that same list answers
+    /// (`element_missing_value_text`), so construction and reads cannot
+    /// disagree. That keeps a concrete element list concrete: `Array(3)` for a
+    /// `Vec<f64>` allocates three `f64::default()` slots rather than erasing the
+    /// list to `SmeltUnknown`.
     pub(super) fn list_from_length_text(
         &self,
         length: &Operand,
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
-        if self.mir.types.get(dest_ty) != Some(&Type::List(self.type_id(Type::Unknown)?)) {
+        let Some(&Type::List(item_ty)) = self.mir.types.get(dest_ty) else {
             return Err(EmitError::new(
-                "Array.from length destination must be list[unknown]",
+                "array length allocation destination must be a list",
             ));
-        }
+        };
         if !matches!(
             self.mir.types.get(self.operand_ty(length)?),
             Some(Type::Int | Type::Float)
@@ -520,8 +533,9 @@ impl FunctionEmitter<'_> {
             return Err(EmitError::new("Array.from length must be numeric"));
         }
         let length_text = self.operand_text(length)?;
+        let hole_text = self.element_missing_value_text(item_ty)?;
         Ok(format!(
-            "{{ let array_from_length = ({length_text} as f64).max(0.0).floor() as usize; vec![SmeltUnknown::Null; array_from_length] }}"
+            "{{ let array_from_length = ({length_text} as f64).max(0.0).floor() as usize; vec![{hole_text}; array_from_length] }}"
         ))
     }
 

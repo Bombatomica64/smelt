@@ -1084,6 +1084,175 @@ const no = Array.isArray(1);
     Ok(())
 }
 
+/// Return whether any body in the crate holds an expression matching `pred`.
+fn any_expr_kind(ctx: &HirCtx, pred: impl Fn(&ExprKind) -> bool) -> bool {
+    ctx.krate
+        .bodies
+        .iter()
+        .any(|body| body.exprs.iter().any(|expr| pred(&expr.kind)))
+}
+
+/// Return whether any body in the crate holds a runtime array probe.
+fn any_array_probe(ctx: &HirCtx) -> bool {
+    any_expr_kind(ctx, |kind| {
+        matches!(
+            kind,
+            ExprKind::UnknownIs {
+                kind: smelt_hir::UnknownKind::Array,
+                ..
+            }
+        )
+    })
+}
+
+/// Return whether any body in the crate holds the folded boolean `value`.
+fn any_bool_literal(ctx: &HirCtx, value: bool) -> bool {
+    any_expr_kind(
+        ctx,
+        |kind| matches!(kind, ExprKind::Literal(Literal::Bool(found)) if *found == value),
+    )
+}
+
+#[test]
+fn array_is_array_on_optional_operand_keeps_the_runtime_probe() -> Result<(), String> {
+    // `Array.isArray(value)` over an OPTIONAL erased parameter is a genuine
+    // runtime question: `Option<SmeltUnknown>` can hold `SmeltUnknown::Array`.
+    // The fold used to test the operand type against `Unknown | TypeParam |
+    // Union` only, so `value?: any` — the signature of es-toolkit's `isArray`,
+    // and therefore of the array branch of `toCamelCaseKeys`/`toSnakeCaseKeys`
+    // — fell through to the concrete case and lowered the whole body to the
+    // constant `false`, leaving the array branch dead.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+export function isArrayValue(value?: any): boolean {
+  return Array.isArray(value);
+}
+"),
+        &mut ctx,
+    )?;
+    ensure!(any_array_probe(&ctx));
+    ensure!(!any_bool_literal(&ctx, false));
+    Ok(())
+}
+
+#[test]
+fn array_is_array_over_a_union_folds_only_when_every_arm_agrees() -> Result<(), String> {
+    // A union operand settles the question only when all arms give the same
+    // answer. `number | string[]` does not — the array arm is exactly why the
+    // test was written — so it keeps the runtime probe, while `number | string`
+    // has no array arm at all and folds to `false`.
+    let mut probe_ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+export function maybeArray(value: number | string[]): boolean {
+  return Array.isArray(value);
+}
+"),
+        &mut probe_ctx,
+    )?;
+    ensure!(any_array_probe(&probe_ctx));
+
+    let mut fold_ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+export function neverArray(value: number | string): boolean {
+  return Array.isArray(value);
+}
+"),
+        &mut fold_ctx,
+    )?;
+    ensure!(!any_array_probe(&fold_ctx));
+    ensure!(any_bool_literal(&fold_ctx, false));
+    Ok(())
+}
+
+#[test]
+fn array_is_array_over_a_known_array_still_folds_true() -> Result<(), String> {
+    // The fold is right whenever the static type genuinely settles the answer:
+    // a list-typed operand IS an array, so no runtime probe is emitted.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+export function known(values: number[]): boolean {
+  return Array.isArray(values);
+}
+"),
+        &mut ctx,
+    )?;
+    ensure!(!any_array_probe(&ctx));
+    ensure!(any_bool_literal(&ctx, true));
+    Ok(())
+}
+
+#[test]
+fn arrow_callback_typeof_over_a_union_keeps_the_runtime_probe() -> Result<(), String> {
+    // `typeof value === 'string'` inside an arrow lowered through the CALLBACK
+    // path, which folded every non-`unknown` operand with
+    // `type_matches_typeof` — a "could ANY runtime variant match?" predicate.
+    // Over `number | string` that answered `true`, so the predicate body became
+    // the constant `true` (this is why `omitBy`/`pickBy` kept every property).
+    // The named-function spelling of the same expression was always correct
+    // because the statement path uses `static_typeof_match`, which reports
+    // `None` when the arms disagree. Both spellings must now probe at runtime.
+    for source in [
+        ts!(r"
+export function omitBy(values: Array<number | string>, shouldOmit: (value: number | string) => boolean): number {
+  return values.filter(item => shouldOmit(item)).length;
+}
+export function run(values: Array<number | string>): number {
+  const isString = (value: number | string) => typeof value === 'string';
+  return omitBy(values, isString);
+}
+"),
+        ts!(r"
+export function isString(value: number | string): boolean {
+  return typeof value === 'string';
+}
+"),
+    ] {
+        let mut ctx = HirCtx::new();
+        lower_ok(source, &mut ctx)?;
+        ensure!(any_expr_kind(&ctx, |kind| matches!(
+            kind,
+            ExprKind::UnknownIs {
+                kind: smelt_hir::UnknownKind::String,
+                ..
+            }
+        )));
+        ensure!(!any_bool_literal(&ctx, true));
+    }
+    Ok(())
+}
+
+#[test]
+fn arrow_callback_typeof_still_folds_when_the_operand_type_settles_it() -> Result<(), String> {
+    // The fold stays where the static type answers the question outright: a
+    // `string` parameter always satisfies `typeof value === 'string'`.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+export function omitBy(values: string[], shouldOmit: (value: string) => boolean): number {
+  return values.filter(item => shouldOmit(item)).length;
+}
+export function run(values: string[]): number {
+  const isString = (value: string) => typeof value === 'string';
+  return omitBy(values, isString);
+}
+"),
+        &mut ctx,
+    )?;
+    ensure!(!any_expr_kind(&ctx, |kind| matches!(
+        kind,
+        ExprKind::UnknownIs {
+            kind: smelt_hir::UnknownKind::String,
+            ..
+        }
+    )));
+    ensure!(any_bool_literal(&ctx, true));
+    Ok(())
+}
+
 #[test]
 fn lowers_math_sqrt_pow_sign() -> Result<(), String> {
     let mut ctx = HirCtx::new();
@@ -5956,6 +6125,65 @@ fn lowers_array_from_length_without_mapper() -> Result<(), String> {
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::ListFromLength { .. })),
         "Array.from({{ length }}) did not lower"
+    );
+    Ok(())
+}
+
+#[test]
+fn lowers_array_length_allocation_to_a_sized_list() -> Result<(), String> {
+    // `Array(n)` and `new Array(n)` allocate a list of LENGTH `n` in
+    // JavaScript. Both used to lower to an empty `ListLit`, discarding the
+    // length, so any consumer looping over `.length` saw nothing. They now
+    // lower to the same `ListFromLength` allocation `Array.from({ length })`
+    // uses, keeping the two spellings in lockstep.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!("const bare = Array(3);\nconst constructed = new Array(3);"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .filter(|expr| matches!(expr.kind, ExprKind::ListFromLength { .. }))
+            .count()
+            == 2,
+        "Array(n) and new Array(n) must both allocate a sized list"
+    );
+    Ok(())
+}
+
+#[test]
+fn lowers_array_element_arguments_to_a_list_literal() -> Result<(), String> {
+    // ECMAScript splits on the argument list: exactly one numeric argument is a
+    // length, anything else is an element list. `Array('a')` was rejected as a
+    // non-numeric length and `Array(1, 2)` as "at most one length argument".
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!("const single = Array('a');\nconst several = Array(1, 2, 3);"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs.iter().any(
+            |expr| matches!(&expr.kind, ExprKind::ListLit(items) if items.len() == 1)
+        ),
+        "Array('a') must build a one-element list"
+    );
+    ensure!(
+        body.exprs.iter().any(
+            |expr| matches!(&expr.kind, ExprKind::ListLit(items) if items.len() == 3)
+        ),
+        "Array(1, 2, 3) must build a three-element list"
+    );
+    ensure!(
+        !body
+            .exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListFromLength { .. })),
+        "an element argument list must not be read as a length"
     );
     Ok(())
 }

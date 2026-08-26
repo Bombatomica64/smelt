@@ -431,21 +431,31 @@ impl ModuleBuilder<'_> {
         };
         let value = self.callback_expression(&unary.argument, params, body)?;
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
-        let mut expr = if self.ctx.krate.types.get(value.ty) == Some(&Type::Unknown) {
-            CallbackExpr {
+        // Fold only when the operand's static type SETTLES the comparison, which
+        // is what `static_typeof_match` reports (`None` when the runtime variants
+        // disagree). The old test here was "is the type exactly `unknown`?", with
+        // every other operand answered by `type_matches_typeof` — a "could ANY
+        // runtime variant match?" predicate. On a union operand those two
+        // questions differ: `(value: number | string) => typeof value ===
+        // 'string'` folded to the constant `true`, because `string` is one of the
+        // arms. The same expression written as a named function lowered
+        // correctly, because the statement path already used
+        // `static_typeof_match`. Unions, optionals, and constrained type
+        // parameters now all reach the runtime probe, which the emitter renders
+        // against the concrete `SmeltUnion` variant rather than a `SmeltUnknown`
+        // tag, so this costs no erasure.
+        let mut expr = match self.static_typeof_match(value.ty, kind_literal.value.as_str()) {
+            Some(matches_kind) => CallbackExpr {
+                kind: CallbackExprKind::Literal(Literal::Bool(matches_kind)),
+                ty: bool_ty,
+            },
+            None => CallbackExpr {
                 kind: CallbackExprKind::UnknownIs {
                     value: Box::new(value),
                     kind,
                 },
                 ty: bool_ty,
-            }
-        } else {
-            CallbackExpr {
-                kind: CallbackExprKind::Literal(Literal::Bool(
-                    self.type_matches_typeof(value.ty, kind_literal.value.as_str()),
-                )),
-                ty: bool_ty,
-            }
+            },
         };
         if matches!(
             binary.operator,

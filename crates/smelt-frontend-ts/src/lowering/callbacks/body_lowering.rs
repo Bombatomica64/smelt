@@ -699,21 +699,31 @@ impl ModuleBuilder<'_> {
         })
     }
 
-    /// Extract the message from common thrown error constructors.
+    /// Lower a callback `throw` operand, preserving the value that was thrown.
+    ///
+    /// `throw` is value-preserving in JavaScript for every operand shape, so the
+    /// operand lowers through the ordinary callback expression path. A built-in
+    /// `Error` construction reaches
+    /// [`Self::callback_error_object_expression`] there and becomes the erased
+    /// error record, which is what makes `error instanceof Error`,
+    /// `error.message` and `error.name` observable in the `catch`.
+    ///
+    /// This used to strip `new Error(m)` / `new TypeError(m)` / `new RangeError(m)`
+    /// down to `m` and to replace every other construction with the empty string,
+    /// so a `throw` inside an arrow lost the thrown object entirely. Only the
+    /// non-`Error` construction keeps that empty-string fallback: the reduced
+    /// callback expression language cannot build an arbitrary class instance, and
+    /// widening that here would turn callbacks that lower today into blockers.
     pub(in crate::lowering) fn callback_throw_message(
         &mut self,
         argument: &Expression<'_>,
         params: &HashMap<&str, CallbackExpr>,
         body: &Body,
     ) -> Result<CallbackExpr, SmeltError> {
-        if let Expression::NewExpression(new_expr) = argument
-            && matches!(&new_expr.callee, Expression::Identifier(callee) if matches!(callee.name.as_str(), "Error" | "TypeError" | "RangeError"))
-            && let Some(first) = new_expr.arguments.first()
-            && let Some(expression) = first.as_expression()
+        if matches!(argument, Expression::NewExpression(new_expr)
+            if !matches!(&new_expr.callee, Expression::Identifier(callee)
+                if Self::is_builtin_error_constructor(callee.name.as_str())))
         {
-            return self.callback_expression(expression, params, body);
-        }
-        if matches!(argument, Expression::NewExpression(_)) {
             let ty = self.ctx.krate.types.intern(Type::String);
             return Ok(CallbackExpr {
                 kind: CallbackExprKind::Literal(Literal::String(String::new())),
@@ -721,6 +731,84 @@ impl ModuleBuilder<'_> {
             });
         }
         self.callback_expression(argument, params, body)
+    }
+
+    /// Build the erased `Error` record for a built-in Error construction in a callback.
+    ///
+    /// This is the reduced-callback-IR twin of
+    /// `ModuleBuilder::error_object_constructor_expression`, and produces the same
+    /// `{ __smelt_error: <class>, message, cause? }` shape so a callback-thrown
+    /// error is indistinguishable from a statement-thrown one at the `catch`. The
+    /// `__smelt_error` value carries the spelled class name, which is what makes
+    /// `error.name` read truthfully for `TypeError`, `RangeError` and the rest.
+    ///
+    /// `AggregateError`'s leading `errors` iterable is retained under the
+    /// `errors` key, matching the statement path; its message is the second
+    /// argument. A non-literal options argument is lowered for its effects only,
+    /// because whether a `cause` is attached depends on `"cause" in options`,
+    /// which a static rule can only answer for a literal spelling.
+    pub(in crate::lowering) fn callback_error_object_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        params: &HashMap<&str, CallbackExpr>,
+        body: &Body,
+    ) -> Result<CallbackExpr, SmeltError> {
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let class_name = match &new_expr.callee {
+            Expression::Identifier(callee) => callee.name.to_string(),
+            _ => "Error".to_owned(),
+        };
+        let is_aggregate = class_name == "AggregateError";
+        let mut arguments = new_expr.arguments.iter();
+        let errors = if is_aggregate {
+            match arguments.next().and_then(Argument::as_expression) {
+                Some(errors_arg) => Some(self.callback_expression(errors_arg, params, body)?),
+                None => None,
+            }
+        } else {
+            None
+        };
+        let message = match arguments.next().and_then(Argument::as_expression) {
+            Some(message_arg) => self.callback_expression(message_arg, params, body)?,
+            None => CallbackExpr {
+                kind: CallbackExprKind::Literal(Literal::String("Error".to_owned())),
+                ty: string_ty,
+            },
+        };
+        let mut cause = None;
+        if let Some(Argument::ObjectExpression(options)) = arguments.next() {
+            for property in &options.properties {
+                let ObjectPropertyKind::ObjectProperty(property) = property else {
+                    continue;
+                };
+                let value = self.callback_expression(&property.value, params, body)?;
+                if matches!(&property.key, PropertyKey::StaticIdentifier(key) if key.name == "cause")
+                {
+                    cause = Some(value);
+                }
+            }
+        }
+        let mut entries = vec![
+            (
+                self.intern_exact_source_name("__smelt_error"),
+                CallbackExpr {
+                    kind: CallbackExprKind::Literal(Literal::String(class_name)),
+                    ty: string_ty,
+                },
+            ),
+            (self.intern_exact_source_name("message"), message),
+        ];
+        if let Some(cause) = cause {
+            entries.push((self.intern_exact_source_name("cause"), cause));
+        }
+        if let Some(errors) = errors {
+            entries.push((self.intern_exact_source_name("errors"), errors));
+        }
+        Ok(CallbackExpr {
+            kind: CallbackExprKind::DictLit(entries),
+            ty: self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty)),
+        })
     }
 
     /// Bind names from a callback parameter pattern to callback expressions.
@@ -800,10 +888,40 @@ impl ModuleBuilder<'_> {
                         ));
                     };
                     let field = self.intern_source_name(field_text);
+                    // A destructured field's type is the FIELD's type. Falling
+                    // back to the parameter's own type here silently mistyped
+                    // every shape not listed below: `arrays.map(({ length }) =>
+                    // length)` over `T[][]` typed `length` as `T[]`, so the
+                    // callback claimed to return a list and the emitter
+                    // coerced the number into a one-element list. Where the
+                    // field type genuinely cannot be resolved in the compact
+                    // IR, report it so the caller retries through full
+                    // closure-body lowering instead of inventing a type.
                     let field_ty = match self.ctx.krate.types.get(param_ty) {
                         Some(Type::Dict(_, value) | Type::JsMap(_, value)) => *value,
                         Some(Type::Class { .. }) => self.class_field_type(param_ty, field)?,
-                        _ => param_ty,
+                        // `length` is carried by every list and string, and it
+                        // is a number rather than the receiver's own type.
+                        Some(Type::List(_) | Type::String) if field_text == "length" => {
+                            self.ctx.krate.types.intern(Type::Float)
+                        }
+                        // An erased receiver answers a field read at runtime, so
+                        // the binding really is `unknown` -- that is the field's
+                        // own type here, not the parameter's leaking through.
+                        // This is also the only shape the closure-body fallback
+                        // handles WORSE than the compact IR: it binds the
+                        // destructured name to `Default::default()` instead of
+                        // reading the field, so routing it there would answer
+                        // `({ length }) => length < 3` with a default.
+                        Some(Type::Unknown | Type::TypeParam { .. }) => {
+                            self.ctx.krate.types.intern(Type::Unknown)
+                        }
+                        _ => {
+                            return Err(SmeltError::unsupported(
+                                self.span(property.span.start, property.span.end),
+                                "callback parameter destructuring needs closure-body lowering",
+                            ));
+                        }
                     };
                     params.insert(
                         binding.name.as_str(),

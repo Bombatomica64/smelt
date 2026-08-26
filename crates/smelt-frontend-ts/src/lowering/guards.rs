@@ -56,19 +56,15 @@ impl ModuleBuilder<'_> {
         // guessed from the static type, so this needs no fold of its own and falls
         // through to the `InstanceOf` path below.
         // `x instanceof Array`. Smelt backs a JavaScript array with a plain list,
-        // so this folds exactly like `Array.isArray(x)` (see `array_is_array_call`):
-        // a list/tuple-typed operand *is* an array and folds to `true`, an erased
-        // operand (`unknown`/generic/union) resolves through the runtime array
-        // probe `UnknownIs { Array }`, and any other concrete type carries no array
-        // identity and folds to `false`. A user-declared `class Array` owns the
-        // name and falls through to the ordinary class path below.
+        // so this asks exactly the question `Array.isArray(x)` asks (see
+        // `array_is_array_call`) and shares its single rule, `static_array_match`:
+        // fold only when the operand's static type settles the answer, otherwise
+        // resolve it through the runtime array probe `UnknownIs { Array }`. A
+        // user-declared `class Array` owns the name and falls through to the
+        // ordinary class path below.
         if class_text == "Array" && !self.classes.contains("Array") {
-            let operand_ty = self.type_param_constraint_or_self(value_ty);
-            if matches!(
-                self.ctx.krate.types.get(operand_ty),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-            ) {
-                let ty = self.ctx.krate.types.intern(Type::Bool);
+            let ty = self.ctx.krate.types.intern(Type::Bool);
+            let Some(result) = self.static_array_match(value_ty) else {
                 return Ok(body.push_expr(Expr {
                     kind: ExprKind::UnknownIs {
                         value,
@@ -77,12 +73,7 @@ impl ModuleBuilder<'_> {
                     ty,
                     span: self.span(binary.span.start, binary.span.end),
                 }));
-            }
-            let result = matches!(
-                self.ctx.krate.types.get(operand_ty),
-                Some(Type::List(_) | Type::Tuple(_))
-            );
-            let ty = self.ctx.krate.types.intern(Type::Bool);
+            };
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::Bool(result)),
                 ty,
@@ -724,6 +715,51 @@ impl ModuleBuilder<'_> {
         // No absent ambient globals currently; discard the operand explicitly.
         let _ = name;
         false
+    }
+
+    /// Return a static array-identity answer when the operand's type settles it.
+    ///
+    /// `Array.isArray(x)` and `x instanceof Array` ask the SAME question, so both
+    /// route through this one rule: fold only when the static type genuinely
+    /// settles the answer, and otherwise emit the runtime probe
+    /// (`UnknownIs { Array }`), which the emitter renders against a
+    /// `SmeltUnknown` tag, a concrete `SmeltUnion` variant, or an `Option`
+    /// payload as appropriate.
+    ///
+    /// - A list/tuple *is* an array — `Some(true)`.
+    /// - A fully erased operand (`unknown`, an unconstrained type parameter)
+    ///   carries the answer only at runtime — `None`.
+    /// - A union settles the question only when every arm agrees; a union with an
+    ///   array arm (e.g. `string | string[]`) is exactly the case where the test
+    ///   is a real runtime question.
+    /// - An optional adds `undefined`, which is never an array, so it can only
+    ///   settle the question in the negative; `T[] | undefined` still needs the
+    ///   probe. This is the case that folded `isArray(value?: any)` — the
+    ///   `Option<SmeltUnknown>` parameter of es-toolkit's `isArray` — to a
+    ///   constant `false`, killing the array branch of `toCamelCaseKeys` and
+    ///   `toSnakeCaseKeys`.
+    /// - Any other concrete type carries no array identity — `Some(false)`.
+    pub(super) fn static_array_match(&self, ty: smelt_hir::TypeId) -> Option<bool> {
+        let resolved_ty = self.type_param_constraint_or_self(ty);
+        match self.ctx.krate.types.get(resolved_ty).cloned() {
+            Some(Type::Unknown | Type::TypeParam { .. }) => None,
+            Some(Type::List(_) | Type::Tuple(_)) => Some(true),
+            Some(Type::Union(items)) => {
+                let mut matches = items
+                    .into_iter()
+                    .map(|item| self.static_array_match(item))
+                    .collect::<Option<Vec<_>>>()?
+                    .into_iter();
+                let first = matches.next()?;
+                matches.all(|item| item == first).then_some(first)
+            }
+            Some(Type::Optional(inner)) => match self.static_array_match(inner) {
+                Some(false) => Some(false),
+                _ => None,
+            },
+            Some(_) => Some(false),
+            None => None,
+        }
     }
 
     /// Return a static `typeof` comparison result when all runtime variants agree.

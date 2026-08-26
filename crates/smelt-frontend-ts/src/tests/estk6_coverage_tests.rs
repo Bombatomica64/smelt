@@ -778,6 +778,79 @@ export function useNs(value: unknown): unknown {
     Ok(())
 }
 
+/// A same-named variadic sibling must not repack an array argument that the
+/// resolved function already declares as a single list parameter.
+///
+/// es-toolkit spells `omit` twice: compat's variadic `omit(object, ...paths)`
+/// and object's fixed `omit(obj, keys: readonly K[])`. Both collide on the bare
+/// name in the name-keyed overload/rest tables, so `omit(object, ['foo'])`
+/// used to adopt compat's rest slot -- whose parameter is also a list, which
+/// defeated the type-shape guard -- and pack the keys array into a
+/// one-element list of lists. `delete result[key]` then deleted nothing.
+/// The resolved item's own arity settles it: two arguments fit two parameters,
+/// so no rest is involved.
+#[test]
+fn same_named_variadic_does_not_repack_a_declared_list_argument() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    // Variadic sibling lowered first so its rest/overload signatures populate
+    // the name-keyed cross-module tables for `omit`.
+    lower_path_ok(
+        ts!(r"
+export function omit<T extends object, K extends PropertyKey[]>(object: T, ...paths: K): any;
+export function omit(object: any, ...paths: any[]): any {
+  return object;
+}
+"),
+        "compat_omit.ts",
+        &mut ctx,
+    )?;
+    // Fixed two-parameter `omit` whose second parameter is itself a list.
+    lower_path_ok(
+        ts!(r"
+export function omit<T extends Record<string, any>, K extends keyof T>(
+  obj: T,
+  keys: readonly K[],
+): number {
+  return keys.length;
+}
+"),
+        "omit.ts",
+        &mut ctx,
+    )?;
+    lower_path_ok(
+        ts!(r"
+import { omit } from './omit';
+export function run(): number {
+  const object = { foo: 1, bar: 2, baz: 3 };
+  return omit(object, ['foo', 'bar']);
+}
+"),
+        "omit.spec.ts",
+        &mut ctx,
+    )?;
+    // With the compat rest adopted, the keys array becomes the single element
+    // of a wrapper list. Nothing in these sources spells a list of lists, so a
+    // nested list literal is exactly that wrapper.
+    let nests_a_list_literal = ctx.krate.bodies.iter().any(|body| {
+        body.exprs.iter().any(|expr| {
+            let ExprKind::ListLit(items) = &expr.kind else {
+                return false;
+            };
+            items.iter().any(|item| {
+                body.exprs
+                    .get(item.0 as usize)
+                    .is_some_and(|item| matches!(item.kind, ExprKind::ListLit(_)))
+            })
+        })
+    });
+    ensure!(
+        !nests_a_list_literal,
+        "keys array must stay the argument, not be packed into a rest list",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
 /// An explicit relative import binds to *that* module's export, and rest-param
 /// packing follows the resolved function's own signature — never a same-named
 /// export from a different module.

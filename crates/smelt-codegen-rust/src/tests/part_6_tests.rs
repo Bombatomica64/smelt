@@ -298,7 +298,7 @@ function wrap(call: (...args: string[]) => void): unknown {
     );
 
     assert!(
-        source.contains("smelt_object.insert(\"__smelt_call\".to_owned()"),
+        source.contains("smelt_object.push((\"__smelt_call\".to_owned()"),
         "{source}"
     );
     assert!(
@@ -890,7 +890,7 @@ function shallowClone(obj: object): object {
     // instance is still classified as a class instance, not a plain object.
     assert!(
         source.contains(
-            "SmeltUnknown::String(sentinel) if sentinel == \"__smelt_proto:class\" => { fields.insert(\"__smelt_class\".to_owned(), SmeltUnknown::Bool(true)); }"
+            "SmeltUnknown::String(sentinel) if sentinel == \"__smelt_proto:class\" => { fields.push((\"__smelt_class\".to_owned(), SmeltUnknown::Bool(true))); }"
         ),
         "a class prototype must carry the class marker onto the fresh object: {source}"
     );
@@ -1916,5 +1916,164 @@ console.log(ok);
         for_in < array_guard,
         "the diverging then-branch region must precede the array continuation \
          (for_in={for_in}, array_guard={array_guard}):\n{body}"
+    );
+}
+
+/// Return the generated body of `fn <name>` from a full emitted crate source.
+///
+/// The emitted crate starts with the runtime prelude, which legitimately
+/// mentions `SmeltUnknown::Null` in its erased-value helpers. Assertions about
+/// what a lowered function does must therefore look at that function's body
+/// only. The generated function is the one declared at column zero; prelude
+/// helpers of the same name are indented methods.
+fn function_body<'source>(source: &'source str, name: &str) -> &'source str {
+    let start = source
+        .find(&format!("\nfn {name}("))
+        .unwrap_or_else(|| panic!("generated source must define `fn {name}`:\n{source}"));
+    let after = &source[start..];
+    let end = after
+        .find("\n}\n")
+        .unwrap_or_else(|| panic!("`fn {name}` must have a closing brace:\n{after}"));
+    &after[..end]
+}
+
+#[test]
+fn a_module_object_constant_read_inside_a_callback_stays_a_runtime_lookup() {
+    // A module-level object constant read from inside a callback resolved
+    // through the compact callback IR, which knew how to inline a folded
+    // literal and a folded array constant but not a folded OBJECT constant. The
+    // name fell through to the forward-callable placeholder and became `null`,
+    // so `table[key]` became a dynamic index into `null`; the `|| fallback`
+    // truthiness guard then const-folded to the literal `false` and every call
+    // returned the fallback (es-toolkit's `unescape` turned every entity into
+    // `'`). The key here is the callback parameter, so the read cannot be
+    // folded at all — it must recreate the constant and index it at runtime.
+    let source = source_for(
+        r#"
+const htmlUnescapes: Record<string, string> = {
+  '&amp;': '&',
+  '&lt;': '<',
+};
+
+export function unescape(str: string): string {
+  return str.replace(/&(?:amp|lt);/g, match => htmlUnescapes[match] || "'");
+}
+"#,
+    );
+    let body = function_body(&source, "unescape");
+
+    assert!(
+        !body.contains(": bool = false;"),
+        "the truthiness guard of a dynamic-key lookup must not const-fold to a \
+         literal `false`:\n{body}"
+    );
+    assert!(
+        !body.contains("SmeltUnknown"),
+        "the constant must be rebuilt inside the callback with its own concrete \
+         string-to-string type, never read as an erased `null`:\n{body}"
+    );
+    assert!(
+        body.contains(r#"("&amp;".to_owned(), "&".to_owned())"#)
+            && body.contains(r#"("&lt;".to_owned(), "<".to_owned())"#),
+        "every entry of the object constant must be materialized inside the \
+         callback:\n{body}"
+    );
+    assert!(
+        body.contains("HashMap<String, String>"),
+        "the rebuilt constant must keep the source's concrete string-to-string \
+         type:\n{body}"
+    );
+}
+
+#[test]
+fn a_module_object_constant_read_inside_a_callback_keeps_a_static_key_exact() {
+    // The same identifier path serves a statically known key. Smelt does not
+    // fold the entry out — it rebuilds the constant and looks the literal key up
+    // — but the read must select that key's own value and its own type, not the
+    // erased `null` the placeholder used to produce.
+    let source = source_for(
+        r"
+const codes: Record<string, number> = { a: 1, b: 2 };
+
+export function values(items: string[]): number[] {
+  return items.map(() => codes['b']);
+}
+",
+    );
+    let body = function_body(&source, "values");
+
+    assert!(
+        body.contains(r#"("b".to_owned(), 2.0)"#),
+        "the selected entry must be present with its own value:\n{body}"
+    );
+    assert!(
+        body.contains(r#"get(&"b".to_owned()"#),
+        "the statically-keyed read must look that key up in the rebuilt \
+         constant:\n{body}"
+    );
+    assert!(
+        !body.contains("SmeltUnknown"),
+        "a `Record<string, number>` read must stay concrete:\n{body}"
+    );
+}
+
+/// A runtime type test must survive to runtime whenever the operand's static
+/// type does not settle it.
+///
+/// `Array.isArray(value?: any)` — the signature of es-toolkit's `isArray`, and
+/// so of the array branch of `toCamelCaseKeys`/`toSnakeCaseKeys` — has an
+/// `Optional(Unknown)` operand. The frontend fold only exempted bare
+/// `Unknown`/`TypeParam`/`Union` operands, so an optional fell through to the
+/// concrete case and the whole helper emitted as `return false;`, leaving the
+/// array branch dead. `Option<SmeltUnknown>` can hold `SmeltUnknown::Array`, so
+/// the answer is a runtime one and the emitter already knows how to ask it.
+#[test]
+fn array_is_array_on_an_optional_erased_parameter_probes_at_runtime() {
+    let source = source_for(
+        r"
+export function isArrayValue(value?: any): boolean {
+  return Array.isArray(value);
+}
+",
+    );
+
+    assert!(
+        source.contains("is_some_and(|smelt_value| matches!(smelt_value, SmeltUnknown::Array(_)))"),
+        "an optional erased operand keeps the runtime array probe:\n{source}"
+    );
+    assert!(
+        !source.contains("fn is_array_value(value: Option<SmeltUnknown>) -> bool {\n    return false;"),
+        "the helper must not fold to a constant `false`:\n{source}"
+    );
+}
+
+/// `typeof value === 'string'` inside an arrow used as a callback must lower to
+/// a runtime variant test over the union, not to a constant.
+///
+/// The callback lowering path folded every non-`unknown` operand through
+/// `type_matches_typeof`, which answers "could ANY runtime variant match?" — so
+/// over `number | string` it answered `true` and the predicate body became the
+/// literal `true`. That is what made `omitBy`/`pickBy` keep (or drop) every
+/// property. The named-function spelling of the same expression was always
+/// correct, because the statement path asks `static_typeof_match`, which
+/// reports "unsettled" when the arms disagree.
+#[test]
+fn arrow_predicate_typeof_over_a_union_emits_a_variant_test() {
+    let source = source_for(
+        r"
+export function countMatching(values: Array<number | string>, pred: (value: number | string) => boolean): number {
+  return values.filter(item => pred(item)).length;
+}
+
+export function run(values: Array<number | string>): number {
+  const isString = (value: number | string) => typeof value === 'string';
+  return countMatching(values, isString);
+}
+",
+    );
+
+    assert!(
+        source.contains("matches!(closure_arg_0.clone(), SmeltUnion"),
+        "the arrow predicate must test the union variant at runtime:\n{source}"
     );
 }

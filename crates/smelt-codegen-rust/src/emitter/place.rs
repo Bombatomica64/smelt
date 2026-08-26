@@ -121,7 +121,7 @@ impl FunctionEmitter<'_> {
                             | "throwIfAborted"
                     ) {
                         return Ok(format!(
-                            "match {scrutinee} {{ SmeltUnknown::Object(map) if map.contains_key(\"__smelt_abortcontroller\") || map.contains_key(\"__smelt_abortsignal\") => smelt_abort_method(map, {field_name:?}), SmeltUnknown::Object(map) => smelt_get_object_field(&map, {field_name:?}), _ => SmeltUnknown::Undefined }}"
+                            "match {scrutinee} {{ SmeltUnknown::Object(map) if (map.contains_key(\"__smelt_abortcontroller\") || map.contains_key(\"__smelt_abortsignal\")) && !map.contains_key({field_name:?}) => smelt_abort_method(map, {field_name:?}), SmeltUnknown::Object(map) => smelt_get_object_field(&map, {field_name:?}), _ => SmeltUnknown::Undefined }}"
                         ));
                     }
                     // `Function.prototype.apply`/`call` must resolve when the
@@ -336,34 +336,8 @@ impl FunctionEmitter<'_> {
                         // read arms below.
                         let base_text = self.local_value_text(*base)?;
                         let index_text =
-                            self.normalized_index_text(&format!("{base_text}.len()"), index)?;
-                        // JS out-of-bounds element access is `undefined`, not
-                        // `null`. A type parameter that is in scope for the
-                        // current generic function is a real Rust generic, so
-                        // its missing value is `Default::default()` (a `T`), not
-                        // the erased `SmeltUnknown::Undefined` used for genuinely
-                        // erased element types.
-                        let item_is_in_scope_type_param = matches!(
-                            self.mir.types.get(*item_ty),
-                            Some(Type::TypeParam { name })
-                                if self.current_function_has_type_param(*name)
-                        );
-                        // A concrete generated union element is a tagged
-                        // `SmeltUnion…`, not a `SmeltUnknown`, so its missing
-                        // value must be a union value (`default_value` produces
-                        // one) rather than the erased `SmeltUnknown::Undefined`
-                        // used for genuinely erased element types.
-                        let missing = if item_is_in_scope_type_param {
-                            self.default_value(*item_ty)?
-                        } else if matches!(
-                            self.mir.types.get(*item_ty),
-                            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-                        ) && self.concrete_union_members(*item_ty).is_none()
-                        {
-                            "SmeltUnknown::Undefined".to_owned()
-                        } else {
-                            self.default_value(*item_ty)?
-                        };
+                            self.normalized_read_index_text(&format!("{base_text}.len()"), index)?;
+                        let missing = self.element_missing_value_text(*item_ty)?;
                         Ok(format!(
                             "{base_text}.get({index_text}).cloned().unwrap_or({missing})"
                         ))
@@ -375,7 +349,7 @@ impl FunctionEmitter<'_> {
                             return Ok(self.null_value_text());
                         };
                         let base_text = self.local_value_text(*base)?;
-                        let index_text = self.normalized_index_text(
+                        let index_text = self.normalized_read_index_text(
                             &format!("{base_text}.as_ref().map_or(0, Vec::len)"),
                             index,
                         )?;
@@ -429,7 +403,7 @@ impl FunctionEmitter<'_> {
                     }
                     Some(Type::String) => {
                         let base_text = self.local_value_text(*base)?;
-                        let index_text = self.normalized_index_text(
+                        let index_text = self.normalized_read_index_text(
                             &format!("{base_text}.chars().count()"),
                             index,
                         )?;
@@ -752,16 +726,88 @@ impl FunctionEmitter<'_> {
     }
 
     /// Gets the type of a place.
-    /// Converts a Python-style element index into a Rust `usize` expression.
+    /// Converts an element index into a Rust `usize` expression for a WRITE.
     ///
-    /// Negative indexes are offset from the collection length. Bounds are not
-    /// clamped because Python element indexing raises when the normalized index
-    /// is still outside the collection; the generated Rust keeps that behavior
-    /// with `expect` on negative conversion and the eventual indexed lookup.
+    /// Negative indexes are offset from the collection length. An index that is
+    /// still negative after normalization cannot address a slot, so the write
+    /// form keeps the panic: silently redirecting the store to some other slot
+    /// would corrupt the collection.
     pub(super) fn normalized_index_text(
         &self,
         len_expr: &str,
         index: &Operand,
+    ) -> Result<String, EmitError> {
+        self.normalized_index_text_with_fallback(
+            len_expr,
+            index,
+            "usize::try_from(normalized).expect(\"negative index out of bounds\")",
+        )
+    }
+
+    /// The value a list slot holds when JavaScript would answer `undefined`.
+    ///
+    /// This is the one "missing element" notion the emitter has, and two places
+    /// must agree on it: an out-of-range element READ (`arr[99]`), and the holes
+    /// `Array(n)` allocates at construction. If they disagreed, `Array(3)[0]`
+    /// and `[][0]` would answer differently for the same element type.
+    ///
+    /// JS out-of-bounds element access is `undefined`, not `null`. A type
+    /// parameter that is in scope for the current generic function is a real
+    /// Rust generic, so its missing value is `Default::default()` (a `T`), not
+    /// the erased `SmeltUnknown::Undefined` used for genuinely erased element
+    /// types. A concrete generated union element is likewise a tagged
+    /// `SmeltUnion…`, so its missing value must be a union value
+    /// (`default_value` produces one) rather than an erased tag.
+    pub(super) fn element_missing_value_text(&self, item_ty: TypeId) -> Result<String, EmitError> {
+        let item_is_in_scope_type_param = matches!(
+            self.mir.types.get(item_ty),
+            Some(Type::TypeParam { name })
+                if self.current_function_has_type_param(*name)
+        );
+        if item_is_in_scope_type_param {
+            return self.default_value(item_ty);
+        }
+        if matches!(
+            self.mir.types.get(item_ty),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) && self.concrete_union_members(item_ty).is_none()
+        {
+            return Ok("SmeltUnknown::Undefined".to_owned());
+        }
+        self.default_value(item_ty)
+    }
+
+    /// Converts an element index into a Rust `usize` expression for a READ.
+    ///
+    /// JavaScript element reads are total: `arr[-1]` and `arr[arr.length]` are
+    /// `undefined`, never an error. A positive out-of-range index already
+    /// reaches that behavior through `Vec::get` returning `None`, so a still
+    /// negative normalized index must reach it too. Converting the miss to
+    /// `usize::MAX` (never a valid slot of a live `Vec`, whose capacity is
+    /// bounded by `isize::MAX` bytes) makes the subsequent `get` miss instead
+    /// of panicking, so both directions of out-of-range agree.
+    pub(super) fn normalized_read_index_text(
+        &self,
+        len_expr: &str,
+        index: &Operand,
+    ) -> Result<String, EmitError> {
+        self.normalized_index_text_with_fallback(
+            len_expr,
+            index,
+            "usize::try_from(normalized).unwrap_or(usize::MAX)",
+        )
+    }
+
+    /// Shared body of the read/write index normalizers.
+    ///
+    /// `usize_conversion` is the trailing expression that turns the normalized
+    /// `i64` (bound as `normalized`) into a `usize`; it is the only part that
+    /// differs between a read (miss) and a write (panic).
+    fn normalized_index_text_with_fallback(
+        &self,
+        len_expr: &str,
+        index: &Operand,
+        usize_conversion: &str,
     ) -> Result<String, EmitError> {
         let index_ty = self.operand_ty(index)?;
         let index_text = if matches!(self.mir.types.get(index_ty), Some(Type::Int | Type::Float)) {
@@ -770,8 +816,134 @@ impl FunctionEmitter<'_> {
             self.value_at_type(index, self.type_id(Type::Float)?)?
         };
         Ok(format!(
-            "{{ let len = {len_expr} as i64; let index = {index_text} as i64; let normalized = if index < 0 {{ len + index }} else {{ index }}; usize::try_from(normalized).expect(\"negative index out of bounds\") }}"
+            "{{ let len = {len_expr} as i64; let index = {index_text} as i64; let normalized = if index < 0 {{ len + index }} else {{ index }}; {usize_conversion} }}"
         ))
+    }
+
+    /// A JS element read that flows into an optional slot keeps its fallibility.
+    ///
+    /// `arr[i]` has TypeScript type `T` (without `noUncheckedIndexedAccess`),
+    /// so a source function such as `last<T>(arr: T[]): T | undefined` lowers to
+    /// an infallible read coerced into `Option<T>` — which produced
+    /// `Some(Default::default())` for an out-of-range index instead of `None`.
+    /// When the coercion target is `Option<..>` the read itself is the natural
+    /// `Option` producer, so emit `get(..).cloned()` and let the miss stay a
+    /// miss. Returns `None` when the operand is not an element read this rule
+    /// applies to, leaving the caller's ordinary coercion in place.
+    pub(super) fn optional_element_read_text(
+        &self,
+        operand: &Operand,
+        inner: TypeId,
+    ) -> Result<Option<String>, EmitError> {
+        let (Operand::Copy(Place::Index { base, index }) | Operand::Move(Place::Index { base, index })) =
+            operand
+        else {
+            return Ok(None);
+        };
+        let base_ty = self.local_decl(*base)?.ty;
+        // A `Match` receiver has its own keyed-read lowering; leave it alone.
+        if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
+            && self.is_match_class_symbol(*name)?
+        {
+            return Ok(None);
+        }
+        match self.mir.types.get(base_ty).cloned() {
+            Some(Type::List(item_ty)) => {
+                let base_text = self.local_value_text(*base)?;
+                let index_text =
+                    self.normalized_read_index_text(&format!("{base_text}.len()"), index)?;
+                let read = format!("{base_text}.get({index_text}).cloned()");
+                if item_ty == inner {
+                    return Ok(Some(read));
+                }
+                // `T[][i]` where the element is itself optional collapses the
+                // two layers the same way JS does: a missing slot and a present
+                // `undefined` are both `undefined`.
+                if self.mir.types.get(item_ty) == Some(&Type::Optional(inner)) {
+                    return Ok(Some(format!("{read}.flatten()")));
+                }
+                let Ok(mapped) = self.value_at_type_text("value", item_ty, inner) else {
+                    return Ok(None);
+                };
+                Ok(Some(format!("{read}.map(|value| {mapped})")))
+            }
+            Some(Type::String) if self.mir.types.get(inner) == Some(&Type::String) => {
+                let base_text = self.local_value_text(*base)?;
+                let index_text = self
+                    .normalized_read_index_text(&format!("{base_text}.chars().count()"), index)?;
+                Ok(Some(format!(
+                    "{base_text}.chars().nth({index_text}).map(|ch| ch.to_string())"
+                )))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    /// A JS element read that flows into an ERASED slot keeps its fallibility.
+    ///
+    /// The erased twin of [`Self::optional_element_read_text`], and the two must
+    /// agree: an out-of-range element read is `undefined` in JavaScript, so the
+    /// optional target answers `None` and the erased target must answer
+    /// `SmeltUnknown::Undefined`.
+    ///
+    /// Without this the read was made TOTAL first and erased afterwards, so the
+    /// miss became the element type's own missing value
+    /// ([`Self::element_missing_value_text`]) and erased as that value: for
+    /// `b: string[]`, `row[i] = b[99]` into an erased `row` stored `''`, and for
+    /// `number[]` it stored `0`, where JavaScript stores `undefined`. Emitting
+    /// `get(..).cloned().map(erase).unwrap_or(SmeltUnknown::Undefined)` keeps the
+    /// miss a miss and erases only the values that were really there.
+    ///
+    /// This adds no new erasure: the caller has already decided the destination
+    /// is `SmeltUnknown`, and the rule only changes WHICH tag a miss produces.
+    ///
+    /// Returns `None` — leaving the caller's ordinary erase-after-read in place —
+    /// when the operand is not an element read this rule applies to, or when the
+    /// total read already erases its miss to `SmeltUnknown::Undefined` (an
+    /// already-erased element type), so those emissions stay byte-identical.
+    pub(super) fn erased_element_read_text(
+        &self,
+        operand: &Operand,
+    ) -> Result<Option<String>, EmitError> {
+        let (Operand::Copy(Place::Index { base, index }) | Operand::Move(Place::Index { base, index })) =
+            operand
+        else {
+            return Ok(None);
+        };
+        let base_ty = self.local_decl(*base)?.ty;
+        // A `Match` receiver has its own keyed-read lowering; leave it alone.
+        if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
+            && self.is_match_class_symbol(*name)?
+        {
+            return Ok(None);
+        }
+        match self.mir.types.get(base_ty).cloned() {
+            Some(Type::List(item_ty)) => {
+                // The existing total read is already correct whenever erasing
+                // its missing value yields `Undefined` (element types that are
+                // themselves erased). Skipping those keeps their output stable.
+                let missing = self.element_missing_value_text(item_ty)?;
+                if self.erase_value_text(&missing, item_ty)? == "SmeltUnknown::Undefined" {
+                    return Ok(None);
+                }
+                let base_text = self.local_value_text(*base)?;
+                let index_text =
+                    self.normalized_read_index_text(&format!("{base_text}.len()"), index)?;
+                let erased_value = self.erase_value_text("value", item_ty)?;
+                Ok(Some(format!(
+                    "{base_text}.get({index_text}).cloned().map(|value| {erased_value}).unwrap_or(SmeltUnknown::Undefined)"
+                )))
+            }
+            Some(Type::String) => {
+                let base_text = self.local_value_text(*base)?;
+                let index_text = self
+                    .normalized_read_index_text(&format!("{base_text}.chars().count()"), index)?;
+                Ok(Some(format!(
+                    "{base_text}.chars().nth({index_text}).map(|ch| SmeltUnknown::String(ch.to_string())).unwrap_or(SmeltUnknown::Undefined)"
+                )))
+            }
+            _ => Ok(None),
+        }
     }
 
     /// Emit a runtime index read for values whose concrete shape is erased.
@@ -780,6 +952,14 @@ impl FunctionEmitter<'_> {
     /// or objects at runtime. Returning `Null` here hides lowering bugs and
     /// breaks later casts, so the generated Rust dispatches on `SmeltUnknown`
     /// and panics only when the runtime value is not indexable.
+    ///
+    /// An out-of-range ELEMENT read on a string or array runtime value answers
+    /// `SmeltUnknown::Undefined`, not `Null` — the same rule the typed reads use
+    /// ([`Self::element_missing_value_text`],
+    /// [`Self::erased_element_read_text`]), and the reason `zipWith` on ragged
+    /// inputs produced `"3null"` where JavaScript produces `"3undefined"`.
+    /// Whether a missing OBJECT PROPERTY should likewise be `Undefined` is a
+    /// separate question about property access and is deliberately left alone.
     pub(super) fn unknown_index_text(
         &self,
         base_text: &str,
@@ -796,7 +976,7 @@ impl FunctionEmitter<'_> {
                         if smelt_key == "length" {{
                             SmeltUnknown::Number(value.chars().count() as f64)
                         }} else {{
-                            smelt_key.parse::<usize>().ok().and_then(|index| value.chars().nth(index).map(|ch| SmeltUnknown::String(ch.to_string()))).unwrap_or(SmeltUnknown::Null)
+                            smelt_key.parse::<usize>().ok().and_then(|index| value.chars().nth(index).map(|ch| SmeltUnknown::String(ch.to_string()))).unwrap_or(SmeltUnknown::Undefined)
                         }}
                     }}
                     SmeltUnknown::Array(values) => {{
@@ -804,7 +984,7 @@ impl FunctionEmitter<'_> {
                         if smelt_key == "length" {{
                             SmeltUnknown::Number(values.len() as f64)
                         }} else {{
-                            smelt_key.parse::<usize>().ok().and_then(|index| values.get(index).cloned()).unwrap_or(SmeltUnknown::Null)
+                            smelt_key.parse::<usize>().ok().and_then(|index| values.get(index).cloned()).unwrap_or(SmeltUnknown::Undefined)
                         }}
                     }}
                     SmeltUnknown::Object(values) => {byte_buffer_element}(&values, &{key_text}).unwrap_or_else(|| values.get(&{key_text}).unwrap_or(SmeltUnknown::Null)),
@@ -839,13 +1019,13 @@ impl FunctionEmitter<'_> {
                         let len = value.chars().count() as i64;
                         let index = {numeric_index_text} as i64;
                         let normalized = if index < 0 {{ len + index }} else {{ index }};
-                        usize::try_from(normalized).ok().and_then(|index| value.chars().nth(index).map(|ch| SmeltUnknown::String(ch.to_string()))).unwrap_or(SmeltUnknown::Null)
+                        usize::try_from(normalized).ok().and_then(|index| value.chars().nth(index).map(|ch| SmeltUnknown::String(ch.to_string()))).unwrap_or(SmeltUnknown::Undefined)
                     }}
                     SmeltUnknown::Array(values) => {{
                         let len = values.len() as i64;
                         let index = {numeric_index_text} as i64;
                         let normalized = if index < 0 {{ len + index }} else {{ index }};
-                        usize::try_from(normalized).ok().and_then(|index| values.get(index).cloned()).unwrap_or(SmeltUnknown::Null)
+                        usize::try_from(normalized).ok().and_then(|index| values.get(index).cloned()).unwrap_or(SmeltUnknown::Undefined)
                     }}
                 SmeltUnknown::Object(values) => {byte_buffer_element}(&values, &{key_text}).unwrap_or_else(|| values.get(&{key_text}).unwrap_or(SmeltUnknown::Null)),
                 _ => SmeltUnknown::Null,

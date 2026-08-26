@@ -1689,32 +1689,28 @@ impl ModuleBuilder<'_> {
         }))
     }
 
-    /// Lower a thrown expression to the string message carried by HIR throws.
-    pub(super) fn throw_message_expression(
+    /// Lower a thrown expression, preserving the operand as an ordinary value.
+    ///
+    /// `throw` in JavaScript is value-preserving for *any* operand:
+    /// `throw new TypeError(x)`, `throw 'a string'`, `throw {code: 1}` and
+    /// `throw someCaughtValue` all deliver exactly the value that was written to
+    /// the `catch`. This function therefore does nothing more than lower the
+    /// operand through the normal expression path, which already gives
+    /// `new Error(..)` its erased `{ __smelt_error, message, cause?, errors? }`
+    /// record (see `error_object_constructor_expression`).
+    ///
+    /// It previously narrowed a thrown `new Error(msg)` to `msg` alone, so the
+    /// error object was destroyed at the throw site: every `catch` saw a bare
+    /// `SmeltUnknown::String`, which made `error instanceof Error` false,
+    /// `error.message` `undefined`, and `error.name` unreadable. Only the throw
+    /// *statement* narrowed -- the same construction used as a value already kept
+    /// the record -- so the two spellings disagreed about what an `Error` is.
+    pub(super) fn throw_operand_expression(
         &mut self,
         argument: &Expression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        if let Expression::NewExpression(new_expr) = argument
-            && matches!(&new_expr.callee, Expression::Identifier(callee) if Self::is_builtin_error_constructor(callee.name.as_str()))
-        {
-            return self.error_constructor_expression(new_expr, body);
-        }
         self.expression(argument, body)
-    }
-
-    /// Lower `new Error(message)` to the message expression used by HIR throws.
-    ///
-    /// HIR throws carry only the string message, so the retained `cause`
-    /// option and `AggregateError` `errors` list are lowered for their source
-    /// effects and discarded here; the record-building value path
-    /// (`error_object_constructor_expression`) keeps them.
-    pub(super) fn error_constructor_expression(
-        &mut self,
-        new_expr: &oxc::ast::ast::NewExpression<'_>,
-        body: &mut Body,
-    ) -> Result<smelt_hir::ExprId, SmeltError> {
-        Ok(self.error_constructor_parts(new_expr, body)?.message)
     }
 
     /// Lower the positional pieces of a builtin Error construction exactly once.
@@ -2064,10 +2060,7 @@ impl ModuleBuilder<'_> {
                 if logical.operator == LogicalOperator::Coalesce {
                     return self.nullish_coalesce_expression(logical, body, type_hint);
                 }
-                if let Some(expr) = self.logical_and_numeric_value_expression(logical, body)? {
-                    return Ok(expr);
-                }
-                let cond = self.condition_expression(&logical.left, body)?;
+                let lhs = self.expression(&logical.left, body)?;
                 let rhs_narrowing = if logical.operator == LogicalOperator::And {
                     self.guard_narrowing(&logical.left, body)
                 } else {
@@ -2080,6 +2073,22 @@ impl ModuleBuilder<'_> {
                 if rhs_narrowing.is_some() {
                     self.scope.pop_narrowing_scope();
                 }
+                // JavaScript's `&&`/`||` select an OPERAND, so in this value
+                // position the result is the union of the operand types, not a
+                // boolean. `logical_operand_value_expression` builds that
+                // selection and returns `None` only where the boolean shape
+                // below is still the right one (both operands already boolean,
+                // or two operand types with no common lowered shape).
+                if let Some(expr) =
+                    self.logical_operand_value_expression(logical, body, lhs, rhs)?
+                {
+                    return Ok(expr);
+                }
+                let cond = self.lowered_condition_expression(
+                    lhs,
+                    self.expression_span(&logical.left),
+                    body,
+                )?;
                 let ty = self.ctx.krate.types.intern(Type::Bool);
                 let identity = body.push_expr(Expr {
                     kind: ExprKind::Literal(Literal::Bool(
@@ -2385,6 +2394,10 @@ impl ModuleBuilder<'_> {
             }
             Expression::CallExpression(call) => {
                 let value = self.call_expression(call, body)?;
+                // A bare `Array(n)` allocation takes the contextual list type
+                // when it has one, exactly as the `new Array(n)` spelling does
+                // below; the two forms must stay in lockstep.
+                let value = self.adopt_contextual_list_allocation_type(value, type_hint, body);
                 let statically_callable = body
                     .exprs
                     .get(usize::try_from(value.0).unwrap_or(usize::MAX))
@@ -2471,7 +2484,8 @@ impl ModuleBuilder<'_> {
                 self.expression_with_hint(&parenthesized.expression, body, type_hint)
             }
             Expression::NewExpression(new_expr) => {
-                self.new_expression_with_hint(new_expr, body, type_hint)
+                let value = self.new_expression_with_hint(new_expr, body, type_hint)?;
+                Ok(self.adopt_contextual_list_allocation_type(value, type_hint, body))
             }
             Expression::TemplateLiteral(tpl) => self.template_literal_expression(tpl, body),
             Expression::PrivateFieldExpression(member) => self.private_field_member(
@@ -2893,6 +2907,17 @@ impl ModuleBuilder<'_> {
         expression: &Expression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        // `&&`/`||` yield an OPERAND, not a boolean, so in a value position they
+        // lower to a union-typed selection (see
+        // `logical_operand_value_expression`). A condition only observes that
+        // operand's truthiness, which distributes over the operator, so lower
+        // the condition form directly to a boolean instead of building a union
+        // value just to test it.
+        if let Expression::LogicalExpression(logical) = Self::unparenthesized_expression(expression)
+            && let Some(cond) = self.logical_condition_expression(logical, body)?
+        {
+            return Ok(cond);
+        }
         let cond = self.expression(expression, body)?;
         self.lowered_condition_expression(cond, self.expression_span(expression), body)
     }

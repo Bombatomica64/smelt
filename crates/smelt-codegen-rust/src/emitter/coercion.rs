@@ -75,9 +75,20 @@ impl FunctionEmitter<'_> {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) && self.concrete_union_members(target).is_none()
         {
+            // A JS element read flowing into an erased slot keeps its own
+            // fallibility, exactly as the `Option<..>` target above does: an
+            // out-of-range read is `undefined`, so it must erase to
+            // `SmeltUnknown::Undefined` rather than be made total first and
+            // erase as the element type's missing value (`''`, `0`, `[]`).
+            if let Some(read) = self.erased_element_read_text(operand)? {
+                return Ok(read);
+            }
             return self.erase(operand);
         }
         if self.is_erased_class_type(target) {
+            if let Some(read) = self.erased_element_read_text(operand)? {
+                return Ok(read);
+            }
             return self.erase(operand);
         }
         // JavaScript keeps `null` and `undefined` distinct under `===`
@@ -140,6 +151,13 @@ impl FunctionEmitter<'_> {
             return self.extract(operand, target);
         }
         if let Some(Type::Optional(inner)) = self.mir.types.get(target) {
+            // A JS element read flowing into an optional slot keeps its own
+            // fallibility instead of being made total and then re-wrapped in
+            // `Some(..)`. Without this, `last<T>(arr: T[]): T | undefined`
+            // returned `Some(Default::default())` for an empty array.
+            if let Some(read) = self.optional_element_read_text(operand, *inner)? {
+                return Ok(read);
+            }
             let operand_ty = self.operand_ty(operand)?;
             if matches!(self.mir.types.get(operand_ty), Some(Type::Optional(source_inner)) if matches!(self.mir.types.get(*source_inner), Some(Type::Unknown)))
                 && (matches!(
@@ -1730,7 +1748,7 @@ impl FunctionEmitter<'_> {
     /// erase paths need not spell the variant.
     pub(super) fn erase_object_text(&self, entries_text: &str) -> String {
         format!(
-            "SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([{entries_text}])))"
+            "SmeltUnknown::Object(SmeltObject::new(Vec::from([{entries_text}])))"
         )
     }
 
@@ -1741,7 +1759,7 @@ impl FunctionEmitter<'_> {
     /// checks without changing ordinary typed Date storage or comparisons.
     fn date_unknown_identity_text(&self, value_text: &str) -> String {
         format!(
-            "match {value_text}.clone() {{ SmeltUnknown::Object(value) if value.contains_key(\"__smelt_date\") => SmeltUnknown::Object(value), SmeltUnknown::Number(value) => SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"__smelt_date\".to_owned(), SmeltUnknown::Number(value))]))), value => value }}"
+            "match {value_text}.clone() {{ SmeltUnknown::Object(value) if value.contains_key(\"__smelt_date\") => SmeltUnknown::Object(value), SmeltUnknown::Number(value) => SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"__smelt_date\".to_owned(), SmeltUnknown::Number(value))]))), value => value }}"
         )
     }
 
@@ -1798,7 +1816,7 @@ impl FunctionEmitter<'_> {
                 if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty) {
                     let field_value = self.erase_value_text("value", *inner)?;
                     return Ok(format!(
-                        "if let Some(value) = {field_base}.{field_name}.clone() {{ smelt_object_entries.insert({source_name:?}.to_owned(), {field_value}); }}"
+                        "if let Some(value) = {field_base}.{field_name}.clone() {{ smelt_object_entries.push(({source_name:?}.to_owned(), {field_value})); }}"
                     ));
                 }
                 let field_value = if let Some(value) =
@@ -1819,7 +1837,7 @@ impl FunctionEmitter<'_> {
                     )?
                 };
                 Ok(format!(
-                    "smelt_object_entries.insert({source_name:?}.to_owned(), {field_value});"
+                    "smelt_object_entries.push(({source_name:?}.to_owned(), {field_value}));"
                 ))
             })
             .collect::<Result<Vec<_>, EmitError>>();
@@ -1845,7 +1863,7 @@ impl FunctionEmitter<'_> {
             // quotes rather than Debug-formatting it into a Rust string literal.
             let _ = write!(
                 host_markers,
-                "smelt_object_entries.insert(\"{marker}\".to_owned(), SmeltUnknown::Bool(true)); "
+                "smelt_object_entries.push((\"{marker}\".to_owned(), SmeltUnknown::Bool(true))); "
             );
         }
         // The marker VALUE is the class name, not a bare `true`. JavaScript exposes
@@ -1857,7 +1875,7 @@ impl FunctionEmitter<'_> {
         // intern one constructor value per class.
         let class_name = self.symbol_source_name(*name)?;
         Ok(format!(
-            "{{ let smelt_object_value = {value_text}; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = ::std::collections::HashMap::new(); {entries} {host_markers}smelt_object_entries.insert(\"__smelt_class\".to_owned(), SmeltUnknown::String({class_name:?}.to_owned())); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) }}"
+            "{{ let smelt_object_value = {value_text}; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); {entries} {host_markers}smelt_object_entries.push((\"__smelt_class\".to_owned(), SmeltUnknown::String({class_name:?}.to_owned()))); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) }}"
         ))
     }
 

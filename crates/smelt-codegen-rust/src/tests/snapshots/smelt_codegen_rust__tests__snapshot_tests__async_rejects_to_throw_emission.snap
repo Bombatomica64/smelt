@@ -26,7 +26,7 @@ async fn test_rejects() -> Result<(), Box<dyn std::error::Error>> {
             let _smelt_tmp_3: () = { let _ = __smelt_value; };
     _smelt_tmp_6 = !(did_throw);
     if _smelt_tmp_6 {
-    return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("expect(...).rejects.toThrow(...) failed".to_owned())));
+    return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("expect(...).rejects.toThrow(...) failed: expect(fail()).rejects.toThrow(\"boom\") (<memory>:9:9)".to_owned())));
     } else {
     _smelt_tmp_7 = ();
     return Ok(());
@@ -42,7 +42,7 @@ async fn test_rejects() -> Result<(), Box<dyn std::error::Error>> {
     } else {
     _smelt_tmp_6 = !(did_throw);
     if _smelt_tmp_6 {
-    return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("expect(...).rejects.toThrow(...) failed".to_owned())));
+    return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("expect(...).rejects.toThrow(...) failed: expect(fail()).rejects.toThrow(\"boom\") (<memory>:9:9)".to_owned())));
     } else {
     _smelt_tmp_7 = ();
     return Ok(());
@@ -62,7 +62,7 @@ async fn test_rejects() -> Result<(), Box<dyn std::error::Error>> {
     } else {
     _smelt_tmp_6 = !(did_throw);
     if _smelt_tmp_6 {
-    return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("expect(...).rejects.toThrow(...) failed".to_owned())));
+    return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("expect(...).rejects.toThrow(...) failed: expect(fail()).rejects.toThrow(\"boom\") (<memory>:9:9)".to_owned())));
     } else {
     _smelt_tmp_7 = ();
     return Ok(());

@@ -223,3 +223,261 @@ const caught = run();
         "the shared catch should recover either payload:\n{source}"
     );
 }
+
+#[test]
+fn throwing_an_error_constructor_emits_the_error_record() {
+    // The payload ABI was in place, but the *throw statement* never handed it an
+    // error: the frontend narrowed `new Error(m)` down to `m` before the operand
+    // ever reached MIR, so every throw in a generated crate entered the channel
+    // as `smelt_throw(SmeltUnknown::String(..))`. Downstream, `error instanceof
+    // Error` was false, `error.message` was `undefined`, and `error.name` was
+    // unreadable — even though the identical construction used as a *value* built
+    // the full record. This pins the throw site to the record.
+    let source = source_for(
+        r#"
+function boom(): void {
+  throw new RangeError("out of range");
+}
+
+boom();
+"#,
+    );
+
+    assert!(
+        source.contains("smelt_throw("),
+        "throw should enter the payload-preserving error channel:\n{source}"
+    );
+    assert!(
+        !source.contains(r#"smelt_throw(SmeltUnknown::String("out of range".to_owned()))"#),
+        "throw must not collapse an Error to its message string:\n{source}"
+    );
+    assert!(
+        source.contains(r#"("__smelt_error".to_owned(), SmeltUnknown::String("RangeError".to_owned()))"#),
+        "the thrown record must carry the spelled error class:\n{source}"
+    );
+    assert!(
+        source.contains(r#"("message".to_owned(), SmeltUnknown::String("out of range".to_owned()))"#),
+        "the thrown record must carry the message:\n{source}"
+    );
+}
+
+#[test]
+fn throwing_an_error_from_a_callback_emits_the_error_record() {
+    // A `throw` inside an arrow lowers through the reduced callback expression
+    // language, which carried its own copy of the narrowing: `new Error(m)`
+    // became `m`, and any other construction became the empty string. Fixing the
+    // statement path alone would have left this shape — the one
+    // `attempt(() => { throw ... })` uses — still throwing a bare string.
+    let source = source_for(
+        r#"
+function apply(f: () => number): number {
+  return f();
+}
+
+function run(): number {
+  return apply(() => {
+    throw new Error("callback boom");
+  });
+}
+
+run();
+"#,
+    );
+
+    assert!(
+        !source.contains(r#"smelt_throw(SmeltUnknown::String("callback boom".to_owned()))"#),
+        "a callback throw must not collapse an Error to its message string:\n{source}"
+    );
+    assert!(
+        source.contains(r#"("__smelt_error".to_owned(), SmeltUnknown::String("Error".to_owned()))"#),
+        "a callback-thrown Error must carry the class marker:\n{source}"
+    );
+    assert!(
+        source.contains(r#"("message".to_owned(), SmeltUnknown::String("callback boom".to_owned()))"#),
+        "a callback-thrown Error must carry the message:\n{source}"
+    );
+}
+
+#[test]
+fn erased_error_stringifies_through_error_prototype_to_string() {
+    // Now that a thrown `Error` survives as an object, the JavaScript `ToString`
+    // of that object must be `Error.prototype.toString` (`"name: message"`), not
+    // the generic `[object Object]` placeholder. While the payload was a bare
+    // string, `String(err)` happened to read the message; without this rule,
+    // preserving the object would have replaced that with useless text.
+    //
+    // The rule keys off the `__smelt_error` marker, exactly as the sibling
+    // `__smelt_regexp` arm keys off its own, so it holds for every error value
+    // rather than for one spelling.
+    let source = source_for(
+        r#"
+function boom(): void {
+  throw new Error("kaboom");
+}
+
+function text(): string {
+  try {
+    boom();
+    return "no throw";
+  } catch (error) {
+    return String(error);
+  }
+}
+
+const rendered = text();
+"#,
+    );
+
+    assert!(
+        source.contains(r#"SmeltUnknown::Object(value) if value.contains_key("__smelt_error")"#),
+        "the erased ToString must have an Error.prototype.toString arm:\n{source}"
+    );
+    assert!(
+        source.contains(r#"format!("{smelt_error_name}: {smelt_error_message}")"#),
+        "the Error arm must render `name: message`:\n{source}"
+    );
+}
+
+/// An unrelated closure elsewhere in the crate must not suppress the fold.
+///
+/// The fold refuses to touch a local that a closure captures, because such a
+/// local is read through the closure environment rather than through an operand
+/// the read tally can see. That guard was first written against the crate-wide
+/// closure table -- but `MirClosure::captures` records a `source_local`, and a
+/// `LocalId` is meaningful only inside its owning body. A function that
+/// happened to reuse a local number some *other* function's closure captured
+/// was therefore treated as capturing it too. In a two-function fixture nothing
+/// collided and the fold looked correct; across a real library almost every
+/// low-numbered local collided with something, and 29 of 30 throw sites
+/// silently kept their staged temporaries. Hence the many closures below: the
+/// point of the fixture is to occupy a spread of local numbers.
+#[test]
+fn a_foreign_closure_capture_does_not_suppress_the_fold() {
+    let source = source_for(
+        r#"
+export function manyClosures(values: number[]): number[] {
+  const a = 1;
+  const b = 2;
+  const c = 3;
+  const d = 4;
+  const e = 5;
+  const f = 6;
+  const g = 7;
+  const h = 8;
+  return values
+    .map(value => value * a + b)
+    .map(value => value * c + d)
+    .map(value => value * e + f)
+    .map(value => value * g + h);
+}
+
+export function thrower(size: number): number {
+  if (!Number.isInteger(size) || size <= 0) {
+    throw new Error('Size must be an integer greater than zero.');
+  }
+  return size;
+}
+"#,
+    );
+
+    assert!(
+        source.contains("smelt_throw(SmeltUnknown::Object("),
+        "the payload must still be built at the throw site when the crate \
+         contains unrelated capturing closures:\n{source}"
+    );
+    assert!(
+        !source.contains("smelt_throw(_smelt_tmp"),
+        "no staged temporary may survive into the throw:\n{source}"
+    );
+}
+
+/// A thrown `Error` must be built as one expression at the throw site.
+///
+/// Making `throw` value-preserving gave `throw new Error(m)` a
+/// `{__smelt_error, message}` record payload. MIR is three-address, so the
+/// record and its erasure to `SmeltUnknown` each landed in their own temporary,
+/// and one source statement emitted five lines of Rust: two `let` declarations,
+/// two assignments, and the `return Err(..)`. Two of those lines were bare
+/// `SmeltUnknown` bindings that read as erasure in their own right even though
+/// they were only the interior of the exception-payload boundary.
+///
+/// A team writing this Rust by hand would construct the payload inside
+/// `smelt_throw(..)`. The emitter therefore folds the temporaries that only
+/// stage a throw payload into the throw expression.
+#[test]
+fn thrown_error_payload_is_built_at_the_throw_site() {
+    let source = source_for(
+        r#"
+export function chunk(size: number): number {
+  if (size <= 0) {
+    throw new Error('Size must be an integer greater than zero.');
+  }
+  return size;
+}
+"#,
+    );
+
+    assert!(
+        source.contains("smelt_throw(SmeltUnknown::Object("),
+        "the thrown payload should be constructed inside smelt_throw:\n{source}"
+    );
+    assert!(
+        source.contains("Size must be an integer greater than zero."),
+        "the thrown message should survive into the throw expression:\n{source}"
+    );
+    assert!(
+        !source.contains(": SmeltUnknown;"),
+        "a thrown payload must not spill an erased SmeltUnknown temporary:\n{source}"
+    );
+    assert!(
+        !source.contains("SmeltRecord<String, SmeltUnknown>;"),
+        "a thrown payload must not spill a staged record temporary:\n{source}"
+    );
+    for line in source.lines() {
+        assert!(
+            !(line.contains("_smelt_tmp") && line.contains("SmeltUnknown::Object(")),
+            "the payload should not be assigned to a temporary first:\n{source}"
+        );
+    }
+}
+
+/// Folding the throw payload must not disturb a throw of a plain value.
+///
+/// `throw` is value-preserving for every operand, so the fold is keyed on the
+/// shape of the MIR (a write-once, read-once temporary staged immediately
+/// before the throw), never on the operand being an `Error`. A thrown string
+/// literal is already a constant operand with nothing to fold, and a thrown
+/// object literal folds its record construction the same way an `Error` does —
+/// both must still reach `smelt_throw` carrying their own value.
+#[test]
+fn throwing_a_plain_value_keeps_its_own_payload() {
+    let source = source_for(
+        r#"
+export function keep(value: unknown): unknown {
+  return value;
+}
+
+export function reject(flag: boolean): number {
+  if (flag) {
+    throw 'negative';
+  }
+  throw { code: 1 };
+}
+"#,
+    );
+
+    assert!(
+        source.contains("smelt_throw(SmeltUnknown::String(\"negative\".to_owned()))"),
+        "a thrown string must stay a string payload:\n{source}"
+    );
+    assert!(
+        source.contains("\"code\".to_owned()"),
+        "a thrown object literal must keep its own fields:\n{source}"
+    );
+    for line in source.lines() {
+        assert!(
+            !(line.contains("_smelt_tmp") && line.contains("\"code\".to_owned()")),
+            "the object payload should be built at the throw site:\n{source}"
+        );
+    }
+}

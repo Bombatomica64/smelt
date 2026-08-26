@@ -725,6 +725,79 @@ const entries = Object.entries(bag);
     );
 }
 
+/// Erasing a record to a JavaScript object must carry the record's key order
+/// across, not re-derive it.
+///
+/// `SmeltObject` has always CARRIED an `order` vector — `iter`/`keys`/`values`
+/// and the serde impl all read it — but its constructors used to take an
+/// unordered `HashMap` and recover an order by SORTING the keys. Every erasure
+/// site fed them `record.iter().collect()`, so the ordered entry stream the
+/// record had just produced was dropped into a hash map and then alphabetised:
+/// `{ foo: 1, bar: 2, baz: 3 }` erased to an object whose `Object.keys` read
+/// `["bar", "baz", "foo"]`. The constructors now take the ordered entry
+/// sequence, which is the only form that can express a JavaScript object's key
+/// order at all.
+#[test]
+fn erasing_a_record_to_an_object_keeps_the_source_key_order() {
+    let source = source_for(
+        r"
+const plain = { foo: 1, bar: 2, baz: 3 };
+const erased: unknown = plain;
+",
+    );
+
+    assert!(
+        source.contains("fn new(entries: Vec<(String, SmeltUnknown)>) -> Self"),
+        "{source}"
+    );
+    assert!(
+        source.contains("fn with_id(id: usize, entries: Vec<(String, SmeltUnknown)>) -> Self"),
+        "{source}"
+    );
+    // No constructor may guess an order back out of an unordered map.
+    assert!(
+        !source.contains("let mut order = values.keys().cloned().collect::<Vec<_>>(); order.sort();"),
+        "{source}"
+    );
+}
+
+/// JavaScript own-key order is not plain insertion order: array-index keys come
+/// first in ascending numeric order, then the remaining string keys in insertion
+/// order (`OrdinaryOwnPropertyKeys`). Both erased containers must therefore place
+/// a newly inserted key rather than push it, so `{ b: 1, 2: "x", a: 3, 1: "y" }`
+/// enumerates as `1, 2, b, a`. The ordering is maintained at insert time so
+/// `keys()` stays a plain read of one ordered structure.
+#[test]
+fn object_and_record_inserts_follow_javascript_own_key_order() {
+    let source = source_for(
+        r#"
+const mixed = { b: 1, 2: "x", a: 3, 1: "y" };
+const erased: unknown = mixed;
+"#,
+    );
+
+    assert!(
+        source.contains("fn smelt_canonical_array_index(key: &str) -> Option<u32>"),
+        "{source}"
+    );
+    assert!(
+        source.contains("fn smelt_js_key_order_position<K: SmeltPropertyKey>(order: &[K], key: &K) -> usize"),
+        "{source}"
+    );
+    // Both containers place the key; neither appends unconditionally.
+    assert_eq!(
+        source
+            .matches("let position = smelt_js_key_order_position(&order, &key); order.insert(position, key.clone());")
+            .count(),
+        2,
+        "{source}"
+    );
+    assert!(
+        !source.contains("{ self.order.borrow_mut().push(key.clone()); }"),
+        "{source}"
+    );
+}
+
 #[test]
 fn preserves_unknown_elements_when_casting_to_erased_type_level_helpers() {
     let source = source_for(
@@ -1717,14 +1790,22 @@ export function localize(enNumber: number): string {
 
 #[test]
 fn coerces_non_string_regex_replace_callback_result() {
-    // The callback's result flows through an erased record lookup, so it is
-    // typed `unknown` (`SmeltUnknown`), which is not `AsRef<str>`. The regex
-    // replacement must ToString it so the `Replacer` closure yields a `String`.
+    // A replacer callback whose result is not a `String` is not a valid
+    // `Replacer`, so the regex replacement must coerce it with the JavaScript
+    // `ToString` match. Here the callback returns an `unknown` read out of an
+    // erased parameter, the shape that carries no static type at all.
+    //
+    // This test used to spell the same idea as `htmlEscapes[match]` against a
+    // module-level `Record<string, string>` constant. That read is NOT erased —
+    // the constant is a concrete string-to-string map — and it only looked
+    // erased because a callback could not resolve an object constant at all and
+    // silently read it as `null`. Since that defect was fixed the es-toolkit
+    // `escape` shape produces a `String` directly and needs no coercion, so the
+    // coercion rule is pinned here on a value that is genuinely dynamic.
     let source = source_for(
         r#"
-const htmlEscapes: Record<string, string> = { "&": "&amp;" };
-export function escape(str: string): string {
-  return str.replace(/[&<>"']/g, (match) => htmlEscapes[match]);
+export function replaceAll(str: string, table: unknown): string {
+  return str.replace(/[&<>"']/g, (match) => (table as Record<string, unknown>)[match]);
 }
 "#,
     );
@@ -3216,7 +3297,7 @@ function assign(value: unknown): unknown {
         "{source}"
     );
     assert!(
-        source.contains("*other = SmeltUnknown::Object(SmeltObject::new(map));"),
+        source.contains("*other = SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"name\".to_owned(), SmeltUnknown::String(\"Grace\".to_owned()))])));"),
         "{source}"
     );
 }
@@ -9456,19 +9537,19 @@ fn typed_array_length_is_the_element_count_not_the_byte_count() {
         source_for("export function f(value: any): any { return (value as any).slice(0); }");
     assert!(
         generated.contains(
-            "fields.insert(\"length\".to_owned(), SmeltUnknown::Number((byte_length / stride) as f64))"
+            "(\"length\".to_owned(), SmeltUnknown::Number((byte_length / stride) as f64))"
         ),
         "`length` must be the element count:\n{generated}"
     );
     assert!(
         generated.contains(
-            "fields.insert(\"byteLength\".to_owned(), SmeltUnknown::Number(byte_length as f64))"
+            "(\"byteLength\".to_owned(), SmeltUnknown::Number(byte_length as f64))"
         ),
         "`byteLength` must stay the byte count:\n{generated}"
     );
     assert!(
-        generated.contains("fields.insert(\"buffer\".to_owned(), buffer)")
-            && generated.contains("fields.insert(\"byteOffset\".to_owned()"),
+        generated.contains("fields.push((\"buffer\".to_owned(), buffer))")
+            && generated.contains("fields.push((\"byteOffset\".to_owned()"),
         "a view must record the buffer it windows and its offset:\n{generated}"
     );
     // `slice`/`subarray` bounds are element indices for a view and byte indices for
@@ -10768,6 +10849,393 @@ export function guarded(func: () => any, recover: (err: any) => any): any {
         body.contains("catch_unwind"),
         "the `try`/`catch` fork must still be emitted, not dropped along with \
          the bogus back edge:\n{body}"
+    );
+}
+
+#[test]
+fn an_element_read_in_an_optional_slot_stays_fallible() {
+    // `arr[i]` has TypeScript type `T` (there is no
+    // `noUncheckedIndexedAccess` in play), so `last<T>(arr: T[]): T | undefined`
+    // used to lower to an INFALLIBLE read that was then re-wrapped:
+    // `Some(arr.get(..).cloned().unwrap_or(Default::default()))`. That makes
+    // `last([])` answer `Some(0.0)` where JavaScript answers `undefined`. The
+    // read is the natural `Option` producer, so a coercion into an `Option<T>`
+    // slot must keep the miss a miss.
+    let source = source_for(
+        r"
+export function last<T>(arr: readonly T[]): T | undefined {
+  return arr[arr.length - 1];
+}
+
+export function head<T>(arr: readonly T[]): T | undefined {
+  return arr[0];
+}
+",
+    );
+
+    assert!(
+        !source.contains("Some(arr.get("),
+        "the read must not be made total and re-wrapped in `Some(..)`:\n{source}"
+    );
+    assert!(
+        !source.contains("unwrap_or(Default::default())"),
+        "an out-of-range element must be `None`, not the element default:\n{source}"
+    );
+    assert_eq!(
+        source.matches(".cloned();").count(),
+        2,
+        "both functions must return the bare `get(..).cloned()` option:\n{source}"
+    );
+}
+
+#[test]
+fn an_element_read_never_panics_on_a_negative_normalized_index() {
+    // A positive out-of-range index already produced the JavaScript answer
+    // (`Vec::get` misses and the emitter substitutes the missing value), but a
+    // still-negative normalized index went through
+    // `usize::try_from(normalized).expect("negative index out of bounds")` and
+    // aborted the program. `[][-1]` is `undefined` in JavaScript, so both
+    // directions of out-of-range must agree. `usize::MAX` is never a live slot
+    // of a `Vec`, so converting the miss to it makes the following `get` miss.
+    let source = source_for(
+        r"
+export function pick(arr: number[], index: number): number {
+  return arr[index];
+}
+",
+    );
+
+    assert!(
+        !source.contains("negative index out of bounds"),
+        "an element READ must not panic on an out-of-range index:\n{source}"
+    );
+    assert!(
+        source.contains("usize::try_from(normalized).unwrap_or(usize::MAX)"),
+        "the normalized index must degrade to a miss:\n{source}"
+    );
+}
+
+#[test]
+fn an_element_write_still_rejects_a_negative_normalized_index() {
+    // The read relaxation must not leak into the WRITE path. A store to a slot
+    // that does not exist cannot silently pick a different slot, and
+    // `usize::MAX` would ask the resize helper for an impossible allocation, so
+    // the write keeps the panic.
+    let source = source_for(
+        r"
+export function put(arr: number[], index: number, value: number): void {
+  arr[index] = value;
+}
+",
+    );
+
+    assert!(
+        source.contains("usize::try_from(normalized).expect(\"negative index out of bounds\")"),
+        "a write to a negative normalized index must still fail loudly:\n{source}"
+    );
+}
+
+#[test]
+fn an_element_read_in_an_erased_slot_stays_fallible() {
+    // Sibling of `an_element_read_in_an_optional_slot_stays_fallible`, and the
+    // two must agree: an out-of-range element read is `undefined` in
+    // JavaScript, so the `Option<..>` target answers `None` and the ERASED
+    // target must answer `SmeltUnknown::Undefined`.
+    //
+    // The erased target used to make the read TOTAL first and erase afterwards,
+    // so the miss became the element type's own missing value and erased as
+    // THAT: `row[i] = b[i]` for `b: string[]` stored `''`, and for
+    // `number[]` it stored `0`. Both are values JavaScript never produces here.
+    let source = source_for(
+        r"
+export function fill(b: string[], n: number[], nested: string[][], i: number): unknown[] {
+  const row: unknown[] = [0, 0, 0];
+  row[0] = b[i];
+  row[1] = n[i];
+  row[2] = nested[i];
+  return row;
+}
+",
+    );
+
+    assert!(
+        !source.contains("SmeltUnknown::String(b.get("),
+        "the read must not be made total and erased as the element default:\n{source}"
+    );
+    assert!(
+        !source.contains("b.get({ let len = b.len()")
+            || !source.contains("unwrap_or(String::new()).clone())"),
+        "a missing `string` element must not erase as the empty string:\n{source}"
+    );
+    assert!(
+        !source.contains("SmeltUnknown::Number(n.get("),
+        "a missing `number` element must not erase as zero:\n{source}"
+    );
+    assert!(
+        !source.contains("{ let smelt_l = nested.get("),
+        "a missing nested-list element must not erase as an empty array:\n{source}"
+    );
+    assert_eq!(
+        source.matches(".cloned().map(|value| ").count(),
+        3,
+        "each of the three reads keeps its own fallibility:\n{source}"
+    );
+    for tail in [
+        ".cloned().map(|value| SmeltUnknown::String(value)).unwrap_or(SmeltUnknown::Undefined)",
+        ".cloned().map(|value| SmeltUnknown::Number(value as f64)).unwrap_or(SmeltUnknown::Undefined)",
+        "collect::<Vec<_>>())) }).unwrap_or(SmeltUnknown::Undefined)",
+    ] {
+        assert!(
+            source.contains(tail),
+            "the miss must erase as `undefined`, not as the element default \
+             (`{tail}`):\n{source}"
+        );
+    }
+}
+
+#[test]
+fn an_element_read_in_a_concrete_slot_stays_total() {
+    // The erased-target rule must not leak into a CONCRETE destination. There
+    // is no `undefined` to put in a `Vec<f64>` or a `Vec<String>`, so a store
+    // into a concrete list keeps the existing total read and its element
+    // missing value. Making that read fallible would not type-check, and
+    // widening the slot to hold a hole is a storage question, not a
+    // read-coercion one.
+    let source = source_for(
+        r"
+export function copy(b: string[], n: number[], i: number): void {
+  const s: string[] = [''];
+  const m: number[] = [0];
+  s[0] = b[i];
+  m[0] = n[i];
+}
+",
+    );
+
+    assert!(
+        source.contains(".cloned().unwrap_or(String::new()).clone();"),
+        "a concrete `string` slot keeps the total read:\n{source}"
+    );
+    assert!(
+        source.contains(".cloned().unwrap_or(0.0).clone();"),
+        "a concrete `number` slot keeps the total read:\n{source}"
+    );
+    assert!(
+        !source.contains(".cloned().map(|value| "),
+        "no fallible erased read belongs in a concrete slot:\n{source}"
+    );
+}
+
+#[test]
+fn an_element_read_on_an_erased_receiver_misses_to_undefined() {
+    // The same rule with the receiver erased instead of the destination: when
+    // the base is a `SmeltUnknown` the read goes through `unknown_index_text`,
+    // which answered `SmeltUnknown::Null` for an out-of-range array or string
+    // index. That is the `zipWith` defect — ragged inputs produced `"3null"`
+    // where JavaScript produces `"3undefined"`. A missing OBJECT PROPERTY is a
+    // separate question and deliberately still answers `Null`.
+    let source = source_for(
+        r"
+export function pick(value: unknown, index: number): unknown {
+  return (value as any)[index];
+}
+",
+    );
+
+    assert!(
+        source.contains(
+            "and_then(|index| values.get(index).cloned()).unwrap_or(SmeltUnknown::Undefined)"
+        ),
+        "a missing array element on an erased receiver is `undefined`:\n{source}"
+    );
+    assert!(
+        source.contains(
+            "value.chars().nth(index).map(|ch| SmeltUnknown::String(ch.to_string()))).unwrap_or(SmeltUnknown::Undefined)"
+        ),
+        "a missing string character on an erased receiver is `undefined`:\n{source}"
+    );
+}
+
+/// A callback adapter must never be a constant.
+///
+/// A throwing arrow whose body only throws has the uninhabited return type
+/// `never`, and every coercion out of `never` renders a bare constant because
+/// there is no value to convert. The adapter that bridges such an arrow into a
+/// non-throwing `&dyn Fn() -> unknown` parameter used that constant as its
+/// whole body, so the emitted closure never mentioned — let alone called — the
+/// callback it was wrapping:
+///
+/// ```rust
+/// attempt(&mut { let _smelt_adapted_callback = ..; move || SmeltUnknown::Null })
+/// ```
+///
+/// Nothing about that is visible in the types: it compiles and returns a
+/// plausible value while the callback is silently discarded. This asserts on
+/// the emitted source so the shape cannot come back even where no runtime tier
+/// covers it.
+#[test]
+fn a_never_returning_callback_adapter_still_invokes_the_callback() {
+    let source = source_for(
+        r#"
+function attempt(func: () => unknown): unknown[] {
+  try {
+    return [null, func()];
+  } catch (error) {
+    return ["caught", null];
+  }
+}
+
+export function run(): unknown[] {
+  return attempt(() => {
+    throw new Error("boom");
+  });
+}
+"#,
+    );
+
+    assert!(
+        !source.contains("move || SmeltUnknown::Null"),
+        "the adapter must not collapse to a constant:\n{source}"
+    );
+    assert!(
+        source.contains("(_smelt_adapted_callback)()"),
+        "the adapter body must invoke the wrapped callback:\n{source}"
+    );
+}
+
+/// The same rule for a `void` source rather than a `never` one.
+///
+/// `isMatch(target, source)` calls `isMatchWith(target, source, () => undefined)`:
+/// a zero-argument `void` arrow adapted into a `(a, b, prop, aParent, bParent,
+/// stack) => boolean | undefined` customizer slot. A `void` source has no value
+/// to convert either, so the coercion answered with the slot's missing-value
+/// constant `None::<bool>` and dropped the call — the same defect as the
+/// `never` case wearing a different constant. es-toolkit's `isEqual` (which
+/// passes `noop`) has the identical shape.
+///
+/// The repair is keyed on the source having no value, not on the constant, so
+/// both spellings are covered by one rule.
+#[test]
+fn a_void_callback_adapter_still_invokes_the_callback() {
+    let source = source_for(
+        r"
+function match(
+  target: unknown,
+  source: unknown,
+  customizer: (a: unknown, b: unknown) => boolean | undefined
+): boolean {
+  return customizer(target, source) ?? false;
+}
+
+export function run(target: unknown, source: unknown): boolean {
+  return match(target, source, () => undefined);
+}
+",
+    );
+
+    assert!(
+        !source.contains("move |arg0: SmeltUnknown, arg1: SmeltUnknown| None::<bool>"),
+        "the adapter must not collapse to the slot's missing-value constant:
+{source}"
+    );
+    assert!(
+        source.contains("let _ = (_smelt_adapted_callback)()"),
+        "a `void` source must still be called for its effects:
+{source}"
+    );
+}
+
+/// JavaScript `&&` and `||` select an OPERAND; the result type is the union of
+/// the operand types, not `boolean`.
+///
+/// Modelling them as boolean operators discards the value. es-toolkit's
+/// `expect(error instanceof Error && error.message).toBe('test')` became a
+/// `bool` compared against a string — statically false, so the assertion folded
+/// to `!(false)` and tested nothing. Here the guard's right operand is a
+/// concrete `String`, so the selected value must reach the caller as a string.
+#[test]
+fn a_logical_and_emits_the_selected_operand_not_a_boolean() {
+    let source = source_for(
+        r"
+export function pick(flag: boolean, value: string): string | boolean {
+  return flag && value;
+}
+",
+    );
+
+    assert!(
+        source.contains("fn pick(flag: bool, value: String) -> SmeltUnion"),
+        "`boolean && string` is the union of its operand types:\n{source}"
+    );
+    assert!(
+        source.contains("{ SmeltUnion2::M1(value.clone()) } else { SmeltUnion2::M0(flag.clone()) }"),
+        "each arm must carry the operand JavaScript selects, not a boolean:\n{source}"
+    );
+}
+
+/// The operand-selecting rule must leave the common case alone.
+///
+/// Both operands boolean means the union of the operand types IS `bool`, so the
+/// existing boolean lowering is exactly right. Widening it would route ordinary
+/// guards through a union — and one step further through `SmeltUnknown` — for
+/// no gain.
+#[test]
+fn a_boolean_logical_and_stays_a_plain_boolean() {
+    let source = source_for(
+        r"
+export function both(a: boolean, b: boolean): boolean {
+  return a && b;
+}
+",
+    );
+
+    assert!(
+        source.contains("fn both(a: bool, b: bool) -> bool"),
+        "a boolean `&&` keeps its boolean signature:\n{source}"
+    );
+    assert!(
+        !source.contains("SmeltUnknown"),
+        "a boolean `&&` must not erase anything:\n{source}"
+    );
+}
+
+/// A condition only observes truthiness, so it keeps the short-circuiting
+/// branch shape rather than materializing the selected operand.
+///
+/// `truthy(a && b) == truthy(a) && truthy(b)`, so `if (a && b)` has no reason to
+/// build a union value and test it. The branch form also keeps the right
+/// operand's own statements inside the branch: flattening the condition to a
+/// single `&&` over two already-computed temporaries evaluates the right-hand
+/// call unconditionally.
+#[test]
+fn a_logical_condition_short_circuits_the_right_operand() {
+    let source = source_for(
+        r"
+function valid(value: number): boolean {
+  return value > 0;
+}
+
+export function count(a: number, b: number): number {
+  if (valid(a) && valid(b)) {
+    return 1;
+  }
+  return 0;
+}
+",
+    );
+
+    let first = source
+        .find("valid(a.clone())")
+        .expect("the left guard should be called");
+    let second = source
+        .find("valid(b.clone())")
+        .expect("the right guard should be called");
+    let branch = source
+        .find("if _smelt_tmp")
+        .expect("the guard should branch");
+    assert!(
+        first < branch && branch < second,
+        "the right operand must be evaluated inside the branch, not before it:\n{source}"
     );
 }
 
