@@ -958,8 +958,13 @@ const values: Set<number> = new Set([1, 2, 3]);
 values.clear();
 ",
     );
+    // `clear` drops the whole store — members and hash index together — rather
+    // than emptying the members in place, which would leave the index pointing at
+    // slots that no longer exist.
     assert!(
-        source.contains("fn clear(&mut self) { self.entries.clear(); }"),
+        source.contains(
+            "fn clear(&mut self) { self.store = ::std::rc::Rc::new(SmeltJsSetStore::new()); }"
+        ),
         "SmeltJsSet prelude must define clear: {source}"
     );
     assert!(source.contains(".clear()"), "clear call should be emitted: {source}");
