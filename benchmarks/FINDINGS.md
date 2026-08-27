@@ -44,10 +44,24 @@ worst rows are exactly the ones with an inner loop over an input collection (`ch
 
 Nothing about the source demands this. A `.clone()` here is only needed if the
 original is used again afterwards; borrowing is the ordinary answer, and it is what a
-team writing this by hand would have written without thinking about it. `Smelt.toml`
-sets `clone-strategy = "aggressive"` for these fixtures, which is presumably where it
-comes from — but a strategy that clones a collection *inside a loop over that same
-collection* is changing the algorithm's complexity class, not just adding a constant.
+team writing this by hand would have written without thinking about it.
+
+**This is not the `clone-strategy` setting.** The fixtures do set
+`clone-strategy = "aggressive"`, and that was the first suspect, but `CloneStrategy` in
+`crates/smelt-transpiler/src/config.rs:156` is marked `#[expect(dead_code)]` and is
+never read: the option is parsed and discarded. The clones come from
+`operand_text` in `crates/smelt-codegen-rust/src/emitter/core.rs:2033`, which appends
+`.clone()` to every `Operand::Copy` read.
+
+Nor is it a missing move: the same match has
+`Operand::Move(place) => self.place_text(place)` (core.rs:2037), and
+`crates/smelt-mir/src/opt/move_on_last_use.rs` is a real backward-liveness pass, in
+the default pipeline, that rewrites `Copy` to `Move` at a local's last use. It cannot
+help here for two independent reasons: `data` is a *parameter*, which
+`convertible_locals` excludes outright (move_on_last_use.rs:207), and it is live
+across loop iterations, so no last-use rewrite could fire on it anyway. The three
+clones are receiver reads of `&self` methods, and a move-based fix is structurally
+incapable of removing them — the fix has to be borrow-based.
 
 ## 2. Self-recursive closures leak everything they capture, on every call
 

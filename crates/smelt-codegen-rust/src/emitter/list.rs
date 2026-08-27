@@ -419,7 +419,11 @@ impl FunctionEmitter<'_> {
         };
         self.validate_optional_numeric_index(start, "list slice start index")?;
         self.validate_optional_numeric_index(end, "list slice end index")?;
-        let list_text = self.operand_text(list)?;
+        // Every use of `list_text` below is a `&self` receiver (`.len()`, `.iter()`),
+        // so this reads the list by borrow. Cloning here copied the whole backing
+        // `Vec` up to three times per slice, which inside a loop over the same list
+        // turned a linear algorithm quadratic.
+        let list_text = self.operand_borrow_text(list)?;
         let len_source = format!("{list_text}.len()");
         let start_text = self.slice_start_text(start, &len_source)?;
         let len_text = self.slice_len_text(&list_text, start, end, SliceLenKind::Len)?;
