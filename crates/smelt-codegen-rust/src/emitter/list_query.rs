@@ -415,7 +415,28 @@ impl FunctionEmitter<'_> {
         // supplied argument, so it is called with no arguments at all.
         let mut call_args = Vec::new();
         if let Some(item_param_ty) = function_ty.params.first().copied() {
-            call_args.push(self.value_at_type_text("item.clone()", element_ty, item_param_ty)?);
+            // The element parameter is by shared reference whenever the elements are
+            // themselves lists (`unzipWith`, `zipWith`, ...). The iteration binds
+            // `item` as a reference already, so pass it straight through instead of
+            // cloning a whole inner list per element. When the element type and the
+            // parameter type differ a conversion still has to run, and its result is a
+            // temporary whose lifetime Rust extends to the end of the statement.
+            if self.callback_param_is_shared_reference(function_ty, 0, item_param_ty) {
+                if element_ty == item_param_ty {
+                    call_args.push("item".to_owned());
+                } else {
+                    call_args.push(format!(
+                        "&({})",
+                        self.value_at_type_text("item.clone()", element_ty, item_param_ty)?
+                    ));
+                }
+            } else {
+                call_args.push(self.value_at_type_text(
+                    "item.clone()",
+                    element_ty,
+                    item_param_ty,
+                )?);
+            }
         }
         if let Some(index_param_ty) = function_ty.params.get(1).copied() {
             let index_source_ty = if self.mir.types.get(index_param_ty) == Some(&Type::Int) {
@@ -439,11 +460,28 @@ impl FunctionEmitter<'_> {
             let array_param_ty = function_ty.params.get(2).copied().ok_or_else(|| {
                 EmitError::new("array callback snapshot requires an array parameter")
             })?;
-            call_args.push(self.value_at_type_text(
-                "smelt_array.clone()",
-                list_ty,
-                array_param_ty,
-            )?);
+            // The array argument is the JS third callback parameter. When the
+            // callback takes it by shared reference, pass the snapshot by reference:
+            // the snapshot itself is one copy per CALL, but `smelt_array.clone()`
+            // here was one copy per ELEMENT.
+            if self.callback_param_is_shared_reference(function_ty, 2, array_param_ty) {
+                if list_ty == array_param_ty {
+                    call_args.push("&smelt_array".to_owned());
+                } else {
+                    // A conversion has to run; its result is a temporary whose
+                    // lifetime Rust extends to the end of the statement.
+                    call_args.push(format!(
+                        "&({})",
+                        self.value_at_type_text("smelt_array.clone()", list_ty, array_param_ty)?
+                    ));
+                }
+            } else {
+                call_args.push(self.value_at_type_text(
+                    "smelt_array.clone()",
+                    list_ty,
+                    array_param_ty,
+                )?);
+            }
             (
                 format!("let smelt_array = {owned_list_text}; "),
                 "smelt_array".to_owned(),
@@ -587,6 +625,10 @@ impl FunctionEmitter<'_> {
         callback: &Operand,
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
+        // Index of the JS fourth callback argument (the receiver array) inside
+        // `candidate_args` below. Named so the by-reference binding and the argument
+        // rendering agree on which position is already a reference.
+        const ARRAY_ARG_INDEX: usize = 3;
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(list_element_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("array reduce receiver must be a list"));
@@ -613,6 +655,18 @@ impl FunctionEmitter<'_> {
             ("index", float_ty),
             ("array", list_ty),
         ];
+        // Whether the callback declares the array parameter by shared reference.
+        // When it does, the fold body binds the borrow itself rather than a per-element
+        // deep copy of the whole list — the quadratic cost
+        // `callback_param_is_shared_reference` exists to remove.
+        let array_by_ref = function_ty
+            .params
+            .get(ARRAY_ARG_INDEX)
+            .copied()
+            .is_some_and(|param_ty| {
+                self.callback_param_is_shared_reference(function_ty, ARRAY_ARG_INDEX, param_ty)
+                    && param_ty == list_ty
+            });
         let mut call_args = Vec::with_capacity(function_ty.params.len());
         for (index, param_ty) in function_ty.params.iter().copied().enumerate() {
             let Some((value_text, source_ty)) = candidate_args.get(index).copied() else {
@@ -620,6 +674,25 @@ impl FunctionEmitter<'_> {
                     "array reduce callback declares more parameters than reduce supplies",
                 ));
             };
+            if self.callback_param_is_shared_reference(function_ty, index, param_ty) {
+                if source_ty != param_ty {
+                    // A conversion has to run; its result is a temporary whose
+                    // lifetime Rust extends to the end of the statement.
+                    call_args.push(format!(
+                        "&({})",
+                        self.value_at_type_text(value_text, source_ty, param_ty)?
+                    ));
+                } else if index == ARRAY_ARG_INDEX && array_by_ref {
+                    // The array position is already bound as a reference (see
+                    // `callback_array_text`).
+                    call_args.push(value_text.to_owned());
+                } else {
+                    // The other fold-body bindings are owned, so they are borrowed
+                    // here at the call.
+                    call_args.push(format!("&{value_text}"));
+                }
+                continue;
+            }
             call_args.push(self.value_at_type_text(value_text, source_ty, param_ty)?);
         }
         if let Some(initial_operand) = initial
@@ -633,10 +706,16 @@ impl FunctionEmitter<'_> {
         // hand-rolled version lacked (see its doc comment).
         let borrowed_list_text = self.operand_borrow_text(list)?;
         // `fold` borrows the receiver for the duration of iteration. JavaScript
-        // also supplies that receiver as the callback's fourth, owned array
-        // argument, so each invocation must clone it even when MIR classified
-        // the original receiver operand as a final `Move`.
-        let callback_array_text = format!("{borrowed_list_text}.clone()");
+        // also supplies that receiver as the callback's fourth array argument. A
+        // callback that takes it by value owns its argument, so each invocation must
+        // clone it even when MIR classified the original receiver operand as a final
+        // `Move`; a callback that takes it by shared reference binds the same borrow
+        // the fold is already iterating, and no copy happens at all.
+        let callback_array_text = if array_by_ref {
+            format!("&{borrowed_list_text}")
+        } else {
+            format!("{borrowed_list_text}.clone()")
+        };
         let callback_closure = match self.closure_operand_text_for_declared_type(callback) {
             Ok(callback_closure) => callback_closure,
             // A reduce callback passed as a borrowed function parameter (rather

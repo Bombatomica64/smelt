@@ -839,7 +839,7 @@ export function entries(...args: readonly unknown[]): unknown {
     );
     assert!(
         source.contains(
-            "SmeltArray::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| SmeltUnknown::Array"
+            "SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| SmeltUnknown::Array"
         ),
         "Object.entries callback should return entry arrays, not a null placeholder: {source}"
     );
@@ -5690,7 +5690,11 @@ const same = (data as unknown) === (data as unknown);
         "erasing a list local should bind it to read its reference id\n{source}"
     );
     assert!(
-        body.contains("SmeltArray::with_id(smelt_l.id(),"),
+        body.contains("let smelt_id = smelt_l.id();"),
+        "erasing a list local should read the list's own reference id\n{source}"
+    );
+    assert!(
+        body.contains("SmeltArray::with_id(smelt_id,"),
         "erasing a list local should build the array with the list's own identity\n{source}"
     );
 }
@@ -7199,10 +7203,16 @@ export function run(values: number[]): string {
 }
 
 /// A seeded reduce borrows its receiver for iteration, so the array argument
-/// supplied to a four-parameter callback must be cloned rather than moved out
-/// of the surrounding function or closure.
+/// supplied to a four-parameter callback must never be MOVED out of the
+/// surrounding function or closure.
+///
+/// It used to be cloned instead — one whole-list deep copy per element, which is
+/// what made a four-parameter reduce O(n^2). The callback now takes that parameter
+/// by shared reference (`callback_param_is_shared_reference`), so the fold body
+/// binds the same borrow it is already iterating and nothing is copied at all. The
+/// no-move assertion is the part of this test that was always the point.
 #[test]
-fn reduce_clones_array_callback_argument_with_initial_value() {
+fn reduce_borrows_the_array_callback_argument_with_initial_value() {
     let source = source_for(
         r"
 export function sum(values: number[]): number {
@@ -7212,15 +7222,16 @@ export function sum(values: number[]): number {
 ",
     );
 
-    assert!(source.contains("let array = mapped.clone();"), "{source}");
+    assert!(source.contains("let array = &mapped;"), "{source}");
     assert!(!source.contains("let array = mapped;"), "{source}");
+    assert!(!source.contains("let array = mapped.clone();"), "{source}");
 }
 
-/// Seedless reduce has the same ownership requirement after extracting its
-/// first element: later iterations still borrow the receiver while invoking
-/// the callback with an owned array value.
+/// Seedless reduce has the same ownership requirement after extracting its first
+/// element: later iterations still borrow the receiver while invoking the callback,
+/// so the array argument is that same borrow and is never moved.
 #[test]
-fn reduce_clones_array_callback_argument_without_initial_value() {
+fn reduce_borrows_the_array_callback_argument_without_initial_value() {
     let source = source_for(
         r"
 export function sum(values: number[]): number {
@@ -7230,8 +7241,9 @@ export function sum(values: number[]): number {
 ",
     );
 
-    assert!(source.contains("let array = reversed.clone();"), "{source}");
+    assert!(source.contains("let array = &reversed;"), "{source}");
     assert!(!source.contains("let array = reversed;"), "{source}");
+    assert!(!source.contains("let array = reversed.clone();"), "{source}");
 }
 
 /// A module const whose initializer is an array spread (es-toolkit's

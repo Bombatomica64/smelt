@@ -1327,6 +1327,14 @@ fn emit_source_with_free_function_router(
         // These impls depend on `SmeltArray`/`SmeltUnknown`, so they live here.
         // Erasing a typed list to a `SmeltUnknown::Array` preserves its JS reference identity.
         writer.line("impl From<SmeltList<SmeltUnknown>> for SmeltArray { fn from(list: SmeltList<SmeltUnknown>) -> Self { SmeltArray::with_id(list.id, list.values) } }");
+        // A callback that declares a list parameter receives it by shared reference
+        // (see `callback_param_is_shared_reference`), so the erasure adapters need to
+        // build an erased array from `&SmeltList` as well as from an owned one. The
+        // reference form copies the elements, which is what erasing to a JS array
+        // value requires regardless; the saving is on the ARGUMENT, which no longer
+        // deep-copies the list once per element.
+        writer.line("impl From<&SmeltList<SmeltUnknown>> for SmeltArray { fn from(list: &SmeltList<SmeltUnknown>) -> Self { SmeltArray::with_id(list.id, list.values.clone()) } }");
+        writer.line("impl<T: Clone> From<&SmeltList<T>> for Vec<T> { fn from(list: &SmeltList<T>) -> Self { list.values.clone() } }");
         // serde impls only when the crate actually links serde (JSON contexts).
         if needs_serde_json {
             writer.line("impl<T: serde::Serialize> serde::Serialize for SmeltList<T> { fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> { serde::Serialize::serialize(&self.values, serializer) } }");
@@ -2822,6 +2830,14 @@ fn emit_source_with_free_function_router(
         writer.block("pub trait IntoSmeltUnknown", |trait_writer| {
             trait_writer.line("fn into_smelt_unknown(self) -> SmeltUnknown;");
         });
+        writer.blank_line();
+        // A callback parameter passed by shared reference (see
+        // `callback_param_is_shared_reference`) is still erased back into a JS array
+        // by the erased-callback adapters, and that walk yields `&SmeltUnknown`
+        // rather than an owned value. Erasing a borrowed value clones it, which the
+        // erasure would have done anyway when it built the `SmeltArray`; the saving
+        // is on the ARGUMENT, which no longer deep-copies the list per element.
+        writer.line("impl IntoSmeltUnknown for &SmeltUnknown { fn into_smelt_unknown(self) -> SmeltUnknown { self.clone() } }");
         writer.blank_line();
         writer.block("impl IntoSmeltUnknown for SmeltUnknown", |impl_writer| {
             impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {

@@ -271,7 +271,9 @@ def run() -> int:
 "#,
     );
 
-    assert!(source.contains("|closure_arg_0: SmeltList<i64>|"));
+    // A list-typed callback parameter is passed by shared reference; the body here
+    // only reads `values[0]`/`values[1]`, and the emitted program still prints 5.
+    assert!(source.contains("|closure_arg_0: &SmeltList<i64>|"));
     // An element READ never panics: a still-negative normalized index misses
     // (`usize::MAX`) exactly like a positive out-of-range index does.
     assert!(source.contains("usize::try_from(normalized).unwrap_or(usize::MAX)"));
