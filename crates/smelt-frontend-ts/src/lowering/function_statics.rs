@@ -216,6 +216,69 @@ impl ModuleBuilder<'_> {
             .map(Some)
     }
 
+    /// Resolve a `f.prop` read that appears inside a compact callback body.
+    ///
+    /// The [`smelt_hir::CallbackExpr`] IR used for callback bodies has no node
+    /// that names an item and no way to allocate into the enclosing body, so a
+    /// recorded static can only be served there by recreating its value in
+    /// place — the same thing [`ModuleBuilder::const_object_callback_expression`] does
+    /// for object constants. That works exactly when the recorded initializer is
+    /// a literal, which is what the *site-stable* contract in this module's docs
+    /// already guarantees for the values it records (`Symbol('…')` folds to its
+    /// span-keyed spelling, a number/string to itself).
+    ///
+    /// Returns `Ok(None)` when the read is not a recorded function static at
+    /// all, so the ordinary callback member path proceeds. A recorded static
+    /// whose initializer is *not* a literal is an error rather than a
+    /// fall-through: falling through would project a field off a function value
+    /// that has no fields, which is a wrong answer dressed as a value.
+    pub(in crate::lowering) fn function_static_property_callback_literal(
+        &self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+    ) -> Result<Option<(smelt_hir::Literal, smelt_hir::TypeId)>, SmeltError> {
+        let Expression::Identifier(owner) = &member.object else {
+            return Ok(None);
+        };
+        // A local binding of the same name shadows the module function.
+        if self.scope.lookup(owner.name.as_str()).is_some() {
+            return Ok(None);
+        }
+        let key = static_property_key(owner.name.as_str(), member.property.name.as_str());
+        let Some(item) = self.items.get(&key).copied() else {
+            return Ok(None);
+        };
+        let Item::Const(const_item) = self.item_ref(item) else {
+            return Ok(None);
+        };
+        let ty = const_item.ty;
+        let const_body = const_item.body;
+        let value = const_item.value;
+        let literal = usize::try_from(const_body.0)
+            .ok()
+            .and_then(|index| self.ctx.krate.bodies.get(index))
+            .and_then(|body| {
+                usize::try_from(value.0)
+                    .ok()
+                    .and_then(|index| body.exprs.get(index))
+            })
+            .and_then(|expr| match &expr.kind {
+                smelt_hir::ExprKind::Literal(literal) => Some(literal.clone()),
+                _ => None,
+            });
+        literal.map_or_else(
+            || {
+                Err(SmeltError::unsupported(
+                    self.span(member.span.start, member.span.end),
+                    format!(
+                        "`{key}` is a function static whose value is not a literal, and a \
+                         callback body cannot name it; hoist the read out of the callback"
+                    ),
+                ))
+            },
+            |literal| Ok(Some((literal, ty))),
+        )
+    }
+
     /// Lower `const { placeholder } = f;` against the recorded function statics.
     ///
     /// This is how a spec reaches the sentinel — `const { placeholder } = partial;`

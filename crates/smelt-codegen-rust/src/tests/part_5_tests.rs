@@ -433,11 +433,16 @@ export function same(data: unknown, other: unknown): boolean {
 
 #[test]
 fn emits_strict_identity_for_optional_records() {
+    // The record must be identity-bearing for `toBe` to read an `id`: a
+    // string-keyed dict only uses the `SmeltRecord` container (which carries an
+    // object id) when the program emits the `SmeltUnknown` prelude, otherwise it
+    // is a plain `HashMap` with no identity to read. The `unknown` field keeps
+    // this program on the identity-bearing representation.
     let source = source_for(
         r#"
 import { expect } from "vitest";
 
-function compare(left?: { a: number }, right?: { a: number }): void {
+function compare(left?: { a: unknown }, right?: { a: unknown }): void {
   expect(left).toBe(right);
   expect(left).not.toBe(right);
 }
@@ -1066,4 +1071,217 @@ const asRecord: unknown = obj;
         ),
         "{source}"
     );
+}
+
+/// An array literal that writes both `null` and `undefined` must keep the two
+/// spellings apart.
+///
+/// They share one HIR type (`Type::None`), so the element-type join used to
+/// answer `Optional(bool)` -- a single empty state for two distinct values.
+/// Both then lowered to `None::<bool>` and the rows became byte-identical:
+/// es-toolkit's `isEqualWith` primitives table answered `true` for its
+/// `[null, undefined, false]` row because it generated the same Rust as
+/// `[null, null, true]`.
+///
+/// The element type is `unknown` here by necessity, not convenience -- see
+/// `array_literal_mixes_nullish_spellings` for why no concrete type, union, or
+/// scoped generic can hold `bool | null | undefined` under the canonical
+/// optional/union flattening.
+#[test]
+fn mixed_nullish_array_literal_keeps_both_spellings() {
+    let source = source_for(
+        r"
+export function pairs(): boolean[] {
+  const pairs = [
+    [null, undefined, false],
+    [undefined, null, false],
+  ];
+  return pairs.map(pair => pair[0] === pair[1]);
+}
+",
+    );
+    assert!(
+        !source.contains("vec![None::<bool>, None::<bool>"),
+        "`null` and `undefined` must not collapse into the same `Option` empty \
+         state:\n{source}"
+    );
+    assert!(
+        source.contains("SmeltUnknown::Null, SmeltUnknown::Undefined")
+            && source.contains("SmeltUnknown::Undefined, SmeltUnknown::Null"),
+        "each row must keep its own nullish tags in order:\n{source}"
+    );
+}
+
+/// A literal whose only nullish spelling is uniform still uses `Option`.
+///
+/// The mixed-spelling boundary above must not widen every nullable literal --
+/// one spelling has one empty state, so `Optional(T)` represents it exactly and
+/// the concrete element type is kept.
+#[test]
+fn uniformly_nullish_array_literal_stays_optional() {
+    let source = source_for(
+        r"
+export function rows(): number {
+  const row = [1, 2, null];
+  return row.length;
+}
+",
+    );
+    assert!(
+        source.contains("Vec<Option<f64>>"),
+        "a single nullish spelling must stay a concrete `Option`:\n{source}"
+    );
+}
+
+
+
+/// `fn.call(thisArg, arg)` must not pass `thisArg` as a positional argument.
+///
+/// Smelt erases the JavaScript `this` binding for these callables -- a source
+/// `function (this: any, arg)` lowers to a one-parameter closure with no `this`
+/// slot in the ABI -- so the leading operand of `.call` is a receiver, not an
+/// argument. `Function.prototype.apply` already dropped it; `.call` passed it
+/// through, which bound the callee's FIRST parameter to the `this` object.
+///
+/// es-toolkit's `memoize` is the reproduction: it calls `fn.call(this, arg)`,
+/// so `memoize((x: number) => x + 10)(5)` added 10 to the `this` object instead
+/// of to 5. `flow`, `overArgs` and `result` call their callbacks the same way.
+///
+/// The receiver must be an erased generic callable for this to bite: a callee
+/// with a concrete function type expands to its own arity and drops the extra
+/// operand on its own.
+#[test]
+fn call_method_does_not_pass_this_as_an_argument() {
+    let source = source_for(
+        r"
+export function wrap<F extends (...args: any) => any>(fn: F): F {
+  const wrapped = function (this: unknown, arg: Parameters<F>[0]): ReturnType<F> {
+    return fn.call(this, arg);
+  };
+  return wrapped as F;
+}
+",
+    );
+    let packed = source
+        .lines()
+        .find_map(|line| {
+            let start = line.find("smelt_call_args: Vec<SmeltUnknown> = Into::into(vec![")?;
+            let rest = &line[start..];
+            let end = rest.find(']')?;
+            Some(rest[..=end].to_owned())
+        })
+        .expect("the erased call must pack an argument list");
+    assert!(
+        !packed.contains(','),
+        "`fn.call(this, arg)` must pack ONE argument, not the `this` operand \
+         too, but packed `{packed}`:\n{source}"
+    );
+}
+
+#[test]
+fn emits_reference_identity_for_typed_map_strict_equality() {
+    // `toBe` on a source `Map` is JavaScript reference identity: a clone with
+    // identical entries is `!==` the original. The typed container
+    // (`SmeltJsMap`) carries a stable object `id`, so the comparison reads that
+    // id instead of falling back to Rust structural `PartialEq`.
+    let source = source_for(
+        r#"
+import { test, expect } from "vitest";
+
+test("map identity", () => {
+  const map = new Map<number, string>([[1, "a"]]);
+  const alias = map;
+  expect(alias).toBe(map);
+});
+"#,
+    );
+
+    assert!(source.contains("map.clone().id == map.clone().id"), "{source}");
+}
+
+#[test]
+fn emits_reference_identity_for_typed_set_strict_equality() {
+    // A `Set` whose element cannot key a Rust `HashSet` uses `SmeltJsSet`,
+    // which carries an object `id`; `toBe` compares that id.
+    let source = source_for(
+        r#"
+import { test, expect } from "vitest";
+
+test("set identity", () => {
+  const values = new Set<number>([1]);
+  const alias = values;
+  expect(alias).toBe(values);
+});
+"#,
+    );
+
+    assert!(
+        source.contains("values.clone().id == values.clone().id"),
+        "{source}"
+    );
+}
+
+#[test]
+fn keeps_structural_equality_for_deep_matchers_on_reference_values() {
+    // The identity rule fires for `toBe` only. `toEqual`/`toStrictEqual` (and
+    // the `isDeepEqual`-shaped `==` they lower to) must keep using the
+    // containers' structural `PartialEq`, otherwise deep comparison of two
+    // distinct-but-equal objects would report inequality.
+    let source = source_for(
+        r#"
+import { test, expect } from "vitest";
+
+test("map structural", () => {
+  const map = new Map<number, string>([[1, "a"]]);
+  const copy = new Map<number, string>([[1, "a"]]);
+  expect(copy).toEqual(map);
+  expect(copy).toStrictEqual(map);
+});
+"#,
+    );
+
+    assert!(source.contains("copy.clone() != map.clone()"), "{source}");
+    assert!(!source.contains("copy.id == map.id"), "{source}");
+}
+
+#[test]
+fn emits_reference_identity_for_optional_maps() {
+    // `Optional` of a reference type keeps identity on the present values while
+    // two absent values still compare equal (`undefined === undefined`).
+    let source = source_for(
+        r#"
+import { expect } from "vitest";
+
+function compare(left?: Map<number, string>, right?: Map<number, string>): void {
+  expect(left).toBe(right);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("(Some(left), Some(right)) => left.id == right.id"),
+        "{source}"
+    );
+    assert!(source.contains("(None, None) => true"), "{source}");
+}
+
+#[test]
+fn emits_false_for_identityless_reference_strict_equality() {
+    // A tuple lowers to a Rust tuple, which stores no object id. Rather than
+    // inventing an identity, the comparison keeps reporting "not the same
+    // reference" — the same answer as before this rule existed.
+    let source = source_for(
+        r#"
+import { test, expect } from "vitest";
+
+test("tuple identity", () => {
+  const pair: [number, number] = [1, 2];
+  const other: [number, number] = [1, 2];
+  expect(other).not.toBe(pair);
+});
+"#,
+    );
+
+    assert!(!source.contains("pair.id"), "{source}");
+    assert!(!source.contains("other == pair"), "{source}");
 }

@@ -322,13 +322,43 @@ impl ModuleBuilder<'_> {
         })
     }
 
+    /// Return whether a property name is a member every JavaScript function has.
+    ///
+    /// These come from `Function.prototype` rather than from any expando
+    /// property the source assigned, so they are resolvable on *any* function
+    /// value and must not be rejected as unmodeled. `length` never reaches the
+    /// check (a dedicated arity path returns earlier); `prototype` and
+    /// `constructor` resolve to the same dynamic property bag the class receiver
+    /// already resolves them to, and `name` to the function's name string.
+    pub(in crate::lowering) fn is_universal_function_member(property: &str) -> bool {
+        matches!(property, "prototype" | "constructor" | "name" | "length")
+    }
+
     /// Lower a static member access expression.
     pub(in crate::lowering) fn static_member(
         &mut self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        self.static_member_with_absent_fallback(member, body, true)
+        self.static_member_with_absent_fallback(member, body, true, true)
+    }
+
+    /// Lower a static member expression that is an assignment *target*.
+    ///
+    /// Identical to [`Self::static_member`] except that an unmodeled property on
+    /// a function receiver is not rejected. A write is allowed to fall through
+    /// to the (discarded) fieldless static-member assignment the callable-object
+    /// design documents as its conditional-write punt
+    /// (specs/plans/callable-object-construction.md §5); turning that into a hard
+    /// error is exactly the regression that punt exists to prevent. The
+    /// corresponding *read* still cannot invent a value, so the rejection stays
+    /// on the read side where a wrong answer would otherwise be produced.
+    pub(in crate::lowering) fn static_member_assignment_target(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        self.static_member_with_absent_fallback(member, body, true, false)
     }
 
     /// Lower a static member read without the absent-list-field `undefined`
@@ -343,16 +373,19 @@ impl ModuleBuilder<'_> {
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        self.static_member_with_absent_fallback(member, body, false)
+        self.static_member_with_absent_fallback(member, body, false, true)
     }
 
     /// Shared static-member lowering; `absent_list_field_is_undefined` gates
-    /// the JS absent-property-read-yields-`undefined` rule for list receivers.
+    /// the JS absent-property-read-yields-`undefined` rule for list receivers,
+    /// and `reject_unmodeled_function_field` gates the function-receiver
+    /// rejection described on [`Self::static_member_assignment_target`].
     fn static_member_with_absent_fallback(
         &mut self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &mut Body,
         absent_list_field_is_undefined: bool,
+        reject_unmodeled_function_field: bool,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         if let Some(expr) = self.global_alias_member_read(member, body)? {
             return Ok(expr);
@@ -401,7 +434,18 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.url_field_expression(member, body)? {
             return Ok(expr);
         }
-        let receiver = self.expression(&member.object, body)?;
+        // The exemption an assignment target carries follows the whole target
+        // chain: in `fn.prop.inner = value` the base `fn.prop` is read only to
+        // locate the slot the (discarded) write targets, so rejecting it would
+        // reject the write itself — the regression
+        // [`Self::static_member_assignment_target`] exists to prevent. A
+        // receiver in any other position keeps the rejection.
+        let receiver = match &member.object {
+            Expression::StaticMemberExpression(object) if !reject_unmodeled_function_field => {
+                self.static_member_with_absent_fallback(object, body, true, false)?
+            }
+            object => self.expression(object, body)?,
+        };
         let receiver_ty = Self::expr_ty(body, receiver);
         let optional_access = member.optional
             || matches!(
@@ -507,6 +551,35 @@ impl ModuleBuilder<'_> {
                 ty,
                 span: self.span(member.span.start, member.span.end),
             }));
+        }
+        // A function value carries no field storage. JavaScript lets a function
+        // own arbitrary static properties, but Smelt only models the ones it
+        // recorded: a declared callable-interface member (`callable_fields`) or
+        // a module-level function static, both of which resolve well before
+        // here. Anything else would lower to `ExprKind::Field` on a receiver
+        // with no fields, which MIR prints as a meaningless positional index
+        // and codegen renders as a null — a wrong answer that looks like a
+        // value. Refuse the read instead of inventing one.
+        if reject_unmodeled_function_field
+            && matches!(
+                self.ctx.krate.types.get(access_receiver_ty),
+                Some(Type::Function(_))
+            )
+            && !Self::is_universal_function_member(member.property.name.as_str())
+            && !self
+                .types
+                .callable_fields(access_receiver_ty)
+                .is_some_and(|fields| fields.iter().any(|item| item.name == field))
+        {
+            return Err(SmeltError::unsupported(
+                self.span(member.span.start, member.span.end),
+                format!(
+                    "`{}` is not a modeled property of a function value; only a declared \
+                     callable-interface member or a static property assigned onto a module-level \
+                     function declaration resolves",
+                    member.property.name
+                ),
+            ));
         }
         let field_ty = match self.class_field_type(access_receiver_ty, field) {
             Ok(field_ty) => field_ty,
@@ -2048,8 +2121,50 @@ impl ModuleBuilder<'_> {
         });
         let prop = self.intern_source_name(member.property.name.as_str());
         // Last write wins, in source order: the registry method owns that rule.
-        self.scope.record_callable_prop(local, prop, value_read);
+        self.scope.record_callable_prop(local, prop, value_read, span);
         Ok(true)
+    }
+
+    /// Turn property writes this body collected but never consumed into errors.
+    ///
+    /// [`Self::try_collect_callable_local_prop`] removes a `fn.prop = value`
+    /// statement from the stream on the promise that a later
+    /// callable-interface coercion rebuilds it as a struct field. When that
+    /// coercion never fires the promise is broken: the write is gone from the
+    /// output and nothing says so. That silent drop is exactly how a
+    /// mis-lowered static property stays invisible, so a body that finishes
+    /// with pending writes reports one diagnostic per collecting local rather
+    /// than emitting a value that is missing its properties.
+    ///
+    /// Called at the end of every body that can collect writes, with the body's
+    /// own registry still installed (before `restore_callable_prop_writes`
+    /// hands the enclosing body's registry back).
+    pub(in crate::lowering) fn report_unconsumed_callable_props(
+        &self,
+        errors: &mut Vec<SmeltError>,
+    ) {
+        for (span, props) in self.scope.unconsumed_callable_props() {
+            let names = props
+                .iter()
+                .map(|prop| {
+                    self.ctx
+                        .krate
+                        .symbols
+                        .get(*prop)
+                        .unwrap_or("<unknown>")
+                        .to_owned()
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            errors.push(SmeltError::unsupported(
+                span,
+                format!(
+                    "property writes onto a callable local ({names}) were collected but never \
+                     reached a callable-interface-typed position, so they would be dropped; \
+                     declare the value at a named interface that carries those members"
+                ),
+            ));
+        }
     }
 
     /// Synthesize a typed `CallableObjectAssign` when a callable local coerces to
@@ -2070,18 +2185,35 @@ impl ModuleBuilder<'_> {
         type_hint: Option<smelt_hir::TypeId>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let Some(hint) = type_hint else {
-            return Ok(None);
-        };
-        if !self.type_is_callable_interface(hint) {
-            return Ok(None);
-        }
         let Some(local) = self.scope.lookup(ident_name) else {
             return Ok(None);
+        };
+        // The position's own type hint decides the struct where there is one; a
+        // position with no hint (a `return` from a function whose return type is
+        // inferred) falls back to the callable interface the local was
+        // *declared* at, which says the same thing the annotation said.
+        let hint = match type_hint {
+            Some(hint) => {
+                if !self.type_is_callable_interface(hint) {
+                    return Ok(None);
+                }
+                hint
+            }
+            None => match self.scope.callable_local_declared_interface(local) {
+                Some(declared) if self.type_is_callable_interface(declared) => declared,
+                _ => return Ok(None),
+            },
         };
         let Some(props) = self.scope.take_callable_props(local) else {
             return Ok(None);
         };
+        if props.is_empty() {
+            // The local is *declared* at a callable interface but collected no
+            // property writes, so there is nothing to bundle: the ordinary
+            // identifier read (and whatever adapter the position applies) stays
+            // in charge, exactly as before any write was collected.
+            return Ok(None);
+        }
         let base_ty = Self::local_ty_checked(body, local)
             .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
         let callable = body.push_expr(Expr {
@@ -2526,7 +2658,9 @@ impl ModuleBuilder<'_> {
                 ident.span.end,
                 body,
             ),
-            AssignmentTarget::StaticMemberExpression(member) => self.static_member(member, body),
+            AssignmentTarget::StaticMemberExpression(member) => {
+                self.static_member_assignment_target(member, body)
+            }
             AssignmentTarget::PrivateFieldExpression(member) => self.private_field_member(
                 &member.object,
                 member.field.name.as_str(),
@@ -2576,7 +2710,7 @@ impl ModuleBuilder<'_> {
             SimpleAssignmentTarget::AssignmentTargetIdentifier(ident) => self
                 .identifier_expression(ident.name.as_str(), ident.span.start, ident.span.end, body),
             SimpleAssignmentTarget::StaticMemberExpression(member) => {
-                self.static_member(member, body)
+                self.static_member_assignment_target(member, body)
             }
             SimpleAssignmentTarget::PrivateFieldExpression(member) => self.private_field_member(
                 &member.object,

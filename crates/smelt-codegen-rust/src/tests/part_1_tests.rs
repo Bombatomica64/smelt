@@ -135,12 +135,12 @@ function collect(): string[] {
     );
 
     assert!(
-        source.contains("let smelt_capture_values = ::std::rc::Rc::new(::std::cell::RefCell::new("),
+        source.contains("let smelt_capture_values: ::std::rc::Rc<::std::cell::RefCell<"),
         "{source}"
     );
     assert!(
         source
-            .contains("let smelt_capture_current = ::std::rc::Rc::new(::std::cell::RefCell::new("),
+            .contains("let smelt_capture_current: ::std::rc::Rc<::std::cell::RefCell<"),
         "{source}"
     );
     assert!(
@@ -201,7 +201,7 @@ function run(): number {
     // `count` is shared through an `Rc<RefCell<f64>>` capture cell.
     assert!(
         source
-            .contains("let smelt_capture_count = ::std::rc::Rc::new(::std::cell::RefCell::new("),
+            .contains("let smelt_capture_count: ::std::rc::Rc<::std::cell::RefCell<"),
         "{source}"
     );
     // The sibling call is materialized into its own temp before any borrow.
@@ -256,7 +256,7 @@ function label(): number {
     // `current` is shared through a capture cell, so the textual rewrite ran.
     assert!(
         source
-            .contains("let smelt_capture_current = ::std::rc::Rc::new(::std::cell::RefCell::new("),
+            .contains("let smelt_capture_current: ::std::rc::Rc<::std::cell::RefCell<"),
         "{source}"
     );
     assert!(
@@ -297,7 +297,7 @@ function run(): number {
     // `order` is shared through an `Rc<RefCell<Vec<_>>>` capture cell.
     assert!(
         source
-            .contains("let smelt_capture_order = ::std::rc::Rc::new(::std::cell::RefCell::new("),
+            .contains("let smelt_capture_order: ::std::rc::Rc<::std::cell::RefCell<"),
         "order should be a shared capture cell: {source}"
     );
     // The index read must not place two `borrow_mut()` of the same cell in one
@@ -348,7 +348,7 @@ function run(k: number, v: number): number[] {
     // `order` is shared through an `Rc<RefCell<Vec<_>>>` capture cell.
     assert!(
         source
-            .contains("let smelt_capture_order = ::std::rc::Rc::new(::std::cell::RefCell::new("),
+            .contains("let smelt_capture_order: ::std::rc::Rc<::std::cell::RefCell<"),
         "order should be a shared capture cell: {source}"
     );
     // The index is precomputed into a temp, so the indexed write borrows the

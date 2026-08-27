@@ -166,6 +166,15 @@ impl ModuleBuilder<'_> {
                 }
             }
             TSType::TSIntersectionType(intersection) => {
+                // An intersection of a call signature with object members is a
+                // callable object: the same shape an `interface` with a call
+                // signature declares, so it lowers to the same callable-interface
+                // class instead of being erased below (see
+                // `decls::callable_object`). Only a surface Smelt can name this
+                // way is claimed; everything else keeps the erasing behaviour.
+                if let Some(class_ty) = self.anonymous_callable_object_type(ty) {
+                    return Ok(class_ty);
+                }
                 if Self::ts_type_is_callable_object_surface(ty)
                     || Self::ts_type_is_opaque_object_intersection_surface(ty)
                 {
@@ -537,6 +546,14 @@ return_ty: function.return_ty,
         &mut self,
         literal: &oxc::ast::ast::TSTypeLiteral<'_>,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
+        // A type literal that is callable *and* carries named members is a
+        // callable object, not a bare function: it lowers to the same
+        // callable-interface class the `interface` spelling produces (see
+        // `decls::callable_object`) so its members survive. A literal with only
+        // call signatures stays a plain function type below.
+        if let Some(class_ty) = self.anonymous_callable_object_literal_type(literal) {
+            return Ok(class_ty);
+        }
         if let Some(TSSignature::TSCallSignatureDeclaration(signature)) = literal
             .members
             .iter()

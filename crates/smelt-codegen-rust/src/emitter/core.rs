@@ -2869,7 +2869,18 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             "smelt_callback".to_owned()
         };
-        let source_is_erased = self.is_erased_unknown_rest_function(source) && !source.may_throw;
+        // Which invocation syntax this adapter body may use is a question about
+        // the source value's emitted Rust REPRESENTATION, so it goes through the
+        // one authority that answers it (`callback_handle_kind`) instead of
+        // re-deriving it from the MIR shape. A callback *parameter* whose MIR type
+        // has the erased-unknown-rest shape is still emitted as a borrowed
+        // `&dyn Fn` handle (see `param_type_text`), and `.call(..)` on one of
+        // those resolves to the nightly-only `Fn::call` — E0658 `fn_traits`, plus
+        // an E0308 because that trait method takes an argument *tuple*. That is
+        // exactly the drift `callback_handle_kind`'s doc comment warns about, and
+        // es-toolkit `curry`/`curryRight` hit it: they hand their `func` parameter
+        // to `makeCurry` through this adapter.
+        let source_is_erased = self.callee_uses_erased_call_method(operand)? && !source.may_throw;
         let call = if source_is_erased {
             format!("{callback_text}.call({args})")
         } else if is_borrowed_param {

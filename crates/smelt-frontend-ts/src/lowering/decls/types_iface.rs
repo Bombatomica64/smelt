@@ -25,6 +25,13 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a TypeScript type alias declaration to HIR.
+    ///
+    /// An alias whose right-hand side is a *callable object* — a call signature
+    /// plus named members, written either as a type literal or as an
+    /// intersection — declares exactly what the `interface` spelling of the same
+    /// shape declares, so it lowers to an interface item under the alias's own
+    /// name and type parameters (see `decls::callable_object`). Every other
+    /// alias keeps the erasing type-alias lowering below.
     pub(in crate::lowering) fn type_alias_declaration(
         &mut self,
         alias: &oxc::ast::ast::TSTypeAliasDeclaration<'_>,
@@ -33,6 +40,18 @@ impl ModuleBuilder<'_> {
         let name_text = self.qualified_type_declaration_name(local_name_text);
         let name = self.intern_type_name(&name_text);
         let type_params = self.push_type_parameter_scope(alias.type_parameters.as_deref())?;
+        let surface = self
+            .callable_object_surface_members(&alias.type_annotation)
+            .ok()
+            .flatten();
+        if let Some(members) = surface {
+            self.pop_type_parameter_scope();
+            let span = self.span(alias.span.start, alias.span.end);
+            let item =
+                self.register_callable_object_interface(name, &name_text, type_params, members, span);
+            self.items.insert(name_text, item);
+            return Ok(item);
+        }
         let result = self.ts_type_to_hir(&alias.type_annotation);
         let fields = self.type_fields_from_ts(&alias.type_annotation).ok();
         let is_callable_object = Self::ts_type_is_callable_object_surface(&alias.type_annotation);
@@ -107,303 +126,17 @@ impl ModuleBuilder<'_> {
                 methods.extend(self.substituted_methods(&parent.methods, &substitutions));
             }
 
-            for sig in &interface.body.body {
-                match sig {
-                    TSSignature::TSPropertySignature(prop) => {
-                        // A computed property signature keeps its declared field
-                        // when the key statically resolves (`[K]`, `[E.Member]`,
-                        // `[Symbol.iterator]`); a genuinely dynamic key has no
-                        // named field to record and is skipped.
-                        if prop.computed && !self.is_resolvable_property_key(&prop.key) {
-                            continue;
-                        }
-                        let ty = prop
-                            .type_annotation
-                            .as_ref()
-                            .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                            .transpose()?
-                            .ok_or_else(|| {
-                                SmeltError::unsupported(
-                                    self.span(prop.span.start, prop.span.end),
-                                    "interface fields require explicit type annotations",
-                                )
-                            })?;
-                        let field_ty = if prop.optional {
-                            self.ctx.krate.types.intern(Type::Optional(ty))
-                        } else {
-                            ty
-                        };
-                        fields.push(Field {
-                            name: self.property_key_symbol(&prop.key)?,
-                            ty: field_ty,
-                            visibility: Visibility::Public,
-                            optional: prop.optional,
-                            span: self.span(prop.span.start, prop.span.end),
-                        });
-                    }
-                    TSSignature::TSMethodSignature(method) => {
-                        if (method.computed && !self.is_resolvable_property_key(&method.key))
-                            || method.this_param.is_some()
-                        {
-                            return Err(SmeltError::unsupported(
-                                self.span(method.span.start, method.span.end),
-                                "dynamic computed and this-parameter interface methods are not lowered yet",
-                            ));
-                        }
-                        let _method_type_params =
-                            self.push_type_parameter_scope(method.type_parameters.as_deref())?;
-                        let result = (|| {
-                            let return_ty = method
-                                .return_type
-                                .as_ref()
-                                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                                .transpose()?
-                                .ok_or_else(|| {
-                                    SmeltError::unsupported(
-                                        self.span(method.span.start, method.span.end),
-                                        "interface methods require explicit return types",
-                                    )
-                                })?;
-                            let mut params = Vec::new();
-                            for (index, param) in method.params.items.iter().enumerate() {
-                                let ty = param
-                                    .type_annotation
-                                    .as_ref()
-                                    .map(|annotation| {
-                                        self.ts_type_to_hir(&annotation.type_annotation)
-                                    })
-                                    .transpose()?
-                                    .ok_or_else(|| {
-                                        SmeltError::unsupported(
-                                            self.span(param.span.start, param.span.end),
-                                            "interface method parameters require explicit types",
-                                        )
-                                    })?;
-                                // An optional parameter (`x?: T`) has the same
-                                // `Optional<T>` ABI as an optional function-type
-                                // parameter so under-application can pass a typed
-                                // `None`. Recording it here keeps the callable
-                                // method field's arity in sync with the
-                                // `required_params` count below.
-                                let ty = if param.optional {
-                                    self.ctx.krate.types.intern(Type::Optional(ty))
-                                } else {
-                                    ty
-                                };
-                                let (param_name, param_span) =
-                                    if let BindingPattern::BindingIdentifier(binding) =
-                                        &param.pattern
-                                    {
-                                        (
-                                            self.intern_source_name(binding.name.as_str()),
-                                            self.span(binding.span.start, binding.span.end),
-                                        )
-                                    } else {
-                                        (
-                                            self.synthetic_param_symbol(index),
-                                            self.span(param.span.start, param.span.end),
-                                        )
-                                    };
-                                params.push(ParamSig {
-                                    name: param_name,
-                                    ty,
-                                    span: param_span,
-                                });
-                            }
-                            // A trailing rest parameter (`...args: T[]`) becomes
-                            // the final `List<T>` slot; its index feeds the
-                            // `rest` metadata so call lowering packs the tail
-                            // instead of mistaking the array for a fixed param.
-                            let mut rest_index = None;
-                            if let Some(rest) = &method.params.rest {
-                                let rest_ty = rest
-                                    .type_annotation
-                                    .as_ref()
-                                    .map(|annotation| {
-                                        self.function_type_rest_param_to_hir(
-                                            &annotation.type_annotation,
-                                        )
-                                    })
-                                    .transpose()?
-                                    .ok_or_else(|| {
-                                        SmeltError::unsupported(
-                                            self.span(rest.span.start, rest.span.end),
-                                            "interface method rest parameters require explicit array types",
-                                        )
-                                    })?;
-                                // The rest binding's own identifier is purely
-                                // type-level in an interface method signature, so
-                                // a synthetic slot name is sufficient for the
-                                // generated callable field.
-                                rest_index = Some(params.len());
-                                params.push(ParamSig {
-                                    name: self.synthetic_param_symbol(params.len()),
-                                    ty: rest_ty,
-                                    span: self.span(rest.span.start, rest.span.end),
-                                });
-                            }
-                            let required_params =
-                                Self::formal_parameters_required_count(&method.params);
-                            Ok((return_ty, params, rest_index, required_params))
-                        })();
-                        self.pop_type_parameter_scope();
-                        let (return_ty, params, rest_index, required_params) = result?;
-                        if method.optional {
-                            let param_tys = params.iter().map(|param| param.ty).collect::<Vec<_>>();
-                            let mutable_params = self
-                                .mutable_params_from_returned_tuple_state(&param_tys, return_ty);
-                            let function_ty =
-                                self.ctx.krate.types.intern(Type::Function(FunctionType {
-                                    params: param_tys,
-                                    rest: rest_index,
-                                    required_params: Some(required_params),
-                                    mutable_params,
-                                    return_ty,
-                                    is_async: matches!(
-                                        self.ctx.krate.types.get(return_ty),
-                                        Some(Type::Future(_))
-                                    ),
-                                    may_throw: false,
-                                }));
-                            fields.push(Field {
-                                name: self.property_key_symbol(&method.key)?,
-                                ty: function_ty,
-                                visibility: Visibility::Public,
-                                optional: true,
-                                span: self.span(method.span.start, method.span.end),
-                            });
-                            continue;
-                        }
-                        methods.push(MethodSig {
-                            name: self.property_key_symbol(&method.key)?,
-                            params,
-                            rest: rest_index,
-                            required_params: Some(required_params),
-                            return_ty,
-                            visibility: Visibility::Public,
-                            is_async: matches!(
-                                self.ctx.krate.types.get(return_ty),
-                                Some(Type::Future(_))
-                            ),
-                            span: self.span(method.span.start, method.span.end),
-                        });
-                    }
-                    TSSignature::TSCallSignatureDeclaration(signature) => {
-                        let return_ty = signature
-                            .return_type
-                            .as_ref()
-                            .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                            .transpose()?
-                            .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
-                        let mut params = Vec::new();
-                        for param in &signature.params.items {
-                            let ty = param
-                                .type_annotation
-                                .as_ref()
-                                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                                .transpose()?
-                                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
-                            // Optional call-signature parameters keep the
-                            // `Optional<T>` ABI so under-application can supply a
-                            // typed `None`, matching the `required_params` count.
-                            let ty = if param.optional {
-                                self.ctx.krate.types.intern(Type::Optional(ty))
-                            } else {
-                                ty
-                            };
-                            params.push(ty);
-                        }
-                        // Preserve a trailing rest parameter so the call
-                        // signature's runtime arity survives instead of the
-                        // rest slot being lowered as a fixed array parameter.
-                        let mut rest_index = None;
-                        if let Some(rest) = &signature.params.rest {
-                            let rest_ty = rest
-                                .type_annotation
-                                .as_ref()
-                                .map(|annotation| {
-                                    self.function_type_rest_param_to_hir(
-                                        &annotation.type_annotation,
-                                    )
-                                })
-                                .transpose()?
-                                .ok_or_else(|| {
-                                    SmeltError::unsupported(
-                                        self.span(rest.span.start, rest.span.end),
-                                        "call signature rest parameters require explicit array types",
-                                    )
-                                })?;
-                            rest_index = Some(params.len());
-                            params.push(rest_ty);
-                        }
-                        let required_params =
-                            Self::formal_parameters_required_count(&signature.params);
-                        call_signatures.push(FunctionType {
-                            mutable_params: self
-                                .mutable_params_from_returned_tuple_state(&params, return_ty),
-                            params,
-                            rest: rest_index,
-                            required_params: Some(required_params),
-                            return_ty,
-                            is_async: matches!(
-                                self.ctx.krate.types.get(return_ty),
-                                Some(Type::Future(_))
-                            ),
-                            may_throw: false,
-                        });
-                    }
-                    TSSignature::TSIndexSignature(index) => {
-                        index_value_ty =
-                            Some(self.ts_type_to_hir(&index.type_annotation.type_annotation)?);
-                    }
-                    TSSignature::TSConstructSignatureDeclaration(signature) => {
-                        // A construct signature `new (args): T` is, at runtime,
-                        // an ordinary callable value: `new value(args)` invokes
-                        // it to produce a `T`. Lower it to the same
-                        // `FunctionType` a `new (args) => T` constructor-type
-                        // annotation produces, so a reference to this interface
-                        // can resolve to a typed constructor slot (a
-                        // `Type::Function`) instead of an erased dictionary. Its
-                        // own type parameters are scoped so generic construct
-                        // signatures resolve their parameters.
-                        let _construct_type_params =
-                            self.push_type_parameter_scope(signature.type_parameters.as_deref())?;
-                        let result = (|| {
-                            let return_ty = signature
-                                .return_type
-                                .as_ref()
-                                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                                .transpose()?
-                                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
-                            let mut params = Vec::new();
-                            for param in &signature.params.items {
-                                let ty = param
-                                    .type_annotation
-                                    .as_ref()
-                                    .map(|annotation| {
-                                        self.ts_type_to_hir(&annotation.type_annotation)
-                                    })
-                                    .transpose()?
-                                    .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
-                                params.push(ty);
-                            }
-                            Ok::<_, SmeltError>((return_ty, params))
-                        })();
-                        self.pop_type_parameter_scope();
-                        let (return_ty, params) = result?;
-                        construct_signatures.push(FunctionType {
-                            mutable_params: self
-                                .mutable_params_from_returned_tuple_state(&params, return_ty),
-                            params,
-                            rest: None,
-                            required_params: None,
-                            return_ty,
-                            is_async: false,
-                            may_throw: false,
-                        });
-                    }
-                }
-            }
+            let mut declared = StructuralMembers {
+                fields: std::mem::take(&mut fields),
+                methods: std::mem::take(&mut methods),
+                ..StructuralMembers::default()
+            };
+            self.lower_structural_members(&interface.body.body, &mut declared)?;
+            fields = declared.fields;
+            methods = declared.methods;
+            call_signatures = declared.call_signatures;
+            construct_signatures = declared.construct_signatures;
+            index_value_ty = declared.index_value_ty;
             Ok(())
         })();
         self.pop_type_parameter_scope();
@@ -2724,4 +2457,348 @@ impl ModuleBuilder<'_> {
     }
 
     // Continued in the next split builder file.
+}
+
+/// Structural members collected from a set of TypeScript type members.
+///
+/// A TypeScript interface body and a type literal's member list are the same
+/// grammar (`TSSignature`), so one collection covers every spelling of a
+/// structural type: an `interface` declaration, a `type X = { … }` alias, and
+/// each object half of an intersection. Keeping the accumulators in one value
+/// lets [`ModuleBuilder::lower_structural_members`] append to a partially
+/// filled set (interface heritage first, then the declared members; one
+/// intersection arm after another) without every caller threading five
+/// separate vectors.
+#[derive(Debug, Default)]
+pub(in crate::lowering) struct StructuralMembers {
+    /// Data fields in declaration order.
+    pub(in crate::lowering) fields: Vec<Field>,
+    /// Non-optional method signatures.
+    pub(in crate::lowering) methods: Vec<MethodSig>,
+    /// Call signatures making the type callable.
+    pub(in crate::lowering) call_signatures: Vec<FunctionType>,
+    /// Construct signatures (`new (): T`).
+    pub(in crate::lowering) construct_signatures: Vec<FunctionType>,
+    /// Value type of a string index signature, when declared.
+    pub(in crate::lowering) index_value_ty: Option<smelt_hir::TypeId>,
+}
+
+impl ModuleBuilder<'_> {
+    /// Lower a list of TypeScript type members into structural members.
+    ///
+    /// This is the single implementation of "what does a member signature mean"
+    /// shared by every structural spelling; see [`StructuralMembers`]. Members
+    /// are appended to `members`, so heritage-derived fields already present are
+    /// preserved and a later declaration of the same name wins in source order.
+    pub(in crate::lowering) fn lower_structural_members(
+        &mut self,
+        signatures: &[TSSignature<'_>],
+        members: &mut StructuralMembers,
+    ) -> Result<(), SmeltError> {
+        let StructuralMembers {
+            fields,
+            methods,
+            call_signatures,
+            construct_signatures,
+            index_value_ty,
+        } = members;
+        for sig in signatures {
+            match sig {
+                TSSignature::TSPropertySignature(prop) => {
+                    // A computed property signature keeps its declared field
+                    // when the key statically resolves (`[K]`, `[E.Member]`,
+                    // `[Symbol.iterator]`); a genuinely dynamic key has no
+                    // named field to record and is skipped.
+                    if prop.computed && !self.is_resolvable_property_key(&prop.key) {
+                        continue;
+                    }
+                    let ty = prop
+                        .type_annotation
+                        .as_ref()
+                        .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                        .transpose()?
+                        .ok_or_else(|| {
+                            SmeltError::unsupported(
+                                self.span(prop.span.start, prop.span.end),
+                                "interface fields require explicit type annotations",
+                            )
+                        })?;
+                    let field_ty = if prop.optional {
+                        self.ctx.krate.types.intern(Type::Optional(ty))
+                    } else {
+                        ty
+                    };
+                    fields.push(Field {
+                        name: self.property_key_symbol(&prop.key)?,
+                        ty: field_ty,
+                        visibility: Visibility::Public,
+                        optional: prop.optional,
+                        span: self.span(prop.span.start, prop.span.end),
+                    });
+                }
+                TSSignature::TSMethodSignature(method) => {
+                    if (method.computed && !self.is_resolvable_property_key(&method.key))
+                        || method.this_param.is_some()
+                    {
+                        return Err(SmeltError::unsupported(
+                            self.span(method.span.start, method.span.end),
+                            "dynamic computed and this-parameter interface methods are not lowered yet",
+                        ));
+                    }
+                    let _method_type_params =
+                        self.push_type_parameter_scope(method.type_parameters.as_deref())?;
+                    let result = (|| {
+                        let return_ty = method
+                            .return_type
+                            .as_ref()
+                            .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                            .transpose()?
+                            .ok_or_else(|| {
+                                SmeltError::unsupported(
+                                    self.span(method.span.start, method.span.end),
+                                    "interface methods require explicit return types",
+                                )
+                            })?;
+                        let mut params = Vec::new();
+                        for (index, param) in method.params.items.iter().enumerate() {
+                            let ty = param
+                                .type_annotation
+                                .as_ref()
+                                .map(|annotation| {
+                                    self.ts_type_to_hir(&annotation.type_annotation)
+                                })
+                                .transpose()?
+                                .ok_or_else(|| {
+                                    SmeltError::unsupported(
+                                        self.span(param.span.start, param.span.end),
+                                        "interface method parameters require explicit types",
+                                    )
+                                })?;
+                            // An optional parameter (`x?: T`) has the same
+                            // `Optional<T>` ABI as an optional function-type
+                            // parameter so under-application can pass a typed
+                            // `None`. Recording it here keeps the callable
+                            // method field's arity in sync with the
+                            // `required_params` count below.
+                            let ty = if param.optional {
+                                self.ctx.krate.types.intern(Type::Optional(ty))
+                            } else {
+                                ty
+                            };
+                            let (param_name, param_span) =
+                                if let BindingPattern::BindingIdentifier(binding) =
+                                    &param.pattern
+                                {
+                                    (
+                                        self.intern_source_name(binding.name.as_str()),
+                                        self.span(binding.span.start, binding.span.end),
+                                    )
+                                } else {
+                                    (
+                                        self.synthetic_param_symbol(index),
+                                        self.span(param.span.start, param.span.end),
+                                    )
+                                };
+                            params.push(ParamSig {
+                                name: param_name,
+                                ty,
+                                span: param_span,
+                            });
+                        }
+                        // A trailing rest parameter (`...args: T[]`) becomes
+                        // the final `List<T>` slot; its index feeds the
+                        // `rest` metadata so call lowering packs the tail
+                        // instead of mistaking the array for a fixed param.
+                        let mut rest_index = None;
+                        if let Some(rest) = &method.params.rest {
+                            let rest_ty = rest
+                                .type_annotation
+                                .as_ref()
+                                .map(|annotation| {
+                                    self.function_type_rest_param_to_hir(
+                                        &annotation.type_annotation,
+                                    )
+                                })
+                                .transpose()?
+                                .ok_or_else(|| {
+                                    SmeltError::unsupported(
+                                        self.span(rest.span.start, rest.span.end),
+                                        "interface method rest parameters require explicit array types",
+                                    )
+                                })?;
+                            // The rest binding's own identifier is purely
+                            // type-level in an interface method signature, so
+                            // a synthetic slot name is sufficient for the
+                            // generated callable field.
+                            rest_index = Some(params.len());
+                            params.push(ParamSig {
+                                name: self.synthetic_param_symbol(params.len()),
+                                ty: rest_ty,
+                                span: self.span(rest.span.start, rest.span.end),
+                            });
+                        }
+                        let required_params =
+                            Self::formal_parameters_required_count(&method.params);
+                        Ok((return_ty, params, rest_index, required_params))
+                    })();
+                    self.pop_type_parameter_scope();
+                    let (return_ty, params, rest_index, required_params) = result?;
+                    if method.optional {
+                        let param_tys = params.iter().map(|param| param.ty).collect::<Vec<_>>();
+                        let mutable_params = self
+                            .mutable_params_from_returned_tuple_state(&param_tys, return_ty);
+                        let function_ty =
+                            self.ctx.krate.types.intern(Type::Function(FunctionType {
+                                params: param_tys,
+                                rest: rest_index,
+                                required_params: Some(required_params),
+                                mutable_params,
+                                return_ty,
+                                is_async: matches!(
+                                    self.ctx.krate.types.get(return_ty),
+                                    Some(Type::Future(_))
+                                ),
+                                may_throw: false,
+                            }));
+                        fields.push(Field {
+                            name: self.property_key_symbol(&method.key)?,
+                            ty: function_ty,
+                            visibility: Visibility::Public,
+                            optional: true,
+                            span: self.span(method.span.start, method.span.end),
+                        });
+                        continue;
+                    }
+                    methods.push(MethodSig {
+                        name: self.property_key_symbol(&method.key)?,
+                        params,
+                        rest: rest_index,
+                        required_params: Some(required_params),
+                        return_ty,
+                        visibility: Visibility::Public,
+                        is_async: matches!(
+                            self.ctx.krate.types.get(return_ty),
+                            Some(Type::Future(_))
+                        ),
+                        span: self.span(method.span.start, method.span.end),
+                    });
+                }
+                TSSignature::TSCallSignatureDeclaration(signature) => {
+                    let return_ty = signature
+                        .return_type
+                        .as_ref()
+                        .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                        .transpose()?
+                        .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                    let mut params = Vec::new();
+                    for param in &signature.params.items {
+                        let ty = param
+                            .type_annotation
+                            .as_ref()
+                            .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                            .transpose()?
+                            .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                        // Optional call-signature parameters keep the
+                        // `Optional<T>` ABI so under-application can supply a
+                        // typed `None`, matching the `required_params` count.
+                        let ty = if param.optional {
+                            self.ctx.krate.types.intern(Type::Optional(ty))
+                        } else {
+                            ty
+                        };
+                        params.push(ty);
+                    }
+                    // Preserve a trailing rest parameter so the call
+                    // signature's runtime arity survives instead of the
+                    // rest slot being lowered as a fixed array parameter.
+                    let mut rest_index = None;
+                    if let Some(rest) = &signature.params.rest {
+                        let rest_ty = rest
+                            .type_annotation
+                            .as_ref()
+                            .map(|annotation| {
+                                self.function_type_rest_param_to_hir(
+                                    &annotation.type_annotation,
+                                )
+                            })
+                            .transpose()?
+                            .ok_or_else(|| {
+                                SmeltError::unsupported(
+                                    self.span(rest.span.start, rest.span.end),
+                                    "call signature rest parameters require explicit array types",
+                                )
+                            })?;
+                        rest_index = Some(params.len());
+                        params.push(rest_ty);
+                    }
+                    let required_params =
+                        Self::formal_parameters_required_count(&signature.params);
+                    call_signatures.push(FunctionType {
+                        mutable_params: self
+                            .mutable_params_from_returned_tuple_state(&params, return_ty),
+                        params,
+                        rest: rest_index,
+                        required_params: Some(required_params),
+                        return_ty,
+                        is_async: matches!(
+                            self.ctx.krate.types.get(return_ty),
+                            Some(Type::Future(_))
+                        ),
+                        may_throw: false,
+                    });
+                }
+                TSSignature::TSIndexSignature(index) => {
+                    *index_value_ty =
+                        Some(self.ts_type_to_hir(&index.type_annotation.type_annotation)?);
+                }
+                TSSignature::TSConstructSignatureDeclaration(signature) => {
+                    // A construct signature `new (args): T` is, at runtime,
+                    // an ordinary callable value: `new value(args)` invokes
+                    // it to produce a `T`. Lower it to the same
+                    // `FunctionType` a `new (args) => T` constructor-type
+                    // annotation produces, so a reference to this interface
+                    // can resolve to a typed constructor slot (a
+                    // `Type::Function`) instead of an erased dictionary. Its
+                    // own type parameters are scoped so generic construct
+                    // signatures resolve their parameters.
+                    let _construct_type_params =
+                        self.push_type_parameter_scope(signature.type_parameters.as_deref())?;
+                    let result = (|| {
+                        let return_ty = signature
+                            .return_type
+                            .as_ref()
+                            .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                            .transpose()?
+                            .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                        let mut params = Vec::new();
+                        for param in &signature.params.items {
+                            let ty = param
+                                .type_annotation
+                                .as_ref()
+                                .map(|annotation| {
+                                    self.ts_type_to_hir(&annotation.type_annotation)
+                                })
+                                .transpose()?
+                                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                            params.push(ty);
+                        }
+                        Ok::<_, SmeltError>((return_ty, params))
+                    })();
+                    self.pop_type_parameter_scope();
+                    let (return_ty, params) = result?;
+                    construct_signatures.push(FunctionType {
+                        mutable_params: self
+                            .mutable_params_from_returned_tuple_state(&params, return_ty),
+                        params,
+                        rest: None,
+                        required_params: None,
+                        return_ty,
+                        is_async: false,
+                        may_throw: false,
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
 }

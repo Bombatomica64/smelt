@@ -48,11 +48,20 @@ impl FunctionEmitter<'_> {
             operand_ty
         };
         let len_expr = match self.mir.types.get(len_ty) {
-            Some(Type::Function(function))
-                if self.is_erased_unknown_rest_function(function) && !function.may_throw =>
-            {
+            // `Function.prototype.length` is the declared parameter count, and
+            // WHERE that count lives depends on the value's emitted Rust
+            // representation, not on its MIR shape. Only the `SmeltErasedFunction`
+            // struct carries the arity in a `length` field; a borrowed `&dyn Fn`
+            // handle (every function *parameter*, whatever its MIR shape — see
+            // `param_type_text`) has no field storage at all, so reading `.length`
+            // off it is E0609. Ask the one authority that already answers "which
+            // representation is this value" for the call-shape ladder, so the two
+            // cannot drift apart again.
+            Some(Type::Function(_)) if self.callee_uses_erased_call_method(operand)? => {
                 format!("{receiver_text}.length")
             }
+            // Any other callable is a concrete handle whose arity is fixed by its
+            // declared signature, so the count is a compile-time constant.
             Some(Type::Function(_)) => {
                 format!("{}.0", self.operand_function_length(operand)?)
             }
