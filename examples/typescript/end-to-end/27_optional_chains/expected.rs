@@ -267,26 +267,47 @@ impl<K, V> PartialEq<::std::collections::HashMap<K, V>> for SmeltRecord<K, V> wh
     fn eq(&self, other: &::std::collections::HashMap<K, V>) -> bool { self.values.borrow().eq(other) }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct SmeltJsMap<K, V> {
     id: usize,
-    entries: ::std::rc::Rc<::std::cell::RefCell<Vec<(K, V)>>>,
+    store: ::std::rc::Rc<::std::cell::RefCell<SmeltJsMapStore<K, V>>>,
 }
 
+#[derive(Clone, Debug)]
+struct SmeltJsMapStore<K, V> {
+    entries: Vec<(K, V)>,
+    index: SmeltJsSlotIndex,
+}
+
+impl<K, V> SmeltJsMapStore<K, V> {
+    fn new() -> Self { Self { entries: Vec::new(), index: SmeltJsSlotIndex::new() } }
+}
+
+impl<K: SmeltJsKeyEq, V> SmeltJsMapStore<K, V> {
+    /// Index every slot of `entries`, preserving their order and any duplicate
+    /// keys, so a bulk construction pays one hash per entry instead of a scan.
+    fn from_entries(entries: Vec<(K, V)>) -> Self { let mut index = SmeltJsSlotIndex::new(); for (slot, (key, _)) in entries.iter().enumerate() { index.remember(slot, key.js_key_hash()); } Self { entries, index } }
+    /// Slot of `key`, comparing only the slots that share `hash` — every
+    /// `same_js_key`-equal key is guaranteed to be one of them.
+    fn position(&self, key: &K, hash: Option<u64>) -> Option<usize> { self.index.slots(hash).iter().copied().find(|slot| self.entries[*slot].0.same_js_key(key)) }
+}
+
+impl<K: ::std::fmt::Debug, V: ::std::fmt::Debug> ::std::fmt::Debug for SmeltJsMap<K, V> { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_struct("SmeltJsMap").field("id", &self.id).field("entries", &self.store.borrow().entries).finish() } }
+
 impl<K, V> SmeltJsMap<K, V> {
-    fn new() -> Self { Self { id: smelt_next_object_id(), entries: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())) } }
-    fn clear(&mut self) { self.entries.borrow_mut().clear(); }
+    fn new() -> Self { Self { id: smelt_next_object_id(), store: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltJsMapStore::new())) } }
+    fn clear(&mut self) { *self.store.borrow_mut() = SmeltJsMapStore::new(); }
 }
 
 impl<K: SmeltJsKeyEq + Clone, V: Clone> SmeltJsMap<K, V> {
-    fn len(&self) -> usize { self.entries.borrow().len() }
-    fn contains_key(&self, key: &K) -> bool { self.entries.borrow().iter().any(|(existing, _)| existing.same_js_key(key)) }
-    fn get(&self, key: &K) -> Option<V> { self.entries.borrow().iter().find(|(existing, _)| existing.same_js_key(key)).map(|(_, value)| value.clone()) }
-    fn insert(&mut self, key: K, value: V) -> Option<V> { let mut entries = self.entries.borrow_mut(); if let Some((_, existing)) = entries.iter_mut().find(|(existing, _)| existing.same_js_key(&key)) { Some(::std::mem::replace(existing, value)) } else { entries.push((key, value)); None } }
-    fn remove(&mut self, key: &K) -> Option<V> { let mut entries = self.entries.borrow_mut(); if let Some(index) = entries.iter().position(|(existing, _)| existing.same_js_key(key)) { Some(entries.remove(index).1) } else { None } }
-    fn iter(&self) -> ::std::vec::IntoIter<(K, V)> { self.entries.borrow().clone().into_iter() }
-    fn keys(&self) -> ::std::vec::IntoIter<K> { self.entries.borrow().iter().map(|(key, _)| key.clone()).collect::<Vec<_>>().into_iter() }
-    fn values(&self) -> ::std::vec::IntoIter<V> { self.entries.borrow().iter().map(|(_, value)| value.clone()).collect::<Vec<_>>().into_iter() }
+    fn len(&self) -> usize { self.store.borrow().entries.len() }
+    fn contains_key(&self, key: &K) -> bool { let hash = key.js_key_hash(); self.store.borrow().position(key, hash).is_some() }
+    fn get(&self, key: &K) -> Option<V> { let hash = key.js_key_hash(); let store = self.store.borrow(); store.position(key, hash).map(|slot| store.entries[slot].1.clone()) }
+    fn insert(&mut self, key: K, value: V) -> Option<V> { let hash = key.js_key_hash(); let mut store = self.store.borrow_mut(); let existing = store.position(&key, hash); if let Some(slot) = existing { Some(::std::mem::replace(&mut store.entries[slot].1, value)) } else { let slot = store.entries.len(); store.entries.push((key, value)); store.index.remember(slot, hash); None } }
+    fn remove(&mut self, key: &K) -> Option<V> { let hash = key.js_key_hash(); let mut store = self.store.borrow_mut(); let existing = store.position(key, hash); match existing { Some(slot) => { let removed = store.entries.remove(slot).1; store.index.forget(slot); Some(removed) }, None => None } }
+    fn iter(&self) -> ::std::vec::IntoIter<(K, V)> { self.store.borrow().entries.clone().into_iter() }
+    fn keys(&self) -> ::std::vec::IntoIter<K> { self.store.borrow().entries.iter().map(|(key, _)| key.clone()).collect::<Vec<_>>().into_iter() }
+    fn values(&self) -> ::std::vec::IntoIter<V> { self.store.borrow().entries.iter().map(|(_, value)| value.clone()).collect::<Vec<_>>().into_iter() }
     fn extend<I: IntoIterator<Item = (K, V)>>(&mut self, iter: I) { for (key, value) in iter { self.insert(key, value); } }
 }
 
@@ -294,48 +315,57 @@ impl<K, V> Default for SmeltJsMap<K, V> {
     fn default() -> Self { Self::new() }
 }
 
-impl<K, V, const N: usize> From<[(K, V); N]> for SmeltJsMap<K, V> {
-    fn from(entries: [(K, V); N]) -> Self { Self { id: smelt_next_object_id(), entries: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::from(entries))) } }
+impl<K: SmeltJsKeyEq, V, const N: usize> From<[(K, V); N]> for SmeltJsMap<K, V> {
+    fn from(entries: [(K, V); N]) -> Self { Self { id: smelt_next_object_id(), store: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltJsMapStore::from_entries(Vec::from(entries)))) } }
 }
 
-impl<K, V> ::std::iter::FromIterator<(K, V)> for SmeltJsMap<K, V> {
-    fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self { Self { id: smelt_next_object_id(), entries: ::std::rc::Rc::new(::std::cell::RefCell::new(iter.into_iter().collect())) } }
+impl<K: SmeltJsKeyEq, V> ::std::iter::FromIterator<(K, V)> for SmeltJsMap<K, V> {
+    fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self { Self { id: smelt_next_object_id(), store: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltJsMapStore::from_entries(iter.into_iter().collect()))) } }
 }
 
 impl<K: Clone, V: Clone> IntoIterator for SmeltJsMap<K, V> {
     type Item = (K, V);
     type IntoIter = ::std::vec::IntoIter<(K, V)>;
-    fn into_iter(self) -> Self::IntoIter { ::std::rc::Rc::try_unwrap(self.entries).map(|cell| cell.into_inner()).unwrap_or_else(|shared| shared.borrow().clone()).into_iter() }
+    fn into_iter(self) -> Self::IntoIter { ::std::rc::Rc::try_unwrap(self.store).map(|cell| cell.into_inner()).unwrap_or_else(|shared| shared.borrow().clone()).entries.into_iter() }
 }
 
 impl<K: SmeltJsKeyEq + Clone, V: PartialEq + Clone> PartialEq for SmeltJsMap<K, V> {
-    fn eq(&self, other: &Self) -> bool { let entries = self.entries.borrow(); entries.len() == other.entries.borrow().len() && entries.iter().all(|(key, value)| other.get(key).is_some_and(|other_value| other_value == *value)) }
+    fn eq(&self, other: &Self) -> bool { let store = self.store.borrow(); store.entries.len() == other.store.borrow().entries.len() && store.entries.iter().all(|(key, value)| other.get(key).is_some_and(|other_value| other_value == *value)) }
 }
 impl<K: SmeltJsKeyEq + Clone, V: Eq + Clone> Eq for SmeltJsMap<K, V> {}
-impl<K: IntoSmeltUnknown + Clone, V: IntoSmeltUnknown + Clone> IntoSmeltUnknown for SmeltJsMap<K, V> { fn into_smelt_unknown(self) -> SmeltUnknown { let id = self.id; let pairs = self.entries.borrow().clone().into_iter().map(|(key, value)| SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), vec![key.into_smelt_unknown(), value.into_smelt_unknown()]))).collect::<Vec<_>>(); let object = Vec::from([("__smelt_map".to_owned(), SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), pairs)))]); SmeltUnknown::Object(SmeltObject::with_id(id, object)) } }
+impl<K: IntoSmeltUnknown + Clone, V: IntoSmeltUnknown + Clone> IntoSmeltUnknown for SmeltJsMap<K, V> { fn into_smelt_unknown(self) -> SmeltUnknown { let id = self.id; let pairs = self.store.borrow().entries.clone().into_iter().map(|(key, value)| SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), vec![key.into_smelt_unknown(), value.into_smelt_unknown()]))).collect::<Vec<_>>(); let object = Vec::from([("__smelt_map".to_owned(), SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), pairs)))]); SmeltUnknown::Object(SmeltObject::with_id(id, object)) } }
 
 pub struct SmeltJsSet<T> {
     id: usize,
     store: ::std::rc::Rc<SmeltJsSetStore<T>>,
 }
 
-/// The members of a `SmeltJsSet` plus the hash index over them.
 #[derive(Clone, Debug)]
-struct SmeltJsSetStore<T> {
-    entries: Vec<T>,
+struct SmeltJsSlotIndex {
     hashed: ::std::collections::HashMap<u64, Vec<usize>>,
     unhashed: Vec<usize>,
 }
 
-impl<T> SmeltJsSetStore<T> {
-    fn new() -> Self { Self { entries: Vec::new(), hashed: ::std::collections::HashMap::new(), unhashed: Vec::new() } }
-    /// Index the freshly pushed slot `slot` under its member hash key.
-    fn remember_slot(&mut self, slot: usize, key: Option<u64>) { match key { Some(key) => self.hashed.entry(key).or_default().push(slot), None => self.unhashed.push(slot) } }
+impl SmeltJsSlotIndex {
+    fn new() -> Self { Self { hashed: ::std::collections::HashMap::new(), unhashed: Vec::new() } }
+    /// Index the freshly pushed slot `slot` under its entry's hash key.
+    fn remember(&mut self, slot: usize, key: Option<u64>) { match key { Some(key) => self.hashed.entry(key).or_default().push(slot), None => self.unhashed.push(slot) } }
     /// Drop `slot` from the index and shift every later slot down by one, which
     /// is what `entries.remove(slot)` did to the positions the index stores.
-    fn forget_slot(&mut self, slot: usize) { self.hashed.retain(|_, slots| { slots.retain(|existing| *existing != slot); for existing in slots.iter_mut() { if *existing > slot { *existing -= 1; } } !slots.is_empty() }); self.unhashed.retain(|existing| *existing != slot); for existing in self.unhashed.iter_mut() { if *existing > slot { *existing -= 1; } } }
-    /// The slots that may hold a member with hash key `key`.
+    fn forget(&mut self, slot: usize) { self.hashed.retain(|_, slots| { slots.retain(|existing| *existing != slot); for existing in slots.iter_mut() { if *existing > slot { *existing -= 1; } } !slots.is_empty() }); self.unhashed.retain(|existing| *existing != slot); for existing in self.unhashed.iter_mut() { if *existing > slot { *existing -= 1; } } }
+    /// The slots that may hold an entry with hash key `key`.
     fn slots(&self, key: Option<u64>) -> &[usize] { match key { Some(key) => self.hashed.get(&key).map_or(&[], Vec::as_slice), None => self.unhashed.as_slice() } }
+}
+
+/// The members of a `SmeltJsSet` plus the hash index over them.
+#[derive(Clone, Debug)]
+struct SmeltJsSetStore<T> {
+    entries: Vec<T>,
+    index: SmeltJsSlotIndex,
+}
+
+impl<T> SmeltJsSetStore<T> {
+    fn new() -> Self { Self { entries: Vec::new(), index: SmeltJsSlotIndex::new() } }
 }
 
 impl<T> Clone for SmeltJsSet<T> { fn clone(&self) -> Self { Self { id: self.id, store: self.store.clone() } } }
@@ -361,11 +391,11 @@ impl<T: Clone + IntoSmeltUnknown> SmeltJsSet<T> {
     fn store_mut(&mut self) -> &mut SmeltJsSetStore<T> { ::std::rc::Rc::make_mut(&mut self.store) }
     /// Slot of `value` in the members, comparing only the ones that share `key`
     /// — every SameValueZero-equal member is guaranteed to be one of them.
-    fn position_with_key(&self, value: &T, key: Option<u64>) -> Option<usize> { let store = &*self.store; store.slots(key).iter().copied().find(|slot| Self::same_member(&store.entries[*slot], value)) }
+    fn position_with_key(&self, value: &T, key: Option<u64>) -> Option<usize> { let store = &*self.store; store.index.slots(key).iter().copied().find(|slot| Self::same_member(&store.entries[*slot], value)) }
     fn position(&self, value: &T) -> Option<usize> { self.position_with_key(value, Self::member_key(value)) }
     fn contains(&self, value: &T) -> bool { self.position(value).is_some() }
-    fn insert(&mut self, value: T) -> bool { let key = Self::member_key(&value); if self.position_with_key(&value, key).is_some() { return false; } let store = self.store_mut(); let slot = store.entries.len(); store.entries.push(value); store.remember_slot(slot, key); true }
-    fn remove(&mut self, value: &T) -> bool { match self.position(value) { Some(slot) => { let store = self.store_mut(); store.entries.remove(slot); store.forget_slot(slot); true }, None => false } }
+    fn insert(&mut self, value: T) -> bool { let key = Self::member_key(&value); if self.position_with_key(&value, key).is_some() { return false; } let store = self.store_mut(); let slot = store.entries.len(); store.entries.push(value); store.index.remember(slot, key); true }
+    fn remove(&mut self, value: &T) -> bool { match self.position(value) { Some(slot) => { let store = self.store_mut(); store.entries.remove(slot); store.index.forget(slot); true }, None => false } }
     fn iter(&self) -> ::std::slice::Iter<'_, T> { self.store.entries.iter() }
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) { for value in iter { self.insert(value); } }
     fn is_disjoint(&self, other: &Self) -> bool { self.store.entries.iter().all(|value| !other.contains(value)) }
@@ -388,6 +418,8 @@ impl<T: Clone + IntoSmeltUnknown> PartialEq for SmeltJsSet<T> { fn eq(&self, oth
 fn smelt_js_set_into_members<T: Clone>(store: ::std::rc::Rc<SmeltJsSetStore<T>>) -> Vec<T> { match ::std::rc::Rc::try_unwrap(store) { Ok(store) => store.entries, Err(shared) => shared.entries.clone() } }
 impl<T: IntoSmeltUnknown + Clone> IntoSmeltUnknown for SmeltJsSet<T> { fn into_smelt_unknown(self) -> SmeltUnknown { let id = self.id; let mut members = smelt_js_set_into_members(self.store).into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<Vec<_>>(); members.sort_by_key(smelt_unknown_stable_hash_key); let object = Vec::from([("__smelt_set".to_owned(), SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), members)))]); SmeltUnknown::Object(SmeltObject::with_id(id, object)) } }
 
+fn smelt_js_hash_one<H: ::std::hash::Hash>(value: &H) -> u64 { let mut hasher = ::std::collections::hash_map::DefaultHasher::new(); value.hash(&mut hasher); ::std::hash::Hasher::finish(&hasher) }
+
 fn smelt_js_member_hash_key(value: &SmeltUnknown) -> Option<u64> {
     let mut hasher = ::std::collections::hash_map::DefaultHasher::new();
     match value {
@@ -407,17 +439,24 @@ fn smelt_js_member_hash_key(value: &SmeltUnknown) -> Option<u64> {
 
 pub trait SmeltJsKeyEq {
     fn same_js_key(&self, other: &Self) -> bool;
+    /// A hash consistent with `same_js_key`: whenever two keys compare equal
+    /// they MUST hash the same, so a hash index can narrow a lookup without
+    /// changing its answer. The converse is not required — a collision only
+    /// costs a `same_js_key` comparison. `None` means the key has no stable
+    /// hashable identity and must keep the linear scan.
+    fn js_key_hash(&self) -> Option<u64> { None }
 }
 
 impl SmeltJsKeyEq for SmeltUnknown {
+    fn js_key_hash(&self) -> Option<u64> { smelt_js_member_hash_key(self) }
     fn same_js_key(&self, other: &Self) -> bool { match (self, other) { (SmeltUnknown::Number(left), SmeltUnknown::Number(right)) if left.is_nan() && right.is_nan() => true, (SmeltUnknown::Array(left), SmeltUnknown::Array(right)) => left.id == right.id, (SmeltUnknown::Object(left), SmeltUnknown::Object(right)) => left.id == right.id, (SmeltUnknown::Function(left), SmeltUnknown::Function(right)) => smelt_same_erased_function(left, right), (SmeltUnknown::Promise(left), SmeltUnknown::Promise(right)) => left.id == right.id, _ => self == other } }
 }
 
-impl SmeltJsKeyEq for String { fn same_js_key(&self, other: &Self) -> bool { self == other } }
-impl SmeltJsKeyEq for bool { fn same_js_key(&self, other: &Self) -> bool { self == other } }
-impl SmeltJsKeyEq for i64 { fn same_js_key(&self, other: &Self) -> bool { self == other } }
-impl SmeltJsKeyEq for f64 { fn same_js_key(&self, other: &Self) -> bool { (self.is_nan() && other.is_nan()) || self == other } }
-impl<K, V> SmeltJsKeyEq for SmeltRecord<K, V> { fn same_js_key(&self, other: &Self) -> bool { self.id == other.id } }
+impl SmeltJsKeyEq for String { fn same_js_key(&self, other: &Self) -> bool { self == other } fn js_key_hash(&self) -> Option<u64> { Some(smelt_js_hash_one(self)) } }
+impl SmeltJsKeyEq for bool { fn same_js_key(&self, other: &Self) -> bool { self == other } fn js_key_hash(&self) -> Option<u64> { Some(smelt_js_hash_one(self)) } }
+impl SmeltJsKeyEq for i64 { fn same_js_key(&self, other: &Self) -> bool { self == other } fn js_key_hash(&self) -> Option<u64> { Some(smelt_js_hash_one(self)) } }
+impl SmeltJsKeyEq for f64 { fn same_js_key(&self, other: &Self) -> bool { (self.is_nan() && other.is_nan()) || self == other } fn js_key_hash(&self) -> Option<u64> { Some(smelt_js_hash_one(&(if self.is_nan() { f64::NAN.to_bits() } else if *self == 0.0 { 0_f64.to_bits() } else { self.to_bits() }))) } }
+impl<K, V> SmeltJsKeyEq for SmeltRecord<K, V> { fn same_js_key(&self, other: &Self) -> bool { self.id == other.id } fn js_key_hash(&self) -> Option<u64> { Some(smelt_js_hash_one(&self.id)) } }
 
 pub trait SmeltJsStrictEq {
     fn js_strict_eq(&self, other: &Self) -> bool;
@@ -1448,7 +1487,7 @@ impl<T: SmeltFromUnknown> SmeltFromUnknown for SmeltList<T> { fn smelt_from_unkn
 
 impl<K: SmeltFromUnknown + Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, V: SmeltFromUnknown + Clone> SmeltFromUnknown for SmeltRecord<K, V> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Object(object) => SmeltRecord::with_id_from_entries(object.id, object.iter().map(|(key, value)| (K::smelt_from_unknown(SmeltUnknown::String(key)), V::smelt_from_unknown(value)))), _ => SmeltRecord::with_id_from_entries(smelt_next_object_id(), ::std::iter::empty()) } } }
 
-impl<K: SmeltFromUnknown + SmeltJsKeyEq + Clone, V: SmeltFromUnknown + Clone> SmeltFromUnknown for SmeltJsMap<K, V> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Object(object) => { if let Some(SmeltUnknown::Array(pairs)) = object.get("__smelt_map") { let mut map = SmeltJsMap { id: object.id, entries: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())) }; for pair in pairs.into_vec() { if let SmeltUnknown::Array(entry) = pair { let mut entry = entry.into_vec().into_iter(); if let (Some(key), Some(value)) = (entry.next(), entry.next()) { map.insert(K::smelt_from_unknown(key), V::smelt_from_unknown(value)); } } } map } else { object.iter().map(|(key, value)| (K::smelt_from_unknown(SmeltUnknown::String(key)), V::smelt_from_unknown(value))).collect() } }, _ => SmeltJsMap::default() } } }
+impl<K: SmeltFromUnknown + SmeltJsKeyEq + Clone, V: SmeltFromUnknown + Clone> SmeltFromUnknown for SmeltJsMap<K, V> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Object(object) => { if let Some(SmeltUnknown::Array(pairs)) = object.get("__smelt_map") { let mut map = SmeltJsMap { id: object.id, store: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltJsMapStore::new())) }; for pair in pairs.into_vec() { if let SmeltUnknown::Array(entry) = pair { let mut entry = entry.into_vec().into_iter(); if let (Some(key), Some(value)) = (entry.next(), entry.next()) { map.insert(K::smelt_from_unknown(key), V::smelt_from_unknown(value)); } } } map } else { object.iter().map(|(key, value)| (K::smelt_from_unknown(SmeltUnknown::String(key)), V::smelt_from_unknown(value))).collect() } }, _ => SmeltJsMap::default() } } }
 
 impl<T: SmeltFromUnknown + Clone + IntoSmeltUnknown> SmeltFromUnknown for SmeltJsSet<T> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Object(object) => { if let Some(SmeltUnknown::Array(members)) = object.get("__smelt_set") { let mut set = SmeltJsSet::with_id(object.id); for member in members.into_vec() { set.insert(T::smelt_from_unknown(member)); } set } else { SmeltJsSet::default() } }, SmeltUnknown::Array(members) => { let mut set = SmeltJsSet::new(); for member in members.into_vec() { set.insert(T::smelt_from_unknown(member)); } set }, _ => SmeltJsSet::default() } } }
 

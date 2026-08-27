@@ -983,8 +983,17 @@ const values: Set<number> = new Set([1]);
     );
     assert!(
         source.contains(
-            "impl<K, V> SmeltJsKeyEq for SmeltRecord<K, V> { fn same_js_key(&self, other: &Self) -> bool { self.id == other.id } }"
+            "impl<K, V> SmeltJsKeyEq for SmeltRecord<K, V> { fn same_js_key(&self, other: &Self) -> bool { self.id == other.id } fn js_key_hash(&self) -> Option<u64> { Some(smelt_js_hash_one(&self.id)) } }"
         ),
         "prelude must implement SmeltJsKeyEq for SmeltRecord: {source}"
+    );
+    // The hash side must agree with the equality side or the key index loses
+    // entries: `same_js_key` compares only the stable object `id`, so the hash
+    // has to be taken over that same `id` and nothing else. Hashing the record's
+    // contents instead would move a key out of its bucket as soon as the object
+    // it names is mutated.
+    assert!(
+        !source.contains("fn js_key_hash(&self) -> Option<u64> { Some(smelt_js_hash_one(&self.entries)) }"),
+        "a record key must hash by identity, never by contents: {source}"
     );
 }
