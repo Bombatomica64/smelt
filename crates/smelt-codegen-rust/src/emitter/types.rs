@@ -946,21 +946,17 @@ impl FunctionEmitter<'_> {
                 // `classes::function_emits_rust_generics`) AND the body-cleanliness
                 // trial has not forced a fall back to erasure via
                 // `suppress_type_params`.
-                if *self.suppress_type_params.borrow()
-                    || !crate::classes::function_emits_rust_generics(
-                        self.mir,
-                        self.function,
-                        &self.context.owned_callback_params,
-                    )
-                {
+                if *self.suppress_type_params.borrow() {
                     return HashSet::new();
                 }
-                return self
-                    .function
-                    .type_params
-                    .iter()
-                    .map(|param| param.name)
-                    .collect();
+                // Increment 5: this is the *subset* that lifts, not all-or-
+                // nothing. A parameter absent from it lowers through the same
+                // erasure path a fully-erased function uses.
+                return crate::classes::liftable_type_params(
+                    self.mir,
+                    self.function,
+                    &self.context.owned_callback_params,
+                );
             }
         };
         self.mir

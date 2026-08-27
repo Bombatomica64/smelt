@@ -566,16 +566,20 @@ jobs:
       # nor bury the error output.
       - name: Generated library compiles (cargo check, errors == 0)
         run: |
-          RUSTFLAGS=-Awarnings cargo check \
-            --manifest-path target/compat-repos/es-toolkit/dist-smelt/Cargo.toml
+          set -o pipefail
+          RUSTFLAGS=-Awarnings cargo check --message-format short \
+            --manifest-path target/compat-repos/es-toolkit/dist-smelt/Cargo.toml \
+            2>&1 | tee /tmp/es-toolkit-libcheck.log
 
       # G3: the generated test suite must compile with zero errors. Hard zero
       # via cargo's exit code; wrapped in `timeout` as a belt-and-braces guard
       # against a pathological build hang.
       - name: Generated tests compile (cargo test --no-run, errors == 0)
         run: |
-          RUSTFLAGS=-Awarnings timeout 20m cargo test --no-run \
-            --manifest-path target/compat-repos/es-toolkit/dist-smelt/Cargo.toml
+          set -o pipefail
+          RUSTFLAGS=-Awarnings timeout 20m cargo test --no-run --message-format short \
+            --manifest-path target/compat-repos/es-toolkit/dist-smelt/Cargo.toml \
+            2>&1 | tee /tmp/es-toolkit-testcheck.log
 
       # G4: advisory runtime pass-count ratchet. The suite has known async
       # hangs (attemptAsync/combinations), so it runs under a hard wall-clock
@@ -621,6 +625,27 @@ jobs:
               --fail-on-regression
           fi
 
+      # The compile gates above print their errors where they run, but the
+      # SmeltUnknown ratchet that follows emits thousands of lines and pushes
+      # them past any tail the Actions log API will return, which makes the
+      # failures effectively unreadable without downloading artifacts. This
+      # re-prints a grouped summary as the LAST thing in the job so the error
+      # classes are always reachable from the log tail.
+      - name: Compile error summary (readable tail)
+        if: ${{ always() }}
+        run: |
+          for log in /tmp/es-toolkit-libcheck.log /tmp/es-toolkit-testcheck.log; do
+            [ -f "$log" ] || continue
+            echo "::group::$(basename "$log")"
+            total=$(grep -cE '^error' "$log" || true)
+            echo "total error lines: $total"
+            echo "--- error classes (count, code) ---"
+            grep -oE 'error\[E[0-9]{4}\]' "$log" | sort | uniq -c | sort -rn | head -25 || true
+            echo "--- first 60 error lines ---"
+            grep -E '^error' "$log" | head -60 || true
+            echo "::endgroup::"
+          done
+
       - name: Upload es-toolkit probe + gate artifacts
         if: ${{ always() }}
         uses: actions/upload-artifact@v7
@@ -630,4 +655,6 @@ jobs:
             probe.json
             gate-diagnostics.md
             runtime-tests.log
+            /tmp/es-toolkit-libcheck.log
+            /tmp/es-toolkit-testcheck.log
           if-no-files-found: ignore
