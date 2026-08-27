@@ -2063,6 +2063,19 @@ impl<'mir> FunctionEmitter<'mir> {
         {
             return self.operand_text(operand);
         }
+        // A local held in shared closure storage reads as
+        // `(*smelt_capture_x.borrow())`, and that `Ref` guard lives to the end of the
+        // FULL enclosing statement. The clone is what ends the borrow early: eliding
+        // it would let the guard span a nested closure call that re-borrows the same
+        // cell, panicking "already borrowed" — a `RefCell` crash single-threaded JS
+        // never produces. See the invariant documented on `local_value_text`. Keep
+        // the shared-storage read on the ordinary path, whatever the caller asked
+        // for; a borrow-only receiver is not worth a runtime panic.
+        if let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) = operand
+            && self.local_uses_shared_capture_storage(*local)
+        {
+            return self.operand_text(operand);
+        }
         match operand {
             Operand::Copy(place) | Operand::Move(place) => self.place_text(place),
             Operand::Const(constant) => Ok(constant_text(constant)),

@@ -79,8 +79,12 @@ impl FunctionEmitter<'_> {
         list: &Operand,
     ) -> Result<Option<(String, TypeId)>, EmitError> {
         let list_ty = self.operand_ty(list)?;
+        // The plain-list fast path reads by borrow: the only caller,
+        // `list_contains_text`, uses that text solely as an `.iter().any(..)` /
+        // `.contains(&..)` receiver. The optional/union path below keeps an owned read
+        // because `Option::expect` consumes `self` and the union projection may too.
         if let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) {
-            return Ok(Some((self.operand_text(list)?, *item_ty)));
+            return Ok(Some((self.operand_borrow_text(list)?, *item_ty)));
         }
         // An optional receiver is unwrapped first: the narrowing that selected the
         // list arm also proved the value present, and the `expect` message matches
@@ -698,7 +702,9 @@ impl FunctionEmitter<'_> {
                 "array with value and destination must match the list type",
             ));
         }
-        let list_text = self.operand_text(list)?;
+        // Read by borrow: the emitted body appends its own `.clone()` to get the
+        // mutable copy it edits, so cloning here made it `x.clone().clone()`.
+        let list_text = self.operand_borrow_text(list)?;
         let index_text = format!("({})", self.operand_text(index)?);
         let value_text = self.operand_text(value)?;
         Ok(format!(
@@ -732,7 +738,9 @@ impl FunctionEmitter<'_> {
                 ));
             }
             let depth_text = self.flat_depth_text(depth)?;
-            let list_text = self.operand_text(list)?;
+            // Read by borrow: the emitted call appends its own
+            // `.clone().into_vec()`, so cloning here made it `x.clone().clone()`.
+            let list_text = self.operand_borrow_text(list)?;
             return Ok(format!(
                 "{{ fn smelt_flat_values(values: Vec<SmeltUnknown>, smelt_remaining_depth: i64) -> Vec<SmeltUnknown> {{ if smelt_remaining_depth <= 0 {{ return values; }} values.into_iter().flat_map(|value| match value {{ SmeltUnknown::Array(items) => smelt_flat_values(items.into_vec(), smelt_remaining_depth - 1), value => vec![value] }}).collect::<Vec<_>>() }} let smelt_flat_depth = (({depth_text}) as f64).max(0.0).floor() as i64; let smelt_flat_input = match {list_text} {{ SmeltUnknown::Array(values) => values.into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string())).collect::<Vec<_>>(), _ => Vec::new() }}; smelt_flat_values(smelt_flat_input, smelt_flat_depth) }}"
             ));
@@ -821,7 +829,9 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
-        let list_text = self.operand_text(list)?;
+        // Read by borrow: every arm below is `match {list_text}.clone() { .. }`, which
+        // appends its own clone, so cloning here made it `x.clone().clone()`.
+        let list_text = self.operand_borrow_text(list)?;
         if matches!(
             self.mir.types.get(list_ty),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))

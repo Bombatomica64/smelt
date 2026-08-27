@@ -40,11 +40,9 @@ impl FunctionEmitter<'_> {
         } else {
             self.value_at_type_text(&self.operand_text(item)?, self.operand_ty(item)?, element_ty)?
         };
-        let owned_list_text = self.operand_text(list)?;
-        let borrowed_list_text = match list {
-            Operand::Copy(place) | Operand::Move(place) => self.place_text(place)?,
-            Operand::Const(_) => owned_list_text,
-        };
+        // `operand_borrow_text` is this borrow, plus the shared-capture guard the
+        // hand-rolled version lacked (see its doc comment).
+        let borrowed_list_text = self.operand_borrow_text(list)?;
         let method_name = match op {
             smelt_hir::ListSearchOp::Find => "position",
             smelt_hir::ListSearchOp::RFind => "rposition",
@@ -408,10 +406,11 @@ impl FunctionEmitter<'_> {
         function_ty: &FunctionType,
     ) -> Result<ListCallbackIterationParts, EmitError> {
         let owned_list_text = self.operand_text(list)?;
-        let borrowed_list_text = match list {
-            Operand::Copy(place) | Operand::Move(place) => self.place_text(place)?,
-            Operand::Const(_) => owned_list_text.clone(),
-        };
+        // `operand_borrow_text` is this borrow, plus the shared-capture guard the
+        // hand-rolled version lacked (see its doc comment). That guard matters here:
+        // this emitter invokes a callback, so a `Ref` guard spanning the call would
+        // panic "already borrowed".
+        let borrowed_list_text = self.operand_borrow_text(list)?;
         // A zero-parameter callback (`values.map(stubTrue)`) ignores every
         // supplied argument, so it is called with no arguments at all.
         let mut call_args = Vec::new();
@@ -630,11 +629,9 @@ impl FunctionEmitter<'_> {
                 "array reduce initial value and callback result must match the destination type",
             ));
         }
-        let owned_list_text = self.operand_text(list)?;
-        let borrowed_list_text = match list {
-            Operand::Copy(place) | Operand::Move(place) => self.place_text(place)?,
-            Operand::Const(_) => owned_list_text,
-        };
+        // `operand_borrow_text` is this borrow, plus the shared-capture guard the
+        // hand-rolled version lacked (see its doc comment).
+        let borrowed_list_text = self.operand_borrow_text(list)?;
         // `fold` borrows the receiver for the duration of iteration. JavaScript
         // also supplies that receiver as the callback's fourth, owned array
         // argument, so each invocation must clone it even when MIR classified
@@ -697,7 +694,8 @@ impl FunctionEmitter<'_> {
         if !matches!(self.mir.types.get(dest_ty), Some(Type::Int)) {
             return Err(EmitError::new("list count destination must be int"));
         }
-        let list_text = self.operand_text(list)?;
+        // Read by borrow: every use below is an `.iter()` receiver.
+        let list_text = self.operand_borrow_text(list)?;
         let item_text = self.operand_text(item)?;
         if self.list_item_uses_same_value_zero(*item_ty) {
             if self.mir.types.get(*item_ty) == Some(&Type::Float) {

@@ -24,7 +24,9 @@ impl FunctionEmitter<'_> {
             && let Some(Type::Optional(opt_inner)) = self.mir.types.get(needle_ty)
         {
             let inner = *opt_inner;
-            let set_text = self.operand_text(set)?;
+            // Read by borrow: both branches use `&self` methods
+            // (`contains`, `iter().any`).
+            let set_text = self.operand_borrow_text(set)?;
             let body = if inner == item_ty {
                 // The narrowed needle has the element type, so the container's
                 // own `contains` applies the correct membership (SameValueZero
@@ -276,7 +278,8 @@ impl FunctionEmitter<'_> {
                 ));
             }
         }
-        let set_text = self.operand_text(set)?;
+        // Read by borrow: both projections are `.iter()` receivers.
+        let set_text = self.operand_borrow_text(set)?;
         match op {
             smelt_hir::SetProjectionOp::Values => {
                 Ok(format!("{set_text}.iter().cloned().collect::<Vec<_>>()"))

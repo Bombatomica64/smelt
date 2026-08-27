@@ -40,7 +40,10 @@ impl FunctionEmitter<'_> {
                 "sorted() destination must match the input list type",
             ));
         }
-        let list_text = self.operand_text(list)?;
+        // Each branch below appends its own `.clone()` to get the mutable copy it
+        // sorts, so reading by borrow leaves exactly one copy where cloning on the
+        // read made it `x.clone().clone()`.
+        let list_text = self.operand_borrow_text(list)?;
         if key.is_some() || reverse {
             let (prefix, closure) = self.list_sort_by_text(key, reverse, element_ty)?;
             return Ok(format!(
@@ -308,9 +311,12 @@ impl FunctionEmitter<'_> {
                 "random.choice() destination must match list item type",
             ));
         }
-        let list_text = self.operand_text(list)?;
+        // Read by borrow, and bind a reference: every use is `&self`
+        // (`is_empty`/`len`/index), so binding the value itself would move the
+        // caller's list out of its binding.
+        let list_text = self.operand_borrow_text(list)?;
         Ok(format!(
-            "{{ let choice_items = {list_text}; if choice_items.is_empty() {{ panic!(\"random.choice() from empty list\"); }} choice_items[rand::random_range(0..choice_items.len())].clone() }}"
+            "{{ let choice_items = &{list_text}; if choice_items.is_empty() {{ panic!(\"random.choice() from empty list\"); }} choice_items[rand::random_range(0..choice_items.len())].clone() }}"
         ))
     }
 
@@ -340,7 +346,8 @@ impl FunctionEmitter<'_> {
         if !matches!(self.mir.types.get(dest_ty), Some(Type::Int)) {
             return Err(EmitError::new("list index destination must be int"));
         }
-        let list_text = self.operand_text(list)?;
+        // Read by borrow: every use below is an `.iter()` receiver.
+        let list_text = self.operand_borrow_text(list)?;
         let item_text = self.operand_text(item)?;
         if self.list_item_uses_same_value_zero(*item_ty) {
             if self.mir.types.get(*item_ty) == Some(&Type::Float) {
