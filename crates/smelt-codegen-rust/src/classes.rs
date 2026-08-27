@@ -266,13 +266,37 @@ pub(crate) fn function_emits_rust_generics(
     function: &MirFunction,
     owned_callback_params: &HashSet<(FuncId, LocalId)>,
 ) -> bool {
-    if function.type_params.is_empty()
-        || function
-            .type_params
-            .iter()
-            .any(|param| param.constraint.is_some())
-    {
-        return false;
+    !liftable_type_params(mir, function, owned_callback_params).is_empty()
+}
+
+/// The subset of a free function's source type parameters that can be emitted
+/// as real Rust generics, leaving the rest to erase.
+///
+/// Increment 5. The decision used to be per *function*: one constrained
+/// parameter demoted every sibling, so `groupBy<T, K extends PropertyKey>`
+/// erased `T` as well and emitted
+/// `fn group_by(arr: SmeltList<SmeltUnknown>, key: &dyn Fn(SmeltUnknown) -> SmeltUnknown)`
+/// even though `T` is directly inferable from `arr`. 215 of es-toolkit's 800
+/// generic exported functions carry a constrained parameter, so the all-or-
+/// nothing rule was erasing a large amount of shape that the signature itself
+/// could have carried.
+///
+/// A constrained parameter is still not liftable — the emitter has no rendering
+/// for its bound — but it now excludes only itself. Every parameter absent from
+/// this set lowers through the emitter's existing erasure path, which is the
+/// same path a fully-erased function already takes, so a partially-lifted
+/// signature needs no new rendering.
+///
+/// The two function-level safety gates are unchanged and still all-or-nothing:
+/// if a call site passes an erased argument, or a callback-only parameter is
+/// unpinned at some call site, nothing lifts.
+pub(crate) fn liftable_type_params(
+    mir: &Mir,
+    function: &MirFunction,
+    owned_callback_params: &HashSet<(FuncId, LocalId)>,
+) -> HashSet<Symbol> {
+    if function.type_params.is_empty() {
+        return HashSet::new();
     }
 
     let param_types: Vec<TypeId> = function
@@ -286,8 +310,27 @@ pub(crate) fn function_emits_rust_generics(
         })
         .collect();
 
-    let signature_safe = function.type_params.iter().all(|type_param| {
-        let name = type_param.name;
+    if called_with_erased_type_param_argument(mir, function)
+        || !callback_only_params_are_pinned_at_every_call_site(
+            mir,
+            function,
+            owned_callback_params,
+        )
+    {
+        return HashSet::new();
+    }
+
+    function
+        .type_params
+        .iter()
+        .filter(|type_param| {
+            // A constrained parameter has no emitted bound, so it erases — but
+            // only it. Before Increment 5 this returned `false` for the whole
+            // function.
+            if type_param.constraint.is_some() {
+                return false;
+            }
+            let name = type_param.name;
         // The parameter must have an inference source in the emitted signature.
         // Either a direct value parameter position ...
         let directly = param_types
@@ -299,19 +342,22 @@ pub(crate) fn function_emits_rust_generics(
         // the renderer's own eligibility predicate rather than a second copy of
         // it, so a parameter can only be declared inferable through a callback
         // that really will carry an `Fn` bound.
-        (directly
-            || type_param_inferable_through_callback(mir, function, owned_callback_params, name)
+            (directly
+                || type_param_inferable_through_callback(
+                    mir,
+                    function,
+                    owned_callback_params,
+                    name,
+                )
                 .is_some())
-            // ... and every callback position it *also* occupies must be one the
-            // renderer can express (§4.4). This stays ANDed onto BOTH branches:
-            // it is the renderability rule and applies to every occurrence,
-            // however the parameter got inferred.
-            && callback_occurrences_are_liftable(mir, function, owned_callback_params, name)
-    });
-
-    signature_safe
-        && !called_with_erased_type_param_argument(mir, function)
-        && callback_only_params_are_pinned_at_every_call_site(mir, function, owned_callback_params)
+                // ... and every callback position it *also* occupies must be one
+                // the renderer can express (§4.4). This stays ANDed onto BOTH
+                // branches: it is the renderability rule and applies to every
+                // occurrence, however the parameter got inferred.
+                && callback_occurrences_are_liftable(mir, function, owned_callback_params, name)
+        })
+        .map(|type_param| type_param.name)
+        .collect()
 }
 
 /// Return whether every type parameter that is reachable *only* through a
@@ -988,12 +1034,16 @@ pub(crate) fn function_impl_generics_list(
     function: &MirFunction,
     owned_callback_params: &HashSet<(FuncId, LocalId)>,
 ) -> Result<Vec<String>, EmitError> {
-    if !function_emits_rust_generics(mir, function, owned_callback_params) {
+    let liftable = liftable_type_params(mir, function, owned_callback_params);
+    if liftable.is_empty() {
         return Ok(Vec::new());
     }
+    // Only the lifted parameters get a bound; a constrained sibling erases and
+    // must not appear in the emitted generic list (Increment 5).
     function
         .type_params
         .iter()
+        .filter(|param| liftable.contains(&param.name))
         .map(|param| {
             mir.symbols
                 .get(param.name)
