@@ -81,7 +81,46 @@ matching read, so the stored field is found instead of answering `null`.
 Worth doing before the `toBe` work below: it is a single root behind six
 failures in four modules, and probably more once `curry` itself behaves.
 
-### `clone` / `cloneDeep`: the root is `toBe`, not `clone`
+### CORRECTION: `clone` / `cloneDeep` is THREE roots, not one
+
+The entry below claimed the root is `toBe` rather than `clone`. That is at
+best a third of the story, and I only found out by running the tests and
+reading the real assertion messages instead of reasoning from the source.
+The ten failures split three ways:
+
+**A. `toBe` emits structural equality for TYPED reference types (3 tests)**
+-- `clone should clone maps`, `cloneDeep should clone maps`,
+`cloneDeep should clone string objects`. The frontend is already correct:
+`test_to_be_identity_type` classifies `List`/`Dict`/`Set`/`Tuple`/`Class`/
+`Function` as identity types and routes `toBe` to `BinOp::StrictEq`. The
+EMITTER then renders that as Rust's derived `PartialEq`:
+
+```rust
+// source: expect(clonedMap).not.toBe(map)
+_smelt_tmp_5 = cloned_map != map;
+```
+
+so a clone with equal contents compares equal and `not.toBe` fails. The
+erased path is already right (`js_strict_eq` is documented as reference
+identity for objects); only the typed path is wrong. Identity is available
+and unused -- `SmeltRecord` and `SmeltList` both carry an `id`. This is a
+correctness bug well beyond `clone`: it affects every `toBe` on a typed
+object or array.
+
+**B. `clone` loses host-object content (6 tests)** -- `clone regular
+expressions`, `clone error`, `clone custom error`, `clone custom classes`,
+`cloneDeep clone instance`, `cloneDeep clone regexp arrays`. These fail on
+`toEqual`, not `toBe`, so the clone is a distinct object whose CONTENT does
+not survive: `expect(clonedRegex).toEqual(regex)` and
+`expect(clonedError).toEqual(error)` both report failure. Cloning fidelity
+for RegExp / Error / class instances is its own job, unrelated to A.
+
+**C. One remaining row** -- `cloneDeep should clone read only properties`
+fails `expect(b['#b']).toBe(undefined)`, which is neither of the above.
+
+So A and B are independent and can land separately; A is the general one.
+
+### Superseded original note: the root is `toBe`, not `clone`
 
 `clone` itself is correct for the Map case -- a runtime probe on the generated
 crate shows `clone(map)` returning a FRESH identity (object id 1 -> 6) with its
