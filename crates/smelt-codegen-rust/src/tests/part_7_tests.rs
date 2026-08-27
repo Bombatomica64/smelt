@@ -11550,3 +11550,40 @@ const doubled = mapArr(nums, (x) => x * 2);
     );
 }
 
+
+/// A constrained type parameter erases only itself; an unconstrained sibling
+/// still lifts to a real Rust generic.
+///
+/// `function_emits_rust_generics` used to demote a whole function the moment any
+/// type parameter carried a constraint, so `K extends string` erased `T` too and
+/// every position here came out `SmeltUnknown` — even `fallback: T` and the
+/// return, which are directly inferable. 215 of es-toolkit's 800 generic
+/// exported functions carry a constrained parameter.
+#[test]
+fn constrained_type_param_erases_without_demoting_its_siblings() {
+    let source = source_for(
+        r"
+function pickFirst<T, K extends string>(arr: T[], key: (item: T) => K, fallback: T): T {
+  if (arr.length > 0) { return arr[0]; }
+  return fallback;
+}
+const nums: number[] = [1, 2, 3];
+const v = pickFirst(nums, (n) => (n > 1 ? 'big' : 'small'), 0);
+",
+    );
+
+    let signature = source
+        .split("fn pick_first")
+        .nth(1)
+        .and_then(|rest| rest.split('{').next())
+        .unwrap_or_else(|| panic!("expected a generated `pick_first`:\n{source}"));
+    assert!(
+        signature.contains("arr: SmeltList<T>") && signature.contains("fallback: T"),
+        "the unconstrained `T` must lift to a real generic:\n{source}"
+    );
+    assert!(
+        signature.contains("SmeltUnknown"),
+        "the constrained `K` must still erase:\n{source}"
+    );
+}
+
