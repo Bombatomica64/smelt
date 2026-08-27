@@ -1844,8 +1844,14 @@ export function purryOn(
     );
     assert!(source.contains("(implementation)("), "{source}");
     assert!(source.contains("args.get("), "{source}");
+    // What this test is really about: the ESCAPING closure must own its captured
+    // `args`, because it outlives the frame. That capture still clones.
+    assert!(source.contains("let args = args.clone();"), "{source}");
+    // The immediately-evaluated `args.slice(2)` in the other branch is a different
+    // expression, and it reads `args` only through `&self` methods, so it borrows.
+    // It used to emit `args.clone().iter().skip(` — a whole-`Vec` copy for a read.
     assert!(
-        source.contains("args.clone().iter().skip(")
+        source.contains("args.iter().skip(")
             || source.contains("SmeltUnknown::Array(args.clone().into())"),
         "{source}"
     );
