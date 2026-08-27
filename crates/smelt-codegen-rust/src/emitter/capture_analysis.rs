@@ -472,6 +472,87 @@ impl FunctionEmitter<'_> {
         false
     }
 
+    /// Whether `capture` is a closure capturing the very binding it is assigned to,
+    /// in a closure that does not escape its defining frame.
+    ///
+    /// This is self-recursion: `const recur = (..) => { .. recur(..) .. }`. Lowered
+    /// naively it is an `Rc` cycle and leaks everything the closure captured, on
+    /// every call: the frame's cell holds an `Rc` to the closure, and the closure
+    /// holds an `Rc` back to the cell, so neither refcount ever reaches zero. es-
+    /// toolkit's `flatten` leaked ~21 KiB per call this way, growing without bound
+    /// (see `benchmarks/FINDINGS.md` finding #2).
+    ///
+    /// When it holds, the closure captures a `Weak` to the cell instead of an `Rc`
+    /// and upgrades at each self-call. That breaks the cycle while keeping the
+    /// binding reachable for the whole frame, because the frame's own
+    /// `smelt_capture_x` binding is the strong owner: on frame exit the cell drops,
+    /// which drops the closure, which drops its captures.
+    ///
+    /// `escapes` is the load-bearing guard. A closure that outlives its frame (it is
+    /// returned, or stored somewhere that does) would find the cell already gone and
+    /// its `Weak` dangling, so those keep the strong capture — and keep leaking. That
+    /// is a narrower known gap, and a deliberate one: correctness first.
+    ///
+    /// KNOWN GAP: mutual recursion between two closures is not covered. Neither
+    /// captures the binding it is itself assigned to, so the predicate is false for
+    /// both and they keep the strong capture.
+    pub(super) fn closure_capture_is_non_escaping_self_reference(
+        &self,
+        closure: &MirClosure,
+        capture: &smelt_mir::MirClosureCapture,
+    ) -> bool {
+        if closure.escapes {
+            return false;
+        }
+        if !self
+            .local_decl(capture.source_local)
+            .is_ok_and(|local| matches!(self.mir.types.get(local.ty), Some(Type::Function(_))))
+        {
+            return false;
+        }
+        // The binding must hold THIS closure. MIR builds a closure into a temporary
+        // and then assigns that temporary to the binding
+        // (`_smelt_tmp_N = Closure{..}; recursive = _smelt_tmp_N;`), so a direct
+        // `dest == source_local` test misses every real case; follow the temporary.
+        // Closure identity is by pointer, because both references come out of
+        // `mir.closures`.
+        let mut holders: Vec<LocalId> = Vec::new();
+        for block in &self.function.blocks {
+            for statement in &block.statements {
+                if let Statement::Assign {
+                    dest,
+                    value: Rvalue::Closure { id, .. },
+                    ..
+                } = statement
+                    && self
+                        .mir
+                        .closures
+                        .get(usize::try_from(id.0).unwrap_or(usize::MAX))
+                        .is_some_and(|candidate| std::ptr::eq(candidate, closure))
+                {
+                    holders.push(*dest);
+                }
+            }
+        }
+        if holders.contains(&capture.source_local) {
+            return true;
+        }
+        // One hop: the binding is assigned a local that holds the closure.
+        self.function.blocks.iter().any(|block| {
+            block.statements.iter().any(|statement| {
+                let Statement::Assign {
+                    dest,
+                    value: Rvalue::Use(Operand::Copy(Place::Local(source)) | Operand::Move(Place::Local(source))),
+                    ..
+                } = statement
+                else {
+                    return false;
+                };
+                *dest == capture.source_local && holders.contains(source)
+            })
+        })
+    }
+
     /// Return whether an outer binding needs storage shared with a closure.
     ///
     /// Mutating captures observe the same JavaScript binding as reads and

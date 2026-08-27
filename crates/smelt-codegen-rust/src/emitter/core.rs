@@ -2038,6 +2038,50 @@ impl<'mir> FunctionEmitter<'mir> {
         }
     }
 
+    /// Converts an operand to Rust text for a read whose every use is a `&self`
+    /// receiver — `.len()`, `.iter()`, `.chars()`, indexing.
+    ///
+    /// `operand_text` conservatively clones a `Copy` read, because in general the
+    /// caller wants an owned value it can move on. When the caller only ever
+    /// *borrows* the result, that clone is a whole-collection copy for nothing, and
+    /// inside a loop it changes the algorithm's complexity class rather than adding a
+    /// constant: `chunk`'s `data.slice(start, start + size)` lowered to
+    /// `data.clone().iter().skip(.. data.clone().len() ..)`, deep-copying every
+    /// element on each of `ceil(n / size)` iterations. A hand-written Rust
+    /// implementation would borrow, so the emitted code should too.
+    ///
+    /// Only call this when the emitted expression cannot move or mutate through the
+    /// text: `&self` methods qualify, `into_*`/`push`/assignment do not. `Move`
+    /// operands already elide the clone in `operand_text`, so this only changes
+    /// `Copy` reads.
+    pub(super) fn operand_borrow_text(&self, operand: &Operand) -> Result<String, EmitError> {
+        // A folded throw payload is rendered as the expression it was assigned
+        // rather than as a place, so there is no clone to elide; defer to the
+        // shared path so both reads agree on that text.
+        if let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) = operand
+            && self.folded_throw_payload_text(*local)?.is_some()
+        {
+            return self.operand_text(operand);
+        }
+        // A local held in shared closure storage reads as
+        // `(*smelt_capture_x.borrow())`, and that `Ref` guard lives to the end of the
+        // FULL enclosing statement. The clone is what ends the borrow early: eliding
+        // it would let the guard span a nested closure call that re-borrows the same
+        // cell, panicking "already borrowed" — a `RefCell` crash single-threaded JS
+        // never produces. See the invariant documented on `local_value_text`. Keep
+        // the shared-storage read on the ordinary path, whatever the caller asked
+        // for; a borrow-only receiver is not worth a runtime panic.
+        if let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) = operand
+            && self.local_uses_shared_capture_storage(*local)
+        {
+            return self.operand_text(operand);
+        }
+        match operand {
+            Operand::Copy(place) | Operand::Move(place) => self.place_text(place),
+            Operand::Const(constant) => Ok(constant_text(constant)),
+        }
+    }
+
     /// Return whether a function type is represented as an erased JS rest callable.
     pub(super) fn is_erased_unknown_rest_function(&self, function: &FunctionType) -> bool {
         is_erased_unknown_rest_function_in(&self.mir.types, function)

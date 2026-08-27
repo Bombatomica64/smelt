@@ -437,6 +437,41 @@ last: int = word.rfind("t")
 }
 
 #[test]
+fn list_slice_borrows_its_receiver_instead_of_cloning_it() {
+    // A slice reads its receiver only through `&self` methods (`.len()`, `.iter()`),
+    // so the receiver must be borrowed, not cloned. Cloning it copied the whole
+    // backing `Vec` up to three times per slice; inside a loop over the same list --
+    // remeda's `chunk` is the real-world case -- that makes a linear algorithm
+    // quadratic. See `benchmarks/FINDINGS.md`.
+    let source = source_for(
+        r#"
+export function chunkNumbers(data: number[], size: number): number[][] {
+  const chunks = Math.ceil(data.length / size);
+  const result: number[][] = [];
+  for (let index = 0; index < chunks; index++) {
+    const start = index * size;
+    result.push(data.slice(start, start + size));
+  }
+  return result;
+}
+"#,
+    );
+
+    // The slice still lowers to the same borrow-based iterator pipeline...
+    assert!(source.contains("data.iter().skip("));
+    assert!(source.contains("let len = data.len() as i64"));
+    // ...and no longer copies the receiver to get there.
+    assert!(
+        !source.contains("data.clone().iter()"),
+        "slice receiver was cloned for an `.iter()` borrow:\n{source}"
+    );
+    assert!(
+        !source.contains("data.clone().len()"),
+        "slice receiver was cloned for a `.len()` borrow:\n{source}"
+    );
+}
+
+#[test]
 fn emits_python_list_and_string_slices() {
     let source = source_for_py(
         r#"

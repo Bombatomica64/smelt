@@ -126,6 +126,61 @@ test('a named function expression can call itself', () => {
 
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_capturing_self_recursive_closure_recurses_and_escapes() {
+    // Two properties in one fixture, because the fix trades between them.
+    //
+    // `collect` is the shape that leaked: a self-recursive closure capturing an
+    // accumulator from its enclosing scope. It now captures a `Weak` to its own cell
+    // instead of an `Rc`, which breaks the reference cycle -- so this asserts the
+    // recursion still produces the right answer through a `Weak` upgrade.
+    //
+    // `makeCounter` is the case the fix must NOT break: a self-recursive closure
+    // RETURNED from its defining frame and called afterwards. Those keep the strong
+    // capture (`closure.escapes`), because a `Weak` there would find the cell gone.
+    // If the escape guard were dropped, this half panics with "self-recursive closure
+    // called after its defining scope returned" instead of answering 6.
+    let source = r"
+import { test, expect } from 'vitest';
+
+function collect(rows: number[][]): number[] {
+  const result: number[] = [];
+  const recurse = (items: number[][], depth: number): void => {
+    for (const item of items) {
+      if (depth > 0) {
+        recurse([item], depth - 1);
+      } else {
+        result.push(item[0]);
+      }
+    }
+  };
+  recurse(rows, 1);
+  return result;
+}
+
+function makeCountdown(): (n: number) => number {
+  const step = (n: number): number => {
+    if (n <= 0) {
+      return 0;
+    }
+    return step(n - 1) + 1;
+  };
+  return step;
+}
+
+test('a capturing self-recursive closure accumulates through its capture', () => {
+  expect(collect([[7], [8], [9]])).toEqual([7, 8, 9]);
+});
+
+test('a self-recursive closure still works after escaping its frame', () => {
+  const countdown = makeCountdown();
+  expect(countdown(6)).toBe(6);
+});
+";
+    run_fixture(source, "smelt_capturing_self_recursive_closure");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn two_same_named_lifts_stay_distinct() {
     // Two function expressions in one crate may share a source name; each lift is a
     // separate item, and the emitter's name disambiguation must keep them apart. If

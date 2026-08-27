@@ -9,10 +9,29 @@
 /// itself. Returns `None` when `text` is not a shared-capture access.
 pub(super) fn shared_capture_cell_name(text: &str) -> Option<&str> {
     let inner = text.strip_prefix("(*")?;
-    inner
+    let inner = inner
         .strip_suffix(".borrow_mut())")
-        .or_else(|| inner.strip_suffix(".borrow())"))
+        .or_else(|| inner.strip_suffix(".borrow())"))?;
+    // A self-recursive capture holds a `Weak` and upgrades before borrowing, so its
+    // access form carries `SELF_RECURSIVE_UPGRADE` between the cell name and the
+    // borrow. Strip it: callers use the result as an IDENTIFIER (they emit
+    // `let <cell> = <cell>.clone();` for a nested closure), and returning the
+    // expression instead produced `let smelt_capture_x.upgrade().expect(..) = ..`,
+    // which is not a pattern and does not parse. radash's `async_test` was the case
+    // that caught it -- a self-recursive closure that a nested closure also captures.
+    Some(
+        inner
+            .strip_suffix(SELF_RECURSIVE_UPGRADE)
+            .unwrap_or(inner),
+    )
 }
+
+/// The `Weak` upgrade carried by a self-recursive closure's shared-capture access form.
+///
+/// Emission (`emitter::closures`) and recovery (`shared_capture_cell_name`) must agree
+/// on this text exactly, so it lives here once rather than being spelled at each site.
+pub(super) const SELF_RECURSIVE_UPGRADE: &str =
+    ".upgrade().expect(\"self-recursive closure called after its defining scope returned\")";
 
 /// Rewrites emitted closure text so shared captures use their `RefCell` storage.
 ///
@@ -349,6 +368,50 @@ fn skip_char_or_lifetime(bytes: &[u8], start: usize) -> usize {
 /// Returns true for characters that can be part of emitted Rust identifiers.
 fn is_rust_ident_char(ch: char) -> bool {
     ch == '_' || ch.is_ascii_alphanumeric()
+}
+
+#[cfg(test)]
+mod shared_capture_cell_name_tests {
+    use super::{SELF_RECURSIVE_UPGRADE, shared_capture_cell_name};
+
+    /// The ordinary shared-capture access form yields its cell name.
+    #[test]
+    fn recovers_cell_from_borrow_forms() {
+        assert_eq!(
+            shared_capture_cell_name("(*smelt_capture_total.borrow_mut())"),
+            Some("smelt_capture_total")
+        );
+        assert_eq!(
+            shared_capture_cell_name("(*smelt_capture_total.borrow())"),
+            Some("smelt_capture_total")
+        );
+    }
+
+    /// A self-recursive capture upgrades its `Weak` before borrowing, and the cell
+    /// name must still come back as a bare IDENTIFIER.
+    ///
+    /// Callers use the result in a binding position -- they emit
+    /// `let <cell> = <cell>.clone();` so a nested closure gets its own handle -- so
+    /// returning the expression emitted
+    /// `let smelt_capture_x.upgrade().expect(..) = ..`, which is not a pattern and
+    /// does not parse. That reached radash's generated `async_test` (a self-recursive
+    /// closure which a nested closure also captures) and broke the build, while
+    /// remeda and es-toolkit stayed green.
+    #[test]
+    fn recovers_cell_from_the_self_recursive_upgrade_form() {
+        let text = format!("(*smelt_capture_fake_work{SELF_RECURSIVE_UPGRADE}.borrow_mut())");
+        assert_eq!(
+            shared_capture_cell_name(&text),
+            Some("smelt_capture_fake_work")
+        );
+    }
+
+    /// Text that is not an access form at all is not a cell.
+    #[test]
+    fn rejects_non_access_forms() {
+        assert_eq!(shared_capture_cell_name("smelt_capture_total"), None);
+        assert_eq!(shared_capture_cell_name("(*smelt_capture_total)"), None);
+    }
 }
 
 #[cfg(test)]

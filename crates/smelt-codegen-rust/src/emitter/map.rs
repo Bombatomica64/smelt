@@ -25,7 +25,9 @@ impl FunctionEmitter<'_> {
         let Some(Type::Dict(key_ty, _) | Type::JsMap(key_ty, _)) = self.mir.types.get(dict_ty)
         else {
             if self.dict_contains_key_uses_erased_object(dict_ty) {
-                let dict_text = self.operand_text(dict)?;
+                // Read by borrow: the emitted `match` appends its own `.clone()`,
+                // so cloning here made it `x.clone().clone()`.
+                let dict_text = self.operand_borrow_text(dict)?;
                 let key_text = self.operand_text(key)?;
                 let key_value = match self.mir.types.get(self.operand_ty(key)?) {
                     Some(Type::String) => key_text,
@@ -67,9 +69,13 @@ impl FunctionEmitter<'_> {
         if !self.dict_key_operand_is_compatible(key, *key_ty)? {
             return Ok("false".to_owned());
         }
+        // `contains_key` takes `&self`, so read the receiver by borrow. Cloning it
+        // copied the whole map for a membership test; in es-toolkit's `groupBy` that
+        // ran once per element (`result.clone().contains_key(..)` inside the loop),
+        // making an O(n) pass O(n^2) in the accumulated map.
         Ok(format!(
             "{}.contains_key(&{})",
-            self.operand_text(dict)?,
+            self.operand_borrow_text(dict)?,
             self.dict_key_operand_text(key, *key_ty)?
         ))
     }
@@ -149,9 +155,9 @@ impl FunctionEmitter<'_> {
             let get_text =
                 if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
                     || self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
-                    format!("{}.get(&{})", self.operand_text(dict)?, key_text)
+                    format!("{}.get(&{})", self.operand_borrow_text(dict)?, key_text)
                 } else {
-                    format!("{}.get(&{}).cloned()", self.operand_text(dict)?, key_text)
+                    format!("{}.get(&{}).cloned()", self.operand_borrow_text(dict)?, key_text)
                 };
             return Ok(format!(
                 "{get_text}.unwrap_or({})",
@@ -175,16 +181,16 @@ impl FunctionEmitter<'_> {
                 let get_text =
                     if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
                     || self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
-                        format!("{}.get(&{})", self.operand_text(dict)?, key_text)
+                        format!("{}.get(&{})", self.operand_borrow_text(dict)?, key_text)
                     } else {
-                        format!("{}.get(&{}).cloned()", self.operand_text(dict)?, key_text)
+                        format!("{}.get(&{}).cloned()", self.operand_borrow_text(dict)?, key_text)
                     };
                 Ok(format!("{get_text}.flatten()"))
             }
             (_, Some(Type::Optional(dest_inner))) if dest_inner == value_ty => {
                 if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
                     || self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
-                    Ok(format!("{}.get(&{})", self.operand_text(dict)?, key_text))
+                    Ok(format!("{}.get(&{})", self.operand_borrow_text(dict)?, key_text))
                 } else {
                     Ok(format!(
                         "{}.get(&{}).cloned()",
@@ -683,7 +689,9 @@ impl FunctionEmitter<'_> {
                             && self.mir.types.get(*value_ty) == Some(&Type::Unknown)
                 )
             {
-                let dict_text = self.operand_text(dict)?;
+                // Read by borrow: the emitted expression appends its own
+                // `.clone()`, so cloning here made it `x.clone().clone()`.
+                let dict_text = self.operand_borrow_text(dict)?;
                 return Ok(format!(
                     "match ({dict_text}.clone()).into_smelt_unknown() {{ SmeltUnknown::Object(map) => SmeltRecord::with_id_from_entries(map.id, map.into_iter()), _ => Default::default() }}"
                 ));
@@ -695,7 +703,8 @@ impl FunctionEmitter<'_> {
                 "dict copy destination must match the receiver dict type",
             ));
         }
-        Ok(format!("{}.clone()", self.operand_text(dict)?))
+        // The copy itself is the clone; reading by borrow keeps it at one.
+        Ok(format!("{}.clone()", self.operand_borrow_text(dict)?))
     }
 
     /// Converts a dictionary projection operation to Rust text.
