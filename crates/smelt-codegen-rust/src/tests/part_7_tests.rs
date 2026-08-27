@@ -889,7 +889,9 @@ export function firstEntry(values: string[]): string | undefined {
     );
 
     assert!(
-        source.contains("if iterator.is_empty() { None } else { Some(iterator.remove(0)) }"),
+        source.contains(
+            "if iterator.is_empty() { None } else { Some(iterator.borrow_mut().remove(0)) }"
+        ),
         "iterator next should consume into a typed Option: {source}"
     );
     assert!(
@@ -1902,7 +1904,7 @@ export function purryOn(
     // expression, and it reads `args` only through `&self` methods, so it borrows.
     // It used to emit `args.clone().iter().skip(` — a whole-`Vec` copy for a read.
     assert!(
-        source.contains("args.iter().skip(")
+        source.contains("args.borrow().iter().skip(")
             || source.contains("SmeltUnknown::Array(args.clone().into())"),
         "{source}"
     );
@@ -4088,12 +4090,12 @@ function wrap<T>(
     // is hoisted into a `let smelt_source_value = closure_arg_0.get(..)` binding
     // by the callable-object narrowing, so assert on the shared `.get(` read.
     assert!(
-        source.contains("closure_arg_0.get(")
+        source.contains("closure_arg_0.borrow().get(")
             && source.contains("SmeltUnknown::Array(values) => values.into_iter()"),
         "fixed callback spread calls should read the first fixed parameter from the rest vector: {source}"
     );
     assert!(
-        source.matches("closure_arg_0.get(").count() >= 2,
+        source.matches("closure_arg_0.borrow().get(").count() >= 2,
         "fixed callback spread calls should read the second fixed parameter from the rest vector: {source}"
     );
     assert!(
@@ -4180,7 +4182,9 @@ function indicesSeen(
         "{source}"
     );
     assert!(
-        source.contains("(*smelt_capture_indices.borrow_mut()).push(closure_arg_1.clone())"),
+        source.contains(
+            "let smelt_push_item = closure_arg_1.clone(); (*smelt_capture_indices.borrow()).borrow_mut().push(smelt_push_item)"
+        ),
         "captured push should mutate the outer vector storage: {source}"
     );
     assert!(
@@ -4233,7 +4237,7 @@ export function collect(value: number, key: string): Array<[number, string]> {
         "pushed literal should be a concrete tuple value: {source}"
     );
     assert!(
-        source.contains("result.push("),
+        source.contains("result.borrow_mut().push("),
         "the tuple value should be pushed onto the array: {source}"
     );
     assert!(
@@ -4259,7 +4263,7 @@ export function mixed(): Array<number | string> {
 
     assert!(source.contains("pub enum SmeltUnion"), "{source}");
     assert!(
-        source.contains(".push(SmeltUnion") && source.contains("::M0(1.0)"),
+        source.contains("let smelt_push_item = SmeltUnion") && source.contains("::M0(1.0)"),
         "numeric push should inject the concrete union member: {source}"
     );
     assert!(
@@ -5097,11 +5101,11 @@ function swap(data: unknown[], i: number, j: number): void {
     );
 
     assert!(source.contains("let __smelt_destructure"), "{source}");
-    assert!(source.contains("__smelt_destructure.get"), "{source}");
+    assert!(source.contains("__smelt_destructure.borrow().get"), "{source}");
     assert!(source.contains("index = 1.0"), "{source}");
     assert_eq!(
         source
-            .matches("data[smelt_assign_index] = __smelt_destructure.get")
+            .matches("data.borrow_mut()[smelt_assign_index] = smelt_assign_value")
             .count(),
         2,
         "{source}"
@@ -5804,7 +5808,7 @@ function run(): unknown {
     );
 
     assert!(
-        source.contains("smelt_array.iter().enumerate().map(|(index, item)|"),
+        source.contains("smelt_array.borrow().iter().enumerate().map(|(index, item)|"),
         "imported map callback should lower to a mapping closure\n{source}"
     );
     assert!(
@@ -7407,7 +7411,7 @@ function tag(rows: string[][], suffix: string): string[][] {
     );
 
     assert!(
-        source.contains("closure_arg_0[smelt_assign_index] ="),
+        source.contains("closure_arg_0.borrow_mut()[smelt_assign_index] ="),
         "the compound member assignment should emit an indexed store into the row\n{source}"
     );
     assert!(
@@ -8438,7 +8442,7 @@ export function g(): number[] {
     );
     assert!(
         source.contains("smelt_capture_store")
-            && source.contains("(*smelt_capture_store.borrow_mut()).push("),
+            && source.contains("(*smelt_capture_store.borrow()).borrow_mut().push("),
         "a mutated captured list must route writes through shared storage: {source}"
     );
     assert!(

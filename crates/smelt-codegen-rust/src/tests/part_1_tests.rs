@@ -354,7 +354,7 @@ function run(k: number, v: number): number[] {
     // The index is precomputed into a temp, so the indexed write borrows the
     // receiver mutably exactly once with a plain temp subscript.
     assert!(
-        source.contains("(*smelt_capture_order.borrow_mut())[smelt_assign_index] ="),
+        source.contains("(*smelt_capture_order.borrow()).borrow_mut()[smelt_assign_index] ="),
         "list index write must subscript with a precomputed index temp: {source}"
     );
     // The length reads that normalize/bounds-check the index borrow immutably.
@@ -402,11 +402,11 @@ function positive(values: number[]): boolean {
     );
 
     assert!(
-        source.contains("smelt_array.iter().enumerate().map"),
+        source.contains("smelt_array.borrow().iter().enumerate().map"),
         "{source}"
     );
     assert!(
-        source.contains("smelt_array.iter().enumerate().any"),
+        source.contains("smelt_array.borrow().iter().enumerate().any"),
         "{source}"
     );
     assert!(
@@ -435,7 +435,7 @@ function view(values: number[]): number[] {
         "{source}"
     );
     assert!(
-        source.contains("smelt_array.iter().enumerate().map"),
+        source.contains("smelt_array.borrow().iter().enumerate().map"),
         "{source}"
     );
     // The snapshot is taken ONCE, and each element then receives it by reference.
@@ -567,7 +567,7 @@ function invokeAll(callbacks: RestCallback[], args: unknown[]): unknown[] {
     );
 
     assert!(
-        source.contains("smelt_array.iter().enumerate().map"),
+        source.contains("smelt_array.borrow().iter().enumerate().map"),
         "{source}"
     );
     assert!(source.contains("args.clone()"), "{source}");
@@ -699,10 +699,12 @@ const total = sum(2, 3, 4);
         "{source}"
     );
     assert!(source.contains("vec![2.0, 3.0, 4.0]"));
-    assert!(source.contains("closure_arg_0.get("), "{source}");
-    // The subject is the TOTAL read — `.cloned().unwrap_or(default)` rather than
-    // a fallible one. The read already yields an owned value, so it carries no
+    // The receiver borrows the shared backing buffer (`SmeltList` stores its
+    // values behind an `Rc<RefCell<..>>`), and the subject of the assertions
+    // below is the TOTAL read — `.cloned().unwrap_or(default)` rather than a
+    // fallible one. That read already yields an owned value, so it carries no
     // trailing `.clone()`; see `index_place_read_is_owned`.
+    assert!(source.contains("closure_arg_0.borrow().get("), "{source}");
     assert!(
         source.contains(".cloned().unwrap_or(0.0)"),
         "{source}"

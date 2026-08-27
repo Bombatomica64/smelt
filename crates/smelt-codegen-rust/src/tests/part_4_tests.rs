@@ -161,7 +161,7 @@ export function read(values: number[]): number[] {
         .map(|offset| loop_start + offset)
         .expect("expected postfix increment in loop");
     let value_binding = source[loop_start..]
-        .find("value = values.get")
+        .find("value = values.borrow().get")
         .map(|offset| loop_start + offset)
         .expect("expected indexed value binding in loop");
     assert!(
@@ -839,7 +839,7 @@ export function build(total: number): number[] {
         "bare Array(total) should construct a typed list: {source}"
     );
     assert!(
-        source.contains("result[smelt_assign_index] = i"),
+        source.contains("result.borrow_mut()[smelt_assign_index] = smelt_assign_value"),
         "indexed writes should fill the list built by Array(total): {source}"
     );
 }

@@ -1563,18 +1563,18 @@ fn emit_source_with_free_function_router(
         // `SmeltList<T>` itself is defined in the `needs_smelt_list` block above.
         // These impls depend on `SmeltArray`/`SmeltUnknown`, so they live here.
         // Erasing a typed list to a `SmeltUnknown::Array` preserves its JS reference identity.
-        writer.line("impl From<SmeltList<SmeltUnknown>> for SmeltArray { fn from(list: SmeltList<SmeltUnknown>) -> Self { SmeltArray::with_id(list.id, list.values) } }");
+        writer.line("impl From<SmeltList<SmeltUnknown>> for SmeltArray { fn from(list: SmeltList<SmeltUnknown>) -> Self { SmeltArray::with_id(list.id(), list.into_vec()) } }");
         // A callback that declares a list parameter receives it by shared reference
         // (see `callback_param_is_shared_reference`), so the erasure adapters need to
         // build an erased array from `&SmeltList` as well as from an owned one. The
         // reference form copies the elements, which is what erasing to a JS array
         // value requires regardless; the saving is on the ARGUMENT, which no longer
         // deep-copies the list once per element.
-        writer.line("impl From<&SmeltList<SmeltUnknown>> for SmeltArray { fn from(list: &SmeltList<SmeltUnknown>) -> Self { SmeltArray::with_id(list.id, list.values.clone()) } }");
-        writer.line("impl<T: Clone> From<&SmeltList<T>> for Vec<T> { fn from(list: &SmeltList<T>) -> Self { list.values.clone() } }");
+        writer.line("impl From<&SmeltList<SmeltUnknown>> for SmeltArray { fn from(list: &SmeltList<SmeltUnknown>) -> Self { SmeltArray::with_id(list.id(), list.to_vec()) } }");
+        writer.line("impl<T: Clone> From<&SmeltList<T>> for Vec<T> { fn from(list: &SmeltList<T>) -> Self { list.to_vec() } }");
         // serde impls only when the crate actually links serde (JSON contexts).
         if needs_serde_json {
-            writer.line("impl<T: serde::Serialize> serde::Serialize for SmeltList<T> { fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> { serde::Serialize::serialize(&self.values, serializer) } }");
+            writer.line("impl<T: serde::Serialize> serde::Serialize for SmeltList<T> { fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> { serde::Serialize::serialize(&*self.borrow(), serializer) } }");
             writer.line("impl<'de, T: serde::Deserialize<'de>> serde::Deserialize<'de> for SmeltList<T> { fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> { <Vec<T> as serde::Deserialize>::deserialize(deserializer).map(SmeltList::new) } }");
         }
         writer.line("type SmeltPromiseFuture = ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<SmeltUnknown, Box<dyn std::error::Error>>>>>;");
@@ -3114,7 +3114,7 @@ fn emit_source_with_free_function_router(
         writer.blank_line();
         // Erasing a typed list yields an identity-bearing `SmeltUnknown::Array`,
         // carrying the list's reference id and erasing each element in turn.
-        writer.line("impl<T: IntoSmeltUnknown> IntoSmeltUnknown for SmeltList<T> { fn into_smelt_unknown(self) -> SmeltUnknown { SmeltUnknown::Array(SmeltArray::with_id(self.id, self.values.into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect())) } }");
+        writer.line("impl<T: IntoSmeltUnknown + Clone> IntoSmeltUnknown for SmeltList<T> { fn into_smelt_unknown(self) -> SmeltUnknown { SmeltUnknown::Array(SmeltArray::with_id(self.id(), self.into_vec().into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect())) } }");
         writer.blank_line();
         writer.block("pub trait SmeltFromUnknown", |trait_writer| {
             trait_writer.line("fn smelt_from_unknown(value: SmeltUnknown) -> Self;");

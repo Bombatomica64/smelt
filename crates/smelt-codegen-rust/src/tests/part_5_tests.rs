@@ -930,8 +930,12 @@ const length = values.push(4);
 
     assert!(source.contains("let mut"));
     assert!(source.contains("Vec<f64>"));
-    assert!(source.contains(".push(3.0);"));
-    assert!(source.contains(".push(4.0);"));
+    // Each pushed item is materialized before the write borrow is taken, so
+    // the value appears in the `let` and the call reads `push(smelt_push_item)`;
+    // see `list_push_text`.
+    assert!(source.contains("let smelt_push_item = 3.0;"));
+    assert!(source.contains("let smelt_push_item = 4.0;"));
+    assert!(source.contains(".push(smelt_push_item);"));
     assert!(source.contains(".len() as f64"));
 }
 
@@ -946,8 +950,8 @@ const threeMore = values.unshift(-1, 0);
 ",
     );
 
-    assert!(source.contains(".insert(0, 1.0);"));
-    assert!(source.contains(".insert(0, 0.0);"));
+    assert!(source.contains(".insert(0, smelt_unshift_item);"));
+    assert!(source.contains("let smelt_unshift_item = 0.0;"));
     assert!(source.matches(".insert(0,").count() >= 3);
     assert!(source.matches(".len() as f64").count() >= 3);
 }
@@ -1017,7 +1021,7 @@ const entries = values.entries();
     assert!(source.contains("copy_items"));
     assert!(source.contains("fill_index"));
     assert!(source.contains("with_items"));
-    assert!(source.contains(".flat_map(|items| items.iter().cloned())"));
+    assert!(source.contains(".flat_map(|items| items.borrow().clone().into_iter())"));
     assert!(source.contains(".flat_map(|items| vec![items.0.clone()])"));
     assert!(source.contains("fn smelt_flat_values"));
     assert!(source.contains("smelt_flat_depth"));

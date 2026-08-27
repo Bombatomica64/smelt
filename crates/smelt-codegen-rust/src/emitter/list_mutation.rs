@@ -79,25 +79,25 @@ impl FunctionEmitter<'_> {
             // first also keeps the key and default expressions outside the
             // borrow, since both are arguments of the accessor call.
             //
-            // `SmeltJsMap`/`SmeltRecord` hand back a `RefMut` guard, which needs
-            // a mutable binding to deref-mutate; a plain `HashMap` entry is
-            // already a `&mut V`, so binding it `mut` would only raise an
-            // `unused_mut` warning in the generated crate.
-            let (binding, accessor) = if self.dict_uses_js_key_map(entry_key_ty)
+            // `SmeltJsMap`/`SmeltRecord` hand back a `RefMut<SmeltList<..>>`
+            // guard; a plain `HashMap` entry is already a `&mut SmeltList<..>`.
+            // Either way the slot derefs to the list, never to its backing
+            // `Vec` — `SmeltList` owns its values behind an `Rc<RefCell<..>>`
+            // and so implements no `DerefMut` — so the push goes through
+            // `list_write_text`, the same borrow every other list write uses
+            // (`smelt_slot.push(..)` does not resolve: E0599).
+            let accessor = if self.dict_uses_js_key_map(entry_key_ty)
                 || self.dict_uses_smelt_record(entry_key_ty)
             {
-                (
-                    "let mut smelt_slot",
-                    format!("{base_text}.entry_or_insert({key_text}, {default_value})"),
-                )
+                format!("{base_text}.entry_or_insert({key_text}, {default_value})")
             } else {
-                (
-                    "let smelt_slot",
-                    format!("{base_text}.entry({key_text}).or_insert({default_value})"),
-                )
+                format!("{base_text}.entry({key_text}).or_insert({default_value})")
             };
+            // The write guard is a statement-local temporary, so it is released
+            // before `{result}` reads the length back through the slot.
+            let push_text = list_write_text("smelt_slot");
             return Ok(format!(
-                "{{ let smelt_push_item = {item_text}; {binding} = {accessor}; smelt_slot.push(smelt_push_item); {result} }}"
+                "{{ let smelt_push_item = {item_text}; let smelt_slot = {accessor}; {push_text}.push(smelt_push_item); {result} }}"
             ));
         }
         if let Operand::Copy(Place::Field { base, field })
@@ -127,7 +127,7 @@ impl FunctionEmitter<'_> {
             && let Some(ListAliasOrigin::Field { base, field }) = self.list_alias_origin(*local)
             && self.list_alias_base_is_erased_object(base)?
         {
-            let list_text = self.local_mut_value_text(*local)?;
+            let list_text = self.local_value_text(*local)?;
             let base_text = self.local_mut_value_text(base)?;
             let field_name = self.symbol_name(field)?;
             let item_text = self.value_at_type(item, *item_ty)?;
@@ -136,13 +136,17 @@ impl FunctionEmitter<'_> {
             } else {
                 "()".to_owned()
             };
-            // Materialize a self-referential pushed item into a temp before the
-            // `&mut` push (E0502); otherwise inline it.
-            let push_expr = if item_text.contains(&self.local_name(*local)?.to_owned()) {
-                format!("let smelt_push_item = {item_text}; {list_text}.push(smelt_push_item);")
-            } else {
-                format!("{list_text}.push({item_text});")
-            };
+            let list_mut = list_write_text(&list_text);
+            // Materialize the pushed item into a temp before the push, ALWAYS.
+            // The receiver's `borrow_mut()` guard must never coexist with a read
+            // borrow of the same shared buffer ("already borrowed"), and since a
+            // `SmeltList` clone shares its buffer, two DIFFERENT locals can name
+            // one cell — `groups[k].push(groups[k][0])` reads through a second
+            // handle. A syntactic "does the item mention this local" test cannot
+            // see that, so there is no cheap condition to gate this on: aliasing
+            // is a runtime property. One `let` removes the whole class.
+            let push_expr =
+                format!("let smelt_push_item = {item_text}; {list_mut}.push(smelt_push_item);");
             return Ok(format!(
                 "{{ {push_expr} let smelt_result = {result}; let smelt_value = SmeltUnknown::Array({list_text}.clone().into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect()); match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert(\"{field_name}\".to_owned(), smelt_value); }}, other => {{ let map = SmeltObject::new(Vec::from([(\"{field_name}\".to_owned(), smelt_value)])); *other = SmeltUnknown::Object(map); }} }} smelt_result }}"
             ));
@@ -153,7 +157,7 @@ impl FunctionEmitter<'_> {
                 self.mir.types.get(self.local_decl(base)?.ty)
             && *value_ty == list_ty
         {
-            let list_text = self.local_mut_value_text(*local)?;
+            let list_text = self.local_value_text(*local)?;
             let base_text = self.local_mut_value_text(base)?;
             let key_text = if self.mir.types.get(*key_ty) == Some(&Type::String) {
                 let source_key = self.operand_ty(index.as_ref())?;
@@ -168,13 +172,17 @@ impl FunctionEmitter<'_> {
             } else {
                 "()".to_owned()
             };
-            // Materialize a self-referential pushed item into a temp before the
-            // `&mut` push (E0502); otherwise inline it.
-            let push_expr = if item_text.contains(&self.local_name(*local)?.to_owned()) {
-                format!("let smelt_push_item = {item_text}; {list_text}.push(smelt_push_item);")
-            } else {
-                format!("{list_text}.push({item_text});")
-            };
+            let list_mut = list_write_text(&list_text);
+            // Materialize the pushed item into a temp before the push, ALWAYS.
+            // The receiver's `borrow_mut()` guard must never coexist with a read
+            // borrow of the same shared buffer ("already borrowed"), and since a
+            // `SmeltList` clone shares its buffer, two DIFFERENT locals can name
+            // one cell — `groups[k].push(groups[k][0])` reads through a second
+            // handle. A syntactic "does the item mention this local" test cannot
+            // see that, so there is no cheap condition to gate this on: aliasing
+            // is a runtime property. One `let` removes the whole class.
+            let push_expr =
+                format!("let smelt_push_item = {item_text}; {list_mut}.push(smelt_push_item);");
             return Ok(format!(
                 "{{ {push_expr} let smelt_result = {result}; {base_text}.insert({key_text}, {list_text}.clone()); smelt_result }}"
             ));
@@ -184,18 +192,23 @@ impl FunctionEmitter<'_> {
                 "list push receiver must be a mutable local for now",
             ));
         };
-        let list_text = self.local_mut_value_text(*local)?;
+        let list_text = self.local_value_text(*local)?;
         let item_text = self.value_at_type(item, *item_ty)?;
-        // When the pushed item reads the receiver list (e.g. self-referential
-        // `array1.push(array1)`), evaluate it into a temporary BEFORE taking the
-        // list's mutable borrow in `.push`. Inlining the item inside `.push`
-        // would borrow the list immutably while it is mutably borrowed (E0502).
-        // Non-self-referential items keep the simpler inline form.
-        let push_expr = if item_text.contains(&self.local_name(*local)?.to_owned()) {
-            format!("let smelt_push_item = {item_text}; {list_text}.push(smelt_push_item);")
-        } else {
-            format!("{list_text}.push({item_text});")
-        };
+        // Evaluate the pushed item into a temporary BEFORE taking the list's
+        // mutable borrow in `.push`. Rust evaluates a method receiver before its
+        // arguments, so inlining the item would hold the shared cell's
+        // `borrow_mut()` guard while the item took a read borrow of that same
+        // cell — a runtime "already borrowed" panic (it was an E0502 borrow
+        // error back when the elements were an inline `Vec`).
+        //
+        // This is unconditional. A `SmeltList` clone shares its buffer, so two
+        // DIFFERENT locals can name one cell (`groups[k].push(groups[k][0])`
+        // reads through a second handle), and the syntactic "does the item
+        // mention this local" test that used to gate it cannot see that.
+        // Aliasing is a runtime property; one `let` removes the whole class.
+        let list_mut = list_write_text(&list_text);
+        let push_expr =
+            format!("let smelt_push_item = {item_text}; {list_mut}.push(smelt_push_item);");
         if returns_length {
             Ok(format!("{{ {push_expr} {list_text}.len() as f64 }}"))
         } else {
@@ -302,14 +315,19 @@ impl FunctionEmitter<'_> {
                 "list extend receiver must be a mutable local for now",
             ));
         };
-        let list_text = self.local_mut_value_text(*local)?;
+        let list_text = self.local_value_text(*local)?;
+        // The extended-from list is bound before the receiver's write borrow, so
+        // `a.extend(a)` cannot hold a read guard and a write guard on one shared
+        // buffer at the same time.
+        let list_mut = list_write_text(&list_text);
+        let other_read = list_read_text("smelt_extend_from");
         if returns_length {
             Ok(format!(
-                "{{ {list_text}.extend({other_text}.iter().cloned()); {list_text}.len() as f64 }}"
+                "{{ let smelt_extend_from = {other_text}; {list_mut}.extend({other_read}.iter().cloned()); {list_text}.len() as f64 }}"
             ))
         } else {
             Ok(format!(
-                "{{ {list_text}.extend({other_text}.iter().cloned()); () }}"
+                "{{ let smelt_extend_from = {other_text}; {list_mut}.extend({other_read}.iter().cloned()); () }}"
             ))
         }
     }
@@ -351,11 +369,12 @@ impl FunctionEmitter<'_> {
                 "list insert receiver must be a mutable local for now",
             ));
         };
-        let list_text = self.local_mut_value_text(*local)?;
+        let list_text = self.local_value_text(*local)?;
         let index_text = self.operand_text(index)?;
         let item_text = self.operand_text(item)?;
+        let list_mut = list_write_text(&list_text);
         Ok(format!(
-            "{{ let insert_index = usize::try_from({index_text}).expect(\"list insert negative index\"); {list_text}.insert(insert_index, {item_text}); () }}"
+            "{{ let insert_index = usize::try_from({index_text}).expect(\"list insert negative index\"); let smelt_insert_item = {item_text}; {list_mut}.insert(insert_index, smelt_insert_item); () }}"
         ))
     }
 
@@ -386,11 +405,14 @@ impl FunctionEmitter<'_> {
                 "list unshift receiver must be a mutable local for now",
             ));
         };
-        let list_text = self.local_mut_value_text(*local)?;
+        let list_text = self.local_value_text(*local)?;
         let mut statements = Vec::with_capacity(items.len().saturating_add(1));
+        let list_mut = list_write_text(&list_text);
         for item in items.iter().rev() {
             let item_text = self.operand_text(item)?;
-            statements.push(format!("{list_text}.insert(0, {item_text});"));
+            statements.push(format!(
+                "let smelt_unshift_item = {item_text}; {list_mut}.insert(0, smelt_unshift_item);"
+            ));
         }
         statements.push(format!("{list_text}.len() as f64"));
         Ok(format!("{{ {} }}", statements.join(" ")))
@@ -421,11 +443,12 @@ impl FunctionEmitter<'_> {
                 "list reverse receiver must be a mutable local for now",
             ));
         };
-        let list_text = self.local_mut_value_text(*local)?;
+        let list_text = self.local_value_text(*local)?;
+        let list_mut = list_write_text(&list_text);
         if returns_list {
-            Ok(format!("{{ {list_text}.reverse(); {list_text}.clone() }}"))
+            Ok(format!("{{ {list_mut}.reverse(); {list_text}.clone() }}"))
         } else {
-            Ok(format!("{{ {list_text}.reverse(); () }}"))
+            Ok(format!("{{ {list_mut}.reverse(); () }}"))
         }
     }
 
@@ -446,23 +469,24 @@ impl FunctionEmitter<'_> {
                 "list pop receiver must be a mutable local for now",
             ));
         };
-        let list_text = self.local_mut_value_text(*local)?;
+        let list_text = self.local_value_text(*local)?;
         // `Array.prototype.pop` yields `item | undefined`. The two exact-match
         // fast paths keep the historical output; any other destination (e.g. a
         // widened/narrowed optional whose inner differs from the list item type,
         // as when the item type is a union) coerces the popped value to the
         // destination through the standard coercion seam instead of aborting.
+        let list_mut = list_write_text(&list_text);
         match self.mir.types.get(dest_ty) {
-            Some(Type::Optional(inner)) if *inner == item_ty => Ok(format!("{list_text}.pop()")),
+            Some(Type::Optional(inner)) if *inner == item_ty => Ok(format!("{list_mut}.pop()")),
             _ if dest_ty == item_ty => {
-                Ok(format!("{list_text}.pop().expect(\"pop from empty list\")"))
+                Ok(format!("{list_mut}.pop().expect(\"pop from empty list\")"))
             }
             Some(Type::Optional(_)) => {
                 let pop_ty = self.type_id(Type::Optional(item_ty))?;
-                self.value_at_type_text(&format!("{list_text}.pop()"), pop_ty, dest_ty)
+                self.value_at_type_text(&format!("{list_mut}.pop()"), pop_ty, dest_ty)
             }
             _ => self.value_at_type_text(
-                &format!("{list_text}.pop().expect(\"pop from empty list\")"),
+                &format!("{list_mut}.pop().expect(\"pop from empty list\")"),
                 item_ty,
                 dest_ty,
             ),
@@ -491,9 +515,10 @@ impl FunctionEmitter<'_> {
                 "list shift receiver must be a mutable local for now",
             ));
         };
-        let list_text = self.local_mut_value_text(*local)?;
+        let list_text = self.local_value_text(*local)?;
+        let list_mut = list_write_text(&list_text);
         Ok(format!(
-            "if {list_text}.is_empty() {{ None }} else {{ Some({list_text}.remove(0)) }}"
+            "if {list_text}.is_empty() {{ None }} else {{ Some({list_mut}.remove(0)) }}"
         ))
     }
 
@@ -516,9 +541,10 @@ impl FunctionEmitter<'_> {
         let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = list else {
             return Err(EmitError::new("list next receiver must be a mutable local"));
         };
-        let list_text = self.local_mut_value_text(*local)?;
+        let list_text = self.local_value_text(*local)?;
+        let list_mut = list_write_text(&list_text);
         Ok(format!(
-            "if {list_text}.is_empty() {{ None }} else {{ Some({list_text}.remove(0)) }}"
+            "if {list_text}.is_empty() {{ None }} else {{ Some({list_mut}.remove(0)) }}"
         ))
     }
 
@@ -587,20 +613,24 @@ impl FunctionEmitter<'_> {
                 "list remove receiver must be a mutable local for now",
             ));
         };
-        let list_text = self.local_mut_value_text(*local)?;
+        let list_text = self.local_value_text(*local)?;
         let item_text = self.operand_text(item)?;
+        // The search runs under a read borrow that a `let` ends before the
+        // removal takes its write borrow of the same shared buffer.
+        let list_read = list_read_text(&list_text);
+        let list_mut = list_write_text(&list_text);
         if self.list_item_uses_same_value_zero(*item_ty) {
             if self.mir.types.get(*item_ty) == Some(&Type::Float) {
                 return Ok(format!(
-                    "{{ let smelt_needle = {item_text}; let remove_index = {list_text}.iter().position(|item| *item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())).expect(\"list remove missing item\"); {list_text}.remove(remove_index); () }}"
+                    "{{ let smelt_needle = {item_text}; let remove_index = {list_read}.iter().position(|item| *item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())).expect(\"list remove missing item\"); {list_mut}.remove(remove_index); () }}"
                 ));
             }
             return Ok(format!(
-                "{{ let smelt_needle = {item_text}; let remove_index = {list_text}.iter().position(|item| item.same_js_key(&smelt_needle)).expect(\"list remove missing item\"); {list_text}.remove(remove_index); () }}"
+                "{{ let smelt_needle = {item_text}; let remove_index = {list_read}.iter().position(|item| item.same_js_key(&smelt_needle)).expect(\"list remove missing item\"); {list_mut}.remove(remove_index); () }}"
             ));
         }
         Ok(format!(
-            "{{ let remove_index = {list_text}.iter().position(|item| item == &{item_text}).expect(\"list remove missing item\"); {list_text}.remove(remove_index); () }}"
+            "{{ let smelt_needle = {item_text}; let remove_index = {list_read}.iter().position(|item| item == &smelt_needle).expect(\"list remove missing item\"); {list_mut}.remove(remove_index); () }}"
         ))
     }
 
@@ -635,7 +665,14 @@ impl FunctionEmitter<'_> {
                 "list sort receiver must be a mutable local for now",
             ));
         };
-        let list_text = self.local_mut_value_text(*local)?;
+        let list_text = self.local_value_text(*local)?;
+        // The sort rewrites the shared buffer in place, so every alias of this
+        // array sees the new order — which is what `Array.prototype.sort` does.
+        // KNOWN LIMITATION: a comparator that reads the array it is sorting
+        // (legal in JavaScript) reads the same cell while this write borrow is
+        // live and panics "already borrowed"; it was an E0502 borrow error when
+        // the elements were an inline `Vec`.
+        let list_mut = list_write_text(&list_text);
         let result_text = if returns_list {
             format!("{list_text}.clone()")
         } else {
@@ -646,27 +683,27 @@ impl FunctionEmitter<'_> {
                 comparator_operand,
                 element_ty,
                 returns_list,
-                &list_text,
+                &list_mut,
                 &result_text,
             );
         }
         if key.is_some() || reverse {
             let (prefix, closure) = self.list_sort_by_text(key, reverse, element_ty)?;
             return Ok(format!(
-                "{{ {prefix}{list_text}.sort_by({closure}); {result_text} }}"
+                "{{ {prefix}{list_mut}.sort_by({closure}); {result_text} }}"
             ));
         }
         match self.mir.types.get(*item_ty) {
             Some(Type::Bool | Type::Int | Type::Float | Type::String) if returns_list => {
                 Ok(format!(
-                    "{{ {list_text}.sort_by(|left, right| left.to_string().cmp(&right.to_string())); {result_text} }}"
+                    "{{ {list_mut}.sort_by(|left, right| left.to_string().cmp(&right.to_string())); {result_text} }}"
                 ))
             }
             Some(Type::Bool | Type::Int | Type::String) => {
-                Ok(format!("{{ {list_text}.sort(); {result_text} }}"))
+                Ok(format!("{{ {list_mut}.sort(); {result_text} }}"))
             }
             Some(Type::Float) => Ok(format!(
-                "{{ {list_text}.sort_by(|left, right| left.partial_cmp(right).expect(\"list sort incomparable float\")); {result_text} }}"
+                "{{ {list_mut}.sort_by(|left, right| left.partial_cmp(right).expect(\"list sort incomparable float\")); {result_text} }}"
             )),
             // A `TypeParam` element takes the erased coercion path only when it
             // is not a type parameter of the enclosing function: such a leaked
@@ -679,7 +716,7 @@ impl FunctionEmitter<'_> {
                 if !self.current_function_has_type_param(*name) =>
             {
                 self.default_sort_by_string_coercion_text(
-                    element_ty, &list_text, &result_text,
+                    element_ty, &list_mut, &result_text,
                 )
             }
             // Erased and union elements follow JavaScript's default sort:
@@ -689,7 +726,7 @@ impl FunctionEmitter<'_> {
             // so equal-key structured values ("[object Object]") keep their
             // original order, matching the JS default sort on objects.
             Some(Type::Unknown | Type::Union(_) | Type::Never) => {
-                self.default_sort_by_string_coercion_text(element_ty, &list_text, &result_text)
+                self.default_sort_by_string_coercion_text(element_ty, &list_mut, &result_text)
             }
             _ => Err(EmitError::new(
                 "list sort supports bool, int, float, string, and erased items",

@@ -333,13 +333,17 @@ impl FunctionEmitter<'_> {
                         // simultaneous mutable borrows and panics at runtime with
                         // "already borrowed". Two simultaneous shared `borrow()`s
                         // are allowed, matching the sibling string/optional-list
-                        // read arms below.
+                        // read arms below. The same argument is why the list's own
+                        // shared buffer is read through `list_read_text`: the
+                        // `.len()` in the index argument takes a second borrow of
+                        // that cell while this one is live.
                         let base_text = self.local_value_text(*base)?;
                         let index_text =
                             self.normalized_read_index_text(&format!("{base_text}.len()"), index)?;
                         let missing = self.element_missing_value_text(*item_ty)?;
+                        let read_text = list_read_text(&base_text);
                         Ok(format!(
-                            "{base_text}.get({index_text}).cloned().unwrap_or({missing})"
+                            "{read_text}.get({index_text}).cloned().unwrap_or({missing})"
                         ))
                     }
                     Some(Type::Optional(inner_ty))
@@ -350,14 +354,14 @@ impl FunctionEmitter<'_> {
                         };
                         let base_text = self.local_value_text(*base)?;
                         let index_text = self.normalized_read_index_text(
-                            &format!("{base_text}.as_ref().map_or(0, Vec::len)"),
+                            &format!("{base_text}.as_ref().map_or(0, SmeltList::len)"),
                             index,
                         )?;
                         let access =
                             if matches!(self.mir.types.get(*item_ty), Some(Type::Optional(_))) {
-                                "values.get({index_text}).cloned().flatten()"
+                                "values.borrow().get({index_text}).cloned().flatten()"
                             } else {
-                                "values.get({index_text}).cloned()"
+                                "values.borrow().get({index_text}).cloned()"
                             };
                         Ok(format!(
                             "{base_text}.as_ref().and_then(|values| {})",
@@ -852,7 +856,12 @@ impl FunctionEmitter<'_> {
                 let base_text = self.local_value_text(*base)?;
                 let index_text =
                     self.normalized_read_index_text(&format!("{base_text}.len()"), index)?;
-                let read = format!("{base_text}.get({index_text}).cloned()");
+                // Read borrow, as in the total list index read above: the
+                // `.len()` in the index argument borrows the same shared cell.
+                let read = format!(
+                    "{}.get({index_text}).cloned()",
+                    list_read_text(&base_text)
+                );
                 if item_ty == inner {
                     return Ok(Some(read));
                 }
@@ -930,8 +939,9 @@ impl FunctionEmitter<'_> {
                 let index_text =
                     self.normalized_read_index_text(&format!("{base_text}.len()"), index)?;
                 let erased_value = self.erase_value_text("value", item_ty)?;
+                let read_text = list_read_text(&base_text);
                 Ok(Some(format!(
-                    "{base_text}.get({index_text}).cloned().map(|value| {erased_value}).unwrap_or(SmeltUnknown::Undefined)"
+                    "{read_text}.get({index_text}).cloned().map(|value| {erased_value}).unwrap_or(SmeltUnknown::Undefined)"
                 )))
             }
             Some(Type::String) => {

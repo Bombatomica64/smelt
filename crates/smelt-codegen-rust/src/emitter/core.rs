@@ -3046,17 +3046,23 @@ impl<'mir> FunctionEmitter<'mir> {
         // Match the adapter's parameter to its cast target: a pure-rest callback
         // whose first param is a list is `Fn(SmeltList<..>)`, not `Fn(Vec<..>)`.
         // The body reads `smelt_args` only through `.iter()`/`.get()`/`.skip()`,
-        // which work on `SmeltList` via `Deref`.
-        let smelt_args_ty = if matches!(
+        // which are `Vec` methods. A `SmeltList` keeps its elements in a shared
+        // `Rc<RefCell<Vec<_>>>` and so has no `Deref` to hand those out, so that
+        // branch rebinds the arguments to a snapshot under the same name and the
+        // body reads one type either way. The snapshot is one copy of the
+        // argument vector per call, which is what erasing the callback costs
+        // anyway.
+        let args_is_list = matches!(
             target_function
                 .params
                 .first()
                 .map(|param| self.mir.types.get(*param)),
             Some(Some(Type::List(_)))
-        ) {
-            "SmeltList<SmeltUnknown>"
+        );
+        let (smelt_args_ty, args_prelude) = if args_is_list {
+            ("SmeltList<SmeltUnknown>", "let smelt_args = smelt_args.to_vec(); ")
         } else {
-            "Vec<SmeltUnknown>"
+            ("Vec<SmeltUnknown>", "")
         };
         // Increment 3 deliberately emits NO return annotation here. This
         // renderer threads no call-site bindings, so it can never be at a
@@ -3067,7 +3073,8 @@ impl<'mir> FunctionEmitter<'mir> {
         // unrelated same-named type parameter rather than pinning anything.
         // With no bindings there is also nothing unsolved: the callee's
         // declared rest-callback return is a known expected type.
-        let closure = format!("move |smelt_args: {smelt_args_ty}| {return_text}");
+        let closure =
+            format!("move |smelt_args: {smelt_args_ty}| {{ {args_prelude}{return_text} }}");
         // When the source callback is NOT itself a function parameter, the
         // adapter body references it through a `smelt_callback` binding (see
         // `callback_text`), so that binding must be introduced in the emitted

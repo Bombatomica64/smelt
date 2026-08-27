@@ -12,7 +12,7 @@ fn zip(first: SmeltList<SmeltUnknown>, second: SmeltList<SmeltUnknown>, fn_: &dy
     let first = first.clone();
     let second = second.clone();
     move |closure_arg_0: SmeltUnknown, closure_arg_1: i64, closure_arg_2: &SmeltList<SmeltUnknown>| {
-    let _smelt_tmp_6: SmeltUnknown = fn_(closure_arg_0.clone(), second.get({ let len = second.len() as i64; let index = closure_arg_1.clone() as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or(SmeltUnknown::Undefined), closure_arg_1.clone() as f64, &first);
+    let _smelt_tmp_6: SmeltUnknown = fn_(closure_arg_0.clone(), second.borrow().get({ let len = second.len() as i64; let index = closure_arg_1.clone() as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or(SmeltUnknown::Undefined), closure_arg_1.clone() as f64, &first);
     _smelt_tmp_6.clone()
     }
 });
@@ -20,10 +20,10 @@ fn zip(first: SmeltList<SmeltUnknown>, second: SmeltList<SmeltUnknown>, fn_: &dy
     let first = first.clone();
     let second = second.clone();
     move |closure_arg_0: SmeltUnknown, closure_arg_1: i64, closure_arg_2: &SmeltList<SmeltUnknown>| {
-    let _smelt_tmp_6: SmeltUnknown = fn_(closure_arg_0.clone(), second.get({ let len = second.len() as i64; let index = closure_arg_1.clone() as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or(SmeltUnknown::Undefined), closure_arg_1.clone() as f64, &first);
+    let _smelt_tmp_6: SmeltUnknown = fn_(closure_arg_0.clone(), second.borrow().get({ let len = second.len() as i64; let index = closure_arg_1.clone() as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or(SmeltUnknown::Undefined), closure_arg_1.clone() as f64, &first);
     _smelt_tmp_6.clone()
     }
-}); let smelt_array = first.clone(); smelt_array.iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>() });
+}); let smelt_array = first.clone(); smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>() });
     return _smelt_tmp_4;
 }
 
