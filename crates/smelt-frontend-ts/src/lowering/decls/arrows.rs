@@ -4,6 +4,7 @@
 use crate::lowering::support::{
     const_literal_from_item, single_arg, two_args,
 };
+use crate::lowering::stdlib::call_dispatch;
 use crate::lowering::{
     ConstLiteral,
     ModuleBuilder, RestParam, ambient_globals, stdlib_dispatch,
@@ -299,6 +300,9 @@ impl ModuleBuilder<'_> {
         if arrow.r#async {
             body.build_async_state_machine();
         }
+        // Any `fn.prop = value` write this body collected must have been rebuilt
+        // into a callable-interface struct by now; a leftover is a dropped write.
+        self.report_unconsumed_callable_props(&mut errors);
         self.scope.restore_bindings(saved_locals);
         self.scope.restore_callable_prop_writes(saved_callable_local_props);
         self.scope.restore_narrowings(saved_narrowed_locals);
@@ -1119,7 +1123,7 @@ return_ty: target_function.return_ty,
     ) -> Result<ConstLiteral, SmeltError> {
         if let Some(description) = Self::symbol_for_call_description(call) {
             return Ok(ConstLiteral {
-                literal: Literal::Symbol(format!("Symbol.for({description})")),
+                literal: Literal::Symbol(call_dispatch::registry_symbol_spelling(description)),
                 ty: self.ctx.krate.types.intern(Type::Unknown),
             });
         }
@@ -1130,8 +1134,18 @@ return_ty: target_function.return_ty,
                     "Symbol(...) supports at most one description argument",
                 ));
             }
+            // Same spelling the ordinary call path produces, description included:
+            // a folded initializer and a directly lowered `Symbol('d')` at the same
+            // source offset denote one symbol and must compare equal at runtime.
+            let description = match call.arguments.first() {
+                Some(Argument::StringLiteral(literal)) => literal.value.as_str(),
+                _ => "",
+            };
             return Ok(ConstLiteral {
-                literal: Literal::Symbol(format!("Symbol()@{}", call.span.start)),
+                literal: Literal::Symbol(call_dispatch::unique_symbol_spelling(
+                    description,
+                    call.span.start,
+                )),
                 ty: self.ctx.krate.types.intern(Type::Unknown),
             });
         }

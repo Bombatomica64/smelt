@@ -284,21 +284,47 @@ impl FunctionEmitter<'_> {
             smelt_hir::BinOp::JsStrictEq | smelt_hir::BinOp::JsStrictNotEq
         );
         let strict_nullish = strict || js_strict;
+        // `Optional` of a reference type keeps JavaScript identity semantics on
+        // the present values while absence stays comparable: two absent values
+        // are the same (`undefined === undefined`), and present-vs-absent never
+        // is. Applies to every identity-bearing container, not just the
+        // string-keyed record this arm originally covered.
         if strict
             && let (Some(left_inner), Some(right_inner)) = (lhs_inner, rhs_inner)
-            && let (Some(Type::Dict(left_key, _)), Some(Type::Dict(right_key, _))) = (
-                self.mir.types.get(left_inner),
-                self.mir.types.get(right_inner),
+            && let (Some(left_identity), Some(right_identity)) = (
+                self.reference_identity_text("left", left_inner),
+                self.reference_identity_text("right", right_inner),
             )
-            && self.mir.types.get(*left_key) == Some(&Type::String)
-            && self.mir.types.get(*right_key) == Some(&Type::String)
         {
             let text = format!(
-                "match ({}.as_ref(), {}.as_ref()) {{ (Some(left), Some(right)) => left.id == right.id, (None, None) => true, _ => false }}",
+                "match ({}.as_ref(), {}.as_ref()) {{ (Some(left), Some(right)) => {left_identity} == {right_identity}, (None, None) => true, _ => false }}",
                 self.operand_text(lhs)?,
                 self.operand_text(rhs)?
             );
             return Ok(Some(if negate { format!("!({text})") } else { text }));
+        }
+        // Exactly one side is optional and both hold reference values: an absent
+        // optional is `undefined`, which is never the same reference as a
+        // present object, so only the present case compares identities.
+        if strict
+            && let Some(pair) = match (lhs_inner, rhs_inner) {
+                (Some(inner), None) => Some((lhs, inner, rhs)),
+                (None, Some(inner)) => Some((rhs, inner, lhs)),
+                _ => None,
+            }
+        {
+            let (option_operand, inner, bare_operand) = pair;
+            let bare_ty = self.operand_ty(bare_operand)?;
+            if let (Some(inner_identity), Some(bare_identity)) = (
+                self.reference_identity_text("value", inner),
+                self.reference_identity_text(&self.operand_text(bare_operand)?, bare_ty),
+            ) {
+                let text = format!(
+                    "{}.as_ref().is_some_and(|value| {inner_identity} == {bare_identity})",
+                    self.operand_text(option_operand)?
+                );
+                return Ok(Some(if negate { format!("!({text})") } else { text }));
+            }
         }
         let text = if let Some(inner) = lhs_inner
             && self.operand_ty(rhs)? == self.none_ty
@@ -693,7 +719,81 @@ impl FunctionEmitter<'_> {
         ))
     }
 
+    /// Returns whether a MIR type is a JavaScript *reference* type — a value
+    /// that `===` compares by object identity rather than by contents.
+    ///
+    /// This is the type-level half of the identity rule; whether the chosen Rust
+    /// representation can actually *observe* that identity is a separate
+    /// question answered by [`Self::reference_identity_text`].
+    fn is_reference_type(&self, ty: TypeId) -> bool {
+        matches!(
+            self.mir.types.get(ty),
+            Some(
+                Type::List(_)
+                    | Type::Dict(_, _)
+                    | Type::JsMap(_, _)
+                    | Type::Set(_)
+                    | Type::Tuple(_)
+                    | Type::Class { .. }
+                    | Type::Function(_)
+            )
+        )
+    }
+
+    /// Returns the Rust expression reading a typed reference value's JavaScript
+    /// object identity, or `None` when its Rust representation carries none.
+    ///
+    /// Reference identity is only available where the emitted container keeps a
+    /// stable object id, and each such container is listed here so the rule
+    /// stays keyed on the *representation* rather than on any library spelling:
+    ///
+    /// * `SmeltList` (`Type::List`) exposes `id()`.
+    /// * `SmeltRecord` (a string-keyed `Type::Dict`, when the `SmeltUnknown`
+    ///   prelude is emitted) and `SmeltJsMap` (an object-keyed `Type::Dict`, or
+    ///   any source-spelled `Type::JsMap`) both carry an `id` field.
+    /// * `SmeltJsSet` (a `Type::Set` whose element cannot key a Rust `HashSet`)
+    ///   carries an `id` field.
+    ///
+    /// Every id comes from the one `smelt_next_object_id` counter, so ids from
+    /// different containers are directly comparable. In each of those
+    /// containers Rust `Clone` deliberately *shares* the id (codegen inserts
+    /// `.clone()` freely, and a JS value copy would otherwise lose its
+    /// identity), so an identity comparison survives codegen's own clones.
+    ///
+    /// The representations deliberately left without identity are the plain
+    /// `HashMap`/`HashSet` dicts and sets, Rust tuples (`Type::Tuple`) and
+    /// generated class structs (`Type::Class`): none of them stores an object
+    /// id today, so there is no identity to read and this returns `None` rather
+    /// than inventing one.
+    fn reference_identity_text(&self, text: &str, ty: TypeId) -> Option<String> {
+        match self.mir.types.get(ty)? {
+            Type::List(_) => Some(format!("{text}.id()")),
+            Type::Dict(key, _)
+                if self.dict_uses_smelt_record(*key) || self.dict_uses_js_key_map(*key) =>
+            {
+                Some(format!("{text}.id"))
+            }
+            Type::JsMap(_, _) => Some(format!("{text}.id")),
+            Type::Set(item) if !self.type_is_hash_set_key_safe(*item) => {
+                Some(format!("{text}.id"))
+            }
+            _ => None,
+        }
+    }
+
     /// Emits JavaScript SameValue checks for numeric and reference values.
+    ///
+    /// Reference-typed operands compare by JavaScript object identity, matching
+    /// what the erased `SmeltUnknown` path (`js_strict_eq` / `same_js_key`) does
+    /// for the same values: two distinct objects with identical contents are
+    /// `!==`. Structural `PartialEq` stays reserved for the loose/deep
+    /// comparisons (`toEqual`, `toStrictEqual`, `isDeepEqual`), which this
+    /// function never handles — it only fires for `StrictEq`/`StrictNotEq`.
+    ///
+    /// When a reference operand's representation carries no observable identity
+    /// (see [`Self::reference_identity_text`]) the result stays the pre-existing
+    /// constant `false`: two such values cannot be proven to be the same
+    /// reference.
     pub(super) fn strict_identity_text(
         &self,
         op: smelt_hir::BinOp,
@@ -716,16 +816,6 @@ impl FunctionEmitter<'_> {
                     "{{ let lhs: f64 = {lhs_text}; let rhs: f64 = {rhs_text}; (lhs.is_nan() && rhs.is_nan()) || (lhs == rhs && (lhs != 0.0 || lhs.is_sign_negative() == rhs.is_sign_negative())) }}"
                 )
             }
-            (Some(Type::Dict(lhs_key, _)), Some(Type::Dict(rhs_key, _)))
-                if self.mir.types.get(*lhs_key) == Some(&Type::String)
-                    && self.mir.types.get(*rhs_key) == Some(&Type::String) =>
-            {
-                format!(
-                    "{}.id == {}.id",
-                    self.operand_text(lhs)?,
-                    self.operand_text(rhs)?
-                )
-            }
             (Some(Type::Function(_)), Some(Type::Function(_))) if lhs_ty == rhs_ty => {
                 self.function_ptr_eq_text(
                     &self.operand_text(lhs)?,
@@ -733,43 +823,18 @@ impl FunctionEmitter<'_> {
                     lhs_ty,
                 )?
             }
-            (Some(Type::List(_)), Some(Type::List(_))) => {
-                // Typed lists are identity-bearing (`SmeltList`), so reference
-                // equality compares the JS reference id rather than giving up.
-                format!(
-                    "{}.id() == {}.id()",
-                    self.operand_text(lhs)?,
-                    self.operand_text(rhs)?
-                )
-            }
-            (
-                Some(Type::List(_) | Type::Set(_) | Type::Tuple(_) | Type::Class { .. }),
-                Some(Type::List(_) | Type::Set(_) | Type::Tuple(_) | Type::Class { .. }),
-            ) => "false".to_owned(),
-            (left, right)
-                if matches!(
-                    left,
-                    Some(
-                        Type::List(_)
-                            | Type::Dict(_, _)
-                            | Type::Set(_)
-                            | Type::Tuple(_)
-                            | Type::Class { .. }
-                            | Type::Function(_)
-                    )
-                ) || matches!(
-                    right,
-                    Some(
-                        Type::List(_)
-                            | Type::Dict(_, _)
-                            | Type::Set(_)
-                            | Type::Tuple(_)
-                            | Type::Class { .. }
-                            | Type::Function(_)
-                    )
-                ) =>
-            {
-                "false".to_owned()
+            _ if self.is_reference_type(lhs_ty) || self.is_reference_type(rhs_ty) => {
+                let lhs_identity =
+                    self.reference_identity_text(&self.operand_text(lhs)?, lhs_ty);
+                let rhs_identity =
+                    self.reference_identity_text(&self.operand_text(rhs)?, rhs_ty);
+                match (lhs_identity, rhs_identity) {
+                    (Some(left), Some(right)) => format!("{left} == {right}"),
+                    // Either a reference value whose representation has no id,
+                    // or a reference compared against a non-reference: neither
+                    // can be the same JS reference.
+                    _ => "false".to_owned(),
+                }
             }
             _ => return Ok(None),
         };

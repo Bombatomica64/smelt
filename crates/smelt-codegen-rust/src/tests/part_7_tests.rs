@@ -11468,3 +11468,121 @@ const v = check(new Ok());
         "static dispatch must not wrap the return type in `Result`:\n{source}"
     );
 }
+
+/// A callable object invoked inside a callback body must call its underlying
+/// callable, not silently evaluate to `null`.
+///
+/// `Rvalue::ClosureCall` used to answer `default_value(dest_ty)` for every
+/// callee that was not a `Type::Function`, so a callable-object record — which
+/// *is* callable, through its synthetic `__smelt_call` slot — had its entire
+/// call replaced by a null with no diagnostic. es-toolkit `memoize` (whose
+/// result type is `F & { cache }`) lost every `memoized(value)` inside a
+/// `props.map(..)` callback that way.
+#[test]
+fn typescript_callable_object_call_in_callback_invokes_the_call_slot() {
+    let source = source_for(
+        r"
+interface Memo {
+  (value: string): string;
+  cache: number;
+}
+
+function makeMemo(fn: (value: string) => string): Memo {
+  const memoized = function (value: string): string {
+    return fn(value);
+  };
+  memoized.cache = 0;
+  return memoized as Memo;
+}
+
+export function run(): string[] {
+  const memoized = makeMemo(v => v);
+  return ['a', 'b'].map(value => memoized(value));
+}
+",
+    );
+
+    let run_body = source
+        .split("fn run(")
+        .nth(1)
+        .and_then(|rest| rest.split("\nfn ").next())
+        .unwrap_or_else(|| panic!("expected a generated `run`:\n{source}"));
+    assert!(
+        run_body.contains("__smelt_call"),
+        "calling a callable object must go through its `__smelt_call` slot:\n{source}"
+    );
+    assert!(
+        !run_body.contains("let _smelt_tmp_4: SmeltUnknown = SmeltUnknown::Null;\n    _smelt_tmp_4"),
+        "the call must not be replaced by a null default:\n{source}"
+    );
+}
+
+/// `Function.prototype.length` on a borrowed callable handle is its declared
+/// arity, emitted as a constant.
+///
+/// Only the `SmeltErasedFunction` struct carries the arity in a `length` field.
+/// A callback *parameter* is emitted as a borrowed `&dyn Fn` handle, which has
+/// no field storage, so keying the choice on the MIR shape rather than on the
+/// emitted representation produced `func.length` on a `&dyn Fn` (E0609).
+#[test]
+fn typescript_function_length_on_borrowed_handle_is_the_declared_arity() {
+    let source = source_for(
+        r"
+export function arity(cb: (a: number, b: number) => void): number {
+  return cb.length;
+}
+",
+    );
+
+    let body = source
+        .split("fn arity(")
+        .nth(1)
+        .and_then(|rest| rest.split("\nfn ").next())
+        .unwrap_or_else(|| panic!("expected a generated `arity`:\n{source}"));
+    assert!(
+        body.contains("2.0"),
+        "a borrowed handle's `.length` is its declared parameter count:\n{source}"
+    );
+    assert!(
+        !body.contains("cb.length"),
+        "a borrowed `&dyn Fn` has no `length` field to read:\n{source}"
+    );
+}
+
+/// A callback parameter captured into a returned callable object must enter its
+/// function owned.
+///
+/// The returned record OWNS its `__smelt_call` slot as a `'static` handle, so a
+/// borrowed `&dyn Fn` parameter captured into it cannot satisfy the coercion
+/// ("coercion requires that `'1` must outlive `'static`" in es-toolkit `curry`).
+/// The escape analysis walks container types for exactly this reason; a class or
+/// interface is storage in the same way.
+#[test]
+fn typescript_callback_captured_into_returned_callable_object_is_owned() {
+    let source = source_for(
+        r"
+interface Wrapped {
+  (value: string): string;
+  tag: number;
+}
+
+export function wrap(fn: (value: string) => string): Wrapped {
+  const wrapped = function (value: string): string {
+    return fn(value);
+  };
+  wrapped.tag = 1;
+  return wrapped as Wrapped;
+}
+",
+    );
+
+    let signature = source
+        .split("fn wrap(")
+        .nth(1)
+        .and_then(|rest| rest.split(')').next())
+        .unwrap_or_else(|| panic!("expected a generated `wrap`:\n{source}"));
+    assert!(
+        !signature.contains("&dyn Fn"),
+        "a callback retained by the returned record must not stay borrowed:\n{source}"
+    );
+}

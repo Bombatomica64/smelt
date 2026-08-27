@@ -4,6 +4,71 @@ use super::*;
 use smelt_hir::FunctionType;
 
 impl FunctionEmitter<'_> {
+
+    /// Render a call whose callee is a callable-object record, through the
+    /// synthetic `__smelt_call` slot that holds its underlying callable.
+    ///
+    /// A callable object (a TypeScript interface with a call signature, or the
+    /// `type`/intersection/type-literal spellings that lower to the same
+    /// interface) is emitted as a struct, so it is not a Rust callable and the
+    /// ordinary indirect-call ladders do not apply to it. The frontend leaves
+    /// such a call as a plain `closure_call` on the record — the MIR-level
+    /// instruction for "invoke this callable object" — and this is where that
+    /// instruction is implemented: read the slot and invoke it with the slot's
+    /// own ABI, which is `SmeltErasedFunction::call(vec![..])` for the erased
+    /// rest shape and a direct invocation for a concrete signature.
+    ///
+    /// Answers `None` for any callee that is not a callable-object record, so
+    /// callers keep their existing behaviour for every other shape.
+    pub(super) fn callable_object_slot_call_text(
+        &self,
+        callee: &Operand,
+        args: &[Operand],
+        dest_ty: TypeId,
+    ) -> Result<Option<String>, EmitError> {
+        let callee_ty = self.operand_ty(callee)?;
+        let Some(call_ty) = self.callable_interface_call_field_ty(callee_ty) else {
+            return Ok(None);
+        };
+        let Some(Type::Function(function)) = self.mir.types.get(call_ty).cloned() else {
+            return Ok(None);
+        };
+        let slot_text = format!("{}.__smelt_call.clone()", self.operand_text(callee)?);
+        let (call_text, source_ty) =
+            if self.is_erased_unknown_rest_function(&function) && !function.may_throw {
+                // The slot is a `SmeltErasedFunction`: its ABI takes the argument
+                // vector and always answers a bare `SmeltUnknown`.
+                let rendered = args
+                    .iter()
+                    .map(|arg| self.erase(arg))
+                    .collect::<Result<Vec<_>, EmitError>>()?;
+                (
+                    format!("{slot_text}.call(vec![{}])", rendered.join(", ")),
+                    self.type_id(Type::Unknown)?,
+                )
+            } else {
+                let rendered = args
+                    .iter()
+                    .zip(function.params.iter())
+                    .map(|(arg, param)| self.value_at_type(arg, *param))
+                    .collect::<Result<Vec<_>, EmitError>>()?;
+                let call = format!("({slot_text})({})", rendered.join(", "));
+                let call = if function.may_throw {
+                    if self.body_can_propagate_error() {
+                        format!("{call}?")
+                    } else {
+                        format!("{call}.unwrap_or_else(|error| panic!(\"{{}}\", error))")
+                    }
+                } else {
+                    call
+                };
+                (call, function.return_ty)
+            };
+        if self.mir.types.get(dest_ty) == Some(&Type::None) {
+            return Ok(Some(format!("{{ {call_text}; () }}")));
+        }
+        Ok(Some(self.value_at_type_text(&call_text, source_ty, dest_ty)?))
+    }
     /// Render array-literal elements by value without consuming local operands.
     ///
     /// JavaScript array literals copy references/primitive values into the new
@@ -1224,6 +1289,16 @@ impl FunctionEmitter<'_> {
                         self.value_at_type_text("SmeltUnknown::Undefined", unknown_ty, dest_ty)?;
                     return Ok(format!("{map_expr}.unwrap_or({undefined_text})"));
                 }
+                // A callable-object record IS callable: its synthetic
+                // `__smelt_call` slot holds the underlying function. Falling
+                // through to `default_value` below silently replaced the whole
+                // call with `null` — es-toolkit's `memoize` (whose result type is
+                // `F & { cache }`) lost every `memoized(value)` inside a callback
+                // that way, with no diagnostic. Route the call through the slot.
+                if let Some(call_text) = self.callable_object_slot_call_text(callee, args, dest_ty)?
+                {
+                    return Ok(call_text);
+                }
                 if !matches!(self.mir.types.get(callee_ty), Some(Type::Function(_))) {
                     return self.default_value(dest_ty);
                 }
@@ -2114,7 +2189,11 @@ impl FunctionEmitter<'_> {
 
         let mut prop_values = HashMap::new();
         for (key, value) in props {
-            prop_values.insert(sanitize_ident(self.symbol_source_name(*key)?), value);
+            // Keyed by the *interned* name, the same one the field side reads:
+            // a source property `isPending` interns as `is_pending` and records
+            // `isPending` as its source spelling, so matching source spelling
+            // against interned field name would miss every camel-cased member.
+            prop_values.insert(sanitize_ident(self.symbol_name(*key)?), value);
         }
 
         let mut field_text = Vec::new();

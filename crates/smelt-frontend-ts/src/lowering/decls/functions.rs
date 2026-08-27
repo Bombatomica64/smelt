@@ -393,6 +393,9 @@ impl ModuleBuilder<'_> {
         if function.r#async {
             body.build_async_state_machine();
         }
+        // Any `fn.prop = value` write this body collected must have been rebuilt
+        // into a callable-interface struct by now; a leftover is a dropped write.
+        self.report_unconsumed_callable_props(&mut errors);
         self.scope.restore_bindings(saved_locals);
         self.scope.restore_date_values(saved_date_value_locals);
         self.scope.restore_callable_prop_writes(saved_callable_local_props);

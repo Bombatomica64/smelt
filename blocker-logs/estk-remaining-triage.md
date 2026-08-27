@@ -81,7 +81,46 @@ matching read, so the stored field is found instead of answering `null`.
 Worth doing before the `toBe` work below: it is a single root behind six
 failures in four modules, and probably more once `curry` itself behaves.
 
-### `clone` / `cloneDeep`: the root is `toBe`, not `clone`
+### CORRECTION: `clone` / `cloneDeep` is THREE roots, not one
+
+The entry below claimed the root is `toBe` rather than `clone`. That is at
+best a third of the story, and I only found out by running the tests and
+reading the real assertion messages instead of reasoning from the source.
+The ten failures split three ways:
+
+**A. `toBe` emits structural equality for TYPED reference types (3 tests)**
+-- `clone should clone maps`, `cloneDeep should clone maps`,
+`cloneDeep should clone string objects`. The frontend is already correct:
+`test_to_be_identity_type` classifies `List`/`Dict`/`Set`/`Tuple`/`Class`/
+`Function` as identity types and routes `toBe` to `BinOp::StrictEq`. The
+EMITTER then renders that as Rust's derived `PartialEq`:
+
+```rust
+// source: expect(clonedMap).not.toBe(map)
+_smelt_tmp_5 = cloned_map != map;
+```
+
+so a clone with equal contents compares equal and `not.toBe` fails. The
+erased path is already right (`js_strict_eq` is documented as reference
+identity for objects); only the typed path is wrong. Identity is available
+and unused -- `SmeltRecord` and `SmeltList` both carry an `id`. This is a
+correctness bug well beyond `clone`: it affects every `toBe` on a typed
+object or array.
+
+**B. `clone` loses host-object content (6 tests)** -- `clone regular
+expressions`, `clone error`, `clone custom error`, `clone custom classes`,
+`cloneDeep clone instance`, `cloneDeep clone regexp arrays`. These fail on
+`toEqual`, not `toBe`, so the clone is a distinct object whose CONTENT does
+not survive: `expect(clonedRegex).toEqual(regex)` and
+`expect(clonedError).toEqual(error)` both report failure. Cloning fidelity
+for RegExp / Error / class instances is its own job, unrelated to A.
+
+**C. One remaining row** -- `cloneDeep should clone read only properties`
+fails `expect(b['#b']).toBe(undefined)`, which is neither of the above.
+
+So A and B are independent and can land separately; A is the general one.
+
+### Superseded original note: the root is `toBe`, not `clone`
 
 `clone` itself is correct for the Map case -- a runtime probe on the generated
 crate shows `clone(map)` returning a FRESH identity (object id 1 -> 6) with its
@@ -222,3 +261,143 @@ roots — none of them a read-coercion bug:
   `result: SmeltList<T>`, so a miss stores `Default::default()`. There is no
   `undefined` to put in a `Vec<T>`. This is the same storage question `Array(n)`
   raised, and it now has two callers wanting an answer.
+
+### `allKeyed`: erased `SmeltUnknown::Promise` values in a record (NARROWED, NOT YET VERIFIED)
+
+Four of `allKeyed`'s seven tests fail, and the pass/fail split is a clean
+discriminator -- every FAILING test builds its object with `Promise.resolve`
+or `Promise.reject`; every PASSING test uses either no promise at all
+(plain values, empty object) or the `new Promise(resolve => setTimeout(...))`
+constructor.
+
+Note which test passes: "should resolve promises concurrently, not
+sequentially", which times two 50ms sleeps and asserts `elapsed < 90`. So
+concurrency is NOT the defect. The `Promise.all` list path does await its
+futures in a `for` loop rather than joining them, which looks sequential at
+a glance, but `from_future_primed` runs each async body's synchronous prefix
+at creation and that timing test passes -- do not chase this as a
+concurrency bug (I did, briefly; it is not one).
+
+The failing shape is value-flattening. `Promise.resolve(1)` in an object
+literal lowers to `SmeltUnknown::Promise(...)` stored in the record:
+
+```rust
+let _smelt_tmp_4: SmeltRecord<String, SmeltUnknown> = SmeltRecord::from([
+    ("a".to_owned(), { let smelt_future = _smelt_tmp_1; SmeltUnknown::Promise(SmeltPromise::from_future(...
+```
+
+`all_keyed` then receives an erased object whose values are themselves
+promises, takes the `item_is_erased` branch of `AsyncOp::All` in
+`crates/smelt-codegen-rust/src/emitter/call.rs`, and is supposed to unwrap
+each with `smelt_await_flatten`. The tests that need that unwrap are exactly
+the ones failing, so the defect is somewhere in that chain -- the
+`SmeltUnknown::Promise` -> `SmeltFuture<SmeltUnknown>` conversion, the single
+flatten level, or the `result[keys[i]] = values[i]` write-back.
+
+NOT yet confirmed by running: narrowing this further needs the es-toolkit
+generated suite, and the exact assertion diff should be read before changing
+any emitter code.
+
+### `isEqualWith`: the six remaining failures are the wrapper, not the engine (NARROWED, NOT YET VERIFIED)
+
+All six remaining `isEqualWith` failures are named "when customizer returns
+undefined" -- the fallback path -- and they cover array views, buffers, error
+objects, circular arrays, transitive circular arrays, and arrays with
+differing non-index properties.
+
+The decisive fact: `isEqual` has ZERO failures. `src/predicate/isEqual.ts` is
+literally `isEqualWith(a, b, noop)`, so the shared engine
+(`is_equal_with_529`, from `src/predicate/isEqualWith.ts`) already handles
+every one of those six shapes correctly. Whatever is broken is in the compat
+wrapper `src/compat/predicate/isEqualWith.ts`, not the comparison itself.
+
+Two things I ruled OUT by reading the generated Rust, so nobody re-checks
+them:
+
+- The customizer's "no opinion" is NOT collapsed to `false`. The engine takes
+  `Option<bool>`, and the wrapper closure's fall-off-end correctly yields
+  `Ok::<Option<bool>, _>(None::<bool>)`.
+- The wrapper does reach the same engine; both paths call
+  `is_equal_with_529`.
+
+So the difference is confined to what the wrapper's closure does that `noop`
+does not: call the user customizer, then test `a instanceof Map` and
+`a instanceof Set` (closing over the OUTER `a`/`b`, which is the real source
+semantics), then recurse through `Array.from` + `after(2, ...)`. A plausible
+shape is those `instanceof` probes misbehaving on host objects (Buffer,
+Error, TypedArray) and diverting into the `Array.from` path -- but that would
+not by itself explain the two circular-array rows, so it is not the whole
+story.
+
+NOT verified by running. The next step is the actual assertion diff for one
+host-object row and one circular row; do not change the engine, which the
+`isEqual` result shows is already correct.
+
+### `sort()` with an absent comparator is a NO-OP (CONFIRMED BY CONSTRUCTION)
+
+`Array.prototype.sort` with no comparator, or with an `undefined` one, must
+use the JS default: coerce each element to a string and compare
+lexicographically. Smelt instead makes every pair compare EQUAL, so the list
+comes back unchanged.
+
+The whole chain is visible in the generated output and the prelude, in
+`third_party/es-toolkit/dist-smelt/src/sortKeys.rs` for
+`Object.keys(object).sort(compareKeys)`:
+
+```rust
+// absent comparator collapses to Undefined ...
+compare_keys.map(|f| SmeltUnknown::Number((f)(a, b) as f64)).unwrap_or(SmeltUnknown::Undefined)
+// ... which smelt_into_f64 turns into 0.0 (the `_ => 0.0` arm) ...
+sort_by(|left, right| {
+    let ordering = (smelt_comparator)(left, right).smelt_into_f64();
+    if ordering < 0.0 { Less } else if ordering > 0.0 { Greater } else { Equal }
+})
+```
+
+`0.0` is neither `< 0.0` nor `> 0.0`, so every pair is `Equal`, and Rust's
+`sort_by` is stable -- the input order survives untouched.
+
+This is GENERAL, not a sortKeys quirk: it hits every `.sort()` with no
+argument or an undefined one, anywhere in any corpus. `sortKeys` just makes
+it obvious because all three of its tests fail, including "should sort
+object keys alphabetically by default".
+
+The fix is a real default comparator (string coercion + lexicographic
+compare) selected when no callable comparator is supplied -- not a tweak to
+the `0.0` arm of `smelt_into_f64`, which is correct for other callers.
+
+Ruled out while finding this: `SmeltRecord` DOES model insertion order (it
+carries an `order: Vec<K>` beside its `HashMap`), so the rebuilt object is
+not the problem.
+
+One loose end: `sortKeys`'s third failure passes a REAL compare function,
+which should take the `Some` branch and work. That one is not explained by
+this defect and needs its own look after this is fixed.
+
+#### Follow-up: the third `sortKeys` failure is `localeCompare`, a separate root
+
+The loose end noted above is closed. `should sort keys with a custom compare
+function` passes a REAL comparator, so it takes the `Some` branch and is not
+affected by the no-comparator defect. It fails for its own reason: the
+comparator body is `(a, b) => b.localeCompare(a)`, and
+`String.prototype.localeCompare` is not a modeled builtin. The member read
+resolves to `SmeltUnknown::Null`, which is then CALLED:
+
+```rust
+let smelt_source_value = SmeltUnknown::Null.clone();          // b.localeCompare
+let smelt_function = match smelt_source_value { SmeltUnknown::Function(f) => Some(f), ... };
+let _smelt_tmp_3: SmeltUnknown = (_smelt_tmp_2)(closure_arg_0.clone());
+```
+
+So `sortKeys` needs BOTH fixes to go green: the default comparator, and
+`localeCompare`. For the ASCII cases the corpus exercises, `localeCompare` is
+an ordinary lexicographic comparison returning a negative / zero / positive
+number, so modeling it is small — and it is a plain missing builtin, not a
+design problem.
+
+Note the shared shape with the function-property defect recorded above: an
+UNMODELED MEMBER SILENTLY BECOMES A VALUE (`Null` here, a bogus `.fieldN`
+there) instead of being diagnosed, and the wrong value then flows into a
+call or a comparison. The in-flight function-statics work adds a diagnostic
+for the function-receiver case; the same treatment for unmodeled string
+methods would have surfaced this immediately rather than at runtime.

@@ -28,7 +28,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use smelt_hir::{ExprId, ItemId, LocalId, Symbol, TypeId};
+use smelt_hir::{ExprId, ItemId, LocalId, Span, Symbol, TypeId};
 
 use crate::lowering::LocalCallback;
 
@@ -47,6 +47,17 @@ struct CallableLocalProps {
     props: Vec<(Symbol, ExprId)>,
     /// Set once the local escapes via a non-consuming, non-self-call read.
     escaped: bool,
+    /// Span of the first claimed write, used to point the
+    /// collected-but-never-consumed diagnostic at the source the collection ate.
+    first_write_span: Option<Span>,
+    /// Callable-interface type the local was *declared* at, when its source
+    /// annotation named one.
+    ///
+    /// The declaration is what says which struct the collected writes belong
+    /// to, so a value that flows out at a position carrying no type hint (a
+    /// `return` from a function with an inferred return type) can still be
+    /// constructed instead of dropping its properties.
+    declared_interface: Option<TypeId>,
 }
 
 /// Source-name to local-id bindings saved while a nested body is lowered.
@@ -191,10 +202,63 @@ impl LocalScope {
         local: LocalId,
         prop: Symbol,
         value: ExprId,
+        span: Span,
     ) {
         let entry = self.callable_props.0.entry(local).or_default();
         entry.props.retain(|(name, _)| *name != prop);
         entry.props.push((prop, value));
+        entry.first_write_span.get_or_insert(span);
+    }
+
+    /// Report the property writes this body collected and never consumed.
+    ///
+    /// Collection removes the write from the statement stream on the promise
+    /// that a later callable-interface coercion will rebuild it as a struct
+    /// field. When that coercion never fires — the value flows out at a bare
+    /// function type, or through an intersection the interface lookup does not
+    /// recognize — the promise is broken and the write is simply gone. Returning
+    /// the leftovers lets the body-lowering exit turn that into a diagnostic
+    /// instead of a silent drop.
+    ///
+    /// Each entry is `(span of the first claimed write, property names still
+    /// pending)`, ordered by span so the diagnostics are deterministic.
+    pub(in crate::lowering) fn unconsumed_callable_props(&self) -> Vec<(Span, Vec<Symbol>)> {
+        let mut pending: Vec<(Span, Vec<Symbol>)> = self
+            .callable_props
+            .0
+            .values()
+            .filter(|state| !state.props.is_empty())
+            .filter_map(|state| {
+                state
+                    .first_write_span
+                    .map(|span| (span, state.props.iter().map(|(name, _)| *name).collect()))
+            })
+            .collect();
+        pending.sort_by_key(|(span, _)| (span.start, span.end));
+        pending
+    }
+
+    /// Record the callable-interface type a local was declared at.
+    ///
+    /// Called when a local's source annotation names a callable interface, so a
+    /// later consumption with no contextual type hint knows the struct to build.
+    pub(in crate::lowering) fn record_callable_local_interface(
+        &mut self,
+        local: LocalId,
+        interface_ty: TypeId,
+    ) {
+        self.callable_props.0.entry(local).or_default().declared_interface = Some(interface_ty);
+    }
+
+    /// Return the callable-interface type a local was declared at, if any.
+    pub(in crate::lowering) fn callable_local_declared_interface(
+        &self,
+        local: LocalId,
+    ) -> Option<TypeId> {
+        self.callable_props
+            .0
+            .get(&local)
+            .and_then(|state| state.declared_interface)
     }
 
     /// Return whether a callable local has already escaped its collection.
@@ -323,7 +387,7 @@ impl LocalScope {
 #[cfg(test)]
 mod tests {
     use super::LocalScope;
-    use smelt_hir::{ExprId, LocalId, Symbol, TypeId};
+    use smelt_hir::{ExprId, FileId, LocalId, Span, Symbol, TypeId};
 
     /// A repeated write to the same property replaces the earlier value and the
     /// surviving properties keep source order.
@@ -331,9 +395,9 @@ mod tests {
     fn callable_prop_writes_are_last_write_wins_in_source_order() {
         let mut scope = LocalScope::default();
         let local = LocalId(0);
-        scope.record_callable_prop(local, Symbol(1), ExprId(10));
-        scope.record_callable_prop(local, Symbol(2), ExprId(11));
-        scope.record_callable_prop(local, Symbol(1), ExprId(12));
+        scope.record_callable_prop(local, Symbol(1), ExprId(10), Span::new(FileId(0), 0, 1));
+        scope.record_callable_prop(local, Symbol(2), ExprId(11), Span::new(FileId(0), 2, 3));
+        scope.record_callable_prop(local, Symbol(1), ExprId(12), Span::new(FileId(0), 4, 5));
 
         assert_eq!(
             scope.take_callable_props(local),
@@ -341,6 +405,23 @@ mod tests {
         );
         // Consumption is destructive: a second read finds nothing.
         assert_eq!(scope.take_callable_props(local), None);
+    }
+
+    /// Pending writes are reported against the FIRST claimed write's span, and a
+    /// consumed local leaves nothing behind to report.
+    #[test]
+    fn unconsumed_callable_props_report_the_first_write_span() {
+        let mut scope = LocalScope::default();
+        let local = LocalId(0);
+        scope.record_callable_prop(local, Symbol(1), ExprId(10), Span::new(FileId(0), 7, 8));
+        scope.record_callable_prop(local, Symbol(2), ExprId(11), Span::new(FileId(0), 9, 10));
+
+        assert_eq!(
+            scope.unconsumed_callable_props(),
+            vec![(Span::new(FileId(0), 7, 8), vec![Symbol(1), Symbol(2)])]
+        );
+        drop(scope.take_callable_props(local));
+        assert!(scope.unconsumed_callable_props().is_empty());
     }
 
     /// Narrowing lookups resolve innermost-first and a popped scope stops

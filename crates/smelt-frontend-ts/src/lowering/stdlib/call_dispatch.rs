@@ -15,6 +15,27 @@ use smelt_hir::{
 use smelt_stdlib::RuleId;
 use std::collections::HashMap;
 
+/// Render the opaque runtime string that stands for a *unique* `Symbol(...)`.
+///
+/// A unique symbol has fresh identity per evaluation site, so the spelling is
+/// keyed by the call's source offset; the description is carried along because
+/// two spellings of the same symbol are compared as plain strings at runtime
+/// (`js_strict_eq`), so a description-less variant would compare unequal to the
+/// described one for the very same source symbol. Every path that materializes a
+/// unique symbol — the ordinary call-lowering path and the const-initializer
+/// folding path — must go through here so the two cannot drift apart.
+pub(in crate::lowering) fn unique_symbol_spelling(description: &str, span_start: u32) -> String {
+    format!("Symbol({description})@{span_start}")
+}
+
+/// Render the opaque runtime string that stands for a registry `Symbol.for(...)`.
+///
+/// Registry symbols are globally interned by description, so the spelling omits
+/// the source offset and two `Symbol.for("k")` sites share one string.
+pub(in crate::lowering) fn registry_symbol_spelling(description: &str) -> String {
+    format!("Symbol.for({description})")
+}
+
 /// Function pointer shape for builtin call lowering registry entries.
 ///
 /// The builder lifetime is supplied by the impl block that owns the registry.
@@ -2308,9 +2329,9 @@ impl<'builder> ModuleBuilder<'builder> {
             })
             .unwrap_or_default();
         let value = if global {
-            format!("Symbol.for({description})")
+            registry_symbol_spelling(&description)
         } else {
-            format!("Symbol({description})@{}", call.span.start)
+            unique_symbol_spelling(&description, call.span.start)
         };
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::Symbol(value)),

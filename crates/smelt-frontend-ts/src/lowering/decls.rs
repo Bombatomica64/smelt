@@ -2,8 +2,9 @@
 //! interfaces, enums, and the constructor-function idiom.
 
 mod arrows;
+mod callable_object;
 mod constructor;
 mod enums;
 mod functions;
 mod super_call;
-mod types_iface;
+pub(in crate::lowering) mod types_iface;

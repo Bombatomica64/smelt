@@ -433,11 +433,16 @@ export function same(data: unknown, other: unknown): boolean {
 
 #[test]
 fn emits_strict_identity_for_optional_records() {
+    // The record must be identity-bearing for `toBe` to read an `id`: a
+    // string-keyed dict only uses the `SmeltRecord` container (which carries an
+    // object id) when the program emits the `SmeltUnknown` prelude, otherwise it
+    // is a plain `HashMap` with no identity to read. The `unknown` field keeps
+    // this program on the identity-bearing representation.
     let source = source_for(
         r#"
 import { expect } from "vitest";
 
-function compare(left?: { a: number }, right?: { a: number }): void {
+function compare(left?: { a: unknown }, right?: { a: unknown }): void {
   expect(left).toBe(right);
   expect(left).not.toBe(right);
 }
@@ -1173,3 +1178,110 @@ export function wrap<F extends (...args: any) => any>(fn: F): F {
     );
 }
 
+#[test]
+fn emits_reference_identity_for_typed_map_strict_equality() {
+    // `toBe` on a source `Map` is JavaScript reference identity: a clone with
+    // identical entries is `!==` the original. The typed container
+    // (`SmeltJsMap`) carries a stable object `id`, so the comparison reads that
+    // id instead of falling back to Rust structural `PartialEq`.
+    let source = source_for(
+        r#"
+import { test, expect } from "vitest";
+
+test("map identity", () => {
+  const map = new Map<number, string>([[1, "a"]]);
+  const alias = map;
+  expect(alias).toBe(map);
+});
+"#,
+    );
+
+    assert!(source.contains("map.clone().id == map.clone().id"), "{source}");
+}
+
+#[test]
+fn emits_reference_identity_for_typed_set_strict_equality() {
+    // A `Set` whose element cannot key a Rust `HashSet` uses `SmeltJsSet`,
+    // which carries an object `id`; `toBe` compares that id.
+    let source = source_for(
+        r#"
+import { test, expect } from "vitest";
+
+test("set identity", () => {
+  const values = new Set<number>([1]);
+  const alias = values;
+  expect(alias).toBe(values);
+});
+"#,
+    );
+
+    assert!(
+        source.contains("values.clone().id == values.clone().id"),
+        "{source}"
+    );
+}
+
+#[test]
+fn keeps_structural_equality_for_deep_matchers_on_reference_values() {
+    // The identity rule fires for `toBe` only. `toEqual`/`toStrictEqual` (and
+    // the `isDeepEqual`-shaped `==` they lower to) must keep using the
+    // containers' structural `PartialEq`, otherwise deep comparison of two
+    // distinct-but-equal objects would report inequality.
+    let source = source_for(
+        r#"
+import { test, expect } from "vitest";
+
+test("map structural", () => {
+  const map = new Map<number, string>([[1, "a"]]);
+  const copy = new Map<number, string>([[1, "a"]]);
+  expect(copy).toEqual(map);
+  expect(copy).toStrictEqual(map);
+});
+"#,
+    );
+
+    assert!(source.contains("copy.clone() != map.clone()"), "{source}");
+    assert!(!source.contains("copy.id == map.id"), "{source}");
+}
+
+#[test]
+fn emits_reference_identity_for_optional_maps() {
+    // `Optional` of a reference type keeps identity on the present values while
+    // two absent values still compare equal (`undefined === undefined`).
+    let source = source_for(
+        r#"
+import { expect } from "vitest";
+
+function compare(left?: Map<number, string>, right?: Map<number, string>): void {
+  expect(left).toBe(right);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("(Some(left), Some(right)) => left.id == right.id"),
+        "{source}"
+    );
+    assert!(source.contains("(None, None) => true"), "{source}");
+}
+
+#[test]
+fn emits_false_for_identityless_reference_strict_equality() {
+    // A tuple lowers to a Rust tuple, which stores no object id. Rather than
+    // inventing an identity, the comparison keeps reporting "not the same
+    // reference" — the same answer as before this rule existed.
+    let source = source_for(
+        r#"
+import { test, expect } from "vitest";
+
+test("tuple identity", () => {
+  const pair: [number, number] = [1, 2];
+  const other: [number, number] = [1, 2];
+  expect(other).not.toBe(pair);
+});
+"#,
+    );
+
+    assert!(!source.contains("pair.id"), "{source}");
+    assert!(!source.contains("other == pair"), "{source}");
+}

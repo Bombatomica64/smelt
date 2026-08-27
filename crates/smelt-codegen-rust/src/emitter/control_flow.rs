@@ -426,8 +426,17 @@ impl FunctionEmitter<'_> {
                     format!(": {}", self.type_text_with_impl_trait(local.ty, false)?)
                 };
                 if self.local_uses_shared_capture_storage(*dest) {
+                    // Annotate the cell with the local's declared type, exactly as
+                    // the two sibling capture-cell emitters do (the predeclaration
+                    // path in `core.rs` and the `AssignPlace` path below). An
+                    // unannotated `RefCell::new(Default::default())` has nothing to
+                    // infer `T` from at the declaration, and a captured local that
+                    // is only *read* in this body (`let func: DebounceFunction<any>`
+                    // assigned in a sibling `beforeEach`, read by an arrow) leaves
+                    // it unsolved — E0282 in the generated crate.
                     out.push_str(&format!(
-                        "    let smelt_capture_{name} = ::std::rc::Rc::new(::std::cell::RefCell::new({rendered_value}));\n",
+                        "    let smelt_capture_{name}: ::std::rc::Rc<::std::cell::RefCell<{}>> = ::std::rc::Rc::new(::std::cell::RefCell::new({rendered_value}));\n",
+                        self.type_text_with_impl_trait(local.ty, false)?
                     ));
                 } else {
                     out.push_str(&format!(
