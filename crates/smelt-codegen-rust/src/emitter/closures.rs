@@ -2,7 +2,9 @@
 
 use super::*;
 use smelt_hir::FunctionType;
-use rendered_text_rewrite::{replace_shared_capture_uses, shared_capture_cell_name};
+use rendered_text_rewrite::{
+    SELF_RECURSIVE_UPGRADE, replace_shared_capture_uses, shared_capture_cell_name,
+};
 
 impl FunctionEmitter<'_> {
     /// Converts a non-escaping MIR closure into a Rust closure literal.
@@ -485,9 +487,7 @@ impl FunctionEmitter<'_> {
                         // it upgrades before borrowing. See
                         // `closure_capture_is_non_escaping_self_reference`.
                         if self.closure_capture_is_non_escaping_self_reference(closure, capture) {
-                            format!(
-                                "(*smelt_capture_{alias_name}.upgrade().expect(\"self-recursive closure called after its defining scope returned\").borrow_mut())"
-                            )
+                            format!("(*smelt_capture_{alias_name}{SELF_RECURSIVE_UPGRADE}.borrow_mut())")
                         } else {
                             format!("(*smelt_capture_{alias_name}.borrow_mut())")
                         }
@@ -885,9 +885,7 @@ impl FunctionEmitter<'_> {
                         shared_replacements.push((
                             name.clone(),
                             if self_reference {
-                                format!(
-                                    "(*smelt_capture_{name}.upgrade().expect(\"self-recursive closure called after its defining scope returned\").borrow_mut())"
-                                )
+                                format!("(*smelt_capture_{name}{SELF_RECURSIVE_UPGRADE}.borrow_mut())")
                             } else {
                                 format!("(*smelt_capture_{name}.borrow_mut())")
                             },
