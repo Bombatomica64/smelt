@@ -387,3 +387,181 @@ test("a map built from entries accepts later writes and deletes", () => {
 "#;
     run_map_fixture(source, "smelt_map_from_entries");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn dict_entry_push_mutates_the_stored_group_in_place() {
+    // `groups[key].push(item)` used to copy the whole stored list out of the
+    // dict, push onto the copy, and copy it back — twice over, because the push
+    // wrote the entry back and the statement after it wrote the same entry back
+    // again. `smelt_mir::opt::DictEntryInPlaceMutation` now retargets the push at
+    // the entry itself, so the group is mutated through the container and
+    // neither copy is emitted.
+    //
+    // Deleting those copies is only correct if the in-place write is what every
+    // later reader sees, so these cases pin the behavior the copies used to
+    // provide. This fixture uses the plain `HashMap` backing a string-keyed dict
+    // takes when the program needs no erased runtime; the two fixtures below
+    // cover the `SmeltRecord` and `SmeltJsMap` backings.
+    let source = r#"
+import { test, expect } from "vitest";
+test("grouping collects every item under its own key", () => {
+  const items = [1, 2, 3, 4, 5, 6];
+  const groups: Record<string, number[]> = {};
+  for (const item of items) {
+    const key = item % 2 === 0 ? "even" : "odd";
+    if (!Object.hasOwn(groups, key)) {
+      groups[key] = [];
+    }
+    groups[key].push(item);
+  }
+  expect(groups["odd"].join(",")).toBe("1,3,5");
+  expect(groups["even"].join(",")).toBe("2,4,6");
+});
+test("distinct keys never share a group", () => {
+  const groups: Record<string, number[]> = { a: [], b: [] };
+  groups["a"].push(1);
+  groups["b"].push(2);
+  groups["a"].push(3);
+  expect(groups["a"].join(",")).toBe("1,3");
+  expect(groups["b"].join(",")).toBe("2");
+});
+test("pushing under an absent key creates that group", () => {
+  // Smelt gives an index read a total lowering: a missing entry reads as the
+  // value type's default rather than `undefined`. The fused push has to keep
+  // that, which is the insert branch of the entry accessor.
+  const groups: Record<string, number[]> = {};
+  groups["fresh"].push(7);
+  expect(groups["fresh"].join(",")).toBe("7");
+});
+test("a named group binding still observes its own pushes", () => {
+  // A user binding is NOT fused — it keeps the copy-out/copy-back form — so both
+  // it and the container must show the pushes.
+  const groups: Record<string, number[]> = { a: [] };
+  groups["b"] = [];
+  const group = groups["a"];
+  group.push(1);
+  group.push(2);
+  expect(group.join(",")).toBe("1,2");
+  expect(groups["a"].join(",")).toBe("1,2");
+});
+test("pushing a value read out of the same container works", () => {
+  // The re-borrow trap: the pushed item reads the SAME container. Taking the
+  // entry handle before evaluating the item would panic at runtime with
+  // "already borrowed" over the record and map backings.
+  const groups: Record<string, number[]> = { a: [1, 2] };
+  groups["a"].push(groups["a"].length);
+  groups["a"].push(groups["a"][0]);
+  expect(groups["a"].join(",")).toBe("1,2,2,1");
+});
+"#;
+    run_map_fixture(source, "smelt_dict_entry_push");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn dict_entry_push_mutates_a_record_backed_group_in_place() {
+    // The same fused push over the `SmeltRecord` backing, which a string-keyed
+    // dict takes once the program also needs the erased runtime (the `unknown`
+    // binding below forces it). A record keeps JavaScript own-key order and is a
+    // reference value, so this is where key ordering and alias visibility are
+    // observable: the in-place write must be seen through every binding, exactly
+    // as the deleted copy-back made it.
+    let source = r#"
+import { test, expect } from "vitest";
+test("grouping through a record keeps first-seen key order", () => {
+  const erased: unknown = "force the erased runtime";
+  expect(typeof erased).toBe("string");
+  const items = [1, 2, 3, 4, 5, 6];
+  const groups: Record<string, number[]> = {};
+  for (const item of items) {
+    const key = item % 2 === 0 ? "even" : "odd";
+    if (!Object.hasOwn(groups, key)) {
+      groups[key] = [];
+    }
+    groups[key].push(item);
+  }
+  expect(groups["odd"].join(",")).toBe("1,3,5");
+  expect(groups["even"].join(",")).toBe("2,4,6");
+  expect(Object.keys(groups).join(",")).toBe("odd,even");
+});
+test("a record push through one binding is visible through another", () => {
+  const erased: unknown = 1;
+  expect(typeof erased).toBe("number");
+  const groups: Record<string, number[]> = { a: [] };
+  const alias = groups;
+  groups["a"].push(1);
+  alias["a"].push(2);
+  expect(groups["a"].join(",")).toBe("1,2");
+  expect(alias["a"].join(",")).toBe("1,2");
+});
+test("a record push reading the same container works", () => {
+  const erased: unknown = true;
+  expect(typeof erased).toBe("boolean");
+  const groups: Record<string, number[]> = { a: [1, 2] };
+  groups["a"].push(groups["a"].length);
+  groups["a"].push(groups["a"][0]);
+  expect(groups["a"].join(",")).toBe("1,2,2,1");
+});
+"#;
+    run_map_fixture(source, "smelt_dict_entry_push_record");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn dict_entry_push_mutates_a_map_backed_group_in_place() {
+    // The `SmeltJsMap` backing, which a dict takes when its key is not a plain
+    // string — here a `K extends PropertyKey` type parameter, the shape every
+    // generic `groupBy` has and the one the O(n^2) copying was measured on. The
+    // map's entries live behind a shared `RefCell`, so the entry handle is a live
+    // borrow: these cases prove the fused push neither loses a group nor
+    // re-borrows the store while the handle is held.
+    let source = r#"
+import { test, expect } from "vitest";
+function groupBy<T, K extends PropertyKey>(items: T[], keyOf: (item: T) => K): Record<K, T[]> {
+  const result = {} as Record<K, T[]>;
+  for (const item of items) {
+    const key = keyOf(item);
+    if (!Object.hasOwn(result, key)) {
+      result[key] = [];
+    }
+    result[key].push(item);
+  }
+  return result;
+}
+function joinGroup<K extends PropertyKey>(groups: Record<K, number[]>, key: K): string {
+  return groups[key].join(",");
+}
+function pushThroughAlias<K extends PropertyKey>(key: K): string {
+  const result = {} as Record<K, number[]>;
+  result[key] = [];
+  const alias = result;
+  result[key].push(1);
+  alias[key].push(2);
+  return alias[key].join(",");
+}
+function pushOwnLength<K extends PropertyKey>(key: K): string {
+  const result = {} as Record<K, number[]>;
+  result[key] = [5];
+  result[key].push(result[key].length);
+  return result[key].join(",");
+}
+test("a map-backed grouping collects every item under its own key", () => {
+  const grouped = groupBy([1, 2, 3, 4, 5, 6], (item) => (item % 2 === 0 ? "even" : "odd"));
+  expect(joinGroup(grouped, "odd")).toBe("1,3,5");
+  expect(joinGroup(grouped, "even")).toBe("2,4,6");
+});
+test("a map-backed grouping keeps distinct keys apart", () => {
+  const grouped = groupBy([10, 21, 32, 43, 54], (item) => item % 2);
+  expect(joinGroup(grouped, 0)).toBe("10,32,54");
+  expect(joinGroup(grouped, 1)).toBe("21,43");
+});
+test("a map-backed push through one binding is visible through another", () => {
+  expect(pushThroughAlias("a")).toBe("1,2");
+});
+test("a map-backed push reading the same container works", () => {
+  expect(pushOwnLength("a")).toBe("5,1");
+});
+"#;
+    run_map_fixture(source, "smelt_dict_entry_push_map");
+}

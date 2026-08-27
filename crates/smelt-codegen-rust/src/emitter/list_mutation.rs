@@ -42,6 +42,64 @@ impl FunctionEmitter<'_> {
                 ));
             }
         };
+        // `base[key].push(item)` reaches codegen with the dict ENTRY as the push
+        // receiver once `smelt_mir::opt::DictEntryInPlaceMutation` has fused the
+        // copy-out/mutate/copy-back triple that HIR lowering emits. Mutate the
+        // stored list through the container's entry accessor, which is what a
+        // hand-written Rust port does (`groups.entry(key).or_default().push(x)`)
+        // and which copies neither the old nor the new group.
+        if let Operand::Copy(Place::Index { base, index })
+        | Operand::Move(Place::Index { base, index }) = list
+            && let Some(Type::Dict(key_ty, value_ty)) =
+                self.mir.types.get(self.local_decl(*base)?.ty)
+            && *value_ty == list_ty
+        {
+            let entry_key_ty = *key_ty;
+            let entry_ty = *value_ty;
+            let base_text = self.local_mut_value_text(*base)?;
+            let key_text = if self.mir.types.get(entry_key_ty) == Some(&Type::String) {
+                let source_key = self.operand_ty(index.as_ref())?;
+                let index_text = self.operand_text(index.as_ref())?;
+                self.property_key_to_string_text(&index_text, source_key)?
+            } else {
+                self.value_at_type(index.as_ref(), entry_key_ty)?
+            };
+            let default_value = self.default_value(entry_ty)?;
+            let item_text = self.value_at_type(item, *item_ty)?;
+            let result = if returns_length {
+                "smelt_slot.len() as f64"
+            } else {
+                "()"
+            };
+            // The pushed item is materialized BEFORE the entry accessor runs.
+            // The item expression may read the same container (for example
+            // `groups[key].push(groups[key].length)`), and an object-keyed or
+            // record-backed entry handle is a live `RefCell` borrow that such a
+            // read would panic on ("already borrowed"). Evaluating the item
+            // first also keeps the key and default expressions outside the
+            // borrow, since both are arguments of the accessor call.
+            //
+            // `SmeltJsMap`/`SmeltRecord` hand back a `RefMut` guard, which needs
+            // a mutable binding to deref-mutate; a plain `HashMap` entry is
+            // already a `&mut V`, so binding it `mut` would only raise an
+            // `unused_mut` warning in the generated crate.
+            let (binding, accessor) = if self.dict_uses_js_key_map(entry_key_ty)
+                || self.dict_uses_smelt_record(entry_key_ty)
+            {
+                (
+                    "let mut smelt_slot",
+                    format!("{base_text}.entry_or_insert({key_text}, {default_value})"),
+                )
+            } else {
+                (
+                    "let smelt_slot",
+                    format!("{base_text}.entry({key_text}).or_insert({default_value})"),
+                )
+            };
+            return Ok(format!(
+                "{{ let smelt_push_item = {item_text}; {binding} = {accessor}; smelt_slot.push(smelt_push_item); {result} }}"
+            ));
+        }
         if let Operand::Copy(Place::Field { base, field })
         | Operand::Move(Place::Field { base, field }) = list
             && matches!(
