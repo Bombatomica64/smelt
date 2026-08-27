@@ -11,6 +11,10 @@
 //! function is generic, two cases are registered: the `SmeltUnknown` instantiation
 //! that erased callers get, and (suffix `_typed`) the `f64` instantiation a caller
 //! holding a concrete `number[]` gets. The gap between them is the cost of erasure.
+//!
+//! Callback closures below take their array parameter as `&SmeltList<..>`: a list-typed
+//! callback parameter is passed by shared reference, because by value it cost a full
+//! deep copy of the list on every element.
 
 use super::smelt_bench_harness::*;
 use super::smelt_bench_entry::*;
@@ -136,17 +140,17 @@ pub fn run_case(name: &str) -> Option<Measurement> {
         // --- keyed aggregation (callback-taking) ---
         "group_by" => {
             let data: SmeltList<SmeltUnknown> = SmeltList::from(records(N, 8));
-            let key = |item: SmeltUnknown, _i: f64, _all: SmeltList<SmeltUnknown>| field(&item, "group");
+            let key = |item: SmeltUnknown, _i: f64, _all: &SmeltList<SmeltUnknown>| field(&item, "group");
             measure(|| entry_group_by(data.clone(), &key), |out| hash_map_of_lists(0, out))
         }
         "count_by" => {
             let data: SmeltList<SmeltUnknown> = SmeltList::from(records(N, 8));
-            let key = |item: SmeltUnknown, _i: f64, _all: SmeltList<SmeltUnknown>| field(&item, "group");
+            let key = |item: SmeltUnknown, _i: f64, _all: &SmeltList<SmeltUnknown>| field(&item, "group");
             measure(|| entry_count_by(data.clone(), &key), |out| hash_map_of_numbers(0, out))
         }
         "unique_by" => {
             let data: SmeltList<SmeltUnknown> = SmeltList::from(records(N, 8));
-            let key = |item: SmeltUnknown, _i: f64, _all: SmeltList<SmeltUnknown>| field(&item, "group");
+            let key = |item: SmeltUnknown, _i: f64, _all: &SmeltList<SmeltUnknown>| field(&item, "group");
             measure(|| entry_uniq_by(data.clone(), &key), |out| hash_list(0, out))
         }
         "sum_by" => {
@@ -162,7 +166,7 @@ pub fn run_case(name: &str) -> Option<Measurement> {
         }
         "partition" => {
             let data: SmeltList<SmeltUnknown> = SmeltList::from(records(N, 8));
-            let pred = |item: SmeltUnknown, _i: f64, _all: SmeltList<SmeltUnknown>| {
+            let pred = |item: SmeltUnknown, _i: f64, _all: &SmeltList<SmeltUnknown>| {
                 matches!(field(&item, "flag"), SmeltUnknown::Bool(true))
             };
             measure(

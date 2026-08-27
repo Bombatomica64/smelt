@@ -3105,14 +3105,17 @@ impl<'mir> FunctionEmitter<'mir> {
                 if function.rest == Some(index)
                     && let Some(Type::List(item_ty)) = self.mir.types.get(*param_ty)
                 {
+                    let by_ref =
+                        self.callback_param_is_shared_reference(function, index, *param_ty);
+                    let (open, close) = if by_ref { ("&(", ")") } else { ("", "") };
                     if self.mir.types.get(*item_ty) == Some(&Type::Unknown) {
                         return Ok(format!(
-                            "smelt_args.iter().skip({index}).cloned().collect::<SmeltList<_>>()"
+                            "{open}smelt_args.iter().skip({index}).cloned().collect::<SmeltList<_>>(){close}"
                         ));
                     }
                     let item_text = self.extract_value_text("value", *item_ty)?;
                     return Ok(format!(
-                        "smelt_args.iter().skip({index}).cloned().map(|value| {item_text}).collect::<SmeltList<_>>()"
+                        "{open}smelt_args.iter().skip({index}).cloned().map(|value| {item_text}).collect::<SmeltList<_>>(){close}"
                     ));
                 }
                 let item = format!("smelt_args.get({index}).cloned().unwrap_or(SmeltUnknown::Null)");
@@ -3130,6 +3133,8 @@ impl<'mir> FunctionEmitter<'mir> {
                 };
                 if function.mutable_params.contains(&index) {
                     Ok(format!("&mut ({arg})"))
+                } else if self.callback_param_is_shared_reference(function, index, *param_ty) {
+                    Ok(format!("&({arg})"))
                 } else {
                     Ok(arg)
                 }
@@ -3365,9 +3370,45 @@ impl<'mir> FunctionEmitter<'mir> {
                         declared,
                         &substitution,
                     );
-                    self.value_at_type_text(&format!("arg{index}"), declared, *source_param)
+                    // Both sides of the adapter carry their own by-reference axis
+                    // (`callback_param_is_shared_reference`): the parameter the
+                    // adapter DECLARES, and the parameter of the callback it wraps.
+                    let declares_reference = self.callback_param_is_shared_reference(
+                        target_function,
+                        index,
+                        *target_param,
+                    );
+                    let wrapped_takes_reference =
+                        self.callback_param_is_shared_reference(source, index, *source_param);
+                    // The zero-copy path, and the reason the ABI exists: the same
+                    // by-reference type on both sides forwards the borrow untouched.
+                    if declares_reference && wrapped_takes_reference && declared == *source_param {
+                        return Ok(format!("arg{index}"));
+                    }
+                    // Otherwise a conversion runs, and every conversion arm is written
+                    // against an owned value — so a declared reference is copied back
+                    // into one first. That copy is per CALL of the adapter, and only
+                    // where the two sides genuinely disagree about the type.
+                    let source_text = if declares_reference {
+                        format!("arg{index}.clone()")
+                    } else {
+                        format!("arg{index}")
+                    };
+                    let arg_text =
+                        self.value_at_type_text(&source_text, declared, *source_param)?;
+                    // The converted value is a temporary, and Rust extends a borrowed
+                    // temporary's lifetime to the end of the statement, so `&(expr)` is
+                    // valid even though the value is unnamed.
+                    if wrapped_takes_reference {
+                        return Ok(format!("&({arg_text})"));
+                    }
+                    Ok(arg_text)
                 } else {
-                    self.default_value(*source_param)
+                    let default_text = self.default_value(*source_param)?;
+                    if self.callback_param_is_shared_reference(source, index, *source_param) {
+                        return Ok(format!("&({default_text})"));
+                    }
+                    Ok(default_text)
                 }
             })
             .collect::<Result<Vec<_>, _>>()?
@@ -3635,10 +3676,40 @@ impl<'mir> FunctionEmitter<'mir> {
                  emitted body `{return_text}`, which never invokes it"
             )));
         }
+        // An adapter parameter the destination `dyn Fn` passes by shared reference
+        // (`callback_param_is_shared_reference`) cannot cross into a `'static`
+        // future: the branches above place the body inside `Box::pin(async move ..)`
+        // whenever either side of the adapter returns a promise, and a borrow of the
+        // caller's argument does not live that long (E0521). Copy each such
+        // parameter into an owned binding of the same name first — the value the
+        // by-VALUE ABI used to hand the body — which happens per CALL and only for
+        // the async adapters, not for the synchronous per-element ones the
+        // by-reference ABI exists to speed up.
+        let body_is_static_future = source_returns_future
+            || matches!(self.mir.types.get(target_return_ty), Some(Type::Future(_)));
+        let owned_arg_bindings: Vec<String> = if body_is_static_future {
+            target_function
+                .params
+                .iter()
+                .enumerate()
+                .filter(|(index, param)| {
+                    self.callback_param_is_shared_reference(target_function, *index, **param)
+                })
+                .map(|(index, _)| format!("let arg{index} = arg{index}.clone();"))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let owned_arg_prelude = if owned_arg_bindings.is_empty() {
+            String::new()
+        } else {
+            format!("{} ", owned_arg_bindings.join(" "))
+        };
         // Rust requires a block body once a closure annotates its return type.
         let closure_tail = match &return_annotation {
-            Some(annotation) => format!("-> {annotation} {{ {return_text} }}"),
-            None => return_text,
+            Some(annotation) => format!("-> {annotation} {{ {owned_arg_prelude}{return_text} }}"),
+            None if owned_arg_prelude.is_empty() => return_text,
+            None => format!("{{ {owned_arg_prelude}{return_text} }}"),
         };
         let closure = if let Some(prelude) = callback_prelude {
             format!(

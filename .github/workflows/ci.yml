@@ -161,6 +161,20 @@ jobs:
         run: |
           cargo test -p smelt-codegen-rust --test shape_grid -- --ignored shape_grid_fast
 
+      # The container-semantics runtime tiers: these lower a TypeScript fixture
+      # to a crate and RUN it, so a green result means every generated
+      # `expect(...)` held at runtime. They exist because `SmeltJsSet` and
+      # `SmeltJsMap` find members/keys through a hash index rather than a scan,
+      # and the ways the index and the insertion-ordered backing `Vec` can
+      # disagree — a stale slot after a delete, `NaN`, `+0`/`-0`, object identity,
+      # a write through an alias — all type-check fine and are invisible to the
+      # corpus tier above. Both binaries in one step so they share the emitted
+      # crates' dependency build. ~90s.
+      - name: Set/Map container semantics (runtime tier)
+        run: |
+          cargo test -p smelt-codegen-rust --test set_membership_runtime -- --ignored
+          cargo test -p smelt-codegen-rust --test map_lookup_runtime -- --ignored
+
   # Sandbox gate: proves the fail-closed specialization boundary actually
   # executes, rather than skipping itself into a green result.
   #

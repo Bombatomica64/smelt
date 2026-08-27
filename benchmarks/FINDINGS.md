@@ -201,14 +201,59 @@ de-erasing alone would not close the gap.
 
 ---
 
+## 5. `Map`'s value accessor deep-clones the value it hands back
+
+Found while measuring the `SmeltJsMap` key index (below), by reading the generated
+`es-toolkit/groupBy` rather than the report — the index landed and the benchmark did
+not move, which is what sent me to the source:
+
+```rust
+_smelt_tmp_13 = result.get(&key.clone()).unwrap_or(..).clone();
+_smelt_tmp_14 = { _smelt_tmp_13.push(item); ..; result.insert(key.clone(), _smelt_tmp_13.clone()); .. };
+result.insert(key.clone(), Into::<SmeltList<_>>::into(_smelt_tmp_13));
+```
+
+`SmeltJsMap::get` returns `Option<V>` **by value**, and here `V` is
+`SmeltList<SmeltUnknown>`, whose `Clone` is deep. So appending one element to a group
+costs a full copy of that group, and `groupBy` over n items copies O(n^2) elements.
+The write-back is also emitted twice. That is why `group_by` runs at 3.3 ops/s against
+V8's 2,090 — a 630x gap that neither the callback ABI nor the key index touches,
+because neither is what it is paying for.
+
+This is the same family as finding (1): a whole-collection clone inside a loop that
+iterates it. The fix is the same shape too — hand back a borrow, or an `Rc` handle,
+instead of a value — but it is a change to the container's value ABI rather than to a
+call site, so it is its own piece of work.
+
+## What the `SmeltJsMap` key index did and did not buy
+
+`SmeltJsMap` found a key by scanning every entry, so `contains_key`/`get`/`insert`/
+`remove` were all linear and building an n-key map was O(n^2). It now carries the same
+hash index `SmeltJsSet` uses, inside the shared `RefCell` (a Map is a reference value,
+so an index outside the shared store would go stale on a write through another alias).
+
+Measured on a program that fills and then reads back a 5,000-key `Map`, twenty times,
+identical output on both sides: **311 ms -> 22 ms, 14x**. The win is asymptotic, so it
+grows with the key count.
+
+It is worth being precise that this did *not* move the library benchmark:
+`group_by`/`count_by`/`unique`/`difference`/`intersection` came out within noise of
+their pre-index numbers (0.95x-1.03x). Two reasons, and neither contradicts the 14x:
+those cases build maps with few distinct keys, where a scan over a handful of entries
+was never the cost; and `group_by`'s actual bound is finding (5) above. A fix that
+changes the asymptotics is still worth landing before the constant that currently
+hides it — but it should not be reported as a speedup that was measured on the
+libraries, because it was not.
+
 ## Where this leaves things
 
-The four findings are independent, and none needs a special case to fix:
+The findings are independent, and none needs a special case to fix:
 
 1. don't clone a collection inside a loop that iterates it — borrow;
 2. break the recursive-closure cycle with `Weak`;
 3. hoist module-level `const` initializers with construction cost into lazy statics;
-4. keep carrying concrete types down to runtime, which is already the stated direction.
+4. keep carrying concrete types down to runtime, which is already the stated direction;
+5. don't hand back a deep copy of a container's value from its accessor.
 
 (1) and (3) are pure throughput. (2) is a correctness problem as much as a performance
 one — it is an unbounded leak in any generated program that uses a local recursive

@@ -1121,8 +1121,20 @@ impl FunctionEmitter<'_> {
                 // so erasing to `SmeltUnknown::Array` reuses it directly — this is
                 // what preserves `===`/`.toBe` identity across an erase/extract
                 // round-trip (e.g. `tap`/`forEach` returning their input).
+                //
+                // The elements are taken through `Into<Vec<_>>` rather than
+                // `into_iter()` because `{text}` is an owned list at most sites but a
+                // `&SmeltList<_>` wherever the erased value is a by-reference callback
+                // parameter (see `callback_param_is_shared_reference`), and
+                // `(&SmeltList<T>).into_iter()` yields `&T` — which `{value_wrap}`
+                // cannot consume (a primitive `value as f64` is not fixable by any
+                // trait impl). `From<SmeltList<T>> for Vec<T>` MOVES the backing
+                // storage and `From<&SmeltList<T>> for Vec<T>` clones it, so Rust's own
+                // impl selection does the narrowing: the owned path stays copy-free and
+                // only the borrowed path pays a clone — which erasing to an owned
+                // `SmeltArray` requires anyway.
                 Ok(format!(
-                    "{{ let smelt_l = {text}; SmeltUnknown::Array(SmeltArray::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| {value_wrap}).collect::<Vec<_>>())) }}"
+                    "{{ let smelt_l = {text}; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| {value_wrap}).collect::<Vec<_>>())) }}"
                 ))
             }
             // A source-spelled `Map` erases through its own `SmeltJsMap`
@@ -1511,8 +1523,12 @@ impl FunctionEmitter<'_> {
                 // Carry the list's own JS reference id across erasure (so an
                 // erase/extract round-trip stays identity-stable, e.g. the array
                 // a forEach/reduce callback receives `===` the input array).
+                //
+                // `Into<Vec<_>>` rather than `into_iter()`, for the same reason as the
+                // operand-based erasure above: the value can be a `&SmeltList<_>` (a
+                // by-reference callback parameter), whose `into_iter()` yields `&T`.
                 Ok(format!(
-                    "{{ let smelt_l = {}; SmeltUnknown::Array(SmeltArray::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| {value_wrap}).collect::<Vec<_>>())) }}",
+                    "{{ let smelt_l = {}; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| {value_wrap}).collect::<Vec<_>>())) }}",
                     value.parenthesized_if_needed()
                 ))
             }

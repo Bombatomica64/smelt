@@ -438,8 +438,100 @@ function view(values: number[]): number[] {
         source.contains("smelt_array.iter().enumerate().map"),
         "{source}"
     );
-    assert!(source.contains("smelt_array.clone()"), "{source}");
+    // The snapshot is taken ONCE, and each element then receives it by reference.
+    // This assertion used to require `smelt_array.clone()` — a full copy of the array
+    // per element, which is precisely what the test's name says must not happen, and
+    // what made every array callback O(n^2). See `callback_param_is_shared_reference`.
+    assert!(source.contains("&smelt_array"), "{source}");
+    assert!(!source.contains("smelt_array.clone()"), "{source}");
     assert!(!source.contains("values.clone().clone()"), "{source}");
+}
+
+/// The array callback ABI: the array parameter is `&SmeltList<..>`, and the
+/// per-element argument is a borrow rather than a copy.
+///
+/// This is the whole callback-by-reference change stated as one assertion pair.
+/// JavaScript hands an array callback the array itself as its third argument at no
+/// cost; lowered by value that is a full `SmeltList` deep copy per ELEMENT, which
+/// makes every array callback O(n^2) (measured: 955x on es-toolkit `partition`).
+/// Both halves matter — a `&`-typed parameter fed a clone, or an owned parameter
+/// fed a borrow, would not compile — so the test pins the declaration and the
+/// argument together. See `callback_param_is_shared_reference`.
+#[test]
+fn array_callback_array_parameter_is_passed_by_reference_and_not_cloned() {
+    let source = source_for(
+        r"
+function view(values: number[]): number[] {
+  return values.map((value, index, array) => value + array[index]);
+}
+",
+    );
+
+    // The declaration side: the callback's array parameter is a shared reference.
+    assert!(
+        source.contains("closure_arg_2: &SmeltList<f64>"),
+        "{source}"
+    );
+    // The argument side: the snapshot is borrowed, once per call, not copied per
+    // element. `smelt_array.clone()` anywhere in this program IS the per-element
+    // copy — the snapshot binding itself is `values.clone()`.
+    assert!(source.contains("&smelt_array"), "{source}");
+    assert!(!source.contains("smelt_array.clone()"), "{source}");
+}
+
+/// `reduce` supplies the same array argument, and pays the same cost by value.
+///
+/// The fold body used to bind `let array = <list>.clone();` — one whole-list deep
+/// copy per element, exactly the shape the array-callback sites had. A
+/// by-reference array parameter binds the borrow the fold is already iterating.
+#[test]
+fn array_reduce_callback_array_parameter_is_passed_by_reference() {
+    let source = source_for(
+        r"
+function total(values: number[]): number {
+  return values.reduce((acc, value, index, array) => acc + value + array[index], 0);
+}
+",
+    );
+
+    assert!(source.contains(".iter().enumerate().fold("), "{source}");
+    assert!(
+        source.contains("closure_arg_3: &SmeltList<f64>"),
+        "{source}"
+    );
+    assert!(source.contains("let array = &values"), "{source}");
+    assert!(!source.contains("let array = values.clone()"), "{source}");
+}
+
+/// A closure body that needs an OWNED list still gets one, from the reference.
+///
+/// The by-reference decision is made on the callback TYPE, but whether a body can
+/// live with a borrow is a property of the individual closure: this one rebinds its
+/// own array parameter, so it needs a `mut` owned binding. The signature cannot
+/// change — it has to keep matching the `dyn Fn` the closure is cast to — so the
+/// body copies the reference into the value the by-value ABI used to hand it. That
+/// copy is per CALL, and only in bodies that need it.
+#[test]
+fn a_by_reference_callback_parameter_is_owned_again_when_the_body_rebinds_it() {
+    let source = source_for(
+        r"
+function view(values: number[]): number[] {
+  return values.map((value, index, array) => {
+    array = [value];
+    return array[0];
+  });
+}
+",
+    );
+
+    assert!(
+        source.contains("closure_arg_2: &SmeltList<f64>"),
+        "{source}"
+    );
+    assert!(
+        source.contains("let mut closure_arg_2: SmeltList<f64> = closure_arg_2.clone();"),
+        "{source}"
+    );
 }
 
 #[test]

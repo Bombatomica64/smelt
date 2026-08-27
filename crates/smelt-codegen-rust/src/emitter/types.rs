@@ -37,9 +37,63 @@ impl FunctionEmitter<'_> {
         let param_text = self.rust_type(param, false, substitution)?;
         if function.mutable_params.contains(&index) {
             Ok(format!("&mut {param_text}"))
+        } else if self.callback_param_is_shared_reference(function, index, param) {
+            Ok(format!("&{param_text}"))
         } else {
             Ok(param_text.into_string())
         }
+    }
+
+    /// Whether a callback parameter is passed by shared reference (`&T`).
+    ///
+    /// A JavaScript array callback receives the array itself as its third argument,
+    /// and in JavaScript that costs nothing — it is the same object. Lowered by
+    /// value, it costs a full `SmeltList` deep copy on *every element*, which turns
+    /// every `map`/`filter`/`groupBy`/`sumBy` over n elements into O(n^2) copying.
+    /// Ablating that one argument in the generated es-toolkit `groupBy` took it from
+    /// 0.50 to 3.83 ops/s — 7.7x — with an unchanged result checksum.
+    ///
+    /// A hand-writing Rust team would take `&[T]` here without a second thought, so
+    /// list-typed callback parameters are passed by shared reference. The rule is
+    /// deliberately about the *type*, not about any particular library's callback:
+    /// it fires wherever a callback declares a list parameter.
+    ///
+    /// A `rest` parameter is excluded. `...args` is not a list the caller already
+    /// holds — the callee-side adapter *builds* it by packing the erased argument
+    /// vector (`function_args_from_smelt_args_text`), so there is nothing to borrow
+    /// and a reference buys nothing. Excluding it also keeps the erased-callback
+    /// adapters working: they receive such a parameter and re-erase it into a JS
+    /// array, which needs ownership of the elements.
+    ///
+    /// Scoped to `Type::List` for now. Dict and Set parameters have the same
+    /// argument-side cost and should follow, but each needs its own pass over the
+    /// erased-callback adapters before the ABI can move.
+    /// Whether a SYNTHESIZED callback parameter of type `param` is passed by shared
+    /// reference.
+    ///
+    /// Emitter-synthesized callables -- the promise executor's `resolve`/`reject` are
+    /// the case that needs this -- have no `FunctionType` to consult, but the closure
+    /// they build still has to match the spelling `function_type_param_text` gave the
+    /// `dyn Fn` it is assigned to. This answers the type-shape half of
+    /// [`Self::callback_param_is_shared_reference`]; the two marker halves cannot apply
+    /// to a synthesized parameter, which is never `&mut` and never a rest.
+    ///
+    /// radash's `async_` is what caught the omission: a `Promise<T[]>` executor
+    /// expects `Rc<dyn Fn(&SmeltList<..>)>` once the rule is in force, and the
+    /// synthesized resolver was still built as `Rc<dyn Fn(SmeltList<..>)>`.
+    pub(super) fn synthesized_callback_param_is_shared_reference(&self, param: TypeId) -> bool {
+        matches!(self.mir.types.get(param), Some(Type::List(_)))
+    }
+
+    pub(super) fn callback_param_is_shared_reference(
+        &self,
+        function: &FunctionType,
+        index: usize,
+        param: TypeId,
+    ) -> bool {
+        !function.mutable_params.contains(&index)
+            && function.rest != Some(index)
+            && matches!(self.mir.types.get(param), Some(Type::List(_)))
     }
 
     /// Render `arg0: T0, arg1: T1, ..` declarations for one callback shape.
@@ -83,7 +137,19 @@ impl FunctionEmitter<'_> {
             MutablePrefix::Apply => {
                 self.function_type_param_text(function, index, param, substitution)
             }
-            MutablePrefix::Ignore => Ok(self.rust_type(param, false, substitution)?.into_string()),
+            // `Ignore` drops only the `&mut ` axis. The shared-reference axis is
+            // independent of it and must NOT be dropped: an arity-widening adapter
+            // rendered here is cast to the very `dyn Fn(..)` that
+            // `function_type_param_text` spelled, so a parameter the type says is
+            // `&T` has to be bound as `&T` here too or the cast does not compile.
+            MutablePrefix::Ignore => {
+                let param_text = self.rust_type(param, false, substitution)?;
+                if self.callback_param_is_shared_reference(function, index, param) {
+                    Ok(format!("&{param_text}"))
+                } else {
+                    Ok(param_text.into_string())
+                }
+            }
         }
     }
 

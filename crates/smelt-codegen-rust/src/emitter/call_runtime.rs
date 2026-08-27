@@ -1343,6 +1343,20 @@ impl FunctionEmitter<'_> {
                                 function.mutable_params.contains(&index)
                             }) {
                                 self.mutable_reference_argument_text(arg, *param, None)?
+                            } else if rest_function.is_some_and(|function| {
+                                self.callback_param_is_shared_reference(function, index, *param)
+                            }) {
+                                // The parameter is `&T`, so pass a reference. Borrowing
+                                // the place is the point: this is the per-element
+                                // whole-list copy that made array callbacks quadratic.
+                                // A coerced argument is referenced as a temporary,
+                                // whose lifetime Rust extends to the end of the
+                                // statement.
+                                if self.operand_ty(arg)? == *param {
+                                    format!("&{}", self.operand_borrow_text(arg)?)
+                                } else {
+                                    format!("&({})", self.value_at_type(arg, *param)?)
+                                }
                             } else {
                                 self.value_at_type(arg, *param)?
                             };

@@ -377,9 +377,16 @@ export function makeQueue(): Promise<number[]> {
 }
 ",
     );
+    // The point of this test is that a NAMED executor still gets the resolved list
+    // element type (`SmeltList<f64>`) rather than an erased one. That is unchanged;
+    // the resolver argument is now passed by shared reference, because `resolve`
+    // declares a list parameter and list-typed callback parameters are `&T` (see
+    // `callback_param_is_shared_reference`). Both halves of the executor call have to
+    // agree on that spelling, which is what radash's `async_` gate exercises at
+    // runtime.
     assert!(
         source.contains("Option<Result<SmeltList<f64>, Box<dyn std::error::Error>>>")
-            && source.contains("Rc<dyn Fn(SmeltList<f64>) -> ()>"),
+            && source.contains("Rc<dyn Fn(&SmeltList<f64>) -> ()>"),
         "{source}"
     );
 }

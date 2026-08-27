@@ -41,6 +41,8 @@ impl<T: ::std::hash::Hash> ::std::hash::Hash for SmeltList<T> { fn hash<H: ::std
 impl<T> Default for SmeltList<T> { fn default() -> Self { Self::new(Vec::new()) } }
 impl<T> From<SmeltList<T>> for Vec<T> { fn from(list: SmeltList<T>) -> Self { list.values } }
 
+thread_local! { static SMELT_REGEX_CACHE: ::std::cell::RefCell<::std::collections::HashMap<String, ::std::option::Option<::std::rc::Rc<fancy_regex::Regex>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
+
 #[derive(Clone, Debug)]
 pub struct SmeltRegExp {
     id: usize,
@@ -61,18 +63,28 @@ impl SmeltRegExp {
         self.flags.chars().any(|value| value == flag)
     }
     /// Compile the Rust regex equivalent for this JavaScript RegExp.
-    fn compiled(&self) -> fancy_regex::Regex {
+    fn compiled(&self) -> ::std::rc::Rc<fancy_regex::Regex> {
         self.try_compiled().expect("regex compile failed")
     }
     /// Try to compile the Rust regex equivalent for this JavaScript RegExp.
-    fn try_compiled(&self) -> Option<fancy_regex::Regex> {
+    ///
+    /// The compiled automaton is memoized per translated pattern in
+    /// `SMELT_REGEX_CACHE`, so repeatedly constructing the same RegExp value
+    /// (for example a module-level pattern referenced from a hot function)
+    /// compiles it at most once per thread. Compilation is a pure function of
+    /// the pattern text, so sharing it is unobservable; the mutable
+    /// `lastIndex` state stays per-`SmeltRegExp`.
+    fn try_compiled(&self) -> Option<::std::rc::Rc<fancy_regex::Regex>> {
         let mut prefix = String::new();
         if self.has_flag('i') { prefix.push('i'); }
         if self.has_flag('m') { prefix.push('m'); }
         if self.has_flag('s') { prefix.push('s'); }
         let translated_source = self.source.replace("[^]", "(?s:.)");
         let pattern = if prefix.is_empty() { translated_source } else { format!("(?{prefix}){translated_source}") };
-        fancy_regex::Regex::new(&pattern).ok()
+        if let Some(cached) = SMELT_REGEX_CACHE.with(|cache| cache.borrow().get(&pattern).cloned()) { return cached; }
+        let compiled = fancy_regex::Regex::new(&pattern).ok().map(::std::rc::Rc::new);
+        SMELT_REGEX_CACHE.with(|cache| { cache.borrow_mut().insert(pattern, compiled.clone()); });
+        compiled
     }
     /// Match a string with JavaScript String.prototype.match semantics.
     pub fn match_string(&self, haystack: &str) -> Option<Vec<String>> {
