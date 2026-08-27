@@ -458,7 +458,7 @@ export function chunkNumbers(data: number[], size: number): number[][] {
     );
 
     // The slice still lowers to the same borrow-based iterator pipeline...
-    assert!(source.contains("data.iter().skip("));
+    assert!(source.contains("data.borrow().iter().skip("));
     assert!(source.contains("let len = data.len() as i64"));
     // ...and no longer copies the receiver to get there.
     assert!(
@@ -587,7 +587,7 @@ result: None = values.insert(1, 0)
 
     assert!(source.contains("let mut"));
     assert!(source.contains("let insert_index = usize::try_from(1)"));
-    assert!(source.contains(".insert(insert_index, 0);"));
+    assert!(source.contains(".insert(insert_index, smelt_insert_item);"));
     assert!(source.contains("()"));
 }
 

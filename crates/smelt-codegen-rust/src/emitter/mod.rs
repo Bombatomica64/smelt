@@ -1167,6 +1167,37 @@ pub(crate) struct FunctionEmitter<'mir> {
     hoisted_module_item: std::cell::Cell<bool>,
 }
 
+/// Wraps a list-valued expression so it reads as its backing `Vec`.
+///
+/// `SmeltList<T>` keeps its elements in a shared `Rc<RefCell<Vec<T>>>` (a JS
+/// array is a reference value), so there is no `Deref` to a `&Vec<T>`: every
+/// read receiver has to take its own short-lived borrow. The returned `Ref`
+/// guard lives to the end of the enclosing statement, which is safe because
+/// emitted code is three-address — see the invariant on
+/// [`FunctionEmitter::local_value_text`].
+///
+/// Use this, never [`list_write_text`], for a *read*: an index expression such
+/// as `arr.get({ .. arr.len() .. })` takes two simultaneous borrows of one cell,
+/// and two shared borrows are allowed where a second mutable one panics with
+/// "already borrowed".
+pub(super) fn list_read_text(list_text: &str) -> String {
+    format!("{list_text}.borrow()")
+}
+
+/// Wraps a list-valued expression so it reads as its backing `Vec`, mutably.
+///
+/// The `RefMut` guard reaches `Vec`'s `&mut self` surface — `push`, `resize`,
+/// `sort_by`, `IndexMut` — and the write lands in the buffer every other handle
+/// on the array shares, which is what makes `b.push(x)` visible through `a`.
+/// The receiver itself is only borrowed immutably (`RefCell` is interior
+/// mutability), so this composes with a receiver held behind `&`.
+///
+/// Never combine this with [`list_read_text`] on the same list inside one
+/// expression: the two guards would coexist and panic "already borrowed".
+pub(super) fn list_write_text(list_text: &str) -> String {
+    format!("{list_text}.borrow_mut()")
+}
+
 /// How to compute the default end bound for a slice.
 #[derive(Clone, Copy)]
 enum SliceLenKind {

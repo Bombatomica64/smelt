@@ -79,7 +79,7 @@ index: int = values.index(2)
 ",
     );
 
-    assert!(source.contains(".iter().position(|item| item == &2)"));
+    assert!(source.contains(".borrow().iter().position(|item| item == &2)"));
     assert!(source.contains(".expect(\"list index missing item\") as i64;"));
 }
 
@@ -93,7 +93,7 @@ result: None = values.remove(2)
     );
 
     assert!(source.contains("let mut"));
-    assert!(source.contains(".iter().position(|item| item == &2)"));
+    assert!(source.contains(".iter().position(|item| item == &smelt_needle)"));
     assert!(source.contains(".expect(\"list remove missing item\")"));
     assert!(source.contains(".remove(remove_index);"));
     assert!(source.contains("()"));
