@@ -6,11 +6,8 @@
 
 use std::collections::HashSet;
 
-use smelt_hir::{AsyncOp, Symbol, Type, TypeId};
-use smelt_mir::{
-    FuncId, LocalId, Mir, MirClass, MirField, MirFunction, MirInterface, Operand, Place, Rvalue,
-    Statement, Terminator,
-};
+use smelt_hir::{Symbol, Type, TypeId};
+use smelt_mir::{FuncId, LocalId, Mir, MirClass, MirField, MirFunction, MirInterface};
 
 use crate::{EmitError, emitter::FunctionEmitter, generic_bindings, id_index, rust::RustIdent};
 
@@ -269,199 +266,13 @@ pub(crate) fn function_emits_rust_generics(
     function: &MirFunction,
     owned_callback_params: &HashSet<(FuncId, LocalId)>,
 ) -> bool {
-    !liftable_type_params(mir, function, owned_callback_params).is_empty()
-}
-
-/// Whether every value whose type mentions `name` is only ever *moved* in this
-/// body — never inspected.
-///
-/// This asks MIR the question the body-cleanliness trial
-/// ([`FunctionEmitter::renders_real_generics`]) can only approximate. That trial
-/// renders the body and searches the *text* for tokens like `SmeltUnknown` or
-/// `js_strict_eq`. Text works while the decision is per-function, but it cannot
-/// say which type parameter a token came from, so under per-parameter lifting it
-/// cannot tell "erased because `K` did not lift" (correct) from "the lifted `T`
-/// leaked into an erased carrier" (broken). MIR gives that attribution for free:
-/// every operand names the local it reads, and that local carries a type.
-///
-/// The rule is inverted rather than enumerated. `Rvalue` has ~180 variants, and
-/// classifying each as parametric-or-not would be a large table that drifts as
-/// variants are added. But a value of an opaque type `T` supports exactly one
-/// operation — being moved — so it is enough to recognise the rvalues that
-/// relocate their operands and treat every other *read* of a `T`-typed operand
-/// as an inspection. Unlisted variants therefore fall through to "inspects",
-/// which is the safe direction: a new `Rvalue` cannot silently start erasing a
-/// lifted type parameter.
-fn type_param_only_moved(mir: &Mir, function: &MirFunction, name: Symbol) -> bool {
-    let local_mentions = |local: LocalId| -> bool {
-        let Ok(index) = id_index(local.0, "local index does not fit usize") else {
-            return false;
-        };
-        function
-            .locals
-            .get(index)
-            .is_some_and(|decl| generic_bindings::type_param_occurs(mir, decl.ty, name))
-    };
-    let mentions = |operand: &Operand| -> bool {
-        let place = match operand {
-            Operand::Copy(place) | Operand::Move(place) => place,
-            Operand::Const(_) => return false,
-        };
-        // A projection is attributed to its base local's type, so reading
-        // `record[k]` out of a `SmeltRecord<String, SmeltList<T>>` counts as
-        // mentioning `T` even though the projected element may drop it. That
-        // over-approximates, which errs toward not lifting — the safe direction.
-        let base = match place {
-            Place::Local(local)
-            | Place::Field { base: local, .. }
-            | Place::Index { base: local, .. } => *local,
-        };
-        local_mentions(base)
-    };
-
-    for block in &function.blocks {
-        for statement in &block.statements {
-            let (Statement::Assign { value, .. } | Statement::AssignPlace { value, .. }) = statement
-            else {
-                continue;
-            };
-            if rvalue_preserves_opacity(value) {
-                continue;
-            }
-            // If the destination still has `T` in its type, the value was
-            // relocated or projected rather than read into: `item = arr[i]`
-            // moves a `T` out of a `SmeltList<T>`, whereas `t === u` does not —
-            // its destination is `bool`. This is the general form of the
-            // whitelist, which then only has to carry operations whose result
-            // legitimately drops `T`, such as `arr.push(t)` yielding a length.
-            if destination_mentions(mir, function, statement, name) {
-                continue;
-            }
-            let mut inspected = false;
-            value.for_each_operand(|operand| {
-                if mentions(operand) {
-                    inspected = true;
-                }
-            });
-            if inspected {
-                return false;
-            }
-        }
-        // Branching on a `T` needs JavaScript truthiness or an equality an
-        // opaque `T` cannot answer. `Return` is a move and stays off this list;
-        // call arguments are moves too, and a callee that erases them is already
-        // caught by `called_with_erased_type_param_argument`.
-        if let Some(
-            Terminator::Switch { cond: probe, .. } | Terminator::Match { scrutinee: probe, .. },
-        ) = &block.terminator
-            && mentions(probe)
-        {
-            return false;
-        }
-    }
-    true
-}
-
-/// The declared type of a statement's destination, for [`type_param_only_moved`].
-fn destination_mentions(
-    mir: &Mir,
-    function: &MirFunction,
-    statement: &Statement,
-    name: Symbol,
-) -> bool {
-    let local = match statement {
-        Statement::Assign { dest, .. } => *dest,
-        Statement::AssignPlace { place, .. } => match place {
-            Place::Local(local)
-            | Place::Field { base: local, .. }
-            | Place::Index { base: local, .. } => *local,
-        },
-        Statement::StorageLive(_) | Statement::StorageDead(_) => return false,
-    };
-    let Ok(index) = id_index(local.0, "local index does not fit usize") else {
+    if function.type_params.is_empty()
+        || function
+            .type_params
+            .iter()
+            .any(|param| param.constraint.is_some())
+    {
         return false;
-    };
-    function
-        .locals
-        .get(index)
-        .is_some_and(|decl| generic_bindings::type_param_occurs(mir, decl.ty, name))
-}
-
-/// Whether an rvalue only relocates its operands, leaving their types opaque.
-///
-/// The whitelist for [`type_param_only_moved`]; see that function for why this
-/// is a whitelist with a conservative default rather than a full classification
-/// of `Rvalue`. Every entry must be an operation that moves a value without
-/// reading into it: if the emitter renders it by calling a method on the value,
-/// comparing it, or coercing it to a key, it does not belong here.
-fn rvalue_preserves_opacity(rvalue: &Rvalue) -> bool {
-    matches!(
-        rvalue,
-        // A bare move.
-        Rvalue::Use(_)
-            // Building a container *of* `T`; elements are stored, not read.
-            | Rvalue::List(_)
-            | Rvalue::Tuple(_)
-            | Rvalue::ListPush { .. }
-            | Rvalue::ListExtend { .. }
-            // Selecting between two operands: the condition is a `bool` and the
-            // arms are moved into the result.
-            | Rvalue::Conditional { .. }
-            // Capturing into a closure environment.
-            | Rvalue::Closure { .. }
-            // Container-level queries read the *container*, never an element, so
-            // a `SmeltList<T>` operand leaves `T` opaque even though the result
-            // (a length) drops it.
-            | Rvalue::Len(_)
-            // Handing a `T` to a callback moves it into the callee. Whether that
-            // callee's signature can carry `T` is a separate question, answered
-            // by `callback_occurrences_are_liftable`. `ListCallback` is the
-            // same shape one level up: `arr.some(cb)` passes elements to `cb`
-            // rather than reading them. Operations that compare elements
-            // themselves live in other variants (`ListContains`) and stay off
-            // this list.
-            | Rvalue::ClosureCall { .. }
-            | Rvalue::ClosureCallSpread { .. }
-            | Rvalue::ListCallback { .. }
-            // Handing a `SmeltFuture<T>` to the executor moves it; the future is
-            // an opaque handle here and its `T` is never read. The other async
-            // operations either read the value or keep `T` in their result type,
-            // where the destination rule already covers them.
-            | Rvalue::AsyncOp {
-                op: AsyncOp::SpawnLocal | AsyncOp::CreateTask,
-                ..
-            }
-    )
-}
-
-/// The subset of a free function's source type parameters that can be emitted
-/// as real Rust generics, leaving the rest to erase.
-///
-/// Increment 5. The decision used to be per *function*: one constrained
-/// parameter demoted every sibling, so `groupBy<T, K extends PropertyKey>`
-/// erased `T` as well and emitted
-/// `fn group_by(arr: SmeltList<SmeltUnknown>, key: &dyn Fn(SmeltUnknown) -> SmeltUnknown)`
-/// even though `T` is directly inferable from `arr`. 215 of es-toolkit's 800
-/// generic exported functions carry a constrained parameter, so the all-or-
-/// nothing rule was erasing a large amount of shape that the signature itself
-/// could have carried.
-///
-/// A constrained parameter is still not liftable — the emitter has no rendering
-/// for its bound — but it now excludes only itself. Every parameter absent from
-/// this set lowers through the emitter's existing erasure path, which is the
-/// same path a fully-erased function already takes, so a partially-lifted
-/// signature needs no new rendering.
-///
-/// The two function-level safety gates are unchanged and still all-or-nothing:
-/// if a call site passes an erased argument, or a callback-only parameter is
-/// unpinned at some call site, nothing lifts.
-pub(crate) fn liftable_type_params(
-    mir: &Mir,
-    function: &MirFunction,
-    owned_callback_params: &HashSet<(FuncId, LocalId)>,
-) -> HashSet<Symbol> {
-    if function.type_params.is_empty() {
-        return HashSet::new();
     }
 
     let param_types: Vec<TypeId> = function
@@ -475,27 +286,8 @@ pub(crate) fn liftable_type_params(
         })
         .collect();
 
-    if called_with_erased_type_param_argument(mir, function)
-        || !callback_only_params_are_pinned_at_every_call_site(
-            mir,
-            function,
-            owned_callback_params,
-        )
-    {
-        return HashSet::new();
-    }
-
-    function
-        .type_params
-        .iter()
-        .filter(|type_param| {
-            // A constrained parameter has no emitted bound, so it erases — but
-            // only it. Before Increment 5 this returned `false` for the whole
-            // function.
-            if type_param.constraint.is_some() {
-                return false;
-            }
-            let name = type_param.name;
+    let signature_safe = function.type_params.iter().all(|type_param| {
+        let name = type_param.name;
         // The parameter must have an inference source in the emitted signature.
         // Either a direct value parameter position ...
         let directly = param_types
@@ -507,24 +299,19 @@ pub(crate) fn liftable_type_params(
         // the renderer's own eligibility predicate rather than a second copy of
         // it, so a parameter can only be declared inferable through a callback
         // that really will carry an `Fn` bound.
-            (directly
-                || type_param_inferable_through_callback(
-                    mir,
-                    function,
-                    owned_callback_params,
-                    name,
-                )
+        (directly
+            || type_param_inferable_through_callback(mir, function, owned_callback_params, name)
                 .is_some())
-                // ... and every callback position it *also* occupies must be one
-                // the renderer can express (§4.4). This stays ANDed onto BOTH
-                // branches: it is the renderability rule and applies to every
-                // occurrence, however the parameter got inferred.
-                && callback_occurrences_are_liftable(mir, function, owned_callback_params, name)
-                // ... and the body must never inspect a value of this type.
-                && type_param_only_moved(mir, function, name)
-        })
-        .map(|type_param| type_param.name)
-        .collect()
+            // ... and every callback position it *also* occupies must be one the
+            // renderer can express (§4.4). This stays ANDed onto BOTH branches:
+            // it is the renderability rule and applies to every occurrence,
+            // however the parameter got inferred.
+            && callback_occurrences_are_liftable(mir, function, owned_callback_params, name)
+    });
+
+    signature_safe
+        && !called_with_erased_type_param_argument(mir, function)
+        && callback_only_params_are_pinned_at_every_call_site(mir, function, owned_callback_params)
 }
 
 /// Return whether every type parameter that is reachable *only* through a
@@ -1201,16 +988,12 @@ pub(crate) fn function_impl_generics_list(
     function: &MirFunction,
     owned_callback_params: &HashSet<(FuncId, LocalId)>,
 ) -> Result<Vec<String>, EmitError> {
-    let liftable = liftable_type_params(mir, function, owned_callback_params);
-    if liftable.is_empty() {
+    if !function_emits_rust_generics(mir, function, owned_callback_params) {
         return Ok(Vec::new());
     }
-    // Only the lifted parameters get a bound; a constrained sibling erases and
-    // must not appear in the emitted generic list (Increment 5).
     function
         .type_params
         .iter()
-        .filter(|param| liftable.contains(&param.name))
         .map(|param| {
             mir.symbols
                 .get(param.name)

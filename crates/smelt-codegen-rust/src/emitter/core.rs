@@ -322,25 +322,6 @@ impl<'mir> FunctionEmitter<'mir> {
         let mut body = String::new();
         self.emit_body(&mut body)?;
         self.reset_body_emission_state();
-        // A partial lift is governed by `classes::type_param_only_moved`, which
-        // asks MIR whether each *lifted* parameter is ever inspected. The
-        // textual check below cannot be used there: the parameters that did not
-        // lift render as `SmeltUnknown` by design, so their tokens are in the
-        // body legitimately and would demote the whole function — which is
-        // exactly the all-or-nothing behaviour per-parameter lifting exists to
-        // remove.
-        //
-        // When every parameter lifts there are no such tokens to explain away,
-        // so the historical trial still decides and today's generic functions
-        // keep the gate they were validated under.
-        let liftable = crate::classes::liftable_type_params(
-            self.mir,
-            self.function,
-            &self.context.owned_callback_params,
-        );
-        if liftable.len() < self.function.type_params.len() {
-            return Ok(!liftable.is_empty());
-        }
         Ok(!body_needs_erased_carrier(&body))
     }
 

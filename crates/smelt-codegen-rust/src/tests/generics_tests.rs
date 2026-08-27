@@ -968,17 +968,11 @@ export function outer<T>(xs: T[]): T[] {
 }
 
 #[test]
-fn constrained_type_param_erases_alone_with_callback() {
-    // Increment 5, and the exact example the plan names for it: `groupBy<T, K
-    // extends PropertyKey>` emits `T` generically while `K` erases.
-    //
-    // This test previously asserted the opposite — that one constrained
-    // parameter demotes the whole signature — and guarded against per-parameter
-    // decisions being enabled by accident. They are now enabled deliberately:
-    // `liftable_type_params` returns the subset that lifts, and
-    // `classes::type_param_only_moved` decides membership from MIR rather than
-    // from tokens in the rendered body, so an erased `K` no longer drags its
-    // inferable sibling down with it.
+fn constrained_type_param_still_demotes_with_callback() {
+    // GUARDS Increment 5. The generic decision is still per *function*, not per
+    // type parameter: one constrained parameter demotes the whole signature even
+    // when its sibling `T` is perfectly inferable. Deleting the callback gate
+    // must not partially enable per-parameter decisions.
     let source = source_for(
         r"
 export function groupBy<T, K extends string>(xs: T[], key: (x: T) => K): K[] {
@@ -987,19 +981,7 @@ export function groupBy<T, K extends string>(xs: T[], key: (x: T) => K): K[] {
 ",
     );
 
-    let signature = source
-        .split("fn group_by")
-        .nth(1)
-        .and_then(|rest| rest.split('{').next())
-        .unwrap_or_else(|| panic!("expected a generated `group_by`:\n{source}"));
-    assert!(
-        signature.contains("xs: SmeltList<T>"),
-        "the inferable `T` must lift even beside a constrained sibling:\n{source}"
-    );
-    assert!(
-        signature.contains("-> SmeltList<SmeltUnknown>"),
-        "the constrained `K` must still erase:\n{source}"
-    );
+    assert!(!source.contains("fn group_by<"));
 }
 
 #[test]
