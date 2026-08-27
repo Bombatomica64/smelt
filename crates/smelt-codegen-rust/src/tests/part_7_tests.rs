@@ -11655,3 +11655,54 @@ export function wrap(fn: (value: string) => string): Wrapped {
         "a callback retained by the returned record must not stay borrowed:\n{source}"
     );
 }
+
+/// A module-level regex `const` referenced from several functions must compile
+/// its pattern exactly once.
+///
+/// The TypeScript frontend inlines an importable `const` initializer into every
+/// referencing body, so the `SmeltRegExp::new(..)` construction is pasted at each
+/// use site. That construction must stay per-use: `SmeltRegExp` carries JS
+/// reference identity (`id`) and observable mutable state (`lastIndex`), and
+/// `Clone` preserves both, so handing every use a clone of one shared instance
+/// would fuse distinct source objects. What *is* shared is the pure half — the
+/// compiled `fancy_regex` automaton, a function of the pattern text alone — which
+/// the prelude memoizes in `SMELT_REGEX_CACHE`. The invariant this test pins is
+/// therefore: exactly ONE `fancy_regex::Regex::new` call site exists in the whole
+/// emitted crate (the memo), no matter how many times the const is inlined.
+#[test]
+fn module_level_regex_const_compiles_its_pattern_once() {
+    let source = source_for(
+        r"
+const CASE_SPLIT_PATTERN = /[a-z]+|[0-9]+/g;
+
+export function first(text: string): number {
+  return text.split(CASE_SPLIT_PATTERN).length;
+}
+
+export function second(text: string): number {
+  return text.split(CASE_SPLIT_PATTERN).length;
+}
+",
+    );
+
+    assert!(
+        source.contains("static SMELT_REGEX_CACHE:"),
+        "the prelude must declare the compiled-automaton memo\n{source}"
+    );
+    assert_eq!(
+        source.matches("fancy_regex::Regex::new(").count(),
+        1,
+        "the emitted crate must hold exactly one regex compile site (the memo), \
+         so an inlined module-level const never recompiles its pattern\n{source}"
+    );
+    assert!(
+        source.matches("SmeltRegExp::new(").count() >= 2,
+        "each use site must still build its own `SmeltRegExp` wrapper so JS \
+         reference identity and `lastIndex` stay per-object\n{source}"
+    );
+    assert!(
+        source.contains("cache.borrow().get(&pattern).cloned()")
+            && source.contains("cache.borrow_mut().insert(pattern, compiled.clone())"),
+        "`try_compiled` must read through and populate the memo\n{source}"
+    );
+}

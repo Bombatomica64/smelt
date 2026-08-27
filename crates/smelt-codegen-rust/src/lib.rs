@@ -3182,6 +3182,32 @@ fn emit_source_with_free_function_router(
         writer.blank_line();
     }
     if needs_regex {
+        // Compiled-automaton memo, keyed by the translated Rust pattern text.
+        //
+        // A JavaScript `RegExp` object is constructed once (typically at module
+        // evaluation, from a literal) and reused; the generated equivalent
+        // rebuilds a `SmeltRegExp` wrapper wherever the value is referenced,
+        // because `SmeltRegExp` carries observable mutable state (`lastIndex`)
+        // and a per-object identity that must NOT be shared between distinct
+        // source objects. The expensive half — compiling the pattern into a
+        // `fancy_regex::Regex` — is pure and depends only on the pattern text,
+        // so it is memoized here instead. Each wrapper therefore stays a fresh,
+        // independently-mutable value while the automaton for a given pattern is
+        // built at most once per thread. `Rc` (not `Arc`) matches the rest of the
+        // single-threaded runtime, and the per-thread cell keeps each `#[test]`
+        // thread independent. `None` is cached too, so an invalid pattern is not
+        // recompiled on every call either.
+        //
+        // The map is unbounded: it retains one compiled automaton per distinct
+        // pattern the thread has ever built. That is exactly one entry per regex
+        // literal in the program, which is what the source itself would have kept
+        // alive at module scope. A program that builds regexes from *dynamic*
+        // strings (`new RegExp(input)`) instead retains one entry per distinct
+        // input, which JavaScript would not — an eviction policy belongs here if
+        // that shape ever shows up in a corpus, but no arbitrary cap is imposed
+        // before there is a case to size it against.
+        writer.line("thread_local! { static SMELT_REGEX_CACHE: ::std::cell::RefCell<::std::collections::HashMap<String, ::std::option::Option<::std::rc::Rc<fancy_regex::Regex>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }");
+        writer.blank_line();
         writer.line("#[derive(Clone, Debug)]");
         writer.block("pub struct SmeltRegExp", |struct_writer| {
             struct_writer.line("id: usize,");
@@ -3202,18 +3228,28 @@ fn emit_source_with_free_function_router(
                 fn_writer.line("self.flags.chars().any(|value| value == flag)");
             });
             impl_writer.line("/// Compile the Rust regex equivalent for this JavaScript RegExp.");
-            impl_writer.block("fn compiled(&self) -> fancy_regex::Regex", |fn_writer| {
+            impl_writer.block("fn compiled(&self) -> ::std::rc::Rc<fancy_regex::Regex>", |fn_writer| {
                 fn_writer.line("self.try_compiled().expect(\"regex compile failed\")");
             });
             impl_writer.line("/// Try to compile the Rust regex equivalent for this JavaScript RegExp.");
-            impl_writer.block("fn try_compiled(&self) -> Option<fancy_regex::Regex>", |fn_writer| {
+            impl_writer.line("///");
+            impl_writer.line("/// The compiled automaton is memoized per translated pattern in");
+            impl_writer.line("/// `SMELT_REGEX_CACHE`, so repeatedly constructing the same RegExp value");
+            impl_writer.line("/// (for example a module-level pattern referenced from a hot function)");
+            impl_writer.line("/// compiles it at most once per thread. Compilation is a pure function of");
+            impl_writer.line("/// the pattern text, so sharing it is unobservable; the mutable");
+            impl_writer.line("/// `lastIndex` state stays per-`SmeltRegExp`.");
+            impl_writer.block("fn try_compiled(&self) -> Option<::std::rc::Rc<fancy_regex::Regex>>", |fn_writer| {
                 fn_writer.line("let mut prefix = String::new();");
                 fn_writer.line("if self.has_flag('i') { prefix.push('i'); }");
                 fn_writer.line("if self.has_flag('m') { prefix.push('m'); }");
                 fn_writer.line("if self.has_flag('s') { prefix.push('s'); }");
                 fn_writer.line("let translated_source = self.source.replace(\"[^]\", \"(?s:.)\");");
                 fn_writer.line("let pattern = if prefix.is_empty() { translated_source } else { format!(\"(?{prefix}){translated_source}\") };");
-                fn_writer.line("fancy_regex::Regex::new(&pattern).ok()");
+                fn_writer.line("if let Some(cached) = SMELT_REGEX_CACHE.with(|cache| cache.borrow().get(&pattern).cloned()) { return cached; }");
+                fn_writer.line("let compiled = fancy_regex::Regex::new(&pattern).ok().map(::std::rc::Rc::new);");
+                fn_writer.line("SMELT_REGEX_CACHE.with(|cache| { cache.borrow_mut().insert(pattern, compiled.clone()); });");
+                fn_writer.line("compiled");
             });
             impl_writer.line("/// Match a string with JavaScript String.prototype.match semantics.");
             impl_writer.block("pub fn match_string(&self, haystack: &str) -> Option<Vec<String>>", |fn_writer| {
