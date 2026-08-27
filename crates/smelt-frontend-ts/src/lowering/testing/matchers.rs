@@ -351,6 +351,10 @@ impl ModuleBuilder<'_> {
             Some(
                 Type::List(_)
                 | Type::Dict(_, _)
+                // A source-spelled `Map` keeps its own type variant (it is a
+                // `Dict` in every other respect), so it must be listed here too
+                // or `toBe` on a `Map` would fall back to structural equality.
+                | Type::JsMap(_, _)
                 | Type::Set(_)
                 | Type::Tuple(_)
                 | Type::Class { .. }
