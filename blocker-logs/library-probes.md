@@ -1,6 +1,6 @@
 # Bug-library transpile probes (TypeScript + Python)
 
-_Generated 2026-08-26 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
+_Generated 2026-08-27 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
 
 Each library is checked out at a pinned ref (see `.github/compat/libraries.json`), given its `.github/compat/<name>/Smelt.toml`, and run through `smelt build`. If a crate is emitted, its generated `cargo test` suite is run and counted. Otherwise every source/test file is scanned individually with `smelt dump-hir` to enumerate the full set of distinct blocker classes (single-file mode cannot resolve cross-file imports, so bare `unresolved name/identifier` errors are excluded as scan noise).
 
@@ -12,13 +12,13 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 
 | Library | Lang | Transpile | Tests (pass/fail) | First abort | Blocker classes | Dominant |
 | --- | --- | --- | --- | --- | ---: | --- |
-| [es-toolkit](https://github.com/toss/es-toolkit) | TS | **yes** | 944 / 115 | — | — | — |
+| [es-toolkit](https://github.com/toss/es-toolkit) | TS | **yes** | 952 / 107 | — | — | — |
 | [radash](https://github.com/sodiray/radash) | TS | **yes** | transpiled (counts unparsed) | — | — | — |
 | [ts-pattern](https://github.com/gvergnaud/ts-pattern) | TS | **no** | n/a | `src/internals/helpers.ts` | 11 | non-working Rust (11r/0s) |
-| [valibot](https://github.com/fabian-hiller/valibot) | TS | **no** | n/a | `library/src/storages/globalConfig/globalConfig.ts` | 15 | non-working Rust (14r/1s) |
+| [valibot](https://github.com/fabian-hiller/valibot) | TS | **no** | n/a | `library/src/storages/globalConfig/globalConfig.ts` | 16 | non-working Rust (15r/1s) |
 | [neverthrow](https://github.com/supermacro/neverthrow) | TS | **no** | n/a | `src/result.ts` | 4 | non-working Rust (3r/1s) |
 | [immer](https://github.com/immerjs/immer) | TS | **no** | n/a | `__tests__/spec_ts.ts` | 7 | non-working Rust (7r/0s) |
-| [rxjs](https://github.com/ReactiveX/rxjs) | TS | **no** | n/a | `packages/rxjs/spec/Observable-spec.ts` | 22 | non-working Rust (22r/0s) |
+| [rxjs](https://github.com/ReactiveX/rxjs) | TS | **no** | n/a | `packages/rxjs/spec/Observable-spec.ts` | 23 | non-working Rust (23r/0s) |
 | [returns](https://github.com/dry-python/returns) | PY | **no** | n/a | `(unknown)` | 27 | non-working Rust (27r/0s) |
 | [result](https://github.com/rustedpy/result) | PY | **no** | n/a | `(unknown)` | 6 | non-working Rust (6r/0s) |
 | [more-itertools](https://github.com/more-itertools/more-itertools) | PY | **no** | n/a | `(unknown)` | 22 | non-working Rust (22r/0s) |
@@ -29,7 +29,7 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 
 - Source: `toss/es-toolkit` @ `e008a2818cd8`
 - Transpile: **yes** — Rust crate emitted
-- Generated `cargo test`: **944 passed / 115 failed**
+- Generated `cargo test`: **952 passed / 107 failed**
 
 ## radash
 
@@ -63,7 +63,7 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 - Source: `fabian-hiller/valibot` @ `1f9b18338ad5`
 - Transpile: **no** — `smelt build` aborts at `library/src/storages/globalConfig/globalConfig.ts`
 - Tests passing: **n/a** (no Rust crate emitted)
-- Files scanned: 1083 · with blockers: 35
+- Files scanned: 1083 · with blockers: 36
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
@@ -78,9 +78,9 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 | 1 | 1 | non-working Rust | empty nested arrays require an explicit type annotation |
 | 1 | 1 | non-working Rust | field access is only lowered for Record<string, T>, class, and interface values for now (r |
 | 1 | 1 | non-working Rust | variable annotation `X` requires a diverging initializer |
+| 1 | 1 | non-working Rust | `X` is not a modeled property of a function value; only a declared callable-interface memb |
 | 1 | 1 | non-working Rust | too many generic type arguments |
 | 1 | 1 | non-working Rust | Object.assign sources must be record or object-like values |
-| 1 | 1 | non-working Rust | regex replacement supports only g/i/m/s RegExp literal flags |
 
 ## neverthrow
 
@@ -130,12 +130,12 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 | 1 | 1 | non-working Rust | call argument kind is not lowered yet: ParenthesizedExpression(ParenthesizedExpression { s |
 | 1 | 1 | non-working Rust | base class `X` is not declared |
 | 1 | 1 | non-working Rust | call argument kind is not lowered yet: ParenthesizedExpression(ParenthesizedExpression { s |
+| 1 | 1 | non-working Rust | property writes onto a callable local (get, post, delete, put, patch, get_json) were colle |
 | 1 | 1 | non-working Rust | field access is only lowered for Record<string, T>, class, and interface values for now (r |
 | 1 | 1 | non-working Rust | field access is only lowered for Record<string, T>, class, and interface values for now (r |
 | 1 | 1 | non-working Rust | call argument kind is not lowered yet: ParenthesizedExpression(ParenthesizedExpression { s |
 | 1 | 1 | non-working Rust | call argument kind is not lowered yet: ParenthesizedExpression(ParenthesizedExpression { s |
 | 1 | 1 | non-working Rust | call expression callee must return a function |
-| 1 | 1 | non-working Rust | expression kind is not lowered yet: SequenceExpression(SequenceExpression { span: Span { s |
 
 ## returns
 
