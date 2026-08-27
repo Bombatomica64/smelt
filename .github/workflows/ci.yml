@@ -637,12 +637,14 @@ jobs:
           for log in /tmp/es-toolkit-libcheck.log /tmp/es-toolkit-testcheck.log; do
             [ -f "$log" ] || continue
             echo "::group::$(basename "$log")"
-            total=$(grep -cE '^error' "$log" || true)
+            # `--message-format short` prints `path:line:col: error[E0308]: ...`,
+            # so the diagnostic is NOT at the start of the line — do not anchor.
+            total=$(grep -cE 'error(\[E[0-9]{4}\])?:' "$log" || true)
             echo "total error lines: $total"
             echo "--- error classes (count, code) ---"
             grep -oE 'error\[E[0-9]{4}\]' "$log" | sort | uniq -c | sort -rn | head -25 || true
-            echo "--- first 60 error lines ---"
-            grep -E '^error' "$log" | head -60 || true
+            echo "--- error lines (up to 60, full text) ---"
+            grep -E 'error(\[E[0-9]{4}\])?:' "$log" | head -60 || true
             echo "::endgroup::"
           done
 
