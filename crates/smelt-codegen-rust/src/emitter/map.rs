@@ -69,9 +69,13 @@ impl FunctionEmitter<'_> {
         if !self.dict_key_operand_is_compatible(key, *key_ty)? {
             return Ok("false".to_owned());
         }
+        // `contains_key` takes `&self`, so read the receiver by borrow. Cloning it
+        // copied the whole map for a membership test; in es-toolkit's `groupBy` that
+        // ran once per element (`result.clone().contains_key(..)` inside the loop),
+        // making an O(n) pass O(n^2) in the accumulated map.
         Ok(format!(
             "{}.contains_key(&{})",
-            self.operand_text(dict)?,
+            self.operand_borrow_text(dict)?,
             self.dict_key_operand_text(key, *key_ty)?
         ))
     }
@@ -151,9 +155,9 @@ impl FunctionEmitter<'_> {
             let get_text =
                 if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
                     || self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
-                    format!("{}.get(&{})", self.operand_text(dict)?, key_text)
+                    format!("{}.get(&{})", self.operand_borrow_text(dict)?, key_text)
                 } else {
-                    format!("{}.get(&{}).cloned()", self.operand_text(dict)?, key_text)
+                    format!("{}.get(&{}).cloned()", self.operand_borrow_text(dict)?, key_text)
                 };
             return Ok(format!(
                 "{get_text}.unwrap_or({})",
@@ -177,16 +181,16 @@ impl FunctionEmitter<'_> {
                 let get_text =
                     if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
                     || self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
-                        format!("{}.get(&{})", self.operand_text(dict)?, key_text)
+                        format!("{}.get(&{})", self.operand_borrow_text(dict)?, key_text)
                     } else {
-                        format!("{}.get(&{}).cloned()", self.operand_text(dict)?, key_text)
+                        format!("{}.get(&{}).cloned()", self.operand_borrow_text(dict)?, key_text)
                     };
                 Ok(format!("{get_text}.flatten()"))
             }
             (_, Some(Type::Optional(dest_inner))) if dest_inner == value_ty => {
                 if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
                     || self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
-                    Ok(format!("{}.get(&{})", self.operand_text(dict)?, key_text))
+                    Ok(format!("{}.get(&{})", self.operand_borrow_text(dict)?, key_text))
                 } else {
                     Ok(format!(
                         "{}.get(&{}).cloned()",
