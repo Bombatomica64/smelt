@@ -63,7 +63,7 @@ across loop iterations, so no last-use rewrite could fire on it anyway. The thre
 clones are receiver reads of `&self` methods, and a move-based fix is structurally
 incapable of removing them — the fix has to be borrow-based.
 
-## 2. Self-recursive closures leak everything they capture, on every call
+## 2. Self-recursive closures leak everything they capture, on every call — FIXED
 
 **Where:** `flatten.rs:8`, `:18`, `:73` in the generated es-toolkit crate.
 
@@ -103,9 +103,35 @@ lowering, and it retains **76 bytes per op** against es-toolkit `flatten`'s 367 
 while running at 4,809 ops/s, within 1.1x of the TypeScript and by far the closest row
 in the whole table. Same operation, same harness; the difference is the cycle.
 
-The standard Rust idiom is for the closure's self-reference to be a `Weak`, upgraded
-at the call site. A long-running service built from this output would grow without
-bound today.
+### FIXED
+
+The closure now captures a `Weak` to its own cell instead of an `Rc`, and upgrades at
+each self-call. The cycle cannot form: the frame's own `smelt_capture_x` binding is the
+strong owner, so on frame exit the cell drops, which drops the closure, which drops its
+captures. See `closure_capture_is_non_escaping_self_reference` in
+`crates/smelt-codegen-rust/src/emitter/capture_analysis.rs`.
+
+Measured on es-toolkit `flatten`, checksum unchanged (938821211):
+
+| | Before | After |
+| --- | ---: | ---: |
+| Peak RSS at ~2k calls | 396 MiB | **4.6 MiB** |
+| Peak RSS at ~7.7k calls | 1,779 MiB | **4.7 MiB** |
+| Throughput | ~1,472 ops/s | **~1,968 ops/s** |
+
+Peak RSS is now flat in call count rather than linear, and throughput rose 1.34x as a
+side effect of no longer allocating without ever freeing.
+
+Two limits, both deliberate and both covered by tests:
+
+* An **escaping** closure (returned, or stored somewhere that outlives the frame)
+  keeps the strong capture, because a `Weak` would find the cell already gone. Those
+  still leak. The runtime test
+  `a_capturing_self_recursive_closure_recurses_and_escapes` asserts the escape case
+  still answers correctly, which is what would break if the guard were dropped.
+* **Mutual recursion** between two closures is not covered: neither captures the
+  binding it is itself assigned to, so the predicate is false for both. Noted as a
+  known gap in the predicate's doc comment.
 
 ## 3. Module-level `const` non-primitives are rebuilt at every call site, every call
 

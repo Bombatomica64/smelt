@@ -1823,6 +1823,57 @@ export function replaceAll(str: string, table: unknown): string {
 }
 
 #[test]
+fn self_recursive_closure_captures_its_own_cell_weakly() {
+    // A self-recursive closure and its cell used to hold each other with `Rc`, a
+    // reference cycle that leaked the closure and everything it captured on EVERY
+    // call. es-toolkit's `flatten` grew ~21 KiB per call without bound; after this
+    // lowering its peak RSS is flat in call count (396 MiB -> 4.6 MiB at ~2k calls).
+    // See `benchmarks/FINDINGS.md` finding #2.
+    //
+    // The absence assertion is the load-bearing one: no strong self-capture means the
+    // cycle cannot form, which is a static property rather than a measurement.
+    let source = source_for(
+        r"
+export function collect(rows: number[][]): number[] {
+  const result: number[] = [];
+  const recurse = (items: number[][], depth: number): void => {
+    for (const item of items) {
+      if (depth > 0) {
+        recurse([item], depth - 1);
+      } else {
+        result.push(item[0]);
+      }
+    }
+  };
+  recurse(rows, 1);
+  return result;
+}
+",
+    );
+
+    // The closure captures a `Weak` to its own cell...
+    assert!(
+        source.contains("let smelt_capture_recurse = ::std::rc::Rc::downgrade(&smelt_capture_recurse);"),
+        "{source}"
+    );
+    // ...and upgrades it to call itself.
+    assert!(
+        source.contains("smelt_capture_recurse.upgrade().expect("),
+        "{source}"
+    );
+    // The frame keeps the strong owner, so the cell outlives every call through it.
+    assert!(
+        source.contains("(*smelt_capture_recurse.borrow_mut()) ="),
+        "{source}"
+    );
+    // No strong self-capture: the cycle cannot form.
+    assert!(
+        !source.contains("let smelt_capture_recurse = smelt_capture_recurse.clone();"),
+        "{source}"
+    );
+}
+
+#[test]
 fn emits_escaping_closure_spread_calls_with_owned_callback_state() {
     let source = source_for(
         r"

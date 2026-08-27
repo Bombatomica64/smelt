@@ -481,7 +481,16 @@ impl FunctionEmitter<'_> {
                     } else if self.closure_capture_needs_shared_access(closure, capture)
                         || self.local_uses_shared_capture_storage(capture.source_local)
                     {
-                        format!("(*smelt_capture_{alias_name}.borrow_mut())")
+                        // A self-recursive closure holds a `Weak` to its own cell, so
+                        // it upgrades before borrowing. See
+                        // `closure_capture_is_non_escaping_self_reference`.
+                        if self.closure_capture_is_non_escaping_self_reference(closure, capture) {
+                            format!(
+                                "(*smelt_capture_{alias_name}.upgrade().expect(\"self-recursive closure called after its defining scope returned\").borrow_mut())"
+                            )
+                        } else {
+                            format!("(*smelt_capture_{alias_name}.borrow_mut())")
+                        }
                     } else {
                         alias_name
                     };
@@ -867,13 +876,30 @@ impl FunctionEmitter<'_> {
                     if self.closure_capture_needs_shared_access(closure, capture)
                         || self.local_uses_shared_capture_storage(capture.source_local)
                     {
+                        // A self-recursive closure captures a `Weak` to its own cell
+                        // rather than an `Rc`, which is what stops the cycle. The
+                        // frame's own binding stays the strong owner, so the cell
+                        // outlives every call made through it.
+                        let self_reference =
+                            self.closure_capture_is_non_escaping_self_reference(closure, capture);
                         shared_replacements.push((
                             name.clone(),
-                            format!("(*smelt_capture_{name}.borrow_mut())"),
+                            if self_reference {
+                                format!(
+                                    "(*smelt_capture_{name}.upgrade().expect(\"self-recursive closure called after its defining scope returned\").borrow_mut())"
+                                )
+                            } else {
+                                format!("(*smelt_capture_{name}.borrow_mut())")
+                            },
                         ));
                         if capture_aliases.contains_key(&capture.source_local) {
                             return format!(
                                 "let smelt_capture_{name} = ::std::rc::Rc::new(::std::cell::RefCell::new({source_name}.clone()));"
+                            );
+                        }
+                        if self_reference {
+                            return format!(
+                                "let smelt_capture_{name} = ::std::rc::Rc::downgrade(&smelt_capture_{name});"
                             );
                         }
                         return format!("let smelt_capture_{name} = smelt_capture_{name}.clone();");
