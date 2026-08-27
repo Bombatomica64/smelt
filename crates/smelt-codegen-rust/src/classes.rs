@@ -328,22 +328,27 @@ fn type_param_only_moved(mir: &Mir, function: &MirFunction, name: Symbol) -> boo
             if rvalue_preserves_opacity(value) {
                 continue;
             }
-            // If the destination still has `T` in its type, the value was
-            // relocated or projected rather than read into: `item = arr[i]`
-            // moves a `T` out of a `SmeltList<T>`, whereas `t === u` does not —
-            // its destination is `bool`. This is the general form of the
-            // whitelist, which then only has to carry operations whose result
-            // legitimately drops `T`, such as `arr.push(t)` yielding a length.
-            if destination_mentions(mir, function, statement, name) {
-                continue;
-            }
-            let mut inspected = false;
+            let mut reads_t = false;
             value.for_each_operand(|operand| {
                 if mentions(operand) {
-                    inspected = true;
+                    reads_t = true;
                 }
             });
-            if inspected {
+            // A `T`-typed destination is evidence of relocation ONLY when the
+            // value being stored is itself `T`-typed: `item = arr[i]` moves a
+            // `T` out of a `SmeltList<T>`, and some operand carries it. When the
+            // destination is `T` but nothing read was, the slot is being filled
+            // from somewhere else — an erased helper, a defaulted constant — and
+            // that is the leak this analysis exists to catch, not a move.
+            // es-toolkit's `flatten`/`unzipWith` failed exactly here with
+            // "expected type parameter `T`, found `SmeltUnknown`".
+            if destination_mentions(mir, function, statement, name) {
+                if reads_t {
+                    continue;
+                }
+                return false;
+            }
+            if reads_t {
                 return false;
             }
         }
@@ -355,6 +360,18 @@ fn type_param_only_moved(mir: &Mir, function: &MirFunction, name: Symbol) -> boo
             Terminator::Switch { cond: probe, .. } | Terminator::Match { scrutinee: probe, .. },
         ) = &block.terminator
             && mentions(probe)
+        {
+            return false;
+        }
+        // A call binds its result into `dest`. If that slot is `T`-typed, the
+        // callee has to be producing a `T` — and the only evidence available
+        // here is that some argument carried one in. A call with no `T`-typed
+        // argument writing into a `T`-typed local is an erased return landing in
+        // a generic slot, which is the same leak as above and is not visible
+        // from the statement walk, since calls are terminators.
+        if let Some(Terminator::Call { args, dest, .. }) = &block.terminator
+            && local_mentions(*dest)
+            && !args.iter().any(&mentions)
         {
             return false;
         }
@@ -485,7 +502,7 @@ pub(crate) fn liftable_type_params(
         return HashSet::new();
     }
 
-    function
+    let base: HashSet<Symbol> = function
         .type_params
         .iter()
         .filter(|type_param| {
@@ -520,10 +537,26 @@ pub(crate) fn liftable_type_params(
                 // branches: it is the renderability rule and applies to every
                 // occurrence, however the parameter got inferred.
                 && callback_occurrences_are_liftable(mir, function, owned_callback_params, name)
-                // ... and the body must never inspect a value of this type.
-                && type_param_only_moved(mir, function, name)
         })
         .map(|type_param| type_param.name)
+        .collect();
+
+    // The MIR opacity analysis governs PARTIAL lifts only.
+    //
+    // When every declared parameter clears the checks above, the function is one
+    // the pre-Increment-5 rule already lifted, and `renders_real_generics`'
+    // textual trial decides it exactly as before — applying a second, stricter
+    // filter here could demote functions that are generic today, which is a
+    // regression this change has no business making.
+    //
+    // A partial lift is new ground: the trial cannot judge it (the parameters
+    // that did not lift put erased tokens in the body by design), so opacity is
+    // established per parameter from MIR instead.
+    if base.len() == function.type_params.len() {
+        return base;
+    }
+    base.into_iter()
+        .filter(|name| type_param_only_moved(mir, function, *name))
         .collect()
 }
 
