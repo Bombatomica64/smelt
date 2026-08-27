@@ -700,9 +700,16 @@ const total = sum(2, 3, 4);
     );
     assert!(source.contains("vec![2.0, 3.0, 4.0]"));
     assert!(source.contains("closure_arg_0.get("), "{source}");
+    // The subject is the TOTAL read — `.cloned().unwrap_or(default)` rather than
+    // a fallible one. The read already yields an owned value, so it carries no
+    // trailing `.clone()`; see `index_place_read_is_owned`.
     assert!(
-        source.contains(".cloned().unwrap_or(0.0).clone()"),
+        source.contains(".cloned().unwrap_or(0.0)"),
         "{source}"
+    );
+    assert!(
+        !source.contains(".cloned().unwrap_or(0.0).clone()"),
+        "an index read is already owned and must not be cloned again:\n{source}"
     );
 }
 

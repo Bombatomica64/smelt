@@ -11081,12 +11081,16 @@ export function copy(b: string[], n: number[], i: number): void {
 ",
     );
 
+    // The subject is that the read stays TOTAL (`.cloned().unwrap_or(default)`,
+    // not a fallible read). The trailing `.clone()` these once carried was the
+    // redundant second copy of an already-owned index read, removed by
+    // `index_place_read_is_owned`, and is asserted absent below.
     assert!(
-        source.contains(".cloned().unwrap_or(String::new()).clone();"),
+        source.contains(".cloned().unwrap_or(String::new());"),
         "a concrete `string` slot keeps the total read:\n{source}"
     );
     assert!(
-        source.contains(".cloned().unwrap_or(0.0).clone();"),
+        source.contains(".cloned().unwrap_or(0.0);"),
         "a concrete `number` slot keeps the total read:\n{source}"
     );
     assert!(
