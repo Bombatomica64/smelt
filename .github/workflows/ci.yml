@@ -567,7 +567,7 @@ jobs:
       - name: Generated library compiles (cargo check, errors == 0)
         run: |
           set -o pipefail
-          RUSTFLAGS=-Awarnings cargo check --message-format short \
+          CARGO_TERM_COLOR=never RUSTFLAGS=-Awarnings cargo check --message-format short \
             --manifest-path target/compat-repos/es-toolkit/dist-smelt/Cargo.toml \
             2>&1 | tee /tmp/es-toolkit-libcheck.log
 
@@ -577,7 +577,7 @@ jobs:
       - name: Generated tests compile (cargo test --no-run, errors == 0)
         run: |
           set -o pipefail
-          RUSTFLAGS=-Awarnings timeout 20m cargo test --no-run --message-format short \
+          CARGO_TERM_COLOR=never RUSTFLAGS=-Awarnings timeout 20m cargo test --no-run --message-format short \
             --manifest-path target/compat-repos/es-toolkit/dist-smelt/Cargo.toml \
             2>&1 | tee /tmp/es-toolkit-testcheck.log
 
@@ -637,14 +637,23 @@ jobs:
           for log in /tmp/es-toolkit-libcheck.log /tmp/es-toolkit-testcheck.log; do
             [ -f "$log" ] || continue
             echo "::group::$(basename "$log")"
+            # The job sets CARGO_TERM_COLOR=always, so a captured log can carry
+            # ANSI escapes *between* the code and its colon — `error[E0308]`
+            # matches as a substring while `error[E0308]:` does not, which is why
+            # an earlier version of this step counted 0 while still finding the
+            # codes. Strip the escapes before matching anything.
+            plain=$(mktemp)
+            sed -E 's/\x1b\[[0-9;]*[A-Za-z]//g' "$log" > "$plain"
             # `--message-format short` prints `path:line:col: error[E0308]: ...`,
             # so the diagnostic is NOT at the start of the line — do not anchor.
-            total=$(grep -cE 'error(\[E[0-9]{4}\])?:' "$log" || true)
+            total=$(grep -cE 'error(\[E[0-9]{4}\])?:' "$plain" || true)
             echo "total error lines: $total"
             echo "--- error classes (count, code) ---"
-            grep -oE 'error\[E[0-9]{4}\]' "$log" | sort | uniq -c | sort -rn | head -25 || true
+            grep -oE 'error\[E[0-9]{4}\]' "$plain" | sort | uniq -c | sort -rn | head -25 || true
             echo "--- error lines (up to 60, full text) ---"
-            grep -E 'error(\[E[0-9]{4}\])?:' "$log" | head -60 || true
+            grep -E 'error(\[E[0-9]{4}\])?:' "$plain" | head -60 || true
+            echo "--- surrounding context (up to 80 lines) ---"
+            grep -E -B 2 -A 6 'error\[E[0-9]{4}\]' "$plain" | head -80 || true
             echo "::endgroup::"
           done
 
