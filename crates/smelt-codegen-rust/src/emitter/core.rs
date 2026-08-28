@@ -5057,10 +5057,74 @@ const ERASED_CARRIER_TOKENS: &[&str] = &[
 /// (`return x;`, `return xs.get(..)..;`) contains none of them and keeps its
 /// generics.
 fn body_needs_erased_carrier(body: &str) -> bool {
-    let stripped = strip_mut_list_adapter_blocks(body);
+    let stripped = strip_throw_payloads(&strip_mut_list_adapter_blocks(body));
     ERASED_CARRIER_TOKENS
         .iter()
         .any(|token| stripped.contains(token))
+}
+
+/// Removes `smelt_throw(..)` payload expressions from a trial body.
+///
+/// A thrown value is a genuine dynamic boundary, exactly like the mutable-list
+/// adapter above: `smelt_throw` takes an erased `SmeltUnknown` and returns a
+/// `Box<dyn std::error::Error>`, so the payload never touches a type parameter
+/// and cannot leak one. But it is BUILT out of `SmeltUnknown` / `SmeltObject` /
+/// `SmeltRecord`, so leaving it in the trial body means a single
+/// `throw new Error(..)` disqualifies the whole function from real generics.
+///
+/// That is not a hypothetical cost. In es-toolkit 19 emitted functions contain
+/// `smelt_throw`, and for four of them — `chunk`, `combinations`, `sampleSize`,
+/// `windowed` — the throw is the ONLY erased-carrier mention in an otherwise
+/// fully opaque body. `chunk<T>` therefore lowered to
+/// `chunk(SmeltList<SmeltUnknown>, f64)`, and every element it copies pays an
+/// out-of-line `SmeltUnknown::clone` plus drop glue that compiles to nothing at
+/// a concrete `T`. Measured on the same data and operation, the typed
+/// instantiation of `uniq` costs 10,472,619 instructions against the erased
+/// one's 14,464,861 — 1.38x, purely for carrying the tag.
+///
+/// The scan tracks string literals so a message containing a parenthesis (or a
+/// `\"` escape) cannot end the payload early; the surrounding body is left
+/// untouched, so anything the function does with `T` outside a throw still
+/// disqualifies it.
+fn strip_throw_payloads(body: &str) -> String {
+    const MARKER: &str = "smelt_throw(";
+    let mut result = body.to_owned();
+    while let Some(marker_pos) = result.find(MARKER) {
+        let open = marker_pos.saturating_add(MARKER.len()).saturating_sub(1);
+        let bytes = result.as_bytes();
+        let mut depth = 0_usize;
+        let mut close_pos = None;
+        let mut in_string = false;
+        let mut escaped = false;
+        for (offset, &byte) in bytes.iter().enumerate().skip(open) {
+            if in_string {
+                match byte {
+                    _ if escaped => escaped = false,
+                    b'\\' => escaped = true,
+                    b'"' => in_string = false,
+                    _ => {}
+                }
+                continue;
+            }
+            match byte {
+                b'"' => in_string = true,
+                b'(' => depth = depth.saturating_add(1),
+                b')' => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        close_pos = Some(offset);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let Some(payload_end) = close_pos else {
+            break;
+        };
+        result.replace_range(marker_pos..=payload_end, "");
+    }
+    result
 }
 
 /// Removes convert-in-place mutable-list adapter blocks from a trial body.

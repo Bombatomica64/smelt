@@ -179,6 +179,56 @@ pub fn run_case(name: &str) -> Option<Measurement> {
                 },
             )
         }
+        "chunk_typed" => {
+            // `chunk` only became callable at a concrete `T` once the throw-payload
+            // exemption landed: a single `throw new Error(..)` used to disqualify the
+            // whole function from real generics, so this row could not be written
+            // before that change. It is the direct measurement of what that
+            // exemption buys — same source, same work, tag removed.
+            let data: SmeltList<f64> = SmeltList::from(
+                numbers(N, 1).into_iter().map(|v| match v { SmeltUnknown::Number(n) => n, _ => 0.0 }).collect::<Vec<_>>(),
+            );
+            measure(
+                || entry_chunk::<f64>(data.clone(), 7.0).unwrap(),
+                |out: &SmeltList<SmeltList<f64>>| {
+                    let mut h = mix(0, out.len() as u32);
+                    for inner in out.iter() {
+                        h = mix(h, inner.len() as u32);
+                        for v in inner.iter() {
+                            h = hash_number(h, v);
+                        }
+                    }
+                    h
+                },
+            )
+        }
+        "partition_typed" => {
+            // The same call as `partition`, monomorphized at `T = f64` instead of
+            // `T = SmeltUnknown`. `partition` is already emitted generic, so this
+            // row prices ERASURE on its own: identical source, identical shape of
+            // work, one with a tag on every element and one without. It is the
+            // control the erasure stages are judged against, and it exists before
+            // any of them so the comparison cannot be built to flatter a change.
+            let data: SmeltList<f64> = SmeltList::from(
+                numbers(N, 8).into_iter().map(|v| match v { SmeltUnknown::Number(n) => n, _ => 0.0 }).collect::<Vec<_>>(),
+            );
+            let pred = |item: f64, _i: f64, _all: &SmeltList<f64>| item as u32 % 2 == 0;
+            measure(
+                || entry_partition::<f64, _>(data.clone(), &pred),
+                |(yes, no): &(SmeltList<f64>, SmeltList<f64>)| {
+                    let mut h = mix(0, 2);
+                    h = mix(h, yes.len() as u32);
+                    for v in yes.iter() {
+                        h = hash_number(h, v);
+                    }
+                    h = mix(h, no.len() as u32);
+                    for v in no.iter() {
+                        h = hash_number(h, v);
+                    }
+                    h
+                },
+            )
+        }
         "sort_by" => {
             let data: SmeltList<SmeltUnknown> = SmeltList::from(records(N, 8));
             let criteria: SmeltList<SmeltUnknown> =
@@ -241,6 +291,7 @@ pub fn run_case(name: &str) -> Option<Measurement> {
 /// Every case this crate knows how to run, in report order.
 pub const CASES: &[&str] = &[
     "chunk", "unique", "unique_typed", "flatten", "zip",
+    "partition_typed", "chunk_typed",
     "difference", "intersection",
     "group_by", "count_by", "unique_by", "sum_by", "partition", "sort_by",
     "deep_equal", "clone_deep",
