@@ -11872,3 +11872,41 @@ const r = scan(['a', 'b'], (s) => 'k');
         "the inspected `T` must not reach the parameter list:\n{source}"
     );
 }
+
+/// A type parameter moved into a differently-typed container does not lift.
+///
+/// `Rvalue::Use` used to be whitelisted as "a bare move", which short-circuited
+/// the destination check. But a move is opacity-preserving only when source and
+/// destination agree about `T`: moving a `T` into a slot of another type erases
+/// it. es-toolkit's `unzipWith` is exactly this shape — `group` comes from
+/// `new Array(n)` so its type is `unknown[]`, each `T` element is moved into it,
+/// and the erased list is then passed to a callback whose bound reads
+/// `Fn(SmeltList<T>)`, so the generated library failed with "expected `Vec<T>`,
+/// found `Vec<SmeltUnknown>`".
+#[test]
+fn type_param_moved_into_an_erased_container_does_not_lift() {
+    let source = source_for(
+        r"
+function collect<T, K extends string>(rows: T[][], key: (vals: T[]) => K): K[] {
+  const out: K[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const group = new Array(rows.length);
+    for (let j = 0; j < rows.length; j++) { group[j] = rows[j][i]; }
+    out.push(key(group));
+  }
+  return out;
+}
+const r = collect([[1, 2]], (v) => 'k');
+",
+    );
+
+    let signature = source
+        .split("fn collect")
+        .nth(1)
+        .and_then(|rest| rest.split('{').next())
+        .unwrap_or_else(|| panic!("expected a generated `collect`:\n{source}"));
+    assert!(
+        !signature.starts_with('<'),
+        "a `T` moved into an `unknown[]` must not lift:\n{source}"
+    );
+}

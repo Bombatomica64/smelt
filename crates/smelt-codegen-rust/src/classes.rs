@@ -433,10 +433,19 @@ fn statement_destination_mentions(
 fn rvalue_preserves_opacity(rvalue: &Rvalue) -> bool {
     matches!(
         rvalue,
-        // A bare move.
-        Rvalue::Use(_)
-            // Building a container *of* `T`; elements are stored, not read.
-            | Rvalue::List(_)
+        // `Rvalue::Use` is deliberately NOT here. A move is opacity-preserving
+        // only when source and destination agree about `T`; a `T` moved into a
+        // slot of another type is an erasure, not a relocation, and the general
+        // destination rule below decides that correctly. Whitelisting `Use`
+        // short-circuited that check, which is how es-toolkit's `unzipWith`
+        // leaked: `group` comes from `new Array(n)` so its type is
+        // `List<Unknown>`, a `T` element is moved into it, and the erased list
+        // is then handed to an `F0: Fn(SmeltList<T>)` bound.
+        //
+        // Container *construction* stays listed: `const out: T[] = []` has a
+        // `T`-typed destination and no `T`-typed operand, which the general rule
+        // would otherwise read as filling a `T` slot from nothing.
+        Rvalue::List(_)
             | Rvalue::Tuple(_)
             | Rvalue::ListPush { .. }
             | Rvalue::ListExtend { .. }
