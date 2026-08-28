@@ -56,19 +56,29 @@ happens to answer correctly for the wrong reason. Fixing it means extending the
 identity path to `JsStrictEq`, which changes `===`/`toBe` answers across the
 library corpora and is a separate change with its own gate run.
 
-### Erasing a typed list to `SmeltUnknown` still copies
+### Erasing a typed list to `SmeltUnknown` — RESOLVED
 
-`From<SmeltList<SmeltUnknown>> for SmeltArray` could share the buffer outright
-(`SmeltArray` has the identical `Rc<RefCell<Vec<SmeltUnknown>>>` representation,
-and `SmeltList::storage()` exists for it). It was implemented that way first and
-it broke remeda's
-`uniqueBy › pipe get executed 3 times when take before uniqueBy` — remeda's
-`pipe` publishes its accumulator as `SmeltUnknown::Array(accumulator.into())`
-and then keeps filling the accumulator, so a shared buffer let the published
-array keep changing under the lazy pipeline. Erasure is therefore still a copy
-(`with_id` + `into_vec`/`to_vec`), which is exactly what it was before this
-change. Making the erasure boundary share too is the natural next stage, and it
-needs the accumulator-publishing shape in `pipe` understood first.
+Landed: both `From<SmeltList<SmeltUnknown>> for SmeltArray` and its `&` form now
+use `with_storage`, so erasure is a refcount bump rather than a copy.
+
+The remeda `pipe` failure recorded here as the blocker does **not** reproduce on
+the merged tree (remeda stays 1789/0). It was an artifact of the pre-merge base:
+the merge made materializing a pushed item unconditional, which removed the
+aliased read-and-write-in-one-expression shape that a shared buffer turned into a
+live borrow conflict.
+
+Result: es-toolkit 954/105 -> **956/103**, failure sets diffed, zero new failures.
+The two fixed are `isEqualWith should compare arrays with circular references when
+customizer returns undefined` and its transitive-equivalence sibling — a circular
+array (`a[0] = a`) is only representable when the erased element IS the array, so
+those two tests are the sharpest available evidence that sharing is the correct
+semantics rather than merely the faster one.
+
+Throughput is neutral. A controlled A/B on one machine state gave chunk 0.99x,
+group_by 1.00x, unique 0.90x. Note for anyone reading numbers off this suite: the
+same binary measured `chunk` at both 6,411 and 4,746 ops/s across runs on this
+box, so cross-run variance is ~25% and any reported delta below roughly 1.3x
+should be treated as noise unless it comes from a controlled A/B.
 
 ### Callback iteration holds a read borrow across the callback
 
@@ -97,10 +107,8 @@ be the stage right after erasure sharing.
 
 ## Staged plan for the remainder
 
-1. **Erasure sharing.** Make `From<SmeltList<SmeltUnknown>> for SmeltArray` (and
-   the `&` form) use `with_storage`. Requires understanding the remeda `pipe`
-   accumulator case above; add it as a fixture to the runtime tier first.
-2. **Retire `ListAliasOrigin`.** Once (1) lands, the erased-base write-back arms
+1. ~~**Erasure sharing.**~~ DONE — see the RESOLVED section above.
+2. **Retire `ListAliasOrigin`.** Now unblocked: the erased-base write-back arms
    are redundant; delete `list_alias_origin*` and the two special-cased push
    paths in `list_mutation.rs`, and confirm the object/dict fixtures in the
    runtime tier still pass.
