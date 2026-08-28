@@ -677,12 +677,22 @@ jobs:
               src="$crate/$f"
               [ -f "$src" ] || continue
               echo "===== $f:$l ====="
+              # Print the WHOLE enclosing function. A truncated line is how the
+              # last cycle lost the detail that mattered: the statement filling
+              # the offending local ran past the cut. With few errors this is
+              # affordable, and it shows the local's declaration, every write to
+              # it, and the signature that constrains it.
               awk -v L="$l" '
-                NR<=L && /^[[:space:]]*(pub(\(crate\))?[[:space:]]+)?(async[[:space:]]+)?fn[[:space:]]/ { sig=NR": "$0 }
-                NR==L { print "  enclosing fn -> " sig }
+                { line[NR] = $0 }
+                NR <= L && /^[[:space:]]*(pub(\(crate\))?[[:space:]]+)?(async[[:space:]]+)?fn[[:space:]]/ { s = NR }
+                END {
+                  if (s == 0) { s = (L > 12 ? L - 12 : 1) }
+                  for (i = s; i <= NR; i++) {
+                    printf "%6d\t%s\n", i, substr(line[i], 1, 1000)
+                    if (i > s && line[i] == "}") { break }
+                  }
+                }
               ' "$src"
-              start=$(( l > 10 ? l - 10 : 1 ))
-              sed -n "${start},$((l + 4))p" "$src" | cut -c1-500 | nl -ba -v "$start"
             done
             echo "::endgroup::"
           done
