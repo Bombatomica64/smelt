@@ -861,8 +861,13 @@ export function constructed(n: number): unknown[] {
 ",
     );
 
+    // Each slot evaluates the hole expression once rather than cloning one hole
+    // `n` times: a Smelt reference value clones by SHARING, so `vec![hole; n]`
+    // gave every slot one buffer and one identity. See `list_from_length_text`.
     assert_eq!(
-        source.matches("vec![SmeltUnknown::Undefined; array_from_length]").count(),
+        source
+            .matches("(0..array_from_length).map(|_| SmeltUnknown::Undefined)")
+            .count(),
         2,
         "both Array(n) spellings must allocate n holes: {source}"
     );
@@ -888,15 +893,15 @@ export function strings(n: number): string[] {
     );
 
     assert!(
-        source.contains("vec![0.0; array_from_length]"),
+        source.contains("(0..array_from_length).map(|_| 0.0)"),
         "a number[] allocation must hold f64 holes: {source}"
     );
     assert!(
-        source.contains("vec![String::new(); array_from_length]"),
+        source.contains("(0..array_from_length).map(|_| String::new())"),
         "a string[] allocation must hold String holes: {source}"
     );
     assert!(
-        !source.contains("SmeltUnknown::Undefined; array_from_length"),
+        !source.contains("map(|_| SmeltUnknown::Undefined)"),
         "a concretely typed allocation must not erase its holes: {source}"
     );
 }

@@ -4398,7 +4398,7 @@ function adapt(
     );
 
     assert!(
-        source.contains("SmeltUnknown::Array(value) => value"),
+        source.contains("SmeltUnknown::Array(values) => values"),
         "{source}"
     );
     assert!(source.contains("Some(arg1)"), "{source}");

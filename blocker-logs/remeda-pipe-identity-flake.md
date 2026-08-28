@@ -1,4 +1,4 @@
-# remeda `pipe`: an identity-sequence-dependent intermittent failure
+# remeda `pipe`: an identity-sequence-dependent intermittent failure — ROOT CAUSED AND FIXED
 
 ## Symptom
 
@@ -6,86 +6,100 @@
     remeda  uniqueBy > pipe gets executed until target length is reached
     panicked at src/map.rs: "unknown is not array"
 
-Intermittent: roughly one run in five or six of the generated remeda suite,
-on an unchanged binary.
+Intermittent: measured 3 failures in 20 runs of the generated remeda suite on an
+unchanged binary (`claude/generated-rust-performance` @ 61f9171).
 
-## Root cause (measured, not hypothesised)
+## Root cause
 
-**The variable is test PARALLELISM, not hash iteration order.**
+**Address reuse in the emitted identity registries.**
 
-    cargo test ... --no-fail-fast                     ~1 run in 5 fails
-    cargo test ... -- --test-threads=1                4 of 4 clean, always
+The prelude keeps four thread-local registries keyed by the raw address of an
+`Rc` allocation, and never removes an entry, because there is no drop hook to
+remove it from:
 
-Smelt's runtime identity state is `thread_local`: `smelt_next_object_id`,
-`SMELT_LIST_IDENTITIES`, `SMELT_FUNCTION_IDENTITIES`, `SMELT_FUNCTION_ORIGINS`
-and friends all live per thread. `cargo test` distributes tests across threads
-nondeterministically, so which tests share a thread decides how many objects
-were minted before a given test runs — and therefore what `id` its objects get.
+* `SMELT_CALLABLE_OBJECTS`   — the callable object a typed callback was narrowed from
+* `SMELT_FUNCTION_ORIGINS`   — the typed callback an erased wrapper was built from
+* `SMELT_FUNCTION_IDENTITIES` — canonical JavaScript function identity
+* `SMELT_FUNCTION_LENGTHS`   — `Function.prototype.length`
 
-The failing tests exercise remeda's LAZY `pipe`, which stores per-operation
-state keyed by identity. Some id sequences break it. Everything that perturbs
-allocation or hashing changes the probability without changing the underlying
-defect.
+An `Rc` allocation is freed when its last strong handle drops, and the allocator
+hands that block straight to the next allocation of the same size. A freshly
+built callback landing on a dead callback's address therefore inherits the dead
+callback's registry entries.
 
-## Why this matters beyond the one test
+Test PARALLELISM was the variable only because `cargo test`'s thread-per-test
+scheduling decides which allocations precede which on a given thread, and the
+registries are `thread_local`. `--test-threads=1` happens to produce an
+allocation order in which the aliasing does not bite; it hides the bug, it does
+not fix it. The earlier hash-iteration-order guess was wrong, and so was the
+"`pipe` publishes its lazy accumulator as an erased array" guess.
 
-It has now blocked two separate improvements, and misdirected the diagnosis of
-both:
+## The exact chain, from the captured backtrace
 
-1. **Erasure sharing** (`From<SmeltList<SmeltUnknown>> for SmeltArray` using
-   `with_storage`). Recorded first as "does not reproduce" on the strength of a
-   single green run, then reverted in #219 with the intermittency documented but
-   the cause guessed as hash-iteration order. That guess is wrong.
-2. **FxHash property keys.** A measured win (es-toolkit `unique` 25.4M -> 14.5M
-   instructions, `partition` 136.8M -> 121.7M) that cannot land while this bug
-   exists, because it raises the failure rate from "not seen in 10 runs" to
-   about 1 in 5.
+    map_134::{{closure}}                    src/map.rs:16:1645   <- panic
+    SmeltErasedFunction::call
+    lazy_data_last_impl::{{closure}}        lazyDataLastImpl.rs:17   (`dataLast`)
+    lazy_data_last_impl::{{closure}}        lazyDataLastImpl.rs:28   (`__smelt_call`)
+    process_item                            pipe.rs:304
+    pipe_10                                 pipe.rs:213
 
-Neither change causes the defect. Both make it more likely to be observed.
+Column 1645 on `map.rs:16` is the `_ => panic!` of the coercion that rebuilds
+`map`'s **array** parameter, i.e. `pipe` called `dataLast(item)` — the data-last
+wrapper of `map(cb)` — instead of `map`'s lazy evaluator.
 
-## Localised: the panic is an un-erasure adapter, fed a non-array
+How the wrong callable got there: `map_134`'s erased `lazy` adapter coerces its
+argument to `Rc<dyn Fn(SmeltUnknown, f64, &SmeltList<SmeltUnknown>) -> SmeltUnknown>`
+(which runs `smelt_register_callable_object`), then erases the typed result —
+a callback of **the same `Rc` type**, hence the same allocation size — back to
+`SmeltUnknown` through `smelt_lookup_callable_object`. When the result landed on
+a recycled address, the lookup answered with a PREVIOUS operation's
+`{ __smelt_call: dataLast, lazy, lazyArgs }`. `prepareLazyFunction` then kept
+that object's `__smelt_call` and `pipe`'s `processItem` invoked it with
+`(item, index, items)`; `dataLast` ignores arguments 2 and 3 and calls
+`map(item, cb)`, routing one ITEM into the ARRAY slot.
 
-`src/map.rs` line 16 is the adapter that rebuilds a `SmeltList<SmeltUnknown>`
-from a `SmeltUnknown` for `map`'s array parameter. Its arms are `Null`,
-`Undefined`, `Array`, `Object` (host buffer / `arguments` / `__smelt_map` /
-`__smelt_set` / `Symbol.iterator`), and everything else panics.
+## Fix
 
-The failing fixture's data is `[1, 2, 2, 5, 1, 6, 7]` — plain numbers. A
-`SmeltUnknown::Number` reaching that adapter means an ITEM arrived where the
-ARRAY was expected, which points at remeda's `purry` data-first/data-last
-dispatch under the lazy protocol rather than at the adapter itself. `purry`
-decides which form was called from the argument shape at runtime, so an erased
-representation that answers its array-ness or arity check differently, for some
-identity sequences, would route one item into the array slot exactly this way.
-That is the thread to pull.
+`smelt_retain_callable_key` reserves each keyed address with a `Weak` before the
+address is stored in any registry, as a key or as a canonical-identity value
+(`smelt_canonical_function_identity`). Holding a `Weak` keeps the `RcBox` block
+allocated after the last strong handle drops — the value itself is still dropped,
+so captured state is released — which makes the address unreusable, and therefore
+makes every registry key unique to one allocation for the life of the thread.
+Registry growth is unchanged in order of magnitude; these maps were already
+unbounded.
 
-## A separate, independent defect found while localising this
+## Evidence
 
-The same conceptual conversion — erased value to typed list — is emitted with
-DIFFERENT arm sets in different places. The `groupBy` adapter carries
+* Baseline, unchanged binary: **17 pass / 3 fail in 20 runs**.
+* With the fix: **40 pass / 0 fail in 40 runs**.
+* Deterministic reproduction: `crates/smelt-codegen-rust/tests/callable_object_identity_runtime.rs`
+  emits a remeda-shaped crate and appends a Rust probe that frees a registered
+  callback, then allocates fresh callables of the same type. Before the fix both
+  probes fail on the first candidate —
+  `a fresh callback reused a registered address and inherited a dead callback's callable object`
+  and the same for `SMELT_FUNCTION_ORIGINS`. After the fix no candidate ever
+  reaches the address.
 
-    SmeltUnknown::String(value) => value.chars().map(..).collect(),
+  A reproduction expressed purely in TypeScript was attempted and abandoned: the
+  aliasing needs an exact allocator parity between the register site and the
+  lookup site, and the source language gives no handle on allocation order. A
+  single-threaded scan of all 174 generated modules paired with the failing test
+  also found no deterministic subset.
 
-and this one does not, so a string that iterates fine in one lowering panics in
-the other. Whatever the outcome of the identity bug, one lowering should not
-have a hole its sibling does not; the arm set belongs in one shared emitter
-helper. Not fixed here, and not the cause of this failure (the value in flight
-is a number, not a string).
+## Consequences for the two changes this blocked
 
-## Where to look
+1. **Erasure sharing** (`From<SmeltList<SmeltUnknown>> for SmeltArray` via
+   `with_storage`, reverted in #219). Not the cause; it only perturbed allocation
+   enough to change how often the aliasing was observed. Worth retrying on top of
+   this fix — with the remeda suite run at least twenty times.
+2. **FxHash property keys** (es-toolkit `unique` 25.4M -> 14.5M instructions,
+   `partition` 136.8M -> 121.7M). Same story. Not re-landed here.
 
-`src/map.rs` in the generated remeda crate, the `"unknown is not array"` arm —
-an erased value reaching the map path is not an array when the lazy pipeline
-expects one. Work backwards from there into `pipe`'s lazy-operation state and
-what it keys on. The reproduction is cheap now that the mechanism is known:
-run the suite multi-threaded in a loop, or force an adverse id sequence by
-minting objects before the test body.
+## Still open (same defect class, not implicated in this failure)
 
-## What NOT to conclude
-
-* Not a hash-ordering bug. A deterministic hasher (`SmeltFieldHasher`) did not
-  remove the intermittency.
-* Not a flake in the testing sense. It is a real defect with a probabilistic
-  trigger; `--test-threads=1` hides it rather than fixing it.
-* A single green run of the remeda gate proves nothing about any change that
-  touches allocation, identity, or hashing. Run it at least ten times.
+`SMELT_LIST_IDENTITIES` and `SMELT_PROMISE_IDENTITIES` key on a source local's
+storage address with the same never-removed entries. The prelude already
+documents the empty-`Vec` sentinel collision as a known limitation; address reuse
+is a second way those can alias, and they are not covered by the guard added
+here.
