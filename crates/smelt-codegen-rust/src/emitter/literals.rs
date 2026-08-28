@@ -93,7 +93,7 @@ pub(super) fn assigned_locals(
                     | Rvalue::DictUpdate { dict: list, .. },
                 ..
             } = statement
-                && let Some(local) = operand_local(list)
+                && let Some(local) = operand_mutation_root(list)
             {
                 locals.insert(local);
             }
@@ -135,6 +135,24 @@ pub(super) fn assigned_locals(
         }
     }
     locals
+}
+
+/// Extracts the local a place-rooted mutation writes through.
+///
+/// A collection mutation whose receiver is a bare local mutates that local; one
+/// whose receiver is an INDEX place (`base[key].push(x)`, produced by
+/// `smelt_mir::opt::DictEntryInPlaceMutation`) mutates the CONTAINER, because the
+/// stored entry is mutated in place through it. This keeps the container's Rust
+/// binding mutable now that the fused form no longer writes it back with an
+/// explicit `AssignPlace`, which is what used to mark it.
+pub(super) fn operand_mutation_root(operand: &Operand) -> Option<LocalId> {
+    match operand {
+        Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => Some(*local),
+        Operand::Copy(Place::Index { base, .. }) | Operand::Move(Place::Index { base, .. }) => {
+            Some(*base)
+        }
+        Operand::Copy(_) | Operand::Move(_) | Operand::Const(_) => None,
+    }
 }
 
 /// Extracts the local base from a direct local operand.

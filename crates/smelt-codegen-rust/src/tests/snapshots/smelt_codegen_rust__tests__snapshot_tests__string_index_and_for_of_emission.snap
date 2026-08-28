@@ -13,7 +13,7 @@ fn main() {
     let mut _smelt_tmp_9: bool;
     let mut _smelt_tmp_10: String;
     let word: String = "abc".to_owned();
-    let first: String = word.chars().nth({ let len = word.chars().count() as i64; let index = 0.0 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).expect("index out of bounds").clone();
+    let first: String = word.chars().nth({ let len = word.chars().count() as i64; let index = 0.0 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).expect("index out of bounds");
     let _smelt_tmp_5: f64 = -1.0;
     let _smelt_tmp_6: Option<String> = ({ let len = word.clone().chars().count() as i64; let index = _smelt_tmp_5 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).ok() }).and_then(|index| word.clone().chars().nth(index).map(|ch| ch.to_string()));
     let last: Option<String> = _smelt_tmp_6;
@@ -23,7 +23,7 @@ fn main() {
     _smelt_tmp_8 = word.chars().count() as f64;
     _smelt_tmp_9 = _smelt_tmp_7.clone() < _smelt_tmp_8;
     if !(_smelt_tmp_9) { break; }
-    ch = word.chars().nth({ let len = word.chars().count() as i64; let index = _smelt_tmp_7.clone() as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).expect("index out of bounds").clone();
+    ch = word.chars().nth({ let len = word.chars().count() as i64; let index = _smelt_tmp_7.clone() as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).expect("index out of bounds");
     _smelt_tmp_10 = joined + &ch;
     joined = _smelt_tmp_10;
     _smelt_tmp_7 = _smelt_tmp_7.clone() + 1.0;

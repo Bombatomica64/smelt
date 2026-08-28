@@ -41,8 +41,9 @@ impl FunctionEmitter<'_> {
             self.value_at_type_text(&self.operand_text(item)?, self.operand_ty(item)?, element_ty)?
         };
         // `operand_borrow_text` is this borrow, plus the shared-capture guard the
-        // hand-rolled version lacked (see its doc comment).
-        let borrowed_list_text = self.operand_borrow_text(list)?;
+        // hand-rolled version lacked (see its doc comment); the list's own shared
+        // buffer is then read through `list_read_text`.
+        let borrowed_list_text = list_read_text(&self.operand_borrow_text(list)?);
         let method_name = match op {
             smelt_hir::ListSearchOp::Find => "position",
             smelt_hir::ListSearchOp::RFind => "rposition",
@@ -410,6 +411,16 @@ impl FunctionEmitter<'_> {
         // hand-rolled version lacked (see its doc comment). That guard matters here:
         // this emitter invokes a callback, so a `Ref` guard spanning the call would
         // panic "already borrowed".
+        //
+        // KNOWN LIMITATION of the list's shared backing buffer: the `Ref` this
+        // takes on the list's own cell DOES span the callback, because iterating
+        // without it would mean copying the whole array once per call — the cost
+        // this iteration shape exists to avoid. A callback that only reads the
+        // array it is iterating (every case in the remeda/es-toolkit corpora, and
+        // the only case that compiled at all when the elements were an inline
+        // `Vec`) is fine, because concurrent shared borrows are allowed. A
+        // callback that WRITES the array it is iterating — legal in JavaScript —
+        // panics "already borrowed" instead of the compile error it used to be.
         let borrowed_list_text = self.operand_borrow_text(list)?;
         // A zero-parameter callback (`values.map(stubTrue)`) ignores every
         // supplied argument, so it is called with no arguments at all.
@@ -484,10 +495,10 @@ impl FunctionEmitter<'_> {
             }
             (
                 format!("let smelt_array = {owned_list_text}; "),
-                "smelt_array".to_owned(),
+                list_read_text("smelt_array"),
             )
         } else {
-            (String::new(), borrowed_list_text)
+            (String::new(), list_read_text(&borrowed_list_text))
         };
         Ok(ListCallbackIterationParts {
             prefix,
@@ -731,14 +742,18 @@ impl FunctionEmitter<'_> {
             self.value_at_type_text(&call_expr, callback_return_ty, dest_ty)?;
         let callback_text =
             format!("{{ let smelt_callback = {callback_closure}; {callback_result_text} }}");
+        // Same read borrow, and the same known limitation, as the shared
+        // callback iteration path above: a reducer that writes the array it is
+        // reducing panics rather than failing to compile.
+        let list_read = list_read_text(&borrowed_list_text);
         if let Some(initial_operand) = initial {
             let initial_text = self.operand_text(initial_operand)?;
             Ok(format!(
-                "{borrowed_list_text}.iter().enumerate().fold({initial_text}, |acc, (index, item)| {{ let item = (*item).clone(); let index = index as f64; let array = {callback_array_text}; {callback_text} }})"
+                "{list_read}.iter().enumerate().fold({initial_text}, |acc, (index, item)| {{ let item = (*item).clone(); let index = index as f64; let array = {callback_array_text}; {callback_text} }})"
             ))
         } else if dest_ty == element_ty {
             Ok(format!(
-                "{{ let mut reduce_items = {borrowed_list_text}.iter().enumerate(); let (_, first) = reduce_items.next().expect(\"reduce of empty array with no initial value\"); reduce_items.fold(first.clone(), |acc, (index, item)| {{ let item = (*item).clone(); let index = index as f64; let array = {callback_array_text}; {callback_text} }}) }}"
+                "{{ let smelt_reduce_items = {list_read}; let mut reduce_items = smelt_reduce_items.iter().enumerate(); let (_, first) = reduce_items.next().expect(\"reduce of empty array with no initial value\"); reduce_items.fold(first.clone(), |acc, (index, item)| {{ let item = (*item).clone(); let index = index as f64; let array = {callback_array_text}; {callback_text} }}) }}"
             ))
         } else {
             Err(EmitError::new(
@@ -773,8 +788,9 @@ impl FunctionEmitter<'_> {
         if !matches!(self.mir.types.get(dest_ty), Some(Type::Int)) {
             return Err(EmitError::new("list count destination must be int"));
         }
-        // Read by borrow: every use below is an `.iter()` receiver.
-        let list_text = self.operand_borrow_text(list)?;
+        // Read by borrow: every use below is an `.iter()` receiver, reading the
+        // list's shared backing buffer.
+        let list_text = list_read_text(&self.operand_borrow_text(list)?);
         let item_text = self.operand_text(item)?;
         if self.list_item_uses_same_value_zero(*item_ty) {
             if self.mir.types.get(*item_ty) == Some(&Type::Float) {
@@ -816,11 +832,11 @@ impl FunctionEmitter<'_> {
         match self.mir.types.get(*item_ty) {
             Some(Type::Int) => Ok(format!(
                 "{}.iter().copied().sum::<i64>()",
-                self.operand_text(list)?
+                list_read_text(&self.operand_text(list)?)
             )),
             Some(Type::Float) => Ok(format!(
                 "{}.iter().copied().sum::<f64>()",
-                self.operand_text(list)?
+                list_read_text(&self.operand_text(list)?)
             )),
             _ => Err(EmitError::new("list sum supports int and float lists")),
         }
@@ -854,7 +870,7 @@ impl FunctionEmitter<'_> {
         };
         Ok(format!(
             "{}.iter().copied().{method_name}(|value| value)",
-            self.operand_text(list)?
+            list_read_text(&self.operand_text(list)?)
         ))
     }
 

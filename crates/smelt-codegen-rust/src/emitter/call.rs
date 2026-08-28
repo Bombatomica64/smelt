@@ -598,7 +598,7 @@ impl FunctionEmitter<'_> {
         let args_ty = self.type_id(Type::List(unknown_ty))?;
         Ok(format!(
             "let smelt_timer_args: Vec<SmeltUnknown> = {}.iter().cloned().collect(); ",
-            self.value_at_type(extra_operand, args_ty)?
+            list_read_text(&self.value_at_type(extra_operand, args_ty)?)
         ))
     }
 

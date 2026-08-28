@@ -825,6 +825,17 @@ fn emit_source_with_free_function_router(
         writer.line("    fn keys(&self) -> ::std::vec::IntoIter<K> { self.order.borrow().clone().into_iter() }");
         writer.line("    fn values(&self) -> ::std::vec::IntoIter<V> where V: Clone { let values = self.values.borrow(); self.order.borrow().iter().filter_map(|key| values.get(key).cloned()).collect::<Vec<_>>().into_iter() }");
         writer.line("    fn extend<I: IntoIterator<Item = (K, V)>>(&self, iter: I) { for (key, value) in iter { self.insert(key, value); } }");
+        // The `SmeltRecord` twin of `SmeltJsMap::entry_or_insert`: borrow the
+        // stored value for in-place mutation instead of copying it out and back.
+        // `insert` already maintains the JavaScript own-key order, so routing the
+        // absent-key case through it keeps `keys()`/`iter()` ordering identical to
+        // the copy-back form this replaces. Takes `&self` because a record is a
+        // reference value with interior mutability, exactly like `insert`.
+        writer.line("    fn entry_or_insert(&self, key: K, default: V) -> ::std::cell::RefMut<'_, V> {");
+        writer.line("        let missing = !self.values.borrow().contains_key(&key);");
+        writer.line("        if missing { self.insert(key.clone(), default); }");
+        writer.line("        ::std::cell::RefMut::map(self.values.borrow_mut(), move |values| values.get_mut(&key).expect(\"record entry just inserted\"))");
+        writer.line("    }");
         writer.line("}");
         writer.blank_line();
         writer.line("impl<K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, V> Default for SmeltRecord<K, V> {");
@@ -949,6 +960,28 @@ fn emit_source_with_free_function_router(
         writer.line("    fn keys(&self) -> ::std::vec::IntoIter<K> { self.store.borrow().entries.iter().map(|(key, _)| key.clone()).collect::<Vec<_>>().into_iter() }");
         writer.line("    fn values(&self) -> ::std::vec::IntoIter<V> { self.store.borrow().entries.iter().map(|(_, value)| value.clone()).collect::<Vec<_>>().into_iter() }");
         writer.line("    fn extend<I: IntoIterator<Item = (K, V)>>(&mut self, iter: I) { for (key, value) in iter { self.insert(key, value); } }");
+        // Borrow the value stored under `key` for mutation, inserting `default`
+        // first when the key is absent. This is the accessor a source
+        // `dict[key].push(item)` lowers to (see
+        // `smelt_mir::opt::DictEntryInPlaceMutation`): the entry is mutated
+        // THROUGH the map, so neither the old value nor the updated one is ever
+        // copied. Without it, growing n grouped entries cost O(n^2) element
+        // clones because every mutation copied the whole entry out and back.
+        //
+        // The returned `RefMut` is a live borrow of the shared store, so the
+        // caller must not touch the same map while holding it; codegen therefore
+        // evaluates the key, the default, and the pushed item BEFORE the call.
+        // The slot is resolved (or appended) under one `borrow_mut`, which is
+        // released before the guard is taken, so the guard projects a settled
+        // slot index. Insertion order and `SameValueZero` key identity come from
+        // the same `position`/`remember` pair `insert` uses, so a fused mutation
+        // is indistinguishable from the copy-out/copy-back form it replaces —
+        // and, the store being shared, it is visible through every alias.
+        writer.line("    fn entry_or_insert(&mut self, key: K, default: V) -> ::std::cell::RefMut<'_, V> {");
+        writer.line("        let hash = key.js_key_hash();");
+        writer.line("        let slot = { let mut store = self.store.borrow_mut(); match store.position(&key, hash) { Some(slot) => slot, None => { let slot = store.entries.len(); store.entries.push((key, default)); store.index.remember(slot, hash); slot } } };");
+        writer.line("        ::std::cell::RefMut::map(self.store.borrow_mut(), move |store| &mut store.entries[slot].1)");
+        writer.line("    }");
         writer.line("}");
         writer.blank_line();
         writer.line("impl<K, V> Default for SmeltJsMap<K, V> {");
@@ -1529,19 +1562,37 @@ fn emit_source_with_free_function_router(
         writer.blank_line();
         // `SmeltList<T>` itself is defined in the `needs_smelt_list` block above.
         // These impls depend on `SmeltArray`/`SmeltUnknown`, so they live here.
-        // Erasing a typed list to a `SmeltUnknown::Array` preserves its JS reference identity.
-        writer.line("impl From<SmeltList<SmeltUnknown>> for SmeltArray { fn from(list: SmeltList<SmeltUnknown>) -> Self { SmeltArray::with_id(list.id, list.values) } }");
+        // Erasing a typed list to a `SmeltUnknown::Array` COPIES its elements.
+        //
+        // This is knowingly the wrong semantics and is the last place the
+        // identity/storage mismatch survives: `SmeltList` and `SmeltArray` have the
+        // identical `Rc<RefCell<Vec<SmeltUnknown>>>` representation, and in
+        // JavaScript passing an array where `unknown` is expected hands over THE SAME
+        // object, so this should be a `with_storage` refcount bump. Sharing it also
+        // measurably fixes behaviour — es-toolkit's two `isEqualWith` circular-
+        // reference tests pass only when the erased element can BE the array.
+        //
+        // It is not shared because doing so breaks remeda's
+        // `uniqueBy > pipe get executed 3 times when take before uniqueBy` with
+        // `panicked: unknown is not array`, and breaks it INTERMITTENTLY — roughly
+        // one run in six, so a single green run proves nothing here. `pipe`
+        // publishes its lazy accumulator as an erased array and keeps filling it;
+        // with a shared buffer the published value changes underneath the pipeline.
+        // The intermittency points at a hash-iteration-order dependency rather than
+        // a plain aliasing bug, so it needs a root cause, not a patch. See
+        // `blocker-logs/smeltlist-shared-buffer.md`.
+        writer.line("impl From<SmeltList<SmeltUnknown>> for SmeltArray { fn from(list: SmeltList<SmeltUnknown>) -> Self { SmeltArray::with_id(list.id(), list.into_vec()) } }");
         // A callback that declares a list parameter receives it by shared reference
         // (see `callback_param_is_shared_reference`), so the erasure adapters need to
         // build an erased array from `&SmeltList` as well as from an owned one. The
-        // reference form copies the elements, which is what erasing to a JS array
-        // value requires regardless; the saving is on the ARGUMENT, which no longer
+        // reference form copies the elements, as the owned form above does and for
+        // the same unresolved reason; the saving is on the ARGUMENT, which no longer
         // deep-copies the list once per element.
-        writer.line("impl From<&SmeltList<SmeltUnknown>> for SmeltArray { fn from(list: &SmeltList<SmeltUnknown>) -> Self { SmeltArray::with_id(list.id, list.values.clone()) } }");
-        writer.line("impl<T: Clone> From<&SmeltList<T>> for Vec<T> { fn from(list: &SmeltList<T>) -> Self { list.values.clone() } }");
+        writer.line("impl From<&SmeltList<SmeltUnknown>> for SmeltArray { fn from(list: &SmeltList<SmeltUnknown>) -> Self { SmeltArray::with_id(list.id(), list.to_vec()) } }");
+        writer.line("impl<T: Clone> From<&SmeltList<T>> for Vec<T> { fn from(list: &SmeltList<T>) -> Self { list.to_vec() } }");
         // serde impls only when the crate actually links serde (JSON contexts).
         if needs_serde_json {
-            writer.line("impl<T: serde::Serialize> serde::Serialize for SmeltList<T> { fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> { serde::Serialize::serialize(&self.values, serializer) } }");
+            writer.line("impl<T: serde::Serialize> serde::Serialize for SmeltList<T> { fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> { serde::Serialize::serialize(&*self.borrow(), serializer) } }");
             writer.line("impl<'de, T: serde::Deserialize<'de>> serde::Deserialize<'de> for SmeltList<T> { fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> { <Vec<T> as serde::Deserialize>::deserialize(deserializer).map(SmeltList::new) } }");
         }
         writer.line("type SmeltPromiseFuture = ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<SmeltUnknown, Box<dyn std::error::Error>>>>>;");
@@ -3081,7 +3132,7 @@ fn emit_source_with_free_function_router(
         writer.blank_line();
         // Erasing a typed list yields an identity-bearing `SmeltUnknown::Array`,
         // carrying the list's reference id and erasing each element in turn.
-        writer.line("impl<T: IntoSmeltUnknown> IntoSmeltUnknown for SmeltList<T> { fn into_smelt_unknown(self) -> SmeltUnknown { SmeltUnknown::Array(SmeltArray::with_id(self.id, self.values.into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect())) } }");
+        writer.line("impl<T: IntoSmeltUnknown + Clone> IntoSmeltUnknown for SmeltList<T> { fn into_smelt_unknown(self) -> SmeltUnknown { SmeltUnknown::Array(SmeltArray::with_id(self.id(), self.into_vec().into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect())) } }");
         writer.blank_line();
         writer.block("pub trait SmeltFromUnknown", |trait_writer| {
             trait_writer.line("fn smelt_from_unknown(value: SmeltUnknown) -> Self;");

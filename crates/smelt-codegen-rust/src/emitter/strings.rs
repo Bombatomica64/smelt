@@ -965,7 +965,7 @@ impl FunctionEmitter<'_> {
             return Ok("String::new()".to_owned());
         };
         let separator_text = self.string_like_operand_text(separator, "string join")?;
-        let items_text = self.operand_text(items)?;
+        let items_text = list_read_text(&self.operand_text(items)?);
         if self.mir.types.get(*item_ty) == Some(&Type::String) {
             return Ok(format!("{items_text}.join(&{separator_text})"));
         }

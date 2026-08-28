@@ -370,15 +370,20 @@ impl FunctionEmitter<'_> {
             Some(Type::List(item_ty)) => {
                 let index_text =
                     self.optional_normalized_index_text(&format!("{receiver_text}.len()"), index)?;
+                // Read receiver, not a write one: the `.len()` in the index
+                // argument takes a second borrow of the same shared cell, and
+                // only shared borrows may coexist. See `place.rs`'s list index
+                // read arm for the full argument.
+                let read_text = list_read_text(receiver_text);
                 if let Some(Type::Optional(inner)) = self.mir.types.get(*item_ty)
                     && *inner == result_ty
                 {
                     Ok(format!(
-                        "({index_text}).and_then(|index| {receiver_text}.get(index).cloned().flatten())"
+                        "({index_text}).and_then(|index| {read_text}.get(index).cloned().flatten())"
                     ))
                 } else {
                     Ok(format!(
-                        "({index_text}).and_then(|index| {receiver_text}.get(index).cloned())"
+                        "({index_text}).and_then(|index| {read_text}.get(index).cloned())"
                     ))
                 }
             }

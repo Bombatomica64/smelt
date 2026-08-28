@@ -157,7 +157,7 @@ impl FunctionEmitter<'_> {
         }
         Ok(format!(
             "{}.iter().rev().cloned().collect::<Vec<_>>()",
-            self.operand_text(list)?
+            list_read_text(&self.operand_text(list)?)
         ))
     }
 
@@ -209,7 +209,7 @@ impl FunctionEmitter<'_> {
         }
         Ok(format!(
             "{}.iter().cloned().enumerate().map(|(idx, item)| (idx as i64, item)).collect::<Vec<_>>()",
-            self.operand_text(list)?
+            list_read_text(&self.operand_text(list)?)
         ))
     }
 
@@ -251,8 +251,8 @@ impl FunctionEmitter<'_> {
         }
         Ok(format!(
             "{}.iter().cloned().zip({}.iter().cloned()).collect::<Vec<_>>()",
-            self.operand_text(left)?,
-            self.operand_text(right)?
+            list_read_text(&self.operand_text(left)?),
+            list_read_text(&self.operand_text(right)?)
         ))
     }
 
@@ -346,8 +346,9 @@ impl FunctionEmitter<'_> {
         if !matches!(self.mir.types.get(dest_ty), Some(Type::Int)) {
             return Err(EmitError::new("list index destination must be int"));
         }
-        // Read by borrow: every use below is an `.iter()` receiver.
-        let list_text = self.operand_borrow_text(list)?;
+        // Read by borrow: every use below is an `.iter()` receiver, reading the
+        // list's shared backing buffer.
+        let list_text = list_read_text(&self.operand_borrow_text(list)?);
         let item_text = self.operand_text(item)?;
         if self.list_item_uses_same_value_zero(*item_ty) {
             if self.mir.types.get(*item_ty) == Some(&Type::Float) {

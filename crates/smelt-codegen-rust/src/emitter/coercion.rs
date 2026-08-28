@@ -458,7 +458,7 @@ impl FunctionEmitter<'_> {
                 format!("({items_text})")
             };
             return Ok(format!(
-                "{{ let smelt_tuple_values = {value_text}.clone(); {tuple_text} }}"
+                "{{ let smelt_tuple_values = {value_text}.to_vec(); {tuple_text} }}"
             ));
         }
         if let (
@@ -974,7 +974,7 @@ impl FunctionEmitter<'_> {
                 format!("({items_text})")
             };
             return Ok(format!(
-                "{{ let smelt_tuple_values = {value_text}.clone(); {tuple_text} }}"
+                "{{ let smelt_tuple_values = {value_text}.to_vec(); {tuple_text} }}"
             ));
         }
         if let (Some(Type::Dict(_, source_value)), Some(Type::List(target_item))) =

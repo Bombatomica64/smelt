@@ -674,8 +674,13 @@ impl FunctionEmitter<'_> {
             Some(Type::List(item)) => {
                 let item_equal =
                     self.function_bearing_equality_text("left_item", "right_item", *item)?;
+                // `.len()` is the list's own inherent method; `.iter()` reads
+                // the shared buffer. Both are shared borrows, so comparing a
+                // list against itself is fine.
+                let left_read = list_read_text(left);
+                let right_read = list_read_text(right);
                 format!(
-                    "{left}.len() == {right}.len() && {left}.iter().zip({right}.iter()).all(|(left_item, right_item)| {item_equal})"
+                    "{left}.len() == {right}.len() && {left_read}.iter().zip({right_read}.iter()).all(|(left_item, right_item)| {item_equal})"
                 )
             }
             Some(Type::Dict(key, value)) if self.mir.types.get(*key) == Some(&Type::String) => {

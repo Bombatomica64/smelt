@@ -226,9 +226,16 @@ def main() -> int:
                     help="stop after transpiling + injecting; do not run cargo")
     args = ap.parse_args()
 
+    # ALWAYS rebuild, never `if not smelt.exists()`. A stale binary here is the
+    # worst possible failure mode for this script: transpiling with codegen from
+    # some earlier commit still produces a bench crate that builds and runs and
+    # agrees on every checksum, so a before/after comparison silently measures
+    # the same old codegen twice and reports "no change" for a fix that was
+    # never in the binary. Cargo makes the no-op case cheap; a wrong number is
+    # not cheap. (Measured: this masked the entire #218 fix set, whose numbers
+    # had to be retracted.)
     smelt = ROOT / "target/release/smelt"
-    if not smelt.exists():
-        run(["cargo", "build", "--release", "-p", "smelt-transpiler", "--bin", "smelt"], cwd=ROOT)
+    run(["cargo", "build", "--release", "-p", "smelt-transpiler", "--bin", "smelt"], cwd=ROOT)
 
     names = [args.only] if args.only else list(LIBRARIES)
     for name in names:
