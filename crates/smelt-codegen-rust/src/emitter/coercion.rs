@@ -2224,26 +2224,22 @@ impl FunctionEmitter<'_> {
             // preserves the backing array id, so already-erased callers are
             // unaffected.
             Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown) => {
-                Ok(format!(
-                    "{{ let smelt_src = ({text}).clone().into_smelt_unknown(); let smelt_id = if let SmeltUnknown::Array(value) = &smelt_src {{ value.id }} else {{ smelt_next_object_id() }}; SmeltList::with_id(smelt_id, match smelt_src {{ SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(value) => value.into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string())).collect::<Vec<_>>(), SmeltUnknown::Object(value) => if let Some(smelt_bytes) = {byte_buffer_elements}(&SmeltUnknown::Object(value.clone())) {{ smelt_bytes }} else if let Some(smelt_args) = {arguments_elements}(&value) {{ smelt_args }} else if let Some(SmeltUnknown::Array(pairs)) = value.get(\"__smelt_map\") {{ pairs.into_vec() }} else if let Some(SmeltUnknown::Array(members)) = value.get(\"__smelt_set\") {{ members.into_vec() }} else {{ match value.get(\"__smelt_symbol_iterator\") {{ Some(SmeltUnknown::Function(iterator)) => smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null)), _ => panic!(\"unknown is not iterable\") }} }}, _ => panic!(\"unknown is not iterable\") }}) }}",
-                    byte_buffer_elements = smelt_stdlib::runtime_symbols::byte_buffer::ELEMENTS,
-                    arguments_elements = smelt_stdlib::runtime_symbols::host::ARGUMENTS_ELEMENTS,
-                ))
+                Ok(erased_to_list_text(text, None, "SmeltUnknown::String(ch.to_string())"))
             }
             Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::String) => {
-                Ok(format!(
-                    "{{ let smelt_src = ({text}).clone().into_smelt_unknown(); let smelt_id = if let SmeltUnknown::Array(value) = &smelt_src {{ value.id }} else {{ smelt_next_object_id() }}; SmeltList::with_id(smelt_id, match smelt_src {{ SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(values) => values.into_iter().map(|value| if let SmeltUnknown::String(value) = value {{ value }} else {{ value.to_string() }}).collect::<Vec<_>>(), SmeltUnknown::String(value) => value.chars().map(|ch| ch.to_string()).collect::<Vec<_>>(), SmeltUnknown::Object(value) => if let Some(smelt_bytes) = {byte_buffer_elements}(&SmeltUnknown::Object(value.clone())) {{ smelt_bytes.into_iter().map(|value| if let SmeltUnknown::String(value) = value {{ value }} else {{ value.to_string() }}).collect::<Vec<_>>() }} else if let Some(smelt_args) = {arguments_elements}(&value) {{ smelt_args.into_iter().map(|value| if let SmeltUnknown::String(value) = value {{ value }} else {{ value.to_string() }}).collect::<Vec<_>>() }} else if let Some(SmeltUnknown::Array(pairs)) = value.get(\"__smelt_map\") {{ pairs.into_vec().into_iter().map(|value| if let SmeltUnknown::String(value) = value {{ value }} else {{ value.to_string() }}).collect::<Vec<_>>() }} else if let Some(SmeltUnknown::Array(members)) = value.get(\"__smelt_set\") {{ members.into_vec().into_iter().map(|value| if let SmeltUnknown::String(value) = value {{ value }} else {{ value.to_string() }}).collect::<Vec<_>>() }} else {{ match value.get(\"__smelt_symbol_iterator\") {{ Some(SmeltUnknown::Function(iterator)) => smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null)).into_iter().map(|value| if let SmeltUnknown::String(value) = value {{ value }} else {{ value.to_string() }}).collect::<Vec<_>>(), _ => panic!(\"unknown is not iterable\") }} }}, _ => panic!(\"unknown is not iterable\") }}) }}",
-                    byte_buffer_elements = smelt_stdlib::runtime_symbols::byte_buffer::ELEMENTS,
-                    arguments_elements = smelt_stdlib::runtime_symbols::host::ARGUMENTS_ELEMENTS,
+                Ok(erased_to_list_text(
+                    text,
+                    Some(
+                        "if let SmeltUnknown::String(value) = value { value } else { value.to_string() }",
+                    ),
+                    "ch.to_string()",
                 ))
             }
             Some(Type::List(item)) => {
                 let item_text = self.extract_value_text("value", *item)?;
-                Ok(format!(
-                    "{{ let smelt_src = ({text}).clone().into_smelt_unknown(); let smelt_id = if let SmeltUnknown::Array(value) = &smelt_src {{ value.id }} else {{ smelt_next_object_id() }}; SmeltList::with_id(smelt_id, match smelt_src {{ SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(values) => values.into_iter().map(|value| {item_text}).collect::<Vec<_>>(), SmeltUnknown::Object(value) => if let Some(smelt_bytes) = {byte_buffer_elements}(&SmeltUnknown::Object(value.clone())) {{ smelt_bytes.into_iter().map(|value| {item_text}).collect::<Vec<_>>() }} else if let Some(smelt_args) = {arguments_elements}(&value) {{ smelt_args.into_iter().map(|value| {item_text}).collect::<Vec<_>>() }} else if let Some(SmeltUnknown::Array(pairs)) = value.get(\"__smelt_map\") {{ pairs.into_vec().into_iter().map(|value| {item_text}).collect::<Vec<_>>() }} else if let Some(SmeltUnknown::Array(members)) = value.get(\"__smelt_set\") {{ members.into_vec().into_iter().map(|value| {item_text}).collect::<Vec<_>>() }} else {{ match value.get(\"__smelt_symbol_iterator\") {{ Some(SmeltUnknown::Function(iterator)) => smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null)).into_iter().map(|value| {item_text}).collect::<Vec<_>>(), _ => panic!(\"unknown is not array\") }} }}, _ => panic!(\"unknown is not array\") }}) }}",
-                    byte_buffer_elements = smelt_stdlib::runtime_symbols::byte_buffer::ELEMENTS,
-                    arguments_elements = smelt_stdlib::runtime_symbols::host::ARGUMENTS_ELEMENTS,
-                ))
+                let char_text =
+                    self.extract_value_text("SmeltUnknown::String(ch.to_string())", *item)?;
+                Ok(erased_to_list_text(text, Some(&item_text), &char_text))
             }
             Some(Type::Dict(key, item))
                 if self.mir.types.get(*key) == Some(&Type::String)
@@ -2578,4 +2574,58 @@ impl Drop for TypeExpansionGuard<'_> {
 /// and must be bound to a temporary before being read twice.
 fn is_trivial_reeval_expr(text: &str) -> bool {
     !text.contains('(')
+}
+
+/// Emits the ONE arm set that rebuilds a typed `SmeltList` from an erased value.
+///
+/// Every element type funnels through here, so the set of sources a lowering
+/// accepts does not depend on which element type it happens to carry. It used to:
+/// the `SmeltUnknown`-element and `String`-element forms iterated a source string
+/// into characters while the general form panicked on one, so the same JavaScript
+/// value converted fine in `groupBy`'s adapter and blew up in `map`'s. The arms
+/// mirror what JavaScript's iteration protocol accepts: nullish (empty, as
+/// `Array.from` treats it), an array, a string (by character), a host byte
+/// buffer, an `arguments` object, a `Map`/`Set`, and finally any object exposing
+/// `Symbol.iterator`.
+///
+/// `item_text` converts one erased element bound to `value`; `None` means the
+/// element type IS `SmeltUnknown`, so elements pass through unconverted and each
+/// backing `Vec` can move whole instead of running a per-element closure.
+/// `char_text` converts one `char` bound to `ch` for the string arm.
+fn erased_to_list_text(text: &str, item_text: Option<&str>, char_text: &str) -> String {
+    // Converts a `Vec<SmeltUnknown>`-producing expression into the element type.
+    let convert = |elements: &str| match item_text {
+        None => elements.to_owned(),
+        Some(item) => format!("{elements}.into_iter().map(|value| {item}).collect::<Vec<_>>()"),
+    };
+    let byte_buffer_elements = smelt_stdlib::runtime_symbols::byte_buffer::ELEMENTS;
+    let arguments_elements = smelt_stdlib::runtime_symbols::host::ARGUMENTS_ELEMENTS;
+    let array_arm = match item_text {
+        None => "values.into_vec()".to_owned(),
+        Some(item) => format!("values.into_iter().map(|value| {item}).collect::<Vec<_>>()"),
+    };
+    let string_arm = format!("value.chars().map(|ch| {char_text}).collect::<Vec<_>>()");
+    let bytes_arm = convert("smelt_bytes");
+    let arguments_arm = convert("smelt_args");
+    let map_arm = convert("pairs.into_vec()");
+    let set_arm = convert("members.into_vec()");
+    let iterator_arm =
+        convert("smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null))");
+    format!(
+        "{{ let smelt_src = ({text}).clone().into_smelt_unknown(); \
+         let smelt_id = if let SmeltUnknown::Array(value) = &smelt_src {{ value.id }} else {{ smelt_next_object_id() }}; \
+         SmeltList::with_id(smelt_id, match smelt_src {{ \
+         SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), \
+         SmeltUnknown::Array(values) => {array_arm}, \
+         SmeltUnknown::String(value) => {string_arm}, \
+         SmeltUnknown::Object(value) => \
+         if let Some(smelt_bytes) = {byte_buffer_elements}(&SmeltUnknown::Object(value.clone())) {{ {bytes_arm} }} \
+         else if let Some(smelt_args) = {arguments_elements}(&value) {{ {arguments_arm} }} \
+         else if let Some(SmeltUnknown::Array(pairs)) = value.get(\"__smelt_map\") {{ {map_arm} }} \
+         else if let Some(SmeltUnknown::Array(members)) = value.get(\"__smelt_set\") {{ {set_arm} }} \
+         else {{ match value.get(\"__smelt_symbol_iterator\") {{ \
+         Some(SmeltUnknown::Function(iterator)) => {iterator_arm}, \
+         _ => panic!(\"unknown is not iterable\") }} }}, \
+         _ => panic!(\"unknown is not iterable\") }}) }}"
+    )
 }
