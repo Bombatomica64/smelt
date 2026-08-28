@@ -8,14 +8,14 @@ expression: emitted
 // ... shared generated runtime prelude omitted from selective snapshot ...
 
 fn double(values: SmeltList<f64>) -> SmeltList<f64> {
-    let _smelt_tmp_1 = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: SmeltList<f64>| {
+    let _smelt_tmp_1 = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: &SmeltList<f64>| {
     let _smelt_tmp_3: f64 = closure_arg_0.clone() * 2.0;
     _smelt_tmp_3.clone()
     });
-    let _smelt_tmp_2: SmeltList<f64> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: SmeltList<f64>| {
+    let _smelt_tmp_2: SmeltList<f64> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: &SmeltList<f64>| {
     let _smelt_tmp_3: f64 = closure_arg_0.clone() * 2.0;
     _smelt_tmp_3.clone()
-    }); let smelt_array = values.clone(); smelt_array.iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, smelt_array.clone()) }).collect::<Vec<_>>() });
+    }); let smelt_array = values.clone(); smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>() });
     return _smelt_tmp_2;
 }
 

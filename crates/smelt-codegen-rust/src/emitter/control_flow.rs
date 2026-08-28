@@ -589,15 +589,20 @@ impl FunctionEmitter<'_> {
                         // emitted statement to at most one `borrow_mut()` of the
                         // cell, avoiding the "already borrowed" panic. Write-path
                         // twin of the list index READ arm in `place.rs`.
-                        let base_mut = self.local_mut_value_text(*base)?;
+                        let base_mut = list_write_text(&self.local_value_text(*base)?);
                         let base_read = self.local_value_text(*base)?;
                         let index_text =
                             self.normalized_index_text(&format!("{base_read}.len()"), index)?;
                         // Growing past the end leaves JS *holes*, which read as
                         // `undefined`, not `null` (see `array_hole_value`).
                         let default_value = self.array_hole_value(*item)?;
+                        // The assigned value is bound before the write for the same
+                        // reason the index is: `a[i] = a[j]` would otherwise evaluate
+                        // a READ borrow of the same shared cell whose guard is still
+                        // live when the write takes its `borrow_mut()`, panicking
+                        // "already borrowed". A `let` ends the read guard first.
                         out.push_str(&format!(
-                            "    {{ let smelt_assign_index = {index_text}; if smelt_assign_index >= {base_read}.len() {{ {base_mut}.resize(smelt_assign_index.saturating_add(1), {default_value}); }} {base_mut}[smelt_assign_index] = {rendered_value}; }}\n"
+                            "    {{ let smelt_assign_index = {index_text}; let smelt_assign_value = {rendered_value}; if smelt_assign_index >= {base_read}.len() {{ {base_mut}.resize(smelt_assign_index.saturating_add(1), {default_value}); }} {base_mut}[smelt_assign_index] = smelt_assign_value; }}\n"
                         ));
                         return Ok(());
                     }

@@ -437,6 +437,41 @@ last: int = word.rfind("t")
 }
 
 #[test]
+fn list_slice_borrows_its_receiver_instead_of_cloning_it() {
+    // A slice reads its receiver only through `&self` methods (`.len()`, `.iter()`),
+    // so the receiver must be borrowed, not cloned. Cloning it copied the whole
+    // backing `Vec` up to three times per slice; inside a loop over the same list --
+    // remeda's `chunk` is the real-world case -- that makes a linear algorithm
+    // quadratic. See `benchmarks/FINDINGS.md`.
+    let source = source_for(
+        r#"
+export function chunkNumbers(data: number[], size: number): number[][] {
+  const chunks = Math.ceil(data.length / size);
+  const result: number[][] = [];
+  for (let index = 0; index < chunks; index++) {
+    const start = index * size;
+    result.push(data.slice(start, start + size));
+  }
+  return result;
+}
+"#,
+    );
+
+    // The slice still lowers to the same borrow-based iterator pipeline...
+    assert!(source.contains("data.borrow().iter().skip("));
+    assert!(source.contains("let len = data.len() as i64"));
+    // ...and no longer copies the receiver to get there.
+    assert!(
+        !source.contains("data.clone().iter()"),
+        "slice receiver was cloned for an `.iter()` borrow:\n{source}"
+    );
+    assert!(
+        !source.contains("data.clone().len()"),
+        "slice receiver was cloned for a `.len()` borrow:\n{source}"
+    );
+}
+
+#[test]
 fn emits_python_list_and_string_slices() {
     let source = source_for_py(
         r#"
@@ -521,7 +556,10 @@ result: None = values.append(3)
 
     assert!(source.contains("let mut"));
     assert!(source.contains("Vec<i64>"));
-    assert!(source.contains(".push(3);"));
+    // The pushed item is materialized before the write borrow is taken, so the
+    // call reads `push(smelt_push_item)`; see `list_push_text`.
+    assert!(source.contains("let smelt_push_item = 3;"));
+    assert!(source.contains(".push(smelt_push_item);"));
     assert!(source.contains("()"));
 }
 
@@ -552,7 +590,7 @@ result: None = values.insert(1, 0)
 
     assert!(source.contains("let mut"));
     assert!(source.contains("let insert_index = usize::try_from(1)"));
-    assert!(source.contains(".insert(insert_index, 0);"));
+    assert!(source.contains(".insert(insert_index, smelt_insert_item);"));
     assert!(source.contains("()"));
 }
 

@@ -345,8 +345,23 @@ impl FunctionEmitter<'_> {
                     output_ty
                 };
                 let resolve_input_text = self.type_text(resolve_input_ty)?;
-                let resolve_value =
-                    self.value_at_type_text("value", resolve_input_ty, output_ty)?;
+                // The executor's declared `resolve` type goes through
+                // `function_type_param_text`, so a list-typed resolver argument is
+                // spelled `&SmeltList<..>` there. This synthesized resolver has to
+                // match that spelling exactly or the executor call does not type-check,
+                // and its body then needs an owned value to store into the result slot.
+                let resolve_by_ref =
+                    self.synthesized_callback_param_is_shared_reference(resolve_input_ty);
+                let resolve_input_text = if resolve_by_ref {
+                    format!("&{resolve_input_text}")
+                } else {
+                    resolve_input_text
+                };
+                let resolve_value = self.value_at_type_text(
+                    if resolve_by_ref { "value.clone()" } else { "value" },
+                    resolve_input_ty,
+                    output_ty,
+                )?;
                 // `reject(value)` is a `throw` that crosses a future boundary, so
                 // it enters the error channel through the same payload-preserving
                 // adapter as `Terminator::Throw` (see `crate::thrown`). The
@@ -583,7 +598,7 @@ impl FunctionEmitter<'_> {
         let args_ty = self.type_id(Type::List(unknown_ty))?;
         Ok(format!(
             "let smelt_timer_args: Vec<SmeltUnknown> = {}.iter().cloned().collect(); ",
-            self.value_at_type(extra_operand, args_ty)?
+            list_read_text(&self.value_at_type(extra_operand, args_ty)?)
         ))
     }
 
@@ -1144,6 +1159,20 @@ impl FunctionEmitter<'_> {
                     .ok_or_else(|| EmitError::new("indirect call has too many arguments"))?;
                 if function.mutable_params.contains(&index) {
                     self.mutable_reference_argument_text(arg, target_ty, None)
+                } else if self.callback_param_is_shared_reference(function, index, target_ty)
+                {
+                    // The parameter is `&T` (see `callback_param_is_shared_reference`).
+                    // When the argument already has the parameter's type, borrow the
+                    // place directly — that is the whole point of the by-reference
+                    // parameter, and it is what removes the per-element deep copy.
+                    // When a coercion is needed, reference the coerced temporary
+                    // instead; Rust extends its lifetime to the end of the statement,
+                    // so `&(expr)` is valid even though the value is unnamed.
+                    if self.operand_ty(arg)? == target_ty {
+                        Ok(format!("&{}", self.operand_borrow_text(arg)?))
+                    } else {
+                        Ok(format!("&({})", self.value_at_type(arg, target_ty)?))
+                    }
                 } else {
                     self.value_at_type(arg, target_ty)
                 }

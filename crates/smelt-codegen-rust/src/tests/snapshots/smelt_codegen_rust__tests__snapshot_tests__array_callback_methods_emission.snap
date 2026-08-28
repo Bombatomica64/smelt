@@ -15,92 +15,92 @@ fn main() {
     let mut _smelt_tmp_25: f64;
     let mut _smelt_tmp_26: bool;
     let mut _smelt_tmp_27: f64;
-    let mut _smelt_tmp_28: ::std::rc::Rc<dyn Fn(f64, f64, i64, SmeltList<f64>) -> f64> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64, f64, i64, SmeltList<f64>) -> f64> = ::std::rc::Rc::new(move |arg0: f64, arg1: f64, arg2: i64, arg3: SmeltList<f64>| -> f64 { 0.0 }); smelt_default_callback };
+    let mut _smelt_tmp_28: ::std::rc::Rc<dyn Fn(f64, f64, i64, &SmeltList<f64>) -> f64> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64, f64, i64, &SmeltList<f64>) -> f64> = ::std::rc::Rc::new(move |arg0: f64, arg1: f64, arg2: i64, arg3: &SmeltList<f64>| -> f64 { 0.0 }); smelt_default_callback };
     let mut _smelt_tmp_29: f64;
-    let mut _smelt_tmp_30: ::std::rc::Rc<dyn Fn(f64, i64, SmeltList<f64>) -> f64> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64, i64, SmeltList<f64>) -> f64> = ::std::rc::Rc::new(move |arg0: f64, arg1: i64, arg2: SmeltList<f64>| -> f64 { 0.0 }); smelt_default_callback };
+    let mut _smelt_tmp_30: ::std::rc::Rc<dyn Fn(f64, i64, &SmeltList<f64>) -> f64> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64, i64, &SmeltList<f64>) -> f64> = ::std::rc::Rc::new(move |arg0: f64, arg1: i64, arg2: &SmeltList<f64>| -> f64 { 0.0 }); smelt_default_callback };
     let mut _smelt_tmp_31: SmeltList<f64>;
-    let mut _smelt_tmp_32: ::std::rc::Rc<dyn Fn(f64, f64, i64, SmeltList<f64>) -> f64> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64, f64, i64, SmeltList<f64>) -> f64> = ::std::rc::Rc::new(move |arg0: f64, arg1: f64, arg2: i64, arg3: SmeltList<f64>| -> f64 { 0.0 }); smelt_default_callback };
+    let mut _smelt_tmp_32: ::std::rc::Rc<dyn Fn(f64, f64, i64, &SmeltList<f64>) -> f64> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64, f64, i64, &SmeltList<f64>) -> f64> = ::std::rc::Rc::new(move |arg0: f64, arg1: f64, arg2: i64, arg3: &SmeltList<f64>| -> f64 { 0.0 }); smelt_default_callback };
     let mut _smelt_tmp_33: f64;
     let _smelt_tmp_11: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
     let values: SmeltList<f64> = Into::<SmeltList<_>>::into(_smelt_tmp_11);
-    let _smelt_tmp_12 = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: SmeltList<f64>| {
+    let _smelt_tmp_12 = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: &SmeltList<f64>| {
     let _smelt_tmp_3: f64 = closure_arg_0.clone() + 1.0;
     _smelt_tmp_3.clone()
     });
-    let _smelt_tmp_13: SmeltList<f64> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: SmeltList<f64>| {
+    let _smelt_tmp_13: SmeltList<f64> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: &SmeltList<f64>| {
     let _smelt_tmp_3: f64 = closure_arg_0.clone() + 1.0;
     _smelt_tmp_3.clone()
-    }); let smelt_array = values.clone(); smelt_array.iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, smelt_array.clone()) }).collect::<Vec<_>>() });
+    }); let smelt_array = values.clone(); smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>() });
     let mapped: SmeltList<f64> = Into::<SmeltList<_>>::into(_smelt_tmp_13);
-    let _smelt_tmp_14 = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: SmeltList<f64>| {
+    let _smelt_tmp_14 = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: &SmeltList<f64>| {
     let _smelt_tmp_3: bool = closure_arg_0.clone() > 1.0;
     _smelt_tmp_3.clone()
     });
-    let _smelt_tmp_15: SmeltList<f64> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: SmeltList<f64>| {
+    let _smelt_tmp_15: SmeltList<f64> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: &SmeltList<f64>| {
     let _smelt_tmp_3: bool = closure_arg_0.clone() > 1.0;
     _smelt_tmp_3.clone()
-    }); let smelt_array = values.clone(); smelt_array.iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone(), index as i64, smelt_array.clone()) { Some(item.clone()) } else { None }).collect::<Vec<_>>() });
+    }); let smelt_array = values.clone(); smelt_array.borrow().iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone(), index as i64, &smelt_array) { Some(item.clone()) } else { None }).collect::<Vec<_>>() });
     let filtered: SmeltList<f64> = Into::<SmeltList<_>>::into(_smelt_tmp_15);
-    let _smelt_tmp_16 = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: SmeltList<f64>| {
+    let _smelt_tmp_16 = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: &SmeltList<f64>| {
     let _smelt_tmp_3: bool = closure_arg_0.clone() > 1.0;
     _smelt_tmp_3.clone()
     });
-    let _smelt_tmp_17: Option<f64> = { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: SmeltList<f64>| {
+    let _smelt_tmp_17: Option<f64> = { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: &SmeltList<f64>| {
     let _smelt_tmp_3: bool = closure_arg_0.clone() > 1.0;
     _smelt_tmp_3.clone()
-    }); let smelt_array = values.clone(); smelt_array.iter().enumerate().find_map(|(index, item)| if (smelt_callback)(item.clone(), index as i64, smelt_array.clone()) { Some(item.clone()) } else { None }) };
+    }); let smelt_array = values.clone(); smelt_array.borrow().iter().enumerate().find_map(|(index, item)| if (smelt_callback)(item.clone(), index as i64, &smelt_array) { Some(item.clone()) } else { None }) };
     let found: Option<f64> = _smelt_tmp_17;
-    let _smelt_tmp_18 = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: SmeltList<f64>| {
+    let _smelt_tmp_18 = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: &SmeltList<f64>| {
     let _smelt_tmp_3: bool = closure_arg_0.clone() > 1.0;
     _smelt_tmp_3.clone()
     });
-    let _smelt_tmp_19: f64 = { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: SmeltList<f64>| {
+    let _smelt_tmp_19: f64 = { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: &SmeltList<f64>| {
     let _smelt_tmp_3: bool = closure_arg_0.clone() > 1.0;
     _smelt_tmp_3.clone()
-    }); let smelt_array = values.clone(); smelt_array.iter().enumerate().find_map(|(index, item)| if (smelt_callback)(item.clone(), index as i64, smelt_array.clone()) { Some(index as f64) } else { None }).unwrap_or(-1.0) };
+    }); let smelt_array = values.clone(); smelt_array.borrow().iter().enumerate().find_map(|(index, item)| if (smelt_callback)(item.clone(), index as i64, &smelt_array) { Some(index as f64) } else { None }).unwrap_or(-1.0) };
     let found_index: f64 = _smelt_tmp_19;
-    let _smelt_tmp_20 = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: SmeltList<f64>| {
+    let _smelt_tmp_20 = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: &SmeltList<f64>| {
     let _smelt_tmp_3: bool = closure_arg_0.clone() > 1.0;
     _smelt_tmp_3.clone()
     });
-    let _smelt_tmp_21: bool = { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: SmeltList<f64>| {
+    let _smelt_tmp_21: bool = { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: &SmeltList<f64>| {
     let _smelt_tmp_3: bool = closure_arg_0.clone() > 1.0;
     _smelt_tmp_3.clone()
-    }); let smelt_array = values.clone(); smelt_array.iter().enumerate().any(|(index, item)| (smelt_callback)(item.clone(), index as i64, smelt_array.clone())) };
+    }); let smelt_array = values.clone(); smelt_array.borrow().iter().enumerate().any(|(index, item)| (smelt_callback)(item.clone(), index as i64, &smelt_array)) };
     let has_any: bool = _smelt_tmp_21;
-    let _smelt_tmp_22 = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: SmeltList<f64>| {
+    let _smelt_tmp_22 = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: &SmeltList<f64>| {
     let _smelt_tmp_3: bool = closure_arg_0.clone() > 0.0;
     _smelt_tmp_3.clone()
     });
-    let _smelt_tmp_23: bool = { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: SmeltList<f64>| {
+    let _smelt_tmp_23: bool = { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: &SmeltList<f64>| {
     let _smelt_tmp_3: bool = closure_arg_0.clone() > 0.0;
     _smelt_tmp_3.clone()
-    }); let smelt_array = values.clone(); smelt_array.iter().enumerate().all(|(index, item)| (smelt_callback)(item.clone(), index as i64, smelt_array.clone())) };
+    }); let smelt_array = values.clone(); smelt_array.borrow().iter().enumerate().all(|(index, item)| (smelt_callback)(item.clone(), index as i64, &smelt_array)) };
     let has_every: bool = _smelt_tmp_23;
     let mut _smelt_tmp_24: f64 = 0.0;
     loop {
     _smelt_tmp_25 = values.len() as f64;
     _smelt_tmp_26 = _smelt_tmp_24.clone() < _smelt_tmp_25;
     if !(_smelt_tmp_26) { break; }
-    value = values.get({ let len = values.len() as i64; let index = _smelt_tmp_24.clone() as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or(0.0).clone();
+    value = values.borrow().get({ let len = values.len() as i64; let index = _smelt_tmp_24.clone() as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or(0.0);
     _smelt_tmp_27 = value + 1.0;
     _smelt_tmp_24 = _smelt_tmp_24.clone() + 1.0;
     }
-    _smelt_tmp_29 = values.iter().enumerate().fold(0.0, |acc, (index, item)| { let item = (*item).clone(); let index = index as f64; let array = values.clone(); { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: f64, _arg0: i64, _arg1: SmeltList<f64>| {
+    _smelt_tmp_29 = values.borrow().iter().enumerate().fold(0.0, |acc, (index, item)| { let item = (*item).clone(); let index = index as f64; let array = &values; { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: f64, _arg0: i64, _arg1: &SmeltList<f64>| {
     let _smelt_tmp_2: f64 = closure_arg_0.clone() + closure_arg_1.clone();
     _smelt_tmp_2.clone()
     }); (smelt_callback)(acc, item, ((index as f64).trunc() as i64), array) } });
     total = _smelt_tmp_29;
-    _smelt_tmp_30 = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: SmeltList<f64>| {
+    _smelt_tmp_30 = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: &SmeltList<f64>| {
     let _smelt_tmp_3: f64 = closure_arg_0.clone() + closure_arg_1.clone() as f64;
     _smelt_tmp_3.clone()
     });
-    _smelt_tmp_31 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: SmeltList<f64>| {
+    _smelt_tmp_31 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: &SmeltList<f64>| {
     let _smelt_tmp_3: f64 = closure_arg_0.clone() + closure_arg_1.clone() as f64;
     _smelt_tmp_3.clone()
-    }); let smelt_array = values.clone(); smelt_array.iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, smelt_array.clone()) }).collect::<Vec<_>>() });
+    }); let smelt_array = values.clone(); smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>() });
     indexed = Into::<SmeltList<_>>::into(_smelt_tmp_31);
-    _smelt_tmp_33 = { let mut reduce_items = values.iter().enumerate(); let (_, first) = reduce_items.next().expect("reduce of empty array with no initial value"); reduce_items.fold(first.clone(), |acc, (index, item)| { let item = (*item).clone(); let index = index as f64; let array = values.clone(); { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: f64, closure_arg_2: i64, _arg0: SmeltList<f64>| {
+    _smelt_tmp_33 = { let smelt_reduce_items = values.borrow(); let mut reduce_items = smelt_reduce_items.iter().enumerate(); let (_, first) = reduce_items.next().expect("reduce of empty array with no initial value"); reduce_items.fold(first.clone(), |acc, (index, item)| { let item = (*item).clone(); let index = index as f64; let array = &values; { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: f64, closure_arg_2: i64, _arg0: &SmeltList<f64>| {
     let _smelt_tmp_3: f64 = closure_arg_0.clone() + closure_arg_1.clone();
     let _smelt_tmp_4: f64 = _smelt_tmp_3.clone() + closure_arg_2.clone() as f64;
     _smelt_tmp_4.clone()

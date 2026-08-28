@@ -40,11 +40,10 @@ impl FunctionEmitter<'_> {
         } else {
             self.value_at_type_text(&self.operand_text(item)?, self.operand_ty(item)?, element_ty)?
         };
-        let owned_list_text = self.operand_text(list)?;
-        let borrowed_list_text = match list {
-            Operand::Copy(place) | Operand::Move(place) => self.place_text(place)?,
-            Operand::Const(_) => owned_list_text,
-        };
+        // `operand_borrow_text` is this borrow, plus the shared-capture guard the
+        // hand-rolled version lacked (see its doc comment); the list's own shared
+        // buffer is then read through `list_read_text`.
+        let borrowed_list_text = list_read_text(&self.operand_borrow_text(list)?);
         let method_name = match op {
             smelt_hir::ListSearchOp::Find => "position",
             smelt_hir::ListSearchOp::RFind => "rposition",
@@ -408,15 +407,47 @@ impl FunctionEmitter<'_> {
         function_ty: &FunctionType,
     ) -> Result<ListCallbackIterationParts, EmitError> {
         let owned_list_text = self.operand_text(list)?;
-        let borrowed_list_text = match list {
-            Operand::Copy(place) | Operand::Move(place) => self.place_text(place)?,
-            Operand::Const(_) => owned_list_text.clone(),
-        };
+        // `operand_borrow_text` is this borrow, plus the shared-capture guard the
+        // hand-rolled version lacked (see its doc comment). That guard matters here:
+        // this emitter invokes a callback, so a `Ref` guard spanning the call would
+        // panic "already borrowed".
+        //
+        // KNOWN LIMITATION of the list's shared backing buffer: the `Ref` this
+        // takes on the list's own cell DOES span the callback, because iterating
+        // without it would mean copying the whole array once per call — the cost
+        // this iteration shape exists to avoid. A callback that only reads the
+        // array it is iterating (every case in the remeda/es-toolkit corpora, and
+        // the only case that compiled at all when the elements were an inline
+        // `Vec`) is fine, because concurrent shared borrows are allowed. A
+        // callback that WRITES the array it is iterating — legal in JavaScript —
+        // panics "already borrowed" instead of the compile error it used to be.
+        let borrowed_list_text = self.operand_borrow_text(list)?;
         // A zero-parameter callback (`values.map(stubTrue)`) ignores every
         // supplied argument, so it is called with no arguments at all.
         let mut call_args = Vec::new();
         if let Some(item_param_ty) = function_ty.params.first().copied() {
-            call_args.push(self.value_at_type_text("item.clone()", element_ty, item_param_ty)?);
+            // The element parameter is by shared reference whenever the elements are
+            // themselves lists (`unzipWith`, `zipWith`, ...). The iteration binds
+            // `item` as a reference already, so pass it straight through instead of
+            // cloning a whole inner list per element. When the element type and the
+            // parameter type differ a conversion still has to run, and its result is a
+            // temporary whose lifetime Rust extends to the end of the statement.
+            if self.callback_param_is_shared_reference(function_ty, 0, item_param_ty) {
+                if element_ty == item_param_ty {
+                    call_args.push("item".to_owned());
+                } else {
+                    call_args.push(format!(
+                        "&({})",
+                        self.value_at_type_text("item.clone()", element_ty, item_param_ty)?
+                    ));
+                }
+            } else {
+                call_args.push(self.value_at_type_text(
+                    "item.clone()",
+                    element_ty,
+                    item_param_ty,
+                )?);
+            }
         }
         if let Some(index_param_ty) = function_ty.params.get(1).copied() {
             let index_source_ty = if self.mir.types.get(index_param_ty) == Some(&Type::Int) {
@@ -440,17 +471,34 @@ impl FunctionEmitter<'_> {
             let array_param_ty = function_ty.params.get(2).copied().ok_or_else(|| {
                 EmitError::new("array callback snapshot requires an array parameter")
             })?;
-            call_args.push(self.value_at_type_text(
-                "smelt_array.clone()",
-                list_ty,
-                array_param_ty,
-            )?);
+            // The array argument is the JS third callback parameter. When the
+            // callback takes it by shared reference, pass the snapshot by reference:
+            // the snapshot itself is one copy per CALL, but `smelt_array.clone()`
+            // here was one copy per ELEMENT.
+            if self.callback_param_is_shared_reference(function_ty, 2, array_param_ty) {
+                if list_ty == array_param_ty {
+                    call_args.push("&smelt_array".to_owned());
+                } else {
+                    // A conversion has to run; its result is a temporary whose
+                    // lifetime Rust extends to the end of the statement.
+                    call_args.push(format!(
+                        "&({})",
+                        self.value_at_type_text("smelt_array.clone()", list_ty, array_param_ty)?
+                    ));
+                }
+            } else {
+                call_args.push(self.value_at_type_text(
+                    "smelt_array.clone()",
+                    list_ty,
+                    array_param_ty,
+                )?);
+            }
             (
                 format!("let smelt_array = {owned_list_text}; "),
-                "smelt_array".to_owned(),
+                list_read_text("smelt_array"),
             )
         } else {
-            (String::new(), borrowed_list_text)
+            (String::new(), list_read_text(&borrowed_list_text))
         };
         Ok(ListCallbackIterationParts {
             prefix,
@@ -588,6 +636,10 @@ impl FunctionEmitter<'_> {
         callback: &Operand,
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
+        // Index of the JS fourth callback argument (the receiver array) inside
+        // `candidate_args` below. Named so the by-reference binding and the argument
+        // rendering agree on which position is already a reference.
+        const ARRAY_ARG_INDEX: usize = 3;
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(list_element_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("array reduce receiver must be a list"));
@@ -614,6 +666,18 @@ impl FunctionEmitter<'_> {
             ("index", float_ty),
             ("array", list_ty),
         ];
+        // Whether the callback declares the array parameter by shared reference.
+        // When it does, the fold body binds the borrow itself rather than a per-element
+        // deep copy of the whole list — the quadratic cost
+        // `callback_param_is_shared_reference` exists to remove.
+        let array_by_ref = function_ty
+            .params
+            .get(ARRAY_ARG_INDEX)
+            .copied()
+            .is_some_and(|param_ty| {
+                self.callback_param_is_shared_reference(function_ty, ARRAY_ARG_INDEX, param_ty)
+                    && param_ty == list_ty
+            });
         let mut call_args = Vec::with_capacity(function_ty.params.len());
         for (index, param_ty) in function_ty.params.iter().copied().enumerate() {
             let Some((value_text, source_ty)) = candidate_args.get(index).copied() else {
@@ -621,6 +685,25 @@ impl FunctionEmitter<'_> {
                     "array reduce callback declares more parameters than reduce supplies",
                 ));
             };
+            if self.callback_param_is_shared_reference(function_ty, index, param_ty) {
+                if source_ty != param_ty {
+                    // A conversion has to run; its result is a temporary whose
+                    // lifetime Rust extends to the end of the statement.
+                    call_args.push(format!(
+                        "&({})",
+                        self.value_at_type_text(value_text, source_ty, param_ty)?
+                    ));
+                } else if index == ARRAY_ARG_INDEX && array_by_ref {
+                    // The array position is already bound as a reference (see
+                    // `callback_array_text`).
+                    call_args.push(value_text.to_owned());
+                } else {
+                    // The other fold-body bindings are owned, so they are borrowed
+                    // here at the call.
+                    call_args.push(format!("&{value_text}"));
+                }
+                continue;
+            }
             call_args.push(self.value_at_type_text(value_text, source_ty, param_ty)?);
         }
         if let Some(initial_operand) = initial
@@ -630,16 +713,20 @@ impl FunctionEmitter<'_> {
                 "array reduce initial value and callback result must match the destination type",
             ));
         }
-        let owned_list_text = self.operand_text(list)?;
-        let borrowed_list_text = match list {
-            Operand::Copy(place) | Operand::Move(place) => self.place_text(place)?,
-            Operand::Const(_) => owned_list_text,
-        };
+        // `operand_borrow_text` is this borrow, plus the shared-capture guard the
+        // hand-rolled version lacked (see its doc comment).
+        let borrowed_list_text = self.operand_borrow_text(list)?;
         // `fold` borrows the receiver for the duration of iteration. JavaScript
-        // also supplies that receiver as the callback's fourth, owned array
-        // argument, so each invocation must clone it even when MIR classified
-        // the original receiver operand as a final `Move`.
-        let callback_array_text = format!("{borrowed_list_text}.clone()");
+        // also supplies that receiver as the callback's fourth array argument. A
+        // callback that takes it by value owns its argument, so each invocation must
+        // clone it even when MIR classified the original receiver operand as a final
+        // `Move`; a callback that takes it by shared reference binds the same borrow
+        // the fold is already iterating, and no copy happens at all.
+        let callback_array_text = if array_by_ref {
+            format!("&{borrowed_list_text}")
+        } else {
+            format!("{borrowed_list_text}.clone()")
+        };
         let callback_closure = match self.closure_operand_text_for_declared_type(callback) {
             Ok(callback_closure) => callback_closure,
             // A reduce callback passed as a borrowed function parameter (rather
@@ -655,14 +742,18 @@ impl FunctionEmitter<'_> {
             self.value_at_type_text(&call_expr, callback_return_ty, dest_ty)?;
         let callback_text =
             format!("{{ let smelt_callback = {callback_closure}; {callback_result_text} }}");
+        // Same read borrow, and the same known limitation, as the shared
+        // callback iteration path above: a reducer that writes the array it is
+        // reducing panics rather than failing to compile.
+        let list_read = list_read_text(&borrowed_list_text);
         if let Some(initial_operand) = initial {
             let initial_text = self.operand_text(initial_operand)?;
             Ok(format!(
-                "{borrowed_list_text}.iter().enumerate().fold({initial_text}, |acc, (index, item)| {{ let item = (*item).clone(); let index = index as f64; let array = {callback_array_text}; {callback_text} }})"
+                "{list_read}.iter().enumerate().fold({initial_text}, |acc, (index, item)| {{ let item = (*item).clone(); let index = index as f64; let array = {callback_array_text}; {callback_text} }})"
             ))
         } else if dest_ty == element_ty {
             Ok(format!(
-                "{{ let mut reduce_items = {borrowed_list_text}.iter().enumerate(); let (_, first) = reduce_items.next().expect(\"reduce of empty array with no initial value\"); reduce_items.fold(first.clone(), |acc, (index, item)| {{ let item = (*item).clone(); let index = index as f64; let array = {callback_array_text}; {callback_text} }}) }}"
+                "{{ let smelt_reduce_items = {list_read}; let mut reduce_items = smelt_reduce_items.iter().enumerate(); let (_, first) = reduce_items.next().expect(\"reduce of empty array with no initial value\"); reduce_items.fold(first.clone(), |acc, (index, item)| {{ let item = (*item).clone(); let index = index as f64; let array = {callback_array_text}; {callback_text} }}) }}"
             ))
         } else {
             Err(EmitError::new(
@@ -697,7 +788,9 @@ impl FunctionEmitter<'_> {
         if !matches!(self.mir.types.get(dest_ty), Some(Type::Int)) {
             return Err(EmitError::new("list count destination must be int"));
         }
-        let list_text = self.operand_text(list)?;
+        // Read by borrow: every use below is an `.iter()` receiver, reading the
+        // list's shared backing buffer.
+        let list_text = list_read_text(&self.operand_borrow_text(list)?);
         let item_text = self.operand_text(item)?;
         if self.list_item_uses_same_value_zero(*item_ty) {
             if self.mir.types.get(*item_ty) == Some(&Type::Float) {
@@ -739,11 +832,11 @@ impl FunctionEmitter<'_> {
         match self.mir.types.get(*item_ty) {
             Some(Type::Int) => Ok(format!(
                 "{}.iter().copied().sum::<i64>()",
-                self.operand_text(list)?
+                list_read_text(&self.operand_text(list)?)
             )),
             Some(Type::Float) => Ok(format!(
                 "{}.iter().copied().sum::<f64>()",
-                self.operand_text(list)?
+                list_read_text(&self.operand_text(list)?)
             )),
             _ => Err(EmitError::new("list sum supports int and float lists")),
         }
@@ -777,7 +870,7 @@ impl FunctionEmitter<'_> {
         };
         Ok(format!(
             "{}.iter().copied().{method_name}(|value| value)",
-            self.operand_text(list)?
+            list_read_text(&self.operand_text(list)?)
         ))
     }
 

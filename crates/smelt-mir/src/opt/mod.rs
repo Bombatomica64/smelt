@@ -8,8 +8,10 @@ use std::collections::{HashMap, HashSet};
 use crate::{Callee, LocalId, Mir, MirFunction, Operand, Place, Rvalue, Statement, Terminator};
 use smelt_hir::Type;
 
+mod dict_entry_mutation;
 mod move_on_last_use;
 
+pub use dict_entry_mutation::DictEntryInPlaceMutation;
 pub use move_on_last_use::MoveOnLastUse;
 
 /// A MIR optimization pass that transforms the MIR.
@@ -44,6 +46,7 @@ pub fn default_passes() -> Vec<Box<dyn Pass>> {
     vec![
         Box::<CopyPropagation>::default(),
         Box::<MoveOnLastUse>::default(),
+        Box::<DictEntryInPlaceMutation>::default(),
     ]
 }
 

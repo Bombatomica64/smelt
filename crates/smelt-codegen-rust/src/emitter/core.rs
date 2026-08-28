@@ -2046,6 +2046,9 @@ impl<'mir> FunctionEmitter<'mir> {
                     // the borrowed cell, so it is owned; a second `.clone()` would
                     // be redundant.
                     || self.place_is_reference_class_field(place)
+                    // An index read constructs its result rather than projecting
+                    // to a place, so it is likewise already owned.
+                    || self.index_place_read_is_owned(place)
                 {
                     self.place_text(place)
                 } else {
@@ -2053,6 +2056,50 @@ impl<'mir> FunctionEmitter<'mir> {
                 }
             }
             Operand::Move(place) => self.place_text(place),
+            Operand::Const(constant) => Ok(constant_text(constant)),
+        }
+    }
+
+    /// Converts an operand to Rust text for a read whose every use is a `&self`
+    /// receiver — `.len()`, `.iter()`, `.chars()`, indexing.
+    ///
+    /// `operand_text` conservatively clones a `Copy` read, because in general the
+    /// caller wants an owned value it can move on. When the caller only ever
+    /// *borrows* the result, that clone is a whole-collection copy for nothing, and
+    /// inside a loop it changes the algorithm's complexity class rather than adding a
+    /// constant: `chunk`'s `data.slice(start, start + size)` lowered to
+    /// `data.clone().iter().skip(.. data.clone().len() ..)`, deep-copying every
+    /// element on each of `ceil(n / size)` iterations. A hand-written Rust
+    /// implementation would borrow, so the emitted code should too.
+    ///
+    /// Only call this when the emitted expression cannot move or mutate through the
+    /// text: `&self` methods qualify, `into_*`/`push`/assignment do not. `Move`
+    /// operands already elide the clone in `operand_text`, so this only changes
+    /// `Copy` reads.
+    pub(super) fn operand_borrow_text(&self, operand: &Operand) -> Result<String, EmitError> {
+        // A folded throw payload is rendered as the expression it was assigned
+        // rather than as a place, so there is no clone to elide; defer to the
+        // shared path so both reads agree on that text.
+        if let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) = operand
+            && self.folded_throw_payload_text(*local)?.is_some()
+        {
+            return self.operand_text(operand);
+        }
+        // A local held in shared closure storage reads as
+        // `(*smelt_capture_x.borrow())`, and that `Ref` guard lives to the end of the
+        // FULL enclosing statement. The clone is what ends the borrow early: eliding
+        // it would let the guard span a nested closure call that re-borrows the same
+        // cell, panicking "already borrowed" — a `RefCell` crash single-threaded JS
+        // never produces. See the invariant documented on `local_value_text`. Keep
+        // the shared-storage read on the ordinary path, whatever the caller asked
+        // for; a borrow-only receiver is not worth a runtime panic.
+        if let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) = operand
+            && self.local_uses_shared_capture_storage(*local)
+        {
+            return self.operand_text(operand);
+        }
+        match operand {
+            Operand::Copy(place) | Operand::Move(place) => self.place_text(place),
             Operand::Const(constant) => Ok(constant_text(constant)),
         }
     }
@@ -3018,17 +3065,23 @@ impl<'mir> FunctionEmitter<'mir> {
         // Match the adapter's parameter to its cast target: a pure-rest callback
         // whose first param is a list is `Fn(SmeltList<..>)`, not `Fn(Vec<..>)`.
         // The body reads `smelt_args` only through `.iter()`/`.get()`/`.skip()`,
-        // which work on `SmeltList` via `Deref`.
-        let smelt_args_ty = if matches!(
+        // which are `Vec` methods. A `SmeltList` keeps its elements in a shared
+        // `Rc<RefCell<Vec<_>>>` and so has no `Deref` to hand those out, so that
+        // branch rebinds the arguments to a snapshot under the same name and the
+        // body reads one type either way. The snapshot is one copy of the
+        // argument vector per call, which is what erasing the callback costs
+        // anyway.
+        let args_is_list = matches!(
             target_function
                 .params
                 .first()
                 .map(|param| self.mir.types.get(*param)),
             Some(Some(Type::List(_)))
-        ) {
-            "SmeltList<SmeltUnknown>"
+        );
+        let (smelt_args_ty, args_prelude) = if args_is_list {
+            ("SmeltList<SmeltUnknown>", "let smelt_args = smelt_args.to_vec(); ")
         } else {
-            "Vec<SmeltUnknown>"
+            ("Vec<SmeltUnknown>", "")
         };
         // Increment 3 deliberately emits NO return annotation here. This
         // renderer threads no call-site bindings, so it can never be at a
@@ -3039,7 +3092,8 @@ impl<'mir> FunctionEmitter<'mir> {
         // unrelated same-named type parameter rather than pinning anything.
         // With no bindings there is also nothing unsolved: the callee's
         // declared rest-callback return is a known expected type.
-        let closure = format!("move |smelt_args: {smelt_args_ty}| {return_text}");
+        let closure =
+            format!("move |smelt_args: {smelt_args_ty}| {{ {args_prelude}{return_text} }}");
         // When the source callback is NOT itself a function parameter, the
         // adapter body references it through a `smelt_callback` binding (see
         // `callback_text`), so that binding must be introduced in the emitted
@@ -3080,14 +3134,17 @@ impl<'mir> FunctionEmitter<'mir> {
                 if function.rest == Some(index)
                     && let Some(Type::List(item_ty)) = self.mir.types.get(*param_ty)
                 {
+                    let by_ref =
+                        self.callback_param_is_shared_reference(function, index, *param_ty);
+                    let (open, close) = if by_ref { ("&(", ")") } else { ("", "") };
                     if self.mir.types.get(*item_ty) == Some(&Type::Unknown) {
                         return Ok(format!(
-                            "smelt_args.iter().skip({index}).cloned().collect::<SmeltList<_>>()"
+                            "{open}smelt_args.iter().skip({index}).cloned().collect::<SmeltList<_>>(){close}"
                         ));
                     }
                     let item_text = self.extract_value_text("value", *item_ty)?;
                     return Ok(format!(
-                        "smelt_args.iter().skip({index}).cloned().map(|value| {item_text}).collect::<SmeltList<_>>()"
+                        "{open}smelt_args.iter().skip({index}).cloned().map(|value| {item_text}).collect::<SmeltList<_>>(){close}"
                     ));
                 }
                 let item = format!("smelt_args.get({index}).cloned().unwrap_or(SmeltUnknown::Null)");
@@ -3105,6 +3162,8 @@ impl<'mir> FunctionEmitter<'mir> {
                 };
                 if function.mutable_params.contains(&index) {
                     Ok(format!("&mut ({arg})"))
+                } else if self.callback_param_is_shared_reference(function, index, *param_ty) {
+                    Ok(format!("&({arg})"))
                 } else {
                     Ok(arg)
                 }
@@ -3340,9 +3399,45 @@ impl<'mir> FunctionEmitter<'mir> {
                         declared,
                         &substitution,
                     );
-                    self.value_at_type_text(&format!("arg{index}"), declared, *source_param)
+                    // Both sides of the adapter carry their own by-reference axis
+                    // (`callback_param_is_shared_reference`): the parameter the
+                    // adapter DECLARES, and the parameter of the callback it wraps.
+                    let declares_reference = self.callback_param_is_shared_reference(
+                        target_function,
+                        index,
+                        *target_param,
+                    );
+                    let wrapped_takes_reference =
+                        self.callback_param_is_shared_reference(source, index, *source_param);
+                    // The zero-copy path, and the reason the ABI exists: the same
+                    // by-reference type on both sides forwards the borrow untouched.
+                    if declares_reference && wrapped_takes_reference && declared == *source_param {
+                        return Ok(format!("arg{index}"));
+                    }
+                    // Otherwise a conversion runs, and every conversion arm is written
+                    // against an owned value — so a declared reference is copied back
+                    // into one first. That copy is per CALL of the adapter, and only
+                    // where the two sides genuinely disagree about the type.
+                    let source_text = if declares_reference {
+                        format!("arg{index}.clone()")
+                    } else {
+                        format!("arg{index}")
+                    };
+                    let arg_text =
+                        self.value_at_type_text(&source_text, declared, *source_param)?;
+                    // The converted value is a temporary, and Rust extends a borrowed
+                    // temporary's lifetime to the end of the statement, so `&(expr)` is
+                    // valid even though the value is unnamed.
+                    if wrapped_takes_reference {
+                        return Ok(format!("&({arg_text})"));
+                    }
+                    Ok(arg_text)
                 } else {
-                    self.default_value(*source_param)
+                    let default_text = self.default_value(*source_param)?;
+                    if self.callback_param_is_shared_reference(source, index, *source_param) {
+                        return Ok(format!("&({default_text})"));
+                    }
+                    Ok(default_text)
                 }
             })
             .collect::<Result<Vec<_>, _>>()?
@@ -3610,10 +3705,40 @@ impl<'mir> FunctionEmitter<'mir> {
                  emitted body `{return_text}`, which never invokes it"
             )));
         }
+        // An adapter parameter the destination `dyn Fn` passes by shared reference
+        // (`callback_param_is_shared_reference`) cannot cross into a `'static`
+        // future: the branches above place the body inside `Box::pin(async move ..)`
+        // whenever either side of the adapter returns a promise, and a borrow of the
+        // caller's argument does not live that long (E0521). Copy each such
+        // parameter into an owned binding of the same name first — the value the
+        // by-VALUE ABI used to hand the body — which happens per CALL and only for
+        // the async adapters, not for the synchronous per-element ones the
+        // by-reference ABI exists to speed up.
+        let body_is_static_future = source_returns_future
+            || matches!(self.mir.types.get(target_return_ty), Some(Type::Future(_)));
+        let owned_arg_bindings: Vec<String> = if body_is_static_future {
+            target_function
+                .params
+                .iter()
+                .enumerate()
+                .filter(|(index, param)| {
+                    self.callback_param_is_shared_reference(target_function, *index, **param)
+                })
+                .map(|(index, _)| format!("let arg{index} = arg{index}.clone();"))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let owned_arg_prelude = if owned_arg_bindings.is_empty() {
+            String::new()
+        } else {
+            format!("{} ", owned_arg_bindings.join(" "))
+        };
         // Rust requires a block body once a closure annotates its return type.
         let closure_tail = match &return_annotation {
-            Some(annotation) => format!("-> {annotation} {{ {return_text} }}"),
-            None => return_text,
+            Some(annotation) => format!("-> {annotation} {{ {owned_arg_prelude}{return_text} }}"),
+            None if owned_arg_prelude.is_empty() => return_text,
+            None => format!("{{ {owned_arg_prelude}{return_text} }}"),
         };
         let closure = if let Some(prelude) = callback_prelude {
             format!(
@@ -4208,6 +4333,60 @@ impl<'mir> FunctionEmitter<'mir> {
             return false;
         };
         self.is_reference_class_type(base_ty) && self.class_has_named_field(base_ty, *field)
+    }
+
+    /// Returns whether an index read already produces an owned value.
+    ///
+    /// `place_text`'s `Place::Index` arm lowers almost every receiver shape to an
+    /// expression that CONSTRUCTS its result rather than projecting to a place:
+    /// a list reads `.get(i).cloned().unwrap_or(missing)`, a dict
+    /// `.get(&key).cloned().unwrap_or(default)`, a string
+    /// `.chars().nth(i).map(..).expect(..)`, an erased receiver a `match` whose
+    /// every arm builds a fresh `SmeltUnknown`, and a class index store an
+    /// `.unwrap_or(default)`. Each of those is already owned, so the `.clone()`
+    /// `operand_text` appends to a `Copy` read is a SECOND whole-value copy of
+    /// something nobody else holds — the same redundancy
+    /// [`Self::place_is_reference_class_field`] exists to suppress for a
+    /// reference-class field.
+    ///
+    /// Inside a loop that is not a constant: `result[key].push(item)` lowered to
+    /// `result.get(&key).cloned().unwrap_or(..).clone()`, deep-copying the whole
+    /// group twice per pushed element, so grouping n items copied O(n^2)
+    /// elements. `items[i]` paid the same doubling on every element read.
+    ///
+    /// Answers `false` for the shapes that genuinely project to a place and so
+    /// still need the clone to own their result:
+    ///
+    /// * `Type::Tuple`, which renders as the field projection `base.0`;
+    /// * a match-class receiver, whose `match_index_text` shape this predicate
+    ///   deliberately does not model.
+    ///
+    /// The arms here mirror `place_text`'s; `false` is always the safe answer, so
+    /// a shape added there and missed here keeps today's redundant clone rather
+    /// than producing a borrow where an owned value was required.
+    pub(super) fn index_place_read_is_owned(&self, place: &Place) -> bool {
+        let Place::Index { base, .. } = place else {
+            return false;
+        };
+        let Ok(base_ty) = self.local_decl(*base).map(|decl| decl.ty) else {
+            return false;
+        };
+        // A match-class receiver takes the `match_index_text` path before the
+        // type dispatch below, so it is excluded first.
+        if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
+            && self.is_match_class_symbol(*name).unwrap_or(false)
+        {
+            return false;
+        }
+        match self.mir.types.get(base_ty) {
+            Some(Type::List(_) | Type::Dict(_, _) | Type::String) => true,
+            Some(Type::Optional(inner)) => {
+                matches!(self.mir.types.get(*inner), Some(Type::List(_)))
+            }
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => true,
+            Some(Type::Class { .. }) => self.class_index_store_types(base_ty).is_some(),
+            _ => false,
+        }
     }
 
     /// Returns whether a type is a reference class (handle newtype).

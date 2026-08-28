@@ -9,9 +9,12 @@ impl FunctionEmitter<'_> {
         list: &Operand,
         item: &Operand,
     ) -> Result<String, EmitError> {
-        let Some((list_text, item_ty)) = self.list_receiver_surface(list)? else {
+        let Some((receiver_text, item_ty)) = self.list_receiver_surface(list)? else {
             return Ok("false".to_owned());
         };
+        // Every use below is a `Vec` receiver (`.iter().any(..)`, `.contains(..)`),
+        // so the elements are read out of the list's shared buffer.
+        let list_text = list_read_text(&receiver_text);
         let needle_ty = self.operand_ty(item)?;
         if needle_ty != item_ty {
             // A `T | undefined` needle (e.g. `array.includes(sample(array))`)
@@ -79,8 +82,12 @@ impl FunctionEmitter<'_> {
         list: &Operand,
     ) -> Result<Option<(String, TypeId)>, EmitError> {
         let list_ty = self.operand_ty(list)?;
+        // The plain-list fast path reads by borrow: the only caller,
+        // `list_contains_text`, uses that text solely as an `.iter().any(..)` /
+        // `.contains(&..)` receiver. The optional/union path below keeps an owned read
+        // because `Option::expect` consumes `self` and the union projection may too.
         if let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) {
-            return Ok(Some((self.operand_text(list)?, *item_ty)));
+            return Ok(Some((self.operand_borrow_text(list)?, *item_ty)));
         }
         // An optional receiver is unwrapped first: the narrowing that selected the
         // list arm also proved the value present, and the `expect` message matches
@@ -166,7 +173,7 @@ impl FunctionEmitter<'_> {
         };
         Ok(format!(
             "{}.iter().cloned().collect::<{container}>()",
-            self.operand_text(list)?
+            list_read_text(&self.operand_text(list)?)
         ))
     }
 
@@ -203,7 +210,7 @@ impl FunctionEmitter<'_> {
         }
         Ok(format!(
             "{}.iter().cloned().collect::<::std::collections::HashMap<_, _>>()",
-            self.operand_text(list)?
+            list_read_text(&self.operand_text(list)?)
         ))
     }
 
@@ -236,8 +243,10 @@ impl FunctionEmitter<'_> {
             let left_text = self.value_at_type_text(&self.operand_text(left)?, left_ty, list_ty)?;
             let right_text =
                 self.value_at_type_text(&self.operand_text(right)?, right_ty, list_ty)?;
+            let left_read = list_read_text(&left_text);
+            let right_read = list_read_text(&right_text);
             return Ok(format!(
-                "{left_text}.iter().cloned().chain({right_text}.iter().cloned()).collect::<Vec<_>>()"
+                "{left_read}.iter().cloned().chain({right_read}.iter().cloned()).collect::<Vec<_>>()"
             ));
         }
         let (Some(Type::List(left_item)), Some(Type::List(right_item))) =
@@ -268,8 +277,8 @@ impl FunctionEmitter<'_> {
             // EMPTY list, which is how es-toolkit's `copyProperties` silently lost
             // every string key once symbols stopped arriving as bare descriptions.
             if let Some(unknown_ty) = self.find_type_id(&Type::Unknown) {
-                let left_text = self.operand_text(left)?;
-                let right_text = self.operand_text(right)?;
+                let left_text = list_read_text(&self.operand_text(left)?);
+                let right_text = list_read_text(&self.operand_text(right)?);
                 if *right_item == unknown_ty {
                     let item = self.erase_value_text("item", *left_item)?;
                     return Ok(format!(
@@ -287,8 +296,8 @@ impl FunctionEmitter<'_> {
         }
         Ok(format!(
             "{}.iter().cloned().chain({}.iter().cloned()).collect::<Vec<_>>()",
-            self.operand_text(left)?,
-            self.operand_text(right)?
+            list_read_text(&self.operand_text(left)?),
+            list_read_text(&self.operand_text(right)?)
         ))
     }
 
@@ -419,10 +428,18 @@ impl FunctionEmitter<'_> {
         };
         self.validate_optional_numeric_index(start, "list slice start index")?;
         self.validate_optional_numeric_index(end, "list slice end index")?;
-        let list_text = self.operand_text(list)?;
+        // Every use of `list_text` below is a `&self` receiver (`.len()`, `.iter()`),
+        // so this reads the list by borrow. Cloning here copied the whole backing
+        // `Vec` up to three times per slice, which inside a loop over the same list
+        // turned a linear algorithm quadratic.
+        let list_text = self.operand_borrow_text(list)?;
         let len_source = format!("{list_text}.len()");
         let start_text = self.slice_start_text(start, &len_source)?;
         let len_text = self.slice_len_text(&list_text, start, end, SliceLenKind::Len)?;
+        // `.len()` is the list's own inherent method (its own short-lived borrow);
+        // `.iter()` needs the backing `Vec`, so it reads through the shared cell.
+        // Both are shared borrows, so they may coexist inside one expression.
+        let list_read = list_read_text(&list_text);
         let Some(Type::List(dest_item_ty)) = self.mir.types.get(dest_ty) else {
             // The destination is not a concrete list (e.g. an erased
             // `SmeltUnknown` slot, as in `ary`'s rest-argument capping).
@@ -431,18 +448,18 @@ impl FunctionEmitter<'_> {
             // it is erased, rather than leaking a bare `Vec` into a
             // `SmeltUnknown` place (E0308).
             let sliced = format!(
-                "SmeltList::with_id(smelt_next_object_id(), {list_text}.iter().skip({start_text}).take({len_text}).cloned().collect::<Vec<_>>())"
+                "SmeltList::with_id(smelt_next_object_id(), {list_read}.iter().skip({start_text}).take({len_text}).cloned().collect::<Vec<_>>())"
             );
             return self.value_at_type_text(&sliced, list_ty, dest_ty);
         };
         if source_item_ty == dest_item_ty {
             return Ok(format!(
-                "{list_text}.iter().skip({start_text}).take({len_text}).cloned().collect::<Vec<_>>()"
+                "{list_read}.iter().skip({start_text}).take({len_text}).cloned().collect::<Vec<_>>()"
             ));
         }
         let item_text = { self.value_at_type_text("value", *source_item_ty, *dest_item_ty)? };
         Ok(format!(
-            "{list_text}.iter().skip({start_text}).take({len_text}).cloned().map(|value| {item_text}).collect::<Vec<_>>()"
+            "{list_read}.iter().skip({start_text}).take({len_text}).cloned().map(|value| {item_text}).collect::<Vec<_>>()"
         ))
     }
 
@@ -538,9 +555,9 @@ impl FunctionEmitter<'_> {
                     "array splice receiver must be a mutable local for now",
                 ));
             };
-            self.local_mut_value_text(*local)?
+            list_write_text(&self.local_value_text(*local)?)
         } else {
-            format!("{list_text}.clone()")
+            format!("{list_text}.to_vec()")
         };
         let delete_count_float_text = format!("({delete_count_text} as f64)");
         if mutate {
@@ -572,7 +589,7 @@ impl FunctionEmitter<'_> {
             let value_text = self.operand_text(&item.value)?;
             if item.spread {
                 statements.push(format!(
-                    "splice_replacements.extend(({value_text}).iter().cloned());"
+                    "splice_replacements.extend(({value_text}).borrow().iter().cloned());"
                 ));
             } else {
                 statements.push(format!("splice_replacements.push({value_text});"));
@@ -607,7 +624,7 @@ impl FunctionEmitter<'_> {
                 "array fill receiver must be a mutable local for now",
             ));
         };
-        let list_text = self.local_mut_value_text(*local)?;
+        let list_text = self.local_value_text(*local)?;
         let value_text = self.operand_text(value)?;
         let start_text = start
             .map(|operand| self.operand_text(operand).map(|text| format!("({text})")))
@@ -617,8 +634,11 @@ impl FunctionEmitter<'_> {
             .map(|operand| self.operand_text(operand).map(|text| format!("({text})")))
             .transpose()?
             .unwrap_or_else(|| "(fill_len as f64)".to_owned());
+        // The fill value is bound once, before the loop, so the write borrow of
+        // the shared buffer never coexists with a read borrow of the same cell.
+        let list_mut = list_write_text(&list_text);
         Ok(format!(
-            "{{ let fill_len = {list_text}.len(); let fill_start = if {start_text} < 0.0 {{ fill_len.saturating_sub((-{start_text}) as usize) }} else {{ ({start_text} as usize).min(fill_len) }}; let fill_end = if {end_text} < 0.0 {{ fill_len.saturating_sub((-{end_text}) as usize) }} else {{ ({end_text} as usize).min(fill_len) }}; for fill_index in fill_start..fill_end {{ {list_text}[fill_index] = {value_text}.clone(); }} {list_text}.clone() }}"
+            "{{ let fill_len = {list_text}.len(); let fill_value = {value_text}; let fill_start = if {start_text} < 0.0 {{ fill_len.saturating_sub((-{start_text}) as usize) }} else {{ ({start_text} as usize).min(fill_len) }}; let fill_end = if {end_text} < 0.0 {{ fill_len.saturating_sub((-{end_text}) as usize) }} else {{ ({end_text} as usize).min(fill_len) }}; for fill_index in fill_start..fill_end {{ {list_mut}[fill_index] = fill_value.clone(); }} {list_text}.clone() }}"
         ))
     }
 
@@ -642,15 +662,19 @@ impl FunctionEmitter<'_> {
                 "array copyWithin receiver must be a mutable local for now",
             ));
         };
-        let list_text = self.local_mut_value_text(*local)?;
+        let list_text = self.local_value_text(*local)?;
         let target_text = format!("({})", self.operand_text(target)?);
         let start_text = format!("({})", self.operand_text(start)?);
         let end_text = end
             .map(|operand| self.operand_text(operand).map(|text| format!("({text})")))
             .transpose()?
             .unwrap_or_else(|| "(copy_len as f64)".to_owned());
+        // `copy_items` is snapshotted into its own `let`, so the read borrow of
+        // the shared buffer is released before the write loop takes its own.
+        let list_read = list_read_text(&list_text);
+        let list_mut = list_write_text(&list_text);
         Ok(format!(
-            "{{ let copy_len = {list_text}.len(); let copy_target = if {target_text} < 0.0 {{ copy_len.saturating_sub((-{target_text}) as usize) }} else {{ ({target_text} as usize).min(copy_len) }}; let copy_start = if {start_text} < 0.0 {{ copy_len.saturating_sub((-{start_text}) as usize) }} else {{ ({start_text} as usize).min(copy_len) }}; let copy_end = if {end_text} < 0.0 {{ copy_len.saturating_sub((-{end_text}) as usize) }} else {{ ({end_text} as usize).min(copy_len) }}; let copy_items = {list_text}.iter().skip(copy_start).take(copy_end.saturating_sub(copy_start)).cloned().collect::<Vec<_>>(); for (offset, item) in copy_items.into_iter().enumerate() {{ if copy_target + offset < copy_len {{ {list_text}[copy_target + offset] = item; }} }} {list_text}.clone() }}"
+            "{{ let copy_len = {list_text}.len(); let copy_target = if {target_text} < 0.0 {{ copy_len.saturating_sub((-{target_text}) as usize) }} else {{ ({target_text} as usize).min(copy_len) }}; let copy_start = if {start_text} < 0.0 {{ copy_len.saturating_sub((-{start_text}) as usize) }} else {{ ({start_text} as usize).min(copy_len) }}; let copy_end = if {end_text} < 0.0 {{ copy_len.saturating_sub((-{end_text}) as usize) }} else {{ ({end_text} as usize).min(copy_len) }}; let copy_items = {list_read}.iter().skip(copy_start).take(copy_end.saturating_sub(copy_start)).cloned().collect::<Vec<_>>(); for (offset, item) in copy_items.into_iter().enumerate() {{ if copy_target + offset < copy_len {{ {list_mut}[copy_target + offset] = item; }} }} {list_text}.clone() }}"
         ))
     }
 
@@ -694,7 +718,9 @@ impl FunctionEmitter<'_> {
                 "array with value and destination must match the list type",
             ));
         }
-        let list_text = self.operand_text(list)?;
+        // Read by borrow: the emitted body appends its own `.clone()` to get the
+        // mutable copy it edits, so cloning here made it `x.clone().clone()`.
+        let list_text = self.operand_borrow_text(list)?;
         let index_text = format!("({})", self.operand_text(index)?);
         let value_text = self.operand_text(value)?;
         Ok(format!(
@@ -728,7 +754,9 @@ impl FunctionEmitter<'_> {
                 ));
             }
             let depth_text = self.flat_depth_text(depth)?;
-            let list_text = self.operand_text(list)?;
+            // Read by borrow: the emitted call appends its own
+            // `.clone().into_vec()`, so cloning here made it `x.clone().clone()`.
+            let list_text = self.operand_borrow_text(list)?;
             return Ok(format!(
                 "{{ fn smelt_flat_values(values: Vec<SmeltUnknown>, smelt_remaining_depth: i64) -> Vec<SmeltUnknown> {{ if smelt_remaining_depth <= 0 {{ return values; }} values.into_iter().flat_map(|value| match value {{ SmeltUnknown::Array(items) => smelt_flat_values(items.into_vec(), smelt_remaining_depth - 1), value => vec![value] }}).collect::<Vec<_>>() }} let smelt_flat_depth = (({depth_text}) as f64).max(0.0).floor() as i64; let smelt_flat_input = match {list_text} {{ SmeltUnknown::Array(values) => values.into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string())).collect::<Vec<_>>(), _ => Vec::new() }}; smelt_flat_values(smelt_flat_input, smelt_flat_depth) }}"
             ));
@@ -768,7 +796,7 @@ impl FunctionEmitter<'_> {
                 .join(", ");
             return Ok(format!(
                 "{}.iter().flat_map(|items| vec![{item_texts}]).collect::<Vec<_>>()",
-                self.operand_text(list)?
+                list_read_text(&self.operand_text(list)?)
             ));
         }
         let Some(Type::List(item_ty)) = self.mir.types.get(*nested_ty) else {
@@ -784,9 +812,12 @@ impl FunctionEmitter<'_> {
                 "array flat destination must match nested item type",
             ));
         }
+        // The outer list and each inner one are separate cells, and both reads
+        // are shared borrows, so the nested `borrow()` is safe even when an inner
+        // list aliases the outer one.
         Ok(format!(
-            "{}.iter().flat_map(|items| items.iter().cloned()).collect::<Vec<_>>()",
-            self.operand_text(list)?
+            "{}.iter().flat_map(|items| items.borrow().clone().into_iter()).collect::<Vec<_>>()",
+            list_read_text(&self.operand_text(list)?)
         ))
     }
 
@@ -817,7 +848,9 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
-        let list_text = self.operand_text(list)?;
+        // Read by borrow: every arm below is `match {list_text}.clone() { .. }`, which
+        // appends its own clone, so cloning here made it `x.clone().clone()`.
+        let list_text = self.operand_borrow_text(list)?;
         if matches!(
             self.mir.types.get(list_ty),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
@@ -907,8 +940,9 @@ impl FunctionEmitter<'_> {
                         "{list_text}.into_iter().enumerate().map(|(idx, item)| (idx as i64, item)).collect::<Vec<_>>()"
                     ))
                 } else {
+                    let list_read = list_read_text(&list_text);
                     Ok(format!(
-                        "{list_text}.iter().cloned().enumerate().map(|(idx, item)| (idx as i64, item)).collect::<Vec<_>>()"
+                        "{list_read}.iter().cloned().enumerate().map(|(idx, item)| (idx as i64, item)).collect::<Vec<_>>()"
                     ))
                 }
             }

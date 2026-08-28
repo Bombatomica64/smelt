@@ -839,7 +839,7 @@ export function entries(...args: readonly unknown[]): unknown {
     );
     assert!(
         source.contains(
-            "SmeltArray::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| SmeltUnknown::Array"
+            "SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| SmeltUnknown::Array"
         ),
         "Object.entries callback should return entry arrays, not a null placeholder: {source}"
     );
@@ -889,7 +889,9 @@ export function firstEntry(values: string[]): string | undefined {
     );
 
     assert!(
-        source.contains("if iterator.is_empty() { None } else { Some(iterator.remove(0)) }"),
+        source.contains(
+            "if iterator.is_empty() { None } else { Some(iterator.borrow_mut().remove(0)) }"
+        ),
         "iterator next should consume into a typed Option: {source}"
     );
     assert!(
@@ -1823,6 +1825,57 @@ export function replaceAll(str: string, table: unknown): string {
 }
 
 #[test]
+fn self_recursive_closure_captures_its_own_cell_weakly() {
+    // A self-recursive closure and its cell used to hold each other with `Rc`, a
+    // reference cycle that leaked the closure and everything it captured on EVERY
+    // call. es-toolkit's `flatten` grew ~21 KiB per call without bound; after this
+    // lowering its peak RSS is flat in call count (396 MiB -> 4.6 MiB at ~2k calls).
+    // See `benchmarks/FINDINGS.md` finding #2.
+    //
+    // The absence assertion is the load-bearing one: no strong self-capture means the
+    // cycle cannot form, which is a static property rather than a measurement.
+    let source = source_for(
+        r"
+export function collect(rows: number[][]): number[] {
+  const result: number[] = [];
+  const recurse = (items: number[][], depth: number): void => {
+    for (const item of items) {
+      if (depth > 0) {
+        recurse([item], depth - 1);
+      } else {
+        result.push(item[0]);
+      }
+    }
+  };
+  recurse(rows, 1);
+  return result;
+}
+",
+    );
+
+    // The closure captures a `Weak` to its own cell...
+    assert!(
+        source.contains("let smelt_capture_recurse = ::std::rc::Rc::downgrade(&smelt_capture_recurse);"),
+        "{source}"
+    );
+    // ...and upgrades it to call itself.
+    assert!(
+        source.contains("smelt_capture_recurse.upgrade().expect("),
+        "{source}"
+    );
+    // The frame keeps the strong owner, so the cell outlives every call through it.
+    assert!(
+        source.contains("(*smelt_capture_recurse.borrow_mut()) ="),
+        "{source}"
+    );
+    // No strong self-capture: the cycle cannot form.
+    assert!(
+        !source.contains("let smelt_capture_recurse = smelt_capture_recurse.clone();"),
+        "{source}"
+    );
+}
+
+#[test]
 fn emits_escaping_closure_spread_calls_with_owned_callback_state() {
     let source = source_for(
         r"
@@ -1844,8 +1897,14 @@ export function purryOn(
     );
     assert!(source.contains("(implementation)("), "{source}");
     assert!(source.contains("args.get("), "{source}");
+    // What this test is really about: the ESCAPING closure must own its captured
+    // `args`, because it outlives the frame. That capture still clones.
+    assert!(source.contains("let args = args.clone();"), "{source}");
+    // The immediately-evaluated `args.slice(2)` in the other branch is a different
+    // expression, and it reads `args` only through `&self` methods, so it borrows.
+    // It used to emit `args.clone().iter().skip(` — a whole-`Vec` copy for a read.
     assert!(
-        source.contains("args.clone().iter().skip(")
+        source.contains("args.borrow().iter().skip(")
             || source.contains("SmeltUnknown::Array(args.clone().into())"),
         "{source}"
     );
@@ -4031,12 +4090,12 @@ function wrap<T>(
     // is hoisted into a `let smelt_source_value = closure_arg_0.get(..)` binding
     // by the callable-object narrowing, so assert on the shared `.get(` read.
     assert!(
-        source.contains("closure_arg_0.get(")
+        source.contains("closure_arg_0.borrow().get(")
             && source.contains("SmeltUnknown::Array(values) => values.into_iter()"),
         "fixed callback spread calls should read the first fixed parameter from the rest vector: {source}"
     );
     assert!(
-        source.matches("closure_arg_0.get(").count() >= 2,
+        source.matches("closure_arg_0.borrow().get(").count() >= 2,
         "fixed callback spread calls should read the second fixed parameter from the rest vector: {source}"
     );
     assert!(
@@ -4123,7 +4182,9 @@ function indicesSeen(
         "{source}"
     );
     assert!(
-        source.contains("(*smelt_capture_indices.borrow_mut()).push(closure_arg_1.clone())"),
+        source.contains(
+            "let smelt_push_item = closure_arg_1.clone(); (*smelt_capture_indices.borrow()).borrow_mut().push(smelt_push_item)"
+        ),
         "captured push should mutate the outer vector storage: {source}"
     );
     assert!(
@@ -4176,7 +4237,7 @@ export function collect(value: number, key: string): Array<[number, string]> {
         "pushed literal should be a concrete tuple value: {source}"
     );
     assert!(
-        source.contains("result.push("),
+        source.contains("result.borrow_mut().push("),
         "the tuple value should be pushed onto the array: {source}"
     );
     assert!(
@@ -4202,7 +4263,7 @@ export function mixed(): Array<number | string> {
 
     assert!(source.contains("pub enum SmeltUnion"), "{source}");
     assert!(
-        source.contains(".push(SmeltUnion") && source.contains("::M0(1.0)"),
+        source.contains("let smelt_push_item = SmeltUnion") && source.contains("::M0(1.0)"),
         "numeric push should inject the concrete union member: {source}"
     );
     assert!(
@@ -5040,11 +5101,11 @@ function swap(data: unknown[], i: number, j: number): void {
     );
 
     assert!(source.contains("let __smelt_destructure"), "{source}");
-    assert!(source.contains("__smelt_destructure.get"), "{source}");
+    assert!(source.contains("__smelt_destructure.borrow().get"), "{source}");
     assert!(source.contains("index = 1.0"), "{source}");
     assert_eq!(
         source
-            .matches("data[smelt_assign_index] = __smelt_destructure.get")
+            .matches("data.borrow_mut()[smelt_assign_index] = smelt_assign_value")
             .count(),
         2,
         "{source}"
@@ -5633,7 +5694,11 @@ const same = (data as unknown) === (data as unknown);
         "erasing a list local should bind it to read its reference id\n{source}"
     );
     assert!(
-        body.contains("SmeltArray::with_id(smelt_l.id(),"),
+        body.contains("let smelt_id = smelt_l.id();"),
+        "erasing a list local should read the list's own reference id\n{source}"
+    );
+    assert!(
+        body.contains("SmeltArray::with_id(smelt_id,"),
         "erasing a list local should build the array with the list's own identity\n{source}"
     );
 }
@@ -5743,7 +5808,7 @@ function run(): unknown {
     );
 
     assert!(
-        source.contains("smelt_array.iter().enumerate().map(|(index, item)|"),
+        source.contains("smelt_array.borrow().iter().enumerate().map(|(index, item)|"),
         "imported map callback should lower to a mapping closure\n{source}"
     );
     assert!(
@@ -7142,10 +7207,16 @@ export function run(values: number[]): string {
 }
 
 /// A seeded reduce borrows its receiver for iteration, so the array argument
-/// supplied to a four-parameter callback must be cloned rather than moved out
-/// of the surrounding function or closure.
+/// supplied to a four-parameter callback must never be MOVED out of the
+/// surrounding function or closure.
+///
+/// It used to be cloned instead — one whole-list deep copy per element, which is
+/// what made a four-parameter reduce O(n^2). The callback now takes that parameter
+/// by shared reference (`callback_param_is_shared_reference`), so the fold body
+/// binds the same borrow it is already iterating and nothing is copied at all. The
+/// no-move assertion is the part of this test that was always the point.
 #[test]
-fn reduce_clones_array_callback_argument_with_initial_value() {
+fn reduce_borrows_the_array_callback_argument_with_initial_value() {
     let source = source_for(
         r"
 export function sum(values: number[]): number {
@@ -7155,15 +7226,16 @@ export function sum(values: number[]): number {
 ",
     );
 
-    assert!(source.contains("let array = mapped.clone();"), "{source}");
+    assert!(source.contains("let array = &mapped;"), "{source}");
     assert!(!source.contains("let array = mapped;"), "{source}");
+    assert!(!source.contains("let array = mapped.clone();"), "{source}");
 }
 
-/// Seedless reduce has the same ownership requirement after extracting its
-/// first element: later iterations still borrow the receiver while invoking
-/// the callback with an owned array value.
+/// Seedless reduce has the same ownership requirement after extracting its first
+/// element: later iterations still borrow the receiver while invoking the callback,
+/// so the array argument is that same borrow and is never moved.
 #[test]
-fn reduce_clones_array_callback_argument_without_initial_value() {
+fn reduce_borrows_the_array_callback_argument_without_initial_value() {
     let source = source_for(
         r"
 export function sum(values: number[]): number {
@@ -7173,8 +7245,9 @@ export function sum(values: number[]): number {
 ",
     );
 
-    assert!(source.contains("let array = reversed.clone();"), "{source}");
+    assert!(source.contains("let array = &reversed;"), "{source}");
     assert!(!source.contains("let array = reversed;"), "{source}");
+    assert!(!source.contains("let array = reversed.clone();"), "{source}");
 }
 
 /// A module const whose initializer is an array spread (es-toolkit's
@@ -7338,7 +7411,7 @@ function tag(rows: string[][], suffix: string): string[][] {
     );
 
     assert!(
-        source.contains("closure_arg_0[smelt_assign_index] ="),
+        source.contains("closure_arg_0.borrow_mut()[smelt_assign_index] ="),
         "the compound member assignment should emit an indexed store into the row\n{source}"
     );
     assert!(
@@ -8369,7 +8442,7 @@ export function g(): number[] {
     );
     assert!(
         source.contains("smelt_capture_store")
-            && source.contains("(*smelt_capture_store.borrow_mut()).push("),
+            && source.contains("(*smelt_capture_store.borrow()).borrow_mut().push("),
         "a mutated captured list must route writes through shared storage: {source}"
     );
     assert!(
@@ -11012,12 +11085,16 @@ export function copy(b: string[], n: number[], i: number): void {
 ",
     );
 
+    // The subject is that the read stays TOTAL (`.cloned().unwrap_or(default)`,
+    // not a fallible read). The trailing `.clone()` these once carried was the
+    // redundant second copy of an already-owned index read, removed by
+    // `index_place_read_is_owned`, and is asserted absent below.
     assert!(
-        source.contains(".cloned().unwrap_or(String::new()).clone();"),
+        source.contains(".cloned().unwrap_or(String::new());"),
         "a concrete `string` slot keeps the total read:\n{source}"
     );
     assert!(
-        source.contains(".cloned().unwrap_or(0.0).clone();"),
+        source.contains(".cloned().unwrap_or(0.0);"),
         "a concrete `number` slot keeps the total read:\n{source}"
     );
     assert!(
@@ -11469,125 +11546,6 @@ const v = check(new Ok());
     );
 }
 
-/// A conditional whose branches are two *declared* classes unifies to the
-/// generated tagged union, not to `String`.
-///
-/// `Type::Class` spells both a declared class and an unresolved opaque name, so
-/// `is_string_compatible_type` accepts any class — a JS value can always be
-/// coerced to a string. Applying that to *unification* made
-/// `flag ? new A() : new B()` come out as `String`, and the emitter then
-/// declared a `String` local and assigned the class values into it: output that
-/// does not compile. Two declared classes do have a concrete common
-/// representation, so they unify to their union.
-#[test]
-fn conditional_over_declared_classes_unifies_to_a_union() {
-    let source = source_for(
-        r"
-class A { v(): number { return 1; } }
-class B { v(): number { return 2; } }
-function pick(flag: boolean): A | B { return flag ? new A() : new B(); }
-function use1(x: A | B): number { return x.v(); }
-const r = use1(pick(true));
-",
-    );
-
-    let pick_body = source
-        .split("fn pick(")
-        .nth(1)
-        .and_then(|rest| rest.split("\nfn ").next())
-        .unwrap_or_else(|| panic!("expected a generated `pick`:\n{source}"));
-    assert!(
-        !pick_body.contains(": String"),
-        "two declared classes must not unify to `String`:\n{source}"
-    );
-    assert!(
-        pick_body.contains("::M0(") && pick_body.contains("::M1("),
-        "each branch must be wrapped into its union arm:\n{source}"
-    );
-}
-
-
-/// An unannotated arrow passed to a *generic* function is contextually typed
-/// from the instantiation its sibling arguments imply, not from the callee's
-/// raw type parameters.
-///
-/// The declared parameter type of `fn` is `(item: T) => U`. Handing that to the
-/// arrow as its contextual type bound the closure's parameter to a type
-/// variable outside its own scope, which lowered to `SmeltUnknown` — and then
-/// the already-concrete `number[]` argument had to be erased to match the
-/// instantiation, and the result un-erased again. One missing annotation cost
-/// four erasure sites. The bindings are recoverable from the value arguments,
-/// which is what this asserts.
-#[test]
-fn unannotated_arrow_into_generic_callee_stays_concrete() {
-    let source = source_for(
-        r"
-function mapArr<T, U>(arr: T[], fn: (item: T) => U): U[] {
-  const out: U[] = [];
-  for (const item of arr) { out.push(fn(item)); }
-  return out;
-}
-const nums: number[] = [1, 2, 3];
-const doubled = mapArr(nums, (x) => x * 2);
-",
-    );
-
-    let main_body = source
-        .split("fn main()")
-        .nth(1)
-        .unwrap_or_else(|| panic!("expected a generated `main`:\n{source}"));
-    assert!(
-        !main_body.contains("SmeltUnknown"),
-        "the call site must stay concrete, with no erasure round-trip:\n{source}"
-    );
-    assert!(
-        main_body.contains("closure_arg_0: f64"),
-        "the arrow parameter must be contextually typed as `f64`:\n{source}"
-    );
-    assert!(
-        main_body.contains("SmeltList<f64>"),
-        "the concrete argument must not be re-erased to call the instantiation:\n{source}"
-    );
-}
-
-
-/// A constrained type parameter erases only itself; an unconstrained sibling
-/// still lifts to a real Rust generic.
-///
-/// `function_emits_rust_generics` used to demote a whole function the moment any
-/// type parameter carried a constraint, so `K extends string` erased `T` too and
-/// every position here came out `SmeltUnknown` — even `fallback: T` and the
-/// return, which are directly inferable. 215 of es-toolkit's 800 generic
-/// exported functions carry a constrained parameter.
-#[test]
-fn constrained_type_param_erases_without_demoting_its_siblings() {
-    let source = source_for(
-        r"
-function pickFirst<T, K extends string>(arr: T[], key: (item: T) => K, fallback: T): T {
-  if (arr.length > 0) { return arr[0]; }
-  return fallback;
-}
-const nums: number[] = [1, 2, 3];
-const v = pickFirst(nums, (n) => (n > 1 ? 'big' : 'small'), 0);
-",
-    );
-
-    let signature = source
-        .split("fn pick_first")
-        .nth(1)
-        .and_then(|rest| rest.split('{').next())
-        .unwrap_or_else(|| panic!("expected a generated `pick_first`:\n{source}"));
-    assert!(
-        signature.contains("arr: SmeltList<T>") && signature.contains("fallback: T"),
-        "the unconstrained `T` must lift to a real generic:\n{source}"
-    );
-    assert!(
-        signature.contains("SmeltUnknown"),
-        "the constrained `K` must still erase:\n{source}"
-    );
-}
-
-
 /// A callable object invoked inside a callback body must call its underlying
 /// callable, not silently evaluate to `null`.
 ///
@@ -11703,6 +11661,173 @@ export function wrap(fn: (value: string) => string): Wrapped {
     assert!(
         !signature.contains("&dyn Fn"),
         "a callback retained by the returned record must not stay borrowed:\n{source}"
+    );
+}
+
+/// A module-level regex `const` referenced from several functions must compile
+/// its pattern exactly once.
+///
+/// The TypeScript frontend inlines an importable `const` initializer into every
+/// referencing body, so the `SmeltRegExp::new(..)` construction is pasted at each
+/// use site. That construction must stay per-use: `SmeltRegExp` carries JS
+/// reference identity (`id`) and observable mutable state (`lastIndex`), and
+/// `Clone` preserves both, so handing every use a clone of one shared instance
+/// would fuse distinct source objects. What *is* shared is the pure half — the
+/// compiled `fancy_regex` automaton, a function of the pattern text alone — which
+/// the prelude memoizes in `SMELT_REGEX_CACHE`. The invariant this test pins is
+/// therefore: exactly ONE `fancy_regex::Regex::new` call site exists in the whole
+/// emitted crate (the memo), no matter how many times the const is inlined.
+#[test]
+fn module_level_regex_const_compiles_its_pattern_once() {
+    let source = source_for(
+        r"
+const CASE_SPLIT_PATTERN = /[a-z]+|[0-9]+/g;
+
+export function first(text: string): number {
+  return text.split(CASE_SPLIT_PATTERN).length;
+}
+
+export function second(text: string): number {
+  return text.split(CASE_SPLIT_PATTERN).length;
+}
+",
+    );
+
+    assert!(
+        source.contains("static SMELT_REGEX_CACHE:"),
+        "the prelude must declare the compiled-automaton memo\n{source}"
+    );
+    assert_eq!(
+        source.matches("fancy_regex::Regex::new(").count(),
+        1,
+        "the emitted crate must hold exactly one regex compile site (the memo), \
+         so an inlined module-level const never recompiles its pattern\n{source}"
+    );
+    assert!(
+        source.matches("SmeltRegExp::new(").count() >= 2,
+        "each use site must still build its own `SmeltRegExp` wrapper so JS \
+         reference identity and `lastIndex` stay per-object\n{source}"
+    );
+    assert!(
+        source.contains("cache.borrow().get(&pattern).cloned()")
+            && source.contains("cache.borrow_mut().insert(pattern, compiled.clone())"),
+        "`try_compiled` must read through and populate the memo\n{source}"
+    );
+}
+
+/// A conditional whose branches are two *declared* classes unifies to the
+/// generated tagged union, not to `String`.
+///
+/// `Type::Class` spells both a declared class and an unresolved opaque name, so
+/// `is_string_compatible_type` accepts any class — a JS value can always be
+/// coerced to a string. Applying that to *unification* made
+/// `flag ? new A() : new B()` come out as `String`, and the emitter then
+/// declared a `String` local and assigned the class values into it: output that
+/// does not compile. Two declared classes do have a concrete common
+/// representation, so they unify to their union.
+#[test]
+fn conditional_over_declared_classes_unifies_to_a_union() {
+    let source = source_for(
+        r"
+class A { v(): number { return 1; } }
+class B { v(): number { return 2; } }
+function pick(flag: boolean): A | B { return flag ? new A() : new B(); }
+function use1(x: A | B): number { return x.v(); }
+const r = use1(pick(true));
+",
+    );
+
+    let pick_body = source
+        .split("fn pick(")
+        .nth(1)
+        .and_then(|rest| rest.split("\nfn ").next())
+        .unwrap_or_else(|| panic!("expected a generated `pick`:\n{source}"));
+    assert!(
+        !pick_body.contains(": String"),
+        "two declared classes must not unify to `String`:\n{source}"
+    );
+    assert!(
+        pick_body.contains("::M0(") && pick_body.contains("::M1("),
+        "each branch must be wrapped into its union arm:\n{source}"
+    );
+}
+
+/// An unannotated arrow passed to a *generic* function is contextually typed
+/// from the instantiation its sibling arguments imply, not from the callee's
+/// raw type parameters.
+///
+/// The declared parameter type of `fn` is `(item: T) => U`. Handing that to the
+/// arrow as its contextual type bound the closure's parameter to a type
+/// variable outside its own scope, which lowered to `SmeltUnknown` — and then
+/// the already-concrete `number[]` argument had to be erased to match the
+/// instantiation, and the result un-erased again. One missing annotation cost
+/// four erasure sites. The bindings are recoverable from the value arguments,
+/// which is what this asserts.
+#[test]
+fn unannotated_arrow_into_generic_callee_stays_concrete() {
+    let source = source_for(
+        r"
+function mapArr<T, U>(arr: T[], fn: (item: T) => U): U[] {
+  const out: U[] = [];
+  for (const item of arr) { out.push(fn(item)); }
+  return out;
+}
+const nums: number[] = [1, 2, 3];
+const doubled = mapArr(nums, (x) => x * 2);
+",
+    );
+
+    let main_body = source
+        .split("fn main()")
+        .nth(1)
+        .unwrap_or_else(|| panic!("expected a generated `main`:\n{source}"));
+    assert!(
+        !main_body.contains("SmeltUnknown"),
+        "the call site must stay concrete, with no erasure round-trip:\n{source}"
+    );
+    assert!(
+        main_body.contains("closure_arg_0: f64"),
+        "the arrow parameter must be contextually typed as `f64`:\n{source}"
+    );
+    assert!(
+        main_body.contains("SmeltList<f64>"),
+        "the concrete argument must not be re-erased to call the instantiation:\n{source}"
+    );
+}
+
+/// A constrained type parameter erases only itself; an unconstrained sibling
+/// still lifts to a real Rust generic.
+///
+/// `function_emits_rust_generics` used to demote a whole function the moment any
+/// type parameter carried a constraint, so `K extends string` erased `T` too and
+/// every position here came out `SmeltUnknown` — even `fallback: T` and the
+/// return, which are directly inferable. 215 of es-toolkit's 800 generic
+/// exported functions carry a constrained parameter.
+#[test]
+fn constrained_type_param_erases_without_demoting_its_siblings() {
+    let source = source_for(
+        r"
+function pickFirst<T, K extends string>(arr: T[], key: (item: T) => K, fallback: T): T {
+  if (arr.length > 0) { return arr[0]; }
+  return fallback;
+}
+const nums: number[] = [1, 2, 3];
+const v = pickFirst(nums, (n) => (n > 1 ? 'big' : 'small'), 0);
+",
+    );
+
+    let signature = source
+        .split("fn pick_first")
+        .nth(1)
+        .and_then(|rest| rest.split('{').next())
+        .unwrap_or_else(|| panic!("expected a generated `pick_first`:\n{source}"));
+    assert!(
+        signature.contains("arr: SmeltList<T>") && signature.contains("fallback: T"),
+        "the unconstrained `T` must lift to a real generic:\n{source}"
+    );
+    assert!(
+        signature.contains("SmeltUnknown"),
+        "the constrained `K` must still erase:\n{source}"
     );
 }
 

@@ -241,7 +241,7 @@ impl FunctionEmitter<'_> {
         // Reduce every element of a spread numeric list with the same
         // `min`/`max` method, converting each element to the destination type.
         if let Some(spread) = spread {
-            let list_text = self.operand_text(spread)?;
+            let list_text = list_read_text(&self.operand_text(spread)?);
             let element_ty = match self.mir.types.get(self.operand_ty(spread)?) {
                 Some(Type::List(element_ty)) => *element_ty,
                 _ => return Err(EmitError::new("numeric extrema spread must be a list")),
