@@ -1097,6 +1097,52 @@ class B(A):
     Ok(())
 }
 
+/// A subclass without an explicit `__init__` inherits its base constructor.
+///
+/// The synthesized derived constructor must keep the base parameter list;
+/// replacing it with the ordinary zero-argument default makes the valid
+/// `Child(7)` call lower to a non-existent `Child::new(7)` overload.
+#[test]
+fn subclass_without_init_inherits_base_constructor_signature() -> TestResult {
+    let source = py!(r#"
+class Base:
+    def __init__(self, value: int) -> None:
+        self.value = value
+
+class Child(Base):
+    pass
+
+def make() -> Child:
+    return Child(7)
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let child = module
+        .items
+        .iter()
+        .find_map(|&item_id| match item(&ctx, item_id) {
+            Ok(Item::Class(class)) if symbol(&ctx, class.name).ok() == Some("Child") => Some(class),
+            _ => None,
+        })
+        .ok_or("expected Child class")?;
+    let constructor = child.constructor.ok_or("expected Child constructor")?;
+    let Item::Function(function) = item(&ctx, constructor)? else {
+        return Err("expected Child constructor function".to_owned());
+    };
+    ensure_eq(
+        &function.params.len(),
+        &1,
+        "inherited constructor parameter count",
+    )?;
+    ensure_eq(
+        &symbol(&ctx, function.params[0].name)?,
+        &"value",
+        "inherited constructor parameter name",
+    )?;
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Type-parameter declarations and `@property` getters.
 // ---------------------------------------------------------------------------

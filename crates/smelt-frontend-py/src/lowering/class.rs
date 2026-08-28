@@ -573,7 +573,18 @@ impl ModuleBuilder<'_> {
             constructor_id = Some(init_id);
             hir_module.items.push(init_id);
         } else if constructor_id.is_none() {
-            let init_id = self.synthesize_default_init(class_sym, class_ty, span);
+            // Python inherits `__init__` when a subclass does not declare one.
+            // Preserve that signature and initialization under Smelt's flattened
+            // class layout rather than silently replacing it with `new()`.
+            let init_id = if let Some(base_sym) = base.filter(|symbol| {
+                self.ctx.krate.items.iter().any(|item| {
+                    matches!(item, Item::Class(class) if class.name == *symbol && class.constructor.is_some())
+                })
+            }) {
+                self.synthesize_inherited_init(class_sym, class_ty, base_sym, span)?
+            } else {
+                self.synthesize_default_init(class_sym, class_ty, span)
+            };
             constructor_id = Some(init_id);
             hir_module.items.push(init_id);
         }
