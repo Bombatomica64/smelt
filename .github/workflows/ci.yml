@@ -652,8 +652,24 @@ jobs:
             grep -oE 'error\[E[0-9]{4}\]' "$plain" | sort | uniq -c | sort -rn | head -25 || true
             echo "--- error lines (up to 60, full text) ---"
             grep -E 'error(\[E[0-9]{4}\])?:' "$plain" | head -60 || true
-            echo "--- surrounding context (up to 80 lines) ---"
-            grep -E -B 2 -A 6 'error\[E[0-9]{4}\]' "$plain" | head -80 || true
+            # Print the GENERATED source at each diagnostic. A type error in
+            # emitted Rust is only diagnosable against the code that was emitted,
+            # and that crate cannot be regenerated in a dev environment without
+            # the disk for it — so the failing lines, and the signature of the
+            # function they sit in, have to come back from CI.
+            echo "--- generated source at each error ---"
+            crate=target/compat-repos/es-toolkit/dist-smelt
+            grep -oE '[^[:space:]]+\.rs:[0-9]+' "$plain" | sort -u | while IFS=: read -r f l; do
+              src="$crate/$f"
+              [ -f "$src" ] || continue
+              echo "===== $f:$l ====="
+              awk -v L="$l" '
+                NR<=L && /^[[:space:]]*(pub(\(crate\))?[[:space:]]+)?(async[[:space:]]+)?fn[[:space:]]/ { sig=NR": "$0 }
+                NR==L { print "  enclosing fn -> " sig }
+              ' "$src"
+              start=$(( l > 10 ? l - 10 : 1 ))
+              sed -n "${start},$((l + 4))p" "$src" | cut -c1-500 | nl -ba -v "$start"
+            done
             echo "::endgroup::"
           done
 
