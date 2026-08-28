@@ -8,8 +8,8 @@ use std::collections::HashSet;
 
 use smelt_hir::{AsyncOp, Symbol, Type, TypeId};
 use smelt_mir::{
-    FuncId, LocalId, Mir, MirClass, MirField, MirFunction, MirInterface, Operand, Place, Rvalue,
-    Statement, Terminator,
+    BasicBlock, FuncId, LocalDecl, LocalId, Mir, MirClass, MirField, MirFunction, MirInterface,
+    Operand, Place, Rvalue, Statement, Terminator,
 };
 
 use crate::{EmitError, emitter::FunctionEmitter, generic_bindings, id_index, rust::RustIdent};
@@ -293,12 +293,32 @@ pub(crate) fn function_emits_rust_generics(
 /// which is the safe direction: a new `Rvalue` cannot silently start erasing a
 /// lifted type parameter.
 fn type_param_only_moved(mir: &Mir, function: &MirFunction, name: Symbol) -> bool {
+    let mut seen: HashSet<u32> = HashSet::new();
+    body_only_moves(mir, &function.locals, &function.blocks, name, &mut seen)
+}
+
+/// Walk one MIR body — a function's or a closure's — for inspections of `name`.
+///
+/// Split out of [`type_param_only_moved`] because a closure is a *separate* MIR
+/// body with its own locals and blocks, so walking `function.blocks` alone never
+/// sees inside one. es-toolkit's `flatten` is exactly that shape: `T` lifted,
+/// and the `Array.isArray(item)` that inspects it lives in the inner recursive
+/// closure, emitting `matches!(item, SmeltUnknown::Array(_))` against a `T` and
+/// failing with "expected type parameter `T`, found `SmeltUnknown`".
+///
+/// `seen` guards against a closure cycle; the ids are `ClosureId`'s inner value.
+fn body_only_moves(
+    mir: &Mir,
+    locals: &[LocalDecl],
+    blocks: &[BasicBlock],
+    name: Symbol,
+    seen: &mut HashSet<u32>,
+) -> bool {
     let local_mentions = |local: LocalId| -> bool {
         let Ok(index) = id_index(local.0, "local index does not fit usize") else {
             return false;
         };
-        function
-            .locals
+        locals
             .get(index)
             .is_some_and(|decl| generic_bindings::type_param_occurs(mir, decl.ty, name))
     };
@@ -319,12 +339,23 @@ fn type_param_only_moved(mir: &Mir, function: &MirFunction, name: Symbol) -> boo
         local_mentions(base)
     };
 
-    for block in &function.blocks {
+    for block in blocks {
         for statement in &block.statements {
             let (Statement::Assign { value, .. } | Statement::AssignPlace { value, .. }) = statement
             else {
                 continue;
             };
+            // A closure body is part of the enclosing body's dataflow: whatever
+            // it does to a captured `T` decides whether that `T` can stay
+            // opaque. Recurse before the opacity rules below, which treat
+            // `Rvalue::Closure` itself as a move of its captures.
+            if let Rvalue::Closure { id, .. } = value
+                && seen.insert(id.0)
+                && let Some(closure) = mir.closures.iter().find(|candidate| candidate.id == *id)
+                && !body_only_moves(mir, &closure.locals, &closure.blocks, name, seen)
+            {
+                return false;
+            }
             if rvalue_preserves_opacity(value) {
                 continue;
             }
@@ -339,10 +370,8 @@ fn type_param_only_moved(mir: &Mir, function: &MirFunction, name: Symbol) -> boo
             // `T` out of a `SmeltList<T>`, and some operand carries it. When the
             // destination is `T` but nothing read was, the slot is being filled
             // from somewhere else — an erased helper, a defaulted constant — and
-            // that is the leak this analysis exists to catch, not a move.
-            // es-toolkit's `flatten`/`unzipWith` failed exactly here with
-            // "expected type parameter `T`, found `SmeltUnknown`".
-            if destination_mentions(mir, function, statement, name) {
+            // that is a leak, not a move.
+            if statement_destination_mentions(statement, &local_mentions) {
                 if reads_t {
                     continue;
                 }
@@ -353,9 +382,7 @@ fn type_param_only_moved(mir: &Mir, function: &MirFunction, name: Symbol) -> boo
             }
         }
         // Branching on a `T` needs JavaScript truthiness or an equality an
-        // opaque `T` cannot answer. `Return` is a move and stays off this list;
-        // call arguments are moves too, and a callee that erases them is already
-        // caught by `called_with_erased_type_param_argument`.
+        // opaque `T` cannot answer. `Return` is a move and stays off this list.
         if let Some(
             Terminator::Switch { cond: probe, .. } | Terminator::Match { scrutinee: probe, .. },
         ) = &block.terminator
@@ -364,11 +391,9 @@ fn type_param_only_moved(mir: &Mir, function: &MirFunction, name: Symbol) -> boo
             return false;
         }
         // A call binds its result into `dest`. If that slot is `T`-typed, the
-        // callee has to be producing a `T` — and the only evidence available
-        // here is that some argument carried one in. A call with no `T`-typed
-        // argument writing into a `T`-typed local is an erased return landing in
-        // a generic slot, which is the same leak as above and is not visible
-        // from the statement walk, since calls are terminators.
+        // callee has to be producing a `T`, and the only evidence available here
+        // is that some argument carried one in. Calls are terminators, so the
+        // statement walk above cannot see them.
         if let Some(Terminator::Call { args, dest, .. }) = &block.terminator
             && local_mentions(*dest)
             && !args.iter().any(&mentions)
@@ -379,12 +404,12 @@ fn type_param_only_moved(mir: &Mir, function: &MirFunction, name: Symbol) -> boo
     true
 }
 
-/// The declared type of a statement's destination, for [`type_param_only_moved`].
-fn destination_mentions(
-    mir: &Mir,
-    function: &MirFunction,
+/// Whether a statement's destination local carries `name`, for
+/// [`body_only_moves`]. Takes the membership test as a closure so the same rule
+/// serves a function body and a closure body, which have different local tables.
+fn statement_destination_mentions(
     statement: &Statement,
-    name: Symbol,
+    local_mentions: &impl Fn(LocalId) -> bool,
 ) -> bool {
     let local = match statement {
         Statement::Assign { dest, .. } => *dest,
@@ -395,13 +420,7 @@ fn destination_mentions(
         },
         Statement::StorageLive(_) | Statement::StorageDead(_) => return false,
     };
-    let Ok(index) = id_index(local.0, "local index does not fit usize") else {
-        return false;
-    };
-    function
-        .locals
-        .get(index)
-        .is_some_and(|decl| generic_bindings::type_param_occurs(mir, decl.ty, name))
+    local_mentions(local)
 }
 
 /// Whether an rvalue only relocates its operands, leaving their types opaque.

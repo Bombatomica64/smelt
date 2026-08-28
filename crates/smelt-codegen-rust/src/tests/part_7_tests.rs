@@ -11705,3 +11705,45 @@ export function wrap(fn: (value: string) => string): Wrapped {
         "a callback retained by the returned record must not stay borrowed:\n{source}"
     );
 }
+
+/// A type parameter inspected inside a *closure* body does not lift, even when
+/// the enclosing function body only ever moves it.
+///
+/// `classes::type_param_only_moved` used to walk `function.blocks` alone. A
+/// closure is a separate MIR body with its own locals and blocks, so an
+/// inspection inside one was invisible and the parameter lifted anyway.
+/// es-toolkit's `flatten<T, D extends number>` is exactly this shape: `T` lifted
+/// out of `arr: T[]`, while the `Array.isArray(item)` that inspects it lives in
+/// the inner recursive closure. The emitted
+/// `matches!(item, SmeltUnknown::Array(_))` then ran against a `T` and the
+/// generated library failed to compile with "expected type parameter `T`, found
+/// `SmeltUnknown`".
+#[test]
+fn type_param_inspected_inside_a_closure_does_not_lift() {
+    let source = source_for(
+        r"
+function scan<T, K extends string>(arr: T[], key: (item: T) => K): T[] {
+  const out: T[] = [];
+  arr.forEach((item) => { if (typeof item === 'string') { out.push(item); } });
+  return out;
+}
+const r = scan(['a', 'b'], (s) => 'k');
+",
+    );
+
+    let signature = source
+        .split("fn scan")
+        .nth(1)
+        .and_then(|rest| rest.split('{').next())
+        .unwrap_or_else(|| panic!("expected a generated `scan`:\n{source}"));
+    // The generic parameter list is what must be absent; `SmeltList<..>` in the
+    // parameter types legitimately contains angle brackets.
+    assert!(
+        !signature.starts_with('<'),
+        "a closure that inspects `T` must not declare Rust generics:\n{source}"
+    );
+    assert!(
+        signature.contains("arr: SmeltList<SmeltUnknown>"),
+        "the inspected `T` must not reach the parameter list:\n{source}"
+    );
+}
