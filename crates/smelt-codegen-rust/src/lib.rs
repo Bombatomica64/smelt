@@ -609,6 +609,56 @@ fn emit_source_with_free_function_router(
         writer.line("    })");
         writer.line("}");
         writer.blank_line();
+        // Address reuse in the identity registries.
+        //
+        // Every registry below (`SMELT_FUNCTION_ORIGINS`,
+        // `SMELT_FUNCTION_IDENTITIES`, `SMELT_FUNCTION_LENGTHS`,
+        // `SMELT_CALLABLE_OBJECTS`) keys on the ADDRESS of an `Rc` allocation and
+        // never removes an entry, because there is no drop hook to remove it
+        // from. The allocator, meanwhile, happily hands a freed address to the
+        // next allocation of the same size — so a fresh callable can land on a
+        // dead callable's address and inherit its registry entries. That is not
+        // theoretical: it is what made remeda's lazy `pipe` fail intermittently
+        // under `cargo test`'s thread-per-test scheduling. A `map(cb)` lazy
+        // evaluator allocated at a recycled address hit a stale
+        // `SMELT_CALLABLE_OBJECTS` entry, so `prepareLazyFunction` received the
+        // PREVIOUS operation's `{ __smelt_call: dataLast, lazy, lazyArgs }`
+        // callable object instead of the evaluator, and `pipe` then invoked
+        // `dataLast(item)` — routing one ITEM into the ARRAY parameter of
+        // `map`'s data-first implementation.
+        //
+        // The fix reserves the address for as long as a registry can name it.
+        // Holding a `Weak` keeps the `RcBox` block allocated even after the last
+        // strong handle is gone (the value itself is still dropped, so captured
+        // state is released), which makes the address unreusable and therefore
+        // makes every key unique to one allocation for the life of the thread.
+        // Growth matches the registries this guards, which are already unbounded.
+        writer.line("thread_local! {");
+        writer.line("    /// Weak handles reserving every address used as an identity-registry key.");
+        writer.line("    static SMELT_CALLABLE_KEY_GUARDS: ::std::cell::RefCell<::std::collections::HashMap<usize, Box<dyn ::std::any::Any>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// Reserve a callable allocation's address so no later allocation can reuse it.");
+        writer.line("///");
+        writer.line("/// Call this before storing that address in ANY identity registry, as a key or");
+        writer.line("/// as a canonical-identity value. Returns the reserved key for convenience.");
+        writer.line("fn smelt_retain_callable_key<F: ?Sized + 'static>(function: &::std::rc::Rc<F>) -> usize {");
+        writer.line("    let key = smelt_callable_object_key(function);");
+        writer.line("    SMELT_CALLABLE_KEY_GUARDS.with(|guards| {");
+        writer.line("        guards.borrow_mut().entry(key).or_insert_with(|| Box::new(::std::rc::Rc::downgrade(function)) as Box<dyn ::std::any::Any>);");
+        writer.line("    });");
+        writer.line("    key");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// The canonical JavaScript identity of a callable, reserving its address first.");
+        writer.line("///");
+        writer.line("/// Use this instead of `smelt_function_identity_of(smelt_callable_object_key(..))`");
+        writer.line("/// wherever the result is STORED, so an unlinked callable's own address cannot be");
+        writer.line("/// recycled underneath the registry entry that names it.");
+        writer.line("fn smelt_canonical_function_identity<F: ?Sized + 'static>(function: &::std::rc::Rc<F>) -> usize {");
+        writer.line("    smelt_function_identity_of(smelt_retain_callable_key(function))");
+        writer.line("}");
+        writer.blank_line();
         writer.line("thread_local! {");
         writer.line("    static SMELT_FUNCTION_ORIGINS: ::std::cell::RefCell<::std::collections::HashMap<usize, Box<dyn ::std::any::Any>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
         writer.line("}");
@@ -620,6 +670,7 @@ fn emit_source_with_free_function_router(
         writer.blank_line();
         writer.line("/// Retain typed callback identity while it crosses an erased ABI.");
         writer.line("fn smelt_register_function_origin<T: Clone + 'static>(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>, origin: T) {");
+        writer.line("    smelt_retain_callable_key(function);");
         writer.line("    SMELT_FUNCTION_ORIGINS.with(|origins| { origins.borrow_mut().insert(smelt_erased_function_key(function), Box::new(origin)); });");
         writer.line("}");
         writer.blank_line();
@@ -653,13 +704,13 @@ fn emit_source_with_free_function_router(
         writer.line("///");
         writer.line("/// Stores `origin`'s CANONICAL identity rather than its address, so a chain of");
         writer.line("/// wrappers (erase, extract, erase again) collapses to one id without a walk.");
-        writer.line("fn smelt_link_function_identity<D: ?Sized, O: ?Sized>(derived: &::std::rc::Rc<D>, origin: &::std::rc::Rc<O>) { smelt_link_function_identity_key(derived, smelt_function_identity_of(smelt_callable_object_key(origin))); }");
+        writer.line("fn smelt_link_function_identity<D: ?Sized + 'static, O: ?Sized + 'static>(derived: &::std::rc::Rc<D>, origin: &::std::rc::Rc<O>) { smelt_link_function_identity_key(derived, smelt_canonical_function_identity(origin)); }");
         writer.blank_line();
         writer.line("/// Link `derived` to an already-resolved canonical identity.");
         writer.line("///");
         writer.line("/// Needed where the origin callable is moved into the wrapper being built, so");
         writer.line("/// its identity has to be read before the move.");
-        writer.line("fn smelt_link_function_identity_key<D: ?Sized>(derived: &::std::rc::Rc<D>, canonical: usize) { SMELT_FUNCTION_IDENTITIES.with(|identities| { identities.borrow_mut().insert(smelt_callable_object_key(derived), canonical); }); }");
+        writer.line("fn smelt_link_function_identity_key<D: ?Sized + 'static>(derived: &::std::rc::Rc<D>, canonical: usize) { let key = smelt_retain_callable_key(derived); SMELT_FUNCTION_IDENTITIES.with(|identities| { identities.borrow_mut().insert(key, canonical); }); }");
         writer.blank_line();
         // `Function.prototype.length` across the erasure boundary.
         //
@@ -681,7 +732,7 @@ fn emit_source_with_free_function_router(
         writer.blank_line();
         writer.line("/// Record an erased callable's `Function.prototype.length`.");
         writer.line(format!(
-            "fn {register}<T: ?Sized>(function: &::std::rc::Rc<T>, length: f64) {{ let key = smelt_function_identity_of(smelt_callable_object_key(function)); SMELT_FUNCTION_LENGTHS.with(|lengths| {{ lengths.borrow_mut().insert(key, length); }}); }}",
+            "fn {register}<T: ?Sized + 'static>(function: &::std::rc::Rc<T>, length: f64) {{ let key = smelt_canonical_function_identity(function); SMELT_FUNCTION_LENGTHS.with(|lengths| {{ lengths.borrow_mut().insert(key, length); }}); }}",
             register = smelt_stdlib::runtime_symbols::function_length::REGISTER,
         ));
         writer.blank_line();
@@ -733,9 +784,10 @@ fn emit_source_with_free_function_router(
         writer.line("}");
         writer.blank_line();
         writer.line("/// Remember the callable object a typed callback was narrowed from.");
-        writer.line("fn smelt_register_callable_object<F: ?Sized>(function: &::std::rc::Rc<F>, object: SmeltUnknown) {");
+        writer.line("fn smelt_register_callable_object<F: ?Sized + 'static>(function: &::std::rc::Rc<F>, object: SmeltUnknown) {");
         writer.line("    if let SmeltUnknown::Object(_) = &object {");
-        writer.line("        SMELT_CALLABLE_OBJECTS.with(|objects| { objects.borrow_mut().insert(smelt_callable_object_key(function), object); });");
+        writer.line("        let key = smelt_retain_callable_key(function);");
+        writer.line("        SMELT_CALLABLE_OBJECTS.with(|objects| { objects.borrow_mut().insert(key, object); });");
         writer.line("    }");
         writer.line("}");
         writer.blank_line();
@@ -1572,15 +1624,20 @@ fn emit_source_with_free_function_router(
         // measurably fixes behaviour — es-toolkit's two `isEqualWith` circular-
         // reference tests pass only when the erased element can BE the array.
         //
-        // It is not shared because doing so breaks remeda's
-        // `uniqueBy > pipe get executed 3 times when take before uniqueBy` with
-        // `panicked: unknown is not array`, and breaks it INTERMITTENTLY — roughly
-        // one run in six, so a single green run proves nothing here. `pipe`
-        // publishes its lazy accumulator as an erased array and keeps filling it;
-        // with a shared buffer the published value changes underneath the pipeline.
-        // The intermittency points at a hash-iteration-order dependency rather than
-        // a plain aliasing bug, so it needs a root cause, not a patch. See
-        // `blocker-logs/smeltlist-shared-buffer.md`.
+        // It is not shared because sharing it was reverted in #219 after it broke
+        // remeda's `uniqueBy > pipe get executed 3 times when take before uniqueBy`
+        // with `panicked: unknown is not array`, INTERMITTENTLY, so a single green
+        // run proved nothing. That intermittency has since been root-caused, and it
+        // was NOT this copy: identity-registry keys are `Rc` addresses, and a freed
+        // address handed to a later callback inherited the dead callback's
+        // `SMELT_CALLABLE_OBJECTS` entry (see the address-reuse comment on
+        // `SMELT_CALLABLE_KEY_GUARDS` above, and
+        // `callable_object_identity_runtime`). Sharing the buffer only perturbed
+        // allocation enough to change how often the aliasing was observed.
+        //
+        // So the reason this stays a copy is now only that nobody has re-measured
+        // the shared-buffer change on top of the identity fix. It is worth
+        // retrying, with the remeda suite run at least twenty times.
         writer.line("impl From<SmeltList<SmeltUnknown>> for SmeltArray { fn from(list: SmeltList<SmeltUnknown>) -> Self { SmeltArray::with_id(list.id(), list.into_vec()) } }");
         // A callback that declares a list parameter receives it by shared reference
         // (see `callback_param_is_shared_reference`), so the erasure adapters need to

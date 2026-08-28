@@ -119,6 +119,32 @@ fn smelt_list_identity(source_key: usize) -> usize {
 }
 
 thread_local! {
+    /// Weak handles reserving every address used as an identity-registry key.
+    static SMELT_CALLABLE_KEY_GUARDS: ::std::cell::RefCell<::std::collections::HashMap<usize, Box<dyn ::std::any::Any>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
+}
+
+/// Reserve a callable allocation's address so no later allocation can reuse it.
+///
+/// Call this before storing that address in ANY identity registry, as a key or
+/// as a canonical-identity value. Returns the reserved key for convenience.
+fn smelt_retain_callable_key<F: ?Sized + 'static>(function: &::std::rc::Rc<F>) -> usize {
+    let key = smelt_callable_object_key(function);
+    SMELT_CALLABLE_KEY_GUARDS.with(|guards| {
+        guards.borrow_mut().entry(key).or_insert_with(|| Box::new(::std::rc::Rc::downgrade(function)) as Box<dyn ::std::any::Any>);
+    });
+    key
+}
+
+/// The canonical JavaScript identity of a callable, reserving its address first.
+///
+/// Use this instead of `smelt_function_identity_of(smelt_callable_object_key(..))`
+/// wherever the result is STORED, so an unlinked callable's own address cannot be
+/// recycled underneath the registry entry that names it.
+fn smelt_canonical_function_identity<F: ?Sized + 'static>(function: &::std::rc::Rc<F>) -> usize {
+    smelt_function_identity_of(smelt_retain_callable_key(function))
+}
+
+thread_local! {
     static SMELT_FUNCTION_ORIGINS: ::std::cell::RefCell<::std::collections::HashMap<usize, Box<dyn ::std::any::Any>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
 }
 
@@ -129,6 +155,7 @@ fn smelt_erased_function_key(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) 
 
 /// Retain typed callback identity while it crosses an erased ABI.
 fn smelt_register_function_origin<T: Clone + 'static>(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>, origin: T) {
+    smelt_retain_callable_key(function);
     SMELT_FUNCTION_ORIGINS.with(|origins| { origins.borrow_mut().insert(smelt_erased_function_key(function), Box::new(origin)); });
 }
 
@@ -146,13 +173,13 @@ fn smelt_function_identity_of(key: usize) -> usize { SMELT_FUNCTION_IDENTITIES.w
 ///
 /// Stores `origin`'s CANONICAL identity rather than its address, so a chain of
 /// wrappers (erase, extract, erase again) collapses to one id without a walk.
-fn smelt_link_function_identity<D: ?Sized, O: ?Sized>(derived: &::std::rc::Rc<D>, origin: &::std::rc::Rc<O>) { smelt_link_function_identity_key(derived, smelt_function_identity_of(smelt_callable_object_key(origin))); }
+fn smelt_link_function_identity<D: ?Sized + 'static, O: ?Sized + 'static>(derived: &::std::rc::Rc<D>, origin: &::std::rc::Rc<O>) { smelt_link_function_identity_key(derived, smelt_canonical_function_identity(origin)); }
 
 /// Link `derived` to an already-resolved canonical identity.
 ///
 /// Needed where the origin callable is moved into the wrapper being built, so
 /// its identity has to be read before the move.
-fn smelt_link_function_identity_key<D: ?Sized>(derived: &::std::rc::Rc<D>, canonical: usize) { SMELT_FUNCTION_IDENTITIES.with(|identities| { identities.borrow_mut().insert(smelt_callable_object_key(derived), canonical); }); }
+fn smelt_link_function_identity_key<D: ?Sized + 'static>(derived: &::std::rc::Rc<D>, canonical: usize) { let key = smelt_retain_callable_key(derived); SMELT_FUNCTION_IDENTITIES.with(|identities| { identities.borrow_mut().insert(key, canonical); }); }
 
 thread_local! {
     /// Source arity of each erased callable, keyed by canonical identity.
@@ -160,7 +187,7 @@ thread_local! {
 }
 
 /// Record an erased callable's `Function.prototype.length`.
-fn smelt_register_function_length<T: ?Sized>(function: &::std::rc::Rc<T>, length: f64) { let key = smelt_function_identity_of(smelt_callable_object_key(function)); SMELT_FUNCTION_LENGTHS.with(|lengths| { lengths.borrow_mut().insert(key, length); }); }
+fn smelt_register_function_length<T: ?Sized + 'static>(function: &::std::rc::Rc<T>, length: f64) { let key = smelt_canonical_function_identity(function); SMELT_FUNCTION_LENGTHS.with(|lengths| { lengths.borrow_mut().insert(key, length); }); }
 
 /// Read `Function.prototype.length` off an erased value.
 ///
@@ -195,9 +222,10 @@ fn smelt_callable_object_key<F: ?Sized>(function: &::std::rc::Rc<F>) -> usize {
 }
 
 /// Remember the callable object a typed callback was narrowed from.
-fn smelt_register_callable_object<F: ?Sized>(function: &::std::rc::Rc<F>, object: SmeltUnknown) {
+fn smelt_register_callable_object<F: ?Sized + 'static>(function: &::std::rc::Rc<F>, object: SmeltUnknown) {
     if let SmeltUnknown::Object(_) = &object {
-        SMELT_CALLABLE_OBJECTS.with(|objects| { objects.borrow_mut().insert(smelt_callable_object_key(function), object); });
+        let key = smelt_retain_callable_key(function);
+        SMELT_CALLABLE_OBJECTS.with(|objects| { objects.borrow_mut().insert(key, object); });
     }
 }
 
