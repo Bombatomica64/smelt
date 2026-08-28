@@ -1562,28 +1562,33 @@ fn emit_source_with_free_function_router(
         writer.blank_line();
         // `SmeltList<T>` itself is defined in the `needs_smelt_list` block above.
         // These impls depend on `SmeltArray`/`SmeltUnknown`, so they live here.
-        // Erasing a typed list to a `SmeltUnknown::Array` SHARES its backing buffer
-        // rather than copying it. `SmeltList` and `SmeltArray` have the identical
-        // `Rc<RefCell<Vec<SmeltUnknown>>>` representation, so this is a refcount
-        // bump that hands the erased handle the very same array.
+        // Erasing a typed list to a `SmeltUnknown::Array` COPIES its elements.
         //
-        // This is the semantics, not an optimization. Erasure is a Smelt-internal
-        // concept: in JavaScript, passing an array where `unknown` is expected hands
-        // over THE SAME object, so a write through the erased handle has to be
-        // visible through the typed one. Copying here made the two handles diverge
-        // while both still claimed the same `id` — the identity/storage mismatch
-        // that giving `SmeltList` a shared buffer set out to remove, reintroduced at
-        // the boundary. It is also what made a circular array unrepresentable:
-        // es-toolkit's two `isEqualWith` circular-reference tests fail with a copying
-        // erasure and pass with a sharing one, because `a[0] = a` needs the erased
-        // element to be the array itself.
-        writer.line("impl From<SmeltList<SmeltUnknown>> for SmeltArray { fn from(list: SmeltList<SmeltUnknown>) -> Self { SmeltArray::with_storage(list.id(), list.storage()) } }");
+        // This is knowingly the wrong semantics and is the last place the
+        // identity/storage mismatch survives: `SmeltList` and `SmeltArray` have the
+        // identical `Rc<RefCell<Vec<SmeltUnknown>>>` representation, and in
+        // JavaScript passing an array where `unknown` is expected hands over THE SAME
+        // object, so this should be a `with_storage` refcount bump. Sharing it also
+        // measurably fixes behaviour — es-toolkit's two `isEqualWith` circular-
+        // reference tests pass only when the erased element can BE the array.
+        //
+        // It is not shared because doing so breaks remeda's
+        // `uniqueBy > pipe get executed 3 times when take before uniqueBy` with
+        // `panicked: unknown is not array`, and breaks it INTERMITTENTLY — roughly
+        // one run in six, so a single green run proves nothing here. `pipe`
+        // publishes its lazy accumulator as an erased array and keeps filling it;
+        // with a shared buffer the published value changes underneath the pipeline.
+        // The intermittency points at a hash-iteration-order dependency rather than
+        // a plain aliasing bug, so it needs a root cause, not a patch. See
+        // `blocker-logs/smeltlist-shared-buffer.md`.
+        writer.line("impl From<SmeltList<SmeltUnknown>> for SmeltArray { fn from(list: SmeltList<SmeltUnknown>) -> Self { SmeltArray::with_id(list.id(), list.into_vec()) } }");
         // A callback that declares a list parameter receives it by shared reference
         // (see `callback_param_is_shared_reference`), so the erasure adapters need to
-        // build an erased array from `&SmeltList` as well as from an owned one. Both
-        // forms SHARE, for the reason above: there is no copy at this boundary in
-        // JavaScript for a reference form to make.
-        writer.line("impl From<&SmeltList<SmeltUnknown>> for SmeltArray { fn from(list: &SmeltList<SmeltUnknown>) -> Self { SmeltArray::with_storage(list.id(), list.storage()) } }");
+        // build an erased array from `&SmeltList` as well as from an owned one. The
+        // reference form copies the elements, as the owned form above does and for
+        // the same unresolved reason; the saving is on the ARGUMENT, which no longer
+        // deep-copies the list once per element.
+        writer.line("impl From<&SmeltList<SmeltUnknown>> for SmeltArray { fn from(list: &SmeltList<SmeltUnknown>) -> Self { SmeltArray::with_id(list.id(), list.to_vec()) } }");
         writer.line("impl<T: Clone> From<&SmeltList<T>> for Vec<T> { fn from(list: &SmeltList<T>) -> Self { list.to_vec() } }");
         // serde impls only when the crate actually links serde (JSON contexts).
         if needs_serde_json {

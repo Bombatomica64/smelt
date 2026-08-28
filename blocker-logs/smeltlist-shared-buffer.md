@@ -56,29 +56,49 @@ happens to answer correctly for the wrong reason. Fixing it means extending the
 identity path to `JsStrictEq`, which changes `===`/`toBe` answers across the
 library corpora and is a separate change with its own gate run.
 
-### Erasing a typed list to `SmeltUnknown` — RESOLVED
+### Erasing a typed list to `SmeltUnknown` still copies — and the blocker is REAL
 
-Landed: both `From<SmeltList<SmeltUnknown>> for SmeltArray` and its `&` form now
-use `with_storage`, so erasure is a refcount bump rather than a copy.
+`From<SmeltList<SmeltUnknown>> for SmeltArray` and its `&` form could share the
+buffer outright (`SmeltArray` has the identical
+`Rc<RefCell<Vec<SmeltUnknown>>>` representation, and `SmeltList::storage()`
+exists for it). It should: in JavaScript, passing an array where `unknown` is
+expected hands over THE SAME object, so this boundary has no copy for Smelt to
+make, and it is the last place the identity/storage mismatch survives.
 
-The remeda `pipe` failure recorded here as the blocker does **not** reproduce on
-the merged tree (remeda stays 1789/0). It was an artifact of the pre-merge base:
-the merge made materializing a pushed item unconditional, which removed the
-aliased read-and-write-in-one-expression shape that a shared buffer turned into a
-live borrow conflict.
+It was implemented and reverted, twice now, for the same failure:
 
-Result: es-toolkit 954/105 -> **956/103**, failure sets diffed, zero new failures.
-The two fixed are `isEqualWith should compare arrays with circular references when
-customizer returns undefined` and its transitive-equivalence sibling — a circular
-array (`a[0] = a`) is only representable when the erased element IS the array, so
-those two tests are the sharpest available evidence that sharing is the correct
-semantics rather than merely the faster one.
+    remeda  uniqueBy > pipe get executed 3 times when take before uniqueBy
+    panicked at src/map.rs: "unknown is not array"
 
-Throughput is neutral. A controlled A/B on one machine state gave chunk 0.99x,
-group_by 1.00x, unique 0.90x. Note for anyone reading numbers off this suite: the
-same binary measured `chunk` at both 6,411 and 4,746 ops/s across runs on this
-box, so cross-run variance is ~25% and any reported delta below roughly 1.3x
-should be treated as noise unless it comes from a controlled A/B.
+**The important correction: this failure is INTERMITTENT.** Measured at roughly
+one run in six on an unchanged binary — six consecutive runs of the generated
+remeda suite gave 1788/1, then five clean 1789/0. A single green run of the
+remeda gate therefore proves nothing about this change, which is exactly how it
+was previously recorded as "does not reproduce": one clean local run, believed.
+CI caught it on the first try. Anyone re-attempting this must run the remeda
+suite at least ~10 times, or seed-control whatever ordering drives it.
+
+That intermittency is itself the main clue. Nothing in `pipe` is
+nondeterministic at the source level, so the trigger is almost certainly
+hash-iteration order — `SmeltObject`/`SmeltRecord` keep a `HashMap` beside an
+insertion-order vec, and the function-identity registry is a `HashMap` too. A
+plain aliasing bug would fail every run. So this wants a root cause, not a
+patch: find what reads a `HashMap` in iteration order on this path, and why a
+shared accumulator makes that order observable.
+
+What sharing demonstrably buys, measured before the revert: es-toolkit
+954/105 -> **956/103**, failure sets diffed, zero new failures. The two fixed are
+`isEqualWith should compare arrays with circular references when customizer
+returns undefined` and its transitive-equivalence sibling — a circular array
+(`a[0] = a`) is only representable when the erased element IS the array. That is
+the sharpest evidence available that sharing is the correct semantics rather
+than merely the cheaper one, and it is why this is worth finishing.
+
+Throughput is NOT the reason to finish it: a controlled A/B on one machine state
+gave chunk 0.99x, group_by 1.00x, unique 0.90x. Related note for anyone reading
+numbers off this suite — the same binary measured `chunk` at both 6,411 and
+4,746 ops/s across runs on this box, so cross-run variance is ~25% and any delta
+below roughly 1.3x is noise unless it comes from a controlled A/B.
 
 ### Callback iteration holds a read borrow across the callback
 
@@ -107,7 +127,9 @@ be the stage right after erasure sharing.
 
 ## Staged plan for the remainder
 
-1. ~~**Erasure sharing.**~~ DONE — see the RESOLVED section above.
+1. **Erasure sharing.** Still open, and the blocker is real but INTERMITTENT
+   (~1 run in 6) — see the section above. Root-cause the hash-ordering
+   dependency first; do not judge an attempt by one green remeda run.
 2. **Retire `ListAliasOrigin`.** Now unblocked: the erased-base write-back arms
    are redundant; delete `list_alias_origin*` and the two special-cased push
    paths in `list_mutation.rs`, and confirm the object/dict fixtures in the
