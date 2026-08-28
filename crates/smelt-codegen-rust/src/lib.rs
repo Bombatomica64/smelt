@@ -628,6 +628,35 @@ fn emit_source_with_free_function_router(
         writer.line("    static SMELT_PROMISE_IDENTITIES: ::std::cell::RefCell<::std::collections::HashMap<usize, usize>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
         writer.line("}");
         writer.blank_line();
+        writer.line("thread_local! {");
+        writer.line(
+            "    /// Map a reference record's shared cell address to a stable erased id.",
+        );
+        writer.line("    static SMELT_REFERENCE_OBJECT_IDENTITIES: ::std::cell::RefCell<::std::collections::HashMap<usize, usize>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// Return a stable erased-object id for a reference record's shared cell.");
+        writer.line("///");
+        writer.line("/// A reference record (a class or object shape whose fields are written");
+        writer.line("/// after construction) is a handle over one `Rc<RefCell<..>>`, and every");
+        writer.line("/// handle on that cell is the SAME JavaScript object. Erasing any of them");
+        writer.line("/// must therefore produce an object that compares `===` equal to the");
+        writer.line("/// others, which means one id per cell rather than a fresh id per erasure.");
+        writer.line("/// Keying on the live cell's address gives exactly that. The handle is");
+        writer.line("/// alive at the call site, so the address is valid; a freed cell can see");
+        writer.line("/// its address reused, which at worst hands a stale id to a NEW object no");
+        writer.line("/// live erased alias of the old one can still be compared against.");
+        writer.line("#[allow(dead_code)]");
+        writer.line("fn smelt_reference_object_identity(cell_address: usize) -> usize {");
+        writer.line("    SMELT_REFERENCE_OBJECT_IDENTITIES.with(|identities| {");
+        writer.line("        let mut identities = identities.borrow_mut();");
+        writer.line("        if let Some(id) = identities.get(&cell_address) { return *id; }");
+        writer.line("        let id = smelt_next_object_id();");
+        writer.line("        identities.insert(cell_address, id);");
+        writer.line("        id");
+        writer.line("    })");
+        writer.line("}");
+        writer.blank_line();
         writer.line("/// Return a stable erased promise id for a source future local.");
         writer.line("fn smelt_promise_identity(source_key: usize) -> usize {");
         writer.line("    SMELT_PROMISE_IDENTITIES.with(|identities| {");
@@ -3479,16 +3508,60 @@ fn emit_source_with_free_function_router(
         let type_params = interface_type_params_text(mir, interface)?;
         let impl_generics = interface_impl_generics_text(mir, interface)?;
         let fields = effective_interface_fields(mir, interface);
+        // A shape whose fields are written after construction is a reference
+        // record: it needs the shared-cell handle so aliases observe the write,
+        // exactly as a mutated class does. See `classify::reference_classes`.
+        if context.is_reference_class(interface.name) {
+            emit_reference_record_storage(
+                &mut writer,
+                mir,
+                &context,
+                &ReferenceRecordShape {
+                    name,
+                    type_params: type_params.clone(),
+                    type_args: type_params,
+                    impl_generics,
+                    fields,
+                    static_fields: &[],
+                    type_param_names: interface
+                        .type_params
+                        .iter()
+                        .map(|param| param.name)
+                        .collect(),
+                },
+                needs_unknown,
+            )?;
+            continue;
+        }
         let has_function_field = fields
             .iter()
             .any(|field| type_contains_function(mir, field.ty));
+        // An interface-backed record is a by-value struct, exactly like a value
+        // class, so it supports structural equality (JS `==`/`===`/`toBe`, and
+        // derived comparisons in generated specs) under the same rule: every
+        // stored field must itself be `PartialEq`. Before shape structs existed
+        // this rarely mattered, because a comparable record was usually spelled
+        // as a dict; a statically-shaped object literal now lands here instead,
+        // and comparing two of them must keep working.
+        let interface_supports_partial_eq = fields
+            .iter()
+            .all(|field| type_supports_partial_eq(mir, &context, field.ty, &mut Vec::new()));
+        let interface_partial_eq_derive = if interface_supports_partial_eq {
+            ", PartialEq"
+        } else {
+            ""
+        };
         if has_function_field {
             writer.line("#[derive(Clone)]");
             writer.line("#[allow(dead_code)]");
         } else if needs_serde_json && interface_is_json_serializable(mir, interface) {
-            writer.line("#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]");
+            writer.line(format!(
+                "#[derive(Clone, Debug, Default{interface_partial_eq_derive}, serde::Serialize, serde::Deserialize)]"
+            ));
         } else {
-            writer.line("#[derive(Clone, Debug, Default)]");
+            writer.line(format!(
+                "#[derive(Clone, Debug, Default{interface_partial_eq_derive})]"
+            ));
         }
         let phantom_args = interface
             .type_params
@@ -4402,28 +4475,77 @@ fn emit_reference_class_storage(
     class: &smelt_mir::MirClass,
     needs_unknown: bool,
 ) -> Result<(), EmitError> {
-    let name = class_name_text(mir, class)?;
+    emit_reference_record_storage(
+        writer,
+        mir,
+        context,
+        &ReferenceRecordShape {
+            name: class_name_text(mir, class)?,
+            type_params: class_type_params_text(mir, class)?,
+            type_args: class_type_args_text(mir, class)?,
+            impl_generics: class_impl_generics_text(mir, class)?,
+            fields: effective_class_fields(mir, class),
+            static_fields: &class.static_fields,
+            type_param_names: class.type_params.iter().map(|param| param.name).collect(),
+        },
+        needs_unknown,
+    )
+}
+
+/// Everything the reference (handle) representation needs about one record type.
+///
+/// A reference record is emitted identically whether the source spelled it as a
+/// `class` or as an object *shape* (an `interface`, or an inline object type
+/// literal lowered to a synthetic one — see `shape_object` in the TypeScript
+/// frontend). Both are JavaScript objects, so both need the same handle newtype
+/// when a field is written after construction; only where the pieces come from
+/// differs, which is what this struct hides.
+struct ReferenceRecordShape<'a> {
+    /// Generated Rust type name.
+    name: String,
+    /// Declaration-site generic list, e.g. `<T>`; empty when non-generic.
+    type_params: String,
+    /// Use-site generic list, e.g. `<T>`; empty when non-generic.
+    type_args: String,
+    /// `impl` generic list including bounds.
+    impl_generics: String,
+    /// Stored fields, heritage included, in declaration order.
+    fields: Vec<smelt_mir::MirField>,
+    /// Materialized class-level fields; always empty for a shape.
+    static_fields: &'a [smelt_mir::MirStaticField],
+    /// Generic parameter symbols, for the lexical type-parameter scope.
+    type_param_names: Vec<smelt_hir::Symbol>,
+}
+
+/// Emit the handle newtype, inner record, and identity impls for one record type.
+fn emit_reference_record_storage(
+    writer: &mut CodeWriter,
+    mir: &Mir,
+    context: &EmitContext,
+    shape: &ReferenceRecordShape<'_>,
+    needs_unknown: bool,
+) -> Result<(), EmitError> {
+    let ReferenceRecordShape {
+        name,
+        type_params,
+        type_args,
+        impl_generics,
+        fields,
+        static_fields,
+        type_param_names,
+    } = shape;
     let inner_name = format!("{name}Inner");
-    let type_params = class_type_params_text(mir, class)?;
-    let type_args = class_type_args_text(mir, class)?;
-    let impl_generics = class_impl_generics_text(mir, class)?;
-    let fields = effective_class_fields(mir, class);
-    let scoped_type_params = class
-        .type_params
-        .iter()
-        .map(|param| param.name)
-        .collect::<HashSet<_>>();
+    let scoped_type_params = type_param_names.iter().copied().collect::<HashSet<_>>();
     let has_function_field = fields
         .iter()
         .any(|field| type_contains_function(mir, field.ty));
-    let phantom_args = class
-        .type_params
+    let phantom_args = type_param_names
         .iter()
         .map(|param| {
             mir.symbols
-                .get(param.name)
+                .get(*param)
                 .map(|param_name| RustIdent::new(param_name).into_string())
-                .ok_or_else(|| EmitError::new("class type parameter has unknown symbol"))
+                .ok_or_else(|| EmitError::new("record type parameter has unknown symbol"))
         })
         .collect::<Result<Vec<_>, _>>()?
         .join(", ");
@@ -4443,7 +4565,7 @@ fn emit_reference_class_storage(
         writer.block(
             format!("struct {inner_name}{type_params}"),
             |block_writer| {
-                emit_reference_inner_fields(block_writer, mir, context, &fields, &scoped_type_params, &phantom_args);
+                emit_reference_inner_fields(block_writer, mir, context, fields, &scoped_type_params, &phantom_args);
             },
         );
         emit_default_impl_for_storage_type(
@@ -4451,20 +4573,20 @@ fn emit_reference_class_storage(
             mir,
             context,
             &inner_name,
-            &impl_generics,
-            &type_args,
-            &fields,
+            impl_generics,
+            type_args,
+            fields,
             &phantom_args,
             &scoped_type_params,
         )?;
-        emit_debug_impl_for_storage_type(writer, &inner_name, &impl_generics, &type_args);
+        emit_debug_impl_for_storage_type(writer, &inner_name, impl_generics, type_args);
     } else {
         writer.line("#[derive(Debug, Default)]");
         writer.line("#[allow(dead_code)]");
         writer.block(
             format!("struct {inner_name}{type_params}"),
             |block_writer| {
-                emit_reference_inner_fields(block_writer, mir, context, &fields, &scoped_type_params, &phantom_args);
+                emit_reference_inner_fields(block_writer, mir, context, fields, &scoped_type_params, &phantom_args);
             },
         );
     }
@@ -4514,7 +4636,7 @@ fn emit_reference_class_storage(
             impl_writer.block(
                 "fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result",
                 |fn_writer| {
-                    if class.type_params.is_empty() {
+                    if type_param_names.is_empty() {
                         fn_writer.line("::std::fmt::Debug::fmt(&*self.0.borrow(), formatter)");
                     } else {
                         fn_writer.line(format!(
@@ -4526,11 +4648,11 @@ fn emit_reference_class_storage(
         },
     );
 
-    if !class.static_fields.is_empty() {
+    if !static_fields.is_empty() {
         writer.block(
             format!("impl{impl_generics} {name}{type_args}"),
             |impl_writer| {
-                for field in &class.static_fields {
+                for field in *static_fields {
                     let field_name = mir
                         .symbols
                         .get(field.name)
@@ -4557,10 +4679,10 @@ fn emit_reference_class_storage(
         emit_reference_class_into_smelt_unknown_impl(
             writer,
             mir,
-            &name,
-            &impl_generics,
-            &type_args,
-            &fields,
+            name,
+            impl_generics,
+            type_args,
+            fields,
         )?;
     }
     writer.blank_line();
@@ -4610,9 +4732,15 @@ fn emit_reference_class_into_smelt_unknown_impl(
         format!("impl{impl_generics} IntoSmeltUnknown for {name}{type_args}"),
         |impl_writer| {
             impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
+                // One shared cell is one JavaScript object, so the erased id is
+                // derived from the cell address rather than minted fresh; see
+                // `smelt_reference_object_identity` in the prelude.
+                fn_writer.line(
+                    "let __smelt_id = smelt_reference_object_identity(::std::rc::Rc::as_ptr(&self.0) as usize);",
+                );
                 fn_writer.line("let __smelt_inner = self.0.borrow();");
                 fn_writer.line(
-                    "SmeltUnknown::Object(SmeltObject::new(Vec::from([",
+                    "SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, Vec::from([",
                 );
                 for field in fields {
                     if matches!(field.visibility, smelt_hir::Visibility::Private) {
@@ -4791,6 +4919,27 @@ fn type_supports_partial_eq(
                 return true;
             }
             let Some(class) = mir.classes.iter().find(|candidate| candidate.name == name) else {
+                // A shape (interface / synthetic object-literal shape) is a
+                // by-value struct that derives `PartialEq` under this same rule,
+                // so a field holding one is comparable exactly when the shape's
+                // own fields are. Recursing here is what keeps the two derives in
+                // agreement: a shape storing a callback derives no `PartialEq`,
+                // and a record storing THAT shape must not derive one either.
+                if let Some(interface) = mir
+                    .interfaces
+                    .iter()
+                    .find(|candidate| candidate.name == name)
+                {
+                    if seen.contains(&name) {
+                        return true;
+                    }
+                    seen.push(name);
+                    let comparable = effective_interface_fields(mir, interface)
+                        .iter()
+                        .all(|field| type_supports_partial_eq(mir, context, field.ty, seen));
+                    seen.pop();
+                    return comparable;
+                }
                 // An external/builtin class surface (e.g. a runtime prelude type)
                 // is assumed comparable; only user classes gate the derive.
                 return true;

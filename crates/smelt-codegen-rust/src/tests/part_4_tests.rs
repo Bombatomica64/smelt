@@ -559,8 +559,9 @@ const bag = JSON.parse(text) as Record<string, unknown>;
     );
 
     assert!(
-        ts_source
-            .contains("#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]")
+        ts_source.contains(
+            "#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]"
+        )
     );
     assert!(
         ts_source.contains("serde_json::from_str::<ServerConfig>(&")

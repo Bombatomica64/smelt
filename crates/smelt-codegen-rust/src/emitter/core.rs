@@ -1498,6 +1498,15 @@ impl<'mir> FunctionEmitter<'mir> {
         )))
     }
 
+    /// Whether a string-keyed dictionary's value type can populate a record field.
+    ///
+    /// The sibling emitter modules use this to ask "would the field-wise adapter
+    /// have something to put here?" without emitting the adapter — see
+    /// `union::record_member_accepts_source_fields`.
+    pub(super) fn dict_value_fits_field(&self, value: TypeId, field: TypeId) -> bool {
+        self.can_render_dict_value_as(value, field)
+    }
+
     /// Returns whether a dictionary value can be meaningfully assigned to a field.
     fn can_render_dict_value_as(&self, source: TypeId, target: TypeId) -> bool {
         self.can_render_non_function_dict_value_as(source, target)
@@ -4265,10 +4274,28 @@ impl<'mir> FunctionEmitter<'mir> {
         let Some(Type::Class { name, .. }) = self.mir.types.get(ty) else {
             return false;
         };
-        let Some(class) = self.mir.classes.iter().find(|class| class.name == *name) else {
+        // A shape (interface / synthetic object-literal shape) is a record type
+        // in exactly the same sense a class is, so its declared fields answer
+        // here too; the reference-record field paths in `place` rely on it.
+        let Some(fields) = self
+            .mir
+            .classes
+            .iter()
+            .find(|class| class.name == *name)
+            .map(|class| crate::classes::effective_class_fields(self.mir, class))
+            .or_else(|| {
+                self.mir
+                    .interfaces
+                    .iter()
+                    .find(|interface| interface.name == *name)
+                    .map(|interface| {
+                        crate::classes::effective_interface_fields(self.mir, interface)
+                    })
+            })
+        else {
             return false;
         };
-        crate::classes::effective_class_fields(self.mir, class)
+        fields
             .iter()
             .any(|candidate| {
                 candidate.name == field

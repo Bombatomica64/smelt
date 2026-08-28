@@ -2047,7 +2047,12 @@ class Box {
 }
 
 #[test]
-fn emits_mutable_structural_parameters_when_fields_are_assigned() {
+fn passes_a_mutated_structural_record_as_a_shared_handle() {
+    // A record whose field is written after construction is a JavaScript
+    // reference value, so it lowers to the reference-record handle newtype (see
+    // `classify::reference_classes`) rather than being threaded through Rust's
+    // `&mut` ABI. The callee's write goes through the shared cell, so the caller
+    // observes it while the value is still passed by value.
     let source = source_for(
         r"
 interface Flags {
@@ -2067,10 +2072,11 @@ function readEra(): number {
     );
 
     assert!(
-        source.contains("fn set_era(mut flags: &mut Flags, value: f64)"),
+        source.contains("struct Flags(::std::rc::Rc<::std::cell::RefCell<FlagsInner>>);"),
         "{source}"
     );
-    assert!(source.contains("set_era(&mut flags"), "{source}");
+    assert!(source.contains("fn set_era(mut flags: Flags, value: f64)"), "{source}");
+    assert!(source.contains("flags.0.borrow_mut().era ="), "{source}");
 }
 
 #[test]

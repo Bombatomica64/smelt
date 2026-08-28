@@ -1889,9 +1889,35 @@ impl FunctionEmitter<'_> {
         // `undefined` for `.constructor`, `Object.is(undefined, undefined)` held,
         // and they compared equal. `smelt_get_object_field` reads the name back to
         // intern one constructor value per class.
-        let class_name = self.symbol_source_name(*name)?;
+        //
+        // An INTERFACE-backed record is not a class instance: in JavaScript it is
+        // an ordinary object literal, with no constructor and no prototype to
+        // report. Stamping it would make `{ a: 1 }` typed as `{ a: number }`
+        // unequal to the same plain object and give it a bogus `.constructor`.
+        // The interface's own generated `IntoSmeltUnknown` (see
+        // `emit_record_into_smelt_unknown_impl`) already omits the marker; this
+        // inline adapter must agree, or the same value erases two different ways
+        // depending on which path the emitter took.
+        let class_marker = if self.is_interface_record_type(target) {
+            String::new()
+        } else {
+            let class_name = self.symbol_source_name(*name)?;
+            format!(
+                "smelt_object_entries.push((\"__smelt_class\".to_owned(), SmeltUnknown::String({class_name:?}.to_owned()))); "
+            )
+        };
+        // A reference record's JS identity is its shared cell, so every erasure
+        // of any handle on that cell must produce the same object id — otherwise
+        // `const b = a; erase(a) === erase(b)` (and `expect(x).toBe(obj)` after a
+        // mutation) is false for what is one object. A by-value record has no
+        // identity to preserve and keeps minting a fresh id per erasure.
+        let object_ctor = if self.is_reference_class_type(target) {
+            "SmeltObject::with_id(smelt_reference_object_identity(::std::rc::Rc::as_ptr(&smelt_struct_value.0) as usize), smelt_object_entries)"
+        } else {
+            "SmeltObject::new(smelt_object_entries)"
+        };
         Ok(format!(
-            "{{ let smelt_object_value = {value_text}; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); {entries} {host_markers}smelt_object_entries.push((\"__smelt_class\".to_owned(), SmeltUnknown::String({class_name:?}.to_owned()))); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) }}"
+            "{{ let smelt_object_value = {value_text}; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); {entries} {host_markers}{class_marker}SmeltUnknown::Object({object_ctor}) }}"
         ))
     }
 

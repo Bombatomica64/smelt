@@ -115,6 +115,33 @@ thread_local! {
     static SMELT_PROMISE_IDENTITIES: ::std::cell::RefCell<::std::collections::HashMap<usize, usize>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
 }
 
+thread_local! {
+    /// Map a reference record's shared cell address to a stable erased id.
+    static SMELT_REFERENCE_OBJECT_IDENTITIES: ::std::cell::RefCell<::std::collections::HashMap<usize, usize>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
+}
+
+/// Return a stable erased-object id for a reference record's shared cell.
+///
+/// A reference record (a class or object shape whose fields are written
+/// after construction) is a handle over one `Rc<RefCell<..>>`, and every
+/// handle on that cell is the SAME JavaScript object. Erasing any of them
+/// must therefore produce an object that compares `===` equal to the
+/// others, which means one id per cell rather than a fresh id per erasure.
+/// Keying on the live cell's address gives exactly that. The handle is
+/// alive at the call site, so the address is valid; a freed cell can see
+/// its address reused, which at worst hands a stale id to a NEW object no
+/// live erased alias of the old one can still be compared against.
+#[allow(dead_code)]
+fn smelt_reference_object_identity(cell_address: usize) -> usize {
+    SMELT_REFERENCE_OBJECT_IDENTITIES.with(|identities| {
+        let mut identities = identities.borrow_mut();
+        if let Some(id) = identities.get(&cell_address) { return *id; }
+        let id = smelt_next_object_id();
+        identities.insert(cell_address, id);
+        id
+    })
+}
+
 /// Return a stable erased promise id for a source future local.
 fn smelt_promise_identity(source_key: usize) -> usize {
     SMELT_PROMISE_IDENTITIES.with(|identities| {

@@ -113,14 +113,32 @@ function run(): string { return new Config('a').label(); }
 }
 
 #[test]
-fn structural_interface_field_write_is_not_a_reference_class() {
-    // Negative: interfaces are structurally typed value records, never handles,
-    // even when a field is written through a parameter.
+fn structural_interface_field_write_is_a_reference_class() {
+    // An object *shape* — an `interface`, or an inline object type literal
+    // lowered to a synthetic one — is emitted as a Rust struct exactly like a
+    // value class, and is just as wrong by value once a field is written: the
+    // caller of `setEra` must observe the write. Shapes therefore classify on
+    // the same rule as classes.
     let names = reference_class_names(
         r"
 interface Flags { era?: number; }
 function setEra(flags: Flags, value: number): void { flags.era = value; }
 function run(): number { const f: Flags = {}; setEra(f, 1); return f.era!; }
+",
+    );
+    assert_eq!(names, vec!["Flags".to_owned()]);
+}
+
+#[test]
+fn structural_interface_read_only_stays_a_value_record() {
+    // Negative, and the narrowing that keeps the `Rc` off every option bag: a
+    // shape that is only constructed and read is observationally identical by
+    // value, so it stays a plain struct.
+    let names = reference_class_names(
+        r"
+interface Flags { era?: number; }
+function readEra(flags: Flags): number { return flags.era!; }
+function run(): number { const f: Flags = { era: 1 }; return readEra(f); }
 ",
     );
     assert!(names.is_empty(), "{names:?}");
