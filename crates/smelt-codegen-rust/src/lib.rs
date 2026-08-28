@@ -575,7 +575,21 @@ fn emit_source_with_free_function_router(
         writer.line("pub struct SmeltFieldHasher(u64);");
         writer.blank_line();
         writer.line("impl ::std::hash::Hasher for SmeltFieldHasher {");
-        writer.line("    fn finish(&self) -> u64 { self.0 }");
+        // FxHash's accumulator has weak avalanche in its high bits, and hashbrown
+        // takes its control byte from the TOP 7 bits — so a raw `self.0` collides
+        // badly on structured keys. That is not hypothetical: routing the
+        // Set/Map member index (`SmeltFieldMap<u64, ..>`) through the unfinalized
+        // form cost es-toolkit `unique` 25.4M -> 30.9M instructions, because every
+        // extra bucket collision pays a `same_member` comparison and each of those
+        // erases a value. The splitmix64 finalizer is six cheap ALU ops and
+        // restores full avalanche, which brought that case back and past its
+        // starting point.
+        writer.line("    fn finish(&self) -> u64 {");
+        writer.line("        let mut mixed = self.0;");
+        writer.line("        mixed = (mixed ^ (mixed >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);");
+        writer.line("        mixed = (mixed ^ (mixed >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);");
+        writer.line("        mixed ^ (mixed >> 31)");
+        writer.line("    }");
         writer.line("    fn write(&mut self, bytes: &[u8]) {");
         writer.line("        const SMELT_FX_SEED: u64 = 0x51_7c_c1_b7_27_22_0a_95;");
         writer.line("        let mut hash = self.0;");
@@ -1141,12 +1155,12 @@ fn emit_source_with_free_function_router(
         // which cannot go stale.
         writer.line("#[derive(Clone, Debug)]");
         writer.line("struct SmeltJsSlotIndex {");
-        writer.line("    hashed: ::std::collections::HashMap<u64, Vec<usize>>,");
+        writer.line("    hashed: SmeltFieldMap<u64, Vec<usize>>,");
         writer.line("    unhashed: Vec<usize>,");
         writer.line("}");
         writer.blank_line();
         writer.line("impl SmeltJsSlotIndex {");
-        writer.line("    fn new() -> Self { Self { hashed: ::std::collections::HashMap::new(), unhashed: Vec::new() } }");
+        writer.line("    fn new() -> Self { Self { hashed: SmeltFieldMap::default(), unhashed: Vec::new() } }");
         writer.line("    /// Index the freshly pushed slot `slot` under its entry's hash key.");
         writer.line("    fn remember(&mut self, slot: usize, key: Option<u64>) { match key { Some(key) => self.hashed.entry(key).or_default().push(slot), None => self.unhashed.push(slot) } }");
         writer.line("    /// Drop `slot` from the index and shift every later slot down by one, which");
@@ -1265,10 +1279,10 @@ fn emit_source_with_free_function_router(
         // `smelt_js_member_hash_key`. Used by the primitive `SmeltJsKeyEq::js_key_hash`
         // impls, which compare a key only against another key of its own type and so
         // need self-consistency, not the cross-variant tagging the erased hash does.
-        writer.line("fn smelt_js_hash_one<H: ::std::hash::Hash>(value: &H) -> u64 { let mut hasher = ::std::collections::hash_map::DefaultHasher::new(); value.hash(&mut hasher); ::std::hash::Hasher::finish(&hasher) }");
+        writer.line("fn smelt_js_hash_one<H: ::std::hash::Hash>(value: &H) -> u64 { let mut hasher = SmeltFieldHasher::default(); value.hash(&mut hasher); ::std::hash::Hasher::finish(&hasher) }");
         writer.blank_line();
         writer.line("fn smelt_js_member_hash_key(value: &SmeltUnknown) -> Option<u64> {");
-        writer.line("    let mut hasher = ::std::collections::hash_map::DefaultHasher::new();");
+        writer.line("    let mut hasher = SmeltFieldHasher::default();");
         writer.line("    match value {");
         writer.line("        SmeltUnknown::Null => 0_u8.hash(&mut hasher),");
         writer.line("        SmeltUnknown::Undefined => 1_u8.hash(&mut hasher),");
@@ -2519,7 +2533,7 @@ fn emit_source_with_free_function_router(
         writer.line("}");
         writer.blank_line();
         writer.line("fn smelt_unknown_stable_hash_key(value: &SmeltUnknown) -> u64 {");
-        writer.line("    let mut hasher = ::std::collections::hash_map::DefaultHasher::new();");
+        writer.line("    let mut hasher = SmeltFieldHasher::default();");
         writer.line("    let mut seen = ::std::collections::HashSet::new();");
         writer.line("    smelt_unknown_structural_hash(value, &mut hasher, &mut seen);");
         writer.line("    ::std::hash::Hasher::finish(&hasher)");
