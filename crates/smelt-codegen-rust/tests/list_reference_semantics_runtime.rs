@@ -235,3 +235,47 @@ test("a spread and a slice are independent copies", () => {
 "#;
     run_list_fixture(source, "list_copies_are_independent");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn array_of_length_gives_each_slot_its_own_array() {
+    // `Array(n)` used to emit `vec![<hole>; n]`, which is `Clone`-based — and a
+    // Smelt reference value clones by SHARING since the shared-buffer change. So
+    // every slot was a handle to ONE array, carrying one JavaScript identity, and
+    // pushing through `a[0]` was visible through `a[1]`.
+    //
+    // This is the assertion that catches over-sharing at construction, the same
+    // way the spread/slice fixture catches it at copy. Both directions matter: a
+    // reference value that shares too little breaks aliasing, and one that shares
+    // too much invents it.
+    // NOT asserted here: `Array(n).fill(a)` genuinely aliasing, which is what
+    // JavaScript does and what `list_repeat_text`'s `vec![x; n]` is designed for.
+    // Smelt cannot deliver it today — `fill` erases `a` to `SmeltUnknown::Array`
+    // and the conversion back rebuilds every element from scratch, so the shared
+    // identity is lost at the round trip. That is the copying erasure boundary in
+    // blocker-logs/smeltlist-shared-buffer.md, not this rule; a fixture for it
+    // belongs with that work.
+    let source = r#"
+import { test, expect } from "vitest";
+test("Array(n) slots are independent arrays", () => {
+  const rows: number[][] = Array(3);
+  for (let i = 0; i < 3; i += 1) {
+    rows[i] = [];
+  }
+  rows[0].push(1);
+  expect(rows[0].join(",")).toBe("1");
+  expect(rows[1].join(",")).toBe("");
+  expect(rows[2].join(",")).toBe("");
+});
+test("writing one slot of a fresh Array(n) does not write the others", () => {
+  const grid: number[][] = Array(3);
+  grid[0] = [];
+  grid[1] = [];
+  grid[0].push(7);
+  grid[1].push(8);
+  expect(grid[0].join(",")).toBe("7");
+  expect(grid[1].join(",")).toBe("8");
+});
+"#;
+    run_list_fixture(source, "array_of_length_slots");
+}

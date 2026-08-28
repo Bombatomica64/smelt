@@ -582,8 +582,28 @@ impl FunctionEmitter<'_> {
         }
         let length_text = self.operand_text(length)?;
         let hole_text = self.element_missing_value_text(item_ty)?;
+        // Each slot evaluates the hole expression ONCE, rather than cloning one
+        // hole `n` times with `vec![hole; n]`.
+        //
+        // `vec![x; n]` is `Clone`-based, and a Smelt reference value clones by
+        // SHARING: since the shared-buffer change, `SmeltList`/`SmeltObject`/
+        // `SmeltJsMap`/`SmeltJsSet` all bump an `Rc` and copy the stable `id`.
+        // So `Array(n)` of a list-typed element produced n handles to ONE array,
+        // carrying one JavaScript identity between them — `a[0].push(x)` would
+        // have been visible through `a[1]`. Evaluating the hole per slot mints a
+        // fresh buffer and a fresh `id` for each, which is what distinct array
+        // elements are.
+        //
+        // Stated as one rule for every element type rather than switched on
+        // whether this particular `Clone` shares: `(0..n).map(..).collect()` over
+        // a `Range` is `TrustedLen`, so it pre-allocates and fills in a tight
+        // loop, and a primitive hole costs nothing extra for the uniformity.
+        //
+        // `list_repeat_text` below is deliberately NOT changed: `Array(n).fill(a)`
+        // genuinely is n aliases of the one `a` in JavaScript, so its `vec![x; n]`
+        // is correct precisely because `Clone` shares.
         Ok(format!(
-            "{{ let array_from_length = ({length_text} as f64).max(0.0).floor() as usize; vec![{hole_text}; array_from_length] }}"
+            "{{ let array_from_length = ({length_text} as f64).max(0.0).floor() as usize; (0..array_from_length).map(|_| {hole_text}).collect::<Vec<_>>() }}"
         ))
     }
 

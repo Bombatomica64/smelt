@@ -100,6 +100,23 @@ numbers off this suite — the same binary measured `chunk` at both 6,411 and
 4,746 ops/s across runs on this box, so cross-run variance is ~25% and any delta
 below roughly 1.3x is noise unless it comes from a controlled A/B.
 
+### Another observable consequence: `Array(n).fill(a)` loses aliasing
+
+Found while fixing the `Array(n)` construction bug. In JavaScript
+`Array(3).fill(a)` puts THE SAME array in all three slots, so `rows[0].push(1)`
+is visible through `rows[1]`. Smelt loses that: `fill` erases `a` to
+`SmeltUnknown::Array`, and the conversion back to `SmeltList<SmeltList<f64>>`
+rebuilds every element from scratch with a fresh buffer, so the three slots end
+up independent.
+
+`list_repeat_text`'s `vec![x; n]` is not at fault — it is correct precisely
+because `Clone` shares. The identity is destroyed downstream, at the erasure
+round trip. This is the same copying boundary as the section above, and it is a
+second, independently observable symptom of it: one more reason to finish that
+work, and a ready-made fixture for whoever does
+(`crates/smelt-codegen-rust/tests/list_reference_semantics_runtime.rs` has the
+shape, commented out with this explanation).
+
 ### Callback iteration holds a read borrow across the callback
 
 `list_callback_iteration_parts` and the `reduce` path iterate
