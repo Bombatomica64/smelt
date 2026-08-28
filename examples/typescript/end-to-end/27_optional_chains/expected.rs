@@ -71,10 +71,38 @@ impl<T: Clone> From<SmeltList<T>> for Vec<T> { fn from(list: SmeltList<T>) -> Se
 
 use ::std::hash::Hash;
 
+#[derive(Default, Clone, Copy)]
+pub struct SmeltFieldHasher(u64);
+
+impl ::std::hash::Hasher for SmeltFieldHasher {
+    fn finish(&self) -> u64 { self.0 }
+    fn write(&mut self, bytes: &[u8]) {
+        const SMELT_FX_SEED: u64 = 0x51_7c_c1_b7_27_22_0a_95;
+        let mut hash = self.0;
+        let mut rest = bytes;
+        while rest.len() >= 8 {
+            let (head, tail) = rest.split_at(8);
+            let word = u64::from_le_bytes(head.try_into().unwrap_or([0; 8]));
+            hash = (hash.rotate_left(5) ^ word).wrapping_mul(SMELT_FX_SEED);
+            rest = tail;
+        }
+        if !rest.is_empty() {
+            let mut buf = [0_u8; 8];
+            buf[..rest.len()].copy_from_slice(rest);
+            let word = u64::from_le_bytes(buf);
+            hash = (hash.rotate_left(5) ^ word).wrapping_mul(SMELT_FX_SEED);
+        }
+        self.0 = hash;
+    }
+}
+
+/// The map behind a JavaScript object/record, keyed by property name.
+pub type SmeltFieldMap<K, V> = ::std::collections::HashMap<K, V, ::std::hash::BuildHasherDefault<SmeltFieldHasher>>;
+
 #[derive(Debug)]
 pub struct SmeltRecord<K, V> {
     id: usize,
-    values: ::std::rc::Rc<::std::cell::RefCell<::std::collections::HashMap<K, V>>>,
+    values: ::std::rc::Rc<::std::cell::RefCell<SmeltFieldMap<K, V>>>,
     order: ::std::rc::Rc<::std::cell::RefCell<Vec<K>>>,
 }
 
@@ -254,8 +282,8 @@ fn smelt_js_key_order_position<K: SmeltPropertyKey>(order: &[K], key: &K) -> usi
 }
 
 impl<K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, V> SmeltRecord<K, V> {
-    fn new() -> Self { Self { id: smelt_next_object_id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(::std::collections::HashMap::new())), order: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())) } }
-    fn with_id_from_entries<I: IntoIterator<Item = (K, V)>>(id: usize, iter: I) -> Self { let record = Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(::std::collections::HashMap::new())), order: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())) }; record.extend(iter); record }
+    fn new() -> Self { Self { id: smelt_next_object_id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltFieldMap::default())), order: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())) } }
+    fn with_id_from_entries<I: IntoIterator<Item = (K, V)>>(id: usize, iter: I) -> Self { let record = Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltFieldMap::default())), order: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())) }; record.extend(iter); record }
     fn len(&self) -> usize { self.values.borrow().len() }
     fn contains_key<Q>(&self, key: &Q) -> bool where K: ::std::borrow::Borrow<Q>, Q: Eq + ::std::hash::Hash + ?Sized { self.values.borrow().contains_key(key) }
     fn insert(&self, key: K, value: V) -> Option<V> { if !self.values.borrow().contains_key(&key) { let mut order = self.order.borrow_mut(); let position = smelt_js_key_order_position(&order, &key); order.insert(position, key.clone()); } self.values.borrow_mut().insert(key, value) }
@@ -297,7 +325,7 @@ impl<K: Eq + ::std::hash::Hash, V: PartialEq> PartialEq for SmeltRecord<K, V> {
 impl<K: Eq + ::std::hash::Hash, V: Eq> Eq for SmeltRecord<K, V> {}
 
 impl<K, V> PartialEq<::std::collections::HashMap<K, V>> for SmeltRecord<K, V> where K: Eq + ::std::hash::Hash, V: PartialEq {
-    fn eq(&self, other: &::std::collections::HashMap<K, V>) -> bool { self.values.borrow().eq(other) }
+    fn eq(&self, other: &::std::collections::HashMap<K, V>) -> bool { let values = self.values.borrow(); values.len() == other.len() && other.iter().all(|(key, value)| values.get(key).is_some_and(|found| found == value)) }
 }
 
 #[derive(Clone)]
@@ -510,7 +538,7 @@ impl SmeltJsStrictEq for f64 { fn js_strict_eq(&self, other: &Self) -> bool { se
 #[derive(Debug)]
 pub struct SmeltObject {
     id: usize,
-    values: ::std::rc::Rc<::std::cell::RefCell<::std::collections::HashMap<String, SmeltUnknown>>>,
+    values: ::std::rc::Rc<::std::cell::RefCell<SmeltFieldMap<String, SmeltUnknown>>>,
     order: ::std::rc::Rc<::std::cell::RefCell<Vec<String>>>,
 }
 
@@ -524,7 +552,7 @@ impl SmeltObject {
     /// keys keep the first key's position and take the last value, as in JS.
     fn new(entries: Vec<(String, SmeltUnknown)>) -> Self { Self::with_id(smelt_next_object_id(), entries) }
     /// Build an erased object that keeps a source value's reference identity.
-    fn with_id(id: usize, entries: Vec<(String, SmeltUnknown)>) -> Self { let object = Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(::std::collections::HashMap::with_capacity(entries.len()))), order: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::with_capacity(entries.len()))) }; for (key, value) in entries { object.insert(key, value); } object }
+    fn with_id(id: usize, entries: Vec<(String, SmeltUnknown)>) -> Self { let object = Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltFieldMap::with_capacity_and_hasher(entries.len(), ::std::default::Default::default()))), order: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::with_capacity(entries.len()))) }; for (key, value) in entries { object.insert(key, value); } object }
     fn from_unknown_record(record: SmeltRecord<String, SmeltUnknown>) -> Self { Self { id: record.id, values: record.values, order: record.order } }
     fn len(&self) -> usize { self.values.borrow().len() }
     fn contains_key(&self, key: &str) -> bool { self.values.borrow().contains_key(key) }

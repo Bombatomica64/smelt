@@ -24,7 +24,7 @@ use super::*;
 fn hash_list(h: u32, list: &SmeltList<SmeltUnknown>) -> u32 {
     let mut acc = mix(h, list.len() as u32);
     for v in list.iter() {
-        acc = hash_unknown(acc, v);
+        acc = hash_unknown(acc, &v);
     }
     acc
 }
@@ -64,7 +64,7 @@ pub fn run_case(name: &str) -> Option<Measurement> {
                 |out: &SmeltList<SmeltList<SmeltUnknown>>| {
                     let mut h = mix(0, out.len() as u32);
                     for inner in out.iter() {
-                        h = hash_list(h, inner);
+                        h = hash_list(h, &inner);
                     }
                     h
                 },
@@ -85,7 +85,7 @@ pub fn run_case(name: &str) -> Option<Measurement> {
                 |out: &SmeltList<f64>| {
                     let mut h = mix(0, out.len() as u32);
                     for v in out.iter() {
-                        h = hash_number(h, *v);
+                        h = hash_number(h, v);
                     }
                     h
                 },
@@ -112,7 +112,7 @@ pub fn run_case(name: &str) -> Option<Measurement> {
                 |out: &SmeltList<SmeltList<SmeltUnknown>>| {
                     let mut h = mix(0, out.len() as u32);
                     for inner in out.iter() {
-                        h = hash_list(h, inner);
+                        h = hash_list(h, &inner);
                     }
                     h
                 },
