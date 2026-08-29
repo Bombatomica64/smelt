@@ -8,7 +8,7 @@ expression: emitted
 // ... shared generated runtime prelude omitted from selective snapshot ...
 
 fn add(left: f64, right: f64) -> f64 {
-    let _smelt_tmp_2: f64 = left.clone() + right.clone();
+    let _smelt_tmp_2: f64 = left + right;
     return _smelt_tmp_2;
 }
 

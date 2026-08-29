@@ -39,6 +39,7 @@ pub(crate) fn cargo_toml(
     crate_name: &str,
     deps_needed: &[GeneratedDep],
     allocator: crate::GeneratedAllocator,
+    release_profile: crate::ReleaseProfile,
 ) -> String {
     let mut deps = String::new();
     // First, so the manifest reads the way the crate root does: the allocator is
@@ -60,7 +61,17 @@ pub(crate) fn cargo_toml(
             deps.push_str(dependency.cargo_dependency());
         }
     }
+    // The generated crate declares its own `[workspace]`, so it is a workspace
+    // ROOT and its `[profile.release]` is the one Cargo honours. See
+    // `crate::ReleaseProfile` for why the stock profile leaves throughput on the
+    // table for generated code specifically.
+    let profile = match release_profile {
+        crate::ReleaseProfile::Optimized => {
+            "\n[profile.release]\nlto = \"thin\"\ncodegen-units = 1\n"
+        }
+        crate::ReleaseProfile::Default => "",
+    };
     format!(
-        "[workspace]\n\n[package]\nname = \"{crate_name}\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\n{deps}"
+        "[workspace]\n\n[package]\nname = \"{crate_name}\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\n{deps}{profile}"
     )
 }

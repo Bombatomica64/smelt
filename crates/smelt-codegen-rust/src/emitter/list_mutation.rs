@@ -89,9 +89,15 @@ impl FunctionEmitter<'_> {
             let accessor = if self.dict_uses_js_key_map(entry_key_ty)
                 || self.dict_uses_smelt_record(entry_key_ty)
             {
-                format!("{base_text}.entry_or_insert({key_text}, {default_value})")
+                // The default is passed as a CLOSURE so it is built only when the
+                // key is absent. A JavaScript accumulator loop reaches this once
+                // per element with the key already present for all but the first,
+                // and an eagerly built empty list is two heap allocations thrown
+                // away each time. `HashMap::or_insert_with` is the same rule for
+                // the plain-map backing.
+                format!("{base_text}.entry_or_insert({key_text}, || {default_value})")
             } else {
-                format!("{base_text}.entry({key_text}).or_insert({default_value})")
+                format!("{base_text}.entry({key_text}).or_insert_with(|| {default_value})")
             };
             // The write guard is a statement-local temporary, so it is released
             // before `{result}` reads the length back through the slot.

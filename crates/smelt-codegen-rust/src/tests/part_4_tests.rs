@@ -246,7 +246,7 @@ result: int = sum_two(2, 3)
     );
 
     assert!(source.contains("|closure_arg_0: i64, closure_arg_1: i64|"));
-    assert!(source.contains("vec![closure_arg_0.clone(), closure_arg_1.clone()]"));
+    assert!(source.contains("vec![closure_arg_0, closure_arg_1]"));
     // An element READ never panics: a still-negative normalized index misses
     // (`usize::MAX`) exactly like a positive out-of-range index does.
     assert!(source.contains("usize::try_from(normalized).unwrap_or(usize::MAX)"));
@@ -721,9 +721,13 @@ const hits = values.filter((value) => selected.has(value));
 ",
     );
 
+    // The membership test only reads the needle, so it borrows the callback
+    // parameter rather than cloning it and borrowing the copy. See
+    // `shared_reference_argument_text`.
+    assert!(source.contains(".contains(&closure_arg_0)"), "{source}");
     assert!(
-        source.contains(".contains(&closure_arg_0.clone())"),
-        "{source}"
+        !source.contains(".contains(&closure_arg_0.clone())"),
+        "a set membership test must not clone its needle:\n{source}"
     );
 }
 

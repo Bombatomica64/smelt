@@ -10,15 +10,15 @@ fn main() {
     let mut i: f64 = 0.0;
     let mut sum: f64 = 0.0;
     loop {
-    _smelt_tmp_2 = i.clone() < 6.0;
+    _smelt_tmp_2 = i < 6.0;
     if !(_smelt_tmp_2) { break; }
     _smelt_tmp_3 = i + 1.0;
     i = _smelt_tmp_3;
-    _smelt_tmp_4 = i.clone() == 2.0;
+    _smelt_tmp_4 = i == 2.0;
     if _smelt_tmp_4 {
     continue;
     } else {
-    _smelt_tmp_5 = sum + i.clone();
+    _smelt_tmp_5 = sum + i;
     sum = _smelt_tmp_5;
     continue;
     }

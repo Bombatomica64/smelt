@@ -74,9 +74,9 @@ impl FunctionEmitter<'_> {
         // ran once per element (`result.clone().contains_key(..)` inside the loop),
         // making an O(n) pass O(n^2) in the accumulated map.
         Ok(format!(
-            "{}.contains_key(&{})",
+            "{}.contains_key({})",
             self.operand_borrow_text(dict)?,
-            self.dict_key_operand_text(key, *key_ty)?
+            self.dict_key_reference_text(key, *key_ty)?
         ))
     }
 
@@ -140,7 +140,9 @@ impl FunctionEmitter<'_> {
         if !self.dict_key_operand_is_compatible(key, *key_ty)? {
             return Ok("Default::default()".to_owned());
         }
-        let key_text = self.dict_key_operand_text(key, *key_ty)?;
+        // Every `get` below hands the key to a `&K` parameter and keeps nothing,
+        // so borrow the place where no coercion is needed.
+        let key_text = self.dict_key_reference_text(key, *key_ty)?;
         if let Some(default_operand) = default {
             if self.operand_ty(default_operand)? != *value_ty {
                 return Err(EmitError::new(
@@ -155,9 +157,9 @@ impl FunctionEmitter<'_> {
             let get_text =
                 if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
                     || self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
-                    format!("{}.get(&{})", self.operand_borrow_text(dict)?, key_text)
+                    format!("{}.get({})", self.operand_borrow_text(dict)?, key_text)
                 } else {
-                    format!("{}.get(&{}).cloned()", self.operand_borrow_text(dict)?, key_text)
+                    format!("{}.get({}).cloned()", self.operand_borrow_text(dict)?, key_text)
                 };
             return Ok(format!(
                 "{get_text}.unwrap_or({})",
@@ -172,7 +174,7 @@ impl FunctionEmitter<'_> {
             // dynamic property semantics; `null` is a value only a store puts
             // there, and the two differ under `===`.
             return Ok(format!(
-                "{}.get(&{}).unwrap_or(SmeltUnknown::Undefined)",
+                "{}.get({}).unwrap_or(SmeltUnknown::Undefined)",
                 self.operand_text(dict)?,
                 key_text
             ));
@@ -184,19 +186,19 @@ impl FunctionEmitter<'_> {
                 let get_text =
                     if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
                     || self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
-                        format!("{}.get(&{})", self.operand_borrow_text(dict)?, key_text)
+                        format!("{}.get({})", self.operand_borrow_text(dict)?, key_text)
                     } else {
-                        format!("{}.get(&{}).cloned()", self.operand_borrow_text(dict)?, key_text)
+                        format!("{}.get({}).cloned()", self.operand_borrow_text(dict)?, key_text)
                     };
                 Ok(format!("{get_text}.flatten()"))
             }
             (_, Some(Type::Optional(dest_inner))) if dest_inner == value_ty => {
                 if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
                     || self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
-                    Ok(format!("{}.get(&{})", self.operand_borrow_text(dict)?, key_text))
+                    Ok(format!("{}.get({})", self.operand_borrow_text(dict)?, key_text))
                 } else {
                     Ok(format!(
-                        "{}.get(&{}).cloned()",
+                        "{}.get({}).cloned()",
                         self.operand_text(dict)?,
                         key_text
                     ))
@@ -409,6 +411,20 @@ impl FunctionEmitter<'_> {
         self.value_at_type(key, key_ty)
     }
 
+    /// Render a dictionary key for an argument position spelled `&K`.
+    ///
+    /// `remove`/`get`/`contains_key` only read the key, so where no coercion is
+    /// needed the caller hands over the place rather than a copy of it. Every
+    /// other key shape — an optional unwrapped after narrowing, a property key
+    /// coerced to `String` — genuinely builds a value, and a borrow of that
+    /// temporary lives to the end of the statement.
+    fn dict_key_reference_text(&self, key: &Operand, key_ty: TypeId) -> Result<String, EmitError> {
+        if self.operand_ty(key)? == key_ty {
+            return self.shared_reference_argument_text(key, key_ty);
+        }
+        Ok(format!("&({})", self.dict_key_operand_text(key, key_ty)?))
+    }
+
     /// Converts a dictionary key removal operation to Rust text.
     /// Converts a dictionary key removal operation to Rust text.
     pub(super) fn dict_remove_key_text(
@@ -477,9 +493,9 @@ impl FunctionEmitter<'_> {
             ));
         };
         Ok(format!(
-            "{}.remove(&{}).is_some()",
+            "{}.remove({}).is_some()",
             self.assignment_place_text(dict_place)?,
-            self.dict_key_operand_text(key, *key_ty)?
+            self.dict_key_reference_text(key, *key_ty)?
         ))
     }
 

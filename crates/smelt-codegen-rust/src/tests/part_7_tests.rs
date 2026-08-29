@@ -345,6 +345,7 @@ fn injects_url_dependency_for_url_mapping() {
         &EmitOptions::default().crate_name,
         &[GeneratedDep::Stdlib(BackendDependency::Url)],
         GeneratedAllocator::System,
+        ReleaseProfile::Optimized,
     );
 
     assert!(manifest.contains("url = \"2\""));
@@ -464,6 +465,7 @@ const context = tz("Pacific/Midway");
             GeneratedDep::Stdlib(BackendDependency::ChronoTz),
         ],
         GeneratedAllocator::System,
+        ReleaseProfile::Optimized,
     );
 
     assert!(source.contains("chrono_tz::Tz"), "{source}");
@@ -1080,7 +1082,7 @@ export function make(count: number): number[] {
 
     assert!(
         source.contains(
-            "smelt_reflected_construct(\"uint8array\", vec![SmeltUnknown::Number(count.clone() as f64)])"
+            "smelt_reflected_construct(\"uint8array\", vec![SmeltUnknown::Number(count as f64)])"
         ),
         "{source}"
     );
@@ -3003,7 +3005,7 @@ function truncateDifference(left: bigint, right: number): bigint {
     );
 
     assert!(
-        source.contains("(right.clone() as f64).trunc() as i64"),
+        source.contains("(right as f64).trunc() as i64"),
         "{source}"
     );
     // The int-from-float coercion keeps only the parentheses `.trunc()` needs
@@ -3046,7 +3048,7 @@ function isZero(amount: number): boolean {
     );
 
     assert!(
-        source.contains("!({ let smelt_number = amount.clone(); smelt_number != 0.0 && !smelt_number.is_nan() })"),
+        source.contains("!({ let smelt_number = amount; smelt_number != 0.0 && !smelt_number.is_nan() })"),
         "{source}"
     );
 }
@@ -3169,7 +3171,7 @@ function makeDataLast(fn: (value: number, extra: number) => number, extra: numbe
         "{source}"
     );
     assert!(
-        source.contains("(fn_)(closure_arg_0.clone(), extra.clone())"),
+        source.contains("(fn_)(closure_arg_0, extra)"),
         "{source}"
     );
 }
@@ -3238,7 +3240,7 @@ function group(values: string[]): Record<string, string[]> {
         "{source}"
     );
     assert!(
-        source.contains("output.insert(key.clone().clone(), items.clone());"),
+        source.contains("output.insert(key.clone(), items.clone());"),
         "{source}"
     );
 }
@@ -3772,7 +3774,7 @@ console.log(user[key]);
         "{source}"
     );
     assert!(
-        source.contains("user.get(&key.clone().clone()).cloned().unwrap_or(String::new())"),
+        source.contains("user.get(&key.clone()).cloned().unwrap_or(String::new())"),
         "{source}"
     );
 }
@@ -3799,7 +3801,7 @@ function shiftRaw(raw: bigint): bigint {
     assert!(source.contains(">>"), "{source}");
     assert!(source.contains("fn shift_raw(raw: i64) -> i64"), "{source}");
     assert!(
-        source.contains("(((raw.clone() as f64).trunc() as i128) >>"),
+        source.contains("(((raw as f64).trunc() as i128) >>"),
         "{source}"
     );
     assert!(source.contains("rem_euclid(4294967296.0)"), "{source}");
@@ -3834,7 +3836,7 @@ function sample<T>(data: readonly T[]): T[] {
 ",
     );
 
-    assert!(source.contains("closure_arg_0.clone() as i64"), "{source}");
+    assert!(source.contains("closure_arg_0 as i64"), "{source}");
     assert!(source.contains("usize::try_from(normalized)"), "{source}");
 }
 
@@ -4110,7 +4112,7 @@ function wrap<T>(
         "fixed callback spread calls should read the second fixed parameter from the rest vector: {source}"
     );
     assert!(
-        source.contains("}, n.clone())"),
+        source.contains("}, n)"),
         "fixed callback spread calls should keep trailing scalar arguments after spread expansion: {source}"
     );
 }
@@ -4193,12 +4195,12 @@ function indicesSeen(
     // the binding is forwarded as-is. Borrowing it again would hand the callee a
     // `&&SmeltUnknown` that only compiles through deref coercion.
     assert!(
-        source.contains("predicate(closure_arg_0, closure_arg_1.clone())"),
+        source.contains("predicate(closure_arg_0, closure_arg_1)"),
         "a borrowed callback parameter should forward without a re-borrow: {source}"
     );
     assert!(
         source.contains(
-            "let smelt_push_item = closure_arg_1.clone(); (*smelt_capture_indices.borrow()).borrow_mut().push(smelt_push_item)"
+            "let smelt_push_item = closure_arg_1; (*smelt_capture_indices.borrow()).borrow_mut().push(smelt_push_item)"
         ),
         "captured push should mutate the outer vector storage: {source}"
     );
@@ -4248,7 +4250,7 @@ export function collect(value: number, key: string): Array<[number, string]> {
         "tuple-element array should keep its concrete tuple element type: {source}"
     );
     assert!(
-        source.contains("(value.clone(), key.clone())"),
+        source.contains("(value, key.clone())"),
         "pushed literal should be a concrete tuple value: {source}"
     );
     assert!(
@@ -5079,7 +5081,7 @@ function make(parser: Parser): ValueSetter {
     );
     assert!(
         !source.contains(
-            "sub_priority.clone().clone().expect(\"optional value was absent after narrowing\")"
+            "sub_priority.clone().expect(\"optional value was absent after narrowing\")"
         ),
         "{source}"
     );
@@ -6570,7 +6572,7 @@ setTimeout(greet, 10, "hi", 3);
     // The wrapper captures by value (move) and invokes the callback directly.
     assert!(source.contains("move ||"), "{source}");
     assert!(
-        source.contains("(smelt_timer_callback)(smelt_timer_arg_0.clone(), smelt_timer_arg_1.clone())"),
+        source.contains("(smelt_timer_callback)(smelt_timer_arg_0.clone(), smelt_timer_arg_1)"),
         "{source}"
     );
     assert!(source.contains("smelt_set_timeout("), "{source}");
@@ -6595,7 +6597,7 @@ setInterval(tick, 5, "tock", 2);
     assert!(source.contains("smelt_timer_arg_0"), "{source}");
     assert!(source.contains("smelt_timer_arg_1"), "{source}");
     assert!(
-        source.contains("(smelt_timer_callback)(smelt_timer_arg_0.clone(), smelt_timer_arg_1.clone())"),
+        source.contains("(smelt_timer_callback)(smelt_timer_arg_0.clone(), smelt_timer_arg_1)"),
         "{source}"
     );
     assert!(source.contains("smelt_set_interval("), "{source}");
@@ -6833,7 +6835,7 @@ export function pick(keys: Array<string | number>, i: number): string | number {
 
     assert!(source.contains("pub enum SmeltUnion"), "{source}");
     assert!(
-        source.contains(".cloned().unwrap_or(SmeltUnion"),
+        source.contains(".cloned().unwrap_or_else(|| SmeltUnion"),
         "missing element default must be a concrete union value: {source}"
     );
     assert!(
@@ -7387,7 +7389,7 @@ export function run(values: number[]): number[] {
 ",
     );
     assert!(
-        source.contains("with_tail(closure_arg_0.clone(), closure_arg_1.clone(), closure_arg_2.clone(), None::<f64>)"),
+        source.contains("with_tail(closure_arg_0, closure_arg_1.clone(), closure_arg_2.clone(), None::<f64>)"),
         "{source}"
     );
 }
@@ -10790,7 +10792,7 @@ export function useIt(): string {
     );
 
     assert!(
-        source.contains("thrower(closure_arg_0.clone())?"),
+        source.contains("thrower(closure_arg_0)?"),
         "the fallible wrapper closure must propagate the throw:\n{source}"
     );
     assert!(
@@ -11208,11 +11210,11 @@ export function copy(b: string[], n: number[], i: number): void {
     // redundant second copy of an already-owned index read, removed by
     // `index_place_read_is_owned`, and is asserted absent below.
     assert!(
-        source.contains(".cloned().unwrap_or(String::new());"),
+        source.contains(".cloned().unwrap_or_else(|| String::new())"),
         "a concrete `string` slot keeps the total read:\n{source}"
     );
     assert!(
-        source.contains(".cloned().unwrap_or(0.0);"),
+        source.contains(".cloned().unwrap_or_else(|| 0.0);"),
         "a concrete `number` slot keeps the total read:\n{source}"
     );
     assert!(
@@ -11363,7 +11365,7 @@ export function pick(flag: boolean, value: string): string | boolean {
         "`boolean && string` is the union of its operand types:\n{source}"
     );
     assert!(
-        source.contains("{ SmeltUnion2::M1(value.clone()) } else { SmeltUnion2::M0(flag.clone()) }"),
+        source.contains("{ SmeltUnion2::M1(value.clone()) } else { SmeltUnion2::M0(flag) }"),
         "each arm must carry the operand JavaScript selects, not a boolean:\n{source}"
     );
 }
@@ -11420,10 +11422,10 @@ export function count(a: number, b: number): number {
     );
 
     let first = source
-        .find("valid(a.clone())")
+        .find("valid(a)")
         .expect("the left guard should be called");
     let second = source
-        .find("valid(b.clone())")
+        .find("valid(b)")
         .expect("the right guard should be called");
     let branch = source
         .find("if _smelt_tmp")
@@ -11530,7 +11532,7 @@ class B(A):
         "the base implementation must be available under a typed alias:\n{source}"
     );
     assert!(
-        impl_b.contains("self.__smelt_super_greet(value.clone())"),
+        impl_b.contains("self.__smelt_super_greet(value)"),
         "super().greet(value) must call the base alias, not the override:\n{source}"
     );
 }
@@ -12308,5 +12310,44 @@ const marker = curried.placeholder;
     assert!(
         source.contains(".__smelt_call.smelt_property(\"placeholder\")"),
         "the undeclared member read must resolve through the callable's properties:\n{source}"
+    );
+}
+
+#[test]
+fn guarded_default_insert_becomes_a_single_entry_probe() {
+    // `smelt_mir::opt::DictDefaultInsertElision` deletes the
+    // `if (!Object.hasOwn(m, k)) { m[k] = []; }` guard, because the entry
+    // mutation that follows inserts the same empty list through
+    // `entry_or_insert`. The emitted group loop must therefore hash the key
+    // once, not three times (probe, guarded insert, entry).
+    let source = source_for(
+        r"
+export function groupBy<T, K extends PropertyKey>(
+  arr: readonly T[],
+  getKeyFromItem: (item: T, index: number) => K
+): Record<K, T[]> {
+  const result = {} as Record<K, T[]>;
+  for (let i = 0; i < arr.length; i++) {
+    const item = arr[i];
+    const key = getKeyFromItem(item, i);
+    if (!Object.hasOwn(result, key)) {
+      result[key] = [];
+    }
+    result[key].push(item);
+  }
+  return result;
+}
+",
+    );
+    let body = emitted_function_body(&source, "fn group_by(");
+
+    assert!(
+        !body.contains("contains_key"),
+        "the membership probe is gone: {body}"
+    );
+    assert_eq!(
+        body.matches("entry_or_insert").count(),
+        1,
+        "exactly one entry probe remains: {body}"
     );
 }

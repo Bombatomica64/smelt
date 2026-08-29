@@ -591,3 +591,102 @@ mod replace_identifier_tests {
         );
     }
 }
+
+/// Renders an owned copy of an already-rendered expression, without cloning a
+/// value that is already owned.
+///
+/// Many emitter helpers need an owned value of a subexpression they were handed
+/// as text, so they spell `{text}.clone()`. But `text` very often *already* ends
+/// in a `.clone()` -- it came from `operand_text`/`local_value_text`, which clone
+/// the local they read. The result is `x.clone().clone()`: a second deep copy of
+/// a temporary that nothing else can observe. es-toolkit emitted 2881 of them
+/// and remeda 1348.
+///
+/// `X.clone().clone()` computes exactly `X.clone()` for every `X`: `Clone::clone`
+/// takes `&self` and returns an owned value, so the outer call re-copies a value
+/// that is already owned and yields an equal one (Smelt's containers derive
+/// `Clone`, so identity fields such as `SmeltList::id` are preserved either way).
+/// Dropping it is therefore always sound.
+///
+/// The result is parenthesised only when `text` is not already a postfix chain,
+/// so a caller can splice it into a larger expression without worrying about
+/// precedence while generated code keeps the plain `value.clone()` spelling a
+/// hand-written port would use instead of a noisy `(value).clone()`.
+///
+/// This is a syntax-directed peephole on text this module already owns, not a
+/// per-construct special case: it fires wherever a caller asks for an owned
+/// copy, whatever construct produced the inner expression.
+pub(super) fn cloned_value_text(text: &str) -> String {
+    let trimmed = text.trim();
+    let already_owned = trimmed.ends_with(".clone()");
+    match (is_postfix_chain(trimmed), already_owned) {
+        (true, true) => trimmed.to_owned(),
+        (true, false) => format!("{trimmed}.clone()"),
+        (false, true) => format!("({trimmed})"),
+        (false, false) => format!("({trimmed}).clone()"),
+    }
+}
+
+/// Whether `text` is a primary expression followed only by field, method, and
+/// index postfixes -- `a`, `a.b`, `f(x).g()`, `xs[0].y`.
+///
+/// Such an expression binds tighter than every Rust operator, so appending
+/// `.clone()` to it, or splicing it into a larger expression, cannot change how
+/// either parses. Anything else (a `match`, an `if`, a block, a binary
+/// operation, a unary `*`, a turbofish path) is wrapped in parentheses instead.
+///
+/// The test is deliberately conservative and purely lexical: at bracket depth
+/// zero the text must start with an identifier character and contain no
+/// whitespace and no operator character. A false negative only costs a pair of
+/// parentheses; a false positive would change the meaning of emitted code, so
+/// every construct that is not obviously a postfix chain is rejected.
+fn is_postfix_chain(text: &str) -> bool {
+    // A string literal is a primary expression too, and static property keys
+    // render as one (`"b".to_owned()`), so accept a leading literal and check
+    // the postfixes that follow it.
+    let rest = match strip_leading_string_literal(text) {
+        Some(rest) => rest,
+        None => match text.chars().next() {
+            Some(first) if first.is_alphanumeric() || first == '_' => text,
+            _ => return false,
+        },
+    };
+    let mut depth = 0usize;
+    for ch in rest.chars() {
+        match ch {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => match depth.checked_sub(1) {
+                Some(next) => depth = next,
+                // Unbalanced here means the text closes a group it never opened;
+                // treat it as not a chain rather than guessing.
+                None => return false,
+            },
+            _ if depth > 0 => {}
+            ch if ch.is_whitespace() => return false,
+            '+' | '-' | '*' | '/' | '%' | '&' | '|' | '^' | '!' | '<' | '>' | '=' | '?' | ','
+            | ':' | ';' | '\'' | '"' | '#' | '@' => return false,
+            _ => {}
+        }
+    }
+    depth == 0
+}
+
+/// Strips a leading Rust string literal from `text`, returning what follows it.
+///
+/// Returns `None` when `text` does not start with a `"` or the literal is not
+/// terminated. Escapes are honoured so a `\"` inside the literal does not end
+/// it early.
+fn strip_leading_string_literal(text: &str) -> Option<&str> {
+    let body = text.strip_prefix('"')?;
+    let mut escaped = false;
+    for (offset, ch) in body.char_indices() {
+        if escaped {
+            escaped = false;
+        } else if ch == '\\' {
+            escaped = true;
+        } else if ch == '"' {
+            return Some(&body[offset + 1..]);
+        }
+    }
+    None
+}

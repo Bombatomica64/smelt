@@ -469,4 +469,208 @@ async function run(): Promise<number> {
             "the free-function type parameter name is preserved in MIR"
         );
     }
+
+    /// The `groupBy` accumulator shape: a guarded default insert followed by a
+    /// push through the same entry.
+    const GUARDED_GROUP_BY: &str = "\
+export function groupBy<T, K extends PropertyKey>(
+  arr: readonly T[],
+  getKeyFromItem: (item: T, index: number) => K
+): Record<K, T[]> {
+  const result = {} as Record<K, T[]>;
+  for (let i = 0; i < arr.length; i++) {
+    const item = arr[i];
+    const key = getKeyFromItem(item, i);
+    if (!Object.hasOwn(result, key)) {
+      result[key] = [];
+    }
+    result[key].push(item);
+  }
+  return result;
+}
+";
+
+    /// Lowers TypeScript, runs every default optimization pass, and formats the
+    /// result. Panics if lowering or validation fails.
+    fn optimized_mir_text(source: &str) -> String {
+        let mut ctx = HirCtx::new();
+        ok_or_panic(to_hir(source, FileId(0), &mut ctx), "HIR");
+        let mut mir = ok_or_panic(lower_hir(&ctx.krate), "MIR");
+        opt::optimize(&mut mir);
+        assert!(validate(&mir).is_empty(), "optimized MIR validates");
+        format_compact(&mir)
+    }
+
+    #[test]
+    fn dict_default_insert_elision_drops_the_guarded_seed() {
+        let output = optimized_mir_text(GUARDED_GROUP_BY);
+
+        // The probe and its negation are gone, and the guard block falls
+        // straight through to the join that mutates the entry.
+        assert!(!output.contains("dict_contains_key"), "{output}");
+        assert!(!output.contains(" = !"), "{output}");
+        assert!(
+            output.contains("%5 = move %9\n    goto bb6\n"),
+            "the guard block ends in a goto at the join: {output}"
+        );
+        assert!(
+            output.contains("%14 = list_push copy %2[copy %5], move %4"),
+            "the entry mutation still inserts the key: {output}"
+        );
+        // The seeding block survives as an unreachable block: block ids are
+        // positional, so nothing renumbers it away.
+        assert!(output.contains("%2[copy %5] = move %12"), "{output}");
+    }
+
+    /// Appends a second reader of the `dict_contains_key` temporary to the join
+    /// block, without disturbing the guard's statement adjacency. Returns the
+    /// probe temporary that gained the extra reader.
+    fn add_second_contains_reader(mir: &mut Mir) -> LocalId {
+        for function in &mut mir.functions {
+            let Some((probe, join)) = find_contains_probe(function) else {
+                continue;
+            };
+            let decl = function
+                .locals
+                .get(usize::try_from(probe.0).unwrap_or(usize::MAX))
+                .unwrap_or_else(|| {
+                    std::panic::resume_unwind(Box::new("probe local is declared".to_owned()))
+                })
+                .clone();
+            let extra = LocalId(u32::try_from(function.locals.len()).unwrap_or(u32::MAX));
+            function.locals.push(decl);
+            block_mut(function, join).statements.push(Statement::Assign {
+                dest: extra,
+                value: Rvalue::Unary {
+                    op: smelt_hir::UnaryOp::Not,
+                    operand: Operand::Copy(Place::Local(probe)),
+                },
+            });
+            return probe;
+        }
+        std::panic::resume_unwind(Box::new("a dict_contains_key probe was lowered".to_owned()))
+    }
+
+    /// Finds a `dict_contains_key` destination and the block its guard's switch
+    /// falls through to when the key is present.
+    fn find_contains_probe(function: &MirFunction) -> Option<(LocalId, BlockId)> {
+        function.blocks.iter().find_map(|block| {
+            let probe = block.statements.iter().find_map(|statement| match statement {
+                Statement::Assign {
+                    dest,
+                    value: Rvalue::DictContainsKey { .. },
+                } => Some(*dest),
+                _ => None,
+            })?;
+            let Some(Terminator::Switch { else_block, .. }) = block.terminator else {
+                return None;
+            };
+            Some((probe, else_block))
+        })
+    }
+
+    #[test]
+    fn dict_default_insert_elision_keeps_a_guard_with_a_second_reader() {
+        let mut ctx = HirCtx::new();
+        ok_or_panic(to_hir(GUARDED_GROUP_BY, FileId(0), &mut ctx), "HIR");
+        let mut mir = ok_or_panic(lower_hir(&ctx.krate), "MIR");
+        add_second_contains_reader(&mut mir);
+        opt::optimize(&mut mir);
+
+        let output = format_compact(&mir);
+        assert!(
+            output.contains("dict_contains_key"),
+            "a second reader of the probe observes a value the elision deletes: {output}"
+        );
+    }
+
+    #[test]
+    fn dict_default_insert_elision_keeps_a_non_empty_seed() {
+        // `[item]` is not the default `entry_or_insert` would synthesize, so the
+        // guarded store is not redundant.
+        let output = optimized_mir_text(&GUARDED_GROUP_BY.replace("= [];", "= [item];"));
+
+        assert!(output.contains("dict_contains_key"), "{output}");
+    }
+
+    #[test]
+    fn dict_default_insert_elision_keeps_a_read_only_join() {
+        // The join only READS the entry, which the backend renders as a
+        // non-inserting lookup. Deleting the guard would leave the key absent.
+        let output = optimized_mir_text(
+            "\
+export function groupBy<T, K extends PropertyKey>(
+  arr: readonly T[],
+  getKeyFromItem: (item: T, index: number) => K
+): Record<K, T[]> {
+  const result = {} as Record<K, T[]>;
+  const sizes: number[] = [];
+  for (let i = 0; i < arr.length; i++) {
+    const item = arr[i];
+    const key = getKeyFromItem(item, i);
+    if (!Object.hasOwn(result, key)) {
+      result[key] = [];
+    }
+    const group = result[key];
+    sizes.push(group.length);
+  }
+  return result;
+}
+",
+        );
+
+        assert!(output.contains("dict_contains_key"), "{output}");
+    }
+
+    #[test]
+    fn dict_default_insert_elision_keeps_a_guard_on_another_key() {
+        let output = optimized_mir_text(
+            "\
+export function groupBy<T, K extends PropertyKey>(
+  arr: readonly T[],
+  getKeyFromItem: (item: T, index: number) => K
+): Record<K, T[]> {
+  const result = {} as Record<K, T[]>;
+  for (let i = 0; i < arr.length; i++) {
+    const item = arr[i];
+    const key = getKeyFromItem(item, i);
+    const other = getKeyFromItem(item, i + 1);
+    if (!Object.hasOwn(result, key)) {
+      result[key] = [];
+    }
+    result[other].push(item);
+  }
+  return result;
+}
+",
+        );
+
+        assert!(output.contains("dict_contains_key"), "{output}");
+    }
+
+    #[test]
+    fn dict_default_insert_elision_keeps_a_guard_on_another_dict() {
+        let output = optimized_mir_text(
+            "\
+export function groupBy<T, K extends PropertyKey>(
+  arr: readonly T[],
+  getKeyFromItem: (item: T, index: number) => K
+): Record<K, T[]> {
+  const result = {} as Record<K, T[]>;
+  const mirror = {} as Record<K, T[]>;
+  for (let i = 0; i < arr.length; i++) {
+    const item = arr[i];
+    const key = getKeyFromItem(item, i);
+    if (!Object.hasOwn(result, key)) {
+      result[key] = [];
+    }
+    mirror[key].push(item);
+  }
+  return result;
+}
+",
+        );
+
+        assert!(output.contains("dict_contains_key"), "{output}");
+    }
 }

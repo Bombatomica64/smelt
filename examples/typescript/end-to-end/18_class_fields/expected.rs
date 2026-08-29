@@ -13,15 +13,15 @@ fn main() {
     let p: Point;
     let _smelt_tmp_1: Point = Point::new(2.0, 3.0);
     p = _smelt_tmp_1;
-    let _ = { println!("{}", p.x.clone()); };
+    let _ = { println!("{}", p.x); };
     return;
 }
 
 impl Point {
     fn new(x: f64, y: f64) -> Self {
     let mut this: Self = Point { x: 0.0, y: 0.0 };
-    this.x = x.clone();
-    this.y = y.clone();
+    this.x = x;
+    this.y = y;
     return this;
     }
 }

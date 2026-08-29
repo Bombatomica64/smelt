@@ -8,9 +8,12 @@ use std::collections::{HashMap, HashSet};
 use crate::{Callee, LocalId, Mir, MirFunction, Operand, Place, Rvalue, Statement, Terminator};
 use smelt_hir::Type;
 
+mod dict_default_insert_elision;
 mod dict_entry_mutation;
+mod local_use;
 mod move_on_last_use;
 
+pub use dict_default_insert_elision::DictDefaultInsertElision;
 pub use dict_entry_mutation::DictEntryInPlaceMutation;
 pub use move_on_last_use::MoveOnLastUse;
 
@@ -47,6 +50,7 @@ pub fn default_passes() -> Vec<Box<dyn Pass>> {
         Box::<CopyPropagation>::default(),
         Box::<MoveOnLastUse>::default(),
         Box::<DictEntryInPlaceMutation>::default(),
+        Box::<DictDefaultInsertElision>::default(),
     ]
 }
 

@@ -228,15 +228,28 @@ impl FunctionEmitter<'_> {
             // resolve. Routing both sides through `erase()` handles that case
             // without special-casing the union arm.
             let lhs_text = self.erase(lhs)?;
+            // `js_strict_eq`/`same_js_key` take `&SmeltUnknown` and only read it,
+            // so an already-erased right-hand side is BORROWED rather than cloned
+            // and then borrowed. `erase` on such an operand is the ordinary value
+            // read, which appends a `.clone()`; for a string-valued unknown that
+            // clone was a refcount bump the comparison never kept.
+            let rhs_reference_text = if matches!(
+                self.mir.types.get(self.operand_ty(rhs)?),
+                Some(Type::Unknown)
+            ) {
+                format!("&{}", self.operand_borrow_text(rhs)?)
+            } else {
+                format!("&{}", self.erase(rhs)?)
+            };
             let rhs_text = self.erase(rhs)?;
             if js_strict {
                 // JavaScript `===`/`!==` on erased values: reference identity for
                 // objects/arrays/functions, value for primitives, NaN-unequal.
-                format!("{lhs_text}.js_strict_eq(&{rhs_text})")
+                format!("{lhs_text}.js_strict_eq({rhs_reference_text})")
             } else if strict {
                 // `Object.is` / `a === b || Object.is(a,b)` SameValueZero idiom:
                 // NaN-equal, reference objects.
-                format!("{lhs_text}.same_js_key(&{rhs_text})")
+                format!("{lhs_text}.same_js_key({rhs_reference_text})")
             } else {
                 // Loose/structural `==`/`!=` on erased values: SmeltUnknown's
                 // structural `Eq` (deep), which the `toEqual`/`toStrictEqual`

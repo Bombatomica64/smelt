@@ -443,7 +443,7 @@ export function add(index: number, value: unknown): Record<string, unknown> {
 }
 ",
     );
-    assert!(source.contains("index.clone().to_string()"), "{source}");
+    assert!(source.contains("index.to_string()"), "{source}");
 }
 
 /// Calls to emitted native `async fn`s inside generated closures are wrapped
@@ -923,7 +923,7 @@ console.log(result);
     );
 
     assert!(source.contains("fn add(a: f64, b: f64) -> f64 {"));
-    assert!(source.contains("a.clone() + b.clone()"));
+    assert!(source.contains("a + b"));
     assert!(source.contains("let _smelt_tmp_1: f64 = add(2.0, 3.0);"));
 }
 
@@ -983,8 +983,8 @@ console.log(result);
     );
 
     assert!(source.contains("if _smelt_tmp_2 {"));
-    assert!(source.contains("return a.clone();"));
-    assert!(source.contains("return b.clone();"));
+    assert!(source.contains("return a;"));
+    assert!(source.contains("return b;"));
 }
 
 #[test]
@@ -1246,6 +1246,7 @@ fn injects_reqwest_dependency_for_http_mapping() {
             GeneratedDep::Stdlib(BackendDependency::Reqwest),
         ],
         GeneratedAllocator::System,
+        ReleaseProfile::Optimized,
     );
 
     assert!(manifest.contains("tokio = { version = \"1\""));
@@ -1308,6 +1309,7 @@ fn injects_genawaiter_dependency_for_generator_emission() {
             &EmitOptions::default().crate_name,
             &generated_deps(&mir),
             GeneratedAllocator::System,
+            ReleaseProfile::Optimized,
         );
     assert!(
         manifest.contains("genawaiter = \"0.99.1\""),
@@ -1402,6 +1404,7 @@ fn injects_serde_json_dependency_for_json_mapping() {
         &EmitOptions::default().crate_name,
         &[GeneratedDep::Stdlib(BackendDependency::SerdeJson)],
         GeneratedAllocator::System,
+        ReleaseProfile::Optimized,
     );
 
     assert!(manifest.contains("serde_json = \"1\""));
@@ -1413,6 +1416,7 @@ fn injects_rand_dependency_for_random_mapping() {
         &EmitOptions::default().crate_name,
         &[GeneratedDep::Stdlib(BackendDependency::Rand)],
         GeneratedAllocator::System,
+        ReleaseProfile::Optimized,
     );
 
     assert!(manifest.contains("rand = \"0.9\""));
@@ -1424,6 +1428,7 @@ fn injects_regex_dependency_for_regex_mapping() {
         &EmitOptions::default().crate_name,
         &[GeneratedDep::Stdlib(BackendDependency::Regex)],
         GeneratedAllocator::System,
+        ReleaseProfile::Optimized,
     );
 
     assert!(manifest.contains("regex = \"1\""));
@@ -1435,6 +1440,7 @@ fn injects_chrono_dependency_for_date_mapping() {
         &EmitOptions::default().crate_name,
         &[GeneratedDep::Stdlib(BackendDependency::Chrono)],
         GeneratedAllocator::System,
+        ReleaseProfile::Optimized,
     );
 
     assert!(manifest.contains("chrono = \"0.4\""));

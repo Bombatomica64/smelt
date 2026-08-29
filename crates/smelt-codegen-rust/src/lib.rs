@@ -130,6 +130,8 @@ pub struct EmitOptions {
     pub crate_kind: CrateKind,
     /// The global allocator the generated program installs.
     pub allocator: GeneratedAllocator,
+    /// The `[profile.release]` the generated crate carries.
+    pub release_profile: ReleaseProfile,
 }
 
 impl Default for EmitOptions {
@@ -139,6 +141,7 @@ impl Default for EmitOptions {
             crate_name: "smelt_app".to_owned(),
             crate_kind: CrateKind::Program,
             allocator: GeneratedAllocator::default(),
+            release_profile: ReleaseProfile::default(),
         }
     }
 }
@@ -166,6 +169,13 @@ impl EmitOptions {
         self
     }
 
+    /// Sets the `[profile.release]` the generated crate carries.
+    #[must_use]
+    pub fn with_release_profile(mut self, release_profile: ReleaseProfile) -> Self {
+        self.release_profile = release_profile;
+        self
+    }
+
     /// The allocator actually emitted for this crate.
     ///
     /// A `#[global_allocator]` is a whole-program choice, so only a generated
@@ -178,6 +188,31 @@ impl EmitOptions {
             CrateKind::Library => GeneratedAllocator::System,
         }
     }
+}
+
+/// The `[profile.release]` a generated crate carries.
+///
+/// Cargo's stock release profile builds with 16 codegen units and no LTO, so a
+/// call that crosses a unit boundary is never inlined. That is the common case in
+/// generated code: the runtime prelude lives in the crate root and every module
+/// calls into it, so `SmeltUnknown::clone`, a list index read and a field lookup
+/// are all cross-unit calls in the hot loop. `callgrind` badly under-reports this
+/// — instruction counts for the es-toolkit bench crate moved less than 1% — but
+/// wall clock on `sumBy`, which is a loop and nothing else, moved **1.78x**, and
+/// the binary got 19% SMALLER. The cost is build time (+28% on that crate) and it
+/// falls only on `--release`.
+///
+/// A team shipping this library by hand would set it, so `Optimized` is the
+/// default; `Default` leaves Cargo's profile alone for a project that would rather
+/// have the build time back.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum ReleaseProfile {
+    /// Thin LTO and one codegen unit.
+    #[default]
+    Optimized,
+    /// Cargo's stock release profile.
+    Default,
 }
 
 /// The global allocator a generated program installs.
@@ -315,7 +350,12 @@ pub fn emit_crate(
     let allocator = options.effective_allocator();
     write_if_changed(
         output_dir.join("Cargo.toml"),
-        &deps::cargo_toml(&options.crate_name, &generated_deps(mir), allocator),
+        &deps::cargo_toml(
+            &options.crate_name,
+            &generated_deps(mir),
+            allocator,
+            options.release_profile,
+        ),
     )?;
     write_crate_root(
         &src_dir,
@@ -344,7 +384,12 @@ pub fn emit_crate_with_modules(
     let allocator = options.effective_allocator();
     write_if_changed(
         output_dir.join("Cargo.toml"),
-        &deps::cargo_toml(&options.crate_name, &generated_deps(mir), allocator),
+        &deps::cargo_toml(
+            &options.crate_name,
+            &generated_deps(mir),
+            allocator,
+            options.release_profile,
+        ),
     )?;
 
     let mapped = emit_mapped_sources(mir, krate, modules, allocator)?;
@@ -1213,15 +1258,21 @@ fn emit_source_with_free_function_router(
         writer.line("    fn keys(&self) -> ::std::vec::IntoIter<K> { self.store.borrow().entries().iter().map(|entry| entry.0.clone()).collect::<Vec<_>>().into_iter() }");
         writer.line("    fn values(&self) -> ::std::vec::IntoIter<V> where V: Clone { self.store.borrow().entries().iter().map(|entry| entry.1.clone()).collect::<Vec<_>>().into_iter() }");
         writer.line("    fn extend<I: IntoIterator<Item = (K, V)>>(&self, iter: I) { for (key, value) in iter { self.insert(key, value); } }");
+        // The default is a CLOSURE, not a value. A JavaScript accumulator loop
+        // (`groupBy`, `countBy`, `uniqBy`) calls this once per element and the key
+        // is already present for all but the first, so a by-value default built an
+        // empty `SmeltList` — two heap allocations — for every element and threw it
+        // away. Building it only on the absent path costs nothing.
+        //
         // The `SmeltRecord` twin of `SmeltJsMap::entry_or_insert`: borrow the
         // stored value for in-place mutation instead of copying it out and back.
         // `insert` already maintains the JavaScript own-key order, so routing the
         // absent-key case through it keeps `keys()`/`iter()` ordering identical to
         // the copy-back form this replaces. Takes `&self` because a record is a
         // reference value with interior mutability, exactly like `insert`.
-        writer.line("    fn entry_or_insert(&self, key: K, default: V) -> ::std::cell::RefMut<'_, V> {");
+        writer.line("    fn entry_or_insert(&self, key: K, default: impl FnOnce() -> V) -> ::std::cell::RefMut<'_, V> {");
         writer.line("        let missing = !self.store.borrow().contains_key(&key);");
-        writer.line("        if missing { self.insert(key.clone(), default); }");
+        writer.line("        if missing { self.insert(key.clone(), default()); }");
         writer.line("        ::std::cell::RefMut::map(self.store.borrow_mut(), move |store| store.get_mut(&key).expect(\"record entry just inserted\"))");
         writer.line("    }");
         writer.line("}");
@@ -1373,9 +1424,9 @@ fn emit_source_with_free_function_router(
         // the same `position`/`remember` pair `insert` uses, so a fused mutation
         // is indistinguishable from the copy-out/copy-back form it replaces —
         // and, the store being shared, it is visible through every alias.
-        writer.line("    fn entry_or_insert(&mut self, key: K, default: V) -> ::std::cell::RefMut<'_, V> {");
+        writer.line("    fn entry_or_insert(&mut self, key: K, default: impl FnOnce() -> V) -> ::std::cell::RefMut<'_, V> {");
         writer.line("        let hash = key.js_key_hash();");
-        writer.line("        let slot = { let mut store = self.store.borrow_mut(); match store.position(&key, hash) { Some(slot) => slot, None => { let slot = store.entries.len(); store.entries.push((key, default)); store.index.remember(slot, hash); slot } } };");
+        writer.line("        let slot = { let mut store = self.store.borrow_mut(); match store.position(&key, hash) { Some(slot) => slot, None => { let slot = store.entries.len(); store.entries.push((key, default())); store.index.remember(slot, hash); slot } } };");
         writer.line("        ::std::cell::RefMut::map(self.store.borrow_mut(), move |store| &mut store.entries[slot].1)");
         writer.line("    }");
         writer.line("}");
@@ -1486,21 +1537,86 @@ fn emit_source_with_free_function_router(
         // `smelt_register_function_identity` call can rewrite, so a hash taken at
         // insert time is not guaranteed to stay valid. Those keep the linear scan,
         // which cannot go stale.
+        // The index is keyed by a value that has ALREADY been hashed:
+        // `SmeltJsKeyEq::js_key_hash` runs the key through `SmeltFieldHasher`,
+        // whose `finish` applies a splitmix64 finalizer, so the `u64` handed to
+        // the index has full avalanche in every bit. Hashing it a second time
+        // inside the index map would buy no distribution and cost a whole extra
+        // hash round on the hottest path a `groupBy`/`countBy`/`Set` has --
+        // `SmeltJsMapStore::position` and `smelt_js_member_hash_key` together were
+        // 31% of es-toolkit's `group_by`. `SmeltPreHashedHasher` therefore passes
+        // the key straight through.
+        writer.line("#[derive(Default, Clone, Copy)]");
+        writer.line("pub struct SmeltPreHashedHasher(u64);");
+        writer.blank_line();
+        writer.line("impl ::std::hash::Hasher for SmeltPreHashedHasher {");
+        writer.line("    fn finish(&self) -> u64 { self.0 }");
+        writer.line("    fn write_u64(&mut self, value: u64) { self.0 = value; }");
+        // Only `write_u64` is ever called: the map below is keyed by `u64` and
+        // `<u64 as Hash>::hash` calls exactly that. The byte path is unreachable
+        // for this map, but a `Hasher` impl must supply it, so fold the bytes the
+        // same way `SmeltFieldHasher` does rather than leaving a silent no-op that
+        // would collide everything if the key type ever changed.
+        writer.line("    fn write(&mut self, bytes: &[u8]) {");
+        writer.line("        let mut hasher = SmeltFieldHasher(self.0);");
+        writer.line("        ::std::hash::Hasher::write(&mut hasher, bytes);");
+        writer.line("        self.0 = ::std::hash::Hasher::finish(&hasher);");
+        writer.line("    }");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// A map keyed by an already-hashed `u64`, which is passed through unmixed.");
+        writer.line("pub type SmeltPreHashedMap<V> = ::std::collections::HashMap<u64, V, ::std::hash::BuildHasherDefault<SmeltPreHashedHasher>>;");
+        writer.blank_line();
+        // The overwhelming majority of hash keys index exactly ONE slot: a
+        // `groupBy` over n distinct keys has n buckets of one entry each until a
+        // genuine hash collision, and duplicate JavaScript keys cannot coexist in
+        // a Map at all. A `Vec<usize>` per bucket therefore charged one heap
+        // allocation per distinct key for a single `usize`, on the very path this
+        // container exists to make fast. `SmeltSlotList` stores that lone slot
+        // inline and only allocates once a bucket actually holds two.
+        writer.line("#[derive(Clone, Debug)]");
+        writer.line("enum SmeltSlotList {");
+        writer.line("    One(usize),");
+        writer.line("    Many(Vec<usize>),");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("impl SmeltSlotList {");
+        writer.line("    /// The slots in this bucket, in insertion order.");
+        writer.line("    fn slots(&self) -> &[usize] { match self { Self::One(slot) => ::std::slice::from_ref(slot), Self::Many(slots) => slots.as_slice() } }");
+        writer.line("    /// Append `slot`, promoting a one-slot bucket to an allocated one.");
+        writer.line("    fn push(&mut self, slot: usize) { match self { Self::One(first) => *self = Self::Many(::std::vec![*first, slot]), Self::Many(slots) => slots.push(slot) } }");
+        writer.line("    /// Drop `removed` and shift every later slot down by one, mirroring what");
+        writer.line("    /// `entries.remove(removed)` did to the positions this bucket stores.");
+        writer.line("    /// Returns whether the bucket is now empty and should be dropped.");
+        writer.line("    fn forget(&mut self, removed: usize) -> bool {");
+        writer.line("        match self {");
+        writer.line("            Self::One(slot) => { if *slot == removed { return true; } if *slot > removed { *slot -= 1; } false }");
+        writer.line("            Self::Many(slots) => {");
+        writer.line("                slots.retain(|existing| *existing != removed);");
+        writer.line("                for existing in slots.iter_mut() { if *existing > removed { *existing -= 1; } }");
+        // Demote back to the inline form so a bucket that collided once does not
+        // keep its allocation for the rest of the container's life.
+        writer.line("                match slots.len() { 0 => true, 1 => { *self = Self::One(slots[0]); false }, _ => false }");
+        writer.line("            }");
+        writer.line("        }");
+        writer.line("    }");
+        writer.line("}");
+        writer.blank_line();
         writer.line("#[derive(Clone, Debug)]");
         writer.line("struct SmeltJsSlotIndex {");
-        writer.line("    hashed: SmeltFieldMap<u64, Vec<usize>>,");
+        writer.line("    hashed: SmeltPreHashedMap<SmeltSlotList>,");
         writer.line("    unhashed: Vec<usize>,");
         writer.line("}");
         writer.blank_line();
         writer.line("impl SmeltJsSlotIndex {");
-        writer.line("    fn new() -> Self { Self { hashed: SmeltFieldMap::default(), unhashed: Vec::new() } }");
+        writer.line("    fn new() -> Self { Self { hashed: SmeltPreHashedMap::default(), unhashed: Vec::new() } }");
         writer.line("    /// Index the freshly pushed slot `slot` under its entry's hash key.");
-        writer.line("    fn remember(&mut self, slot: usize, key: Option<u64>) { match key { Some(key) => self.hashed.entry(key).or_default().push(slot), None => self.unhashed.push(slot) } }");
+        writer.line("    fn remember(&mut self, slot: usize, key: Option<u64>) { match key { Some(key) => match self.hashed.entry(key) { ::std::collections::hash_map::Entry::Occupied(mut bucket) => bucket.get_mut().push(slot), ::std::collections::hash_map::Entry::Vacant(bucket) => { bucket.insert(SmeltSlotList::One(slot)); } }, None => self.unhashed.push(slot) } }");
         writer.line("    /// Drop `slot` from the index and shift every later slot down by one, which");
         writer.line("    /// is what `entries.remove(slot)` did to the positions the index stores.");
-        writer.line("    fn forget(&mut self, slot: usize) { self.hashed.retain(|_, slots| { slots.retain(|existing| *existing != slot); for existing in slots.iter_mut() { if *existing > slot { *existing -= 1; } } !slots.is_empty() }); self.unhashed.retain(|existing| *existing != slot); for existing in self.unhashed.iter_mut() { if *existing > slot { *existing -= 1; } } }");
+        writer.line("    fn forget(&mut self, slot: usize) { self.hashed.retain(|_, slots| !slots.forget(slot)); self.unhashed.retain(|existing| *existing != slot); for existing in self.unhashed.iter_mut() { if *existing > slot { *existing -= 1; } } }");
         writer.line("    /// The slots that may hold an entry with hash key `key`.");
-        writer.line("    fn slots(&self, key: Option<u64>) -> &[usize] { match key { Some(key) => self.hashed.get(&key).map_or(&[], Vec::as_slice), None => self.unhashed.as_slice() } }");
+        writer.line("    fn slots(&self, key: Option<u64>) -> &[usize] { match key { Some(key) => self.hashed.get(&key).map_or(&[], SmeltSlotList::slots), None => self.unhashed.as_slice() } }");
         writer.line("}");
         writer.blank_line();
         writer.line("/// The members of a `SmeltJsSet` plus the hash index over them.");
@@ -1650,7 +1766,7 @@ fn emit_source_with_free_function_router(
         writer.blank_line();
         writer.line("impl SmeltJsKeyEq for SmeltUnknown {");
         writer.line("    fn js_key_hash(&self) -> Option<u64> { smelt_js_member_hash_key(self) }");
-        writer.line("    fn same_js_key(&self, other: &Self) -> bool { match (self, other) { (SmeltUnknown::Number(left), SmeltUnknown::Number(right)) if left.is_nan() && right.is_nan() => true, (SmeltUnknown::Array(left), SmeltUnknown::Array(right)) => left.id == right.id, (SmeltUnknown::Object(left), SmeltUnknown::Object(right)) => left.id == right.id, (SmeltUnknown::Function(left), SmeltUnknown::Function(right)) => smelt_same_erased_function(left, right), (SmeltUnknown::Promise(left), SmeltUnknown::Promise(right)) => left.id == right.id, _ => self == other } }");
+        writer.line("    fn same_js_key(&self, other: &Self) -> bool { match (self, other) { (SmeltUnknown::Number(left), SmeltUnknown::Number(right)) if left.is_nan() && right.is_nan() => true, (SmeltUnknown::Array(left), SmeltUnknown::Array(right)) => left.id == right.id, (SmeltUnknown::Object(left), SmeltUnknown::Object(right)) => left.id == right.id, (SmeltUnknown::Function(left), SmeltUnknown::Function(right)) => smelt_same_erased_function(left, right), (SmeltUnknown::Promise(left), SmeltUnknown::Promise(right)) => left.id == right.id, (SmeltUnknown::String(left), SmeltUnknown::String(right)) => ::std::rc::Rc::ptr_eq(left, right) || left == right, _ => self == other } }");
         writer.line("}");
         writer.blank_line();
         writer.line("impl SmeltJsKeyEq for String { fn same_js_key(&self, other: &Self) -> bool { self == other } fn js_key_hash(&self) -> Option<u64> { Some(smelt_js_hash_one(self)) } }");
@@ -2879,7 +2995,16 @@ fn emit_source_with_free_function_router(
         );
         writer.line("        (SmeltUnknown::Number(left), SmeltUnknown::Number(right)) => left == right || (left.is_nan() && right.is_nan()),");
         writer.line(
-            "        (SmeltUnknown::String(left), SmeltUnknown::String(right)) => left == right,",
+            // JavaScript strings are immutable and `SmeltUnknown::String` shares
+            // one `Rc<str>` between every copy of a value, so two strings that are
+            // the SAME allocation are equal without touching their bytes. That is
+            // the common case wherever a string is read out of a value and used as
+            // a key: `groupBy` pulls the same `Rc` out of the same record field for
+            // every element in a group, and this turns each of those comparisons
+            // from a `memcmp` into a pointer compare. `Rc::ptr_eq` is only a fast
+            // path — a differing pointer still falls through to content equality,
+            // so two separately built strings with the same characters stay equal.
+            "        (SmeltUnknown::String(left), SmeltUnknown::String(right)) => ::std::rc::Rc::ptr_eq(left, right) || left == right,",
         );
         writer.line(
             "        (SmeltUnknown::Symbol(left), SmeltUnknown::Symbol(right)) => left == right,",
