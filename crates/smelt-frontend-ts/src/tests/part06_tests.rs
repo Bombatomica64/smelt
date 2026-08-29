@@ -1021,6 +1021,69 @@ async function testCase(): Promise<void> {
     Ok(())
 }
 
+/// `expect(promise).resolves.M(...)` and `.rejects.M(...)` must emit the real
+/// matcher, not an inert placeholder.
+///
+/// Regression guard for a measurement-integrity bug: every matcher other than
+/// `rejects.toThrow` used to lower to a bare `Promise<void>` literal, so both
+/// the assertion *and* the awaited call it asserted on were dropped from the
+/// generated Rust and the test passed unconditionally. Under that lowering the
+/// body below contained no `Await` of an actual, no `TryCatch`, and no failure
+/// `Throw` at all, so the lower bounds asserted here are what separates a real
+/// assertion from a deleted one. They are bounds rather than exact counts
+/// because the surrounding `await` of the chain's own placeholder value is an
+/// implementation detail that MIR folds away.
+#[test]
+fn vitest_resolves_and_rejects_matchers_emit_real_assertions() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!("async function unit(): Promise<void> {
+}
+
+async function text(): Promise<string> {
+  return \"Hello\";
+}
+
+import { expect } from \"vitest\";
+
+async function run(): Promise<void> {
+  await expect(unit()).resolves.toBeUndefined();
+  await expect(text()).resolves.toBe(\"Hello\");
+  await expect(text()).rejects.toEqual(\"Hello\");
+}
+"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let test_case = named_function_item(&ctx, module, "run")?;
+    let body = function_body(&ctx, test_case)?;
+
+    // One `await` per chain, at least: the actual has to be awaited before the
+    // matcher can see the settled value.
+    let awaits = body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(expr.kind, ExprKind::Await(_)))
+        .count();
+    ensure!(awaits >= 3);
+    // Exactly one `try`/`catch`: the single `.rejects` chain.
+    let try_catches = body
+        .stmts
+        .iter()
+        .filter(|stmt| matches!(stmt, Stmt::TryCatch { .. }))
+        .count();
+    ensure!(try_catches == 1);
+    // One failure `Throw` per matcher, plus the "did not reject" guard.
+    let throws = body
+        .stmts
+        .iter()
+        .filter(|stmt| matches!(stmt, Stmt::Throw(_)))
+        .count();
+    ensure!(throws >= 4);
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
 #[test]
 fn skips_fast_check_vitest_property_registration() -> Result<(), String> {
     let mut ctx = HirCtx::new();
