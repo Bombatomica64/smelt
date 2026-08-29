@@ -238,7 +238,7 @@ impl FunctionEmitter<'_> {
             format!("({args_text},)")
         };
         Ok(format!(
-            "{{ let _smelt_external_args = {args_tuple_text}; let _smelt_external = Vec::from([(\"__class\".to_owned(), SmeltUnknown::String({class_name:?}.to_owned()))]); SmeltUnknown::Object(SmeltObject::new(_smelt_external)) }}"
+            "{{ let _smelt_external_args = {args_tuple_text}; let _smelt_external = Vec::from([(\"__class\".to_owned(), SmeltUnknown::String({class_name:?}.into()))]); SmeltUnknown::Object(SmeltObject::new(_smelt_external)) }}"
         ))
     }
 }

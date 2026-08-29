@@ -439,7 +439,7 @@ impl FunctionEmitter<'_> {
                 let invocation = self.promise_callback_invocation_with(
                     callback,
                     &callback_expr,
-                    "SmeltUnknown::String(smelt_error.to_string())",
+                    "SmeltUnknown::String(smelt_error.to_string().into())",
                 )?;
                 let default_value = self.default_value(*output_ty)?;
                 Ok(format!(
@@ -2491,7 +2491,7 @@ impl FunctionEmitter<'_> {
                 "value.contains_key(\"__smelt_error\")".to_owned()
             } else {
                 format!(
-                    "matches!(value.get(\"__smelt_error\"), Some(SmeltUnknown::String(smelt_error_class)) if smelt_error_class == {class_name:?})"
+                    "matches!(value.get(\"__smelt_error\"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == {class_name:?})"
                 )
             };
             if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {

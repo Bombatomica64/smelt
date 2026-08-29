@@ -232,7 +232,7 @@ pub fn run_case(name: &str) -> Option<Measurement> {
         "sort_by" => {
             let data: SmeltList<SmeltUnknown> = SmeltList::from(records(N, 8));
             let criteria: SmeltList<SmeltUnknown> =
-                SmeltList::from(vec![SmeltUnknown::String("value".to_owned())]);
+                SmeltList::from(vec![SmeltUnknown::String("value".into())]);
             measure(
                 || entry_sort_by(data.clone(), criteria.clone()),
                 |out| hash_list(0, out),
@@ -254,7 +254,7 @@ pub fn run_case(name: &str) -> Option<Measurement> {
         "camel_case" => {
             let data: Vec<String> = strings(N_STR, 10)
                 .into_iter()
-                .map(|v| match v { SmeltUnknown::String(s) => s, _ => String::new() })
+                .map(|v| match v { SmeltUnknown::String(s) => s.to_string(), _ => String::new() })
                 .collect();
             measure(
                 || data.iter().map(|s| entry_camel_case(s.clone())).collect::<Vec<_>>(),
@@ -270,7 +270,7 @@ pub fn run_case(name: &str) -> Option<Measurement> {
         "kebab_case" => {
             let data: Vec<String> = strings(N_STR, 10)
                 .into_iter()
-                .map(|v| match v { SmeltUnknown::String(s) => s, _ => String::new() })
+                .map(|v| match v { SmeltUnknown::String(s) => s.to_string(), _ => String::new() })
                 .collect();
             measure(
                 || data.iter().map(|s| entry_kebab_case(s.clone())).collect::<Vec<_>>(),

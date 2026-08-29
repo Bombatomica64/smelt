@@ -633,7 +633,7 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // this to the recovery site: an ordinary `new Error(msg)` record built
         // from program values is unaffected and stays classified as it was.
         // Proven in `panic_recovery_payload_is_a_boundary` below.
-        "SmeltUnknown::String(__smelt_error)",
+        "SmeltUnknown::String(__smelt_error",
         // `.slice()` on an erased receiver (a generic `T` / `unknown` value that
         // may be an array, string, or a typed-array/array-buffer marker at
         // runtime) emits a `smelt_slice_value` tag match that dispatches on the
@@ -865,7 +865,7 @@ mod tests {
     /// had.
     #[test]
     fn panic_recovery_payload_is_a_boundary() {
-        let recovery = "            let e = SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"__smelt_error\".to_owned(), SmeltUnknown::String(\"Error\".to_owned())), (\"message\".to_owned(), SmeltUnknown::String(__smelt_error))])));";
+        let recovery = "            let e = SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"__smelt_error\".to_owned(), SmeltUnknown::String(\"Error\".into())), (\"message\".to_owned(), SmeltUnknown::String(__smelt_error.into()))])));";
         assert_eq!(
             classify_line(recovery, false),
             Category::LegitimateBoundary,
@@ -873,7 +873,7 @@ mod tests {
         );
         // The same record shape built from a program value (a source
         // `new Error(message)`) is NOT reclassified by this marker.
-        let program_error = "            let e = SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"__smelt_error\".to_owned(), SmeltUnknown::String(\"Error\".to_owned())), (\"message\".to_owned(), SmeltUnknown::String(message.clone()))])));";
+        let program_error = "            let e = SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"__smelt_error\".to_owned(), SmeltUnknown::String(\"Error\".into())), (\"message\".to_owned(), SmeltUnknown::String(message.clone().into()))])));";
         assert_eq!(
             classify_line(program_error, false),
             Category::AvoidableErasure,

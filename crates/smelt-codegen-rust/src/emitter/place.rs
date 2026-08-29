@@ -949,7 +949,7 @@ impl FunctionEmitter<'_> {
                 let index_text = self
                     .normalized_read_index_text(&format!("{base_text}.chars().count()"), index)?;
                 Ok(Some(format!(
-                    "{base_text}.chars().nth({index_text}).map(|ch| SmeltUnknown::String(ch.to_string())).unwrap_or(SmeltUnknown::Undefined)"
+                    "{base_text}.chars().nth({index_text}).map(|ch| SmeltUnknown::String(ch.to_string().into())).unwrap_or(SmeltUnknown::Undefined)"
                 )))
             }
             _ => Ok(None),
@@ -986,7 +986,7 @@ impl FunctionEmitter<'_> {
                         if smelt_key == "length" {{
                             SmeltUnknown::Number(value.chars().count() as f64)
                         }} else {{
-                            smelt_key.parse::<usize>().ok().and_then(|index| value.chars().nth(index).map(|ch| SmeltUnknown::String(ch.to_string()))).unwrap_or(SmeltUnknown::Undefined)
+                            smelt_key.parse::<usize>().ok().and_then(|index| value.chars().nth(index).map(|ch| SmeltUnknown::String(ch.to_string().into()))).unwrap_or(SmeltUnknown::Undefined)
                         }}
                     }}
                     SmeltUnknown::Array(values) => {{
@@ -1029,7 +1029,7 @@ impl FunctionEmitter<'_> {
                         let len = value.chars().count() as i64;
                         let index = {numeric_index_text} as i64;
                         let normalized = if index < 0 {{ len + index }} else {{ index }};
-                        usize::try_from(normalized).ok().and_then(|index| value.chars().nth(index).map(|ch| SmeltUnknown::String(ch.to_string()))).unwrap_or(SmeltUnknown::Undefined)
+                        usize::try_from(normalized).ok().and_then(|index| value.chars().nth(index).map(|ch| SmeltUnknown::String(ch.to_string().into()))).unwrap_or(SmeltUnknown::Undefined)
                     }}
                     SmeltUnknown::Array(values) => {{
                         let len = values.len() as i64;

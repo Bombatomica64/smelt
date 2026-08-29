@@ -35,8 +35,18 @@ pub(crate) enum GeneratedDep {
 
 /// Generates Cargo.toml content for the given crate name and dependencies.
 #[must_use]
-pub(crate) fn cargo_toml(crate_name: &str, deps_needed: &[GeneratedDep]) -> String {
+pub(crate) fn cargo_toml(
+    crate_name: &str,
+    deps_needed: &[GeneratedDep],
+    allocator: crate::GeneratedAllocator,
+) -> String {
     let mut deps = String::new();
+    // First, so the manifest reads the way the crate root does: the allocator is
+    // installed before anything else runs. `default-features = false` drops
+    // mimalloc's secure and stats builds, which this workload does not use.
+    if allocator == crate::GeneratedAllocator::Mimalloc {
+        deps.push_str("mimalloc = { version = \"0.1\", default-features = false }\n");
+    }
     if deps_needed.contains(&GeneratedDep::Tokio) {
         deps.push_str(
             "tokio = { version = \"1\", features = [\"macros\", \"rt-multi-thread\", \"time\"] }\n",

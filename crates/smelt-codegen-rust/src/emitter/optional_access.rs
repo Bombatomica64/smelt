@@ -429,17 +429,17 @@ impl FunctionEmitter<'_> {
                 let string_some = if self.mir.types.get(result_ty) == Some(&Type::String) {
                     "value.chars().nth(index).map(|ch| ch.to_string())".to_owned()
                 } else {
-                    "value.chars().nth(index).map(|ch| SmeltUnknown::String(ch.to_string()))"
+                    "value.chars().nth(index).map(|ch| SmeltUnknown::String(ch.to_string().into()))"
                         .to_owned()
                 };
                 let array_some = if self.mir.types.get(result_ty) == Some(&Type::String) {
-                    "values.get(index).cloned().map(|value| match value { SmeltUnknown::String(value) => value, other => other.to_string() })".to_owned()
+                    "values.get(index).cloned().map(|value| match value { SmeltUnknown::String(value) => value.to_string(), other => other.to_string() })".to_owned()
                 } else {
                     "values.get(index).cloned()".to_owned()
                 };
                 let object_some = if self.mir.types.get(result_ty) == Some(&Type::String) {
                     format!(
-                        "values.get(&{key_text}).map(|value| match value {{ SmeltUnknown::String(value) => value, other => other.to_string() }})"
+                        "values.get(&{key_text}).map(|value| match value {{ SmeltUnknown::String(value) => value.to_string(), other => other.to_string() }})"
                     )
                 } else {
                     format!("values.get(&{key_text})")

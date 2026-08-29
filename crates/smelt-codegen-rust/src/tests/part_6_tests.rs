@@ -429,7 +429,7 @@ export function fallback(value: unknown): unknown {
 ",
     );
     assert!(
-        source.contains("SmeltUnknown::String(\"fallback\".to_owned())"),
+        source.contains("SmeltUnknown::String(\"fallback\".into())"),
         "{source}"
     );
 }
@@ -710,13 +710,13 @@ function protoDepth(value: object): number {
 
     assert!(
         source.contains(
-            "SmeltUnknown::String(marker) if marker == \"__smelt_proto:object\" => SmeltUnknown::Null"
+            "SmeltUnknown::String(marker) if &**marker == \"__smelt_proto:object\" => SmeltUnknown::Null"
         ),
         "object-prototype sentinel must terminate the chain at Null: {source}"
     );
     assert!(
         source.contains(
-            "if marker == \"__smelt_proto:array\" || marker == \"__smelt_proto:promise\" || marker == \"__smelt_proto:class\" => SmeltUnknown::String(\"__smelt_proto:object\".to_owned())"
+            "if &**marker == \"__smelt_proto:array\" || &**marker == \"__smelt_proto:promise\" || &**marker == \"__smelt_proto:class\" => SmeltUnknown::String(\"__smelt_proto:object\".into())"
         ),
         "array/promise/class sentinels must advance toward Object.prototype: {source}"
     );
@@ -814,7 +814,7 @@ export function erase(value: Alpha): unknown {
     );
 
     assert!(
-        source.contains("\"__smelt_class\".to_owned(), SmeltUnknown::String(\"Alpha\".to_owned())"),
+        source.contains("\"__smelt_class\".to_owned(), SmeltUnknown::String(\"Alpha\".into())"),
         "an erased class instance must record its class name in the marker: {source}"
     );
     // The INSTANCE erasure site must name the class. One nameless marker remains
@@ -905,7 +905,7 @@ function shallowClone(obj: object): object {
     // instance is still classified as a class instance, not a plain object.
     assert!(
         source.contains(
-            "SmeltUnknown::String(sentinel) if sentinel == \"__smelt_proto:class\" => { fields.push((\"__smelt_class\".to_owned(), SmeltUnknown::Bool(true))); }"
+            "SmeltUnknown::String(sentinel) if &*sentinel == \"__smelt_proto:class\" => { fields.push((\"__smelt_class\".to_owned(), SmeltUnknown::Bool(true))); }"
         ),
         "a class prototype must carry the class marker onto the fresh object: {source}"
     );
@@ -1245,6 +1245,7 @@ fn injects_reqwest_dependency_for_http_mapping() {
             GeneratedDep::Tokio,
             GeneratedDep::Stdlib(BackendDependency::Reqwest),
         ],
+        GeneratedAllocator::System,
     );
 
     assert!(manifest.contains("tokio = { version = \"1\""));
@@ -1303,7 +1304,11 @@ fn injects_genawaiter_dependency_for_generator_emission() {
     );
 
     let manifest =
-        deps::cargo_toml(&EmitOptions::default().crate_name, &generated_deps(&mir));
+        deps::cargo_toml(
+            &EmitOptions::default().crate_name,
+            &generated_deps(&mir),
+            GeneratedAllocator::System,
+        );
     assert!(
         manifest.contains("genawaiter = \"0.99.1\""),
         "a crate that emits genawaiter bodies must declare the dependency: {manifest}"
@@ -1396,6 +1401,7 @@ fn injects_serde_json_dependency_for_json_mapping() {
     let manifest = deps::cargo_toml(
         &EmitOptions::default().crate_name,
         &[GeneratedDep::Stdlib(BackendDependency::SerdeJson)],
+        GeneratedAllocator::System,
     );
 
     assert!(manifest.contains("serde_json = \"1\""));
@@ -1406,6 +1412,7 @@ fn injects_rand_dependency_for_random_mapping() {
     let manifest = deps::cargo_toml(
         &EmitOptions::default().crate_name,
         &[GeneratedDep::Stdlib(BackendDependency::Rand)],
+        GeneratedAllocator::System,
     );
 
     assert!(manifest.contains("rand = \"0.9\""));
@@ -1416,6 +1423,7 @@ fn injects_regex_dependency_for_regex_mapping() {
     let manifest = deps::cargo_toml(
         &EmitOptions::default().crate_name,
         &[GeneratedDep::Stdlib(BackendDependency::Regex)],
+        GeneratedAllocator::System,
     );
 
     assert!(manifest.contains("regex = \"1\""));
@@ -1426,6 +1434,7 @@ fn injects_chrono_dependency_for_date_mapping() {
     let manifest = deps::cargo_toml(
         &EmitOptions::default().crate_name,
         &[GeneratedDep::Stdlib(BackendDependency::Chrono)],
+        GeneratedAllocator::System,
     );
 
     assert!(manifest.contains("chrono = \"0.4\""));

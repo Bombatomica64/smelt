@@ -51,6 +51,7 @@ crate-name = "es_toolkit_bench"
 build = false
 
 [rust]
+allocator = "system"
 edition = "2024"
 
 [strict]

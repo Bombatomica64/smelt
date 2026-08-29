@@ -219,7 +219,7 @@ fn emit_construct(writer: &mut CodeWriter) {
     ));
     writer.line("    match kind {");
     // Error: `new Constructor(message, { cause })`.
-    writer.line("        \"error\" => { let mut fields = Vec::from([(\"__smelt_error\".to_owned(), SmeltUnknown::String(\"Error\".to_owned()))]); let mut it = args.into_iter(); if let Some(message) = it.next() { fields.push((\"message\".to_owned(), message)); } if let Some(SmeltUnknown::Object(options)) = it.next() { if let Some(cause) = options.get(\"cause\") { fields.push((\"cause\".to_owned(), cause)); } } SmeltUnknown::Object(SmeltObject::new(fields)) }");
+    writer.line("        \"error\" => { let mut fields = Vec::from([(\"__smelt_error\".to_owned(), SmeltUnknown::String(\"Error\".into()))]); let mut it = args.into_iter(); if let Some(message) = it.next() { fields.push((\"message\".to_owned(), message)); } if let Some(SmeltUnknown::Object(options)) = it.next() { if let Some(cause) = options.get(\"cause\") { fields.push((\"cause\".to_owned(), cause)); } } SmeltUnknown::Object(SmeltObject::new(fields)) }");
     // Byte buffers: length | byte-backed source | element array.
     writer.line(format!(
         "        {plain_byte_kinds} => {{ let marker = {kind_marker_table}.into_iter().find(|(entry, _)| *entry == kind).map_or(\"__smelt_arraybuffer\", |(_, marker)| marker); {construct}(marker, args) }}",
@@ -227,7 +227,7 @@ fn emit_construct(writer: &mut CodeWriter) {
     ));
     // Blob / File: `new Blob(parts, { type })`, `new File(parts, name, { type, lastModified })`.
     writer.line(format!(
-        "        \"blob\" | \"file\" => {{ let mut it = args.into_iter(); let parts = it.next().unwrap_or(SmeltUnknown::Undefined); let (name, options) = if kind == \"file\" {{ let name = it.next().map(|value| value.to_string()); (name, it.next()) }} else {{ (None, it.next()) }}; let option_field = |field: &str| match &options {{ Some(SmeltUnknown::Object(map)) => map.get(field), _ => None }}; let blob_type = match option_field(\"type\") {{ Some(SmeltUnknown::String(text)) => text, _ => String::new() }}; let last_modified = match option_field(\"lastModified\") {{ Some(SmeltUnknown::Number(value)) => Some(value), _ => None }}; {blob}(parts, blob_type, name, last_modified) }}",
+        "        \"blob\" | \"file\" => {{ let mut it = args.into_iter(); let parts = it.next().unwrap_or(SmeltUnknown::Undefined); let (name, options) = if kind == \"file\" {{ let name = it.next().map(|value| value.to_string()); (name, it.next()) }} else {{ (None, it.next()) }}; let option_field = |field: &str| match &options {{ Some(SmeltUnknown::Object(map)) => map.get(field), _ => None }}; let blob_type = match option_field(\"type\") {{ Some(SmeltUnknown::String(text)) => text.to_string(), _ => String::new() }}; let last_modified = match option_field(\"lastModified\") {{ Some(SmeltUnknown::Number(value)) => Some(value), _ => None }}; {blob}(parts, blob_type, name, last_modified) }}",
         blob = host::BLOB_RECORD_FROM_PARTS,
     ));
     writer.line("        _ => smelt_fresh_identity(args.into_iter().next().unwrap_or(SmeltUnknown::Undefined)),");
@@ -294,7 +294,7 @@ fn emit_builtin_namespace(writer: &mut CodeWriter) {
     writer.line("/// through a captured reference constructs instead of answering `null`.");
     writer.line("thread_local! { static SMELT_BUILTIN_NAMESPACES: ::std::cell::RefCell<::std::collections::HashMap<String, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }");
     writer.line(format!(
-        "fn {namespace}(name: &str) -> SmeltUnknown {{ SMELT_BUILTIN_NAMESPACES.with(|cache| cache.borrow_mut().entry(name.to_owned()).or_insert_with(|| {{ let record = SmeltObject::new(Vec::from([(\"__smelt_builtin_namespace\".to_owned(), SmeltUnknown::Bool(true)), (\"name\".to_owned(), SmeltUnknown::String(name.to_owned()))])); if let Some(kind) = smelt_builtin_construct_kind(name) {{ record.insert(\"__smelt_call\".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| Ok({construct}(kind, args))))); }} SmeltUnknown::Object(record) }}).clone()) }}",
+        "fn {namespace}(name: &str) -> SmeltUnknown {{ SMELT_BUILTIN_NAMESPACES.with(|cache| cache.borrow_mut().entry(name.to_owned()).or_insert_with(|| {{ let record = SmeltObject::new(Vec::from([(\"__smelt_builtin_namespace\".to_owned(), SmeltUnknown::Bool(true)), (\"name\".to_owned(), SmeltUnknown::String(name.into()))])); if let Some(kind) = smelt_builtin_construct_kind(name) {{ record.insert(\"__smelt_call\".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| Ok({construct}(kind, args))))); }} SmeltUnknown::Object(record) }}).clone()) }}",
         namespace = host::BUILTIN_NAMESPACE,
         construct = host::REFLECTED_CONSTRUCT,
     ));
