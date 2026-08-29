@@ -264,6 +264,7 @@ impl ModuleBuilder<'_> {
             static_methods: Vec::new(),
             abstract_methods: Vec::new(),
             implements: vec![],
+            protocols: Vec::new(),
         }));
         self.items.insert(class_name_str.to_owned(), class_item_id);
         // Pre-register every method's `ItemId` so a body can call siblings
@@ -601,6 +602,7 @@ impl ModuleBuilder<'_> {
                 .insert(class_name_str.to_owned(), std::mem::take(&mut lowered.enum_members));
         }
 
+        let protocols = self.python_class_protocols(method_ids)?;
         let class_item = Item::Class(Class {
             name: class_sym,
             span,
@@ -616,6 +618,7 @@ impl ModuleBuilder<'_> {
             static_methods: std::mem::take(&mut lowered.static_methods),
             abstract_methods: std::mem::take(&mut lowered.abstract_methods),
             implements: vec![],
+            protocols,
         });
         let class_index = usize::try_from(class_item_id.0).map_err(|err| {
             SmeltError::unsupported(
@@ -1332,6 +1335,42 @@ impl ModuleBuilder<'_> {
             aliases.push(alias_id);
         }
         Ok(aliases)
+    }
+
+    /// Classify typed Python dunder methods for backend trait emission.
+    ///
+    /// Protocol metadata is explicit HIR rather than a backend name check, so a
+    /// TypeScript method that happens to use the same spelling does not acquire
+    /// Python operator semantics. An inherited `__add__` is represented by the
+    /// derived class's typed super alias.
+    fn python_class_protocols(
+        &self,
+        methods: &[ItemId],
+    ) -> Result<Vec<ClassProtocol>, SmeltError> {
+        let named_method = |wanted: &str| {
+            methods.iter().copied().find(|method| {
+                matches!(
+                    self.item_ref(*method),
+                    Item::Function(function)
+                        if self.ctx.krate.symbols.get(function.name) == Some(wanted)
+                )
+            })
+        };
+        let Some(method) = named_method("__add__")
+            .or_else(|| named_method("__smelt$super$__add__"))
+        else {
+            return Ok(Vec::new());
+        };
+        let Item::Function(function) = self.item_ref(method) else {
+            return Ok(Vec::new());
+        };
+        if function.params.len() != 2 || function.is_async {
+            return Err(SmeltError::unsupported(
+                function.span,
+                "Python __add__ must be synchronous and accept exactly one operand",
+            ));
+        }
+        Ok(vec![ClassProtocol::Add { method }])
     }
 
     /// Return a class's effective instance methods under single inheritance.

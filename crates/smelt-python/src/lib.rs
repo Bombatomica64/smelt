@@ -57,12 +57,24 @@ pub trait PyAdd<Rhs = Self> {
     fn py_add(&self, rhs: &Rhs) -> Self::Output;
 }
 
+impl<T, Rhs> PyAdd<Rhs> for T
+where
+    T: Clone + std::ops::Add<Rhs>,
+    Rhs: Clone,
+{
+    type Output = <T as std::ops::Add<Rhs>>::Output;
+
+    fn py_add(&self, rhs: &Rhs) -> Self::Output {
+        self.clone() + rhs.clone()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{PyAdd, PyConstruct, PyInit};
 
     /// Small generated-class analogue used to verify typed initialization.
-    #[derive(Default, Debug, PartialEq)]
+    #[derive(Clone, Default, Debug, PartialEq)]
     struct Point {
         x: i64,
         y: i64,
@@ -75,10 +87,10 @@ mod tests {
         }
     }
 
-    impl PyAdd<Point> for Point {
+    impl std::ops::Add<Point> for Point {
         type Output = Point;
 
-        fn py_add(&self, rhs: &Point) -> Self::Output {
+        fn add(self, rhs: Point) -> Self::Output {
             Point {
                 x: self.x + rhs.x,
                 y: self.y + rhs.y,

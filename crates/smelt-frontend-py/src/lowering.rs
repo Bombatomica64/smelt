@@ -20,6 +20,7 @@ use ruff_python_ast::{
 use ruff_text_size::{Ranged, TextRange};
 use smelt_hir::{
     AsyncOp, BinOp, Body, CallbackExpr, CallbackExprKind, CaptureMode, Class, ClassKind,
+    ClassProtocol,
     ClosureCapture, ConstItem, DictProjectionOp, Expr as HirExpr, ExprKind, Field, FileId,
     Function, FunctionOwner, FunctionType, Import, Item, ItemId, Language, ListCallbackOp, Literal,
     LocalDecl, MatchArm, MethodSig, Module, ModuleId, NumericExtremaOp, NumericPredicateOp,

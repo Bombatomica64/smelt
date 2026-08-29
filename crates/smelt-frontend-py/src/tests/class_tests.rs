@@ -969,6 +969,37 @@ class Empty:
     Ok(())
 }
 
+/// Python `__add__` is recorded as an explicit typed class protocol.
+#[test]
+fn add_dunder_declares_a_typed_class_protocol() -> TestResult {
+    let source = py!(r#"
+class Vector:
+    def __init__(self, x: int) -> None:
+        self.x = x
+    def __add__(self, other: "Vector") -> "Vector":
+        return Vector(self.x + other.x)
+
+def combine(left: Vector, right: Vector) -> Vector:
+    return left + right
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let vector = module
+        .items
+        .iter()
+        .find_map(|item_id| match item(&ctx, *item_id).ok()? {
+            Item::Class(class) if symbol(&ctx, class.name).ok()? == "Vector" => Some(class),
+            _ => None,
+        })
+        .ok_or("expected Vector class")?;
+    ensure(
+        matches!(vector.protocols.as_slice(), [ClassProtocol::Add { .. }]),
+        "expected one typed Add protocol",
+    )?;
+    Ok(())
+}
+
 /// The implicitly declared field carries the parameter's real type, not the
 /// enclosing class's. Passing it to a function typed for the field's class must
 /// type-check.

@@ -79,7 +79,7 @@ use std::{
 
 use crate::type_substitution::TypeSubstitution;
 use smelt_hir::{AsyncOp, BodyId, Type, TypeId};
-use smelt_mir::{HirOrigin, Mir, MirFunction, Rvalue};
+use smelt_mir::{HirOrigin, Mir, MirClassProtocol, MirFunction, Rvalue};
 
 mod byte_buffer_prelude;
 pub(crate) mod classes;
@@ -3818,6 +3818,23 @@ fn emit_source_with_free_function_router(
             }
         }
         out.push_str("}\n");
+        for protocol in &class.protocols {
+            match protocol {
+                MirClassProtocol::Add { method } => {
+                    let function = mir
+                        .functions
+                        .get(id_index(method.0, "add protocol method index does not fit usize")?)
+                        .ok_or_else(|| EmitError::new("add protocol method is missing"))?;
+                    let mut emitter = FunctionEmitter::new(mir, &context, function)?;
+                    emitter.emit_python_add_impl(
+                        &mut out,
+                        &name,
+                        &impl_generics,
+                        &type_args,
+                    )?;
+                }
+            }
+        }
     }
 
     if !has_main_function(mir)? {

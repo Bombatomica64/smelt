@@ -220,6 +220,18 @@ pub struct MirClass {
     pub abstract_methods: Vec<smelt_hir::MethodSig>,
     /// Interfaces this class implements.
     pub implements: Vec<Symbol>,
+    /// Source-language protocols with typed backend mappings.
+    pub protocols: Vec<MirClassProtocol>,
+}
+
+/// A class protocol resolved to MIR function identities.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum MirClassProtocol {
+    /// Python `__add__` implemented by a concrete method.
+    Add {
+        /// MIR function implementing the protocol.
+        method: FuncId,
+    },
 }
 
 /// MIR representation of a materialized typed descriptor.
