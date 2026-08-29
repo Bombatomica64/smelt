@@ -1,6 +1,6 @@
 # Bug-library transpile probes (TypeScript + Python)
 
-_Generated 2026-08-28 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
+_Generated 2026-08-29 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
 
 Each library is checked out at a pinned ref (see `.github/compat/libraries.json`), given its `.github/compat/<name>/Smelt.toml`, and run through `smelt build`. If a crate is emitted, its generated `cargo test` suite is run and counted. Otherwise every source/test file is scanned individually with `smelt dump-hir` to enumerate the full set of distinct blocker classes (single-file mode cannot resolve cross-file imports, so bare `unresolved name/identifier` errors are excluded as scan noise).
 
@@ -12,7 +12,7 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 
 | Library | Lang | Transpile | Tests (pass/fail) | First abort | Blocker classes | Dominant |
 | --- | --- | --- | --- | --- | ---: | --- |
-| [es-toolkit](https://github.com/toss/es-toolkit) | TS | **yes** | 954 / 105 | — | — | — |
+| [es-toolkit](https://github.com/toss/es-toolkit) | TS | **yes** | 961 / 98 | — | — | — |
 | [radash](https://github.com/sodiray/radash) | TS | **yes** | transpiled (counts unparsed) | — | — | — |
 | [ts-pattern](https://github.com/gvergnaud/ts-pattern) | TS | **no** | n/a | `src/internals/helpers.ts` | 11 | non-working Rust (11r/0s) |
 | [valibot](https://github.com/fabian-hiller/valibot) | TS | **no** | n/a | `library/src/storages/globalConfig/globalConfig.ts` | 16 | non-working Rust (15r/1s) |
@@ -21,15 +21,15 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 | [rxjs](https://github.com/ReactiveX/rxjs) | TS | **no** | n/a | `packages/rxjs/spec/Observable-spec.ts` | 23 | non-working Rust (23r/0s) |
 | [returns](https://github.com/dry-python/returns) | PY | **no** | n/a | `(unknown)` | 27 | non-working Rust (27r/0s) |
 | [result](https://github.com/rustedpy/result) | PY | **no** | n/a | `(unknown)` | 6 | non-working Rust (6r/0s) |
-| [more-itertools](https://github.com/more-itertools/more-itertools) | PY | **no** | n/a | `(unknown)` | 22 | non-working Rust (22r/0s) |
+| [more-itertools](https://github.com/more-itertools/more-itertools) | PY | **no** | n/a | `(unknown)` | 23 | non-working Rust (23r/0s) |
 | [funcy](https://github.com/Suor/funcy) | PY | **no** | n/a | `(unknown)` | 16 | non-working Rust (16r/0s) |
-| [toolz](https://github.com/pytoolz/toolz) | PY | **no** | n/a | `(unknown)` | 15 | non-working Rust (15r/0s) |
+| [toolz](https://github.com/pytoolz/toolz) | PY | **no** | n/a | `(unknown)` | 16 | non-working Rust (16r/0s) |
 
 ## es-toolkit
 
 - Source: `toss/es-toolkit` @ `e008a2818cd8`
 - Transpile: **yes** — Rust crate emitted
-- Generated `cargo test`: **954 passed / 105 failed**
+- Generated `cargo test`: **961 passed / 98 failed**
 
 ## radash
 
@@ -42,7 +42,7 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 - Source: `gvergnaud/ts-pattern` @ `c92ca435c7e1`
 - Transpile: **no** — `smelt build` aborts at `src/internals/helpers.ts`
 - Tests passing: **n/a** (no Rust crate emitted)
-- Files scanned: 68 · with blockers: 18
+- Files scanned: 68 · with blockers: 17
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
@@ -186,9 +186,10 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
-| 83 | 3 | non-working Rust | only calls to top-level functions, class constructors, and print() are supported |
 | 62 | 3 | non-working Rust | parameter 'X' must have an explicit type annotation |
 | 56 | 3 | non-working Rust | function 'X' must have an explicit return type annotation |
+| 52 | 2 | non-working Rust | unknown class field `X` |
+| 31 | 3 | non-working Rust | only calls to top-level functions, class constructors, and print() are supported |
 | 18 | 2 | non-working Rust | parameter 'X' in 'X' must have a type annotation |
 | 4 | 2 | non-working Rust | nested closure bodies need a single return expression |
 | 3 | 1 | non-working Rust | lambda expressions need an expected `X` type from their context (annotate the assignment t |
@@ -199,7 +200,6 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 | 2 | 1 | non-working Rust | integer literal out of i64 range |
 | 1 | 1 | non-working Rust | definition-time metaprogramming for 'X' requires host-runtime specialization |
 | 1 | 1 | non-working Rust | class 'X': class-level assignment must be a single name bound to a literal |
-| 1 | 1 | non-working Rust | nested closure parameters must have explicit type annotations |
 
 ## funcy
 
@@ -241,13 +241,13 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 | 7 | 4 | non-working Rust | nested class definitions are not yet supported |
 | 5 | 2 | non-working Rust | only `X` deletion is supported |
 | 5 | 3 | non-working Rust | parameter 'X' in 'X' must have a type annotation |
-| 3 | 2 | non-working Rust | container constructors do not support keyword arguments yet |
 | 3 | 3 | non-working Rust | definition-time metaprogramming for 'X' requires host-runtime specialization |
+| 2 | 1 | non-working Rust | container constructors do not support keyword arguments yet |
 | 2 | 1 | non-working Rust | class 'X': class-level assignment must be a single name bound to a literal |
 | 2 | 2 | non-working Rust | lambda expressions need an expected `X` type from their context (annotate the assignment t |
 | 1 | 1 | non-working Rust | dict.update() requires exactly one dict argument |
 | 1 | 1 | non-working Rust | sorted() currently supports exactly one list argument |
-| 1 | 1 | non-working Rust | nested closure bodies need a single return expression |
+| 1 | 1 | non-working Rust | unknown class field `X` |
 
 ## Highest-leverage transpiler gaps (non-working Rust)
 
@@ -255,7 +255,7 @@ Lowering gaps blocking more than one probed library; fixing these unlocks the mo
 
 | Libraries hit | Total occ. | Blocker class |
 | ---: | ---: | --- |
-| 5 (funcy, more-itertools, result, returns, toolz) | 444 | only calls to top-level functions, class constructors, and print() are supported |
+| 5 (funcy, more-itertools, result, returns, toolz) | 392 | only calls to top-level functions, class constructors, and print() are supported |
 | 5 (funcy, more-itertools, result, returns, toolz) | 279 | function 'X' must have an explicit return type annotation |
 | 5 (funcy, more-itertools, result, returns, toolz) | 75 | definition-time metaprogramming for 'X' requires host-runtime specialization |
 | 5 (funcy, more-itertools, result, returns, toolz) | 23 | nested closure bodies need a single return expression |
@@ -263,6 +263,7 @@ Lowering gaps blocking more than one probed library; fixing these unlocks the mo
 | 4 (funcy, more-itertools, returns, toolz) | 67 | nested closure parameters must have explicit type annotations |
 | 4 (funcy, more-itertools, returns, toolz) | 28 | parameter 'X' in 'X' must have a type annotation |
 | 4 (funcy, more-itertools, returns, toolz) | 11 | lambda expressions need an expected `X` type from their context (annotate the assignment target or c |
+| 3 (more-itertools, returns, toolz) | 69 | unknown class field `X` |
 | 3 (funcy, more-itertools, toolz) | 4 | class 'X': class-level assignment must be a single name bound to a literal |
 | 2 (funcy, returns) | 46 | callback expression is not supported yet |
 | 2 (funcy, toolz) | 20 | nested class definitions are not yet supported |
