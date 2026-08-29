@@ -1,7 +1,8 @@
 # es-toolkit generated suite — remaining-failure triage
 
-Baseline at the start of this pass: **909 passed / 150 failed**. Now: **928 passed / 131 failed** (matches
-`blocker-logs/es-toolkit-ci-baseline.json`'s pinned ref `e008a2818cd8`).
+Baseline at the start of this pass: **909 passed / 150 failed**. Now: **957 passed / 102 failed**
+(measured on `cb5cf1b` plus the `Function.prototype.apply` lowering; `main` at
+`cb5cf1b` alone is 954/105).
 
 Reproduce with:
 
@@ -205,7 +206,28 @@ Both were passing for the wrong reason and now fail honestly:
   `Array(1000)...` and `Array(999)...` were empty, so the assertion compared
   `[]` to `[]`.
 
-## `throw new Error(...)` discards the Error object (largest single remaining root)
+## RESOLVED: `throw new Error(...)` discards the Error object
+
+**This root is fixed on `main` as of `cb5cf1b`** — it was still open when the
+note below was written. `src/chunk.ts:26` now emits
+
+```rust
+smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record(SmeltRecord::from([
+    ("__smelt_error".to_owned(), SmeltUnknown::String("Error".to_owned())),
+    ("message".to_owned(), SmeltUnknown::String("Size must be an integer greater than zero.".to_owned())),
+]))))
+```
+
+so thrown values do carry the error object. The 3400-odd remaining
+`smelt_throw(SmeltUnknown::String` sites are the TEST HARNESS's own assertion
+failures, not library `throw`s — the original `grep -c` did not separate the
+two, which is what made the count look total. Anything still failing in the
+promise/util/error areas needs re-triaging against a fresh run rather than
+being attributed here.
+
+The original note follows.
+
+### Superseded: `throw new Error(...)` discards the Error object (largest single remaining root)
 
 Found by reading generated code, not yet fixed. Every `throw` in the generated
 crate collapses its operand to a bare message string:
@@ -401,3 +423,70 @@ there) instead of being diagnosed, and the wrong value then flows into a
 call or a comparison. The in-flight function-statics work adds a diagnostic
 for the function-receiver case; the same treatment for unmodeled string
 methods would have surfaced this immediately rather than at runtime.
+
+
+## `Function.prototype.apply` had no lowering arm (FIXED)
+
+Found by reading generated code for `flow`, then reduced to a two-line repro.
+`fn.apply(thisArg, argsArray)` fell through the static-member dispatch to the
+field-read path, resolved `apply` as an ABSENT member, and lowered to a bare
+`SmeltUnknown::Null` — silently, with no diagnostic. `flow`'s generated body:
+
+```rust
+let _smelt_tmp_4: f64 = funcs.len() as f64;
+let _smelt_tmp_5: bool = _smelt_tmp_4.clone() != 0.0;
+if _smelt_tmp_5.clone() {
+    _smelt_tmp_6 = SmeltUnknown::Null;   // <-- funcs[0].apply(this, args)
+    result = _smelt_tmp_6.clone();
+```
+
+`.call` in the loop directly below it lowered correctly, which is what made the
+failure look like a composition bug rather than a missing member.
+
+This is the third independent instance of the same meta-defect recorded in this
+log: **an unmodeled member silently becomes a value** instead of being
+diagnosed (the others were function props and `localeCompare`). Worth a
+systematic sweep rather than another one-off.
+
+Fixed by an `apply` arm mirroring the existing `call` arm, spreading the
+trailing array through `ClosureCallSpread`. Moved 3 tests (105 -> 102):
+`flow`/`flowRight` "should supply each function with the return value of the
+previous" and `throttle` "should call the function with correct arguments".
+Also removed a latent miscompile: `.apply` on a callable object previously
+emitted a direct `__smelt_call` struct-field read that computed the wrong value
+at runtime, and did not compile at all when the interface lowered to a newtype.
+
+### Still open in the `flow`/`partial` cluster (13 tests)
+
+`.apply` was NOT the shared root of this cluster — the remaining failures split
+into at least four distinct roots, verified from their assertion messages:
+
+- **curry placeholders** (~8): `flow`/`flowRight` "should work with a curried
+  function and `_.head`" / "with curried functions with placeholders",
+  `partial`/`partialRight` "should work with curried functions" / "with
+  placeholders and curried functions", `partialRight` "supports placeholders".
+- **`fn.length`** (2): `partial`/`partialRight` "creates a function with a
+  length of 0" — `expect(par.length).toBe(0)`.
+- **`new par() instanceof Foo`** (2): `partial`/`partialRight` "ensures new par
+  is an instance of func" — construction through a partially-applied function.
+- **`this` context** (1): `flow` "should preserve this context",
+  `combined.call(obj, 1, 2)`.
+
+### Separately confirmed: callable-object construction via a function-static assign
+
+Reduced while building an `.apply` repro, and PRE-EXISTING on `main` (verified
+with the change stashed). This source:
+
+```ts
+interface Callable { (x: number, y: number): number; tag(): string; }
+const fn = ((x: number, y: number) => x + y) as Callable;
+fn.tag = () => 'tag';
+return fn;
+```
+
+lowers `Callable` to a NEWTYPE (`available field is: 0`) while the call site
+still emits `c.__smelt_call`, so it fails to compile with E0609 — even for a
+plain direct call, before `.apply` is involved. Building the same value with
+`Object.assign` instead lowers correctly and passes. So the defect is in the
+`as`-cast + function-static-assign construction path, not in the callable
+interface itself.
