@@ -8,18 +8,17 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let span = self.span(call.range());
 
-        // `super().<method>(..)` never reaches here as a derived constructor's
+        // `super().__init__(..)` never reaches here as a derived constructor's
         // base initialization — that is intercepted as a statement, where the
-        // enclosing block is known (`super_init_statement`). Anything left is
-        // either a `super()` method call, which flattening cannot dispatch, or
-        // `super().__init__(..)` used in a value position. Both get a specific
-        // message instead of the generic unsupported-call catch-all.
+        // enclosing block is known (`super_init_statement`). Ordinary methods
+        // target reserved immediate-base aliases on the flattened class.
         if let Some(method) = Self::super_receiver_method(call) {
+            if method != "__init__" {
+                return self.super_method_call_expression(call, method, body);
+            }
             return Err(SmeltError::unsupported(
                 span,
-                format!(
-                    "super().{method}() is not supported yet; only super().__init__() is lowered"
-                ),
+                "super().__init__() cannot be used as a value expression",
             ));
         }
 
@@ -58,6 +57,86 @@ impl ModuleBuilder<'_> {
             span,
             "only calls to top-level functions, class constructors, and print() are supported",
         ))
+    }
+
+    /// Lower an ordinary zero-argument-`super()` method call.
+    ///
+    /// Generated subclasses flatten their base fields and carry each immediate
+    /// base implementation under a collision-free synthetic alias. Calling it on
+    /// `self` preserves concrete types while bypassing an override.
+    fn super_method_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        method: &str,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(call.range());
+        if !call.arguments.keywords.is_empty() {
+            return Err(SmeltError::unsupported(
+                span,
+                "super() method keyword arguments are not supported yet",
+            ));
+        }
+        let Some(&self_local) = self.locals.get("self") else {
+            return Err(SmeltError::unsupported(
+                span,
+                "super() method calls require a `self` receiver",
+            ));
+        };
+        let class_ty = Self::local_ty(body, self_local);
+        let Some(Type::Class { name: class_sym, .. }) =
+            self.ctx.krate.types.get(class_ty).cloned()
+        else {
+            return Err(SmeltError::unsupported(
+                span,
+                "super() method calls require a class receiver",
+            ));
+        };
+        let Some(base_sym) = self.class_base_symbol(class_sym) else {
+            return Err(SmeltError::unsupported(
+                span,
+                "super() method calls require the enclosing class to declare a base class",
+            ));
+        };
+        let Some(base_name) = self.ctx.krate.symbols.get(base_sym).map(ToOwned::to_owned) else {
+            return Err(SmeltError::unsupported(span, "super() base class is not resolvable"));
+        };
+        let Some(method_id) = self.class_method_item_by_name(&base_name, method) else {
+            return Err(SmeltError::unsupported(
+                span,
+                format!("base class `{base_name}` has no method `{method}`"),
+            ));
+        };
+        let return_ty = match self.item_ref(method_id) {
+            Item::Function(function) => function.return_ty,
+            _ => {
+                return Err(SmeltError::unsupported(
+                    span,
+                    "super() method target is not callable",
+                ));
+            }
+        };
+        let receiver = body.push_expr(HirExpr {
+            kind: ExprKind::Local(self_local),
+            ty: class_ty,
+            span,
+        });
+        let args = call
+            .arguments
+            .args
+            .iter()
+            .map(|arg| self.expression(arg, body))
+            .collect::<Result<Vec<_>, _>>()?;
+        let alias = self.intern_name(&format!("__smelt$super${method}"));
+        Ok(body.push_expr(HirExpr {
+            kind: ExprKind::Method {
+                receiver,
+                method: alias,
+                args,
+            },
+            ty: return_ty,
+            span,
+        }))
     }
 
     /// Try stdlib module / interop call handlers (file IO, datetime, urlparse,

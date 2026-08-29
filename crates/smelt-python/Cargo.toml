@@ -1,0 +1,16 @@
+[package]
+name = "smelt-python"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Typed Rust protocol traits for Python semantics in Smelt-generated code."
+keywords = ["smelt", "python", "traits", "transpiler"]
+categories = ["compilers", "development-tools"]
+publish = true
+
+[lints]
+workspace = true

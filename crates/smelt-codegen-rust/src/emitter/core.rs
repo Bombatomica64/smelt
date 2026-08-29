@@ -61,6 +61,7 @@ impl<'mir> FunctionEmitter<'mir> {
             termination_cache: RefCell::new(HashMap::new()),
             loop_exit_cache: RefCell::new(HashMap::new()),
             borrowed_callback_names: HashSet::new(),
+            by_reference_param_locals: HashSet::new(),
             record_conversion_stack: RefCell::new(Vec::new()),
             type_expansion_stack: RefCell::new(Vec::new()),
             none_ty,
@@ -1630,7 +1631,6 @@ impl<'mir> FunctionEmitter<'mir> {
     }
 
     /// Emits a method or constructor definition.
-    /// Emits a method or constructor definition.
     pub(crate) fn emit_method(&mut self, out: &mut String) -> Result<(), EmitError> {
         match self.function.origin {
             HirOrigin::ClassConstructor { .. } => {
@@ -1796,6 +1796,38 @@ impl<'mir> FunctionEmitter<'mir> {
         Ok(())
     }
 
+    /// Emit Rust's typed `Add<Rhs>` adapter for a Python `__add__` protocol.
+    ///
+    /// The source method remains the canonical implementation. Rust operator
+    /// syntax consumes cloned operands at generated call sites, while the
+    /// inherent Python method continues to borrow `self`; the adapter bridges
+    /// those ownership conventions without dynamic dispatch or erasure.
+    pub(crate) fn emit_python_add_impl(
+        &mut self,
+        out: &mut String,
+        class_name: &str,
+        impl_generics: &str,
+        type_args: &str,
+    ) -> Result<(), EmitError> {
+        let [_, rhs, ..] = self.function.params.as_slice() else {
+            return Err(EmitError::new(
+                "Python __add__ protocol method is missing its operand parameter",
+            ));
+        };
+        let HirOrigin::ClassMethod { method, .. } = self.function.origin else {
+            return Err(EmitError::new(
+                "Python __add__ protocol target is not an instance method",
+            ));
+        };
+        let rhs_ty = self.parameter_decl_type_text(*rhs)?;
+        let output_ty = self.return_type_text(self.function.return_ty)?;
+        let method_name = sanitize_ident(self.symbol_name(method)?);
+        out.push_str(&format!(
+            "\nimpl{impl_generics} ::std::ops::Add<{rhs_ty}> for {class_name}{type_args} {{\n    type Output = {output_ty};\n    fn add(self, rhs: {rhs_ty}) -> Self::Output {{ self.{method_name}(rhs) }}\n}}\n"
+        ));
+        Ok(())
+    }
+
     /// Emits the body of an async method under the owned-self transform.
     ///
     /// The signature (`fn m(&self, ..) -> SmeltFuture<T>`) has already been
@@ -1861,6 +1893,7 @@ impl<'mir> FunctionEmitter<'mir> {
             termination_cache: RefCell::new(HashMap::new()),
             loop_exit_cache: RefCell::new(HashMap::new()),
             borrowed_callback_names: HashSet::new(),
+            by_reference_param_locals: HashSet::new(),
             record_conversion_stack: RefCell::new(Vec::new()),
             type_expansion_stack: RefCell::new(Vec::new()),
             none_ty: ty,
@@ -1916,6 +1949,7 @@ impl<'mir> FunctionEmitter<'mir> {
             termination_cache: RefCell::new(HashMap::new()),
             loop_exit_cache: RefCell::new(HashMap::new()),
             borrowed_callback_names: HashSet::new(),
+            by_reference_param_locals: HashSet::new(),
             record_conversion_stack: RefCell::new(Vec::new()),
             type_expansion_stack: RefCell::new(Vec::new()),
             none_ty: ty,
@@ -1961,6 +1995,7 @@ impl<'mir> FunctionEmitter<'mir> {
             termination_cache: RefCell::new(HashMap::new()),
             loop_exit_cache: RefCell::new(HashMap::new()),
             borrowed_callback_names: HashSet::new(),
+            by_reference_param_locals: HashSet::new(),
             record_conversion_stack: RefCell::new(Vec::new()),
             type_expansion_stack: RefCell::new(Vec::new()),
             none_ty: ty,
@@ -2002,6 +2037,7 @@ impl<'mir> FunctionEmitter<'mir> {
             termination_cache: RefCell::new(HashMap::new()),
             loop_exit_cache: RefCell::new(HashMap::new()),
             borrowed_callback_names: HashSet::new(),
+            by_reference_param_locals: HashSet::new(),
             record_conversion_stack: RefCell::new(Vec::new()),
             type_expansion_stack: RefCell::new(Vec::new()),
             none_ty: ty,
@@ -2085,6 +2121,50 @@ impl<'mir> FunctionEmitter<'mir> {
     /// text: `&self` methods qualify, `into_*`/`push`/assignment do not. `Move`
     /// operands already elide the clone in `operand_text`, so this only changes
     /// `Copy` reads.
+    /// Render one argument for a parameter the callee takes by shared reference.
+    ///
+    /// When the argument already has the parameter's type the place is borrowed
+    /// directly — that is the whole point of the by-reference parameter, and it
+    /// is what removes the per-element deep copy. A place that is ALREADY a
+    /// shared reference in the emitted Rust (a callback parameter spelled `name:
+    /// &T`, see [`Self::operand_renders_as_shared_reference`]) is passed
+    /// straight through: borrowing it again would hand the callee a `&&T` that
+    /// only compiles because Rust deref-coerces it away, and a hand-writing Rust
+    /// team would not spell that. When a coercion is needed, the coerced
+    /// temporary is referenced instead; Rust extends its lifetime to the end of
+    /// the statement, so `&(expr)` is valid even though the value is unnamed.
+    pub(super) fn shared_reference_argument_text(
+        &self,
+        arg: &Operand,
+        target_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        if self.operand_ty(arg)? != target_ty {
+            return Ok(format!("&({})", self.value_at_type(arg, target_ty)?));
+        }
+        let borrowed = self.operand_borrow_text(arg)?;
+        if self.operand_renders_as_shared_reference(arg) {
+            Ok(borrowed)
+        } else {
+            Ok(format!("&{borrowed}"))
+        }
+    }
+
+    /// Whether an operand's emitted Rust text is already a `&T`.
+    ///
+    /// Only a parameter binding recorded in
+    /// [`FunctionEmitter::by_reference_param_locals`] qualifies: a closure whose
+    /// contextual `dyn Fn` passes a parameter by shared reference spells that
+    /// parameter `name: &T` while MIR keeps typing the local as the bare `T`. A
+    /// projection off such a place reads through the reference and yields an
+    /// owned place again, so only the bare local is answered `true`.
+    pub(super) fn operand_renders_as_shared_reference(&self, operand: &Operand) -> bool {
+        matches!(
+            operand,
+            Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))
+                if self.by_reference_param_locals.contains(local)
+        )
+    }
+
     pub(super) fn operand_borrow_text(&self, operand: &Operand) -> Result<String, EmitError> {
         // A folded throw payload is rendered as the expression it was assigned
         // rather than as a place, so there is no clone to elide; defer to the

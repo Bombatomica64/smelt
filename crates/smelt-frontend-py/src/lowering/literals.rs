@@ -536,6 +536,9 @@ impl ModuleBuilder<'_> {
         let rhs = self.expression(&b.right, body)?;
         let ty = if result_is_bool {
             self.intern_type(Type::Bool)
+        } else if op == BinOp::Add {
+            self.python_add_return_ty(Self::expr_ty(body, lhs))
+                .unwrap_or_else(|| Self::expr_ty(body, lhs))
         } else {
             Self::expr_ty(body, lhs)
         };
@@ -544,6 +547,23 @@ impl ModuleBuilder<'_> {
             ty,
             span,
         }))
+    }
+
+    /// Return the concrete output type declared by a class's Python `__add__`.
+    fn python_add_return_ty(&self, lhs_ty: TypeId) -> Option<TypeId> {
+        let Type::Class { name, .. } = self.ctx.krate.types.get(lhs_ty)? else {
+            return None;
+        };
+        let class = self.ctx.krate.items.iter().find_map(|item| match item {
+            Item::Class(class) if class.name == *name => Some(class),
+            _ => None,
+        })?;
+        class.protocols.iter().find_map(|protocol| match protocol {
+            ClassProtocol::Add { method } => match self.item_ref(*method) {
+                Item::Function(function) => Some(function.return_ty),
+                _ => None,
+            },
+        })
     }
 
     /// Lower a boolean operator or Python's value-returning `or` fallback.
