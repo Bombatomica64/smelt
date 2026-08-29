@@ -9,7 +9,8 @@
 use smelt_frontend_ts::{HirCtx, to_hir};
 use smelt_hir::FileId;
 
-use super::{ListLocalClass, analyze_list_escapes};
+use super::summary::{CallSummaries, FunctionSummary};
+use super::{FunctionBody, ListLocalClass, analyze_body, analyze_list_escapes};
 use crate::{BodyKey, EscapeReason, Mir, lower_hir, opt};
 
 /// Lower TypeScript source to optimized MIR, panicking with context on failure.
@@ -83,12 +84,14 @@ fn list_stored_into_an_object_is_escaping() {
 }
 
 #[test]
-fn list_passed_to_a_call_is_escaping() {
+fn list_passed_to_a_retaining_call_is_escaping() {
+    // `keep` hands its parameter straight back, so the caller's buffer really
+    // is observable after the call returns.
     let (class, reason) = class_of(
-        "function total(values: number[]): number { return values.length; }\n\
+        "function keep(values: number[]): number[] { return values; }\n\
          export function run(): number {\n\
          \x20 const numbers: number[] = [1, 2, 3];\n\
-         \x20 return total(numbers);\n\
+         \x20 return keep(numbers).length;\n\
          }\n",
         "run",
         "numbers",
@@ -280,4 +283,310 @@ fn every_body_reports_each_list_local_exactly_once() {
         seen.dedup();
         assert_eq!(before, seen.len(), "duplicate facts in `{}`", body.name);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Interprocedural summaries
+// ---------------------------------------------------------------------------
+
+/// The computed summary of the function named `function`.
+///
+/// Panics when no such function exists, so a fixture that stops producing the
+/// body it is about fails loudly.
+fn summary_of(source: &str, function: &str) -> FunctionSummary {
+    let mir = mir_of(source);
+    let summaries = CallSummaries::compute(&mir);
+    for (index, candidate) in mir.functions.iter().enumerate() {
+        if mir.symbols.get(candidate.name) == Some(function) {
+            return summaries
+                .resolved(crate::FuncId(u32::try_from(index).expect("function index fits u32")))
+                .unwrap_or_else(|| panic!("`{function}` has no usable summary"))
+                .clone();
+        }
+    }
+    panic!("no function named `{function}`");
+}
+
+/// The class of `binding` in `function` when every call is treated as an
+/// unknown callee, i.e. with the purely per-body analysis.
+///
+/// Pairs with [`class_of`] so a test can pin that a verdict really moved
+/// *because* of the interprocedural summaries and not for some other reason.
+fn per_body_class_of(source: &str, function: &str, binding: &str) -> ListLocalClass {
+    let mir = mir_of(source);
+    let summaries = CallSummaries::none(&mir);
+    for candidate in &mir.functions {
+        if mir.symbols.get(candidate.name) != Some(function) {
+            continue;
+        }
+        let body = FunctionBody::from_function(candidate);
+        for fact in analyze_body(&mir, &summaries, &body) {
+            if fact.name.as_deref() == Some(binding) {
+                return fact.class;
+            }
+        }
+    }
+    panic!("no list local named `{binding}` in `{function}`");
+}
+
+#[test]
+fn a_callee_that_retains_its_parameter_reports_the_parameter_as_escaping() {
+    let summary = summary_of(
+        "export function keep(values: number[]): number[] { return values; }\n",
+        "keep",
+    );
+    assert_eq!(summary.param_escapes, vec![true]);
+}
+
+#[test]
+fn a_callee_that_only_reads_its_parameter_reports_it_as_confined() {
+    let summary = summary_of(
+        "export function total(values: number[]): number { return values.length; }\n",
+        "total",
+    );
+    assert_eq!(summary.param_escapes, vec![false]);
+    assert_eq!(summary.param_mutated, vec![false]);
+}
+
+#[test]
+fn an_argument_to_a_non_retaining_callee_is_confined_in_the_caller() {
+    // The whole point of the summaries: per-body this is `escaping` with reason
+    // `call-argument`, and `total` provably keeps no handle.
+    let source = "function total(values: number[]): number { return values.length; }\n\
+                  export function run(): number {\n\
+                  \x20 const numbers: number[] = [1, 2, 3];\n\
+                  \x20 return total(numbers);\n\
+                  }\n";
+    assert_eq!(
+        per_body_class_of(source, "run", "numbers"),
+        ListLocalClass::Escaping,
+        "the per-body analysis must still be pessimistic here"
+    );
+    let (class, reason) = class_of(source, "run", "numbers");
+    assert_eq!(class, ListLocalClass::LocalImmutable);
+    assert_eq!(reason, None);
+}
+
+#[test]
+fn a_callee_that_mutates_its_parameter_marks_the_argument_mutated() {
+    // Not an escape — but the caller must still count the write, or the
+    // immutable/mutated split would under-report in-place mutation.
+    let summary = summary_of(
+        "export function seed(values: number[]): void { values.push(1); }\n",
+        "seed",
+    );
+    assert_eq!(summary.param_escapes, vec![false]);
+    assert_eq!(summary.param_mutated, vec![true]);
+
+    let (class, _) = class_of(
+        "function seed(values: number[]): void { values.push(1); }\n\
+         export function run(): number {\n\
+         \x20 const numbers: number[] = [];\n\
+         \x20 seed(numbers);\n\
+         \x20 return numbers.length;\n\
+         }\n",
+        "run",
+        "numbers",
+    );
+    assert_eq!(class, ListLocalClass::LocalMutated);
+}
+
+#[test]
+fn a_fresh_list_returned_by_a_callee_is_confined_in_the_caller() {
+    let source = "function make(count: number): number[] {\n\
+                  \x20 const acc: number[] = [];\n\
+                  \x20 acc.push(count);\n\
+                  \x20 return acc;\n\
+                  }\n\
+                  export function run(): number {\n\
+                  \x20 const numbers = make(3);\n\
+                  \x20 numbers.push(4);\n\
+                  \x20 return numbers.length;\n\
+                  }\n";
+    assert!(summary_of(source, "make").returns_fresh_list);
+    assert_eq!(
+        per_body_class_of(source, "run", "numbers"),
+        ListLocalClass::Escaping,
+        "the per-body analysis must still be pessimistic here"
+    );
+    let (class, reason) = class_of(source, "run", "numbers");
+    assert_eq!(class, ListLocalClass::LocalMutated);
+    assert_eq!(reason, None);
+}
+
+#[test]
+fn a_callee_that_hands_back_a_container_element_does_not_return_a_fresh_list() {
+    // `rows[0]` is a handle on a buffer that still lives inside `rows`, so the
+    // caller is not its only owner.
+    let source = "function pick(rows: number[][]): number[] { return rows[0]; }\n\
+                  export function run(rows: number[][]): number {\n\
+                  \x20 const row = pick(rows);\n\
+                  \x20 return row.length;\n\
+                  }\n";
+    assert!(!summary_of(source, "pick").returns_fresh_list);
+    let (class, reason) = class_of(source, "run", "row");
+    assert_eq!(class, ListLocalClass::Escaping);
+    assert_eq!(reason, Some(EscapeReason::UnprovenDefinition));
+}
+
+#[test]
+fn mutual_recursion_terminates_and_confines_a_read_only_argument() {
+    // Two bodies that call each other. Starting optimistic and rising to the
+    // least fixpoint has to terminate here, and the answer has to be the
+    // correct one: neither body keeps a handle.
+    let source = "function even(values: number[], n: number): number {\n\
+                  \x20 if (n <= 0) { return values.length; }\n\
+                  \x20 return odd(values, n - 1);\n\
+                  }\n\
+                  function odd(values: number[], n: number): number {\n\
+                  \x20 if (n <= 0) { return 0; }\n\
+                  \x20 return even(values, n - 1);\n\
+                  }\n\
+                  export function run(): number {\n\
+                  \x20 const numbers: number[] = [1, 2, 3];\n\
+                  \x20 return even(numbers, 4);\n\
+                  }\n";
+    assert_eq!(summary_of(source, "even").param_escapes[0], false);
+    assert_eq!(summary_of(source, "odd").param_escapes[0], false);
+    let (class, _) = class_of(source, "run", "numbers");
+    assert_eq!(class, ListLocalClass::LocalImmutable);
+}
+
+#[test]
+fn mutual_recursion_propagates_a_real_escape_through_the_cycle() {
+    // The sound half of the pair above: `odd` publishes the array into a
+    // container it returns, and the fixpoint has to carry that back through
+    // `even` to the call site.
+    let source = "function even(values: number[], n: number): number[][] {\n\
+                  \x20 if (n <= 0) { return []; }\n\
+                  \x20 return odd(values, n - 1);\n\
+                  }\n\
+                  function odd(values: number[], n: number): number[][] {\n\
+                  \x20 if (n <= 0) { return [values]; }\n\
+                  \x20 return even(values, n - 1);\n\
+                  }\n\
+                  export function run(): number {\n\
+                  \x20 const numbers: number[] = [1, 2, 3];\n\
+                  \x20 return even(numbers, 4).length;\n\
+                  }\n";
+    assert_eq!(summary_of(source, "odd").param_escapes[0], true);
+    assert_eq!(
+        summary_of(source, "even").param_escapes[0],
+        true,
+        "the escape has to travel back around the cycle"
+    );
+    let (class, reason) = class_of(source, "run", "numbers");
+    assert_eq!(class, ListLocalClass::Escaping);
+    assert_eq!(reason, Some(EscapeReason::CallArgument));
+}
+
+#[test]
+fn self_recursion_returning_a_fresh_list_stays_fresh() {
+    // The `returns_fresh_list` half of the fixpoint. Every base case mints a
+    // buffer, so the recursive case inherits freshness rather than poisoning it.
+    let source = "function build(n: number): number[] {\n\
+                  \x20 if (n <= 0) { return []; }\n\
+                  \x20 return build(n - 1);\n\
+                  }\n\
+                  export function run(): number {\n\
+                  \x20 const numbers = build(3);\n\
+                  \x20 return numbers.length;\n\
+                  }\n";
+    assert!(summary_of(source, "build").returns_fresh_list);
+    let (class, _) = class_of(source, "run", "numbers");
+    assert_eq!(class, ListLocalClass::LocalImmutable);
+}
+
+#[test]
+fn self_recursion_whose_base_case_leaks_makes_the_result_unproven() {
+    // The sound counterpart: one base case hands back a buffer that also lives
+    // inside its argument, and the recursion inherits that.
+    let source = "function build(rows: number[][], n: number): number[] {\n\
+                  \x20 if (n <= 0) { return rows[0]; }\n\
+                  \x20 return build(rows, n - 1);\n\
+                  }\n\
+                  export function run(rows: number[][]): number {\n\
+                  \x20 const numbers = build(rows, 3);\n\
+                  \x20 return numbers.length;\n\
+                  }\n";
+    assert!(!summary_of(source, "build").returns_fresh_list);
+    let (class, reason) = class_of(source, "run", "numbers");
+    assert_eq!(class, ListLocalClass::Escaping);
+    assert_eq!(reason, Some(EscapeReason::UnprovenDefinition));
+}
+
+#[test]
+fn a_closure_call_is_an_unknown_callee_and_its_argument_escapes() {
+    // Nothing names the body a closure value will run, so no summary applies.
+    let (class, reason) = class_of(
+        "export function run(): number {\n\
+         \x20 const numbers: number[] = [1, 2, 3];\n\
+         \x20 const total = (values: number[]): number => values.length;\n\
+         \x20 return total(numbers);\n\
+         }\n",
+        "run",
+        "numbers",
+    );
+    assert_eq!(class, ListLocalClass::Escaping);
+    assert_eq!(reason, Some(EscapeReason::CallArgument));
+}
+
+#[test]
+fn the_fixpoint_visits_every_resolvable_body_at_least_once() {
+    // Termination is proven by this test returning at all; the count pins that
+    // the worklist really did seed every body rather than converging early on
+    // an empty queue.
+    let mir = mir_of(
+        "function total(values: number[]): number { return values.length; }\n\
+         function keep(values: number[]): number[] { return values; }\n\
+         export function run(): number {\n\
+         \x20 const numbers: number[] = [1, 2, 3];\n\
+         \x20 return total(numbers) + keep(numbers).length;\n\
+         }\n",
+    );
+    let summaries = CallSummaries::compute(&mir);
+    assert!(summaries.analyses() >= mir.functions.len());
+}
+
+#[test]
+fn an_async_callee_is_an_unknown_callee() {
+    // An `async` body stores its parameters into suspended state that outlives
+    // the call, so its summary is never usable.
+    let mir = mir_of(
+        "export async function total(values: number[]): Promise<number> {\n\
+         \x20 return values.length;\n\
+         }\n",
+    );
+    let summaries = CallSummaries::compute(&mir);
+    for (index, function) in mir.functions.iter().enumerate() {
+        if mir.symbols.get(function.name) == Some("total") {
+            assert!(function.is_async, "fixture must lower to an async body");
+            assert!(
+                summaries
+                    .resolved(crate::FuncId(
+                        u32::try_from(index).expect("function index fits u32")
+                    ))
+                    .is_none(),
+                "an async callee must have no usable summary"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_callee_that_hands_back_its_parameter_does_not_return_a_fresh_list() {
+    // The result is the caller's own argument, not a buffer minted inside the
+    // callee, so treating it as uniquely owned would be plainly wrong: the
+    // caller would end up with two names for one buffer and only one of them
+    // reported.
+    let source = "function keep(values: number[]): number[] { return values; }\n\
+                  export function run(): number {\n\
+                  \x20 const first: number[] = [1, 2, 3];\n\
+                  \x20 const second = keep(first);\n\
+                  \x20 return first.length + second.length;\n\
+                  }\n";
+    assert!(!summary_of(source, "keep").returns_fresh_list);
+    let (class, reason) = class_of(source, "run", "second");
+    assert_eq!(class, ListLocalClass::Escaping);
+    assert_eq!(reason, Some(EscapeReason::UnprovenDefinition));
 }
