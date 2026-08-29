@@ -1533,21 +1533,86 @@ fn emit_source_with_free_function_router(
         // `smelt_register_function_identity` call can rewrite, so a hash taken at
         // insert time is not guaranteed to stay valid. Those keep the linear scan,
         // which cannot go stale.
+        // The index is keyed by a value that has ALREADY been hashed:
+        // `SmeltJsKeyEq::js_key_hash` runs the key through `SmeltFieldHasher`,
+        // whose `finish` applies a splitmix64 finalizer, so the `u64` handed to
+        // the index has full avalanche in every bit. Hashing it a second time
+        // inside the index map would buy no distribution and cost a whole extra
+        // hash round on the hottest path a `groupBy`/`countBy`/`Set` has --
+        // `SmeltJsMapStore::position` and `smelt_js_member_hash_key` together were
+        // 31% of es-toolkit's `group_by`. `SmeltPreHashedHasher` therefore passes
+        // the key straight through.
+        writer.line("#[derive(Default, Clone, Copy)]");
+        writer.line("pub struct SmeltPreHashedHasher(u64);");
+        writer.blank_line();
+        writer.line("impl ::std::hash::Hasher for SmeltPreHashedHasher {");
+        writer.line("    fn finish(&self) -> u64 { self.0 }");
+        writer.line("    fn write_u64(&mut self, value: u64) { self.0 = value; }");
+        // Only `write_u64` is ever called: the map below is keyed by `u64` and
+        // `<u64 as Hash>::hash` calls exactly that. The byte path is unreachable
+        // for this map, but a `Hasher` impl must supply it, so fold the bytes the
+        // same way `SmeltFieldHasher` does rather than leaving a silent no-op that
+        // would collide everything if the key type ever changed.
+        writer.line("    fn write(&mut self, bytes: &[u8]) {");
+        writer.line("        let mut hasher = SmeltFieldHasher(self.0);");
+        writer.line("        ::std::hash::Hasher::write(&mut hasher, bytes);");
+        writer.line("        self.0 = ::std::hash::Hasher::finish(&hasher);");
+        writer.line("    }");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// A map keyed by an already-hashed `u64`, which is passed through unmixed.");
+        writer.line("pub type SmeltPreHashedMap<V> = ::std::collections::HashMap<u64, V, ::std::hash::BuildHasherDefault<SmeltPreHashedHasher>>;");
+        writer.blank_line();
+        // The overwhelming majority of hash keys index exactly ONE slot: a
+        // `groupBy` over n distinct keys has n buckets of one entry each until a
+        // genuine hash collision, and duplicate JavaScript keys cannot coexist in
+        // a Map at all. A `Vec<usize>` per bucket therefore charged one heap
+        // allocation per distinct key for a single `usize`, on the very path this
+        // container exists to make fast. `SmeltSlotList` stores that lone slot
+        // inline and only allocates once a bucket actually holds two.
+        writer.line("#[derive(Clone, Debug)]");
+        writer.line("enum SmeltSlotList {");
+        writer.line("    One(usize),");
+        writer.line("    Many(Vec<usize>),");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("impl SmeltSlotList {");
+        writer.line("    /// The slots in this bucket, in insertion order.");
+        writer.line("    fn slots(&self) -> &[usize] { match self { Self::One(slot) => ::std::slice::from_ref(slot), Self::Many(slots) => slots.as_slice() } }");
+        writer.line("    /// Append `slot`, promoting a one-slot bucket to an allocated one.");
+        writer.line("    fn push(&mut self, slot: usize) { match self { Self::One(first) => *self = Self::Many(::std::vec![*first, slot]), Self::Many(slots) => slots.push(slot) } }");
+        writer.line("    /// Drop `removed` and shift every later slot down by one, mirroring what");
+        writer.line("    /// `entries.remove(removed)` did to the positions this bucket stores.");
+        writer.line("    /// Returns whether the bucket is now empty and should be dropped.");
+        writer.line("    fn forget(&mut self, removed: usize) -> bool {");
+        writer.line("        match self {");
+        writer.line("            Self::One(slot) => { if *slot == removed { return true; } if *slot > removed { *slot -= 1; } false }");
+        writer.line("            Self::Many(slots) => {");
+        writer.line("                slots.retain(|existing| *existing != removed);");
+        writer.line("                for existing in slots.iter_mut() { if *existing > removed { *existing -= 1; } }");
+        // Demote back to the inline form so a bucket that collided once does not
+        // keep its allocation for the rest of the container's life.
+        writer.line("                match slots.len() { 0 => true, 1 => { *self = Self::One(slots[0]); false }, _ => false }");
+        writer.line("            }");
+        writer.line("        }");
+        writer.line("    }");
+        writer.line("}");
+        writer.blank_line();
         writer.line("#[derive(Clone, Debug)]");
         writer.line("struct SmeltJsSlotIndex {");
-        writer.line("    hashed: SmeltFieldMap<u64, Vec<usize>>,");
+        writer.line("    hashed: SmeltPreHashedMap<SmeltSlotList>,");
         writer.line("    unhashed: Vec<usize>,");
         writer.line("}");
         writer.blank_line();
         writer.line("impl SmeltJsSlotIndex {");
-        writer.line("    fn new() -> Self { Self { hashed: SmeltFieldMap::default(), unhashed: Vec::new() } }");
+        writer.line("    fn new() -> Self { Self { hashed: SmeltPreHashedMap::default(), unhashed: Vec::new() } }");
         writer.line("    /// Index the freshly pushed slot `slot` under its entry's hash key.");
-        writer.line("    fn remember(&mut self, slot: usize, key: Option<u64>) { match key { Some(key) => self.hashed.entry(key).or_default().push(slot), None => self.unhashed.push(slot) } }");
+        writer.line("    fn remember(&mut self, slot: usize, key: Option<u64>) { match key { Some(key) => match self.hashed.entry(key) { ::std::collections::hash_map::Entry::Occupied(mut bucket) => bucket.get_mut().push(slot), ::std::collections::hash_map::Entry::Vacant(bucket) => { bucket.insert(SmeltSlotList::One(slot)); } }, None => self.unhashed.push(slot) } }");
         writer.line("    /// Drop `slot` from the index and shift every later slot down by one, which");
         writer.line("    /// is what `entries.remove(slot)` did to the positions the index stores.");
-        writer.line("    fn forget(&mut self, slot: usize) { self.hashed.retain(|_, slots| { slots.retain(|existing| *existing != slot); for existing in slots.iter_mut() { if *existing > slot { *existing -= 1; } } !slots.is_empty() }); self.unhashed.retain(|existing| *existing != slot); for existing in self.unhashed.iter_mut() { if *existing > slot { *existing -= 1; } } }");
+        writer.line("    fn forget(&mut self, slot: usize) { self.hashed.retain(|_, slots| !slots.forget(slot)); self.unhashed.retain(|existing| *existing != slot); for existing in self.unhashed.iter_mut() { if *existing > slot { *existing -= 1; } } }");
         writer.line("    /// The slots that may hold an entry with hash key `key`.");
-        writer.line("    fn slots(&self, key: Option<u64>) -> &[usize] { match key { Some(key) => self.hashed.get(&key).map_or(&[], Vec::as_slice), None => self.unhashed.as_slice() } }");
+        writer.line("    fn slots(&self, key: Option<u64>) -> &[usize] { match key { Some(key) => self.hashed.get(&key).map_or(&[], SmeltSlotList::slots), None => self.unhashed.as_slice() } }");
         writer.line("}");
         writer.blank_line();
         writer.line("/// The members of a `SmeltJsSet` plus the hash index over them.");
