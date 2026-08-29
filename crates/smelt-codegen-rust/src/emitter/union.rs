@@ -259,12 +259,31 @@ impl FunctionEmitter<'_> {
         // union arm). Coerce the value into that member's element types, then
         // wrap it in the variant. Requiring a unique shape-compatible member
         // keeps the choice unambiguous.
-        let structural: Vec<usize> = members
+        let mut structural: Vec<usize> = members
             .iter()
             .enumerate()
             .filter(|(_, member)| self.union_member_shape_matches_source(source, **member))
             .map(|(index, _)| index)
             .collect();
+        // A union of object shapes (`{ a: number } | { b: string }`) leaves
+        // several members shape-compatible, which the uniqueness rule above
+        // would reject outright. Narrow by *field* compatibility first: keep
+        // only the members every one of whose required fields the source can
+        // actually populate. An object literal typed `Dict(String, number)`
+        // fits `{ a: number }` and not `{ b: string }`, so the choice becomes
+        // unambiguous again on the same "one compatible member" rule.
+        if structural.len() > 1 {
+            let fitted: Vec<usize> = structural
+                .iter()
+                .copied()
+                .filter_map(|index| members.get(index).copied().map(|member| (index, member)))
+                .filter(|(_, member)| self.record_member_accepts_source_fields(source, *member))
+                .map(|(index, _)| index)
+                .collect();
+            if !fitted.is_empty() {
+                structural = fitted;
+            }
+        }
         if let [index] = structural.as_slice() {
             let coerced = self.value_at_type_text(value_text, source, members[*index])?;
             return Ok(Some(format!("{}::M{index}({coerced})", union_name(target))));
@@ -283,6 +302,37 @@ impl FunctionEmitter<'_> {
             )));
         }
         Ok(None)
+    }
+
+    /// Whether every required field of an object-shaped union `member` can be
+    /// populated from `source`.
+    ///
+    /// Used only to break a tie between several shape-compatible members (see
+    /// [`Self::inject_union_value_text`]). A member with no known fields, or a
+    /// source that is not an object shape, answers `false` so the tie-break
+    /// simply does not fire and the previous "unique shape match" rule stands.
+    fn record_member_accepts_source_fields(&self, source: TypeId, member: TypeId) -> bool {
+        let Some(fields) = self.structural_record_fields(member) else {
+            return false;
+        };
+        if fields.is_empty() {
+            return false;
+        }
+        // A string-keyed dictionary offers ONE value type for every key, so a
+        // member fits when that value type can render at each required field.
+        // A record/class source instead offers its own named fields, which the
+        // field-wise adapter already checks.
+        match self.mir.types.get(source) {
+            Some(Type::Dict(key, value)) if matches!(self.mir.types.get(*key), Some(Type::String)) => {
+                let value_ty = *value;
+                fields.iter().all(|field| {
+                    matches!(self.mir.types.get(field.ty), Some(Type::Optional(_)))
+                        || self.dict_value_fits_field(value_ty, field.ty)
+                })
+            }
+            Some(Type::Class { .. }) => self.structural_record_adapter_available(source, member),
+            _ => false,
+        }
     }
 
     /// Whether `source` shares `member`'s collection shape while differing only

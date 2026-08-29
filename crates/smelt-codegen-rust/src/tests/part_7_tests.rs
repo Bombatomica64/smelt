@@ -2047,7 +2047,12 @@ class Box {
 }
 
 #[test]
-fn emits_mutable_structural_parameters_when_fields_are_assigned() {
+fn passes_a_mutated_structural_record_as_a_shared_handle() {
+    // A record whose field is written after construction is a JavaScript
+    // reference value, so it lowers to the reference-record handle newtype (see
+    // `classify::reference_classes`) rather than being threaded through Rust's
+    // `&mut` ABI. The callee's write goes through the shared cell, so the caller
+    // observes it while the value is still passed by value.
     let source = source_for(
         r"
 interface Flags {
@@ -2067,10 +2072,11 @@ function readEra(): number {
     );
 
     assert!(
-        source.contains("fn set_era(mut flags: &mut Flags, value: f64)"),
+        source.contains("struct Flags(::std::rc::Rc<::std::cell::RefCell<FlagsInner>>);"),
         "{source}"
     );
-    assert!(source.contains("set_era(&mut flags"), "{source}");
+    assert!(source.contains("fn set_era(mut flags: Flags, value: f64)"), "{source}");
+    assert!(source.contains("flags.0.borrow_mut().era ="), "{source}");
 }
 
 #[test]
@@ -4398,7 +4404,7 @@ function adapt(
     );
 
     assert!(
-        source.contains("SmeltUnknown::Array(value) => value"),
+        source.contains("SmeltUnknown::Array(values) => values"),
         "{source}"
     );
     assert!(source.contains("Some(arg1)"), "{source}");
@@ -5150,7 +5156,12 @@ function visit(values: number[], callback: (value: number, index: number, data: 
 
     assert!(source.contains(".iter().enumerate().for_each"), "{source}");
     assert!(source.contains("(smelt_callback)"), "{source}");
-    assert!(!source.contains("Default::default()"), "{source}");
+    // The subject is that the function-typed callback parameter is forwarded
+    // directly, with no synthesized default standing in for it. Asserted against
+    // that emitter's own marker rather than a bare `Default::default()`, which
+    // the runtime prelude also contains for unrelated reasons (the field map's
+    // hasher) and which would make this pass or fail on prelude text.
+    assert!(!source.contains("smelt_default_callback"), "{source}");
 }
 
 #[test]
@@ -5165,7 +5176,12 @@ function expand(values: number[], callback: (value: number, index: number, data:
 
     assert!(source.contains(".iter().enumerate().flat_map"), "{source}");
     assert!(source.contains("(smelt_callback)"), "{source}");
-    assert!(!source.contains("Default::default()"), "{source}");
+    // The subject is that the function-typed callback parameter is forwarded
+    // directly, with no synthesized default standing in for it. Asserted against
+    // that emitter's own marker rather than a bare `Default::default()`, which
+    // the runtime prelude also contains for unrelated reasons (the field map's
+    // hasher) and which would make this pass or fail on prelude text.
+    assert!(!source.contains("smelt_default_callback"), "{source}");
 }
 
 #[test]

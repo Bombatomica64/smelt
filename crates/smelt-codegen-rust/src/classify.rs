@@ -103,14 +103,20 @@ pub(crate) fn reference_classes(mir: &Mir) -> HashSet<Symbol> {
 
 /// Return whether a class carries a synthesized dynamic index-signature store.
 fn class_has_index_store(mir: &Mir, name: Symbol) -> bool {
+    let has_index_store = |fields: &[smelt_mir::MirField]| {
+        fields
+            .iter()
+            .any(|field| mir.symbols.get(field.name) == Some(smelt_hir::CLASS_INDEX_STORE_FIELD))
+    };
     mir.classes
         .iter()
         .find(|class| class.name == name)
-        .is_some_and(|class| {
-            class.fields.iter().any(|field| {
-                mir.symbols.get(field.name) == Some(smelt_hir::CLASS_INDEX_STORE_FIELD)
-            })
-        })
+        .is_some_and(|class| has_index_store(&class.fields))
+        || mir
+            .interfaces
+            .iter()
+            .find(|interface| interface.name == name)
+            .is_some_and(|interface| has_index_store(&interface.fields))
 }
 
 /// Record classes mutated through a field or index write after construction.
@@ -251,7 +257,18 @@ fn collect_self_capture_triggers(function: &MirFunction, references: &mut HashSe
 fn class_name_of_local(mir: &Mir, function: &MirFunction, local: LocalId) -> Option<Symbol> {
     let decl = function.locals.get(usize::try_from(local.0).ok()?)?;
     match mir.types.get(decl.ty) {
-        Some(Type::Class { name, .. }) if mir.classes.iter().any(|class| class.name == *name) => {
+        // An object *shape* — an `interface`, or an inline object type literal
+        // lowered to a synthetic one — is emitted as a Rust struct exactly like a
+        // value class, and is just as wrong by value once a field is written:
+        // `const b = a; b.x = 1` must be visible through `a`. Shapes therefore
+        // classify on the same rule as classes.
+        Some(Type::Class { name, .. })
+            if mir.classes.iter().any(|class| class.name == *name)
+                || mir
+                    .interfaces
+                    .iter()
+                    .any(|interface| interface.name == *name) =>
+        {
             Some(*name)
         }
         _ => None,

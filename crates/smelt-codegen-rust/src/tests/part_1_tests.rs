@@ -744,7 +744,7 @@ function call<Values extends unknown[]>(first: unknown, values: Values): unknown
     );
 
     assert!(
-        source.contains("SmeltUnknown::Array(value) => value"),
+        source.contains("SmeltUnknown::Array(values) => values"),
         "{source}"
     );
     assert!(

@@ -246,6 +246,19 @@ def main() -> int:
         dist = repo / "dist-bench"
         inject(name, dist)
         if not args.skip_build:
+            # Touch every generated source before building. The Rust emitter
+            # deliberately preserves generated-file mtimes (see CLAUDE.md) so that
+            # Cargo can reuse incremental artifacts for large generated crates —
+            # but Cargo decides what to rebuild FROM mtimes, so switching between
+            # two trees that emit different bytes can leave the previous tree's
+            # binary in place. That is not hypothetical: a branch-vs-main
+            # comparison silently measured the branch's binary twice, because the
+            # main-side regeneration wrote different source and Cargo rebuilt
+            # nothing. Same failure mode as the stale `target/release/smelt`
+            # above, one level down, and just as quiet — the numbers agree to the
+            # instruction, which reads like a null result rather than a bug.
+            for generated in (dist / "src").rglob("*.rs"):
+                generated.touch()
             run(["cargo", "build", "--release"], cwd=dist)
         print(f">> {name}: bench binary at {dist}/target/release/{LIBRARIES[name]['crate']}",
               file=sys.stderr)
