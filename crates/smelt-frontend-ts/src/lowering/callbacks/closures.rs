@@ -633,14 +633,9 @@ impl ModuleBuilder<'_> {
                 body,
                 span,
             ),
-            "apply" => Self::callback_apply_method_to_body_expr(
-                receiver,
-                receiver_ty,
-                args,
-                ty,
-                body,
-                span,
-            ),
+            "apply" => {
+                self.callback_apply_method_to_body_expr(receiver, receiver_ty, args, ty, body, span)
+            }
             "toString" | "to_string" if args.is_empty() => Ok(body.push_expr(Expr {
                 kind: ExprKind::PrimitiveCast {
                     op: PrimitiveCastOp::ToString,
@@ -1369,6 +1364,7 @@ impl ModuleBuilder<'_> {
     /// `call` is already supported, without special-casing any particular library
     /// function.
     pub(in crate::lowering) fn callback_apply_method_to_body_expr(
+        &mut self,
         receiver: smelt_hir::ExprId,
         _receiver_ty: smelt_hir::TypeId,
         args: &[smelt_hir::ExprId],
@@ -1393,6 +1389,14 @@ impl ModuleBuilder<'_> {
         let arguments = *args.last().ok_or_else(|| {
             SmeltError::unsupported(span, "callback apply call requires an arguments array")
         })?;
+        // A `ClosureCallSpread`'s runtime argument list is a `SmeltList<SmeltUnknown>`,
+        // and the emitter resolves `List(Unknown)` out of the type table to render it.
+        // Intern it here — at the one site that creates such a call from `apply` — so a
+        // program whose only erased value is this argument list still declares the
+        // carrier it is about to emit, instead of failing at emit time with
+        // "type table does not contain literal operand type Unknown".
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        self.ctx.krate.types.intern(Type::List(unknown_ty));
         Ok(body.push_expr(Expr {
             kind: ExprKind::ClosureCallSpread {
                 callee: receiver,
