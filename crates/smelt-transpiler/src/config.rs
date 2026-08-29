@@ -113,6 +113,12 @@ impl Config {
         self.rust.allocator
     }
 
+    /// Get the `[profile.release]` the generated crate carries.
+    #[must_use]
+    pub fn rust_release_profile(&self) -> ReleaseProfile {
+        self.rust.release_profile
+    }
+
     /// Get the generated Rust crate target kind.
     #[must_use]
     pub fn output_kind(&self) -> OutputKind {
@@ -165,6 +171,24 @@ pub struct Rust {
     /// Global allocator a generated program installs.
     #[serde(default)]
     allocator: Allocator,
+    /// `[profile.release]` the generated crate carries.
+    #[serde(default, rename = "release-profile")]
+    release_profile: ReleaseProfile,
+}
+
+/// `[profile.release]` the generated crate carries.
+///
+/// See `smelt_codegen_rust::ReleaseProfile`: Cargo's stock release profile never
+/// inlines across a codegen unit, and in generated code the runtime prelude is on
+/// the far side of that boundary from every hot loop.
+#[derive(Clone, Copy, Default, Deserialize, Debug, Eq, JsonSchema, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ReleaseProfile {
+    /// Thin LTO and one codegen unit. The default.
+    #[default]
+    Optimized,
+    /// Cargo's stock release profile.
+    Default,
 }
 
 /// Global allocator a generated program installs.

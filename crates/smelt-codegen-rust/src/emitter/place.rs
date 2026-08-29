@@ -360,8 +360,18 @@ impl FunctionEmitter<'_> {
                             self.normalized_read_index_text(&format!("{base_text}.len()"), index)?;
                         let missing = self.element_missing_value_text(*item_ty)?;
                         let read_text = list_read_text(&base_text);
+                        // `unwrap_or` takes its argument BY VALUE, so the
+                        // out-of-range value is constructed on every read and then
+                        // dropped unused on the overwhelmingly common in-range one.
+                        // A JavaScript index read is in range almost always, and in
+                        // a loop this is per element: `sumBy` built and dropped a
+                        // `Default::default()` ten thousand times per call to
+                        // answer a question that never came up. `unwrap_or_else`
+                        // costs nothing when the element is present.
+                        // `element_missing_value_text` is a pure value expression,
+                        // so moving it into a closure cannot change what it means.
                         Ok(format!(
-                            "{read_text}.get({index_text}).cloned().unwrap_or({missing})"
+                            "{read_text}.get({index_text}).cloned().unwrap_or_else(|| {missing})"
                         ))
                     }
                     Some(Type::Optional(inner_ty))

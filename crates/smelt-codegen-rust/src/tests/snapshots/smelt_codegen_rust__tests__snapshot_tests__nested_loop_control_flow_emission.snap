@@ -24,7 +24,7 @@ fn collect(values: SmeltList<f64>, flags: SmeltList<bool>) -> f64 {
     _smelt_tmp_5 = flags.len() as f64;
     _smelt_tmp_6 = index.clone() < _smelt_tmp_5;
     if !(_smelt_tmp_6) { break; }
-    if flags.borrow().get({ let len = flags.len() as i64; let index = index.clone() as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or(false) {
+    if flags.borrow().get({ let len = flags.len() as i64; let index = index.clone() as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| false) {
     _smelt_tmp_7 = index + 1.0;
     index = _smelt_tmp_7;
     continue;
@@ -34,7 +34,7 @@ fn collect(values: SmeltList<f64>, flags: SmeltList<bool>) -> f64 {
     _smelt_tmp_9 = values.len() as f64;
     _smelt_tmp_10 = _smelt_tmp_8.clone() < _smelt_tmp_9;
     if !(_smelt_tmp_10.clone()) { break; }
-    value = values.borrow().get({ let len = values.len() as i64; let index = _smelt_tmp_8.clone() as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or(0.0);
+    value = values.borrow().get({ let len = values.len() as i64; let index = _smelt_tmp_8.clone() as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0);
     _smelt_tmp_11 = value.clone() > 2.0;
     if _smelt_tmp_11 {
     break;

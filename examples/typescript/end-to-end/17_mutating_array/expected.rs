@@ -74,8 +74,8 @@ fn main() {
     let _smelt_tmp_1: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
     let mut xs: SmeltList<f64> = Into::<SmeltList<_>>::into(_smelt_tmp_1);
     { let smelt_assign_index = { let len = xs.len() as i64; let index = 1.0 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).expect("negative index out of bounds") }; let smelt_assign_value = 5.0; if smelt_assign_index >= xs.len() { xs.borrow_mut().resize(smelt_assign_index.saturating_add(1), 0.0); } xs.borrow_mut()[smelt_assign_index] = smelt_assign_value; }
-    let _smelt_tmp_2: f64 = xs.borrow().get({ let len = xs.len() as i64; let index = 0.0 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or(0.0) + xs.borrow().get({ let len = xs.len() as i64; let index = 1.0 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or(0.0);
-    let _smelt_tmp_3: f64 = _smelt_tmp_2 + xs.borrow().get({ let len = xs.len() as i64; let index = 2.0 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or(0.0);
+    let _smelt_tmp_2: f64 = xs.borrow().get({ let len = xs.len() as i64; let index = 0.0 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0) + xs.borrow().get({ let len = xs.len() as i64; let index = 1.0 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0);
+    let _smelt_tmp_3: f64 = _smelt_tmp_2 + xs.borrow().get({ let len = xs.len() as i64; let index = 2.0 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0);
     let _ = { println!("{}", _smelt_tmp_3); };
     return;
 }

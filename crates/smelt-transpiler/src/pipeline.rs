@@ -10,7 +10,7 @@ use std::{
 use smelt_hir::format_compact;
 
 use crate::{
-    config::{Allocator, Config, OutputKind},
+    config::{Allocator, Config, OutputKind, ReleaseProfile},
     lowering,
     manifest::resolve_manifest_path,
     stubs, timing,
@@ -102,7 +102,8 @@ pub(crate) fn build_rust_crate(
             &output_dir,
             &smelt_codegen_rust::EmitOptions::new(crate_name)
                 .with_crate_kind(codegen_crate_kind(config.output_kind()))
-                .with_allocator(codegen_allocator(config.rust_allocator())),
+                .with_allocator(codegen_allocator(config.rust_allocator()))
+                .with_release_profile(codegen_release_profile(config.rust_release_profile())),
         )
     })?;
 
@@ -140,6 +141,14 @@ fn codegen_allocator(allocator: Allocator) -> smelt_codegen_rust::GeneratedAlloc
     match allocator {
         Allocator::Mimalloc => smelt_codegen_rust::GeneratedAllocator::Mimalloc,
         Allocator::System => smelt_codegen_rust::GeneratedAllocator::System,
+    }
+}
+
+/// Maps the manifest's release-profile choice onto the codegen enum.
+fn codegen_release_profile(profile: ReleaseProfile) -> smelt_codegen_rust::ReleaseProfile {
+    match profile {
+        ReleaseProfile::Optimized => smelt_codegen_rust::ReleaseProfile::Optimized,
+        ReleaseProfile::Default => smelt_codegen_rust::ReleaseProfile::Default,
     }
 }
 
