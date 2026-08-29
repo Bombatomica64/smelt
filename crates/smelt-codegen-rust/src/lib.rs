@@ -2425,6 +2425,32 @@ fn emit_source_with_free_function_router(
             writer.line("    fn call(&self, args: impl Into<Vec<SmeltUnknown>>) -> SmeltUnknown {");
             writer.line("        (self.callback)(args.into())");
             writer.line("    }");
+            // A callable object narrowed to a callable interface that declares
+            // fewer members keeps its dropped members as own properties of the
+            // underlying function value, exactly as JavaScript does (es-toolkit's
+            // `curry` assigns `wrapper.placeholder`, and its `flow` spec reads
+            // that property back through a `CurriedFunction1`). They are parked
+            // in a side registry keyed on the callback allocation rather than in
+            // the `object` bag: `object` is what makes an erased callable erase
+            // as an OBJECT carrying `__smelt_call`, and the value being narrowed
+            // here is still a plain function everywhere else, so filling `object`
+            // would double-wrap it at the next erasure.
+            writer.line("    /// Record a callable object's own JavaScript properties.");
+            writer.line("    fn smelt_with_properties(self, entries: Vec<(String, SmeltUnknown)>) -> Self {");
+            writer.line("        let key = ::std::rc::Rc::as_ptr(&self.callback) as *const () as usize;");
+            writer.line("        SMELT_CALLABLE_PROPERTIES.with(|registry| {");
+            writer.line("            let mut registry = registry.borrow_mut();");
+            writer.line("            let object = registry.entry(key).or_insert_with(|| SmeltObject::new(Vec::new()));");
+            writer.line("            for (name, value) in entries { object.insert(name, value); }");
+            writer.line("        });");
+            writer.line("        self");
+            writer.line("    }");
+            writer.line("    /// Read one own property of a callable object, `undefined` when absent.");
+            writer.line("    fn smelt_property(&self, name: &str) -> SmeltUnknown {");
+            writer.line("        if let Some(value) = self.object.as_ref().and_then(|object| object.get(name)) { return value; }");
+            writer.line("        let key = ::std::rc::Rc::as_ptr(&self.callback) as *const () as usize;");
+            writer.line("        SMELT_CALLABLE_PROPERTIES.with(|registry| registry.borrow().get(&key).and_then(|object| object.get(name))).unwrap_or(SmeltUnknown::Undefined)");
+            writer.line("    }");
             writer.line(
                 "    /// Restore an erased callable value without dropping callable-object fields.",
             );
@@ -2496,6 +2522,14 @@ fn emit_source_with_free_function_router(
             );
             writer.line("    /// identity while alive without pinning transient callbacks.");
             writer.line("    static SMELT_ERASED_FUNCTION_VALUES: ::std::cell::RefCell<::std::collections::HashMap<usize, ::std::rc::Weak<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
+            writer.line(
+                "    /// Own JavaScript properties of a callable object, keyed on its callback",
+            );
+            writer.line(
+                "    /// allocation, so a narrowing conversion to a callable interface that does",
+            );
+            writer.line("    /// not declare them can still answer a later property read.");
+            writer.line("    static SMELT_CALLABLE_PROPERTIES: ::std::cell::RefCell<::std::collections::HashMap<usize, SmeltObject>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
             writer.line("}");
         }
         if needs_vitest_mock {

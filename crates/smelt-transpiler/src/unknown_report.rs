@@ -594,7 +594,7 @@ fn classify_line(line: &str, in_prelude_helper: bool) -> Category {
 ///
 /// See [`classify_line`] rule 2 for the rationale behind each marker.
 fn is_legitimate_boundary_line(line: &str) -> bool {
-    const BOUNDARY_MARKERS: [&str; 12] = [
+    const BOUNDARY_MARKERS: [&str; 13] = [
         "SmeltUnknown::Function",
         "SmeltUnknown::Promise",
         "IntoSmeltUnknown",
@@ -641,6 +641,24 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // concrete type is unavailable precisely because the receiver is erased,
         // so this is a boundary adapter, not avoidable program-storage erasure.
         "smelt_slice_value",
+        // The erased callable-object ABI. A TypeScript interface with call
+        // signatures lowers to a record whose synthetic `__smelt_call` slot
+        // holds the underlying callable; when the interface declares several
+        // overloads, that ONE slot cannot be typed by any of them (see
+        // `ModuleBuilder::overloaded_call_signature_slot_type`) — which overload
+        // runs is decided by the callee inspecting the runtime argument values,
+        // e.g. es-toolkit's `curry` comparing an argument against its
+        // placeholder sentinel. So the slot, the adapters that read it, and the
+        // values that flow through it are a genuine dynamic boundary in the
+        // "values inspected through runtime narrowing" sense, not avoidable
+        // program-storage erasure: no concrete Rust `Fn`, generated union arm,
+        // or scoped generic can carry two overloads of different shape at once.
+        // Proven in `erased_callable_object_slot_is_a_boundary` below and in
+        // `crates/smelt-codegen-rust/src/tests/part_7_tests.rs`
+        // (`ambiguous_same_arity_call_signatures_answer_the_erased_call_result`,
+        // `call_beyond_every_declared_overload_arity_keeps_its_arguments`,
+        // `same_arity_call_signatures_are_selected_by_argument_type`).
+        "__smelt_call",
     ];
 
     // A JavaScript update-expression (`x++`/`++x`) used as a value snapshots its
@@ -863,6 +881,28 @@ mod tests {
     /// recovery site's `__smelt_error` *message binding* is matched, so an
     /// `Error` record built from program values keeps whatever classification it
     /// had.
+    /// A callable interface's erased `__smelt_call` slot is a boundary.
+    ///
+    /// An overloaded callable interface stores every overload in one slot, so
+    /// the slot's type cannot be any single overload's concrete `Fn` shape —
+    /// which overload runs is a runtime decision made from the argument values.
+    /// Ordinary erased program storage with no such slot stays avoidable.
+    #[test]
+    fn erased_callable_object_slot_is_a_boundary() {
+        let slot = "    _smelt_tmp_3 = { let smelt_callback = curried.__smelt_call.clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(&SmeltUnknown, &SmeltUnknown) -> SmeltUnknown> = ::std::rc::Rc::new(move |arg0: &SmeltUnknown, arg1: &SmeltUnknown| smelt_callback.call(vec![arg0.clone(), arg1.clone()])); smelt_adapted };";
+        assert_eq!(
+            classify_line(slot, false),
+            Category::LegitimateBoundary,
+            "the erased callable-object call ABI is a runtime-dispatch boundary"
+        );
+        let storage = "    let values: SmeltList<SmeltUnknown> = SmeltList::new(Vec::new());";
+        assert_eq!(
+            classify_line(storage, false),
+            Category::AvoidableErasure,
+            "ordinary erased storage must stay avoidable"
+        );
+    }
+
     #[test]
     fn panic_recovery_payload_is_a_boundary() {
         let recovery = "            let e = SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"__smelt_error\".to_owned(), SmeltUnknown::String(\"Error\".into())), (\"message\".to_owned(), SmeltUnknown::String(__smelt_error.into()))])));";
