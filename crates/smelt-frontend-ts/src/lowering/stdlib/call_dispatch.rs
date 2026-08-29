@@ -240,9 +240,12 @@ impl<'builder> ModuleBuilder<'builder> {
             // effects only.
             let callee = self.new_expression_with_hint(callee_new, body, None)?;
             let callee_ty = Self::expr_ty(body, callee);
-            if let Some(function_ty) =
-                self.function_member_type_for_arg_count(callee_ty, Some(call.arguments.len()))
-                && let Some(Type::Function(function)) =
+            let probed_arg_tys = self.probe_argument_types(&call.arguments, body);
+            if let Some(function_ty) = self.function_member_type_for_args(
+                callee_ty,
+                Some(call.arguments.len()),
+                &probed_arg_tys,
+            ) && let Some(Type::Function(function)) =
                     self.ctx.krate.types.get(function_ty).cloned()
             {
                 let mut args = Vec::new();
@@ -298,9 +301,12 @@ impl<'builder> ModuleBuilder<'builder> {
             }
             let callee = self.call_expression(callee_call, body)?;
             let callee_ty = Self::expr_ty(body, callee);
-            let Some(function_ty) =
-                self.function_member_type_for_arg_count(callee_ty, Some(call.arguments.len()))
-            else {
+            let probed_arg_tys = self.probe_argument_types(&call.arguments, body);
+            let Some(function_ty) = self.function_member_type_for_args(
+                callee_ty,
+                Some(call.arguments.len()),
+                &probed_arg_tys,
+            ) else {
                 if self.ctx.krate.types.get(callee_ty) == Some(&Type::Unknown) {
                     for arg in &call.arguments {
                         let _ = self.argument(arg, body)?;
@@ -3807,8 +3813,13 @@ impl<'builder> ModuleBuilder<'builder> {
             }
             _ => None,
         };
+        let probed_arg_tys = self.probe_argument_types(&call.arguments, body);
         let function_member_ty = optional_function_ty.or_else(|| {
-            self.function_member_type_for_arg_count(callee_ty, Some(call.arguments.len()))
+            self.function_member_type_for_args(
+                callee_ty,
+                Some(call.arguments.len()),
+                &probed_arg_tys,
+            )
         });
         let (function_ty, function, optional_call) = match function_member_ty {
             Some(function_ty) => {

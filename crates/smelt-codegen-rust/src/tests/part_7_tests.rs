@@ -12147,3 +12147,166 @@ m.set(pick(true), 1);
         "a generated union must be recoverable from its erased view:\n{source}"
     );
 }
+
+/// Shared TypeScript prelude for the callable-interface overload tests.
+///
+/// It mirrors the shape es-toolkit's `curry` declares: a callable interface with
+/// several overloads, an implementation whose declared return type is the
+/// intersection of a plain callable and its own properties (which is how the
+/// underlying function object is modeled), and an overload signature that
+/// narrows that value to the interface.
+const CALLABLE_OVERLOAD_PRELUDE: &str = r#"
+const curryPlaceholder: unique symbol = Symbol('curry.placeholder');
+type __ = typeof curryPlaceholder;
+
+interface Curried1<T1, R> {
+  (): Curried1<T1, R>;
+  (t1: T1): R;
+}
+
+interface Curried2<T1, T2, R> {
+  (): Curried2<T1, T2, R>;
+  (t1: T1): Curried1<T2, R>;
+  (t1: __, t2: T2): Curried1<T1, R>;
+  (t1: T1, t2: T2): R;
+}
+
+export function curry2<T1, T2, R>(fn: (a: T1, b: T2) => R): Curried2<T1, T2, R>;
+export function curry2(fn: (...args: any[]) => any): ((...args: any[]) => any) & { placeholder: unknown } {
+  const wrapper = function (...args: any[]): any {
+    return fn(args[0], args[1]);
+  };
+  wrapper.placeholder = curryPlaceholder;
+  return wrapper;
+}
+
+export interface ArityReporter {
+  (): string;
+  (t1: number): string;
+}
+
+export function arityReporter(): ArityReporter;
+export function arityReporter(): ((...args: any[]) => any) & { placeholder: unknown } {
+  const wrapper = function (...args: any[]): any {
+    return String(args.length);
+  };
+  wrapper.placeholder = curryPlaceholder;
+  return wrapper;
+}
+
+export interface ByArgumentType {
+  (value: string): string;
+  (value: number): number;
+}
+
+export function byArgumentType(): ByArgumentType;
+export function byArgumentType(): ((...args: any[]) => any) & { placeholder: unknown } {
+  const wrapper = function (value: any): any {
+    return value;
+  };
+  wrapper.placeholder = curryPlaceholder;
+  return wrapper;
+}
+"#;
+
+/// A call to an overloaded callable interface must not stop at the first
+/// overload that merely shares the call's arity.
+///
+/// es-toolkit's `CurriedFunction2` declares `(t1: __, t2: T2)` — a placeholder
+/// position typed by a `unique symbol` — before `(t1: T1, t2: T2): R`. Smelt
+/// carries symbols as opaque runtime values, so both parameter positions read
+/// as `unknown` and no static rule separates them: which overload runs is
+/// decided by the callee comparing its argument against a sentinel. Taking the
+/// first of them made `curried(2, 3)` claim to return a `Curried1`, so the
+/// comparison against a number const-folded to `false`. Only what every
+/// surviving overload agrees on is reported instead.
+#[test]
+fn ambiguous_same_arity_call_signatures_answer_the_erased_call_result() {
+    let source = source_for(&format!(
+        "{CALLABLE_OVERLOAD_PRELUDE}
+const curried = curry2((a: number, b: number) => a + b);
+const total = curried(2, 3);
+"
+    ));
+
+    assert!(
+        source.contains(
+            "smelt_callback.call(vec![arg0.clone(), (arg1.clone()).into_smelt_unknown()])"
+        ),
+        "both arguments must reach the erased callable:\n{source}"
+    );
+    assert!(
+        !source.contains("total: Curried1"),
+        "the ambiguous call must not claim one overload's return type:\n{source}"
+    );
+}
+
+/// A call with more arguments than any declared overload accepts must still
+/// pass every argument.
+///
+/// JavaScript forwards the whole argument list regardless of declared arity,
+/// and an overloaded callable interface stores its implementation in one erased
+/// variadic `__smelt_call` slot, so the call is executable. Falling back to the
+/// first declared signature truncated the argument list at the adapter and
+/// called the callee with nothing.
+#[test]
+fn call_beyond_every_declared_overload_arity_keeps_its_arguments() {
+    let source = source_for(&format!(
+        "{CALLABLE_OVERLOAD_PRELUDE}
+const reporter = arityReporter();
+// @ts-ignore
+const seen = reporter(1, 2, 3);
+"
+    ));
+
+    assert!(
+        source.contains("smelt_callback.call(vec![arg0.clone(), arg1.clone(), arg2.clone()])"),
+        "all three arguments must reach the erased callable:\n{source}"
+    );
+}
+
+/// Same-arity overloads that differ only by parameter type are selected by the
+/// argument's type, and the interface's call slot is erased so one field can
+/// store either of the two incompatible Rust `Fn` shapes.
+#[test]
+fn same_arity_call_signatures_are_selected_by_argument_type() {
+    let source = source_for(&format!(
+        "{CALLABLE_OVERLOAD_PRELUDE}
+const pick = byArgumentType();
+const numeric = pick(41);
+const text = pick('a');
+"
+    ));
+
+    assert!(
+        source.contains("__smelt_call: SmeltErasedFunction"),
+        "an overload set that differs by parameter type needs the erased slot:\n{source}"
+    );
+    assert!(
+        source.contains("numeric: f64") && source.contains("text: String"),
+        "each call must take the overload its argument type matches:\n{source}"
+    );
+}
+
+/// Narrowing a callable object to a callable interface that declares fewer
+/// members keeps the dropped members readable as own properties of the
+/// underlying function value, the way JavaScript does.
+#[test]
+fn narrowed_callable_object_keeps_its_own_properties() {
+    let source = source_for(&format!(
+        "{CALLABLE_OVERLOAD_PRELUDE}
+const curried = curry2((a: number, b: number) => a + b);
+// @ts-ignore
+const marker = curried.placeholder;
+"
+    ));
+
+    assert!(
+        source.contains("smelt_with_properties(vec![(\"placeholder\".to_owned()"),
+        "the dropped property must be carried onto the erased callable:\n{source}"
+    );
+    assert!(
+        source.contains(".__smelt_call.smelt_property(\"placeholder\")"),
+        "the undeclared member read must resolve through the callable's properties:\n{source}"
+    );
+}

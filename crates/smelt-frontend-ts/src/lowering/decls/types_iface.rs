@@ -319,24 +319,36 @@ impl ModuleBuilder<'_> {
     /// zero-argument overload and answering a defaulted value with no
     /// diagnostic.
     ///
-    /// So an overload set whose arities differ collapses to one erased-rest
-    /// variadic signature `(...args: unknown[]) => unknown`, exactly as
-    /// [`ModuleBuilder::type_annotation`] already collapses a *union* of
-    /// differing-arity function types — the same fact spelled a different way.
-    /// The precise per-call return type is not lost: `interface_call_signature_type`
-    /// still selects the overload by argument count at the call site, and the
-    /// adapter coerces the erased result into it.
+    /// So an overload set whose signatures are not all the same collapses to one
+    /// erased-rest variadic signature `(...args: unknown[]) => unknown`, exactly
+    /// as [`ModuleBuilder::type_annotation`] already collapses a *union* of
+    /// differing function types — the same fact spelled a different way.
+    /// The precise per-call type is not lost:
+    /// `interface_call_signature_type_for_args` still selects the overload from
+    /// the call's argument count and argument types, and the adapter coerces
+    /// the erased value into it.
     ///
-    /// Returns `None` when the overloads all share one arity shape, so a
+    /// Signatures that differ only in their parameter *types* need the erased
+    /// slot for the same reason ones of differing arity do: overloads such as
+    /// `(value: string): string; (value: number): number;` describe two
+    /// incompatible Rust `Fn` types, and a slot typed from the first of them
+    /// cannot store — or be called as — the second.
+    ///
+    /// Returns `None` when every overload has the identical shape, so a
     /// single-signature (or uniformly-shaped) callable interface keeps its
     /// precise concrete slot type and nothing is erased that need not be.
     fn overloaded_call_signature_slot_type(
         &mut self,
         call_signatures: &[FunctionType],
     ) -> Option<smelt_hir::TypeId> {
-        let mut shapes = call_signatures
-            .iter()
-            .map(|signature| (signature.params.len(), signature.rest.is_some()));
+        let mut shapes = call_signatures.iter().map(|signature| {
+            (
+                signature.params.clone(),
+                signature.rest,
+                signature.return_ty,
+                signature.is_async,
+            )
+        });
         let first_shape = shapes.next()?;
         if !shapes.any(|shape| shape != first_shape) {
             return None;

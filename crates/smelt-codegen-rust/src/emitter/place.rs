@@ -294,6 +294,24 @@ impl FunctionEmitter<'_> {
                     };
                     return Ok(format!("{getter}.unwrap_or({default_value})"));
                 }
+                // A dotted read of a member a CALLABLE-OBJECT record does not
+                // declare. JavaScript lets a function own arbitrary properties,
+                // and TypeScript accepts such a read wherever the receiver's
+                // static shape is widened (or the author suppressed the check —
+                // es-toolkit's `flow` spec reads `curried.placeholder` off a
+                // `CurriedFunction1`). The struct has no such Rust field, so the
+                // plain fallback below emitted `receiver.placeholder`, an E0609
+                // in the generated crate. The value's own properties live in the
+                // erased callable's property bag, so read the source-spelled key
+                // from there and answer `undefined` when it carries none —
+                // exactly what JavaScript answers for an absent property.
+                if !self.class_has_named_field(base_ty, *field)
+                    && self.callable_interface_call_field_ty(base_ty).is_some()
+                {
+                    let base_text = self.local_value_text(*base)?;
+                    let key = self.symbol_source_name(*field)?;
+                    return Ok(format!("{base_text}.__smelt_call.smelt_property({key:?})"));
+                }
                 // A declared field of a reference class lives inside the shared
                 // cell. Read it through a narrow `borrow()` and clone the value
                 // out so the borrow guard is a short-lived temporary that ends

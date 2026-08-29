@@ -983,7 +983,21 @@ impl<'mir> FunctionEmitter<'mir> {
             } else if let Some(source_field) = source_field_match {
                 let source_field_name = sanitize_ident(self.symbol_name(source_field.name)?);
                 let source_value = format!("smelt_struct_value.{source_field_name}.clone()");
-                self.value_at_type_text(&source_value, source_field.ty, target_field.ty)?
+                let adapted =
+                    self.value_at_type_text(&source_value, source_field.ty, target_field.ty)?;
+                // Narrowing a callable object to a callable interface that
+                // declares fewer members drops the source's own data fields —
+                // in JavaScript those are properties of the *function value*
+                // and survive the narrowing (es-toolkit's `curry` assigns
+                // `wrapper.placeholder`, and its `flow` spec reads that
+                // property back off a `CurriedFunction1`). The erased callable
+                // carries a property bag for exactly this, so hand the dropped
+                // properties to it instead of losing them at the seam.
+                if self.symbol_source_name(target_field.name)? == "__smelt_call" {
+                    self.callable_object_carried_properties_text(&adapted, source, target)?
+                } else {
+                    adapted
+                }
             } else {
                 // No source field supplies this value, so nothing here can
                 // spell a type parameter: an explicitly empty environment.
@@ -1001,6 +1015,55 @@ impl<'mir> FunctionEmitter<'mir> {
             "{{ let smelt_struct_value = {value_text}.clone(); {target_name} {{ {} }} }}",
             field_text.join(", ")
         )))
+    }
+
+    /// Attach a callable object's dropped own properties to its erased slot.
+    ///
+    /// `call_field_text` is the adapted `__smelt_call` value for a narrowing
+    /// record conversion. Every data field the SOURCE record declares that the
+    /// TARGET does not is a JavaScript property of the underlying function
+    /// value, so it is erased and merged into the erased callable's property
+    /// bag; a later undeclared-member read (`place_text`) finds it there. When
+    /// the source drops nothing, the value is returned unchanged so ordinary
+    /// conversions emit exactly what they did before.
+    fn callable_object_carried_properties_text(
+        &self,
+        call_field_text: &str,
+        source: TypeId,
+        target: TypeId,
+    ) -> Result<String, EmitError> {
+        let (Some(source_fields), Some(target_fields)) = (
+            self.structural_record_fields(source),
+            self.structural_record_fields(target),
+        ) else {
+            return Ok(call_field_text.to_owned());
+        };
+        let mut entries = Vec::new();
+        for source_field in &source_fields {
+            let name = self.symbol_source_name(source_field.name)?;
+            if name == "__smelt_call" {
+                continue;
+            }
+            if target_fields.iter().any(|target_field| {
+                self.symbol_source_name(target_field.name)
+                    .is_ok_and(|target_name| target_name == name)
+            }) {
+                continue;
+            }
+            let field_name = sanitize_ident(self.symbol_name(source_field.name)?);
+            let value = self.erase_value_text(
+                &format!("smelt_struct_value.{field_name}.clone()"),
+                source_field.ty,
+            )?;
+            entries.push(format!("({name:?}.to_owned(), {value})"));
+        }
+        if entries.is_empty() {
+            return Ok(call_field_text.to_owned());
+        }
+        Ok(format!(
+            "({call_field_text}).smelt_with_properties(vec![{}])",
+            entries.join(", ")
+        ))
     }
 
     /// Returns true when `field` is a callable slot that represents a class method.
@@ -1576,21 +1639,39 @@ impl<'mir> FunctionEmitter<'mir> {
         // typed `(value?) => void` flow into a `() => void` slot. We still require
         // every target parameter the source actually consumes to be renderable into
         // the matching source parameter type.
+        if source_function.is_async || target_function.is_async {
+            return false;
+        }
+        // An erased-rest source is the `SmeltErasedFunction` callable ABI: the
+        // adapter does not forward the target's arguments *into* the source's
+        // declared rest-list parameter, it packs them into a
+        // `Vec<SmeltUnknown>` and calls `.call(..)` (see the `packed` branch in
+        // `rendered_function_shape_adapter_text`). So the per-parameter
+        // renderability test below asks the wrong question — `f64` is not
+        // renderable as `unknown[]` yet erases to `SmeltUnknown` perfectly
+        // well. What the packed call really needs is a return value that can
+        // come back out of `SmeltUnknown`, which every erased slot answers.
+        // Without this an overloaded callable interface whose overloads differ
+        // only by parameter *type* (`(v: string): string; (v: number): number;`)
+        // failed to adapt its erased `__smelt_call` slot to the overload the
+        // call site selected, emitting a raw field read and an E0308.
+        if self.is_erased_unknown_rest_function(source_function) {
+            return self.type_id(Type::Unknown).is_ok_and(|unknown_ty| {
+                self.can_render_non_function_dict_value_as(unknown_ty, target_function.return_ty)
+            });
+        }
         let shared = source_function.params.len().min(target_function.params.len());
-        !source_function.is_async
-            && !target_function.is_async
-            && self.can_render_non_function_dict_value_as(
-                source_function.return_ty,
-                target_function.return_ty,
-            )
-            && source_function
-                .params
-                .iter()
-                .take(shared)
-                .zip(target_function.params.iter().take(shared))
-                .all(|(source_param, target_param)| {
-                    self.can_render_non_function_dict_value_as(*target_param, *source_param)
-                })
+        self.can_render_non_function_dict_value_as(
+            source_function.return_ty,
+            target_function.return_ty,
+        ) && source_function
+            .params
+            .iter()
+            .take(shared)
+            .zip(target_function.params.iter().take(shared))
+            .all(|(source_param, target_param)| {
+                self.can_render_non_function_dict_value_as(*target_param, *source_param)
+            })
     }
 
     /// Return the emitted Rust name for a free MIR function.
