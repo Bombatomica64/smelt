@@ -231,7 +231,28 @@ impl ModuleBuilder<'_> {
     ) -> Result<(smelt_hir::ExprId, Option<smelt_hir::TypeId>), SmeltError> {
         let mut right = self.argument(right_argument, body)?;
         let right_ty = Self::expr_ty(body, right);
-        let right = if right_ty == ty {
+        // An argument whose own static type is erased may be an array or a
+        // scalar at runtime, and JavaScript picks per argument. Neither
+        // "spread" nor "append" is right at lowering time, so defer to the
+        // runtime `IsConcatSpreadable` check. This is checked before the
+        // concrete arms below because an erased argument can otherwise match
+        // `right_ty == item_ty` (both `Unknown`) and be appended whole. It is
+        // gated on the receiver's element type being erased too, so the result
+        // list stays `List<Unknown>` and a concretely-typed receiver keeps its
+        // existing, statically-decided lowering.
+        let right = if self.erased_or_union_surface(right_ty)
+            && self.erased_or_union_surface(item_ty)
+            && !matches!(self.ctx.krate.types.get(right_ty), Some(Type::List(_)))
+        {
+            return Ok((
+                body.push_expr(Expr {
+                    kind: ExprKind::ConcatSpread { value: right },
+                    ty,
+                    span: self.span(right_argument.span().start, right_argument.span().end),
+                }),
+                None,
+            ));
+        } else if right_ty == ty {
             right
         } else if let Some(Type::List(right_item_ty)) = self.ctx.krate.types.get(right_ty).cloned()
             && (right_item_ty == item_ty

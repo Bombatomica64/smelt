@@ -457,6 +457,9 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::ListConcat { left, right } => {
             format!("list_concat {}, {}", expr_ref(*left), expr_ref(*right))
         }
+        ExprKind::ConcatSpread { value } => {
+            format!("concat_spread {}", expr_ref(*value))
+        }
         ExprKind::ListSearch {
             op,
             list,

@@ -356,6 +356,17 @@ pub enum ExprKind {
         left: ExprId,
         right: ExprId,
     },
+    /// Normalize one `Array.prototype.concat` argument whose static type is
+    /// erased into the list of items it contributes.
+    ///
+    /// JavaScript splices an array argument's elements into the result and
+    /// appends any other value as a single element. A concretely-typed argument
+    /// settles that at lowering time; an `unknown`, type-parameter, or mixed
+    /// union argument can be either shape at runtime, so the choice is deferred.
+    /// The node's type is the receiver's list type.
+    ConcatSpread {
+        value: ExprId,
+    },
     ListSearch {
         op: ListSearchOp,
         list: ExprId,

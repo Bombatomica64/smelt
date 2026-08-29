@@ -168,8 +168,11 @@ impl FunctionEmitter<'_> {
             && self.mir.types.get(*key_ty) == Some(&Type::String)
             && self.type_text_with_impl_trait(*value_ty, false)? == "SmeltUnknown"
         {
+            // An absent key reads as `undefined`, matching JavaScript's
+            // dynamic property semantics; `null` is a value only a store puts
+            // there, and the two differ under `===`.
             return Ok(format!(
-                "{}.get(&{}).unwrap_or(SmeltUnknown::Null)",
+                "{}.get(&{}).unwrap_or(SmeltUnknown::Undefined)",
                 self.operand_text(dict)?,
                 key_text
             ));

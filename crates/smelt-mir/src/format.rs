@@ -835,6 +835,9 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 operand_text(right)
             )
         }
+        Rvalue::ConcatSpread { value } => {
+            format!("concat_spread {}", operand_text(value))
+        }
         Rvalue::ListSearch {
             op,
             list,

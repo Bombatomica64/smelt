@@ -495,6 +495,10 @@ fn emit_source_with_free_function_router(
     let needs_vitest_mock = stdlib::needs_vitest_mock_runtime(mir);
     let needs_structured_clone = stdlib::rvalues(mir)
         .any(|rvalue| matches!(rvalue, Rvalue::StructuredClone { .. }));
+    // Only crates that actually concatenate an erased argument need the
+    // `IsConcatSpreadable` helper, so it stays out of every other prelude.
+    let needs_concat_spread =
+        stdlib::rvalues(mir).any(|rvalue| matches!(rvalue, Rvalue::ConcatSpread { .. }));
     let needs_host_override = stdlib::needs_host_override_runtime(mir);
     let needs_shared_captures = mir
         .closures
@@ -2723,6 +2727,15 @@ fn emit_source_with_free_function_router(
         // key rather than colliding with its own description string.
         writer.line("fn smelt_property_key(value: SmeltUnknown) -> String { match value { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => format!(\"__smelt_symbol:{value}\"), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(values) => values.into_vec().into_iter().map(smelt_property_key).collect::<Vec<_>>().join(\",\"), SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() } }");
         writer.blank_line();
+        // JavaScript `Array.prototype.concat` normalizes each argument with
+        // `IsConcatSpreadable`: an array contributes its elements, and any other
+        // value contributes itself as one element. When the argument's static
+        // type is erased the frontend cannot pick a side, so it emits
+        // `Rvalue::ConcatSpread` and the decision lands here, at runtime.
+        if needs_concat_spread {
+            writer.line("fn smelt_concat_spread(value: SmeltUnknown) -> Vec<SmeltUnknown> { match value { SmeltUnknown::Array(values) => values.into_vec(), other => ::std::vec![other] } }");
+            writer.blank_line();
+        }
         writer.line("fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {");
         if needs_vitest_mock {
             // Vitest exposes a `.mock` accessor on every mock function carrying

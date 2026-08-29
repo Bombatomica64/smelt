@@ -244,6 +244,9 @@ impl Rvalue {
                 visit(left);
                 visit(right);
             }
+            Self::ConcatSpread { value } => {
+                visit(value);
+            }
             Self::ListSearch {
                 list,
                 item,
@@ -1010,6 +1013,9 @@ impl Rvalue {
             Self::ListConcat { left, right } => {
                 visit(left);
                 visit(right);
+            }
+            Self::ConcatSpread { value } => {
+                visit(value);
             }
             Self::ListSearch {
                 list,
