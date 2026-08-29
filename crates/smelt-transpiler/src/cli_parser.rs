@@ -197,6 +197,42 @@ pub enum Command {
         output: Option<String>,
     },
 
+    /// Classify list-typed MIR locals as escaping, aliased, or frame-local
+    #[command(
+        name = "list-escape-report",
+        long_about = "Lower a Smelt manifest to optimized MIR and classify every \
+        list-typed local in every function and closure body: `escaping` (a handle \
+        on the buffer can be observed outside the frame), `aliased` (confined but \
+        named by more than one live local), or `local-mutated`/`local-immutable` \
+        (confined and singly named). `Type::List` lowers to `SmeltList<T>` = \
+        `Rc<RefCell<Vec<T>>>`, which costs two heap allocations per list where a \
+        plain `Vec<T>` costs one, so the confined population is what a tiered \
+        representation could win. The analysis is conservative in one direction \
+        only: anything it cannot prove confined is reported as escaping. Use \
+        `--function` to expand named functions into a per-local table."
+    )]
+    ListEscapeReport {
+        /// Smelt manifest to lower (`Smelt.toml`).
+        #[arg(value_name = "PATH")]
+        manifest: String,
+
+        /// Report format: `md` (default) or `json`.
+        #[arg(long, default_value = "md", value_name = "FORMAT")]
+        format: String,
+
+        /// Expand this function into a per-local table; repeat for several.
+        #[arg(long, value_name = "NAME")]
+        function: Vec<String>,
+
+        /// Rows kept in the "top bodies by confined list locals" table.
+        #[arg(long, default_value_t = 25, value_name = "N")]
+        top: usize,
+
+        /// Write the report to this file instead of stdout.
+        #[arg(long, value_name = "PATH")]
+        output: Option<String>,
+    },
+
     /// Remove the output target directory
     Clean,
     /// Print the JSON Schema for Smelt.toml
