@@ -113,12 +113,15 @@
 //! shared buffer nor interior mutability. A mutated `Local` list still only
 //! needs a plain `Vec<T>` plus `&mut` access.
 
+mod summary;
+
 use std::collections::HashMap;
 
 use smelt_hir::{Type, TypeId};
 
+use self::summary::{ArgumentEffect, CallSummaries, FunctionSummary};
 use crate::{
-    ClosureId, FuncId, LocalId, LocalKind, Mir, MirClosure, MirFunction, Operand, Place,
+    Callee, ClosureId, FuncId, LocalId, LocalKind, Mir, MirClosure, MirFunction, Operand, Place,
     Rvalue, Statement, Terminator,
 };
 
@@ -273,10 +276,11 @@ impl BodyListEscape {
 /// reports diff cleanly between runs.
 #[must_use]
 pub fn analyze_list_escapes(mir: &Mir) -> Vec<BodyListEscape> {
+    let summaries = CallSummaries::compute(mir);
     let mut out = Vec::new();
     for function in &mir.functions {
         let body = FunctionBody::from_function(function);
-        let facts = analyze_body(mir, &body);
+        let facts = analyze_body(mir, &summaries, &body);
         if !facts.is_empty() {
             out.push(BodyListEscape {
                 key: BodyKey::Function(function.id),
@@ -292,7 +296,7 @@ pub fn analyze_list_escapes(mir: &Mir) -> Vec<BodyListEscape> {
     }
     for closure in &mir.closures {
         let body = FunctionBody::from_closure(closure);
-        let facts = analyze_body(mir, &body);
+        let facts = analyze_body(mir, &summaries, &body);
         if !facts.is_empty() {
             out.push(BodyListEscape {
                 key: BodyKey::Closure(closure.id),
@@ -394,6 +398,20 @@ struct Groups {
     parent: Vec<u32>,
     /// Escape reason for each root, when the group escapes.
     escaped: HashMap<u32, EscapeReason>,
+    /// Escape reason for each root, ignoring the two body-boundary sources that
+    /// [`summary`] must not count: the conservative seeding of parameters and
+    /// closure capture targets, and a plain [`Terminator::Return`].
+    ///
+    /// A caller cares about those two separately — "the callee returns this
+    /// parameter" is what makes an argument escape, while "the callee returns a
+    /// buffer it minted itself" is what makes a call result fresh — so they are
+    /// tracked in [`Groups::entry`] and [`Groups::returned`] instead of being
+    /// folded into one verdict here.
+    escaped_external: HashMap<u32, EscapeReason>,
+    /// Roots that contain a parameter or a closure capture target.
+    entry: HashMap<u32, bool>,
+    /// Roots that reach a [`Terminator::Return`] operand.
+    returned: HashMap<u32, bool>,
     /// Whether each root's buffer is written in place anywhere.
     mutated: HashMap<u32, bool>,
     /// Roots whose buffer is named by more than one *concurrently live* local.
@@ -411,6 +429,9 @@ impl Groups {
         Self {
             parent: (0..u32::try_from(len).unwrap_or(u32::MAX)).collect(),
             escaped: HashMap::new(),
+            escaped_external: HashMap::new(),
+            entry: HashMap::new(),
+            returned: HashMap::new(),
             mutated: HashMap::new(),
             aliased: HashMap::new(),
         }
@@ -464,6 +485,15 @@ impl Groups {
         if let Some(reason) = self.escaped.remove(&right_root) {
             self.escaped.entry(left_root).or_insert(reason);
         }
+        if let Some(reason) = self.escaped_external.remove(&right_root) {
+            self.escaped_external.entry(left_root).or_insert(reason);
+        }
+        if self.entry.remove(&right_root) == Some(true) {
+            self.entry.insert(left_root, true);
+        }
+        if self.returned.remove(&right_root) == Some(true) {
+            self.returned.insert(left_root, true);
+        }
         if self.mutated.remove(&right_root) == Some(true) {
             self.mutated.insert(left_root, true);
         }
@@ -477,14 +507,45 @@ impl Groups {
     /// report shows.
     fn escape(&mut self, local: u32, reason: EscapeReason) {
         let root = self.find(local);
-        match self.escaped.get(&root) {
+        Self::record(&mut self.escaped, root, reason);
+        Self::record(&mut self.escaped_external, root, reason);
+    }
+
+    /// Insert `reason` for `root` under the "a genuine escape may replace a
+    /// conservative one, never the reverse" precedence rule.
+    fn record(map: &mut HashMap<u32, EscapeReason>, root: u32, reason: EscapeReason) {
+        match map.get(&root) {
             // A genuine escape is more informative than a conservative guess,
             // so it may replace one; the reverse never happens.
             Some(existing) if existing.is_genuine() || !reason.is_genuine() => {}
             _ => {
-                self.escaped.insert(root, reason);
+                map.insert(root, reason);
             }
         }
+    }
+
+    /// Record that `local` arrives already bound from outside the frame.
+    ///
+    /// This is an escape for the per-body verdict but *not* for the summary: a
+    /// callee that merely reads its parameter does not make the caller's
+    /// argument escape.
+    fn seed_entry(&mut self, local: u32) {
+        let root = self.find(local);
+        self.entry.insert(root, true);
+        Self::record(&mut self.escaped, root, EscapeReason::UnprovenDefinition);
+    }
+
+    /// Record that `local`'s group is handed back to the caller by a
+    /// [`Terminator::Return`].
+    ///
+    /// An escape for the per-body verdict, and for a *parameter* it is also an
+    /// escape in the summary — but a body that returns a buffer it minted
+    /// itself is precisely what makes the caller's result uniquely owned, so
+    /// this is kept out of [`Groups::escaped_external`].
+    fn escape_via_return(&mut self, local: u32) {
+        let root = self.find(local);
+        self.returned.insert(root, true);
+        Self::record(&mut self.escaped, root, EscapeReason::Returned);
     }
 
     /// Record that `local`'s buffer is written in place.
@@ -494,11 +555,34 @@ impl Groups {
     }
 }
 
-/// Classify the list-typed locals of one body./// Classify the list-typed locals of one body.
-fn analyze_body(mir: &Mir, body: &FunctionBody<'_>) -> Vec<ListLocalFact> {
-    let mut walk = BodyWalk::new(mir, body);
+/// Classify the list-typed locals of one body, refining statically resolved
+/// calls with `summaries`.
+fn analyze_body(
+    mir: &Mir,
+    summaries: &CallSummaries,
+    body: &FunctionBody<'_>,
+) -> Vec<ListLocalFact> {
+    let mut walk = BodyWalk::new(mir, summaries, body);
     walk.run();
     walk.finish()
+}
+
+/// Derive the interprocedural summary of one function body under the summaries
+/// currently known for its callees.
+///
+/// One walk serves both jobs: the group state it leaves behind records the
+/// parameter-seeded and returned groups separately from the genuine escapes
+/// (see [`Groups::escaped_external`]), so the per-body verdict and the summary
+/// can be read off the same run.
+fn summarize_function(
+    mir: &Mir,
+    summaries: &CallSummaries,
+    function: &MirFunction,
+) -> FunctionSummary {
+    let body = FunctionBody::from_function(function);
+    let mut walk = BodyWalk::new(mir, summaries, &body);
+    walk.run();
+    walk.summarize(function)
 }
 
 /// The mutable state of one body's walk.
@@ -512,6 +596,8 @@ struct BodyWalk<'a> {
     mir: &'a Mir,
     /// The body being walked.
     body: &'a FunctionBody<'a>,
+    /// Escape summaries for statically resolvable callees.
+    summaries: &'a CallSummaries,
     /// Union-find groups plus their escape/mutation verdicts.
     groups: Groups,
     /// Locals that appear anywhere in the body. Slots that are only declared
@@ -522,10 +608,11 @@ struct BodyWalk<'a> {
 
 impl<'a> BodyWalk<'a> {
     /// Start a walk with every list local in its own singleton group.
-    fn new(mir: &'a Mir, body: &'a FunctionBody<'a>) -> Self {
+    fn new(mir: &'a Mir, summaries: &'a CallSummaries, body: &'a FunctionBody<'a>) -> Self {
         Self {
             mir,
             body,
+            summaries,
             groups: Groups::new(body.locals.len()),
             touched: vec![false; body.locals.len()],
         }
@@ -557,7 +644,7 @@ impl<'a> BodyWalk<'a> {
         for param in self.body.entry_locals.clone() {
             if self.is_list(param) {
                 self.touch(param);
-                self.groups.escape(param.0, EscapeReason::UnprovenDefinition);
+                self.groups.seed_entry(param.0);
             }
         }
 
@@ -655,17 +742,20 @@ impl<'a> BodyWalk<'a> {
         match found {
             // A call result may be a handle the callee kept; an awaited value
             // comes from a future built elsewhere. Neither is provably fresh.
-            Terminator::Call { args, dest, .. } => {
-                for arg in args {
-                    self.escape_operand(arg, EscapeReason::CallArgument);
-                }
-                self.define_from_outside(*dest);
-            }
+            Terminator::Call {
+                callee, args, dest, ..
+            } => self.visit_call(callee, args, *dest),
             Terminator::Await { future, dest, .. } => {
                 self.escape_operand(future, EscapeReason::CallArgument);
                 self.define_from_outside(*dest);
             }
-            Terminator::Return(operand) | Terminator::Throw(operand) => {
+            // A return hands the buffer to the caller. It is kept apart from
+            // the other escapes because a body that returns a buffer it minted
+            // itself is what makes the *caller's* result uniquely owned.
+            Terminator::Return(operand) => self.return_operand(operand),
+            // A throw publishes the value onto the unwind path, where no
+            // summary describes what happens to it.
+            Terminator::Throw(operand) => {
                 self.escape_operand(operand, EscapeReason::Returned);
             }
             // Branch conditions only test a value; no handle survives.
@@ -680,6 +770,103 @@ impl<'a> BodyWalk<'a> {
                 }
             }
             Terminator::Goto(_) | Terminator::Unreachable => {}
+        }
+    }
+
+    /// Apply the rules of a [`Terminator::Call`].
+    ///
+    /// When the callee is a body this analysis has a usable summary for, each
+    /// argument is refined by that summary: a parameter the callee provably
+    /// does not let escape leaves the argument confined (merely mutated, if the
+    /// callee writes through it), and a callee that provably returns a
+    /// uniquely owned fresh list makes the destination a fresh definition
+    /// rather than an unproven one.
+    ///
+    /// Every other callee shape — an indirect call through a runtime function
+    /// value, a builtin, an out-of-range or overridable or `async`/generator
+    /// target, or a mismatched argument list — is an **unknown callee**: every
+    /// argument escapes and the destination is unproven. See the
+    /// [`summary`] module docs for the full list.
+    fn visit_call(&mut self, callee: &Callee, args: &[Operand], dest: LocalId) {
+        let resolved = match callee {
+            Callee::Static(func) => self.summaries.resolved(*func),
+            // The callee value itself is handed to the dispatcher, and nothing
+            // names the body that will run.
+            Callee::Indirect(operand) => {
+                self.escape_operand(operand, EscapeReason::CallArgument);
+                None
+            }
+            Callee::Builtin(_) => None,
+        };
+        let Some(summary) = resolved else {
+            for arg in args {
+                self.escape_operand(arg, EscapeReason::CallArgument);
+            }
+            self.define_from_outside(dest);
+            return;
+        };
+        let effects = args
+            .iter()
+            .enumerate()
+            .map(|(index, _)| summary.argument_effect(index, args.len()))
+            .collect::<Vec<_>>();
+        let returns_fresh = summary.returns_fresh_list;
+        for (arg, effect) in args.iter().zip(effects) {
+            match effect {
+                ArgumentEffect::Escapes => {
+                    self.escape_operand(arg, EscapeReason::CallArgument);
+                }
+                ArgumentEffect::Confined { mutated } => self.read_operand(arg, mutated),
+            }
+        }
+        if returns_fresh {
+            // The callee minted this buffer and published it nowhere else, so
+            // the caller is its only owner: a fresh definition, exactly like a
+            // literal or a `slice()`.
+            if self.is_list(dest) {
+                self.touch(dest);
+            }
+        } else {
+            self.define_from_outside(dest);
+        }
+    }
+
+    /// Note an argument the callee provably does not retain.
+    ///
+    /// Mirrors [`BodyWalk::escape_operand`]'s place handling: a projected read
+    /// only touches the base, because the list being passed is not a local.
+    fn read_operand(&mut self, operand: &Operand, mutated: bool) {
+        match operand_place(operand) {
+            Some(&Place::Local(named)) if self.is_list(named) => {
+                self.touch(named);
+                if mutated {
+                    self.groups.mutate(named.0);
+                }
+            }
+            Some(&Place::Field { base, .. } | &Place::Index { base, .. })
+                if self.is_list(base) =>
+            {
+                self.touch(base);
+            }
+            _ => {}
+        }
+    }
+
+    /// Note the operand a [`Terminator::Return`] hands back to the caller.
+    fn return_operand(&mut self, operand: &Operand) {
+        match operand_place(operand) {
+            Some(&Place::Local(named)) if self.is_list(named) => {
+                self.touch(named);
+                self.groups.escape_via_return(named.0);
+            }
+            // Returning `obj.items` hands back a buffer that also lives inside
+            // the container, which no summary can call uniquely owned.
+            Some(&Place::Field { base, .. } | &Place::Index { base, .. })
+                if self.is_list(base) =>
+            {
+                self.touch(base);
+            }
+            _ => {}
         }
     }
 
@@ -831,6 +1018,77 @@ impl<'a> BodyWalk<'a> {
             });
         }
         facts
+    }
+
+    /// Read the interprocedural summary off a finished walk.
+    ///
+    /// A parameter escapes when its group carries any escape that is not the
+    /// conservative entry seeding — including a plain `Return`, since returning
+    /// a parameter really does hand the caller's buffer back out. A body
+    /// returns a fresh list when every `Return` operand's group was minted
+    /// inside this body (no entry local reached it) and is published nowhere
+    /// else.
+    fn summarize(mut self, function: &MirFunction) -> FunctionSummary {
+        let mut param_escapes = Vec::with_capacity(function.params.len());
+        let mut param_mutated = Vec::with_capacity(function.params.len());
+        for param in &function.params {
+            if !self.is_list(*param) {
+                // A non-list parameter cannot carry a list buffer, and a
+                // non-list argument never consults this entry. Reporting it as
+                // escaping keeps the summary conservative if it ever is.
+                param_escapes.push(true);
+                param_mutated.push(false);
+                continue;
+            }
+            let root = self.groups.find(param.0);
+            param_escapes.push(
+                self.groups.escaped_external.contains_key(&root)
+                    || self.groups.returned.get(&root).copied().unwrap_or(false),
+            );
+            param_mutated.push(self.groups.mutated.get(&root).copied().unwrap_or(false));
+        }
+
+        let returns_fresh_list = self.returns_fresh_list(function);
+        FunctionSummary {
+            resolvable: true,
+            packs_rest: function.rest.is_some(),
+            param_escapes,
+            param_mutated,
+            returns_fresh_list,
+        }
+    }
+
+    /// Whether every `Return` in this body hands back a uniquely owned buffer.
+    ///
+    /// False unless the declared return type is a list — a call whose
+    /// destination is not list-typed never consults this — and false as soon as
+    /// one return operand is anything but a list local whose group is free of
+    /// entry locals and of every escape other than the return itself.
+    fn returns_fresh_list(&mut self, function: &MirFunction) -> bool {
+        if !matches!(
+            self.mir.types.get(function.return_ty),
+            Some(Type::List(_))
+        ) {
+            return false;
+        }
+        let returned: Vec<Operand> = function
+            .blocks
+            .iter()
+            .filter_map(|block| match block.terminator.as_ref() {
+                Some(Terminator::Return(operand)) => Some(operand.clone()),
+                _ => None,
+            })
+            .collect();
+        returned.iter().all(|operand| match operand_local(operand) {
+            Some(local) if self.is_list(local) => {
+                let root = self.groups.find(local.0);
+                !self.groups.escaped_external.contains_key(&root)
+                    && !self.groups.entry.get(&root).copied().unwrap_or(false)
+            }
+            // A constant, or a buffer read out through a projection: not
+            // provably minted here.
+            _ => false,
+        })
     }
 }
 
