@@ -627,7 +627,31 @@ class codes(IntEnum):
     OK = codes.__new__(200, "OK")
 "#);
     let mut ctx = HirCtx::new();
-    lower_module(source, &mut ctx)?;
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let codes = module
+        .items
+        .iter()
+        .find_map(|item_id| match item(&ctx, *item_id).ok()? {
+            Item::Class(class) if symbol(&ctx, class.name).ok()? == "codes" => Some(class),
+            _ => None,
+        })
+        .ok_or("expected codes class")?;
+    ensure_eq(&codes.fields.len(), &2, "__new__-assigned field count")?;
+    ensure(
+        codes.fields.iter().any(|field| {
+            symbol(&ctx, field.name).ok() == Some("_value_")
+                && matches!(ctx.krate.types.get(field.ty), Some(Type::Int))
+        }),
+        "expected _value_ to retain the int parameter type",
+    )?;
+    ensure(
+        codes.fields.iter().any(|field| {
+            symbol(&ctx, field.name).ok() == Some("phrase")
+                && matches!(ctx.krate.types.get(field.ty), Some(Type::String))
+        }),
+        "expected phrase to retain the string parameter type",
+    )?;
     Ok(())
 }
 
@@ -873,8 +897,8 @@ class Ops:
     Ok(())
 }
 
-/// A method call to a name the receiver class does not declare is still
-/// rejected with the unsupported-call diagnostic.
+/// A method call to a name the receiver class does not declare is rejected as
+/// an unknown class member before call lowering can fabricate a receiver type.
 #[test]
 fn unknown_instance_method_rejects() -> TestResult {
     let source = py!(r#"
@@ -889,8 +913,8 @@ def f(c: C) -> int:
     let errors = lower_errors(source, &mut ctx)?;
     let error = first_error(&errors)?;
     ensure(
-        error.message.contains("only calls to top-level functions"),
-        "expected the unsupported-call diagnostic for an unknown method",
+        error.message.contains("unknown class field `nope`"),
+        "expected the unknown-member diagnostic for an unknown method",
     )?;
     Ok(())
 }
@@ -902,10 +926,8 @@ def f(c: C) -> int:
 /// A field assigned from an `__init__` parameter is declared with that
 /// parameter's type, so a method call through the field dispatches statically.
 ///
-/// Without the implicit declaration the class lowers with no fields at all, and
-/// `field_type`'s fieldless-class fallback types `self.inner` as `B` itself —
-/// so `self.inner.a()` looked for `a` on `B`, found nothing, and fell through
-/// to the unsupported-call diagnostic.
+/// Without the implicit declaration the class lowers with no fields at all, so
+/// `self.inner.a()` cannot recover `A` as the receiver type.
 #[test]
 fn constructor_assigned_field_supports_method_dispatch() -> TestResult {
     let source = py!(r#"
@@ -921,6 +943,29 @@ class B:
 "#);
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
+    Ok(())
+}
+
+/// Reading an undeclared attribute is rejected even when the class is empty.
+///
+/// The former fieldless-class fallback silently assigned the receiver's own
+/// class type to every unknown attribute, accepting invalid Python and
+/// poisoning later method dispatch with a fabricated static type.
+#[test]
+fn fieldless_class_does_not_fabricate_unknown_field_types() -> TestResult {
+    let source = py!(r#"
+class Empty:
+    def missing(self) -> int:
+        return self.not_declared
+"#);
+    let mut ctx = HirCtx::new();
+    let errors = lower_errors(source, &mut ctx)?;
+    ensure(
+        first_error(&errors)?
+            .message
+            .contains("unknown class field `not_declared`"),
+        "expected an undeclared field diagnostic",
+    )?;
     Ok(())
 }
 

@@ -628,8 +628,8 @@ impl ModuleBuilder<'_> {
         Ok(())
     }
 
-    /// Collect the instance fields a class declares by assigning them in
-    /// `__init__`, rather than by a class-level annotation.
+    /// Collect instance fields assigned by `__init__` or `__new__`, rather than
+    /// declared by a class-level annotation.
     ///
     /// Python has no requirement that an instance field be annotated in the
     /// class body; the idiomatic declaration is the constructor assignment
@@ -641,20 +641,17 @@ impl ModuleBuilder<'_> {
     ///         self.inner = inner      # <- this *is* the declaration
     /// ```
     ///
-    /// Without this pass such a class lowers with an empty field list, and
-    /// [`Self::field_type`]'s fieldless-class fallback then types *every*
-    /// `self.<name>` as the receiver's own class. That is silently wrong: it
-    /// makes `self.inner` a `B`, so `self.inner.a()` finds no method on `B` and
-    /// falls through to the unsupported-call diagnostic, and passing
-    /// `self.inner` to a parameter typed `A` fails to type-check.
+    /// Without this pass such a class lowers with an empty field list, so later
+    /// reads cannot recover the field's concrete type for method dispatch or
+    /// typed function arguments.
     ///
     /// The rule is general, not a per-shape special case: a constructor
     /// parameter (or an explicitly annotated constructor assignment) bound to
-    /// `self.<name>` declares `<name>` with that type. Two kinds of assignment
-    /// carry a type precise enough to declare a field:
+    /// an instance field declares that field with the parameter type. Two kinds
+    /// of assignment carry a type precise enough to declare a field:
     ///
-    /// * `self.<name>: T = <value>` — the annotation states the field type;
-    /// * `self.<name> = <param>` — the field takes the parameter's type, which
+    /// * `<instance>.<name>: T = <value>` — the annotation states the field type;
+    /// * `<instance>.<name> = <param>` — the field takes the parameter's type, which
     ///   is the source annotation when present and otherwise `ty`'s resolved
     ///   type for that parameter (issue #93).
     ///
@@ -666,18 +663,22 @@ impl ModuleBuilder<'_> {
     /// assignment to a name is taken so a later re-assignment cannot silently
     /// redeclare the field with a different type.
     ///
-    /// Only the top-level statements of `__init__` are scanned. A field
-    /// assigned inside a branch has no single obvious type and stays out.
+    /// Only top-level initializer statements are scanned. For `__new__`, an
+    /// attribute receiver is recognized as the new instance when the function
+    /// returns that local. A field assigned inside a branch has no single
+    /// obvious type and stays out.
     fn implicit_constructor_fields(
         &mut self,
         class: &StmtClassDef,
     ) -> Result<Vec<Field>, SmeltError> {
-        let Some(init) = class.body.iter().find_map(|statement| match statement {
-            Stmt::FunctionDef(function) if function.name.as_str() == "__init__" => Some(function),
+        let initializers = class.body.iter().filter_map(|statement| match statement {
+            Stmt::FunctionDef(function)
+                if matches!(function.name.as_str(), "__init__" | "__new__") =>
+            {
+                Some(function)
+            }
             _ => None,
-        }) else {
-            return Ok(Vec::new());
-        };
+        });
 
         // Names the class body already declares with an annotation. This pass
         // runs before the body walk that lowers them (methods below need the
@@ -695,53 +696,70 @@ impl ModuleBuilder<'_> {
             })
             .collect();
 
-        // Parameter name -> declared type, skipping the implicit `self`.
-        let mut param_types: HashMap<&str, TypeId> = HashMap::new();
-        for param_with_default in init.parameters.iter_non_variadic_params().skip(1) {
-            let param = &param_with_default.parameter;
-            let param_ty = match param.annotation.as_deref() {
-                Some(annotation) => Some(self.annotation_to_hir(annotation)?),
-                None => self.resolved_param_ty(param),
-            };
-            if let Some(param_ty) = param_ty {
-                param_types.insert(param.name.as_str(), param_ty);
-            }
-        }
-
         let mut collected: Vec<Field> = Vec::new();
-        for statement in &init.body {
-            let Some((field_name, field_ty)) =
-                self.constructor_field_declaration(statement, &param_types)?
-            else {
-                continue;
-            };
-            // An explicit class-level annotation, or an earlier assignment to
-            // the same name, already declared this field.
-            if annotated.contains(field_name.as_str()) {
-                continue;
+        for initializer in initializers {
+            // Parameter name -> declared type, skipping `self` / `cls`.
+            let mut param_types: HashMap<&str, TypeId> = HashMap::new();
+            for param_with_default in initializer.parameters.iter_non_variadic_params().skip(1) {
+                let param = &param_with_default.parameter;
+                let param_ty = match param.annotation.as_deref() {
+                    Some(annotation) => Some(self.annotation_to_hir(annotation)?),
+                    None => self.resolved_param_ty(param),
+                };
+                if let Some(param_ty) = param_ty {
+                    param_types.insert(param.name.as_str(), param_ty);
+                }
             }
-            let field_sym = self.intern_name(&field_name);
-            if collected.iter().any(|field| field.name == field_sym) {
-                continue;
+
+            // `__init__` mutates its first parameter. `__new__` commonly
+            // constructs a local and returns it; that returned local is the
+            // instance whose assignments declare fields.
+            let mut receivers: HashSet<&str> = HashSet::new();
+            if initializer.name.as_str() == "__init__"
+                && let Some(first) = initializer.parameters.iter_non_variadic_params().next()
+            {
+                receivers.insert(first.parameter.name.as_str());
             }
-            // Mirrors the class-level branch: an `Optional[T]` field is what
-            // Rust codegen turns into `Option<T>`.
-            let optional = matches!(
-                self.ctx.krate.types.get(field_ty),
-                Some(Type::Optional(_))
-            );
-            collected.push(Field {
-                name: field_sym,
-                ty: field_ty,
-                visibility: Visibility::Public,
-                optional,
-                span: self.span(statement.range()),
-            });
+            if initializer.name.as_str() == "__new__" {
+                receivers.extend(initializer.body.iter().filter_map(|statement| match statement {
+                    Stmt::Return(ret) => match ret.value.as_deref() {
+                        Some(Expr::Name(name)) => Some(name.id.as_str()),
+                        _ => None,
+                    },
+                    _ => None,
+                }));
+            }
+
+            for statement in &initializer.body {
+                let Some((field_name, field_ty)) =
+                    self.constructor_field_declaration(statement, &receivers, &param_types)?
+                else {
+                    continue;
+                };
+                if annotated.contains(field_name.as_str()) {
+                    continue;
+                }
+                let field_sym = self.intern_name(&field_name);
+                if collected.iter().any(|field| field.name == field_sym) {
+                    continue;
+                }
+                let optional = matches!(
+                    self.ctx.krate.types.get(field_ty),
+                    Some(Type::Optional(_))
+                );
+                collected.push(Field {
+                    name: field_sym,
+                    ty: field_ty,
+                    visibility: Visibility::Public,
+                    optional,
+                    span: self.span(statement.range()),
+                });
+            }
         }
         Ok(collected)
     }
 
-    /// Read one `__init__` statement as an instance-field declaration.
+    /// Read one initializer statement as an instance-field declaration.
     ///
     /// Returns the field name and its type for the two typed assignment shapes
     /// described on [`Self::implicit_constructor_fields`], and `None` for any
@@ -749,15 +767,16 @@ impl ModuleBuilder<'_> {
     fn constructor_field_declaration(
         &mut self,
         statement: &Stmt,
+        receivers: &HashSet<&str>,
         param_types: &HashMap<&str, TypeId>,
     ) -> Result<Option<(String, TypeId)>, SmeltError> {
-        /// `self.<name>` as an assignment target, or `None` for anything else.
-        fn self_field_target(target: &Expr) -> Option<&str> {
+        /// `<instance>.<name>` as an assignment target, or `None` otherwise.
+        fn self_field_target<'a>(target: &'a Expr, receivers: &HashSet<&str>) -> Option<&'a str> {
             let Expr::Attribute(attribute) = target else {
                 return None;
             };
             match attribute.value.as_ref() {
-                Expr::Name(receiver) if receiver.id.as_str() == "self" => {
+                Expr::Name(receiver) if receivers.contains(receiver.id.as_str()) => {
                     Some(attribute.attr.as_str())
                 }
                 _ => None,
@@ -767,7 +786,7 @@ impl ModuleBuilder<'_> {
         match statement {
             // `self.<name>: T = <value>` — the annotation is the declaration.
             Stmt::AnnAssign(assign) => {
-                let Some(field_name) = self_field_target(&assign.target) else {
+                let Some(field_name) = self_field_target(&assign.target, receivers) else {
                     return Ok(None);
                 };
                 let field_ty = self.annotation_to_hir(&assign.annotation)?;
@@ -779,7 +798,7 @@ impl ModuleBuilder<'_> {
                 let [target] = assign.targets.as_slice() else {
                     return Ok(None);
                 };
-                let Some(field_name) = self_field_target(target) else {
+                let Some(field_name) = self_field_target(target, receivers) else {
                     return Ok(None);
                 };
                 Ok(self
