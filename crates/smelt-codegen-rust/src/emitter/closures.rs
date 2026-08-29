@@ -265,7 +265,14 @@ impl FunctionEmitter<'_> {
                     is_async: false,
                     may_throw: source_closure.can_throw,
                 };
-                let args = self.function_args_from_smelt_args_text(&source_function)?;
+                // `source_function` describes the closure's own parameter list,
+                // not a declared callback type the closure was rendered against
+                // — `adjusted_closure` above was rendered for `dest_ty`, an
+                // erased-rest callable, so its parameters are owned.
+                let args = self.function_args_from_smelt_args_text(
+                    &source_function,
+                    ErasedCallTargetAbi::ByValueClosure,
+                )?;
                 let call = if source_closure.can_throw {
                     format!(
                         "(smelt_callback)({args}).unwrap_or_else(|error| panic!(\"{{}}\", error))"

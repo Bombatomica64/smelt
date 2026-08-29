@@ -1329,6 +1329,16 @@ impl FunctionEmitter<'_> {
                     .or(emitted_params.as_deref())
                     .unwrap_or(inferred_params);
                 let rest_function = local_function.or(inferred_function);
+                // The by-reference ABI is the callee's, and a local that received
+                // the result of a generic call holds a value whose ABI was decided
+                // by the callee's DECLARED signature, not by the instantiated type
+                // MIR gave the local. See `emitted_call_result_function_type`.
+                let abi_function = match callee {
+                    Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => {
+                        self.emitted_call_result_function_type(*local)
+                    }
+                    _ => None,
+                };
                 let mut rendered_args = if let Some(rest_args) =
                     self.rest_vector_call_args_text(args, rest_function)?
                 {
@@ -1343,9 +1353,22 @@ impl FunctionEmitter<'_> {
                                 function.mutable_params.contains(&index)
                             }) {
                                 self.mutable_reference_argument_text(arg, *param, None)?
-                            } else if rest_function.is_some_and(|function| {
-                                self.callback_param_is_shared_reference(function, index, *param)
-                            }) {
+                            } else if abi_function.as_ref().map_or_else(
+                                || {
+                                    rest_function.is_some_and(|function| {
+                                        self.callback_param_is_shared_reference(
+                                            function, index, *param,
+                                        )
+                                    })
+                                },
+                                |function| {
+                                    function.params.get(index).is_some_and(|declared| {
+                                        self.callback_param_is_shared_reference(
+                                            function, index, *declared,
+                                        )
+                                    })
+                                },
+                            ) {
                                 // The parameter is `&T`, so pass a reference. Borrowing
                                 // the place is the point: this is the per-element
                                 // whole-list copy that made array callbacks quadratic.
@@ -1373,8 +1396,29 @@ impl FunctionEmitter<'_> {
                             }
                         })
                         .collect::<Result<Vec<_>, _>>()?;
-                    for param in params.iter().skip(args.len()) {
-                        rendered_args.push(self.default_value(*param)?);
+                    // A padded argument is a fresh temporary, so a
+                    // by-shared-reference parameter borrows it in place. Without
+                    // this the padding is the one argument in the ladder that
+                    // ignores the callee's ABI (E0308) — es-toolkit's
+                    // `isEqualWith` calls a six-parameter comparator with two
+                    // required arguments and four padded ones.
+                    for (index, param) in params.iter().enumerate().skip(args.len()) {
+                        let default_text = self.default_value(*param)?;
+                        rendered_args.push(match (abi_function.as_ref(), rest_function) {
+                            (Some(function), _) => match function.params.get(index) {
+                                Some(declared) => self.callback_call_arg_text(
+                                    function,
+                                    index,
+                                    *declared,
+                                    default_text,
+                                ),
+                                None => default_text,
+                            },
+                            (None, Some(function)) => {
+                                self.callback_call_arg_text(function, index, *param, default_text)
+                            }
+                            (None, None) => default_text,
+                        });
                     }
                     rendered_args
                 };
@@ -2063,7 +2107,8 @@ impl FunctionEmitter<'_> {
             let element = format!(
                 "smelt_spread_args.get({index}).cloned().unwrap_or(SmeltUnknown::Undefined)"
             );
-            rendered.push(self.value_at_type_text(&element, unknown_ty, *param)?);
+            let coerced = self.value_at_type_text(&element, unknown_ty, *param)?;
+            rendered.push(self.callback_call_arg_text(function, index, *param, coerced));
         }
         // The rest parameter collects the remaining elements as a fresh
         // `SmeltList`; coerce each element to the rest item type when needed.

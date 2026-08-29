@@ -756,9 +756,14 @@ impl FunctionEmitter<'_> {
             let depth_text = self.flat_depth_text(depth)?;
             // Read by borrow: the emitted call appends its own
             // `.clone().into_vec()`, so cloning here made it `x.clone().clone()`.
+            // The `match` below is written against a REFERENCE scrutinee
+            // (`match &(..)`, arms cloning what they need) so it works whether the
+            // place read is owned or is itself a borrowed callback parameter
+            // (`callback_param_is_shared_reference`); moving out of the latter is
+            // E0507.
             let list_text = self.operand_borrow_text(list)?;
             return Ok(format!(
-                "{{ fn smelt_flat_values(values: Vec<SmeltUnknown>, smelt_remaining_depth: i64) -> Vec<SmeltUnknown> {{ if smelt_remaining_depth <= 0 {{ return values; }} values.into_iter().flat_map(|value| match value {{ SmeltUnknown::Array(items) => smelt_flat_values(items.into_vec(), smelt_remaining_depth - 1), value => vec![value] }}).collect::<Vec<_>>() }} let smelt_flat_depth = (({depth_text}) as f64).max(0.0).floor() as i64; let smelt_flat_input = match {list_text} {{ SmeltUnknown::Array(values) => values.into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string())).collect::<Vec<_>>(), _ => Vec::new() }}; smelt_flat_values(smelt_flat_input, smelt_flat_depth) }}"
+                "{{ fn smelt_flat_values(values: Vec<SmeltUnknown>, smelt_remaining_depth: i64) -> Vec<SmeltUnknown> {{ if smelt_remaining_depth <= 0 {{ return values; }} values.into_iter().flat_map(|value| match value {{ SmeltUnknown::Array(items) => smelt_flat_values(items.into_vec(), smelt_remaining_depth - 1), value => vec![value] }}).collect::<Vec<_>>() }} let smelt_flat_depth = (({depth_text}) as f64).max(0.0).floor() as i64; let smelt_flat_input = match &({list_text}) {{ SmeltUnknown::Array(values) => values.clone().into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string())).collect::<Vec<_>>(), _ => Vec::new() }}; smelt_flat_values(smelt_flat_input, smelt_flat_depth) }}"
             ));
         }
         let Some(Type::List(nested_ty)) = self.mir.types.get(list_ty) else {

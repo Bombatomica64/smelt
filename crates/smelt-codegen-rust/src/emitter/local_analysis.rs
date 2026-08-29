@@ -1,6 +1,7 @@
 //! Local dataflow and mutability analysis: whether a MIR local needs a mutable Rust binding, its assignment/use ordering, and rvalue-level in-place mutation and mutable-borrow queries.
 
 use super::*;
+use smelt_hir::FunctionType;
 use super::core::{
     assignment_place_reads_local, operand_uses_local, rvalue_uses_local, terminator_successors,
     terminator_uses_local,
@@ -119,6 +120,58 @@ impl FunctionEmitter<'_> {
             }
         }
         false
+    }
+
+    /// The function type a local's value carries in the EMITTED Rust, when the
+    /// local receives the result of a call to a generated function.
+    ///
+    /// A generic callee's DECLARED return type keeps its type parameters, and the
+    /// emitted signature spells the callback ABI from those: `make<T>(x: T) => (v:
+    /// T) => boolean` is emitted as `fn make<T>(x: T) -> Rc<dyn Fn(&T) -> bool>`.
+    /// The MIR type of the destination local is the INSTANTIATED return type,
+    /// `(v: number) => boolean`, which has lost that provenance — asking
+    /// [`FunctionEmitter::callback_param_is_shared_reference`] about `f64` answers
+    /// "by value" while the value in hand is an `Rc<dyn Fn(&f64) -> bool>` (E0308).
+    ///
+    /// A call through such a local asks this instead, so the ABI question is
+    /// answered where the ABI was decided — by the callee's own declaration —
+    /// rather than by a substituted copy of it. Only the ABI question: argument
+    /// coercion still runs against the local's own (instantiated) MIR types, which
+    /// are the ones that describe the values.
+    ///
+    /// Restricted to a callee the crate emitted with REAL generics. That is the
+    /// only case where the rendered ABI can disagree with MIR: such a callee spells
+    /// its return from its own type parameters and the call site monomorphizes
+    /// them, so the provenance is lost. A callee that erased its generics renders
+    /// its return in MIR's own vocabulary, the destination's MIR type describes the
+    /// value it actually holds, and the ordinary rendered-value adapter — which
+    /// runs precisely because the two TypeIds differ there — has already fixed the
+    /// shape. Firing on that case instead OVER-borrowed an already-adapted value.
+    ///
+    /// `None` whenever the local is not the destination of a static call, the
+    /// callee erased its generics, or its declared return is not a function type.
+    pub(super) fn emitted_call_result_function_type(&self, local: LocalId) -> Option<FunctionType> {
+        let func_id = self.function.blocks.iter().find_map(|block| match &block.terminator {
+            Some(Terminator::Call {
+                callee: Callee::Static(func_id),
+                dest,
+                ..
+            }) if *dest == local => Some(*func_id),
+            _ => None,
+        })?;
+        let callee = self
+            .mir
+            .functions
+            .get(usize::try_from(func_id.0).unwrap_or(usize::MAX))?;
+        if !self.context.is_generic_function(callee.id) {
+            return None;
+        }
+        let rust_name = self.function_rust_name(callee).ok()?;
+        let return_ty = self.emitted_function_return_type(&rust_name)?;
+        match self.mir.types.get(return_ty) {
+            Some(Type::Function(function)) => Some(function.clone()),
+            _ => None,
+        }
     }
 
     /// Count direct assignments to a MIR local.

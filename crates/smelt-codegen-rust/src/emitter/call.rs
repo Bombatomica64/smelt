@@ -362,6 +362,19 @@ impl FunctionEmitter<'_> {
                     resolve_input_ty,
                     output_ty,
                 )?;
+                // `reject` is synthesized the same way `resolve` is, and its
+                // parameter is always the erased rejection reason. Once
+                // `SmeltUnknown` is a by-shared-reference callback parameter the
+                // executor's declared `reject` is spelled `&SmeltUnknown`, so the
+                // synthesized closure has to match it and clone the reason out
+                // before handing it to the throw adapter.
+                let reject_by_ref = self
+                    .synthesized_callback_param_is_shared_reference(self.type_id(Type::Unknown)?);
+                let (reject_input_text, reject_value) = if reject_by_ref {
+                    ("&SmeltUnknown", "error.clone()")
+                } else {
+                    ("SmeltUnknown", "error")
+                };
                 // `reject(value)` is a `throw` that crosses a future boundary, so
                 // it enters the error channel through the same payload-preserving
                 // adapter as `Terminator::Throw` (see `crate::thrown`). The
@@ -370,7 +383,7 @@ impl FunctionEmitter<'_> {
                 // `message`, so a string-typed `catch` observes the same text this
                 // site used to build by hand.
                 Ok(format!(
-                    "{{ let smelt_promise_result: ::std::rc::Rc<::std::cell::RefCell<Option<Result<{output_text}, Box<dyn std::error::Error>>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_resolve_result = smelt_promise_result.clone(); let smelt_reject_result = smelt_promise_result.clone(); let smelt_resolve: ::std::rc::Rc<dyn Fn({resolve_input_text}) -> ()> = ::std::rc::Rc::new(move |value: {resolve_input_text}| {{ *smelt_resolve_result.borrow_mut() = Some(Ok({resolve_value})); }}); let smelt_reject: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> ()> = ::std::rc::Rc::new(move |error: SmeltUnknown| {{ *smelt_reject_result.borrow_mut() = Some(Err({throw_fn}(error))); }}); {executor_call} SmeltFuture::from_future(Box::pin(async move {{ loop {{ if let Some(result) = smelt_promise_result.borrow_mut().take() {{ break result; }} tokio::task::yield_now().await; {sleep_ms}(0.0).await; }} }})) }}",
+                    "{{ let smelt_promise_result: ::std::rc::Rc<::std::cell::RefCell<Option<Result<{output_text}, Box<dyn std::error::Error>>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_resolve_result = smelt_promise_result.clone(); let smelt_reject_result = smelt_promise_result.clone(); let smelt_resolve: ::std::rc::Rc<dyn Fn({resolve_input_text}) -> ()> = ::std::rc::Rc::new(move |value: {resolve_input_text}| {{ *smelt_resolve_result.borrow_mut() = Some(Ok({resolve_value})); }}); let smelt_reject: ::std::rc::Rc<dyn Fn({reject_input_text}) -> ()> = ::std::rc::Rc::new(move |error: {reject_input_text}| {{ *smelt_reject_result.borrow_mut() = Some(Err({throw_fn}({reject_value}))); }}); {executor_call} SmeltFuture::from_future(Box::pin(async move {{ loop {{ if let Some(result) = smelt_promise_result.borrow_mut().take() {{ break result; }} tokio::task::yield_now().await; {sleep_ms}(0.0).await; }} }})) }}",
                     sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
                     throw_fn = crate::thrown::THROW_FN,
                 ))
@@ -1083,6 +1096,18 @@ impl FunctionEmitter<'_> {
             if function.rest.is_none() && function.params.is_empty() {
                 return Ok(format!("({{ let _ = {arg_expr}; ({callback_text})() }})"));
             }
+            // The continuation's declared parameter may be by shared reference
+            // (`callback_param_is_shared_reference`); `arg_expr` is an owned
+            // erased value, so borrow the temporary at the call.
+            if let Some(param_ty) = function.params.first().copied() {
+                let arg_text = self.callback_call_arg_text(
+                    function,
+                    0,
+                    param_ty,
+                    arg_expr.to_owned(),
+                );
+                return Ok(format!("({callback_text})({arg_text})"));
+            }
         }
         Ok(format!("({callback_text})({arg_expr})"))
     }
@@ -1192,7 +1217,14 @@ impl FunctionEmitter<'_> {
             if function.mutable_params.contains(&index) {
                 break;
             }
-            rendered_args.push(self.default_value(target_ty)?);
+            // A padded argument is a fresh temporary, so a by-shared-reference
+            // parameter borrows it in place.
+            rendered_args.push(self.callback_call_arg_text(
+                function,
+                index,
+                target_ty,
+                self.default_value(target_ty)?,
+            ));
         }
         Ok(rendered_args.join(", "))
     }
@@ -2080,17 +2112,14 @@ impl FunctionEmitter<'_> {
                     Some(Type::Float)
                 )
             {
-                let params = target_function
-                    .params
-                    .iter()
-                    .enumerate()
-                    .map(|(index, param)| {
-                        Ok(format!(
-                            "arg{index}: {}",
-                            self.type_text_with_impl_trait(*param, false)?
-                        ))
-                    })
-                    .collect::<Result<Vec<_>, EmitError>>()?
+                // The wrapper is assigned to `dest_ty`'s `dyn Fn`, so its
+                // parameters must carry whatever `&` that spelling does
+                // (`callback_param_is_shared_reference`); rendering the bare
+                // types here made the two disagree (E0631).
+                let scope = self.current_function_type_params();
+                let substitution = TypeSubstitution::lexical(&scope);
+                let params = self
+                    .callback_arg_decls(target_function, &substitution, MutablePrefix::Apply)?
                     .join(", ");
                 let call_args = (0..target_function.params.len())
                     .map(|index| format!("arg{index}"))

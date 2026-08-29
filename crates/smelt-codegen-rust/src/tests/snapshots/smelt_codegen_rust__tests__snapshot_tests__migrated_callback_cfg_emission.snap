@@ -79,16 +79,16 @@ fn collect_indices(values: SmeltList<f64>) -> SmeltList<f64> {
 }
 
 fn iso(values: SmeltList<SmeltUnknown>) -> SmeltList<String> {
-    let _smelt_tmp_1 = ::std::rc::Rc::new(|closure_arg_0: SmeltUnknown, closure_arg_1: i64, closure_arg_2: &SmeltList<SmeltUnknown>| {
+    let _smelt_tmp_1 = ::std::rc::Rc::new(|closure_arg_0: &SmeltUnknown, closure_arg_1: i64, closure_arg_2: &SmeltList<SmeltUnknown>| {
     let _smelt_tmp_3: String = (closure_arg_0.clone()).to_iso_string();
     let _smelt_tmp_4: SmeltUnknown = SmeltUnknown::String(_smelt_tmp_3.clone());
     _smelt_tmp_4.clone()
     });
-    let _smelt_tmp_2: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: SmeltUnknown, closure_arg_1: i64, closure_arg_2: &SmeltList<SmeltUnknown>| {
+    let _smelt_tmp_2: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: &SmeltUnknown, closure_arg_1: i64, closure_arg_2: &SmeltList<SmeltUnknown>| {
     let _smelt_tmp_3: String = (closure_arg_0.clone()).to_iso_string();
     let _smelt_tmp_4: SmeltUnknown = SmeltUnknown::String(_smelt_tmp_3.clone());
     _smelt_tmp_4.clone()
-    }); let smelt_array = values.clone(); smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>() });
+    }); let smelt_array = values.clone(); smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item, index as i64, &smelt_array) }).collect::<Vec<_>>() });
     return { let smelt_l: SmeltList<_> = (_smelt_tmp_2).clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }).collect::<Vec<_>>()) };
 }
 

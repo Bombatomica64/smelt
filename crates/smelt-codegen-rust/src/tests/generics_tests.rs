@@ -323,7 +323,7 @@ export function difference<T>(firstArr: readonly T[], secondArr: readonly T[]): 
         "fn difference<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(first_arr: SmeltList<T>, second_arr: SmeltList<T>) -> SmeltList<T>"
     ));
     // The inline `.filter` callback keeps the element parameter typed as `T`.
-    assert!(source.contains("closure_arg_0: T,"));
+    assert!(source.contains("closure_arg_0: &T,"));
     // The captured set keeps its generic element type.
     assert!(source.contains("SmeltJsSet<T>"));
     // The erased carrier does not leak into the callback element position.
@@ -551,7 +551,7 @@ export function takeWhile<T>(xs: T[], keep: (item: T) => boolean): T[] {
     );
 
     assert!(source.contains(
-        "fn take_while<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(T) -> bool + ?Sized>(xs: SmeltList<T>, keep: &F0) -> SmeltList<T>"
+        "fn take_while<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T) -> bool + ?Sized>(xs: SmeltList<T>, keep: &F0) -> SmeltList<T>"
     ));
 }
 
@@ -575,7 +575,7 @@ export function takeWhile<T>(xs: T[], keep: (item: T) => boolean): T[] {
 ",
     );
 
-    assert!(source.contains("F0: Fn(T) -> bool + ?Sized"));
+    assert!(source.contains("F0: Fn(&T) -> bool + ?Sized"));
     assert!(source.contains("keep: &F0"));
     assert!(!source.contains("keep: &dyn Fn"));
 }
@@ -594,7 +594,7 @@ export function takeWhile<F0>(xs: F0[], keep: (item: F0) => boolean): F0[] {
 ",
     );
 
-    assert!(source.contains("F1: Fn(F0) -> bool + ?Sized"));
+    assert!(source.contains("F1: Fn(&F0) -> bool + ?Sized"));
     assert!(source.contains("keep: &F1"));
 }
 
@@ -611,7 +611,7 @@ export function both<T>(xs: T[], a: (item: T) => boolean, b: (item: T) => boolea
 ",
     );
 
-    assert!(source.contains("F0: Fn(T) -> bool + ?Sized, F1: Fn(T) -> bool + ?Sized"));
+    assert!(source.contains("F0: Fn(&T) -> bool + ?Sized, F1: Fn(&T) -> bool + ?Sized"));
     assert!(source.contains("a: &F0"));
     assert!(source.contains("b: &F1"));
 }
@@ -643,7 +643,7 @@ export function mapAll<T>(xs: T[], make: (item: T) => Promise<T>): T[] {
     );
 
     assert!(
-        source.contains("F0: Fn(T) -> SmeltFuture<T> + ?Sized"),
+        source.contains("F0: Fn(&T) -> SmeltFuture<T> + ?Sized"),
         "the bound's return goes through the canonical renderer:\n{source}"
     );
     assert!(source.contains("make: &F0"));
@@ -669,8 +669,8 @@ export function outer<T>(xs: T[], cb: (item: T) => boolean): T[] {
 ",
     );
 
-    assert!(source.contains("fn inner<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(T) -> bool + ?Sized>(xs: SmeltList<T>, cb: &F0)"));
-    assert!(source.contains("fn outer<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(T) -> bool + ?Sized>(xs: SmeltList<T>, cb: &F0)"));
+    assert!(source.contains("fn inner<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T) -> bool + ?Sized>(xs: SmeltList<T>, cb: &F0)"));
+    assert!(source.contains("fn outer<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T) -> bool + ?Sized>(xs: SmeltList<T>, cb: &F0)"));
     assert!(source.contains("inner(xs.clone(), &*cb)"));
 }
 
@@ -712,7 +712,7 @@ export function unionBy<T, U>(arr1: T[], arr2: T[], mapper: (item: T) => U): T[]
 ",
     );
 
-    assert!(source.contains("F0: Fn(T) -> U + ?Sized"));
+    assert!(source.contains("F0: Fn(&T) -> U + ?Sized"));
     assert!(source.contains("mapper: &F0"));
 }
 
@@ -729,7 +729,7 @@ export function feed<T>(cb: (item: T) => boolean): boolean {
 ",
     );
 
-    assert!(source.contains("F0: Fn(T) -> bool + ?Sized"));
+    assert!(source.contains("F0: Fn(&T) -> bool + ?Sized"));
     assert!(source.contains("cb: &F0"));
 }
 
@@ -899,7 +899,7 @@ export function pinned(xs: number[], ys: number[]): number[] {
 ",
     );
 
-    assert!(source.contains("move |arg0: f64| -> String {"));
+    assert!(source.contains("move |arg0: &f64| -> String {"));
 }
 
 #[test]
@@ -1004,7 +1004,7 @@ export function run(xs: unknown[], cb: unknown): unknown[] {
     );
 
     assert!(source.contains(
-        "fn each<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(T) -> () + ?Sized>(xs: SmeltList<T>, cb: &F0)"
+        "fn each<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T) -> () + ?Sized>(xs: SmeltList<T>, cb: &F0)"
     ));
 }
 
@@ -1030,7 +1030,7 @@ export function uniqWith<T>(xs: T[], same: (a: T, b: T) => boolean): T[] {
 ",
     );
 
-    assert!(source.contains("fn uniq_with<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(T, T) -> bool + ?Sized>"));
+    assert!(source.contains("fn uniq_with<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T, &T) -> bool + ?Sized>"));
     assert!(!source.contains("move |arg0: SmeltUnknown"));
 }
 
@@ -1112,7 +1112,7 @@ export function keep<T>(x: T, cb: (v: T) => boolean): (v: T) => boolean {
     );
 
     assert!(!source.contains("fn keep<T"));
-    assert!(source.contains("fn keep(x: SmeltUnknown, cb: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> bool>)"));
+    assert!(source.contains("fn keep(x: SmeltUnknown, cb: ::std::rc::Rc<dyn Fn(&SmeltUnknown) -> bool>)"));
 }
 
 #[test]
@@ -1133,7 +1133,7 @@ export function pick<T>(xs: T[], cbs: ((v: T) => boolean)[]): T[] {
     );
 
     assert!(!source.contains("fn pick<T"));
-    assert!(source.contains("cbs: SmeltList<::std::rc::Rc<dyn Fn(SmeltUnknown) -> bool>>"));
+    assert!(source.contains("cbs: SmeltList<::std::rc::Rc<dyn Fn(&SmeltUnknown) -> bool>>"));
 }
 
 #[test]
@@ -1177,7 +1177,7 @@ export function apply<T>(x: T, cb: (f: (v: T) => boolean) => boolean): boolean {
 
     assert!(!source.contains("fn apply<T"));
     assert!(source.contains(
-        "fn apply(x: SmeltUnknown, cb: &dyn Fn(::std::rc::Rc<dyn Fn(SmeltUnknown) -> bool>) -> bool)"
+        "fn apply(x: SmeltUnknown, cb: &dyn Fn(::std::rc::Rc<dyn Fn(&SmeltUnknown) -> bool>) -> bool)"
     ));
 }
 
@@ -1196,7 +1196,7 @@ export function make<T>(x: T): (v: T) => boolean {
     );
 
     assert!(source.contains(
-        "fn make<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(x: T) -> ::std::rc::Rc<dyn Fn(T) -> bool>"
+        "fn make<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(x: T) -> ::std::rc::Rc<dyn Fn(&T) -> bool>"
     ));
 }
 

@@ -1626,7 +1626,7 @@ impl FunctionEmitter<'_> {
                         value.parenthesized_if_needed()
                     ));
                 }
-                let args = self.function_args_from_smelt_args_text(function)?;
+                let args = self.function_args_from_smelt_args_text(function, ErasedCallTargetAbi::Declared)?;
                 let call_text = format!("(smelt_function_value)({args})");
                 let return_text = if self.mir.types.get(function.return_ty) == Some(&Type::None) {
                     // A `void`-returning callback erased to a callable value
@@ -2502,8 +2502,15 @@ impl FunctionEmitter<'_> {
             // chained awaits on the recovered promise).
             Some(Type::Future(output)) => {
                 let extracted = self.extract_value_text("smelt_awaited", *output)?;
+                // The erased source is read OUTSIDE the `async move` block. The
+                // block is `'static`, so a `{text}` that borrows — a callback
+                // parameter passed by shared reference
+                // (`callback_param_is_shared_reference`) is the case that reaches
+                // here — cannot be named inside it (E0521). Reading it eagerly is
+                // also what the source does: the promise value already exists at
+                // this point; only the `await` is deferred.
                 Ok(format!(
-                    "SmeltFuture::from_future(Box::pin(async move {{ let smelt_awaited = smelt_await_flatten(({text}).into_smelt_unknown()).await?; Ok::<_, Box<dyn std::error::Error>>({extracted}) }}))"
+                    "{{ let smelt_erased_future = ({text}).into_smelt_unknown(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_awaited = smelt_await_flatten(smelt_erased_future).await?; Ok::<_, Box<dyn std::error::Error>>({extracted}) }})) }}"
                 ))
             }
             other => Err(EmitError::new(format!(
@@ -2537,7 +2544,15 @@ impl FunctionEmitter<'_> {
                     "smelt_call_args.extend(arg{index}.clone().into_iter().map(|value| {item_text}));"
                 ));
             } else {
-                let arg_text = if function.mutable_params.contains(&index) {
+                // `arg{index}` is a binding in the adapter closure, and the
+                // erased vector owns its elements. A `&mut T` parameter binds a
+                // reference, and so does a by-shared-reference parameter
+                // (`callback_param_is_shared_reference`) — both have to be
+                // cloned out before they can be pushed, or the vector infers
+                // `Vec<&SmeltUnknown>` and every later push mismatches (E0308).
+                let arg_text = if function.mutable_params.contains(&index)
+                    || self.callback_param_is_shared_reference(function, index, *param_ty)
+                {
                     format!("arg{index}.clone()")
                 } else {
                     format!("arg{index}")

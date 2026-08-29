@@ -65,9 +65,18 @@ impl FunctionEmitter<'_> {
     /// adapters working: they receive such a parameter and re-erase it into a JS
     /// array, which needs ownership of the elements.
     ///
-    /// Scoped to `Type::List` for now. Dict and Set parameters have the same
-    /// argument-side cost and should follow, but each needs its own pass over the
-    /// erased-callback adapters before the ABI can move.
+    /// `Type::Unknown` is included for the same reason, and it is the case that
+    /// matters most in practice. A `SmeltUnknown` is a tagged enum whose payload
+    /// arms own `Rc`s, `String`s and boxed values; passing one by value clones the
+    /// tag *and* bumps or copies whatever it carries, once per element. The rule
+    /// fired on 3 of the 341 first callback parameters in the es-toolkit corpus
+    /// while it was `List`-only; with `Unknown` it reaches 221 of them, which is
+    /// where the per-element traffic in `partition`/`groupBy`/`countBy`/`uniqueBy`
+    /// actually lives.
+    ///
+    /// Dict and Set parameters have the same argument-side cost and should follow,
+    /// but each needs its own pass over the erased-callback adapters before the ABI
+    /// can move.
     /// Whether a SYNTHESIZED callback parameter of type `param` is passed by shared
     /// reference.
     ///
@@ -82,7 +91,79 @@ impl FunctionEmitter<'_> {
     /// expects `Rc<dyn Fn(&SmeltList<..>)>` once the rule is in force, and the
     /// synthesized resolver was still built as `Rc<dyn Fn(SmeltList<..>)>`.
     pub(super) fn synthesized_callback_param_is_shared_reference(&self, param: TypeId) -> bool {
-        matches!(self.mir.types.get(param), Some(Type::List(_)))
+        self.param_type_is_by_shared_reference(param)
+    }
+
+    /// The type-shape half of the by-shared-reference rule, decided on the
+    /// parameter's RENDERED Rust type rather than on its source `Type` variant.
+    ///
+    /// The distinction matters once `SmeltUnknown` joins the rule. Several source
+    /// types render as `SmeltUnknown` — `unknown` itself, a concrete union, an
+    /// erased type parameter — and the emitter freely assigns a value of one to a
+    /// slot spelled by another, because in Rust they are the same type. If the ABI
+    /// were decided per source variant, two spellings of one Rust type would
+    /// disagree about `&`, and every such assignment would be an E0308: es-toolkit's
+    /// `matches` returns `Rc<dyn Fn(<union>) -> bool>` and `dropWhile` binds it to a
+    /// parameter declared `(value: unknown) => boolean`. Deciding on the rendered
+    /// type keeps one Rust type to one ABI.
+    ///
+    /// `Type::List` is answered without rendering: a list renders as
+    /// `SmeltList<..>` under every substitution, and skipping the render keeps the
+    /// common case off the recursive path through `rust_type`.
+    pub(super) fn param_type_is_by_shared_reference(&self, param: TypeId) -> bool {
+        match self.mir.types.get(param) {
+            // A list renders as `SmeltList<..>` under every substitution.
+            Some(Type::List(_)) => true,
+            // A type parameter is NOT decided here. Whether `T` renders as `T` or
+            // erases to `SmeltUnknown` depends on which scope is doing the
+            // rendering, and the declaring function and its callers do not share
+            // one: `dropRightWhile<T>` declares its callback as `Fn(T, ..)` and
+            // renders it by value, while a caller with no `T` in scope would see
+            // `SmeltUnknown` and render `&`. The ABI has to be the callee's, so a
+            // type parameter keeps the by-value ABI its own declaration gives it.
+            Some(Type::TypeParam { .. }) => true,
+            // Everything else is decided on the RENDERED Rust type rather than the
+            // source variant, because several source spellings share one Rust type.
+            // `unknown`, a concrete union and `never` all render `SmeltUnknown`, and
+            // the emitter freely assigns a value of one to a slot spelled by
+            // another — in Rust they ARE the same type. Deciding per source variant
+            // would give one Rust type two ABIs and make every such assignment an
+            // E0308.
+            _ => {
+                let scope = self.current_function_type_params();
+                let substitution = TypeSubstitution::lexical(&scope);
+                matches!(
+                    self.rust_type(param, false, &substitution),
+                    Ok(rendered) if rendered.as_str() == "SmeltUnknown"
+                )
+            }
+        }
+    }
+
+    /// Wrap one already-rendered callback argument for a by-shared-reference
+    /// parameter.
+    ///
+    /// The argument ladders that build a call from MIR operands
+    /// (`indirect_call_args_text` and friends) know how to borrow a place
+    /// directly. The runtime-method lowerings do not go through those ladders —
+    /// they hand-write argument text (`left.clone()`, `index as f64`,
+    /// `SmeltUnknown::Null`) against a callback whose ABI is decided by
+    /// [`Self::callback_param_is_shared_reference`]. This is the one place that
+    /// reconciles the two: it adds the `&` those sites owe the parameter, and
+    /// nothing else. Rust extends the temporary's lifetime to the end of the
+    /// enclosing statement, so `&(expr)` is valid for a value with no name.
+    pub(super) fn callback_call_arg_text(
+        &self,
+        function: &FunctionType,
+        index: usize,
+        param: TypeId,
+        value_text: String,
+    ) -> String {
+        if self.callback_param_is_shared_reference(function, index, param) {
+            format!("&({value_text})")
+        } else {
+            value_text
+        }
     }
 
     pub(super) fn callback_param_is_shared_reference(
@@ -93,7 +174,7 @@ impl FunctionEmitter<'_> {
     ) -> bool {
         !function.mutable_params.contains(&index)
             && function.rest != Some(index)
-            && matches!(self.mir.types.get(param), Some(Type::List(_)))
+            && self.param_type_is_by_shared_reference(param)
     }
 
     /// Render `arg0: T0, arg1: T1, ..` declarations for one callback shape.

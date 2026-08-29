@@ -1206,3 +1206,19 @@ enum SliceLenKind {
     /// Use `.chars().count()`.
     Chars,
 }
+
+/// Which ABI the callee behind an erased `smelt_args` adapter was rendered with.
+///
+/// See [`FunctionEmitter::function_args_from_smelt_args_text`]: the two callers
+/// of that ladder disagree about the callee, not about the by-shared-reference
+/// rule itself, so each states which callee it holds.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum ErasedCallTargetAbi {
+    /// The callee is reached through a declared function type, so its parameters
+    /// follow [`FunctionEmitter::callback_param_is_shared_reference`].
+    Declared,
+    /// The callee is a closure this emitter rendered against some other
+    /// contextual type, so every parameter is owned whatever the synthesized
+    /// `FunctionType` used to describe it would say.
+    ByValueClosure,
+}

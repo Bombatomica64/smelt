@@ -106,7 +106,7 @@ export function useApply(): number[] {
     // The callee emits real generics AND takes its callback by reference behind
     // an `F{n}` bound: that is the overlap this test exists for.
     assert!(
-        source.contains("fn apply_to<T:") && source.contains("F0: Fn(T) -> T + ?Sized>"),
+        source.contains("fn apply_to<T:") && source.contains("F0: Fn(&T) -> T + ?Sized>"),
         "callee did not emit a generic borrowed callback parameter, so the two rungs do not \
          overlap here:\n{source}"
     );

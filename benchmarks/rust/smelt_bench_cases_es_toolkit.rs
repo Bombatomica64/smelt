@@ -140,22 +140,22 @@ pub fn run_case(name: &str) -> Option<Measurement> {
         // --- keyed aggregation (callback-taking) ---
         "group_by" => {
             let data: SmeltList<SmeltUnknown> = SmeltList::from(records(N, 8));
-            let key = |item: SmeltUnknown, _i: f64, _all: &SmeltList<SmeltUnknown>| field(&item, "group");
+            let key = |item: &SmeltUnknown, _i: f64, _all: &SmeltList<SmeltUnknown>| field(item, "group");
             measure(|| entry_group_by(data.clone(), &key), |out| hash_map_of_lists(0, out))
         }
         "count_by" => {
             let data: SmeltList<SmeltUnknown> = SmeltList::from(records(N, 8));
-            let key = |item: SmeltUnknown, _i: f64, _all: &SmeltList<SmeltUnknown>| field(&item, "group");
+            let key = |item: &SmeltUnknown, _i: f64, _all: &SmeltList<SmeltUnknown>| field(item, "group");
             measure(|| entry_count_by(data.clone(), &key), |out| hash_map_of_numbers(0, out))
         }
         "unique_by" => {
             let data: SmeltList<SmeltUnknown> = SmeltList::from(records(N, 8));
-            let key = |item: SmeltUnknown, _i: f64, _all: &SmeltList<SmeltUnknown>| field(&item, "group");
+            let key = |item: &SmeltUnknown, _i: f64, _all: &SmeltList<SmeltUnknown>| field(item, "group");
             measure(|| entry_uniq_by(data.clone(), &key), |out| hash_list(0, out))
         }
         "sum_by" => {
             let data: SmeltList<SmeltUnknown> = SmeltList::from(records(N, 8));
-            let get = |item: SmeltUnknown, _i: f64| match field(&item, "value") {
+            let get = |item: &SmeltUnknown, _i: f64| match field(item, "value") {
                 SmeltUnknown::Number(n) => n,
                 _ => 0.0,
             };
@@ -166,8 +166,8 @@ pub fn run_case(name: &str) -> Option<Measurement> {
         }
         "partition" => {
             let data: SmeltList<SmeltUnknown> = SmeltList::from(records(N, 8));
-            let pred = |item: SmeltUnknown, _i: f64, _all: &SmeltList<SmeltUnknown>| {
-                matches!(field(&item, "flag"), SmeltUnknown::Bool(true))
+            let pred = |item: &SmeltUnknown, _i: f64, _all: &SmeltList<SmeltUnknown>| {
+                matches!(field(item, "flag"), SmeltUnknown::Bool(true))
             };
             measure(
                 || entry_partition::<SmeltUnknown, _>(data.clone(), &pred),
@@ -212,7 +212,7 @@ pub fn run_case(name: &str) -> Option<Measurement> {
             let data: SmeltList<f64> = SmeltList::from(
                 numbers(N, 8).into_iter().map(|v| match v { SmeltUnknown::Number(n) => n, _ => 0.0 }).collect::<Vec<_>>(),
             );
-            let pred = |item: f64, _i: f64, _all: &SmeltList<f64>| item as u32 % 2 == 0;
+            let pred = |item: &f64, _i: f64, _all: &SmeltList<f64>| *item as u32 % 2 == 0;
             measure(
                 || entry_partition::<f64, _>(data.clone(), &pred),
                 |(yes, no): &(SmeltList<f64>, SmeltList<f64>)| {

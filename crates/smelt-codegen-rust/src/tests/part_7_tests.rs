@@ -1947,7 +1947,7 @@ export function conditional(args: Array<unknown>): unknown {
         "{source}"
     );
     assert!(
-        source.contains("smelt_forwarded_args.extend(arg2.into_iter()"),
+        source.contains("smelt_forwarded_args.extend(arg2.clone().into_iter()"),
         "{source}"
     );
     assert!(
@@ -3700,12 +3700,12 @@ function isMatch(options?: IsMatchOptions): unknown {
     );
 
     assert!(
-        source.contains("None::<::std::rc::Rc<dyn Fn(SmeltUnknown) -> SmeltUnknown>>"),
+        source.contains("None::<::std::rc::Rc<dyn Fn(&SmeltUnknown) -> SmeltUnknown>>"),
         "generic callback defaults should use the instantiated option payload: {source}"
     );
     assert!(
         source.contains(
-            "ParseOptions { in_: None::<::std::rc::Rc<dyn Fn(SmeltUnknown) -> SmeltUnknown>>"
+            "ParseOptions { in_: None::<::std::rc::Rc<dyn Fn(&SmeltUnknown) -> SmeltUnknown>>"
         ),
         "struct literal defaults must not leak declaration type parameters: {source}"
     );
@@ -3813,7 +3813,7 @@ function range(start: number, length: number, step: number): number[] {
     assert!(source.contains("array_from_length"), "{source}");
     assert!(source.contains("(0..array_from_length).map"), "{source}");
     assert!(
-        source.contains("(smelt_callback)(SmeltUnknown::Null, index as f64)"),
+        source.contains("(smelt_callback)(&(SmeltUnknown::Null), index as f64)"),
         "{source}"
     );
 }
@@ -3862,7 +3862,7 @@ const sortByImplementation = <T>(
     );
 
     assert!(
-        source.contains("(smelt_comparator)(left.clone(), right.clone())"),
+        source.contains("(smelt_comparator)(&(left.clone()), &(right.clone()))"),
         "{source}"
     );
     assert!(
@@ -4126,7 +4126,7 @@ export function run(): unknown {
     );
 
     assert!(
-        source.contains("(identity)(SmeltUnknown::String(\"hello\".to_owned()), _smelt_tmp_2)")
+        source.contains("(identity)(&(SmeltUnknown::String(\"hello\".to_owned())), _smelt_tmp_2)")
             && source.contains("_smelt_tmp_2 = Into::<SmeltList<_>>::into(SmeltList::from("),
         "normal closure calls should preserve fixed arguments and pack an empty rest vector: {source}"
     );
@@ -4184,7 +4184,7 @@ function indicesSeen(
     );
 
     assert!(
-        source.contains("predicate(closure_arg_0.clone(), closure_arg_1.clone())"),
+        source.contains("predicate(&(closure_arg_0.clone()), closure_arg_1.clone())"),
         "{source}"
     );
     assert!(
@@ -4858,7 +4858,7 @@ function expose(callback: (value: unknown) => unknown): unknown {
     );
 
     assert!(
-        source.contains("fn expose(callback: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> SmeltUnknown>)"),
+        source.contains("fn expose(callback: ::std::rc::Rc<dyn Fn(&SmeltUnknown) -> SmeltUnknown>)"),
         "{source}"
     );
     assert!(!source.contains("fn expose(callback: &dyn Fn"), "{source}");
@@ -8768,8 +8768,8 @@ export function adapt(f: (...args: unknown[]) => unknown): ErasedBinary {
 
     // Both target arguments are forwarded into the erased rest list, in order.
     assert!(
-        source.contains("smelt_forwarded_args.push(arg0);")
-            && source.contains("smelt_forwarded_args.push(arg1);"),
+        source.contains("smelt_forwarded_args.push(arg0.clone());")
+            && source.contains("smelt_forwarded_args.push(arg1.clone());"),
         "erased-rest adapter must forward every target argument, not drop the tail\n{source}"
     );
     // The scalar target arguments must not be spread as if each were the whole

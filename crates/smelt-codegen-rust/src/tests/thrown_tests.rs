@@ -109,7 +109,7 @@ function boom(): Promise<number> {
     );
 
     assert!(
-        source.contains("Some(Err(smelt_throw(error)))"),
+        source.contains("Some(Err(smelt_throw(error.clone())))"),
         "`reject(value)` should enter the payload channel:\n{source}"
     );
     assert!(
