@@ -11911,39 +11911,60 @@ const r = collect([[1, 2]], (v) => 'k');
     );
 }
 
-/// A partially lifted parameter drops the *inbound* half of the erasure
-/// round-trip, and keeps the outbound half.
+/// A generated record emits the inbound half of the erasure round-trip.
 ///
-/// `SmeltFromUnknown` rebuilds a `T` from a `SmeltUnknown`, which
-/// `type_param_only_moved` rules out, so the bound only forces every
-/// instantiating type to implement a trait nothing calls — which generated
-/// classes do not, failing with "the trait bound `Person: SmeltFromUnknown` is
-/// not satisfied". `IntoSmeltUnknown` stays: the emitter can erase a `T` at a
-/// call boundary even when the body only moves it.
+/// Every lifted type parameter is bounded by `SmeltFromUnknown`, so a class that
+/// lacks the impl cannot be used as a generic argument at all — es-toolkit's
+/// `meanBy`/`medianBy` specs call generic helpers with `Person[]` and failed
+/// with "the trait bound `Person: SmeltFromUnknown` is not satisfied". Only
+/// `IntoSmeltUnknown` was ever emitted, so concrete class values could flow out
+/// to erased code but never back.
 #[test]
-fn partial_lift_omits_the_erasure_round_trip_bounds() {
+fn generated_records_emit_from_smelt_unknown() {
     let source = source_for(
         r"
-function pickFirst<T, K extends string>(arr: T[], key: (item: T) => K, fallback: T): T {
-  if (arr.length > 0) { return arr[0]; }
+class Person { name: string = ''; age: number = 0; }
+function firstOf<T>(items: T[], fallback: T): T {
+  if (items.length > 0) { return items[0]; }
   return fallback;
 }
-const nums: number[] = [1, 2, 3];
-const v = pickFirst(nums, (n) => (n > 1 ? 'big' : 'small'), 0);
+const people: Person[] = [];
+const p = firstOf(people, new Person());
 ",
     );
 
-    let generics = source
-        .split("fn pick_first")
-        .nth(1)
-        .and_then(|rest| rest.split('>').next())
-        .unwrap_or_else(|| panic!("expected a generated `pick_first`:\n{source}"));
     assert!(
-        generics.contains("T: Clone + Default + IntoSmeltUnknown + 'static"),
-        "a partial lift keeps the outbound erasure bound:\n{source}"
+        source.contains("impl SmeltFromUnknown for Person"),
+        "a generated record must be recoverable from its erased view:\n{source}"
     );
     assert!(
-        !generics.contains("SmeltFromUnknown"),
-        "a partial lift must not demand the erasure round-trip:\n{source}"
+        source.contains("impl IntoSmeltUnknown for Person"),
+        "the outbound half must still be emitted:\n{source}"
+    );
+}
+
+/// A generated union emits `SmeltJsKeyEq`, so it can be used as a map key.
+///
+/// Map keys are compared through the erased JavaScript key-equality projection.
+/// Without the impl, any generated map keyed by a union fails with "the trait
+/// bound `SmeltUnionN: SmeltJsKeyEq` is not satisfied" — which is what
+/// es-toolkit's `keyBy` specs hit.
+#[test]
+fn generated_unions_emit_js_key_equality() {
+    let source = source_for(
+        r"
+function pick(flag: boolean): number | string { return flag ? 1 : 'a'; }
+const m = new Map<number | string, number>();
+m.set(pick(true), 1);
+",
+    );
+
+    assert!(
+        source.contains("SmeltJsKeyEq for SmeltUnion"),
+        "a generated union must support JavaScript key equality:\n{source}"
+    );
+    assert!(
+        source.contains("SmeltFromUnknown for SmeltUnion"),
+        "a generated union must be recoverable from its erased view:\n{source}"
     );
 }

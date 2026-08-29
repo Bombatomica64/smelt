@@ -1289,34 +1289,15 @@ pub(crate) fn function_impl_generics_list(
     if liftable.is_empty() {
         return Ok(Vec::new());
     }
-    // The two halves of the erasure round-trip are not equally necessary, and a
-    // partial lift can drop exactly one of them.
+    // Every lifted parameter carries the full bound set. Dropping halves of the
+    // erasure round-trip was tried and reverted: the emitter inserts conversions
+    // in *both* directions at call boundaries, invisibly to any analysis of the
+    // MIR body. `flatMap` erases a `U` outbound to call `flatten`, and
+    // `pull`/`xor`/`isSubset` un-erase a `T` inbound the same way. The fix is to
+    // make the bounds satisfiable instead — generated records and unions now
+    // emit `SmeltFromUnknown` (and unions `SmeltJsKeyEq`) rather than the bounds
+    // being narrowed to suit them.
     //
-    // `SmeltFromUnknown` is the *inbound* half: rebuilding a `T` from a
-    // `SmeltUnknown`. `type_param_only_moved` rules that out directly — its
-    // destination rule rejects any `T`-typed slot filled from a value that never
-    // carried a `T`, which is what un-erasing into a `T` looks like. So the
-    // bound only forces every *instantiating* type to implement a trait nothing
-    // calls, and generated classes do not: that is how es-toolkit's
-    // `meanBy`/`medianBy` failed with "the trait bound `Person: SmeltFromUnknown`
-    // is not satisfied".
-    //
-    // `IntoSmeltUnknown` is the *outbound* half and stays. The MIR body may only
-    // move a `T`, yet the emitter can still erase it at a call boundary: es-toolkit's
-    // `flatMap` hands its `SmeltList<U>` to `flatten`, whose parameter is
-    // `SmeltList<SmeltUnknown>`, so the emitted call maps `into_smelt_unknown()`
-    // over the elements. That conversion is invisible to an analysis of the
-    // body's own statements, so the bound has to be assumed.
-    //
-    // A fully lifted function keeps the historical set: it is decided by the
-    // textual trial rather than the opacity analysis, so nothing here proves
-    // anything about it.
-    let partial = liftable.len() < function.type_params.len();
-    let bounds = if partial {
-        "Clone + Default + IntoSmeltUnknown + 'static"
-    } else {
-        "Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static"
-    };
     // Only the lifted parameters get a bound; a constrained sibling erases and
     // must not appear in the emitted generic list (Increment 5).
     function
@@ -1326,7 +1307,12 @@ pub(crate) fn function_impl_generics_list(
         .map(|param| {
             mir.symbols
                 .get(param.name)
-                .map(|name| format!("{}: {bounds}", RustIdent::new(name).into_string()))
+                .map(|name| {
+                    format!(
+                        "{}: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static",
+                        RustIdent::new(name).into_string()
+                    )
+                })
                 .ok_or_else(|| EmitError::new("function type parameter has unknown symbol"))
         })
         .collect()

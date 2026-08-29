@@ -1418,11 +1418,29 @@ impl FunctionEmitter<'_> {
         let rust_name = self.function_rust_name(function)?;
         let emitted_params = self.emitted_function_param_types(&rust_name)?;
 
+        // Only the parameters the callee actually LIFTS may be bound here. A
+        // parameter that erases is rendered `SmeltUnknown` in the emitted
+        // signature, so binding it to the type TypeScript inferred describes a
+        // signature that was never emitted. es-toolkit's `countBy<T, K extends
+        // PropertyKey>` erases `K`, and binding `K = string` from the call site
+        // made the callback adapter declare `-> String` against a callee whose
+        // bound reads `Fn(..) -> SmeltUnknown` (E0271), and the result local
+        // `SmeltRecord<String, f64>` against a returned `SmeltJsMap<SmeltUnknown,
+        // f64>` (E0308).
+        let liftable = crate::classes::liftable_type_params(
+            self.mir,
+            function,
+            &self.context.owned_callback_params,
+        );
         let type_params = function
             .type_params
             .iter()
             .map(|param| param.name)
+            .filter(|name| liftable.contains(name))
             .collect::<Vec<_>>();
+        if type_params.is_empty() {
+            return Ok(None);
+        }
         let mut declared = Vec::new();
         let mut actual = Vec::new();
         for (index, param) in function.params.iter().enumerate() {
