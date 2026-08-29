@@ -1,6 +1,6 @@
 # es-toolkit generated suite — remaining-failure triage
 
-Baseline at the start of this pass: **909 passed / 150 failed**. Now: **961 passed / 98 failed**
+Baseline at the start of this pass: **909 passed / 150 failed**. Now: **963 passed / 96 failed**
 (`main` at `37674f1` alone is 954/105).
 
 Reproduce with:
@@ -37,7 +37,7 @@ Counts are failing tests at the 150 baseline.
 | ~14 | `partial` / `partialRight` / `flow` / `flowRight` | Placeholders, `fn.length` on a partially applied function, `new par()` instanceof the target, curried arity. Probably several roots. | queued |
 | ~34 | promise / timer | `allKeyed`, `attempt`, `attemptAsync`, `delay` abort, `withTimeout`, `retry` delays, `limitAsync`, `semaphore`, `reduceAsync`, `debounce`, `throttle`, plus 4 concurrency tests (`filterAsync`/`flatMapAsync`/`forEachAsync`/`mapAsync` all assert `maxRunning === 10`, i.e. real concurrent scheduling, not sequential awaits). | queued |
 | ~15 | host predicates | `isBrowser`, `isNode`, `isBuffer`, `isSymbol`, `isFunction`, `isFile`, `isError` on a subclass, `isPlainObject`, `isJSONValue`, `isJSON` (panics on invalid JSON instead of returning false), `isLength`, `isNull`/`isUndefined` type-predicate filters. Several are environment-presence questions rather than lowering defects. | queued |
-| 6 | `isEqualWith` | One spec; customizer-returns-undefined fallbacks over typed-array views, buffers, errors, and circular arrays. The `primitives` row is fixed: its `Object(...)`-boxed pairs already compared correctly (the tag probe knows the wrapper markers), and the real defect was the pair table's `[null, undefined, false]` rows lowering identically to `[null, null, true]` -- see the mixed-nullish array-literal fix. | queued |
+| 6 | `isEqualWith` | THREE roots, not one -- see the correction below. 2 rows were the erasure boundary copying an array's buffer (circular refs); 3 are `globalThis[name]`/`Buffer` folding to `Undefined` (the host-globals family); 1 is a named property store onto an erased array replacing the array with an object. The `primitives` row was fixed earlier by the mixed-nullish array-literal fix. | **2 of 6 fixed** (shared-buffer erasure); 4 reassigned to other families |
 | ~10 | `clone` / `cloneDeep` | Map, RegExp, Error, class instances, `String` objects. Overlaps the dynamic-prototype work already noted in the compat manifest. | queued, root identified |
 
 ### `flow` / `flowRight` / `partial` / `partialRight`: a property assigned onto a function is dropped
@@ -319,7 +319,82 @@ NOT yet confirmed by running: narrowing this further needs the es-toolkit
 generated suite, and the exact assertion diff should be read before changing
 any emitter code.
 
-### `isEqualWith`: the six remaining failures are the wrapper, not the engine (NARROWED, NOT YET VERIFIED)
+### CORRECTION: `isEqualWith` is not the wrapper, and it is three roots
+
+The note below is **WRONG**, and its "decisive fact" is a fallacy. Verified by
+running the suite and reading the generated Rust:
+
+`src/predicate/isEqualWith.spec.ts` imports `./isEqualWith` — the PLAIN one. It
+never touches `src/compat/predicate/isEqualWith.ts`, so no failure in it can be
+"the compat wrapper". And "`isEqual` has ZERO failures" proves nothing about the
+engine on these shapes: `isEqual.spec.ts` has no circular-reference, array-view,
+error-object or non-index-property case at all. It tests array BUFFERS only. An
+untested shape passing is not evidence.
+
+The six split three ways:
+
+**A. Circular arrays (2 tests) — FIXED.** The erasure boundary
+`From<SmeltList<SmeltUnknown>> for SmeltArray` copied the buffer while keeping
+the `id`, so an array put into an `unknown[]` slot was a stale snapshot wearing
+the live array's identity. `array1[0] = array1` therefore stored a copy of
+`array1` as it was one statement earlier. The cycle guard in `areObjectsEqual`
+(`Object.is(a, b)`, `stack.set(a, b)`) is correct and the `SmeltJsMap` cycle
+stack is correct — the erased element simply could never BE the array. Now
+`with_storage(list.id(), list.storage())`; see
+`blocker-logs/smeltlist-shared-buffer.md`. es-toolkit 961/98 -> 963/96.
+
+**B. `globalThis[name]` folds to `Undefined` (2 tests, plus most of the ~15
+host-predicate family).** `should compare array views` and `should compare error
+objects` both build their fixtures with `globalThis[type]` and `new CtorA('a')`.
+`globalThis` lowers to `SmeltRecord::from([])` — an EMPTY record — so the
+generated code is literally
+
+```rust
+let _smelt_tmp_10: SmeltUnknown = SmeltUnknown::Undefined;
+let ctor_a: SmeltUnknown = _smelt_tmp_10.clone();
+```
+
+and every `new CtorA(..)` answers `SmeltUnknown::Null`. All four members of each
+pair are then `null`, so every comparison is `true` and `actual` is
+`[[true, true, true], ..]` against `[[true, false, false], ..]`. Note also that
+`typeof globalThis.Buffer !== 'undefined'` const-folds to `true` on that empty
+record (`isBuffer_1.rs:14`, `let smelt_logical: bool = true;`), which is wrong in
+the opposite direction. This is the host-globals job, not an `isEqualWith` bug.
+
+**C. `Buffer` is not modelled (1 test).** `should compare buffers` passes its
+first two assertions and fails only
+`isEqualWith(buffer, new Uint8Array([1]), noop)` — which must be `false`. Both
+values carry the `[object Uint8Array]` tag, so the discriminator is
+`isBuffer(a) !== isBuffer(b)`; `is_buffer_462` always returns `false` (same empty
+`globalThis`), so the two look identical. Same family as B.
+
+**D. A named property store onto an erased array DESTROYS the array (1 test).**
+`should treat arrays with identical values but different non-index properties as
+equal`. `array1.every = null` on a `SmeltUnknown::Array` emits
+
+```rust
+match &mut array1 {
+    SmeltUnknown::Object(map) => { map.insert("every".to_owned(), SmeltUnknown::Null); },
+    other => { *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([("every".to_owned(), SmeltUnknown::Null)]))); }
+}
+```
+
+(`emitter/control_flow.rs:528`/`:532`, and the same fallback in
+`smelt_index_assign`'s non-index arm). The array `[1, 2, 3]` becomes the object
+`{ every: null }`, and the sibling becomes `{ concat: null }`, so the comparison
+sees two one-key objects with different keys. `SmeltArray` has no property bag,
+so a correct fix means giving it one — a JS array IS an object with index
+handling — which touches `new`/`with_id`/`with_storage`/`Clone`/`PartialEq`/
+`Hash`, `Object.keys`, `hasOwn`, spread and JSON. Specified, not attempted.
+
+Second defect visible in the same emission: the chained assignment
+`array1.every = array1.filter = ... = null` emits ONLY the first store; the other
+eight targets are dropped. Harmless here (the comparison ignores non-index
+properties) but general.
+
+The superseded note follows.
+
+#### Superseded: the six remaining failures are the wrapper, not the engine (NARROWED, NOT YET VERIFIED)
 
 All six remaining `isEqualWith` failures are named "when customizer returns
 undefined" -- the fallback path -- and they cover array views, buffers, error

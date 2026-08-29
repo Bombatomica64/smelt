@@ -279,3 +279,44 @@ test("writing one slot of a fresh Array(n) does not write the others", () => {
 "#;
     run_list_fixture(source, "array_of_length_slots");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn erasing_a_list_into_an_unknown_slot_keeps_the_same_array() {
+    // The erasure boundary, which is where a `SmeltList` used to stop being a
+    // reference. `From<SmeltList<SmeltUnknown>> for SmeltArray` carried the list's
+    // `id` but rebuilt its buffer (`with_id(list.id(), list.into_vec())`), so the
+    // erased value was a HALF reference: a frozen snapshot wearing the live
+    // array's identity.
+    //
+    // Nothing else in the suite catches that. `===` still answered `true` because
+    // it compares ids, and every read taken before the erasure agreed, so the only
+    // observable is a write made AFTER it — which is what both fixtures below do.
+    // In JavaScript an array put into an `unknown[]` slot IS the array, so a later
+    // push through the typed handle must be visible through the erased element.
+    //
+    // The second fixture is the shape this was found on: a self-referential array.
+    // `a[0] = a` can only mean anything if the erased element can BE `a`; with a
+    // snapshot it stored a copy of `a` as it was one statement earlier — empty —
+    // which is why es-toolkit's two `isEqualWith` circular-reference tests could
+    // not pass.
+    let source = r#"
+import { test, expect } from "vitest";
+test("a write after erasure is visible through the erased element", () => {
+  const inner: unknown[] = [];
+  const outer: unknown[] = [inner];
+  inner.push(1);
+  inner.push(2);
+  const seen = outer[0] as unknown[];
+  expect(seen.length).toBe(2);
+});
+test("a self-referential array holds itself, not a snapshot of itself", () => {
+  const a: unknown[] = [];
+  a[0] = a;
+  const inner = a[0] as unknown[];
+  expect(a.length).toBe(1);
+  expect(inner.length).toBe(1);
+});
+"#;
+    run_list_fixture(source, "list_erasure_shares");
+}

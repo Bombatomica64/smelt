@@ -56,7 +56,35 @@ happens to answer correctly for the wrong reason. Fixing it means extending the
 identity path to `JsStrictEq`, which changes `===`/`toBe` answers across the
 library corpora and is a separate change with its own gate run.
 
-### Erasing a typed list to `SmeltUnknown` still copies — and the blocker is REAL
+### RESOLVED: erasing a typed list to `SmeltUnknown` now shares the buffer
+
+**Landed.** `From<SmeltList<SmeltUnknown>> for SmeltArray` and its `&` form are
+now `SmeltArray::with_storage(list.id(), list.storage())`, so the erasure carries
+both halves of the array's reference semantics — the stable `id` AND the shared
+`Rc<RefCell<Vec<SmeltUnknown>>>`. The half-reference (a frozen snapshot wearing
+the live array's identity) is gone.
+
+Measured on this change, on `7eeb92b`:
+
+- es-toolkit **961/98 -> 963/96**, failure NAME lists diffed: the only two rows
+  that moved are `isEqualWith should compare arrays with circular references
+  when customizer returns undefined` and its transitive-equivalence sibling.
+  Zero new failures.
+- remeda **1789/1789 over 25 consecutive runs** — the gate the revert history
+  demanded (see below). radash 84/84.
+- `smelt-unknown-report` on es-toolkit: runtime prelude, legitimate boundary and
+  avoidable erasure all +0 versus the baseline.
+- Regression guard:
+  `list_reference_semantics_runtime::erasing_a_list_into_an_unknown_slot_keeps_the_same_array`,
+  verified to FAIL when the copy is restored.
+
+The two golden `expected.rs` preludes (`27_optional_chains`, `29_callable_object`)
+were re-blessed for the two changed impl lines.
+
+The history that made this hard is kept below, because it is the reason a single
+green remeda run is not acceptable evidence here.
+
+#### Why this was reverted twice, and what actually caused it
 
 `From<SmeltList<SmeltUnknown>> for SmeltArray` and its `&` form could share the
 buffer outright (`SmeltArray` has the identical
@@ -65,7 +93,7 @@ exists for it). It should: in JavaScript, passing an array where `unknown` is
 expected hands over THE SAME object, so this boundary has no copy for Smelt to
 make, and it is the last place the identity/storage mismatch survives.
 
-It was implemented and reverted, twice now, for the same failure:
+It was implemented and reverted, twice, for the same failure:
 
     remeda  uniqueBy > pipe get executed 3 times when take before uniqueBy
     panicked at src/map.rs: "unknown is not array"
@@ -85,6 +113,15 @@ insertion-order vec, and the function-identity registry is a `HashMap` too. A
 plain aliasing bug would fail every run. So this wants a root cause, not a
 patch: find what reads a `HashMap` in iteration order on this path, and why a
 shared accumulator makes that order observable.
+
+**The root cause was found, and it was NOT this copy.** The identity registries
+(`SMELT_CALLABLE_OBJECTS` and friends) key on `Rc` allocation ADDRESSES, and a
+freed address handed to a later callback inherited the dead callback's entry —
+see `crates/smelt-codegen-rust/tests/callable_object_identity_runtime.rs` and the
+`SMELT_CALLABLE_KEY_GUARDS` comment in the prelude. Sharing the buffer only
+perturbed allocation enough to change how often the aliasing was observed. With
+the address reservation in place, 25 consecutive remeda runs on top of the
+sharing change were all 1789/1789.
 
 What sharing demonstrably buys, measured before the revert: es-toolkit
 954/105 -> **956/103**, failure sets diffed, zero new failures. The two fixed are

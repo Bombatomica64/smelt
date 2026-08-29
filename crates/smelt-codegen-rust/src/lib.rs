@@ -1955,38 +1955,43 @@ fn emit_source_with_free_function_router(
         writer.blank_line();
         // `SmeltList<T>` itself is defined in the `needs_smelt_list` block above.
         // These impls depend on `SmeltArray`/`SmeltUnknown`, so they live here.
-        // Erasing a typed list to a `SmeltUnknown::Array` COPIES its elements.
+        // Erasing a typed list to a `SmeltUnknown::Array` ALIASES its buffer.
         //
-        // This is knowingly the wrong semantics and is the last place the
-        // identity/storage mismatch survives: `SmeltList` and `SmeltArray` have the
-        // identical `Rc<RefCell<Vec<SmeltUnknown>>>` representation, and in
-        // JavaScript passing an array where `unknown` is expected hands over THE SAME
-        // object, so this should be a `with_storage` refcount bump. Sharing it also
-        // measurably fixes behaviour — es-toolkit's two `isEqualWith` circular-
-        // reference tests pass only when the erased element can BE the array.
+        // `SmeltList<SmeltUnknown>` and `SmeltArray` have the identical
+        // `Rc<RefCell<Vec<SmeltUnknown>>>` representation, and in JavaScript passing
+        // an array where `unknown` is expected hands over THE SAME object: the erased
+        // value must observe every later write through the typed handle, and a write
+        // through the erased value must be visible to the typed one. So the erasure
+        // is a `with_storage` refcount bump that carries both halves of the array's
+        // reference semantics — the stable `id` AND the shared buffer.
         //
-        // It is not shared because sharing it was reverted in #219 after it broke
-        // remeda's `uniqueBy > pipe get executed 3 times when take before uniqueBy`
-        // with `panicked: unknown is not array`, INTERMITTENTLY, so a single green
-        // run proved nothing. That intermittency has since been root-caused, and it
-        // was NOT this copy: identity-registry keys are `Rc` addresses, and a freed
-        // address handed to a later callback inherited the dead callback's
-        // `SMELT_CALLABLE_OBJECTS` entry (see the address-reuse comment on
-        // `SMELT_CALLABLE_KEY_GUARDS` above, and
+        // This used to copy the elements (`with_id(list.id(), list.into_vec())`),
+        // which kept the identity but detached the storage, producing a half
+        // reference: a stale snapshot wearing the live array's `id`. That is wrong
+        // for any array mutated after it is erased, and it is what made
+        // `isEqualWith`'s cycle guard unable to see a circular array — the erased
+        // element could never BE the array it was taken from, so `Object.is(a, b)`
+        // compared a live array against a frozen copy of itself.
+        //
+        // Sharing was tried and reverted once, in #219, after remeda's
+        // `uniqueBy > pipe get executed 3 times when take before uniqueBy` panicked
+        // with `unknown is not array` INTERMITTENTLY. That intermittency was later
+        // root-caused and it was NOT this copy: identity-registry keys are `Rc`
+        // addresses, and a freed address handed to a later callback inherited the
+        // dead callback's `SMELT_CALLABLE_OBJECTS` entry (see the address-reuse
+        // comment on `SMELT_CALLABLE_KEY_GUARDS` above, and
         // `callable_object_identity_runtime`). Sharing the buffer only perturbed
-        // allocation enough to change how often the aliasing was observed.
-        //
-        // So the reason this stays a copy is now only that nobody has re-measured
-        // the shared-buffer change on top of the identity fix. It is worth
-        // retrying, with the remeda suite run at least twenty times.
-        writer.line("impl From<SmeltList<SmeltUnknown>> for SmeltArray { fn from(list: SmeltList<SmeltUnknown>) -> Self { SmeltArray::with_id(list.id(), list.into_vec()) } }");
+        // allocation enough to change how often the aliasing was observed. With that
+        // fix in place the remeda suite was re-measured over twenty consecutive runs
+        // with the sharing below and stayed 1789/1789.
+        writer.line("impl From<SmeltList<SmeltUnknown>> for SmeltArray { fn from(list: SmeltList<SmeltUnknown>) -> Self { SmeltArray::with_storage(list.id(), list.storage()) } }");
         // A callback that declares a list parameter receives it by shared reference
         // (see `callback_param_is_shared_reference`), so the erasure adapters need to
         // build an erased array from `&SmeltList` as well as from an owned one. The
-        // reference form copies the elements, as the owned form above does and for
-        // the same unresolved reason; the saving is on the ARGUMENT, which no longer
-        // deep-copies the list once per element.
-        writer.line("impl From<&SmeltList<SmeltUnknown>> for SmeltArray { fn from(list: &SmeltList<SmeltUnknown>) -> Self { SmeltArray::with_id(list.id(), list.to_vec()) } }");
+        // reference form aliases the same buffer for the same reason the owned form
+        // does; borrowing rather than owning the handle changes nothing about the
+        // array's identity.
+        writer.line("impl From<&SmeltList<SmeltUnknown>> for SmeltArray { fn from(list: &SmeltList<SmeltUnknown>) -> Self { SmeltArray::with_storage(list.id(), list.storage()) } }");
         writer.line("impl<T: Clone> From<&SmeltList<T>> for Vec<T> { fn from(list: &SmeltList<T>) -> Self { list.to_vec() } }");
         // serde impls only when the crate actually links serde (JSON contexts).
         if needs_serde_json {
