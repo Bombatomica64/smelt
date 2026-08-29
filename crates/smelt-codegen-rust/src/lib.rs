@@ -2280,11 +2280,17 @@ fn emit_source_with_free_function_router(
         writer.line("    Pending(::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>),");
         writer.line("    Resolved(T),");
         // A synchronous prefix that threw during eager priming (see
-        // `smelt_eager_poll_waker`) is stored as a rejection, kept as a `String`
-        // so the state stays cloneable-in-effect: JS promises may be awaited more
-        // than once and each await re-observes the same rejection, so `smelt_await`
-        // rebuilds an error from this message on every call.
-        writer.line("    Rejected(String),");
+        // `smelt_eager_poll_waker`) is stored as a rejection. JS promises may be
+        // awaited more than once and each await re-observes the SAME rejection,
+        // so the state has to hold something `smelt_await` can rebuild an error
+        // from on every call — which is why it is a value and not the
+        // `Box<dyn Error>` itself. It holds the thrown payload
+        // `smelt_throw`/`smelt_thrown_value` already define (see `thrown.rs`),
+        // not a new erasure: this slot previously held a `String`, which reduced
+        // every rejection to its message text and re-inflated it as a synthetic
+        // `{ __smelt_error, message }` record, so `async () => { throw "oops"; }`
+        // handed its `catch` an object where JavaScript hands it the string.
+        writer.line("    Rejected(SmeltUnknown),");
         writer.line("    Taken,");
         writer.line("}");
         // A priming poll must not own the virtual clock. `from_future_primed`
@@ -2339,7 +2345,7 @@ fn emit_source_with_free_function_router(
         writer.line("        let mut cx = ::std::task::Context::from_waker(&waker);");
         writer.line("        let state = match ::std::future::Future::poll(future.as_mut(), &mut cx) {");
         writer.line("            ::std::task::Poll::Ready(Ok(value)) => SmeltFutureState::Resolved(value),");
-        writer.line("            ::std::task::Poll::Ready(Err(error)) => SmeltFutureState::Rejected(error.to_string()),");
+        writer.line("            ::std::task::Poll::Ready(Err(error)) => SmeltFutureState::Rejected(smelt_thrown_value(&*error)),");
         writer.line("            ::std::task::Poll::Pending => SmeltFutureState::Pending(future),");
         writer.line("        };");
         writer.line("        Self { state: ::std::rc::Rc::new(::std::cell::RefCell::new(state)) }");
@@ -2366,7 +2372,7 @@ fn emit_source_with_free_function_router(
         writer.line("        let guard = self.state.borrow();");
         writer.line("        match &*guard {");
         writer.line("            SmeltFutureState::Resolved(value) => Ok(value.clone()),");
-        writer.line("            SmeltFutureState::Rejected(message) => Err(std::io::Error::new(std::io::ErrorKind::Other, message.clone()).into()),");
+        writer.line("            SmeltFutureState::Rejected(payload) => Err(smelt_throw(payload.clone())),");
         writer.line("            _ => Err(std::io::Error::new(std::io::ErrorKind::Other, \"future already consumed\").into()),");
         writer.line("        }");
         writer.line("    }");
