@@ -12312,3 +12312,42 @@ const marker = curried.placeholder;
         "the undeclared member read must resolve through the callable's properties:\n{source}"
     );
 }
+
+#[test]
+fn guarded_default_insert_becomes_a_single_entry_probe() {
+    // `smelt_mir::opt::DictDefaultInsertElision` deletes the
+    // `if (!Object.hasOwn(m, k)) { m[k] = []; }` guard, because the entry
+    // mutation that follows inserts the same empty list through
+    // `entry_or_insert`. The emitted group loop must therefore hash the key
+    // once, not three times (probe, guarded insert, entry).
+    let source = source_for(
+        r"
+export function groupBy<T, K extends PropertyKey>(
+  arr: readonly T[],
+  getKeyFromItem: (item: T, index: number) => K
+): Record<K, T[]> {
+  const result = {} as Record<K, T[]>;
+  for (let i = 0; i < arr.length; i++) {
+    const item = arr[i];
+    const key = getKeyFromItem(item, i);
+    if (!Object.hasOwn(result, key)) {
+      result[key] = [];
+    }
+    result[key].push(item);
+  }
+  return result;
+}
+",
+    );
+    let body = emitted_function_body(&source, "fn group_by(");
+
+    assert!(
+        !body.contains("contains_key"),
+        "the membership probe is gone: {body}"
+    );
+    assert_eq!(
+        body.matches("entry_or_insert").count(),
+        1,
+        "exactly one entry probe remains: {body}"
+    );
+}
