@@ -1,6 +1,7 @@
 //! Core emission helpers.
 
 use super::*;
+use crate::emitter::rendered_text_rewrite::cloned_value_text;
 use crate::emitter::literals::operand_local;
 use smelt_hir::FunctionType;
 
@@ -2175,6 +2176,11 @@ impl<'mir> FunctionEmitter<'mir> {
                     // An index read constructs its result rather than projecting
                     // to a place, so it is likewise already owned.
                     || self.index_place_read_is_owned(place)
+                    // A scalar lowers to a `Copy` Rust type, so reading it out of
+                    // a place already yields an owned value. `i.clone()` on an
+                    // `f64` is what `clippy::clone_on_copy` exists to reject, and
+                    // no hand-written port would spell a loop counter that way.
+                    || self.place_type_is_copy_scalar(place)?
                 {
                     self.place_text(place)
                 } else {
@@ -2184,6 +2190,20 @@ impl<'mir> FunctionEmitter<'mir> {
             Operand::Move(place) => self.place_text(place),
             Operand::Const(constant) => Ok(constant_text(constant)),
         }
+    }
+
+    /// Whether a place reads a scalar that lowers to a `Copy` Rust type.
+    ///
+    /// `bool`, `i64` and `f64` are `Copy`, so a place read of one is already an
+    /// owned value and needs no `.clone()`. Only these three are accepted: every
+    /// other Smelt type either owns a heap allocation (`String`, `SmeltList`) or
+    /// lowers to a type whose `Copy`-ness depends on its parameters, and a wrong
+    /// answer here would emit a move out of a borrowed place.
+    fn place_type_is_copy_scalar(&self, place: &Place) -> Result<bool, EmitError> {
+        Ok(matches!(
+            self.mir.types.get(self.place_ty(place)?),
+            Some(Type::Bool | Type::Int | Type::Float)
+        ))
     }
 
     /// Converts an operand to Rust text for a read whose every use is a `&self`
@@ -3029,13 +3049,19 @@ impl<'mir> FunctionEmitter<'mir> {
         value_text: &str,
         source_key: TypeId,
     ) -> Result<String, EmitError> {
+        // The caller's `value_text` is usually already an owned temporary (an
+        // `operand_text` render clones the local it reads), so ask for an owned
+        // copy through `cloned_value_text` rather than appending `.clone()`
+        // unconditionally: a property key is read once per element in every
+        // `groupBy`/`countBy`/`keyBy` loop, and the second copy bought nothing.
+        let owned_value_text = cloned_value_text(value_text);
         match self.mir.types.get(source_key) {
-            Some(Type::String) => Ok(format!("{value_text}.clone()")),
+            Some(Type::String) => Ok(owned_value_text),
             Some(Type::Bool | Type::Int | Type::Float) => Ok(format!("{value_text}.to_string()")),
             Some(Type::Optional(inner)) => {
                 let inner_text = self.property_key_to_string_text("value", *inner)?;
                 Ok(format!(
-                    "{value_text}.clone().map_or(String::new(), |value| {inner_text})"
+                    "{owned_value_text}.map_or(String::new(), |value| {inner_text})"
                 ))
             }
             Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)? => {
@@ -3044,7 +3070,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Some(Type::List(item_ty)) => {
                 let item_text = self.property_key_to_string_text("value", *item_ty)?;
                 Ok(format!(
-                    "{value_text}.clone().into_iter().map(|value| {item_text}).collect::<Vec<_>>().join(\",\")"
+                    "{owned_value_text}.into_iter().map(|value| {item_text}).collect::<Vec<_>>().join(\",\")"
                 ))
             }
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Class { .. }) => {

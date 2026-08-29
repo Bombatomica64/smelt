@@ -443,7 +443,7 @@ export function add(index: number, value: unknown): Record<string, unknown> {
 }
 ",
     );
-    assert!(source.contains("index.clone().to_string()"), "{source}");
+    assert!(source.contains("index.to_string()"), "{source}");
 }
 
 /// Calls to emitted native `async fn`s inside generated closures are wrapped
@@ -923,7 +923,7 @@ console.log(result);
     );
 
     assert!(source.contains("fn add(a: f64, b: f64) -> f64 {"));
-    assert!(source.contains("a.clone() + b.clone()"));
+    assert!(source.contains("a + b"));
     assert!(source.contains("let _smelt_tmp_1: f64 = add(2.0, 3.0);"));
 }
 
@@ -983,8 +983,8 @@ console.log(result);
     );
 
     assert!(source.contains("if _smelt_tmp_2 {"));
-    assert!(source.contains("return a.clone();"));
-    assert!(source.contains("return b.clone();"));
+    assert!(source.contains("return a;"));
+    assert!(source.contains("return b;"));
 }
 
 #[test]

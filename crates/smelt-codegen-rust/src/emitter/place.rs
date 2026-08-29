@@ -1,6 +1,7 @@
 //! Place emission helpers.
 
 use super::*;
+use crate::emitter::rendered_text_rewrite::cloned_value_text;
 
 impl FunctionEmitter<'_> {
     /// Render a dotted property name as the concrete key type of a dictionary.
@@ -87,7 +88,7 @@ impl FunctionEmitter<'_> {
                     // A concrete-union receiver stores a tagged enum; project it
                     // back to `SmeltUnknown` before the erased-object field match.
                     let scrutinee =
-                        self.erase_concrete_union_text(&format!("{base_text}.clone()"), base_ty);
+                        self.erase_concrete_union_text(&cloned_value_text(&base_text), base_ty);
                     if field_rule == Some(smelt_stdlib::FieldRule::TsLength) {
                         // A callable's `.length` is its declared arity, which the
                         // erasure boundary parks in the function-length registry
@@ -517,7 +518,7 @@ impl FunctionEmitter<'_> {
             .enumerate()
             .map(|(index, _)| {
                 if index == 0 {
-                    format!("{base_text}.clone()")
+                    cloned_value_text(&base_text)
                 } else {
                     "Default::default()".to_owned()
                 }
@@ -580,7 +581,7 @@ impl FunctionEmitter<'_> {
                     if self.parameter_needs_mutable_reference_in(setter, *parameter) {
                         format!("&mut {base_text}")
                     } else {
-                        format!("{base_text}.clone()")
+                        cloned_value_text(&base_text)
                     }
                 } else {
                     "Default::default()".to_owned()
@@ -1003,12 +1004,16 @@ impl FunctionEmitter<'_> {
         base_text: &str,
         index: &Operand,
     ) -> Result<String, EmitError> {
+        // `base_text` is usually already an owned temporary (an operand render
+        // clones the local it reads), so take an owned copy rather than
+        // deep-copying the erased base a second time on every index read.
+        let base_text = &cloned_value_text(base_text);
         let index_ty = self.operand_ty(index)?;
         let index_text = self.operand_text(index)?;
         let key_text = self.property_key_to_string_text(&index_text, index_ty)?;
         if matches!(self.mir.types.get(index_ty), Some(Type::String)) {
             return Ok(format!(
-                r#"match {base_text}.clone() {{
+                r#"match {base_text} {{
                     SmeltUnknown::String(value) => {{
                         let smelt_key = {key_text};
                         if smelt_key == "length" {{
@@ -1043,7 +1048,7 @@ impl FunctionEmitter<'_> {
                     ) =>
             {
                 let scrutinee =
-                    self.erase_concrete_union_text(&format!("{index_text}.clone()"), index_ty);
+                    self.erase_concrete_union_text(&cloned_value_text(&index_text), index_ty);
                 format!(
                     "match {scrutinee} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}"
                 )
@@ -1052,7 +1057,7 @@ impl FunctionEmitter<'_> {
         };
 
         Ok(format!(
-            r"match {base_text}.clone() {{
+            r"match {base_text} {{
                     SmeltUnknown::String(value) => {{
                         let len = value.chars().count() as i64;
                         let index = {numeric_index_text} as i64;

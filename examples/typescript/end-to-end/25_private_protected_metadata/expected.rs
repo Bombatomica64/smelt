@@ -22,7 +22,7 @@ impl Secret {
     fn new(token: String, count: f64) -> Self {
     let mut this: Self = Secret { token: String::new(), count: 0.0 };
     this.token = token.clone();
-    this.count = count.clone();
+    this.count = count;
     return this;
     }
     fn reveal(&self) -> String {

@@ -410,7 +410,7 @@ function positive(values: number[]): boolean {
         "{source}"
     );
     assert!(
-        source.contains("closure_arg_0.clone() * factor.clone()"),
+        source.contains("closure_arg_0 * factor"),
         "{source}"
     );
     assert!(
@@ -651,7 +651,7 @@ const sums = pairs.map(([left, right]) => left + right);
 ",
     );
 
-    assert!(source.contains("closure_arg_0.0.clone() + closure_arg_0.1.clone()"));
+    assert!(source.contains("closure_arg_0.0 + closure_arg_0.1"));
 }
 
 #[test]
@@ -909,8 +909,8 @@ const noInitial = values.reduce((acc, value, index) => acc + value + index);
     assert!(source.contains("reduce of empty array with no initial value"));
     assert!(source.contains(".collect::<Vec<_>>()"));
     assert!(source.contains(".unwrap_or(-1.0"));
-    assert!(source.contains("closure_arg_0.clone() * 2.0"), "{source}");
-    assert!(source.contains("closure_arg_0.clone() + 2.0"));
+    assert!(source.contains("closure_arg_0 * 2.0"), "{source}");
+    assert!(source.contains("closure_arg_0 + 2.0"));
     assert!(
         source.contains("(smelt_callback)(&(SmeltUnknown::Number(item.clone() as f64)))"),
         "{source}"
@@ -1018,7 +1018,7 @@ export function values(record: Record<string, number>, keys: string[]): number[]
     );
 
     assert!(
-        source.contains(".get(&closure_arg_0.clone().clone())"),
+        source.contains(".get(&closure_arg_0.clone())"),
         "{source}"
     );
 }
@@ -1692,8 +1692,8 @@ function f(): Record<string, unknown> {
         "cast followed by `.clone()` was not parenthesized: {out}"
     );
     assert!(
-        out.contains("(*re.last_index.borrow() as f64).clone()"),
-        "expected parenthesized cast before clone: {out}"
+        out.contains("(*re.last_index.borrow() as f64)"),
+        "expected parenthesized cast: {out}"
     );
 }
 
@@ -1863,7 +1863,7 @@ export function f(tag: string, a: number): number {
         "post-switch tail (`total + 1000`) was dropped: {source}"
     );
     assert!(
-        source.contains("total = a.clone()"),
+        source.contains("total = a"),
         "post-switch tail statements were dropped: {source}"
     );
     assert!(

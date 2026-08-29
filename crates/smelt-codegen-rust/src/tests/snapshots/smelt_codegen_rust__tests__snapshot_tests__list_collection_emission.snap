@@ -75,7 +75,7 @@ impl<T: Clone> From<SmeltList<T>> for Vec<T> { fn from(list: SmeltList<T>) -> Se
 
 // @smelt:prelude-end — generated program below
 fn append(mut values: &mut SmeltList<f64>, value: f64) -> SmeltList<f64> {
-    let _smelt_tmp_2: f64 = { let smelt_push_item = value.clone(); values.borrow_mut().push(smelt_push_item); values.len() as f64 };
+    let _smelt_tmp_2: f64 = { let smelt_push_item = value; values.borrow_mut().push(smelt_push_item); values.len() as f64 };
     return values.clone();
 }
 

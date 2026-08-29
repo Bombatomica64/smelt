@@ -81,12 +81,12 @@ fn main() {
     let mut _smelt_tmp_4: f64 = 0.0;
     loop {
     _smelt_tmp_5 = xs.len() as f64;
-    _smelt_tmp_6 = _smelt_tmp_4.clone() < _smelt_tmp_5;
+    _smelt_tmp_6 = _smelt_tmp_4 < _smelt_tmp_5;
     if !(_smelt_tmp_6) { break; }
-    x = xs.borrow().get({ let len = xs.len() as i64; let index = _smelt_tmp_4.clone() as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0);
+    x = xs.borrow().get({ let len = xs.len() as i64; let index = _smelt_tmp_4 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0);
     _smelt_tmp_7 = sum + x;
     sum = _smelt_tmp_7;
-    _smelt_tmp_4 = _smelt_tmp_4.clone() + 1.0;
+    _smelt_tmp_4 = _smelt_tmp_4 + 1.0;
     }
     let _ = { println!("{}", sum); };
     return;

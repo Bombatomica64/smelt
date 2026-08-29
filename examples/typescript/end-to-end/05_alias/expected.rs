@@ -4,7 +4,7 @@
 // @smelt:prelude-end — generated program below
 fn main() {
     let source_value: f64 = 7.0;
-    let copied_value: f64 = source_value.clone();
+    let copied_value: f64 = source_value;
     let _ = { println!("{}", source_value); };
     return;
 }
