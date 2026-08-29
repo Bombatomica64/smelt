@@ -265,6 +265,28 @@ impl FunctionEmitter<'_> {
                     sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
                 ))
             }
+            smelt_hir::AsyncOp::Reject => {
+                // `Promise.reject(reason)`: defer one microtask, then settle in
+                // the error channel with the reason unchanged. The reason takes
+                // the same `throw` path a `throw` statement takes, so a non-Error
+                // reason keeps its own properties (JavaScript rejects with any
+                // value) and a program with no erased values keeps the plain
+                // string error form.
+                let Some(duration) = args.first() else {
+                    return Err(EmitError::new(
+                        "async reject requires a duration operand",
+                    ));
+                };
+                let duration_text = self.operand_text(duration)?;
+                let payload = match args.get(1) {
+                    Some(reason) => self.thrown_payload_text(reason)?,
+                    None => self.undefined_thrown_payload_text(),
+                };
+                Ok(format!(
+                    "SmeltFuture::from_future(Box::pin(async move {{ {sleep_ms}({duration_text} as f64).await; Err::<_, Box<dyn std::error::Error>>({payload}) }}))",
+                    sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
+                ))
+            }
             smelt_hir::AsyncOp::SetTimeout => {
                 let [callback, duration, extra @ ..] = args else {
                     return Err(EmitError::new(

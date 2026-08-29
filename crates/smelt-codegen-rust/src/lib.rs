@@ -469,6 +469,7 @@ fn needs_timer_helpers(mir: &Mir) -> bool {
             Rvalue::AsyncOp {
                 op: AsyncOp::Sleep
                     | AsyncOp::Resolve
+                    | AsyncOp::Reject
                     | AsyncOp::SetTimeout
                     | AsyncOp::ClearTimeout
                     | AsyncOp::SetInterval

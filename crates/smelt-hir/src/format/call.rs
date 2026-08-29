@@ -979,6 +979,7 @@ fn async_op_text(op: AsyncOp, args: &[ExprId]) -> String {
         AsyncOp::CreateTask => "async_create_task",
         AsyncOp::WaitFor => "async_wait_for",
         AsyncOp::Resolve => "async_resolve",
+        AsyncOp::Reject => "async_reject",
         AsyncOp::HttpGetText => "async_http_get_text",
     };
     let args_text = args

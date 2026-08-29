@@ -13,6 +13,12 @@ pub enum AsyncOp {
     AllSettled,
     /// Sleep for a duration in milliseconds.
     Sleep,
+    /// Produce an already-rejected promise (`Promise.reject(reason)`).
+    ///
+    /// Operands are `[duration, reason?]`, mirroring `Resolve`: the duration
+    /// models the microtask deferral and the optional reason is the rejection
+    /// value, which enters the ordinary `throw` channel unchanged.
+    Reject,
     /// Produce an already-settled promise of a value (`Promise.resolve(v)`).
     ///
     /// Operands are `[duration, value?]`: the duration models JavaScript's

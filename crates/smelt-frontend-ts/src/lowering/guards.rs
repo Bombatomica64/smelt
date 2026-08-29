@@ -1415,6 +1415,45 @@ impl ModuleBuilder<'_> {
                 span: self.span(call.span.start, call.span.end),
             })));
         }
+        if member.property.name == "reject" {
+            // `Promise.reject(reason)` was not lowered at all: it fell through to
+            // the combinator arm below, which only knows `all`/`race`/
+            // `allSettled`, and the rejection vanished — `await
+            // Promise.reject(new Error("boom"))` ran straight on to the next
+            // statement and no `catch` ever fired. The reason enters the ordinary
+            // `throw` channel, so the future's item type is the erased carrier:
+            // TypeScript types this `Promise<never>`, i.e. it yields no value at
+            // all, and `Unknown` is the one item type every awaiting context can
+            // accept.
+            if call.arguments.len() > 1 {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "Promise.reject supports at most one reason argument",
+                ));
+            }
+            let reason = call
+                .arguments
+                .first()
+                .map(|argument| self.argument(argument, body))
+                .transpose()?;
+            let duration = body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Float(0.0)),
+                ty: self.ctx.krate.types.intern(Type::Float),
+                span: self.span(call.span.start, call.span.start),
+            });
+            let mut args = vec![duration];
+            args.extend(reason);
+            let unknown = self.ctx.krate.types.intern(Type::Unknown);
+            let ty = self.ctx.krate.types.intern(Type::Future(unknown));
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::AsyncOp {
+                    op: AsyncOp::Reject,
+                    args,
+                },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
         let op = match member.property.name.as_str() {
             "all" => AsyncOp::All,
             "race" => AsyncOp::Race,
@@ -1494,6 +1533,7 @@ impl ModuleBuilder<'_> {
             }
             AsyncOp::Sleep
             | AsyncOp::Resolve
+            | AsyncOp::Reject
             | AsyncOp::CreateTask
             | AsyncOp::WaitFor
             | AsyncOp::HttpGetText
