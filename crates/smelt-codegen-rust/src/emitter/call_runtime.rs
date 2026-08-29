@@ -1538,7 +1538,21 @@ impl FunctionEmitter<'_> {
                     if callee_is_erased_rest && self.mir.types.get(dest_ty) == Some(&Type::None) {
                         return Ok(format!("{{ {call_text}; () }}"));
                     }
-                    return self.value_at_type_text(&call_text, function.return_ty, dest_ty);
+                    // Same rule as the `ClosureCall` arm above, for the same
+                    // reason: the erased-rest ABI (`SmeltErasedFunction::call`, or
+                    // the borrowed `dyn Fn(SmeltList<SmeltUnknown>) -> SmeltUnknown`
+                    // handle it is emitted as) always yields a bare `SmeltUnknown`,
+                    // whatever the callee's declared return type says. Coercing
+                    // from the declared `return_ty` produced an E0308 the moment a
+                    // spread call reached such a callee with a non-`unknown` return
+                    // — es-toolkit's `cond` calls `predicate.apply(this, args)` on a
+                    // `(...args: any[]) => boolean`.
+                    let source_ty = if callee_is_erased_rest {
+                        unknown_ty
+                    } else {
+                        function.return_ty
+                    };
+                    return self.value_at_type_text(&call_text, source_ty, dest_ty);
                 }
                 // The runtime dispatch snippet matches the callee over
                 // `SmeltUnknown` discriminants, so the callee value must be the

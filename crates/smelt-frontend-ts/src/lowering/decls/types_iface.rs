@@ -278,11 +278,14 @@ impl ModuleBuilder<'_> {
         if fields.iter().any(|field| field.name == name) {
             return;
         }
-        let function_ty = self
-            .ctx
-            .krate
-            .types
-            .intern(Type::Function(signature.clone()));
+        let function_ty = match self.overloaded_call_signature_slot_type(call_signatures) {
+            Some(erased_ty) => erased_ty,
+            None => self
+                .ctx
+                .krate
+                .types
+                .intern(Type::Function(signature.clone())),
+        };
         let span = self.span(0, 0);
         fields.push(Field {
             name,
@@ -291,6 +294,65 @@ impl ModuleBuilder<'_> {
             optional: false,
             span,
         });
+    }
+
+    /// Return the erased variadic slot type for an *overloaded* callable interface.
+    ///
+    /// A callable interface may declare several call signatures of different
+    /// arities:
+    ///
+    /// ```ts
+    /// interface CurriedFunction2<T1, T2, R> {
+    ///   (): CurriedFunction2<T1, T2, R>;
+    ///   (t1: T1): CurriedFunction1<T2, R>;
+    ///   (t1: T1, t2: T2): R;
+    /// }
+    /// ```
+    ///
+    /// The struct has exactly one `__smelt_call` slot, so no single concrete
+    /// signature can store the value: which overload runs is decided by the
+    /// *runtime* argument list, which is a genuine dynamic boundary, not a
+    /// shape a concrete Rust `Fn` type could carry. Typing the slot from the
+    /// FIRST signature — as this used to — made every call site adapt to that
+    /// signature and silently discard the arguments the caller actually passed:
+    /// es-toolkit's `curried(2, 3)` emitted `(smelt_callback)()`, calling the
+    /// zero-argument overload and answering a defaulted value with no
+    /// diagnostic.
+    ///
+    /// So an overload set whose arities differ collapses to one erased-rest
+    /// variadic signature `(...args: unknown[]) => unknown`, exactly as
+    /// [`ModuleBuilder::type_annotation`] already collapses a *union* of
+    /// differing-arity function types — the same fact spelled a different way.
+    /// The precise per-call return type is not lost: `interface_call_signature_type`
+    /// still selects the overload by argument count at the call site, and the
+    /// adapter coerces the erased result into it.
+    ///
+    /// Returns `None` when the overloads all share one arity shape, so a
+    /// single-signature (or uniformly-shaped) callable interface keeps its
+    /// precise concrete slot type and nothing is erased that need not be.
+    fn overloaded_call_signature_slot_type(
+        &mut self,
+        call_signatures: &[FunctionType],
+    ) -> Option<smelt_hir::TypeId> {
+        let mut shapes = call_signatures
+            .iter()
+            .map(|signature| (signature.params.len(), signature.rest.is_some()));
+        let first_shape = shapes.next()?;
+        if !shapes.any(|shape| shape != first_shape) {
+            return None;
+        }
+        let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let rest_list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
+        let return_ty = self.ctx.krate.types.intern(Type::Unknown);
+        Some(self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params: vec![rest_list_ty],
+            rest: Some(0),
+            required_params: Some(0),
+            mutable_params: Vec::new(),
+            return_ty,
+            is_async: false,
+            may_throw: false,
+        })))
     }
 
     /// Lower TypeScript namespace declarations that contain exported type declarations.
