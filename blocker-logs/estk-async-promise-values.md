@@ -1,9 +1,15 @@
-# es-toolkit async/promise cluster — six unmodeled values
+# es-toolkit async/promise cluster — seven unmodeled values
 
-Branch `claude/estk-async-retry2`, based on `origin/main` @ `bce1877`.
+Branch `claude/estk-async-retry2`, merged with `origin/main` @ `ec6c222`
+(PR #231 landed mid-investigation; the branch was re-based on it and every
+number below re-measured against it).
 
-**es-toolkit: 967 passed / 92 failed → 982 passed / 77 failed.** 15 tests fixed,
-zero new failures (verified by a failure-*name* diff, not counts).
+**es-toolkit: 972 passed / 87 failed → 988 passed / 71 failed.** 16 tests fixed,
+zero new failures — verified by a failure-*name* diff against a baseline this
+investigation measured itself, not by counts. Identical across 10 consecutive
+runs (the virtual clock makes the suite deterministic).
+
+My fixes and PR #231's five are disjoint: no test appears in both sets.
 
 Every defect below is the same shape, the one this repo has now hit at a dozen
 independent sites: **an unmodeled member silently becomes a value.** Not one of
@@ -11,7 +17,7 @@ them produced a diagnostic. Every one of them emitted Rust that type-checked,
 that `compile_corpus` accepted, and that ran — producing a plausible wrong
 answer, or quietly doing nothing at all.
 
-## The six root causes
+## The seven root causes
 
 ### 1. An absent optional member became a callable that answers `false`
 
@@ -140,6 +146,24 @@ a prefix schedules its timers without making time pass, so the sleep now
 suspends immediately under `SMELT_PRIME_DEPTH` and defers all timekeeping to its
 first real poll. This is the rule `SMELT_RACE_DEPTH` already states for a
 `Promise.race` driver, applied to the other out-of-band poller.
+
+### 7. `SmeltFuture` reduced a rejection to a string too
+
+`crates/smelt-codegen-rust/src/lib.rs` (`SmeltFutureState::Rejected`)
+
+The same defect as 3, in the other future type, and it survived the first fix
+because the two types are separate. A synchronous prefix that throws is captured
+by `from_future_primed`'s eager poll as `Ready(Err(..))`, and reducing that to
+`error.to_string()` destroyed the payload:
+
+```ts
+const [error] = await attemptAsync(async () => { throw 'string error'; });
+```
+
+handed `error` a synthetic `{ __smelt_error, message }` record where JavaScript
+hands it the string. The lazy path never had the problem — it propagates
+`future.await?` unchanged — which is exactly why only a *pre-await* throw
+misbehaved.
 
 ## Triage records: what was right and what was wrong
 
