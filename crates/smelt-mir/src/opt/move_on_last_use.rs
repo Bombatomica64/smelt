@@ -325,6 +325,9 @@ const fn statement_def(stmt: &Statement) -> Option<LocalId> {
             place: Place::Local(local),
             ..
         } => Some(*local),
+        // The fused entry update defines `current`, the local it binds the
+        // entry's value to.
+        Statement::DictEntryUpdate { current, .. } => Some(*current),
         Statement::AssignPlace { .. }
         | Statement::StorageLive(_)
         | Statement::StorageDead(_) => None,
@@ -363,6 +366,21 @@ fn statement_reads(stmt: &Statement, out: &mut Vec<LocalId>) {
                     collect_operand_reads(index, out);
                 }
             }
+            value.for_each_operand(|operand| collect_operand_reads(operand, out));
+        }
+        // The container is mutated in place and therefore stays live, exactly
+        // like an `Index` assignment target. The key, the seed and the stored
+        // rvalue's operands are ordinary reads.
+        Statement::DictEntryUpdate {
+            base,
+            index,
+            default,
+            current: _,
+            value,
+        } => {
+            out.push(*base);
+            collect_operand_reads(index, out);
+            collect_operand_reads(default, out);
             value.for_each_operand(|operand| collect_operand_reads(operand, out));
         }
         Statement::StorageLive(_) | Statement::StorageDead(_) => {}
@@ -432,7 +450,9 @@ fn count(reads: Vec<LocalId>) -> HashMap<LocalId, usize> {
 /// The rvalue assigned by a statement, if it assigns one.
 const fn statement_value(stmt: &Statement) -> Option<&Rvalue> {
     match stmt {
-        Statement::Assign { value, .. } | Statement::AssignPlace { value, .. } => Some(value),
+        Statement::Assign { value, .. }
+        | Statement::AssignPlace { value, .. }
+        | Statement::DictEntryUpdate { value, .. } => Some(value),
         Statement::StorageLive(_) | Statement::StorageDead(_) => None,
     }
 }
@@ -440,7 +460,9 @@ const fn statement_value(stmt: &Statement) -> Option<&Rvalue> {
 /// The mutable rvalue assigned by a statement, if it assigns one.
 const fn statement_value_mut(stmt: &mut Statement) -> Option<&mut Rvalue> {
     match stmt {
-        Statement::Assign { value, .. } | Statement::AssignPlace { value, .. } => Some(value),
+        Statement::Assign { value, .. }
+        | Statement::AssignPlace { value, .. }
+        | Statement::DictEntryUpdate { value, .. } => Some(value),
         Statement::StorageLive(_) | Statement::StorageDead(_) => None,
     }
 }

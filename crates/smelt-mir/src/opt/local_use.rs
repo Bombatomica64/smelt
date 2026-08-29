@@ -45,7 +45,16 @@ pub(super) fn local_assignment_count(function: &MirFunction, local: LocalId) -> 
             let statements = block
                 .statements
                 .iter()
-                .filter(|statement| matches!(statement, Statement::Assign { dest, .. } if *dest == local))
+                .filter(|statement| match statement {
+                    Statement::Assign { dest, .. } => *dest == local,
+                    // The fused entry update binds the entry's value to
+                    // `current`; that binding is a definition, so a pass asking
+                    // "is this local assigned exactly once?" must see it.
+                    Statement::DictEntryUpdate { current, .. } => *current == local,
+                    Statement::AssignPlace { .. }
+                    | Statement::StorageLive(_)
+                    | Statement::StorageDead(_) => false,
+                })
                 .count();
             let phis = block.phis.iter().filter(|phi| phi.dest == local).count();
             let terminator = usize::from(matches!(
@@ -85,6 +94,22 @@ fn statement_read_count(statement: &Statement, local: LocalId) -> usize {
     match statement {
         Statement::Assign { value, .. } => rvalue_read_count(value, local),
         Statement::AssignPlace { place, value } => usize::from(place_reads_local(place, local))
+            .saturating_add(rvalue_read_count(value, local)),
+        // Counted exactly like the `AssignPlace { place: base[index], .. }` it
+        // replaces: the container local is read (the entry is reached through
+        // it), so are the key and the seed, plus every operand of the stored
+        // rvalue — which is where `current` is read. Missing any of these would
+        // let the sibling dict passes believe a local has no readers and delete
+        // a value this statement still consumes.
+        Statement::DictEntryUpdate {
+            base,
+            index,
+            default,
+            current: _,
+            value,
+        } => usize::from(*base == local)
+            .saturating_add(usize::from(operand_reads_local(index, local)))
+            .saturating_add(usize::from(operand_reads_local(default, local)))
             .saturating_add(rvalue_read_count(value, local)),
         Statement::StorageLive(_) | Statement::StorageDead(_) => 0,
     }

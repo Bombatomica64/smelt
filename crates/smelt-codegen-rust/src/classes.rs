@@ -418,6 +418,8 @@ fn statement_destination_mentions(
             | Place::Field { base: local, .. }
             | Place::Index { base: local, .. } => *local,
         },
+        // The container the entry update writes through is its destination.
+        Statement::DictEntryUpdate { base, .. } => *base,
         Statement::StorageLive(_) | Statement::StorageDead(_) => return false,
     };
     local_mentions(local)

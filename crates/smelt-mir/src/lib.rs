@@ -648,8 +648,244 @@ export function groupBy<T, K extends PropertyKey>(
         assert!(output.contains("dict_contains_key"), "{output}");
     }
 
+
+    /// The `countBy` accumulator shape: a read-modify-write through one entry.
+    const COUNT_BY: &str = "\
+export function countBy<T, K extends PropertyKey>(
+  arr: readonly T[],
+  mapper: (item: T) => K
+): Record<K, number> {
+  const result = {} as Record<K, number>;
+  for (let i = 0; i < arr.length; i++) {
+    const key = mapper(arr[i]);
+    result[key] = (result[key] ?? 0) + 1;
+  }
+  return result;
+}
+";
+
+    #[test]
+    fn dict_entry_update_fuses_the_count_by_accumulator() {
+        let output = optimized_mir_text(COUNT_BY);
+
+        assert!(
+            output.contains("entry_update %2[copy %4] ?? 0.0 as %9 = move %9 + 1.0"),
+            "the triple becomes one entry update: {output}"
+        );
+        // Neither the separate entry read nor the write-back survives.
+        assert!(!output.contains("%9 = copy %2[copy %4]"), "{output}");
+        assert!(!output.contains("%2[copy %4] = "), "{output}");
+    }
+
+    /// The block index and statement index of the entry-read/compute/write-back
+    /// triple `DictEntryUpdate` looks for, plus the container it writes.
+    fn find_entry_triple(function: &MirFunction) -> Option<(BlockId, usize, LocalId)> {
+        function.blocks.iter().find_map(|block| {
+            block.statements.iter().enumerate().find_map(|(index, _)| {
+                let [
+                    Statement::Assign {
+                        value: Rvalue::OptionalCoalesce { .. },
+                        ..
+                    },
+                    Statement::Assign { .. },
+                    Statement::AssignPlace {
+                        place: Place::Index { base, .. },
+                        ..
+                    },
+                ] = block.statements.get(index..index.saturating_add(3))?
+                else {
+                    return None;
+                };
+                Some((block.id, index, *base))
+            })
+        })
+    }
+
+    /// Rewrites the triple's compute step so it also reads the container local,
+    /// which is the borrow hazard the pass must decline on.
+    fn make_update_read_the_container(mir: &mut Mir) {
+        for function in &mut mir.functions {
+            let Some((block, index, base)) = find_entry_triple(function) else {
+                continue;
+            };
+            let Some(Statement::Assign {
+                value: Rvalue::Binary { rhs, .. },
+                ..
+            }) = block_mut(function, block)
+                .statements
+                .get_mut(index.saturating_add(1))
+            else {
+                continue;
+            };
+            *rhs = Operand::Copy(Place::Local(base));
+            return;
+        }
+        std::panic::resume_unwind(Box::new("a fusable entry triple was lowered".to_owned()))
+    }
+
+    /// Appends a second reader of the entry-read temporary to the triple's block.
+    fn add_second_entry_read_reader(mir: &mut Mir) {
+        for function in &mut mir.functions {
+            let Some((block, index, _)) = find_entry_triple(function) else {
+                continue;
+            };
+            let Some(Statement::Assign { dest, .. }) = block_mut(function, block)
+                .statements
+                .get(index)
+                .cloned()
+            else {
+                continue;
+            };
+            let decl = function
+                .locals
+                .get(usize::try_from(dest.0).unwrap_or(usize::MAX))
+                .unwrap_or_else(|| {
+                    std::panic::resume_unwind(Box::new("entry read local is declared".to_owned()))
+                })
+                .clone();
+            let extra = LocalId(u32::try_from(function.locals.len()).unwrap_or(u32::MAX));
+            function.locals.push(decl);
+            block_mut(function, block).statements.push(Statement::Assign {
+                dest: extra,
+                value: Rvalue::Use(Operand::Copy(Place::Local(dest))),
+            });
+            return;
+        }
+        std::panic::resume_unwind(Box::new("a fusable entry triple was lowered".to_owned()))
+    }
+
+    /// Lowers TypeScript, runs every default pass, and formats the result
+    /// WITHOUT validating, after `mutate` has broken one correctness condition.
+    fn optimized_mir_text_after(source: &str, mutate: impl FnOnce(&mut Mir)) -> String {
+        let mut ctx = HirCtx::new();
+        ok_or_panic(to_hir(source, FileId(0), &mut ctx), "HIR");
+        let mut mir = ok_or_panic(lower_hir(&ctx.krate), "MIR");
+        mutate(&mut mir);
+        opt::optimize(&mut mir);
+        format_compact(&mir)
+    }
+
+    #[test]
+    fn dict_entry_update_keeps_an_update_that_reads_the_container() {
+        // The stored value is evaluated while the backend holds a `RefMut`
+        // guard into the container's store, so an update that reads the
+        // container itself would panic with `already borrowed` at runtime.
+        let output = optimized_mir_text_after(COUNT_BY, make_update_read_the_container);
+
+        assert!(
+            !output.contains("entry_update"),
+            "an update reading the container must keep the two-probe form: {output}"
+        );
+    }
+
+    #[test]
+    fn dict_entry_update_keeps_a_triple_with_a_second_reader() {
+        // A second reader observes the entry value the fused form folds into
+        // the update, so the read must stay a statement of its own.
+        let output = optimized_mir_text_after(COUNT_BY, add_second_entry_read_reader);
+
+        assert!(
+            !output.contains("entry_update"),
+            "a second reader of the entry read blocks the fusion: {output}"
+        );
+    }
+
+    #[test]
+    fn dict_entry_update_keeps_a_write_to_another_key() {
+        let output = optimized_mir_text(
+            "\
+export function countBy<T, K extends PropertyKey>(
+  arr: readonly T[],
+  mapper: (item: T) => K
+): Record<K, number> {
+  const result = {} as Record<K, number>;
+  for (let i = 0; i < arr.length; i++) {
+    const key = mapper(arr[i]);
+    const other = mapper(arr[0]);
+    result[other] = (result[key] ?? 0) + 1;
+  }
+  return result;
+}
+",
+        );
+
+        assert!(!output.contains("entry_update"), "{output}");
+    }
+
+    #[test]
+    fn dict_entry_update_keeps_a_write_to_another_dict() {
+        let output = optimized_mir_text(
+            "\
+export function countBy<T, K extends PropertyKey>(
+  arr: readonly T[],
+  mapper: (item: T) => K
+): Record<K, number> {
+  const result = {} as Record<K, number>;
+  const mirror = {} as Record<K, number>;
+  for (let i = 0; i < arr.length; i++) {
+    const key = mapper(arr[i]);
+    mirror[key] = (result[key] ?? 0) + 1;
+  }
+  return result;
+}
+",
+        );
+
+        assert!(!output.contains("entry_update"), "{output}");
+    }
+
+    #[test]
+    fn dict_entry_update_keeps_an_update_that_reads_another_local() {
+        // Conservative operand rule: anything but constants and the bound entry
+        // value is refused, because a container clone SHARES its store and a
+        // second local can name the same cell.
+        let output = optimized_mir_text(
+            "\
+export function countBy<T, K extends PropertyKey>(
+  arr: readonly T[],
+  mapper: (item: T) => K,
+  bump: number
+): Record<K, number> {
+  const result = {} as Record<K, number>;
+  for (let i = 0; i < arr.length; i++) {
+    const key = mapper(arr[i]);
+    result[key] = (result[key] ?? 0) + bump;
+  }
+  return result;
+}
+",
+        );
+
+        assert!(!output.contains("entry_update"), "{output}");
+    }
+
+    #[test]
+    fn dict_entry_update_keeps_a_non_constant_seed() {
+        // `SmeltJsMap::entry_or_insert` calls the seed closure while it holds
+        // `store.borrow_mut()`, so only a constant seed is accepted.
+        let output = optimized_mir_text(
+            "\
+export function countBy<T, K extends PropertyKey>(
+  arr: readonly T[],
+  mapper: (item: T) => K,
+  seed: number
+): Record<K, number> {
+  const result = {} as Record<K, number>;
+  for (let i = 0; i < arr.length; i++) {
+    const key = mapper(arr[i]);
+    result[key] = (result[key] ?? seed) + 1;
+  }
+  return result;
+}
+",
+        );
+
+        assert!(!output.contains("entry_update"), "{output}");
+    }
+
     #[test]
     fn dict_default_insert_elision_keeps_a_guard_on_another_dict() {
+
         let output = optimized_mir_text(
             "\
 export function groupBy<T, K extends PropertyKey>(

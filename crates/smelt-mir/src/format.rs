@@ -185,6 +185,24 @@ fn statement_text(statement: &Statement) -> String {
         Statement::AssignPlace { place, value } => {
             format!("{} = {}", place_text(place), rvalue_text(value))
         }
+        // `entry_update %d[key] ?? default as %cur = <rvalue>` reads as "bind the
+        // entry, seeding it with `default` when absent, then store the rvalue
+        // back into the same entry" — the one-probe read-modify-write formed by
+        // `crate::opt::DictEntryUpdate`.
+        Statement::DictEntryUpdate {
+            base,
+            index,
+            default,
+            current,
+            value,
+        } => format!(
+            "entry_update {}[{}] ?? {} as {} = {}",
+            local_ref(*base),
+            operand_text(index),
+            operand_text(default),
+            local_ref(*current),
+            rvalue_text(value)
+        ),
         Statement::StorageLive(local) => format!("StorageLive({})", local_ref(*local)),
         Statement::StorageDead(local) => format!("StorageDead({})", local_ref(*local)),
     }

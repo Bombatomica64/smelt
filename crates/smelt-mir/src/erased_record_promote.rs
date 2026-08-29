@@ -127,6 +127,13 @@ fn promote_body(
                         note_erased_operand(&mut erased, cast_value);
                     }
                 }
+                // The fused dict-entry update writes THROUGH its base, so the
+                // base counts as mutated exactly as an `AssignPlace` to
+                // `base[index]` does. Nothing here erases a value: `value`
+                // reads only `current` and constants by construction.
+                Statement::DictEntryUpdate { base, .. } => {
+                    mutated.insert(*base);
+                }
                 Statement::StorageLive(_) | Statement::StorageDead(_) => {}
             }
         }

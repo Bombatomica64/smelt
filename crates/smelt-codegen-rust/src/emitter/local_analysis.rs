@@ -74,6 +74,23 @@ impl FunctionEmitter<'_> {
                             },
                         ..
                     } if *candidate == local => return true,
+                    // The container is borrowed mutably through its entry
+                    // accessor (`SmeltJsMap::entry_or_insert` takes `&mut
+                    // self`), exactly like an `Index` assignment target. The
+                    // bound `current` follows the same predeclared-in-a-loop
+                    // rule as a single `Assign` destination.
+                    Statement::DictEntryUpdate { base, current, .. } => {
+                        if *base == local && self.dict_entry_update_needs_mut_base(*base) {
+                            return true;
+                        }
+                        if *current == local
+                            && self.predeclared_locals.contains(&local)
+                            && (self.block_can_repeat(block.id, &mut BlockIdSet::default())
+                                || self.block_is_reached_from_repeating_region(block.id))
+                        {
+                            return true;
+                        }
+                    }
                     Statement::Assign { value, .. } => {
                         if self.rvalue_mutates_local(value, local) {
                             return true;
@@ -186,6 +203,8 @@ impl FunctionEmitter<'_> {
                     place: Place::Local(candidate),
                     ..
                 } => *candidate == local,
+                // Binding the entry's value to `current` is an assignment.
+                Statement::DictEntryUpdate { current, .. } => *current == local,
                 _ => false,
             })
             .count()
@@ -224,6 +243,28 @@ impl FunctionEmitter<'_> {
                         }
                         if matches!(place, Place::Local(candidate) if *candidate == local) {
                             return false;
+                        }
+                    }
+                    // Evaluation order: container, key and seed are read first,
+                    // then `current` is bound, then the stored rvalue runs.
+                    Statement::DictEntryUpdate {
+                        base,
+                        index,
+                        default,
+                        current,
+                        value,
+                    } => {
+                        if *base == local
+                            || operand_uses_local(index, local)
+                            || operand_uses_local(default, local)
+                        {
+                            return true;
+                        }
+                        if *current == local {
+                            return false;
+                        }
+                        if rvalue_uses_local(value, local) {
+                            return true;
                         }
                     }
                     Statement::StorageLive(_) | Statement::StorageDead(_) => {}
@@ -282,6 +323,7 @@ impl FunctionEmitter<'_> {
                     place: Place::Local(candidate),
                     ..
                 } => *candidate == local,
+                Statement::DictEntryUpdate { current, .. } => *current == local,
                 Statement::AssignPlace { .. }
                 | Statement::StorageLive(_)
                 | Statement::StorageDead(_) => false,
@@ -422,6 +464,27 @@ impl FunctionEmitter<'_> {
                     }
                     if matches!(place, Place::Local(candidate) if *candidate == local) {
                         assigned = true;
+                    }
+                }
+                Statement::DictEntryUpdate {
+                    base,
+                    index,
+                    default,
+                    current,
+                    value,
+                } => {
+                    if (*base == local
+                        || operand_uses_local(index, local)
+                        || operand_uses_local(default, local))
+                        && !assigned
+                    {
+                        return Ok(true);
+                    }
+                    if *current == local {
+                        assigned = true;
+                    }
+                    if rvalue_uses_local(value, local) && !assigned {
+                        return Ok(true);
                     }
                 }
                 Statement::StorageLive(_) | Statement::StorageDead(_) => {}

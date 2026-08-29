@@ -56,9 +56,9 @@ pub(crate) fn rvalues(mir: &Mir) -> impl Iterator<Item = &Rvalue> {
                 .statements
                 .iter()
                 .filter_map(|statement| match statement {
-                    Statement::Assign { value, .. } | Statement::AssignPlace { value, .. } => {
-                        Some(value)
-                    }
+                    Statement::Assign { value, .. }
+                    | Statement::AssignPlace { value, .. }
+                    | Statement::DictEntryUpdate { value, .. } => Some(value),
                     Statement::StorageLive(_) | Statement::StorageDead(_) => None,
                 })
         })
@@ -69,9 +69,9 @@ pub(crate) fn rvalues(mir: &Mir) -> impl Iterator<Item = &Rvalue> {
                 .statements
                 .iter()
                 .filter_map(|statement| match statement {
-                    Statement::Assign { value, .. } | Statement::AssignPlace { value, .. } => {
-                        Some(value)
-                    }
+                    Statement::Assign { value, .. }
+                    | Statement::AssignPlace { value, .. }
+                    | Statement::DictEntryUpdate { value, .. } => Some(value),
                     Statement::StorageLive(_) | Statement::StorageDead(_) => None,
                 })
         })

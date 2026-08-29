@@ -111,6 +111,12 @@ fn accumulate_block_definitions(block: &crate::BasicBlock, definitions: &mut Has
                 }
                 Place::Field { .. } | Place::Index { .. } => {}
             },
+            // The fused entry update defines `current`; its container target is
+            // written through a place and so defines nothing new, exactly like
+            // an `AssignPlace` to `base[index]`.
+            Statement::DictEntryUpdate { current, .. } => {
+                definitions.insert(*current);
+            }
             Statement::StorageLive(_) | Statement::StorageDead(_) => {}
         }
     }
@@ -218,6 +224,22 @@ fn report_statement_reads(
                     validate_place(mir, function, definitions, place, errors);
                 }
             }
+        }
+        // Reads happen in evaluation order: the container, the key and the seed
+        // are all read BEFORE `current` is bound, and only then is the stored
+        // rvalue evaluated — which is where `current` becomes readable.
+        Statement::DictEntryUpdate {
+            base,
+            index,
+            default,
+            current,
+            value,
+        } => {
+            validate_place(mir, function, definitions, &Place::Local(*base), errors);
+            validate_operand(mir, function, definitions, index, errors);
+            validate_operand(mir, function, definitions, default, errors);
+            definitions.insert(*current);
+            validate_rvalue(mir, function, definitions, value, errors);
         }
         Statement::StorageLive(_) | Statement::StorageDead(_) => {}
     }
