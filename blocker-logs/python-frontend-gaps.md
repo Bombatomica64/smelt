@@ -133,11 +133,10 @@ root.
 
 **Constructor follow-up status.**
 
-* `super().<method>()` on an ordinary method. Under flattening an override
-  *replaces* the inherited slot in the derived impl, so the base body is not
-  present to call, and dispatching back through `self` would recurse forever.
-  This is now refused with a specific message rather than mis-lowered. Making it
-  work needs the base body emitted under a distinct name in the derived impl.
+* `super().<method>()` on an ordinary method now lowers through a typed,
+  collision-free alias of the immediate base implementation emitted on the
+  flattened derived class. This bypasses an override without constructing an
+  erased base object or recursing back into the override.
 * A subclass with **no** `__init__` now inherits its base constructor signature.
   Smelt synthesizes a derived constructor that builds the concrete base and
   copies its flattened fields, matching explicit `super().__init__` lowering.

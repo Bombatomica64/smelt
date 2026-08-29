@@ -1602,7 +1602,6 @@ impl<'mir> FunctionEmitter<'mir> {
     }
 
     /// Emits a method or constructor definition.
-    /// Emits a method or constructor definition.
     pub(crate) fn emit_method(&mut self, out: &mut String) -> Result<(), EmitError> {
         match self.function.origin {
             HirOrigin::ClassConstructor { .. } => {

@@ -270,6 +270,11 @@ impl ModuleBuilder<'_> {
         // declared later in the class (`self.helper()`, `cls.helper()`).
         let method_slots =
             self.reserve_class_method_slots(class, class_name_str, class_sym, materialized.is_some())?;
+        if let Some(base_sym) = base {
+            let aliases = self.reserve_super_method_aliases(base_sym, class_name_str, class_sym)?;
+            hir_module.items.extend(aliases.iter().copied());
+            method_ids.extend(aliases);
+        }
         let mut enum_members = HashMap::new();
         let mut abstract_methods = Vec::new();
         let mut property_descriptors = Vec::new();
@@ -1275,6 +1280,86 @@ impl ModuleBuilder<'_> {
             slots.insert(func.range.start().to_u32(), item_id);
         }
         Ok(slots)
+    }
+
+    /// Clone the immediate base's effective methods under reserved super aliases.
+    ///
+    /// Rust has no inherent-method inheritance and Smelt stores base fields
+    /// directly on the derived struct. Re-emitting the base body as a derived
+    /// method is therefore the typed equivalent of Python's next-MRO dispatch:
+    /// `super().f(x)` becomes `self.__smelt_super_f(x)` without an erased base
+    /// object or dynamic method table.
+    fn reserve_super_method_aliases(
+        &mut self,
+        base_sym: Symbol,
+        class_name: &str,
+        class_sym: Symbol,
+    ) -> Result<Vec<ItemId>, SmeltError> {
+        let methods = self.effective_hir_class_methods(base_sym);
+        let mut aliases = Vec::with_capacity(methods.len());
+        for method_id in methods {
+            let Item::Function(base_method) = self.item_ref(method_id) else {
+                continue;
+            };
+            let mut alias = base_method.clone();
+            let Some(method_name) = self
+                .ctx
+                .krate
+                .symbols
+                .get(base_method.name)
+                .map(ToOwned::to_owned)
+            else {
+                continue;
+            };
+            if method_name.starts_with("__smelt$super$") {
+                continue;
+            }
+            // `$` is not legal in a Python identifier, giving this synthetic
+            // symbol a collision-free namespace. Rust sanitization renders it
+            // as the readable `__smelt_super_<method>` inherent method.
+            let alias_name = format!("__smelt$super${method_name}");
+            let alias_sym = self.intern_name(&alias_name);
+            alias.name = alias_sym;
+            alias.owner = FunctionOwner::ClassMethod {
+                class: class_sym,
+                method: alias_sym,
+            };
+            let alias_id = self.ctx.krate.push_item(Item::Function(alias));
+            self.class_methods
+                .entry(class_name.to_owned())
+                .or_default()
+                .insert(alias_name, alias_id);
+            aliases.push(alias_id);
+        }
+        Ok(aliases)
+    }
+
+    /// Return a class's effective instance methods under single inheritance.
+    fn effective_hir_class_methods(&self, class_sym: Symbol) -> Vec<ItemId> {
+        let Some(class) = self.ctx.krate.items.iter().find_map(|item| match item {
+            Item::Class(class) if class.name == class_sym => Some(class),
+            _ => None,
+        }) else {
+            return Vec::new();
+        };
+        let mut methods = class
+            .base
+            .map(|base| self.effective_hir_class_methods(base))
+            .unwrap_or_default();
+        for &method in &class.methods {
+            let method_name = match self.item_ref(method) {
+                Item::Function(function) => function.name,
+                _ => continue,
+            };
+            if let Some(existing) = methods.iter_mut().find(|candidate| {
+                matches!(self.item_ref(**candidate), Item::Function(function) if function.name == method_name)
+            }) {
+                *existing = method;
+            } else {
+                methods.push(method);
+            }
+        }
+        methods
     }
 
     /// Lower a method or constructor inside a class body.

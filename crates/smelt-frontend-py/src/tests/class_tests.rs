@@ -1114,14 +1114,9 @@ class A:
     Ok(())
 }
 
-/// `super().<method>()` on an ordinary method is refused explicitly.
-///
-/// Under flattening an override *replaces* the inherited slot in the derived
-/// impl, so the base body is not present to call; dispatching back through
-/// `self` would recurse forever. The limit is stated rather than silently
-/// mis-lowered.
+/// `super().<method>()` targets the reserved immediate-base alias.
 #[test]
-fn super_method_call_is_refused_with_a_specific_message() -> TestResult {
+fn super_method_call_lowers_to_a_base_alias() -> TestResult {
     let source = py!(r#"
 class A:
     def greet(self) -> int:
@@ -1132,12 +1127,16 @@ class B(A):
         return super().greet() + 1
 "#);
     let mut ctx = HirCtx::new();
-    let errors = lower_errors(source, &mut ctx)?;
+    lower_module(source, &mut ctx)?;
     ensure(
-        first_error(&errors)?
-            .message
-            .contains("only super().__init__() is lowered"),
-        "expected the specific super()-method diagnostic",
+        ctx.krate.bodies.iter().any(|candidate| candidate.exprs.iter().any(|expr| {
+            matches!(
+                expr.kind,
+                ExprKind::Method { method, .. }
+                    if symbol(&ctx, method).ok() == Some("__smelt$super$greet")
+            )
+        })),
+        "expected super().greet() to target the base alias",
     )?;
     Ok(())
 }
