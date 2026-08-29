@@ -819,11 +819,14 @@ export function proto(value: unknown): unknown {
     );
 
     // Host-marker objects (Date/Map/Set/RegExp/Error/...) expose a cached
-    // per-kind prototype whose `constructor` slot is a real callable, so
-    // es-toolkit `clone`'s `new Constructor(obj)` rebuilds the value.
+    // per-class prototype whose `constructor` slot is a real callable, so
+    // es-toolkit `clone`'s `new Constructor(obj)` rebuilds the value. The
+    // discriminator answers the CLASS name (it was the kind before error
+    // subclasses needed their own constructors), so the prototype's
+    // `constructor` slot can be the interned global of that same name.
     assert!(source.contains("fn smelt_reflected_prototype("), "{source}");
     assert!(source.contains("fn smelt_reflected_construct("), "{source}");
-    assert!(source.contains("fn smelt_reflected_marker_kind("), "{source}");
+    assert!(source.contains("fn smelt_reflected_marker_class("), "{source}");
 }
 
 #[test]

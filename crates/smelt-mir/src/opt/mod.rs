@@ -491,6 +491,7 @@ fn rewrite_rvalue(
             rewrite_operand_except(left, aliases, dest)
                 | rewrite_operand_except(right, aliases, dest)
         }
+        Rvalue::ConcatSpread { value } => rewrite_operand_except(value, aliases, dest),
         Rvalue::ListSearch {
             list,
             item,

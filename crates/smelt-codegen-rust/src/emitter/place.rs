@@ -49,8 +49,13 @@ impl FunctionEmitter<'_> {
                     if self.mir.types.get(*key) == Some(&Type::String)
                         && self.type_text_with_impl_trait(*value, false)? == "SmeltUnknown"
                     {
+                        // A property the record does not hold reads as
+                        // `undefined` in JavaScript, never `null`. The two are
+                        // distinguishable under `===`, so answering `Null` here
+                        // silently defeats every `value === undefined` guard the
+                        // source writes over a dynamic record.
                         return Ok(format!(
-                            "{base_text}.get(&{key_text}).unwrap_or(SmeltUnknown::Null)"
+                            "{base_text}.get(&{key_text}).unwrap_or(SmeltUnknown::Undefined)"
                         ));
                     }
                     if self.dict_uses_smelt_record(*key) || self.dict_uses_js_key_map(*key) {
@@ -416,7 +421,7 @@ impl FunctionEmitter<'_> {
                             && value_is_unknownish
                         {
                             Ok(format!(
-                                "{base_text}.get(&{key_text}).cloned().unwrap_or(SmeltUnknown::Null)"
+                                "{base_text}.get(&{key_text}).cloned().unwrap_or(SmeltUnknown::Undefined)"
                             ))
                         } else if self.dict_uses_smelt_record(*key_ty)
                             || self.dict_uses_js_key_map(*key_ty)
@@ -426,7 +431,7 @@ impl FunctionEmitter<'_> {
                             ))
                         } else if value_is_unknownish {
                             Ok(format!(
-                                "{base_text}.get(&{key_text}).cloned().unwrap_or(SmeltUnknown::Null)"
+                                "{base_text}.get(&{key_text}).cloned().unwrap_or(SmeltUnknown::Undefined)"
                             ))
                         } else {
                             Ok(format!(
@@ -1030,8 +1035,8 @@ impl FunctionEmitter<'_> {
                             smelt_key.parse::<usize>().ok().and_then(|index| values.get(index).cloned()).unwrap_or(SmeltUnknown::Undefined)
                         }}
                     }}
-                    SmeltUnknown::Object(values) => {byte_buffer_element}(&values, &{key_text}).unwrap_or_else(|| values.get(&{key_text}).unwrap_or(SmeltUnknown::Null)),
-                    _ => SmeltUnknown::Null,
+                    SmeltUnknown::Object(values) => {byte_buffer_element}(&values, &{key_text}).unwrap_or_else(|| values.get(&{key_text}).unwrap_or(SmeltUnknown::Undefined)),
+                    _ => SmeltUnknown::Undefined,
                 }}"#,
                 byte_buffer_element = smelt_stdlib::runtime_symbols::byte_buffer::ELEMENT,
             ));
@@ -1070,8 +1075,8 @@ impl FunctionEmitter<'_> {
                         let normalized = if index < 0 {{ len + index }} else {{ index }};
                         usize::try_from(normalized).ok().and_then(|index| values.get(index).cloned()).unwrap_or(SmeltUnknown::Undefined)
                     }}
-                SmeltUnknown::Object(values) => {byte_buffer_element}(&values, &{key_text}).unwrap_or_else(|| values.get(&{key_text}).unwrap_or(SmeltUnknown::Null)),
-                _ => SmeltUnknown::Null,
+                SmeltUnknown::Object(values) => {byte_buffer_element}(&values, &{key_text}).unwrap_or_else(|| values.get(&{key_text}).unwrap_or(SmeltUnknown::Undefined)),
+                _ => SmeltUnknown::Undefined,
             }}",
             byte_buffer_element = smelt_stdlib::runtime_symbols::byte_buffer::ELEMENT,
         ))

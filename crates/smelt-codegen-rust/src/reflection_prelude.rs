@@ -152,20 +152,32 @@ pub fn emit(writer: &mut CodeWriter) {
     emit_builtin_namespace(writer);
 }
 
-/// Emit the marker→kind discriminator for prototype reflection.
+/// Emit the marker→constructor-class discriminator for prototype reflection.
+///
+/// The answer is the name of the class whose prototype the record reflects, so
+/// the prototype's `constructor` slot can be the interned global of that very
+/// name. A marker whose stored VALUE is itself a modeled constructor name is how
+/// Smelt records a *subclass* identity (`__smelt_error: "AggregateError"`), and
+/// that name wins over the marker table's base class — otherwise every error
+/// subclass would reflect the base `Error` constructor and a reflected rebuild
+/// would lose the subclass's own construction shape.
 fn emit_marker_kind(writer: &mut CodeWriter) {
     let table = pair_array(
         &reflected_markers()
             .iter()
-            .map(|(marker, kind, _class)| (*marker, *kind))
+            .map(|(marker, _kind, class)| (*marker, *class))
             .collect::<Vec<_>>(),
     );
-    writer.line("/// Discriminate the host-marker kind whose prototype exposes a reflected");
-    writer.line("/// constructor. `None` for plain objects, arrays and class instances, which");
-    writer.line("/// keep their opaque `\"__smelt_proto:*\"` string sentinels.");
+    writer.line("/// Discriminate the class whose prototype a host-marker record reflects.");
+    writer.line("/// `None` for plain objects, arrays and class instances, which keep their");
+    writer.line("/// opaque `\"__smelt_proto:*\"` string sentinels.");
+    writer.line("fn smelt_reflected_marker_class(map: &SmeltObject) -> Option<String> {");
     writer.line(format!(
-        "fn smelt_reflected_marker_kind(map: &SmeltObject) -> Option<&'static str> {{ {table}.into_iter().find(|(marker, _)| map.contains_key(marker)).map(|(_, kind)| kind) }}"
+        "    let (marker, class) = {table}.into_iter().find(|(marker, _)| map.contains_key(marker))?;"
     ));
+    writer.line("    if let Some(SmeltUnknown::String(name)) = map.get(marker) { if smelt_builtin_construct_kind(&name).is_some() { return Some(name.to_string()); } }");
+    writer.line("    Some(class.to_owned())");
+    writer.line("}");
 }
 
 /// Emit the marker→constructor-class lookup behind `x.constructor`.
@@ -219,7 +231,14 @@ fn emit_construct(writer: &mut CodeWriter) {
     ));
     writer.line("    match kind {");
     // Error: `new Constructor(message, { cause })`.
-    writer.line("        \"error\" => { let mut fields = Vec::from([(\"__smelt_error\".to_owned(), SmeltUnknown::String(\"Error\".into()))]); let mut it = args.into_iter(); if let Some(message) = it.next() { fields.push((\"message\".to_owned(), message)); } if let Some(SmeltUnknown::Object(options)) = it.next() { if let Some(cause) = options.get(\"cause\") { fields.push((\"cause\".to_owned(), cause)); } } SmeltUnknown::Object(SmeltObject::new(fields)) }");
+    let error_kinds = smelt_stdlib::ERROR_CLASS_NAMES
+        .iter()
+        .map(|class| format!("{class:?}"))
+        .collect::<Vec<_>>()
+        .join(" | ");
+    writer.line(format!(
+        "        {error_kinds} => {{ let mut fields = Vec::from([(\"__smelt_error\".to_owned(), SmeltUnknown::String(kind.into()))]); let mut it = args.into_iter(); let errors = if kind == \"AggregateError\" {{ it.next() }} else {{ None }}; if let Some(message) = it.next() {{ fields.push((\"message\".to_owned(), message)); }} fields.push((\"stack\".to_owned(), SmeltUnknown::Undefined)); let cause = match it.next() {{ Some(SmeltUnknown::Object(options)) => options.get(\"cause\").unwrap_or(SmeltUnknown::Undefined), _ => SmeltUnknown::Undefined }}; fields.push((\"cause\".to_owned(), cause)); if let Some(errors) = errors {{ fields.push((\"errors\".to_owned(), errors)); }} SmeltUnknown::Object(SmeltObject::new(fields)) }}"
+    ));
     // Byte buffers: length | byte-backed source | element array.
     writer.line(format!(
         "        {plain_byte_kinds} => {{ let marker = {kind_marker_table}.into_iter().find(|(entry, _)| *entry == kind).map_or(\"__smelt_arraybuffer\", |(_, marker)| marker); {construct}(marker, args) }}",
@@ -236,26 +255,16 @@ fn emit_construct(writer: &mut CodeWriter) {
 
 }
 
-/// Emit the cached per-kind prototype object.
+/// Emit the cached per-class prototype object.
 fn emit_prototype(writer: &mut CodeWriter) {
-    let table = pair_array(
-        &reflected_markers()
-            .iter()
-            .map(|(_marker, kind, class)| (*kind, *class))
-            .collect::<Vec<_>>(),
-    );
-    writer.line("/// The class name behind a reflected-prototype kind.");
-    writer.line(format!(
-        "fn smelt_reflected_kind_class(kind: &str) -> &'static str {{ {table}.into_iter().find(|(entry, _)| *entry == kind).map_or(\"Object\", |(_, class)| class) }}"
-    ));
-    writer.line("/// One cached prototype object per marker kind, so");
+    writer.line("/// One cached prototype object per reflected class, so");
     writer.line("/// `Object.getPrototypeOf(a) === Object.getPrototypeOf(b)` holds for two values");
-    writer.line("/// of the same kind (`SmeltObject` `===` compares the stable `id`). Its");
+    writer.line("/// of the same class (`SmeltObject` `===` compares the stable `id`). Its");
     writer.line("/// `constructor` slot is the interned constructor value, so it is both callable");
     writer.line("/// and `===` the bare global reference.");
-    writer.line("thread_local! { static SMELT_MARKER_PROTOS: ::std::cell::RefCell<::std::collections::HashMap<&'static str, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }");
+    writer.line("thread_local! { static SMELT_MARKER_PROTOS: ::std::cell::RefCell<::std::collections::HashMap<String, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }");
     writer.line(format!(
-        "fn smelt_reflected_prototype(kind: &'static str) -> SmeltUnknown {{ SMELT_MARKER_PROTOS.with(|cache| cache.borrow_mut().entry(kind).or_insert_with(|| {{ let ctor = {namespace}(smelt_reflected_kind_class(kind)); SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"constructor\".to_owned(), ctor)]))) }}).clone()) }}",
+        "fn smelt_reflected_prototype(class: String) -> SmeltUnknown {{ SMELT_MARKER_PROTOS.with(|cache| cache.borrow_mut().entry(class.clone()).or_insert_with(|| {{ let ctor = {namespace}(&class); SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"constructor\".to_owned(), ctor)]))) }}).clone()) }}",
         namespace = host::BUILTIN_NAMESPACE,
     ));
 }
@@ -273,8 +282,17 @@ fn emit_builtin_namespace(writer: &mut CodeWriter) {
                 .iter()
                 .filter(|(_marker, _kind, class)| {
                     smelt_stdlib::host_object_by_class(class).is_none()
+                        && !smelt_stdlib::is_error_class_name(class)
                 })
                 .map(|(_marker, kind, class)| format!("({class:?}, {kind:?})")),
+        )
+        // Every modeled `Error` constructor is its own kind, so a record that
+        // carries a subclass marker (`__smelt_error: "AggregateError"`) rebuilds
+        // through THAT constructor's signature rather than the base `Error` one.
+        .chain(
+            smelt_stdlib::ERROR_CLASS_NAMES
+                .iter()
+                .map(|class| format!("({class:?}, {class:?})")),
         )
         .collect::<Vec<_>>()
         .join(", ");

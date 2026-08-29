@@ -798,10 +798,26 @@ impl ModuleBuilder<'_> {
                 },
             ),
             (self.intern_exact_source_name("message"), message),
+            // Every modeled `Error` carries the whole `ERROR_MARKER_FIELDS`
+            // layout, with `undefined` for a slot that has no value; see
+            // `ModuleBuilder::push_error_layout_entry` for why it must always be
+            // present. Keeping it here is what makes a callback-thrown error
+            // indistinguishable from a statement-thrown one.
+            (
+                self.intern_exact_source_name("stack"),
+                CallbackExpr {
+                    kind: CallbackExprKind::Literal(Literal::Undefined),
+                    ty: unknown_ty,
+                },
+            ),
+            (
+                self.intern_exact_source_name("cause"),
+                cause.unwrap_or(CallbackExpr {
+                    kind: CallbackExprKind::Literal(Literal::Undefined),
+                    ty: unknown_ty,
+                }),
+            ),
         ];
-        if let Some(cause) = cause {
-            entries.push((self.intern_exact_source_name("cause"), cause));
-        }
         if let Some(errors) = errors {
             entries.push((self.intern_exact_source_name("errors"), errors));
         }

@@ -1122,6 +1122,14 @@ pub enum Rvalue {
         /// Right list value.
         right: Operand,
     },
+    /// Normalize one erased `Array.prototype.concat` argument into the list of
+    /// items it contributes, applying JavaScript's `IsConcatSpreadable` rule at
+    /// runtime: an array splices its elements in, any other value appends as a
+    /// single element.
+    ConcatSpread {
+        /// The erased argument value.
+        value: Operand,
+    },
     /// Find an item index in a list, returning -1 when absent.
     ListSearch {
         /// Search direction.

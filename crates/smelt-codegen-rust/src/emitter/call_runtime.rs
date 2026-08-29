@@ -1175,6 +1175,15 @@ impl FunctionEmitter<'_> {
                 let source_ty = self.concat_result_list_ty(left, right)?;
                 self.value_at_type_text(&text, source_ty, dest_ty)
             }
+            // One erased `concat` argument, normalized by JavaScript's
+            // `IsConcatSpreadable` rule. The argument's static type does not say
+            // whether it is an array, so the array-vs-scalar choice happens at
+            // runtime in the prelude helper rather than being guessed here.
+            Rvalue::ConcatSpread { value } => {
+                let value_ty = self.operand_ty(value)?;
+                let value_text = self.erase_value_text(&self.operand_text(value)?, value_ty)?;
+                Ok(format!("smelt_concat_spread({value_text})"))
+            }
             Rvalue::ListSearch {
                 op,
                 list,

@@ -2394,8 +2394,20 @@ impl FunctionEmitter<'_> {
             Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "PropertyKey" => {
                 Ok(text.to_owned())
             }
+            // The prelude `SmeltFromUnknown` impl is the single inverse of the
+            // `SmeltRegExp` erasure adapter, so `source`, `flags` AND the
+            // writable `lastIndex` all survive a round trip through erased
+            // dataflow (`clone(re)`, `structuredClone`, an `unknown` bag).
             Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)? => Ok(format!(
-                "match {smelt_owned_text} {{ SmeltUnknown::Object(value) => SmeltRegExp::new(match value.get(\"source\") {{ Some(SmeltUnknown::String(source)) => source.to_string(), _ => String::new() }}, match value.get(\"flags\") {{ Some(SmeltUnknown::String(flags)) => flags.to_string(), _ => String::new() }}), _ => SmeltRegExp::default() }}"
+                "<SmeltRegExp as SmeltFromUnknown>::smelt_from_unknown({smelt_owned_text})"
+            )),
+            // Both synthetic match-result classes are backed by the concrete
+            // `SmeltMatch` Rust type, whose prelude `SmeltFromUnknown` impl is
+            // the inverse of its erasure adapter. Without this arm the generic
+            // class fallback below answers `Default::default()`, silently
+            // turning a round-tripped match into an EMPTY match.
+            Some(Type::Class { name, .. }) if self.is_match_class_symbol(*name)? => Ok(format!(
+                "<SmeltMatch as SmeltFromUnknown>::smelt_from_unknown(({text}).into_smelt_unknown())"
             )),
             Some(Type::Class { .. })
                 if self.type_text_with_impl_trait(target, false)? == "SmeltUnknown" =>

@@ -1030,6 +1030,16 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
+            ExprKind::ConcatSpread { value } => {
+                let value_operand = self.lower_expr(*value)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ConcatSpread {
+                        value: value_operand,
+                    },
+                )?
+            }
             ExprKind::ListSearch {
                 op,
                 list,

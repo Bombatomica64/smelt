@@ -38,7 +38,7 @@ Counts are failing tests at the 150 baseline.
 | ~34 | promise / timer | `allKeyed`, `attempt`, `attemptAsync`, `delay` abort, `withTimeout`, `retry` delays, `limitAsync`, `semaphore`, `reduceAsync`, `debounce`, `throttle`, plus 4 concurrency tests (`filterAsync`/`flatMapAsync`/`forEachAsync`/`mapAsync` all assert `maxRunning === 10`, i.e. real concurrent scheduling, not sequential awaits). | queued |
 | ~15 | host predicates | `isBrowser`, `isNode`, `isBuffer`, `isSymbol`, `isFunction`, `isFile`, `isError` on a subclass, `isPlainObject`, `isJSONValue`, `isJSON` (panics on invalid JSON instead of returning false), `isLength`, `isNull`/`isUndefined` type-predicate filters. Several are environment-presence questions rather than lowering defects. | queued |
 | 6 | `isEqualWith` | THREE roots, not one -- see the correction below. 2 rows were the erasure boundary copying an array's buffer (circular refs); 3 are `globalThis[name]`/`Buffer` folding to `Undefined` (the host-globals family); 1 is a named property store onto an erased array replacing the array with an object. The `primitives` row was fixed earlier by the mixed-nullish array-literal fix. | **2 of 6 fixed** (shared-buffer erasure); 4 reassigned to other families |
-| ~10 | `clone` / `cloneDeep` | Map, RegExp, Error, class instances, `String` objects. Overlaps the dynamic-prototype work already noted in the compat manifest. | queued, root identified |
+| 8 | `clone` / `cloneDeep` | **This row and the two `clone`/`cloneDeep` sections below are superseded — see `blocker-logs/estk-clone-cluster.md`.** Measured, the cluster is EIGHT independent roots, not one; the dynamic-prototype path already works and gated none of them; three of the eight are not cloning defects at all. | **3 of 8 fixed**; the other five are named with their real roots in that log |
 
 ### `flow` / `flowRight` / `partial` / `partialRight`: a property assigned onto a function is dropped
 
@@ -81,7 +81,15 @@ matching read, so the stored field is found instead of answering `null`.
 Worth doing before the `toBe` work below: it is a single root behind six
 failures in four modules, and probably more once `curry` itself behaves.
 
-### CORRECTION: `clone` / `cloneDeep` is THREE roots, not one
+### SUPERSEDED: `clone` / `cloneDeep` is THREE roots, not one
+
+> **Superseded by `blocker-logs/estk-clone-cluster.md`.** The three-root split below
+> was measured before the `toBe`-identity work landed and is now wrong in its own
+> turn: group A is fixed for `Map` (only the `String` object row remains, and its root
+> is that `new String(x)` lowers to a primitive, not the `toBe` emitter), group B is
+> four unrelated roots rather than "cloning fidelity", and group C is
+> `Object.defineProperties` being unmodeled. Kept for the history.
+
 
 The entry below claimed the root is `toBe` rather than `clone`. That is at
 best a third of the story, and I only found out by running the tests and

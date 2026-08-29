@@ -163,6 +163,7 @@ impl LoweringCtx<'_> {
             | ExprKind::SetBinary { .. }
             | ExprKind::SetProjection { .. }
             | ExprKind::ListConcat { .. }
+            | ExprKind::ConcatSpread { .. }
             | ExprKind::ListSearch { .. }
             | ExprKind::ListCallback { .. }
             | ExprKind::ListFromLength { .. }

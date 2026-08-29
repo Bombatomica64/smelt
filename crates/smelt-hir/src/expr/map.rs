@@ -388,6 +388,7 @@ impl ExprKind {
                 left: f(left)?,
                 right: f(right)?,
             },
+            Self::ConcatSpread { value } => Self::ConcatSpread { value: f(value)? },
             Self::ListSearch {
                 op,
                 list,

@@ -528,8 +528,11 @@ impl FunctionEmitter<'_> {
             Some(Type::String) => Ok(format!("SmeltRegExp::new({text}, String::new())")),
             Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
                 let scrutinee = self.erase_concrete_union_text(&text, self.operand_ty(operand)?);
+                // The prelude `SmeltFromUnknown` impl is the single inverse of
+                // the `SmeltRegExp` erasure adapter, so `source`, `flags` AND
+                // the writable `lastIndex` all survive the round trip.
                 Ok(format!(
-                    "match {scrutinee} {{ SmeltUnknown::String(value) => SmeltRegExp::new(value.to_string(), String::new()), SmeltUnknown::Object(value) => SmeltRegExp::new(match value.get(\"source\") {{ Some(SmeltUnknown::String(source)) => source.to_string(), _ => String::new() }}, match value.get(\"flags\") {{ Some(SmeltUnknown::String(flags)) => flags.to_string(), _ => String::new() }}), _ => SmeltRegExp::new(String::new(), String::new()) }}"
+                    "<SmeltRegExp as SmeltFromUnknown>::smelt_from_unknown({scrutinee})"
                 ))
             }
             _ => Ok(format!(
