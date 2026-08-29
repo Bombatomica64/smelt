@@ -184,6 +184,20 @@ fn local_read_counts(function: &MirFunction) -> HashMap<LocalId, usize> {
                     }
                     value.for_each_operand(|operand| count_operand(&mut counts, operand));
                 }
+                // Same read tally as the `Index` place above, plus the seed.
+                Statement::DictEntryUpdate {
+                    base,
+                    index,
+                    default,
+                    current: _,
+                    value,
+                } => {
+                    let count = counts.entry(*base).or_default();
+                    *count = count.saturating_add(1);
+                    count_operand(&mut counts, index);
+                    count_operand(&mut counts, default);
+                    value.for_each_operand(|operand| count_operand(&mut counts, operand));
+                }
                 Statement::StorageLive(_) | Statement::StorageDead(_) => {}
             }
         }
@@ -302,6 +316,11 @@ pub(super) fn folded_throw_payload_locals(mir: &Mir, function: &MirFunction) -> 
                     place: Place::Local(local),
                     ..
                 } => *assign_counts.entry(*local).or_default() += 1,
+                // The entry update defines the local it binds the entry to.
+                Statement::DictEntryUpdate { current, .. } => {
+                    let count = assign_counts.entry(*current).or_default();
+                    *count = count.saturating_add(1);
+                }
                 _ => {}
             }
         }

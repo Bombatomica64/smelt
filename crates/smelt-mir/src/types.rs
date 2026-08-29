@@ -1793,6 +1793,42 @@ pub enum Statement {
         /// The assigned value.
         value: Rvalue,
     },
+    /// Read-modify-write of one dictionary entry through a single container probe.
+    ///
+    /// Produced only by [`crate::opt::DictEntryUpdate`], which fuses the
+    /// read/compute/write-back triple a source `d[k] = f(d[k] ?? seed)` lowers
+    /// to. The statement means, in order:
+    ///
+    /// 1. locate the entry `base[index]`, inserting `default` when `index` is
+    ///    absent;
+    /// 2. bind the entry's value (existing or freshly seeded) to `current`;
+    /// 3. evaluate `value` and store it back into the same entry.
+    ///
+    /// `index` and `default` are evaluated BEFORE the entry is borrowed;
+    /// `value` is evaluated while it is held, so the pass that forms this
+    /// statement proves `value` cannot reach the container (see that module's
+    /// correctness conditions).
+    DictEntryUpdate {
+        /// Local holding the dictionary. A local rather than a [`Place`]
+        /// because the backend's entry accessors (`SmeltJsMap`/`SmeltRecord`
+        /// `entry_or_insert`, `HashMap::entry`) are only reachable through a
+        /// directly named container, exactly as in [`Rvalue::ListPush`].
+        base: LocalId,
+        /// Key selecting the entry, evaluated once instead of twice.
+        index: Operand,
+        /// Value seeded into an absent entry before it is read. An operand, not
+        /// an [`Rvalue`], because the backend passes it to the entry accessor
+        /// as a closure that may run under the container's own borrow.
+        default: Operand,
+        /// Local bound to the entry's value for the duration of `value`. A
+        /// declared MIR local rather than a fresh binding so it keeps its type
+        /// and so the shared local read/write accounting still sees the write.
+        current: LocalId,
+        /// New value stored back into the entry. An [`Rvalue`], not an
+        /// [`Operand`], because the modify step is the whole point: it runs
+        /// inside the single probe and may read `current`.
+        value: Rvalue,
+    },
     /// Mark a local as live.
     StorageLive(LocalId),
     /// Mark a local as dead.

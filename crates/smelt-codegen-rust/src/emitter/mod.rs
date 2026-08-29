@@ -105,6 +105,7 @@ mod coercion;
 mod control_flow;
 mod control_flow_match;
 mod core;
+mod dict_entry_update;
 mod host_interop;
 mod list;
 mod list_mutation;

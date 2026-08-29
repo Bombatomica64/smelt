@@ -12351,3 +12351,41 @@ export function groupBy<T, K extends PropertyKey>(
         "exactly one entry probe remains: {body}"
     );
 }
+
+#[test]
+fn count_by_accumulator_becomes_a_single_entry_probe() {
+    // `smelt_mir::opt::DictEntryUpdate` fuses the
+    // `result[key] = (result[key] ?? 0) + 1` read/compute/write-back triple, so
+    // the emitted loop hashes the key ONCE (one entry accessor) instead of
+    // twice (a `get` plus an `insert`).
+    let source = source_for(
+        r"
+export function countBy<T, K extends PropertyKey>(
+  arr: readonly T[],
+  mapper: (item: T) => K
+): Record<K, number> {
+  const result = {} as Record<K, number>;
+  for (let i = 0; i < arr.length; i++) {
+    const key = mapper(arr[i]);
+    result[key] = (result[key] ?? 0) + 1;
+  }
+  return result;
+}
+",
+    );
+    let body = emitted_function_body(&source, "fn count_by<");
+
+    assert_eq!(
+        body.matches("entry_or_insert").count(),
+        1,
+        "exactly one entry probe remains: {body}"
+    );
+    assert!(
+        !body.contains(".insert("),
+        "the write-back probe is gone: {body}"
+    );
+    assert!(
+        !body.contains(".get(&"),
+        "the read probe is gone: {body}"
+    );
+}

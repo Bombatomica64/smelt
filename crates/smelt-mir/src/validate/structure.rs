@@ -97,6 +97,25 @@ fn validate_statement(
             validate_place_exists(function, place, errors);
             validate_rvalue_exists(mir, function, value, errors);
         }
+        Statement::DictEntryUpdate {
+            base,
+            index,
+            default,
+            current,
+            value,
+        } => {
+            validate_place_exists(
+                function,
+                &crate::Place::Index {
+                    base: *base,
+                    index: Box::new(index.clone()),
+                },
+                errors,
+            );
+            validate_operand_exists(function, default, errors);
+            validate_local_exists(function, *current, errors);
+            validate_rvalue_exists(mir, function, value, errors);
+        }
         Statement::StorageLive(local) | Statement::StorageDead(local) => {
             validate_local_exists(function, *local, errors);
         }

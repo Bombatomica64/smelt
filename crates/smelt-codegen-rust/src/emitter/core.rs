@@ -706,6 +706,21 @@ impl<'mir> FunctionEmitter<'mir> {
                 Statement::AssignPlace { place, value } => {
                     assignment_place_reads_local(place, local) || rvalue_uses_local(value, local)
                 }
+                // The container, the key, the seed and the stored rvalue's
+                // operands are all reads; `current` is the definition, so it is
+                // not counted here (matching the `Assign` arm above).
+                Statement::DictEntryUpdate {
+                    base,
+                    index,
+                    default,
+                    current: _,
+                    value,
+                } => {
+                    *base == local
+                        || operand_uses_local(index, local)
+                        || operand_uses_local(default, local)
+                        || rvalue_uses_local(value, local)
+                }
                 Statement::StorageLive(_) | Statement::StorageDead(_) => false,
             }) || block
                 .terminator

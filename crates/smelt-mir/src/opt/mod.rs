@@ -10,11 +10,13 @@ use smelt_hir::Type;
 
 mod dict_default_insert_elision;
 mod dict_entry_mutation;
+mod dict_entry_update;
 mod local_use;
 mod move_on_last_use;
 
 pub use dict_default_insert_elision::DictDefaultInsertElision;
 pub use dict_entry_mutation::DictEntryInPlaceMutation;
+pub use dict_entry_update::DictEntryUpdate;
 pub use move_on_last_use::MoveOnLastUse;
 
 /// A MIR optimization pass that transforms the MIR.
@@ -50,6 +52,7 @@ pub fn default_passes() -> Vec<Box<dyn Pass>> {
         Box::<CopyPropagation>::default(),
         Box::<MoveOnLastUse>::default(),
         Box::<DictEntryInPlaceMutation>::default(),
+        Box::<DictEntryUpdate>::default(),
         Box::<DictDefaultInsertElision>::default(),
     ]
 }
@@ -113,6 +116,25 @@ fn propagate_function(function: &mut MirFunction, types: &smelt_hir::TypeInterne
                     changed |= rewrite_place(place, &aliases);
                     changed |= rewrite_rvalue(value, &aliases, None);
                 }
+                // Rewritten exactly like the `AssignPlace { place: base[index] }`
+                // it replaces: the container local, the key and the seed are all
+                // reads, and so is every operand of the stored rvalue. `current`
+                // is the statement's own definition, so it is excluded from the
+                // rvalue rewrite the same way an `Assign`'s `dest` is.
+                Statement::DictEntryUpdate {
+                    base,
+                    index,
+                    default,
+                    current,
+                    value,
+                } => {
+                    let resolved = resolve_alias(&aliases, *base);
+                    changed |= resolved != *base;
+                    *base = resolved;
+                    changed |= rewrite_operand(index, &aliases);
+                    changed |= rewrite_operand(default, &aliases);
+                    changed |= rewrite_rvalue(value, &aliases, Some(*current));
+                }
                 Statement::StorageLive(_) | Statement::StorageDead(_) => {}
             }
         }
@@ -139,6 +161,11 @@ fn assigned_local_counts(function: &MirFunction) -> HashMap<LocalId, usize> {
                     ..
                 } => {
                     let count = counts.entry(*local).or_insert(0usize);
+                    *count = count.saturating_add(1);
+                }
+                // Binding the entry's value to `current` is a definition.
+                Statement::DictEntryUpdate { current, .. } => {
+                    let count = counts.entry(*current).or_insert(0usize);
                     *count = count.saturating_add(1);
                 }
                 Statement::AssignPlace { .. }
@@ -188,15 +215,24 @@ fn mutated_locals(function: &MirFunction) -> HashSet<LocalId> {
     let mut locals = HashSet::new();
     for block in &function.blocks {
         for stmt in &block.statements {
-            if let Statement::AssignPlace { place, .. } = stmt {
-                match place {
+            match stmt {
+                Statement::AssignPlace { place, .. } => match place {
                     Place::Local(local) | Place::Field { base: local, .. } => {
                         locals.insert(*local);
                     }
                     Place::Index { base, .. } => {
                         locals.insert(*base);
                     }
+                },
+                // The fused entry update writes through its container, so the
+                // container is mutated and must never become a copy-propagation
+                // alias source.
+                Statement::DictEntryUpdate { base, .. } => {
+                    locals.insert(*base);
                 }
+                Statement::Assign { .. }
+                | Statement::StorageLive(_)
+                | Statement::StorageDead(_) => {}
             }
         }
     }

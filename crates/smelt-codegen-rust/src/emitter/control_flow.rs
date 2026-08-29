@@ -449,6 +449,13 @@ impl FunctionEmitter<'_> {
             Statement::AssignPlace { place, value } => {
                 self.emit_assign_place_statement(place, value, out)
             }
+            Statement::DictEntryUpdate {
+                base,
+                index,
+                default,
+                current,
+                value,
+            } => self.emit_dict_entry_update_statement(*base, index, default, *current, value, out),
             Statement::StorageLive(_) | Statement::StorageDead(_) => Ok(()),
         }
     }
