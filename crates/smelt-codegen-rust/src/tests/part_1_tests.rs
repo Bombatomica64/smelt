@@ -706,7 +706,7 @@ const total = sum(2, 3, 4);
     // trailing `.clone()`; see `index_place_read_is_owned`.
     assert!(source.contains("closure_arg_0.borrow().get("), "{source}");
     assert!(
-        source.contains(".cloned().unwrap_or(0.0)"),
+        source.contains(".cloned().unwrap_or_else(|| 0.0)"),
         "{source}"
     );
     assert!(

@@ -345,6 +345,7 @@ fn injects_url_dependency_for_url_mapping() {
         &EmitOptions::default().crate_name,
         &[GeneratedDep::Stdlib(BackendDependency::Url)],
         GeneratedAllocator::System,
+        ReleaseProfile::Optimized,
     );
 
     assert!(manifest.contains("url = \"2\""));
@@ -464,6 +465,7 @@ const context = tz("Pacific/Midway");
             GeneratedDep::Stdlib(BackendDependency::ChronoTz),
         ],
         GeneratedAllocator::System,
+        ReleaseProfile::Optimized,
     );
 
     assert!(source.contains("chrono_tz::Tz"), "{source}");
@@ -6833,7 +6835,7 @@ export function pick(keys: Array<string | number>, i: number): string | number {
 
     assert!(source.contains("pub enum SmeltUnion"), "{source}");
     assert!(
-        source.contains(".cloned().unwrap_or(SmeltUnion"),
+        source.contains(".cloned().unwrap_or_else(|| SmeltUnion"),
         "missing element default must be a concrete union value: {source}"
     );
     assert!(
@@ -11208,11 +11210,11 @@ export function copy(b: string[], n: number[], i: number): void {
     // redundant second copy of an already-owned index read, removed by
     // `index_place_read_is_owned`, and is asserted absent below.
     assert!(
-        source.contains(".cloned().unwrap_or(String::new());"),
+        source.contains(".cloned().unwrap_or_else(|| String::new())"),
         "a concrete `string` slot keeps the total read:\n{source}"
     );
     assert!(
-        source.contains(".cloned().unwrap_or(0.0);"),
+        source.contains(".cloned().unwrap_or_else(|| 0.0);"),
         "a concrete `number` slot keeps the total read:\n{source}"
     );
     assert!(

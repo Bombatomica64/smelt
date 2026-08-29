@@ -130,6 +130,8 @@ pub struct EmitOptions {
     pub crate_kind: CrateKind,
     /// The global allocator the generated program installs.
     pub allocator: GeneratedAllocator,
+    /// The `[profile.release]` the generated crate carries.
+    pub release_profile: ReleaseProfile,
 }
 
 impl Default for EmitOptions {
@@ -139,6 +141,7 @@ impl Default for EmitOptions {
             crate_name: "smelt_app".to_owned(),
             crate_kind: CrateKind::Program,
             allocator: GeneratedAllocator::default(),
+            release_profile: ReleaseProfile::default(),
         }
     }
 }
@@ -166,6 +169,13 @@ impl EmitOptions {
         self
     }
 
+    /// Sets the `[profile.release]` the generated crate carries.
+    #[must_use]
+    pub fn with_release_profile(mut self, release_profile: ReleaseProfile) -> Self {
+        self.release_profile = release_profile;
+        self
+    }
+
     /// The allocator actually emitted for this crate.
     ///
     /// A `#[global_allocator]` is a whole-program choice, so only a generated
@@ -178,6 +188,31 @@ impl EmitOptions {
             CrateKind::Library => GeneratedAllocator::System,
         }
     }
+}
+
+/// The `[profile.release]` a generated crate carries.
+///
+/// Cargo's stock release profile builds with 16 codegen units and no LTO, so a
+/// call that crosses a unit boundary is never inlined. That is the common case in
+/// generated code: the runtime prelude lives in the crate root and every module
+/// calls into it, so `SmeltUnknown::clone`, a list index read and a field lookup
+/// are all cross-unit calls in the hot loop. `callgrind` badly under-reports this
+/// — instruction counts for the es-toolkit bench crate moved less than 1% — but
+/// wall clock on `sumBy`, which is a loop and nothing else, moved **1.78x**, and
+/// the binary got 19% SMALLER. The cost is build time (+28% on that crate) and it
+/// falls only on `--release`.
+///
+/// A team shipping this library by hand would set it, so `Optimized` is the
+/// default; `Default` leaves Cargo's profile alone for a project that would rather
+/// have the build time back.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum ReleaseProfile {
+    /// Thin LTO and one codegen unit.
+    #[default]
+    Optimized,
+    /// Cargo's stock release profile.
+    Default,
 }
 
 /// The global allocator a generated program installs.
@@ -315,7 +350,12 @@ pub fn emit_crate(
     let allocator = options.effective_allocator();
     write_if_changed(
         output_dir.join("Cargo.toml"),
-        &deps::cargo_toml(&options.crate_name, &generated_deps(mir), allocator),
+        &deps::cargo_toml(
+            &options.crate_name,
+            &generated_deps(mir),
+            allocator,
+            options.release_profile,
+        ),
     )?;
     write_crate_root(
         &src_dir,
@@ -344,7 +384,12 @@ pub fn emit_crate_with_modules(
     let allocator = options.effective_allocator();
     write_if_changed(
         output_dir.join("Cargo.toml"),
-        &deps::cargo_toml(&options.crate_name, &generated_deps(mir), allocator),
+        &deps::cargo_toml(
+            &options.crate_name,
+            &generated_deps(mir),
+            allocator,
+            options.release_profile,
+        ),
     )?;
 
     let mapped = emit_mapped_sources(mir, krate, modules, allocator)?;
