@@ -1254,15 +1254,21 @@ fn emit_source_with_free_function_router(
         writer.line("    fn keys(&self) -> ::std::vec::IntoIter<K> { self.store.borrow().entries().iter().map(|entry| entry.0.clone()).collect::<Vec<_>>().into_iter() }");
         writer.line("    fn values(&self) -> ::std::vec::IntoIter<V> where V: Clone { self.store.borrow().entries().iter().map(|entry| entry.1.clone()).collect::<Vec<_>>().into_iter() }");
         writer.line("    fn extend<I: IntoIterator<Item = (K, V)>>(&self, iter: I) { for (key, value) in iter { self.insert(key, value); } }");
+        // The default is a CLOSURE, not a value. A JavaScript accumulator loop
+        // (`groupBy`, `countBy`, `uniqBy`) calls this once per element and the key
+        // is already present for all but the first, so a by-value default built an
+        // empty `SmeltList` — two heap allocations — for every element and threw it
+        // away. Building it only on the absent path costs nothing.
+        //
         // The `SmeltRecord` twin of `SmeltJsMap::entry_or_insert`: borrow the
         // stored value for in-place mutation instead of copying it out and back.
         // `insert` already maintains the JavaScript own-key order, so routing the
         // absent-key case through it keeps `keys()`/`iter()` ordering identical to
         // the copy-back form this replaces. Takes `&self` because a record is a
         // reference value with interior mutability, exactly like `insert`.
-        writer.line("    fn entry_or_insert(&self, key: K, default: V) -> ::std::cell::RefMut<'_, V> {");
+        writer.line("    fn entry_or_insert(&self, key: K, default: impl FnOnce() -> V) -> ::std::cell::RefMut<'_, V> {");
         writer.line("        let missing = !self.store.borrow().contains_key(&key);");
-        writer.line("        if missing { self.insert(key.clone(), default); }");
+        writer.line("        if missing { self.insert(key.clone(), default()); }");
         writer.line("        ::std::cell::RefMut::map(self.store.borrow_mut(), move |store| store.get_mut(&key).expect(\"record entry just inserted\"))");
         writer.line("    }");
         writer.line("}");
@@ -1414,9 +1420,9 @@ fn emit_source_with_free_function_router(
         // the same `position`/`remember` pair `insert` uses, so a fused mutation
         // is indistinguishable from the copy-out/copy-back form it replaces —
         // and, the store being shared, it is visible through every alias.
-        writer.line("    fn entry_or_insert(&mut self, key: K, default: V) -> ::std::cell::RefMut<'_, V> {");
+        writer.line("    fn entry_or_insert(&mut self, key: K, default: impl FnOnce() -> V) -> ::std::cell::RefMut<'_, V> {");
         writer.line("        let hash = key.js_key_hash();");
-        writer.line("        let slot = { let mut store = self.store.borrow_mut(); match store.position(&key, hash) { Some(slot) => slot, None => { let slot = store.entries.len(); store.entries.push((key, default)); store.index.remember(slot, hash); slot } } };");
+        writer.line("        let slot = { let mut store = self.store.borrow_mut(); match store.position(&key, hash) { Some(slot) => slot, None => { let slot = store.entries.len(); store.entries.push((key, default())); store.index.remember(slot, hash); slot } } };");
         writer.line("        ::std::cell::RefMut::map(self.store.borrow_mut(), move |store| &mut store.entries[slot].1)");
         writer.line("    }");
         writer.line("}");
