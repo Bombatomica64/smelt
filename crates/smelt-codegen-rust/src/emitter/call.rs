@@ -238,6 +238,33 @@ impl FunctionEmitter<'_> {
                     sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
                 ))
             }
+            smelt_hir::AsyncOp::Resolve => {
+                // `Promise.resolve(v)`: defer one microtask, then settle with the
+                // operand. The value is rendered at the future's own item type so
+                // the emitted `Ok(..)` agrees with the declared `SmeltFuture<T>`;
+                // with no operand (`Promise.resolve()`) the item type is unit.
+                let Some(duration) = args.first() else {
+                    return Err(EmitError::new(
+                        "async resolve requires a duration operand",
+                    ));
+                };
+                let duration_text = self.operand_text(duration)?;
+                let value_text = match args.get(1) {
+                    Some(value) => {
+                        let Some(Type::Future(item_ty)) = self.mir.types.get(dest_ty) else {
+                            return Err(EmitError::new(
+                                "async resolve must produce a future type",
+                            ));
+                        };
+                        self.value_at_type(value, *item_ty)?
+                    }
+                    None => "()".to_owned(),
+                };
+                Ok(format!(
+                    "SmeltFuture::from_future(Box::pin(async move {{ {sleep_ms}({duration_text} as f64).await; Ok::<_, Box<dyn std::error::Error>>({value_text}) }}))",
+                    sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
+                ))
+            }
             smelt_hir::AsyncOp::SetTimeout => {
                 let [callback, duration, extra @ ..] = args else {
                     return Err(EmitError::new(

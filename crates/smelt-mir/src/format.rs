@@ -1378,6 +1378,7 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 smelt_hir::AsyncOp::SpawnLocal => "async_spawn_local",
                 smelt_hir::AsyncOp::CreateTask => "async_create_task",
                 smelt_hir::AsyncOp::WaitFor => "async_wait_for",
+                smelt_hir::AsyncOp::Resolve => "async_resolve",
                 smelt_hir::AsyncOp::HttpGetText => "async_http_get_text",
             };
             let arg_list = args.iter().map(operand_text).collect::<Vec<_>>().join(", ");

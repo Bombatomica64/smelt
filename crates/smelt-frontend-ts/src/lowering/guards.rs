@@ -1386,22 +1386,30 @@ impl ModuleBuilder<'_> {
                     "Promise.resolve supports at most one value argument",
                 ));
             }
-            let inner_ty = if let Some(argument) = call.arguments.first() {
+            // The resolution value has to travel in the op's operands. Lowering
+            // to a bare `Sleep` kept only its *type*, so the emitted future
+            // resolved with `default_value(inner_ty)` -- `Promise.resolve(1)`
+            // settled as `0`, `Promise.resolve('hello')` as `""`. `Resolve`
+            // carries the operand itself; the duration operand preserves the
+            // microtask deferral `Sleep` was standing in for.
+            let (inner_ty, value) = if let Some(argument) = call.arguments.first() {
                 let value = self.argument(argument, body)?;
-                Self::expr_ty(body, value)
+                (Self::expr_ty(body, value), Some(value))
             } else {
-                self.ctx.krate.types.intern(Type::None)
+                (self.ctx.krate.types.intern(Type::None), None)
             };
             let duration = body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::Float(0.0)),
                 ty: self.ctx.krate.types.intern(Type::Float),
                 span: self.span(call.span.start, call.span.start),
             });
+            let mut args = vec![duration];
+            args.extend(value);
             let ty = self.ctx.krate.types.intern(Type::Future(inner_ty));
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::AsyncOp {
-                    op: AsyncOp::Sleep,
-                    args: vec![duration],
+                    op: AsyncOp::Resolve,
+                    args,
                 },
                 ty,
                 span: self.span(call.span.start, call.span.end),
@@ -1485,6 +1493,7 @@ impl ModuleBuilder<'_> {
                     })
             }
             AsyncOp::Sleep
+            | AsyncOp::Resolve
             | AsyncOp::CreateTask
             | AsyncOp::WaitFor
             | AsyncOp::HttpGetText

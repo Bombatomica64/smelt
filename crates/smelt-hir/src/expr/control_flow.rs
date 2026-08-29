@@ -13,6 +13,14 @@ pub enum AsyncOp {
     AllSettled,
     /// Sleep for a duration in milliseconds.
     Sleep,
+    /// Produce an already-settled promise of a value (`Promise.resolve(v)`).
+    ///
+    /// Operands are `[duration, value?]`: the duration models JavaScript's
+    /// microtask deferral (`Promise.resolve` never resolves synchronously) and
+    /// the optional value is the resolution value. `Sleep` cannot stand in for
+    /// this — it produces `Future<()>`, so the resolution value is lost and the
+    /// `Future<()>` -> `Future<T>` coercion has to invent a `T`.
+    Resolve,
     /// Schedule a callback to run after a duration in milliseconds.
     SetTimeout,
     /// Cancel a scheduled timeout callback.

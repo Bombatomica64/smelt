@@ -468,6 +468,7 @@ fn needs_timer_helpers(mir: &Mir) -> bool {
             value,
             Rvalue::AsyncOp {
                 op: AsyncOp::Sleep
+                    | AsyncOp::Resolve
                     | AsyncOp::SetTimeout
                     | AsyncOp::ClearTimeout
                     | AsyncOp::SetInterval
@@ -2162,8 +2163,18 @@ fn emit_source_with_free_function_router(
         writer.line("#[derive(Clone)]");
         writer.line("pub struct SmeltPromise {");
         writer.line("    id: usize,");
+        // The settled state's error slot is the *same* exception-payload ABI
+        // `smelt_throw`/`smelt_thrown_value` define (see `thrown.rs`), not a new
+        // erasure: a JavaScript rejection reason is any value at all, so it has
+        // no static type to preserve here. It previously held a `String`, which
+        // silently destroyed every rejection reason that was not exactly its own
+        // `message` — `Promise.reject({ status: 400 })` settled as the string
+        // "[object Object]" and was re-inflated on await as a synthetic
+        // `{ __smelt_error: "Error", message }` record with `status` gone. Since
+        // the payload arrives as a `SmeltUnknown` and leaves as one, storing it
+        // as a `SmeltUnknown` keeps it whole across the settle boundary.
         writer.line(
-            "    state: ::std::rc::Rc<::std::cell::RefCell<Option<Result<SmeltUnknown, String>>>>,",
+            "    state: ::std::rc::Rc<::std::cell::RefCell<Option<Result<SmeltUnknown, SmeltUnknown>>>>,",
         );
         writer.line("    future: ::std::rc::Rc<::std::cell::RefCell<Option<SmeltPromiseFuture>>>,");
         writer.line("}");
@@ -2179,11 +2190,11 @@ fn emit_source_with_free_function_router(
             // `SmeltPromise::rejected` is only referenced by the Vitest mock
             // runtime (`mockRejectedValue*`), so it is gated on the same flag to
             // keep every non-mock crate's prelude byte-identical.
-            writer.line("    /// Create an already-rejected erased promise value. Awaiting it yields");
-            writer.line("    /// `Err` through the shared settle state, carrying a JS-faithful message");
-            writer.line("    /// (an Error-like object's `message` string, else the value's display),");
-            writer.line("    /// matching the existing string-based thrown-error ABI.");
-            writer.line("    fn rejected(value: SmeltUnknown) -> Self { let message = match &value { SmeltUnknown::Object(map) => match map.get(\"message\") { Some(SmeltUnknown::String(text)) => text.to_string(), _ => value.to_string() }, SmeltUnknown::String(text) => text.to_string(), other => other.to_string() }; Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(Some(Err(message)))), future: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }");
+            writer.line("    /// Create an already-rejected erased promise value. The rejection");
+            writer.line("    /// reason is kept whole in the shared settle state and re-enters the");
+            writer.line("    /// error channel unchanged on await, so a non-`Error` reason keeps its");
+            writer.line("    /// own properties (JavaScript rejects with any value, not a message).");
+            writer.line("    fn rejected(value: SmeltUnknown) -> Self { Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(Some(Err(value)))), future: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }");
         }
         writer.line("    /// Store a live future behind a cloneable erased promise handle. This");
         writer.line("    /// is the lazy constructor used by derived/adapter promises (await");
@@ -2203,13 +2214,13 @@ fn emit_source_with_free_function_router(
         writer.line("            let taken = self.future.borrow_mut().take();");
         writer.line("            if let Some(future) = taken {");
         writer
-            .line("                let settled = future.await.map_err(|error| error.to_string());");
+            .line("                let settled = future.await.map_err(|error| smelt_thrown_value(&*error));");
         writer.line("                *self.state.borrow_mut() = Some(settled);");
         writer.line("            }");
         writer.line("        }");
         writer.line("        loop {");
         writer.line("            if let Some(result) = self.state.borrow().clone() {");
-        writer.line("                return result.map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error).into());");
+        writer.line("                return result.map_err(smelt_throw);");
         writer.line("            }");
         // The result cell is still empty: another task (or a timer callback) must
         // settle it. When timer helpers exist, drive the cooperative scheduler and
