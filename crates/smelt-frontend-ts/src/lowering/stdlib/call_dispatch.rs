@@ -787,24 +787,85 @@ impl<'builder> ModuleBuilder<'builder> {
             let args = if rest.is_some() && call.arguments.iter().any(Argument::is_spread) {
                 self.spread_closure_call_arguments(&function_ty, rest, call, body)?
             } else {
-                let mut args = call
+                // A generic callee's declared parameter types still carry raw
+                // `TypeParam`s, so handing one to a function *literal* argument
+                // contextually types its parameters with a type variable that is
+                // not in the closure's own scope — which lowers to `SmeltUnknown`
+                // and then forces the concrete sibling arguments to be erased to
+                // match. `mapArr(nums, x => x * 2)` with `nums: number[]` erased
+                // the closure, re-erased an already concrete `SmeltList<f64>` to
+                // call the instantiation, and un-erased the result: four erasure
+                // sites from one missing annotation.
+                //
+                // The instantiation is recoverable from the *other* arguments,
+                // and the machinery already exists below for the return type. So
+                // function-literal arguments are lowered in a second pass, with
+                // their hint substituted from the bindings the value arguments
+                // imply.
+                //
+                // Only syntactic function literals are deferred. Constructing a
+                // closure cannot observe or mutate state, so moving it after its
+                // siblings preserves JavaScript's left-to-right argument
+                // evaluation order; any other argument keeps its source position.
+                let defer_literal_callbacks = params
+                    .iter()
+                    .any(|param| self.overload_constraint_contains_unresolved_type_param(*param));
+                let hint_at = |builder: &mut Self, index: usize, arg: &Argument<'_>| {
+                    let implementation_hint = params.get(index).copied();
+                    let _ = builder;
+                    if matches!(arg, Argument::RegExpLiteral(_)) {
+                        selected_overload
+                            .as_ref()
+                            .and_then(|signature| signature.params.get(index).copied())
+                            .or(implementation_hint)
+                    } else {
+                        implementation_hint
+                    }
+                };
+                let fixed_arguments = call
                     .arguments
                     .iter()
                     .take(fixed_param_count)
-                    .enumerate()
-                    .map(|(index, arg)| {
-                        let implementation_hint = params.get(index).copied();
-                        let hint = if matches!(arg, Argument::RegExpLiteral(_)) {
-                            selected_overload
-                                .as_ref()
-                                .and_then(|signature| signature.params.get(index).copied())
-                                .or(implementation_hint)
-                        } else {
-                            implementation_hint
+                    .collect::<Vec<_>>();
+                let mut lowered: Vec<Option<smelt_hir::ExprId>> = vec![None; fixed_arguments.len()];
+                let mut deferred: Vec<usize> = Vec::new();
+                for (index, arg) in fixed_arguments.iter().enumerate() {
+                    if defer_literal_callbacks
+                        && matches!(
+                            arg,
+                            Argument::ArrowFunctionExpression(_) | Argument::FunctionExpression(_)
+                        )
+                    {
+                        deferred.push(index);
+                        continue;
+                    }
+                    let hint = hint_at(self, index, arg);
+                    lowered[index] = Some(self.argument_with_hint(arg, body, hint)?);
+                }
+                if !deferred.is_empty() {
+                    let mut substitutions = HashMap::new();
+                    for (index, lowered_arg) in lowered.iter().enumerate() {
+                        let (Some(param), Some(lowered_arg)) =
+                            (params.get(index).copied(), *lowered_arg)
+                        else {
+                            continue;
                         };
-                        self.argument_with_hint(arg, body, hint)
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
+                        let arg_ty = Self::expr_ty(body, lowered_arg);
+                        let _ = self.infer_overload_type(param, arg_ty, &mut substitutions);
+                    }
+                    for index in deferred {
+                        let arg = fixed_arguments[index];
+                        let hint = hint_at(self, index, arg).map(|hint| {
+                            if substitutions.is_empty() {
+                                hint
+                            } else {
+                                self.substitute_type_params(hint, &substitutions)
+                            }
+                        });
+                        lowered[index] = Some(self.argument_with_hint(arg, body, hint)?);
+                    }
+                }
+                let mut args = lowered.into_iter().flatten().collect::<Vec<_>>();
                 if let Some(rest) = rest {
                     let rest_args = call
                         .arguments

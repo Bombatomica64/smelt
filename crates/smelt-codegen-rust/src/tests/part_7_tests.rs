@@ -11730,3 +11730,257 @@ export function second(text: string): number {
         "`try_compiled` must read through and populate the memo\n{source}"
     );
 }
+
+/// A conditional whose branches are two *declared* classes unifies to the
+/// generated tagged union, not to `String`.
+///
+/// `Type::Class` spells both a declared class and an unresolved opaque name, so
+/// `is_string_compatible_type` accepts any class — a JS value can always be
+/// coerced to a string. Applying that to *unification* made
+/// `flag ? new A() : new B()` come out as `String`, and the emitter then
+/// declared a `String` local and assigned the class values into it: output that
+/// does not compile. Two declared classes do have a concrete common
+/// representation, so they unify to their union.
+#[test]
+fn conditional_over_declared_classes_unifies_to_a_union() {
+    let source = source_for(
+        r"
+class A { v(): number { return 1; } }
+class B { v(): number { return 2; } }
+function pick(flag: boolean): A | B { return flag ? new A() : new B(); }
+function use1(x: A | B): number { return x.v(); }
+const r = use1(pick(true));
+",
+    );
+
+    let pick_body = source
+        .split("fn pick(")
+        .nth(1)
+        .and_then(|rest| rest.split("\nfn ").next())
+        .unwrap_or_else(|| panic!("expected a generated `pick`:\n{source}"));
+    assert!(
+        !pick_body.contains(": String"),
+        "two declared classes must not unify to `String`:\n{source}"
+    );
+    assert!(
+        pick_body.contains("::M0(") && pick_body.contains("::M1("),
+        "each branch must be wrapped into its union arm:\n{source}"
+    );
+}
+
+/// An unannotated arrow passed to a *generic* function is contextually typed
+/// from the instantiation its sibling arguments imply, not from the callee's
+/// raw type parameters.
+///
+/// The declared parameter type of `fn` is `(item: T) => U`. Handing that to the
+/// arrow as its contextual type bound the closure's parameter to a type
+/// variable outside its own scope, which lowered to `SmeltUnknown` — and then
+/// the already-concrete `number[]` argument had to be erased to match the
+/// instantiation, and the result un-erased again. One missing annotation cost
+/// four erasure sites. The bindings are recoverable from the value arguments,
+/// which is what this asserts.
+#[test]
+fn unannotated_arrow_into_generic_callee_stays_concrete() {
+    let source = source_for(
+        r"
+function mapArr<T, U>(arr: T[], fn: (item: T) => U): U[] {
+  const out: U[] = [];
+  for (const item of arr) { out.push(fn(item)); }
+  return out;
+}
+const nums: number[] = [1, 2, 3];
+const doubled = mapArr(nums, (x) => x * 2);
+",
+    );
+
+    let main_body = source
+        .split("fn main()")
+        .nth(1)
+        .unwrap_or_else(|| panic!("expected a generated `main`:\n{source}"));
+    assert!(
+        !main_body.contains("SmeltUnknown"),
+        "the call site must stay concrete, with no erasure round-trip:\n{source}"
+    );
+    assert!(
+        main_body.contains("closure_arg_0: f64"),
+        "the arrow parameter must be contextually typed as `f64`:\n{source}"
+    );
+    assert!(
+        main_body.contains("SmeltList<f64>"),
+        "the concrete argument must not be re-erased to call the instantiation:\n{source}"
+    );
+}
+
+/// A constrained type parameter erases only itself; an unconstrained sibling
+/// still lifts to a real Rust generic.
+///
+/// `function_emits_rust_generics` used to demote a whole function the moment any
+/// type parameter carried a constraint, so `K extends string` erased `T` too and
+/// every position here came out `SmeltUnknown` — even `fallback: T` and the
+/// return, which are directly inferable. 215 of es-toolkit's 800 generic
+/// exported functions carry a constrained parameter.
+#[test]
+fn constrained_type_param_erases_without_demoting_its_siblings() {
+    let source = source_for(
+        r"
+function pickFirst<T, K extends string>(arr: T[], key: (item: T) => K, fallback: T): T {
+  if (arr.length > 0) { return arr[0]; }
+  return fallback;
+}
+const nums: number[] = [1, 2, 3];
+const v = pickFirst(nums, (n) => (n > 1 ? 'big' : 'small'), 0);
+",
+    );
+
+    let signature = source
+        .split("fn pick_first")
+        .nth(1)
+        .and_then(|rest| rest.split('{').next())
+        .unwrap_or_else(|| panic!("expected a generated `pick_first`:\n{source}"));
+    assert!(
+        signature.contains("arr: SmeltList<T>") && signature.contains("fallback: T"),
+        "the unconstrained `T` must lift to a real generic:\n{source}"
+    );
+    assert!(
+        signature.contains("SmeltUnknown"),
+        "the constrained `K` must still erase:\n{source}"
+    );
+}
+
+/// A type parameter inspected inside a *closure* body does not lift, even when
+/// the enclosing function body only ever moves it.
+///
+/// `classes::type_param_only_moved` used to walk `function.blocks` alone. A
+/// closure is a separate MIR body with its own locals and blocks, so an
+/// inspection inside one was invisible and the parameter lifted anyway.
+/// es-toolkit's `flatten<T, D extends number>` is exactly this shape: `T` lifted
+/// out of `arr: T[]`, while the `Array.isArray(item)` that inspects it lives in
+/// the inner recursive closure. The emitted
+/// `matches!(item, SmeltUnknown::Array(_))` then ran against a `T` and the
+/// generated library failed to compile with "expected type parameter `T`, found
+/// `SmeltUnknown`".
+#[test]
+fn type_param_inspected_inside_a_closure_does_not_lift() {
+    let source = source_for(
+        r"
+function scan<T, K extends string>(arr: T[], key: (item: T) => K): T[] {
+  const out: T[] = [];
+  arr.forEach((item) => { if (typeof item === 'string') { out.push(item); } });
+  return out;
+}
+const r = scan(['a', 'b'], (s) => 'k');
+",
+    );
+
+    let signature = source
+        .split("fn scan")
+        .nth(1)
+        .and_then(|rest| rest.split('{').next())
+        .unwrap_or_else(|| panic!("expected a generated `scan`:\n{source}"));
+    // The generic parameter list is what must be absent; `SmeltList<..>` in the
+    // parameter types legitimately contains angle brackets.
+    assert!(
+        !signature.starts_with('<'),
+        "a closure that inspects `T` must not declare Rust generics:\n{source}"
+    );
+    assert!(
+        signature.contains("arr: SmeltList<SmeltUnknown>"),
+        "the inspected `T` must not reach the parameter list:\n{source}"
+    );
+}
+
+/// A type parameter moved into a differently-typed container does not lift.
+///
+/// `Rvalue::Use` used to be whitelisted as "a bare move", which short-circuited
+/// the destination check. But a move is opacity-preserving only when source and
+/// destination agree about `T`: moving a `T` into a slot of another type erases
+/// it. es-toolkit's `unzipWith` is exactly this shape — `group` comes from
+/// `new Array(n)` so its type is `unknown[]`, each `T` element is moved into it,
+/// and the erased list is then passed to a callback whose bound reads
+/// `Fn(SmeltList<T>)`, so the generated library failed with "expected `Vec<T>`,
+/// found `Vec<SmeltUnknown>`".
+#[test]
+fn type_param_moved_into_an_erased_container_does_not_lift() {
+    let source = source_for(
+        r"
+function collect<T, K extends string>(rows: T[][], key: (vals: T[]) => K): K[] {
+  const out: K[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const group = new Array(rows.length);
+    for (let j = 0; j < rows.length; j++) { group[j] = rows[j][i]; }
+    out.push(key(group));
+  }
+  return out;
+}
+const r = collect([[1, 2]], (v) => 'k');
+",
+    );
+
+    let signature = source
+        .split("fn collect")
+        .nth(1)
+        .and_then(|rest| rest.split('{').next())
+        .unwrap_or_else(|| panic!("expected a generated `collect`:\n{source}"));
+    assert!(
+        !signature.starts_with('<'),
+        "a `T` moved into an `unknown[]` must not lift:\n{source}"
+    );
+}
+
+/// A generated record emits the inbound half of the erasure round-trip.
+///
+/// Every lifted type parameter is bounded by `SmeltFromUnknown`, so a class that
+/// lacks the impl cannot be used as a generic argument at all — es-toolkit's
+/// `meanBy`/`medianBy` specs call generic helpers with `Person[]` and failed
+/// with "the trait bound `Person: SmeltFromUnknown` is not satisfied". Only
+/// `IntoSmeltUnknown` was ever emitted, so concrete class values could flow out
+/// to erased code but never back.
+#[test]
+fn generated_records_emit_from_smelt_unknown() {
+    let source = source_for(
+        r"
+class Person { name: string = ''; age: number = 0; }
+function firstOf<T>(items: T[], fallback: T): T {
+  if (items.length > 0) { return items[0]; }
+  return fallback;
+}
+const people: Person[] = [];
+const p = firstOf(people, new Person());
+",
+    );
+
+    assert!(
+        source.contains("impl SmeltFromUnknown for Person"),
+        "a generated record must be recoverable from its erased view:\n{source}"
+    );
+    assert!(
+        source.contains("impl IntoSmeltUnknown for Person"),
+        "the outbound half must still be emitted:\n{source}"
+    );
+}
+
+/// A generated union emits `SmeltJsKeyEq`, so it can be used as a map key.
+///
+/// Map keys are compared through the erased JavaScript key-equality projection.
+/// Without the impl, any generated map keyed by a union fails with "the trait
+/// bound `SmeltUnionN: SmeltJsKeyEq` is not satisfied" — which is what
+/// es-toolkit's `keyBy` specs hit.
+#[test]
+fn generated_unions_emit_js_key_equality() {
+    let source = source_for(
+        r"
+function pick(flag: boolean): number | string { return flag ? 1 : 'a'; }
+const m = new Map<number | string, number>();
+m.set(pick(true), 1);
+",
+    );
+
+    assert!(
+        source.contains("SmeltJsKeyEq for SmeltUnion"),
+        "a generated union must support JavaScript key equality:\n{source}"
+    );
+    assert!(
+        source.contains("SmeltFromUnknown for SmeltUnion"),
+        "a generated union must be recoverable from its erased view:\n{source}"
+    );
+}
