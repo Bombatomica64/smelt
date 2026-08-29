@@ -35,6 +35,8 @@
 mod erased_record_promote;
 /// Compact MIR formatting utilities.
 mod format;
+/// Escape analysis for list-typed locals.
+pub mod list_escape;
 /// HIR-to-MIR lowering pipeline.
 mod lower;
 /// MIR optimization passes.
@@ -48,6 +50,9 @@ mod validate;
 
 pub use erased_record_promote::promote_erased_mutated_records;
 pub use format::format_compact;
+pub use list_escape::{
+    BodyKey, BodyListEscape, EscapeReason, ListLocalClass, ListLocalFact, analyze_list_escapes,
+};
 pub use lower::{LowerError, lower_hir};
 pub use type_normalize::normalize_operational_types;
 pub use types::*;

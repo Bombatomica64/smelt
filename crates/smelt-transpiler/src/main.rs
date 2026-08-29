@@ -40,6 +40,7 @@ pub mod cli_parser;
 pub mod config;
 pub mod config_parser;
 mod diagnostics;
+mod list_escape_report;
 mod lowering;
 mod manifest;
 mod pipeline;
@@ -116,6 +117,37 @@ fn main() -> CliResult<()> {
         })?;
         if let Some(output_path) = output {
             std::fs::write(output_path, report)?;
+        } else {
+            let mut stdout = io::stdout().lock();
+            write!(stdout, "{report}")?;
+        }
+        return Ok(());
+    }
+
+    if let Command::ListEscapeReport {
+        manifest,
+        format,
+        function,
+        top,
+        output,
+    } = &args.command
+    {
+        let report_format = match format.as_str() {
+            "json" => list_escape_report::ListEscapeReportFormat::Json,
+            "md" | "markdown" => list_escape_report::ListEscapeReportFormat::Markdown,
+            other => {
+                return Err(format!("unknown --format `{other}`; use `md` or `json`").into());
+            }
+        };
+        let report =
+            list_escape_report::list_escape_report(&list_escape_report::ListEscapeReportOptions {
+                manifest: &PathBuf::from(manifest),
+                format: report_format,
+                functions: function,
+                top: *top,
+            })?;
+        if let Some(output_path) = output {
+            std::fs::write(output_path, &report)?;
         } else {
             let mut stdout = io::stdout().lock();
             write!(stdout, "{report}")?;
@@ -263,6 +295,7 @@ fn main() -> CliResult<()> {
         Command::RustDiagnostics { .. }
         | Command::RustTestReport { .. }
         | Command::SmeltUnknownReport { .. }
+        | Command::ListEscapeReport { .. }
         | Command::DumpSchema => {
             return Ok(());
         }
