@@ -1098,9 +1098,11 @@ impl FunctionEmitter<'_> {
             Some(Type::String) => Ok(format!("SmeltUnknown::String({text})")),
             Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown) => {
                 // `From<SmeltList<SmeltUnknown>> for SmeltArray` carries the list's
-                // own JS reference id, so erasing the same binding twice reuses one
-                // id (arrays compare `===` by id) and an erase/extract round-trip
-                // stays identity-stable.
+                // own JS reference id AND aliases its buffer, so erasing the same
+                // binding twice reuses one id (arrays compare `===` by id), an
+                // erase/extract round-trip stays identity-stable, and a write made
+                // through either handle is observed by the other — which is what
+                // passing an array into an `unknown` slot means in JavaScript.
                 Ok(format!("SmeltUnknown::Array({text}.into())"))
             }
             Some(Type::List(item)) => {
