@@ -240,6 +240,14 @@ pub enum ExprKind {
         side: StringTrimSide,
         operand: ExprId,
     },
+    /// JavaScript `left.localeCompare(right)` with no locale/option arguments:
+    /// collate two strings, answering a negative / zero / positive number. The
+    /// modeled collation levels are documented on the runtime
+    /// `smelt_locale_compare` helper.
+    StringLocaleCompare {
+        left: ExprId,
+        right: ExprId,
+    },
     StringAffix {
         op: StringAffixOp,
         haystack: ExprId,

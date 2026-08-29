@@ -1536,6 +1536,60 @@ return_ty,
         })))
     }
 
+    /// Lower JavaScript `receiver.localeCompare(other)`.
+    ///
+    /// Only the zero-argument-locale form is lowered: `locales` and `options`
+    /// select CLDR collation data Smelt does not carry, so a call that passes
+    /// them defers to the ordinary dynamic member path rather than silently
+    /// answering with the default collation. Both operands must be string-like;
+    /// the result is a `number`, so `xs.sort((a, b) => a.localeCompare(b))`
+    /// type-checks as an ordinary comparator.
+    pub(in crate::lowering) fn string_locale_compare_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if member.property.name != "localeCompare" {
+            return Ok(None);
+        }
+        let [right_argument] = call.arguments.as_slice() else {
+            return Ok(None);
+        };
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let mut left = self.expression(&member.object, body)?;
+        let left_ty = Self::expr_ty(body, left);
+        if !(self.is_string_compatible_type(left_ty) || self.type_contains_unknown(left_ty)) {
+            return Ok(None);
+        }
+        left = body.push_expr(Expr {
+            kind: ExprKind::TypeAssert { value: left },
+            ty: string_ty,
+            span: self.span(member.object.span().start, member.object.span().end),
+        });
+        let mut right = self.argument(right_argument, body)?;
+        let right_ty = Self::expr_ty(body, right);
+        if !(self.is_string_compatible_type(right_ty) || self.type_contains_unknown(right_ty)) {
+            return Err(SmeltError::unsupported(
+                self.span(right_argument.span().start, right_argument.span().end),
+                "localeCompare requires a string argument",
+            ));
+        }
+        right = body.push_expr(Expr {
+            kind: ExprKind::TypeAssert { value: right },
+            ty: string_ty,
+            span: self.span(right_argument.span().start, right_argument.span().end),
+        });
+        let ty = self.ctx.krate.types.intern(Type::Float);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::StringLocaleCompare { left, right },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
     /// Lower direct TypeScript string trimming.
     pub(in crate::lowering) fn string_trim_call(
         &mut self,

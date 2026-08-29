@@ -1249,6 +1249,7 @@ impl<'builder> ModuleBuilder<'builder> {
         Self::string_case_call,
         Self::string_normalize_call,
         Self::string_trim_call,
+        Self::string_locale_compare_call,
         Self::string_affix_call,
         Self::lodash_for_each_call,
         Self::strapi_async_map_call,

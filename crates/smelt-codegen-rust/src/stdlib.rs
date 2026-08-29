@@ -109,6 +109,14 @@ pub(crate) fn needs_uri_encode_runtime(mir: &Mir) -> bool {
     any_rvalue_needs(mir, |rvalue| matches!(rvalue, Rvalue::UriEncode { .. }))
 }
 
+/// Returns true when generated Rust needs the `smelt_locale_compare` runtime
+/// helper backing `String.prototype.localeCompare`.
+pub(crate) fn needs_locale_compare_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| {
+        matches!(rvalue, Rvalue::StringLocaleCompare { .. })
+    })
+}
+
 /// Returns true when a MIR rvalue uses Chrono APIs.
 fn rvalue_needs_chrono(rvalue: &Rvalue) -> bool {
     matches!(

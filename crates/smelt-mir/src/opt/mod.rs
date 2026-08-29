@@ -359,7 +359,11 @@ fn rewrite_rvalue(
                 | rewrite_operand_except(needle, aliases, dest)
                 | rewrite_operand_except(from_index, aliases, dest)
         }
-        Rvalue::StringAffix {
+        Rvalue::StringLocaleCompare {
+            left: haystack,
+            right: needle,
+        }
+        | Rvalue::StringAffix {
             haystack, needle, ..
         }
         | Rvalue::StringSearch {

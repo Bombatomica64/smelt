@@ -567,6 +567,18 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
+            ExprKind::StringLocaleCompare { left, right } => {
+                let lowered_left = self.lower_expr(*left)?;
+                let lowered_right = self.lower_expr(*right)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::StringLocaleCompare {
+                        left: lowered_left,
+                        right: lowered_right,
+                    },
+                )?
+            }
             ExprKind::UriEncode { operand } => {
                 let lowered_operand = self.lower_expr(*operand)?;
                 self.assign_temp(

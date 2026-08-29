@@ -144,13 +144,44 @@ pub fn validate(krate: &Crate) -> Vec<ValidationError> {
                 reason = "HIR validation only needs special handling for callback-bearing expressions"
             )]
             match &expr.kind {
+                // `Array.prototype.sort`'s comparator is the one callback slot
+                // that may legitimately hold an OPTIONAL callable: ECMA-262
+                // `SortCompare` step 1 makes `sort(undefined)` identical to
+                // `sort()`, so the frontend keeps `compare?: (a, b) => number`
+                // as a real `Optional(Function)` and the emitter branches on it
+                // instead of erasing the absence into an `undefined` result.
+                ExprKind::ListSort {
+                    comparator: Some(callback),
+                    ..
+                } => {
+                    let Some(callback_expr) = body.exprs.get(callback.0 as usize) else {
+                        errors.push(ValidationError {
+                            message: format!(
+                                "body {body_idx} expr {expr_idx} callback references unknown expr {callback:?}"
+                            ),
+                        });
+                        continue;
+                    };
+                    let callback_ty = match krate.types.get(callback_expr.ty) {
+                        Some(Type::Optional(inner)) => krate.types.get(*inner),
+                        other => other,
+                    };
+                    if !matches!(callback_ty, Some(Type::Function(_))) {
+                        let callback_path = krate
+                            .modules
+                            .get(callback_expr.span.file.0 as usize)
+                            .map_or("<unknown>", |module| module.source.path.as_str());
+                        errors.push(ValidationError {
+                            message: format!(
+                                "body {body_idx} expr {expr_idx} callback must have function type, got {:?} at {callback_path} {:?}",
+                                callback_expr.ty, callback_expr.span
+                            ),
+                        });
+                    }
+                }
                 ExprKind::ListCallback { callback, .. }
                 | ExprKind::ListFromLengthMap { callback, .. }
                 | ExprKind::ListReduce { callback, .. }
-                | ExprKind::ListSort {
-                    comparator: Some(callback),
-                    ..
-                }
                 | ExprKind::ListSort {
                     key: Some(callback),
                     ..
