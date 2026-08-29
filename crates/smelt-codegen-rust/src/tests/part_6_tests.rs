@@ -254,13 +254,71 @@ function useApply(c: Callable): number {
         source.contains("__smelt_call"),
         "expected a synthetic __smelt_call field on the callable interface struct: {source}"
     );
+    // `.apply` erases the callable object to the runtime carrier and dispatches
+    // through the packed-argument ABI, which reads the `__smelt_call` slot back
+    // out of the erased object. This replaced an earlier emission that read the
+    // struct field directly (`c.__smelt_call.clone()`): that spelling type-
+    // checked for this exact interface shape but computed the WRONG VALUE at
+    // runtime (verified against a `Object.assign`-built callable, where
+    // `c.apply(undefined, [2, 3])` did not return 5), and did not compile at all
+    // when the interface lowered to a newtype instead of a field struct. The
+    // assertion therefore pins the slot dispatch rather than the field read.
+    let use_apply_body = source
+        .split_once("fn use_apply")
+        .expect("expected a use_apply function: {source}")
+        .1;
     assert!(
-        source.contains(".__smelt_call.clone()") && source.contains("into_smelt_unknown()"),
-        "expected .apply to erase the __smelt_call slot: {source}"
+        use_apply_body.contains(r#"get("__smelt_call")"#),
+        "expected .apply to dispatch through the __smelt_call slot: {source}"
+    );
+    assert!(
+        use_apply_body.contains("smelt_call_args"),
+        "expected .apply to spread its array through the packed-argument ABI: {source}"
     );
     assert!(
         !source.contains(".apply.clone()") && !source.contains(".apply)"),
         "expected no direct `.apply` struct field access: {source}"
+    );
+}
+
+#[test]
+fn emits_apply_on_a_plain_function_as_a_spread_call() {
+    // `fn.apply(thisArg, argsArray)` on a value that IS a function (as opposed
+    // to a callable object) spreads the trailing array into the call and drops
+    // the `this` operand, which Smelt erases for a plain function or closure.
+    //
+    // Before `apply` had a lowering arm, it fell through to the field-read path,
+    // resolved `apply` as an ABSENT member, and lowered to a bare `Null` --
+    // silently, with no diagnostic. es-toolkit's `flow`/`flowRight` composed
+    // nothing at all as a result: `funcs[0].apply(this, args)` WAS `null`, so
+    // the whole composition returned the seed unchanged.
+    let source = source_for(
+        r"
+function callWith(f: (...args: number[]) => number, args: number[]): number {
+  return f.apply(undefined, args);
+}
+",
+    );
+
+    let call_with_body = source
+        .split_once("fn call_with")
+        .expect("expected a call_with function")
+        .1;
+    assert!(
+        !call_with_body.contains("SmeltUnknown::Null"),
+        "expected .apply not to collapse to a null member read: {source}"
+    );
+    assert!(
+        call_with_body.contains("f({"),
+        "expected .apply to invoke the callee with the spread argument list: {source}"
+    );
+    assert!(
+        call_with_body.contains("args"),
+        "expected .apply to forward the arguments array: {source}"
+    );
+    assert!(
+        !call_with_body.contains(".apply"),
+        "expected no direct `.apply` member access: {source}"
     );
 }
 

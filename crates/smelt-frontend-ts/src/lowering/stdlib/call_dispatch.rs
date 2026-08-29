@@ -1695,6 +1695,73 @@ impl<'builder> ModuleBuilder<'builder> {
                 })));
             }
         }
+        if member.property.name == "apply" {
+            let callable = self.expression(&member.object, body)?;
+            let callable_ty = Self::expr_ty(body, callable);
+            // `apply` reaches the callee through the packed-argument runtime
+            // ABI, whose emitter resolves `Type::Unknown` out of the type
+            // table, along with the `unknown[]` list its packed argument operand
+            // is typed as. A module that never otherwise mentions `unknown`
+            // would not have interned either, so intern them here alongside the
+            // lowering that needs them -- the same thing the spread-call branch
+            // further down does before building its erased operands.
+            let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+            self.ctx.krate.types.intern(Type::List(unknown_ty));
+            if let Some(function_ty) = self.function_member_type(callable_ty)
+                && let Some(Type::Function(function)) =
+                    self.ctx.krate.types.get(function_ty).cloned()
+            {
+                // `fn.apply(thisArg, argsArray)` binds `this` from the leading
+                // operand and spreads the TRAILING array into the positional
+                // arguments. Smelt erases the JavaScript `this` binding for a
+                // plain function or closure, so the leading operand is dropped
+                // exactly as `callback_apply_method_to_body_expr` drops it and
+                // as the `call` arm above drops it for a receiver-less callee.
+                //
+                // The argument count is a runtime property of the array, so the
+                // arity test that settles `call`'s receiver question does not
+                // apply here. A class METHOD is lowered receiver-first and would
+                // need the leading operand PREPENDED to the spread list, which
+                // the packed-argument ABI cannot express; rather than silently
+                // dropping the receiver there, that shape is reported. Before
+                // this arm existed, every `apply` fell through to the field-read
+                // path, resolved `apply` as an absent member, and lowered to a
+                // bare `Null` -- es-toolkit's `flow`/`flowRight` composed
+                // nothing at all because `funcs[0].apply(this, args)` WAS
+                // `null`.
+                let span = self.span(call.span.start, call.span.end);
+                if self.static_member_is_concrete_class_method(callable, member, body) {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "apply on a receiver-first class method is not lowered yet",
+                    ));
+                }
+                // `fn.apply(thisArg)` and `fn.apply()` forward no positional
+                // arguments at all, so they are ordinary zero-argument calls.
+                if call.arguments.len() <= 1 {
+                    return Ok(Some(body.push_expr(Expr {
+                        kind: ExprKind::ClosureCall {
+                            callee: callable,
+                            args: Vec::new(),
+                        },
+                        ty: function.return_ty,
+                        span,
+                    })));
+                }
+                let arguments_arg = call.arguments.last().ok_or_else(|| {
+                    SmeltError::unsupported(span, "apply requires an arguments array")
+                })?;
+                let arguments = self.argument(arguments_arg, body)?;
+                return Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::ClosureCallSpread {
+                        callee: callable,
+                        args: arguments,
+                    },
+                    ty: function.return_ty,
+                    span,
+                })));
+            }
+        }
         let Ok(callee) = self.static_member_no_absent_fallback(member, body) else {
             return Ok(None);
         };

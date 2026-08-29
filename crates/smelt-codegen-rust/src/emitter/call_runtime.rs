@@ -1527,7 +1527,8 @@ impl FunctionEmitter<'_> {
                     let inner_args = split_args.as_deref().unwrap_or(&args_text);
                     // See the `ClosureCall` arm: the ABI question is answered by
                     // the shared `callee_uses_erased_call_method` helper.
-                    let inner_call = if self.callee_uses_erased_call_method(callee)? {
+                    let uses_erased_call_method = self.callee_uses_erased_call_method(callee)?;
+                    let inner_call = if uses_erased_call_method {
                         format!("{callee_text}.call({inner_args})")
                     } else if self.callee_is_borrowed_function_handle(callee)? {
                         format!("{callee_text}({inner_args})")
@@ -1545,7 +1546,20 @@ impl FunctionEmitter<'_> {
                     if callee_is_erased_rest && self.mir.types.get(dest_ty) == Some(&Type::None) {
                         return Ok(format!("{{ {call_text}; () }}"));
                     }
-                    return self.value_at_type_text(&call_text, function.return_ty, dest_ty);
+                    // `SmeltErasedFunction::call` always yields a bare
+                    // `SmeltUnknown`, whatever the callee's declared return type
+                    // says -- the same seam the non-spread `ClosureCall` arm
+                    // above corrects for. Coercing from the declared
+                    // `return_ty` would emit an identity conversion and leave a
+                    // `SmeltUnknown` assigned to, say, a `bool` destination
+                    // (E0308). Keying this on the ABI actually chosen for
+                    // `inner_call` keeps the two in step.
+                    let source_ty = if uses_erased_call_method || callee_is_erased_rest {
+                        unknown_ty
+                    } else {
+                        function.return_ty
+                    };
+                    return self.value_at_type_text(&call_text, source_ty, dest_ty);
                 }
                 // The runtime dispatch snippet matches the callee over
                 // `SmeltUnknown` discriminants, so the callee value must be the
