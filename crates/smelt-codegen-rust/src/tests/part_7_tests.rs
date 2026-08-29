@@ -4188,9 +4188,13 @@ function indicesSeen(
 ",
     );
 
+    // `closure_arg_0` is itself spelled `&SmeltUnknown` (the contextual `dyn Fn`
+    // passes it by shared reference), and `predicate` takes `&SmeltUnknown`, so
+    // the binding is forwarded as-is. Borrowing it again would hand the callee a
+    // `&&SmeltUnknown` that only compiles through deref coercion.
     assert!(
-        source.contains("predicate(&(closure_arg_0.clone()), closure_arg_1.clone())"),
-        "{source}"
+        source.contains("predicate(closure_arg_0, closure_arg_1.clone())"),
+        "a borrowed callback parameter should forward without a re-borrow: {source}"
     );
     assert!(
         source.contains(
@@ -7765,9 +7769,102 @@ export function makeCurried(): CurriedFunction1<number, string> {
         "record-to-struct adapter must not spell an out-of-scope type param `T1` \
          in the non-generic caller: {source}"
     );
+    // `CurriedFunction1` declares two call signatures of different arities, so
+    // its single `__smelt_call` slot is now the erased variadic callable (see
+    // `add_interface_call_signature_field`) rather than the first signature's
+    // concrete `Fn() -> CurriedFunction1<T1, R>`. That removes the interface's
+    // own type parameters from the slot entirely, which is a strictly stronger
+    // form of the property this test guards: there is no longer any type
+    // argument on the slot that COULD be out of scope. The assertion below
+    // therefore pins the new representation; the out-of-scope check above --
+    // the actual regression -- is unchanged.
     assert!(
-        body.contains("CurriedFunction1<SmeltUnknown, SmeltUnknown>"),
-        "out-of-scope type params should erase to SmeltUnknown: {source}"
+        body.contains("__smelt_call: SmeltErasedFunction"),
+        "an overloaded callable interface's slot should be the erased variadic \
+         callable, leaving no interface type argument to fall out of scope: {source}"
+    );
+}
+
+#[test]
+fn apply_on_typed_function_value_emits_a_call_not_a_null() {
+    // Regression (es-toolkit curry/partial/partialRight/flow): `fn.apply(this, args)`
+    // on a receiver whose type is a concrete `Type::Function` had no lowering arm --
+    // `call` did, `apply` did not -- so the member read fell through to the ordinary
+    // (absent) field path and the WHOLE call collapsed to a literal `null`, with no
+    // diagnostic. Only an erased (`unknown`) receiver reached the runtime
+    // `smelt_function_method(.., "apply")` dispatch, so the identical source line
+    // behaved differently depending on whether the callee had kept its static type.
+    let source = source_for(
+        r"
+export function forward(func: (...args: any[]) => any, args: any[]): any {
+  return func.apply(null, args);
+}
+",
+    );
+    let body = source
+        .split("fn forward")
+        .nth(1)
+        .and_then(|rest| rest.split("\nfn ").next())
+        .unwrap_or("");
+    assert!(
+        !body.contains("return SmeltUnknown::Null;"),
+        "`apply` on a typed function must not collapse to a null literal: {source}"
+    );
+    assert!(
+        body.contains("func(args"),
+        "`apply` should forward the argument array to the callee: {source}"
+    );
+}
+
+#[test]
+fn overloaded_callable_interface_stores_an_erased_variadic_call_slot() {
+    // Regression (es-toolkit compat `curry`): a callable interface's generated
+    // struct carries ONE `__smelt_call` slot. When the interface declares several
+    // call signatures of DIFFERENT arities, no single concrete signature can hold
+    // the value -- which overload runs is decided by the runtime argument list --
+    // yet the slot used to be typed from the FIRST signature. Every call site then
+    // adapted to that signature and silently discarded the arguments actually
+    // passed: es-toolkit's two-argument `curried(2, 3)` emitted `(smelt_callback)()`,
+    // running the zero-argument overload and answering a defaulted value with no
+    // diagnostic.
+    //
+    // The overload set now collapses to one erased variadic callable, exactly as a
+    // union of differing-arity function types already does. A uniformly-shaped
+    // callable interface keeps its precise concrete slot, so nothing is erased that
+    // a concrete Rust `Fn` type could have carried.
+    let source = source_for(
+        r"
+interface Overloaded {
+  (): Overloaded;
+  (t1: number): number;
+  (t1: number, t2: number): number;
+}
+interface Uniform {
+  (t1: number): number;
+}
+export function use_them(a: Overloaded, b: Uniform): number {
+  return a(1, 2) + b(3);
+}
+",
+    );
+    let overloaded_struct = source
+        .split("struct Overloaded")
+        .nth(1)
+        .and_then(|rest| rest.split('}').next())
+        .unwrap_or("");
+    assert!(
+        overloaded_struct.contains("__smelt_call: SmeltErasedFunction"),
+        "an overload set whose arities differ must store the erased variadic \
+         callable, not the first signature: {source}"
+    );
+    let uniform_struct = source
+        .split("struct Uniform")
+        .nth(1)
+        .and_then(|rest| rest.split('}').next())
+        .unwrap_or("");
+    assert!(
+        uniform_struct.contains("__smelt_call: ::std::rc::Rc<dyn Fn(f64) -> f64>"),
+        "a uniformly-shaped callable interface must keep its concrete slot type: {source}"
     );
 }
 
@@ -11408,6 +11505,67 @@ class B(A):
     );
 }
 
+/// Python `super().method()` calls the immediate base implementation without
+/// recursing into the derived override.
+#[test]
+fn python_super_method_uses_a_typed_base_alias() {
+    let source = source_for_py(
+        r"
+class A:
+    def greet(self, value: int) -> int:
+        return value + 1
+
+class B(A):
+    def greet(self, value: int) -> int:
+        return super().greet(value) + 10
+",
+    );
+
+    let impl_b = source
+        .split("impl B {")
+        .nth(1)
+        .unwrap_or_else(|| panic!("expected an `impl B` block:\n{source}"));
+    assert!(
+        impl_b.contains("fn __smelt_super_greet(&self, value: i64) -> i64"),
+        "the base implementation must be available under a typed alias:\n{source}"
+    );
+    assert!(
+        impl_b.contains("self.__smelt_super_greet(value.clone())"),
+        "super().greet(value) must call the base alias, not the override:\n{source}"
+    );
+}
+
+/// A Python `__add__` method becomes a concrete Rust `Add<Rhs>` implementation.
+#[test]
+fn python_add_dunder_emits_a_typed_rust_trait_impl() {
+    let source = source_for_py(
+        r#"
+class Vector:
+    def __init__(self, x: int) -> None:
+        self.x = x
+    def __add__(self, other: "Vector") -> "Vector":
+        return Vector(self.x + other.x)
+
+def combine(left: Vector, right: Vector) -> Vector:
+    return left + right
+"#,
+    );
+
+    assert!(
+        source.contains("impl ::std::ops::Add<Vector> for Vector"),
+        "Python __add__ must map to Rust's typed Add trait:\n{source}"
+    );
+    assert!(
+        source.contains("type Output = Vector;")
+            && source.contains("fn add(self, rhs: Vector) -> Self::Output { self.__add__(rhs) }"),
+        "the Rust adapter must preserve the concrete operand and output types:\n{source}"
+    );
+    assert!(
+        source.contains("left.clone() + right.clone()"),
+        "Python + must use the typed Rust operator without consuming source bindings:\n{source}"
+    );
+}
+
 /// A Python `super().__init__(..)` runs the base constructor and copies the
 /// flattened base slots onto the derived instance, composing across levels.
 #[test]
@@ -11733,5 +11891,259 @@ export function second(text: string): number {
         source.contains("cache.borrow().get(&pattern).cloned()")
             && source.contains("cache.borrow_mut().insert(pattern, compiled.clone())"),
         "`try_compiled` must read through and populate the memo\n{source}"
+    );
+}
+
+/// A conditional whose branches are two *declared* classes unifies to the
+/// generated tagged union, not to `String`.
+///
+/// `Type::Class` spells both a declared class and an unresolved opaque name, so
+/// `is_string_compatible_type` accepts any class — a JS value can always be
+/// coerced to a string. Applying that to *unification* made
+/// `flag ? new A() : new B()` come out as `String`, and the emitter then
+/// declared a `String` local and assigned the class values into it: output that
+/// does not compile. Two declared classes do have a concrete common
+/// representation, so they unify to their union.
+#[test]
+fn conditional_over_declared_classes_unifies_to_a_union() {
+    let source = source_for(
+        r"
+class A { v(): number { return 1; } }
+class B { v(): number { return 2; } }
+function pick(flag: boolean): A | B { return flag ? new A() : new B(); }
+function use1(x: A | B): number { return x.v(); }
+const r = use1(pick(true));
+",
+    );
+
+    let pick_body = source
+        .split("fn pick(")
+        .nth(1)
+        .and_then(|rest| rest.split("\nfn ").next())
+        .unwrap_or_else(|| panic!("expected a generated `pick`:\n{source}"));
+    assert!(
+        !pick_body.contains(": String"),
+        "two declared classes must not unify to `String`:\n{source}"
+    );
+    assert!(
+        pick_body.contains("::M0(") && pick_body.contains("::M1("),
+        "each branch must be wrapped into its union arm:\n{source}"
+    );
+}
+
+/// An unannotated arrow passed to a *generic* function is contextually typed
+/// from the instantiation its sibling arguments imply, not from the callee's
+/// raw type parameters.
+///
+/// The declared parameter type of `fn` is `(item: T) => U`. Handing that to the
+/// arrow as its contextual type bound the closure's parameter to a type
+/// variable outside its own scope, which lowered to `SmeltUnknown` — and then
+/// the already-concrete `number[]` argument had to be erased to match the
+/// instantiation, and the result un-erased again. One missing annotation cost
+/// four erasure sites. The bindings are recoverable from the value arguments,
+/// which is what this asserts.
+#[test]
+fn unannotated_arrow_into_generic_callee_stays_concrete() {
+    let source = source_for(
+        r"
+function mapArr<T, U>(arr: T[], fn: (item: T) => U): U[] {
+  const out: U[] = [];
+  for (const item of arr) { out.push(fn(item)); }
+  return out;
+}
+const nums: number[] = [1, 2, 3];
+const doubled = mapArr(nums, (x) => x * 2);
+",
+    );
+
+    let main_body = source
+        .split("fn main()")
+        .nth(1)
+        .unwrap_or_else(|| panic!("expected a generated `main`:\n{source}"));
+    assert!(
+        !main_body.contains("SmeltUnknown"),
+        "the call site must stay concrete, with no erasure round-trip:\n{source}"
+    );
+    assert!(
+        main_body.contains("closure_arg_0: f64"),
+        "the arrow parameter must be contextually typed as `f64`:\n{source}"
+    );
+    assert!(
+        main_body.contains("SmeltList<f64>"),
+        "the concrete argument must not be re-erased to call the instantiation:\n{source}"
+    );
+}
+
+/// A constrained type parameter erases only itself; an unconstrained sibling
+/// still lifts to a real Rust generic.
+///
+/// `function_emits_rust_generics` used to demote a whole function the moment any
+/// type parameter carried a constraint, so `K extends string` erased `T` too and
+/// every position here came out `SmeltUnknown` — even `fallback: T` and the
+/// return, which are directly inferable. 215 of es-toolkit's 800 generic
+/// exported functions carry a constrained parameter.
+#[test]
+fn constrained_type_param_erases_without_demoting_its_siblings() {
+    let source = source_for(
+        r"
+function pickFirst<T, K extends string>(arr: T[], key: (item: T) => K, fallback: T): T {
+  if (arr.length > 0) { return arr[0]; }
+  return fallback;
+}
+const nums: number[] = [1, 2, 3];
+const v = pickFirst(nums, (n) => (n > 1 ? 'big' : 'small'), 0);
+",
+    );
+
+    let signature = source
+        .split("fn pick_first")
+        .nth(1)
+        .and_then(|rest| rest.split('{').next())
+        .unwrap_or_else(|| panic!("expected a generated `pick_first`:\n{source}"));
+    assert!(
+        signature.contains("arr: SmeltList<T>") && signature.contains("fallback: T"),
+        "the unconstrained `T` must lift to a real generic:\n{source}"
+    );
+    assert!(
+        signature.contains("SmeltUnknown"),
+        "the constrained `K` must still erase:\n{source}"
+    );
+}
+
+/// A type parameter inspected inside a *closure* body does not lift, even when
+/// the enclosing function body only ever moves it.
+///
+/// `classes::type_param_only_moved` used to walk `function.blocks` alone. A
+/// closure is a separate MIR body with its own locals and blocks, so an
+/// inspection inside one was invisible and the parameter lifted anyway.
+/// es-toolkit's `flatten<T, D extends number>` is exactly this shape: `T` lifted
+/// out of `arr: T[]`, while the `Array.isArray(item)` that inspects it lives in
+/// the inner recursive closure. The emitted
+/// `matches!(item, SmeltUnknown::Array(_))` then ran against a `T` and the
+/// generated library failed to compile with "expected type parameter `T`, found
+/// `SmeltUnknown`".
+#[test]
+fn type_param_inspected_inside_a_closure_does_not_lift() {
+    let source = source_for(
+        r"
+function scan<T, K extends string>(arr: T[], key: (item: T) => K): T[] {
+  const out: T[] = [];
+  arr.forEach((item) => { if (typeof item === 'string') { out.push(item); } });
+  return out;
+}
+const r = scan(['a', 'b'], (s) => 'k');
+",
+    );
+
+    let signature = source
+        .split("fn scan")
+        .nth(1)
+        .and_then(|rest| rest.split('{').next())
+        .unwrap_or_else(|| panic!("expected a generated `scan`:\n{source}"));
+    // The generic parameter list is what must be absent; `SmeltList<..>` in the
+    // parameter types legitimately contains angle brackets.
+    assert!(
+        !signature.starts_with('<'),
+        "a closure that inspects `T` must not declare Rust generics:\n{source}"
+    );
+    assert!(
+        signature.contains("arr: SmeltList<SmeltUnknown>"),
+        "the inspected `T` must not reach the parameter list:\n{source}"
+    );
+}
+
+/// A type parameter moved into a differently-typed container does not lift.
+///
+/// `Rvalue::Use` used to be whitelisted as "a bare move", which short-circuited
+/// the destination check. But a move is opacity-preserving only when source and
+/// destination agree about `T`: moving a `T` into a slot of another type erases
+/// it. es-toolkit's `unzipWith` is exactly this shape — `group` comes from
+/// `new Array(n)` so its type is `unknown[]`, each `T` element is moved into it,
+/// and the erased list is then passed to a callback whose bound reads
+/// `Fn(SmeltList<T>)`, so the generated library failed with "expected `Vec<T>`,
+/// found `Vec<SmeltUnknown>`".
+#[test]
+fn type_param_moved_into_an_erased_container_does_not_lift() {
+    let source = source_for(
+        r"
+function collect<T, K extends string>(rows: T[][], key: (vals: T[]) => K): K[] {
+  const out: K[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const group = new Array(rows.length);
+    for (let j = 0; j < rows.length; j++) { group[j] = rows[j][i]; }
+    out.push(key(group));
+  }
+  return out;
+}
+const r = collect([[1, 2]], (v) => 'k');
+",
+    );
+
+    let signature = source
+        .split("fn collect")
+        .nth(1)
+        .and_then(|rest| rest.split('{').next())
+        .unwrap_or_else(|| panic!("expected a generated `collect`:\n{source}"));
+    assert!(
+        !signature.starts_with('<'),
+        "a `T` moved into an `unknown[]` must not lift:\n{source}"
+    );
+}
+
+/// A generated record emits the inbound half of the erasure round-trip.
+///
+/// Every lifted type parameter is bounded by `SmeltFromUnknown`, so a class that
+/// lacks the impl cannot be used as a generic argument at all — es-toolkit's
+/// `meanBy`/`medianBy` specs call generic helpers with `Person[]` and failed
+/// with "the trait bound `Person: SmeltFromUnknown` is not satisfied". Only
+/// `IntoSmeltUnknown` was ever emitted, so concrete class values could flow out
+/// to erased code but never back.
+#[test]
+fn generated_records_emit_from_smelt_unknown() {
+    let source = source_for(
+        r"
+class Person { name: string = ''; age: number = 0; }
+function firstOf<T>(items: T[], fallback: T): T {
+  if (items.length > 0) { return items[0]; }
+  return fallback;
+}
+const people: Person[] = [];
+const p = firstOf(people, new Person());
+",
+    );
+
+    assert!(
+        source.contains("impl SmeltFromUnknown for Person"),
+        "a generated record must be recoverable from its erased view:\n{source}"
+    );
+    assert!(
+        source.contains("impl IntoSmeltUnknown for Person"),
+        "the outbound half must still be emitted:\n{source}"
+    );
+}
+
+/// A generated union emits `SmeltJsKeyEq`, so it can be used as a map key.
+///
+/// Map keys are compared through the erased JavaScript key-equality projection.
+/// Without the impl, any generated map keyed by a union fails with "the trait
+/// bound `SmeltUnionN: SmeltJsKeyEq` is not satisfied" — which is what
+/// es-toolkit's `keyBy` specs hit.
+#[test]
+fn generated_unions_emit_js_key_equality() {
+    let source = source_for(
+        r"
+function pick(flag: boolean): number | string { return flag ? 1 : 'a'; }
+const m = new Map<number | string, number>();
+m.set(pick(true), 1);
+",
+    );
+
+    assert!(
+        source.contains("SmeltJsKeyEq for SmeltUnion"),
+        "a generated union must support JavaScript key equality:\n{source}"
+    );
+    assert!(
+        source.contains("SmeltFromUnknown for SmeltUnion"),
+        "a generated union must be recoverable from its erased view:\n{source}"
     );
 }

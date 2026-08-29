@@ -707,6 +707,34 @@ pub(crate) fn emit_union_definitions(
             "        self.clone().into_smelt_unknown() == other.clone().into_smelt_unknown()\n",
         );
         output.push_str("    }\n}\n");
+        // `SmeltFromUnknown` is the trait form of the inherent
+        // `from_smelt_unknown` emitted just above. Without it a union cannot be
+        // used as a generic argument, because every lifted type parameter is
+        // bounded by it — es-toolkit's specs instantiate generic helpers at
+        // union types and failed with "the trait bound `SmeltUnionN:
+        // SmeltFromUnknown` is not satisfied".
+        output.push_str(&format!(
+            "impl{impl_generics} SmeltFromUnknown for {target} {{\n"
+        ));
+        output.push_str(
+            "    fn smelt_from_unknown(value: SmeltUnknown) -> Self { Self::from_smelt_unknown(value) }\n",
+        );
+        output.push_str("}\n");
+        // A union used as a map key needs JavaScript key equality. Both halves
+        // route through the erased `SmeltUnknown` view, exactly like the
+        // `PartialEq` impl above, so the union agrees with `SmeltUnknown` on key
+        // identity — which matters because the same map is often compared
+        // against an erased one.
+        output.push_str(&format!(
+            "impl{impl_generics} SmeltJsKeyEq for {target} {{\n"
+        ));
+        output.push_str(
+            "    fn same_js_key(&self, other: &Self) -> bool { self.clone().into_smelt_unknown().same_js_key(&other.clone().into_smelt_unknown()) }\n",
+        );
+        output.push_str(
+            "    fn js_key_hash(&self) -> Option<u64> { self.clone().into_smelt_unknown().js_key_hash() }\n",
+        );
+        output.push_str("}\n");
         // Concrete unions surface as fields of generated classes, which derive
         // `Debug` and `Default`. A data-carrying enum can derive neither, and a
         // `#[derive(Debug)]` would additionally demand that every member type be

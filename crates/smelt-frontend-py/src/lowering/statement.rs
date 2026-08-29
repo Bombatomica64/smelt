@@ -515,17 +515,10 @@ impl ModuleBuilder<'_> {
         };
         let span = self.span(call.range());
         if method != "__init__" {
-            // A `super().m(..)` call on an ordinary method has no place to
-            // dispatch under flattening: an override replaces the inherited slot
-            // in the derived impl, so the base body is simply not present to
-            // call. Reject it explicitly rather than silently dispatching back
-            // to the override, which would recurse forever.
-            return Err(SmeltError::unsupported(
-                span,
-                format!(
-                    "super().{method}() is not supported yet; only super().__init__() is lowered"
-                ),
-            ));
+            // Ordinary super-method calls are expressions targeting the base
+            // aliases emitted on flattened subclasses; leave them to call
+            // lowering even when their result is discarded as a statement.
+            return Ok(false);
         }
 
         // The enclosing class comes from the `self` receiver's type, which is

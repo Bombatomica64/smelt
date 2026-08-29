@@ -787,24 +787,85 @@ impl<'builder> ModuleBuilder<'builder> {
             let args = if rest.is_some() && call.arguments.iter().any(Argument::is_spread) {
                 self.spread_closure_call_arguments(&function_ty, rest, call, body)?
             } else {
-                let mut args = call
+                // A generic callee's declared parameter types still carry raw
+                // `TypeParam`s, so handing one to a function *literal* argument
+                // contextually types its parameters with a type variable that is
+                // not in the closure's own scope — which lowers to `SmeltUnknown`
+                // and then forces the concrete sibling arguments to be erased to
+                // match. `mapArr(nums, x => x * 2)` with `nums: number[]` erased
+                // the closure, re-erased an already concrete `SmeltList<f64>` to
+                // call the instantiation, and un-erased the result: four erasure
+                // sites from one missing annotation.
+                //
+                // The instantiation is recoverable from the *other* arguments,
+                // and the machinery already exists below for the return type. So
+                // function-literal arguments are lowered in a second pass, with
+                // their hint substituted from the bindings the value arguments
+                // imply.
+                //
+                // Only syntactic function literals are deferred. Constructing a
+                // closure cannot observe or mutate state, so moving it after its
+                // siblings preserves JavaScript's left-to-right argument
+                // evaluation order; any other argument keeps its source position.
+                let defer_literal_callbacks = params
+                    .iter()
+                    .any(|param| self.overload_constraint_contains_unresolved_type_param(*param));
+                let hint_at = |builder: &mut Self, index: usize, arg: &Argument<'_>| {
+                    let implementation_hint = params.get(index).copied();
+                    let _ = builder;
+                    if matches!(arg, Argument::RegExpLiteral(_)) {
+                        selected_overload
+                            .as_ref()
+                            .and_then(|signature| signature.params.get(index).copied())
+                            .or(implementation_hint)
+                    } else {
+                        implementation_hint
+                    }
+                };
+                let fixed_arguments = call
                     .arguments
                     .iter()
                     .take(fixed_param_count)
-                    .enumerate()
-                    .map(|(index, arg)| {
-                        let implementation_hint = params.get(index).copied();
-                        let hint = if matches!(arg, Argument::RegExpLiteral(_)) {
-                            selected_overload
-                                .as_ref()
-                                .and_then(|signature| signature.params.get(index).copied())
-                                .or(implementation_hint)
-                        } else {
-                            implementation_hint
+                    .collect::<Vec<_>>();
+                let mut lowered: Vec<Option<smelt_hir::ExprId>> = vec![None; fixed_arguments.len()];
+                let mut deferred: Vec<usize> = Vec::new();
+                for (index, arg) in fixed_arguments.iter().enumerate() {
+                    if defer_literal_callbacks
+                        && matches!(
+                            arg,
+                            Argument::ArrowFunctionExpression(_) | Argument::FunctionExpression(_)
+                        )
+                    {
+                        deferred.push(index);
+                        continue;
+                    }
+                    let hint = hint_at(self, index, arg);
+                    lowered[index] = Some(self.argument_with_hint(arg, body, hint)?);
+                }
+                if !deferred.is_empty() {
+                    let mut substitutions = HashMap::new();
+                    for (index, lowered_arg) in lowered.iter().enumerate() {
+                        let (Some(param), Some(lowered_arg)) =
+                            (params.get(index).copied(), *lowered_arg)
+                        else {
+                            continue;
                         };
-                        self.argument_with_hint(arg, body, hint)
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
+                        let arg_ty = Self::expr_ty(body, lowered_arg);
+                        let _ = self.infer_overload_type(param, arg_ty, &mut substitutions);
+                    }
+                    for index in deferred {
+                        let arg = fixed_arguments[index];
+                        let hint = hint_at(self, index, arg).map(|hint| {
+                            if substitutions.is_empty() {
+                                hint
+                            } else {
+                                self.substitute_type_params(hint, &substitutions)
+                            }
+                        });
+                        lowered[index] = Some(self.argument_with_hint(arg, body, hint)?);
+                    }
+                }
+                let mut args = lowered.into_iter().flatten().collect::<Vec<_>>();
                 if let Some(rest) = rest {
                     let rest_args = call
                         .arguments
@@ -1632,6 +1693,79 @@ impl<'builder> ModuleBuilder<'builder> {
                     ty: function.return_ty,
                     span: self.span(call.span.start, call.span.end),
                 })));
+            }
+        }
+        if member.property.name == "apply" {
+            // `fn.apply(thisArg, argsArray)` is the sibling of the `call` arm
+            // above: the LEADING operand binds `this` and the TRAILING operand is
+            // an array whose elements become the positional arguments.
+            //
+            // Without this arm, `apply` on a value whose type is a concrete
+            // `Type::Function` fell through to `static_member_no_absent_fallback`,
+            // which reads `apply` as an ordinary (absent) field of the function
+            // and answers a literal `null` — so `return func.apply(this, args)`
+            // emitted `return SmeltUnknown::Null;` and the call vanished with no
+            // diagnostic. Only the *erased* (`SmeltUnknown`) receiver reached the
+            // runtime `smelt_function_method(.., "apply")` path, so the same
+            // source line behaved differently depending on whether the callee had
+            // kept its static type.
+            //
+            // The `this` operand is dropped rather than passed positionally,
+            // exactly as `callback_apply_method_to_body_expr` (which this arm
+            // delegates to, so the two spellings cannot diverge) already does for
+            // the closure-body form: Smelt erases the JavaScript `this` binding
+            // for a plain function, so a source `function (this: any, ...rest)`
+            // lowers to a closure with no receiver slot. The arity test the `call`
+            // arm uses to detect a receiver-first class method is unavailable here
+            // — `apply`'s argument list is one runtime array whose length is not
+            // statically known — so `apply` keeps the uniform drop.
+            let callable = self.expression(&member.object, body)?;
+            let callable_ty = Self::expr_ty(body, callable);
+            // `function_member_type` resolves every statically callable receiver
+            // shape — a bare function, a nullishable or union callee, and a
+            // callable interface/object. All of them get the same typed `apply`,
+            // so the argument list travels as arguments rather than through the
+            // runtime member-lookup fallback. es-toolkit's `throttle` calls
+            // `.apply` on a callable-object receiver and needs exactly that.
+            //
+            // No argument count is supplied to the overload picker: `apply`'s own
+            // arity is `(thisArg, argsArray)` and says nothing about how many
+            // arguments the callee will receive — that is the runtime length of
+            // the array, which is why the call is a spread in the first place.
+            if let Some(function_ty) = self.function_member_type(callable_ty)
+                && let Some(Type::Function(function)) =
+                    self.ctx.krate.types.get(function_ty).cloned()
+            {
+                let span = self.span(call.span.start, call.span.end);
+                // A class METHOD is lowered receiver-first, so its `this` operand
+                // IS its first parameter and would have to be PREPENDED to the
+                // spread list rather than dropped -- something the packed-argument
+                // ABI cannot express. Dropping it there would shift every argument
+                // left and silently compute the wrong thing, which is the exact
+                // failure class this whole arm exists to remove, so the shape is
+                // reported instead. No corpus reaches it today; the diagnostic is
+                // here so that when one does it fails loudly rather than quietly.
+                if self.static_member_is_concrete_class_method(callable, member, body) {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "apply on a receiver-first class method is not lowered yet",
+                    ));
+                }
+                let args = call
+                    .arguments
+                    .iter()
+                    .map(|argument| self.argument(argument, body))
+                    .collect::<Result<Vec<_>, _>>()?;
+                return self
+                    .callback_apply_method_to_body_expr(
+                        callable,
+                        callable_ty,
+                        &args,
+                        function.return_ty,
+                        body,
+                        span,
+                    )
+                    .map(Some);
             }
         }
         let Ok(callee) = self.static_member_no_absent_fallback(member, body) else {

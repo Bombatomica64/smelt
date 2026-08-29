@@ -79,7 +79,7 @@ use std::{
 
 use crate::{rust::erased_string, type_substitution::TypeSubstitution};
 use smelt_hir::{AsyncOp, BodyId, Type, TypeId};
-use smelt_mir::{HirOrigin, Mir, MirFunction, Rvalue};
+use smelt_mir::{HirOrigin, Mir, MirClassProtocol, MirFunction, Rvalue};
 
 mod byte_buffer_prelude;
 pub(crate) mod classes;
@@ -3611,6 +3611,7 @@ fn emit_source_with_free_function_router(
         // that is a plain array (e.g. produced outside this stage's marker path,
         // or a genuine dynamic-interop array coerced to a `Set`) still decodes as
         // set members via SameValueZero insert. Any other value yields an empty set.
+        writer.line("impl<T: SmeltFromUnknown> SmeltFromUnknown for Option<T> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Null | SmeltUnknown::Undefined => None, other => Some(T::smelt_from_unknown(other)) } } }");
         writer.line("impl<T: SmeltFromUnknown + Clone + IntoSmeltUnknown> SmeltFromUnknown for SmeltJsSet<T> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Object(object) => { if let Some(SmeltUnknown::Array(members)) = object.get(\"__smelt_set\") { let mut set = SmeltJsSet::with_id(object.id); for member in members.into_vec() { set.insert(T::smelt_from_unknown(member)); } set } else { SmeltJsSet::default() } }, SmeltUnknown::Array(members) => { let mut set = SmeltJsSet::new(); for member in members.into_vec() { set.insert(T::smelt_from_unknown(member)); } set }, _ => SmeltJsSet::default() } } }");
         writer.blank_line();
         writer.block("trait SmeltIntoF64", |trait_writer| {
@@ -3871,6 +3872,14 @@ fn emit_source_with_free_function_router(
         }
         if needs_unknown {
             emit_record_into_smelt_unknown_impl(
+                &mut writer,
+                mir,
+                &name,
+                &impl_generics,
+                &type_params,
+                &fields,
+            )?;
+            emit_record_from_smelt_unknown_impl(
                 &mut writer,
                 mir,
                 &name,
@@ -4185,6 +4194,14 @@ fn emit_source_with_free_function_router(
                 &type_params,
                 &fields,
             )?;
+            emit_record_from_smelt_unknown_impl(
+                &mut writer,
+                mir,
+                &name,
+                &impl_generics,
+                &type_params,
+                &fields,
+            )?;
         }
         writer.blank_line();
     }
@@ -4314,6 +4331,23 @@ fn emit_source_with_free_function_router(
             }
         }
         out.push_str("}\n");
+        for protocol in &class.protocols {
+            match protocol {
+                MirClassProtocol::Add { method } => {
+                    let function = mir
+                        .functions
+                        .get(id_index(method.0, "add protocol method index does not fit usize")?)
+                        .ok_or_else(|| EmitError::new("add protocol method is missing"))?;
+                    let mut emitter = FunctionEmitter::new(mir, &context, function)?;
+                    emitter.emit_python_add_impl(
+                        &mut out,
+                        &name,
+                        &impl_generics,
+                        &type_args,
+                    )?;
+                }
+            }
+        }
     }
 
     if !has_main_function(mir)? {
@@ -5271,6 +5305,111 @@ fn emit_record_into_smelt_unknown_impl(
                 }
                 fn_writer.line("])))");
             });
+        },
+    );
+    Ok(())
+}
+
+/// Whether a value of `ty` can be rebuilt from its erased `SmeltUnknown` view.
+///
+/// The whitelist behind [`emit_record_from_smelt_unknown_impl`]. Recoverable
+/// shapes are the primitives, the erased carrier itself, the generated
+/// containers, and generated records/unions (which now emit their own
+/// `SmeltFromUnknown`). Everything else — callbacks, compiled regexes, futures,
+/// generators — has no inbound impl in the prelude, so the field keeps the
+/// record's `Default` rather than emitting a call that would not compile.
+fn type_supports_from_unknown(mir: &Mir, ty: TypeId) -> bool {
+    match mir.types.get(ty) {
+        Some(
+            Type::Bool
+            | Type::Int
+            | Type::Float
+            | Type::String
+            | Type::Unknown
+            | Type::TypeParam { .. },
+        ) => true,
+        // A class is recoverable only when *this* program generates it, because
+        // that is what now emits `SmeltFromUnknown`. `Type::Class` also spells
+        // the runtime builtins — `TemplateOptions.escape` is a `RegExp`, and
+        // `SmeltRegExp` has no inbound impl — so admitting every class emitted a
+        // call that does not compile.
+        Some(Type::Class { name, .. }) => {
+            let name = *name;
+            mir.classes.iter().any(|class| class.name == name)
+                || mir.interfaces.iter().any(|item| item.name == name)
+        }
+        Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => {
+            type_supports_from_unknown(mir, *item)
+        }
+        Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
+            type_supports_from_unknown(mir, *key) && type_supports_from_unknown(mir, *value)
+        }
+        Some(Type::Tuple(items) | Type::Union(items)) => items
+            .iter()
+            .all(|item| type_supports_from_unknown(mir, *item)),
+        _ => false,
+    }
+}
+
+/// Emits `SmeltFromUnknown` for a generated record storage type.
+///
+/// The inbound mirror of [`emit_record_into_smelt_unknown_impl`]. Every lifted
+/// type parameter is bounded by `SmeltFromUnknown`, so a class that lacks the
+/// impl cannot be used as a generic argument at all: es-toolkit's `meanBy`/
+/// `medianBy` specs call generic helpers with `Person[]` and failed with "the
+/// trait bound `Person: SmeltFromUnknown` is not satisfied". Only the outbound
+/// half was ever emitted, which is why concrete class values could flow out to
+/// erased code but never back.
+///
+/// The recovery is total rather than fallible: a non-object input, a missing
+/// key, or a field the projection skips all fall back to `Default`, which every
+/// generated record derives. Private fields are not part of the erased object
+/// view, so they take that default too.
+fn emit_record_from_smelt_unknown_impl(
+    writer: &mut CodeWriter,
+    mir: &Mir,
+    name: &str,
+    impl_generics: &str,
+    type_args: &str,
+    fields: &[smelt_mir::MirField],
+) -> Result<(), EmitError> {
+    writer.block(
+        format!("impl{impl_generics} SmeltFromUnknown for {name}{type_args}"),
+        |impl_writer| {
+            impl_writer.block(
+                "fn smelt_from_unknown(value: SmeltUnknown) -> Self",
+                |fn_writer| {
+                    fn_writer.line("let mut result = Self::default();");
+                    fn_writer.block("if let SmeltUnknown::Object(object) = value", |body| {
+                        for field in fields {
+                            if matches!(field.visibility, smelt_hir::Visibility::Private) {
+                                continue;
+                            }
+                            // Only rebuild fields whose type can actually be
+                            // recovered. This is a whitelist rather than a
+                            // blacklist: a field the erased view cannot restore
+                            // (a callback handle, a compiled regex) keeps its
+                            // `Default`, and a type added later has to opt in
+                            // rather than silently emit a call to a
+                            // `SmeltFromUnknown` impl that does not exist.
+                            if !type_supports_from_unknown(mir, field.ty) {
+                                continue;
+                            }
+                            let key = mir.symbols.get(field.name).unwrap_or("field");
+                            let field_name = RustIdent::new(key).into_string();
+                            body.block(
+                                format!("if let Some(field) = object.get({key:?})"),
+                                |assign| {
+                                    assign.line(format!(
+                                        "result.{field_name} = SmeltFromUnknown::smelt_from_unknown(field);"
+                                    ));
+                                },
+                            );
+                        }
+                    });
+                    fn_writer.line("result");
+                },
+            );
         },
     );
     Ok(())

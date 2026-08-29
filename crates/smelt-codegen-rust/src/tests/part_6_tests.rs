@@ -254,9 +254,17 @@ function useApply(c: Callable): number {
         source.contains("__smelt_call"),
         "expected a synthetic __smelt_call field on the callable interface struct: {source}"
     );
+    // The call is dispatched through the erased `__smelt_call` slot: the receiver
+    // is erased and the callable is looked up under that key, then invoked with
+    // the argument array's elements. (This used to assert the exact
+    // `.__smelt_call.clone()` field-read spelling produced by the runtime
+    // member-lookup fallback; the typed `apply` arm now reaches the slot through
+    // the same erased dispatch snippet every other erased call uses, which both
+    // reads the slot and performs the call.)
     assert!(
-        source.contains(".__smelt_call.clone()") && source.contains("into_smelt_unknown()"),
-        "expected .apply to erase the __smelt_call slot: {source}"
+        source.contains("into_smelt_unknown()")
+            && source.contains(r#"smelt_object.get("__smelt_call")"#),
+        "expected .apply to dispatch through the __smelt_call slot: {source}"
     );
     assert!(
         !source.contains(".apply.clone()") && !source.contains(".apply)"),

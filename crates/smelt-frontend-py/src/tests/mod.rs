@@ -2,10 +2,10 @@
 
 use crate::{FrontendOptions, HirCtx, SmeltError, to_hir, to_hir_with_options, to_hir_with_path};
 use smelt_hir::{
-    AsyncOp, BinOp, Body, BodyId, BoolFoldOp, DictProjectionOp, ExprKind, FileId, Item, ItemId,
-    Language, Literal, Module, ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp,
-    NumericUnaryFuncOp, Pattern, PatternId, PrimitiveCastOp, RegexMatchOp, SetBinaryOp,
-    SetProjectionOp, SetRelationOp, SetRemoveOp, Stmt, StringAffixOp, StringCaseOp,
+    AsyncOp, BinOp, Body, BodyId, BoolFoldOp, ClassProtocol, DictProjectionOp, ExprKind, FileId,
+    Item, ItemId, Language, Literal, Module, ModuleId, NumericExtremaOp, NumericPredicateOp,
+    NumericRoundOp, NumericUnaryFuncOp, Pattern, PatternId, PrimitiveCastOp, RegexMatchOp,
+    SetBinaryOp, SetProjectionOp, SetRelationOp, SetRemoveOp, Stmt, StringAffixOp, StringCaseOp,
     StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, Symbol, Type,
 };
 use std::convert::TryFrom;

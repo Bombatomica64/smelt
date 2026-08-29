@@ -937,7 +937,7 @@ function zip(
     );
 
     assert!(
-        source.contains("fn_(&closure_arg_0,"),
+        source.contains("fn_(closure_arg_0,"),
         "captured callback should retain its four-argument ABI: {source}"
     );
     assert!(
@@ -964,7 +964,7 @@ function zip(
     );
 
     assert!(
-        source.contains("fn_(&closure_arg_0,"),
+        source.contains("fn_(closure_arg_0,"),
         "captured callback should not adopt the same-named free function ABI: {source}"
     );
     assert!(

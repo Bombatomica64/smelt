@@ -625,6 +625,7 @@ impl ModuleBuilder<'_> {
             static_methods: Vec::new(),
             abstract_methods: Vec::new(),
             implements: Vec::new(),
+            protocols: Vec::new(),
             static_fields: Vec::new(),
             descriptors: Vec::new(),
         }));

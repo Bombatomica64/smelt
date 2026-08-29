@@ -1187,17 +1187,7 @@ impl FunctionEmitter<'_> {
                 } else if self.callback_param_is_shared_reference(function, index, target_ty)
                 {
                     // The parameter is `&T` (see `callback_param_is_shared_reference`).
-                    // When the argument already has the parameter's type, borrow the
-                    // place directly — that is the whole point of the by-reference
-                    // parameter, and it is what removes the per-element deep copy.
-                    // When a coercion is needed, reference the coerced temporary
-                    // instead; Rust extends its lifetime to the end of the statement,
-                    // so `&(expr)` is valid even though the value is unnamed.
-                    if self.operand_ty(arg)? == target_ty {
-                        Ok(format!("&{}", self.operand_borrow_text(arg)?))
-                    } else {
-                        Ok(format!("&({})", self.value_at_type(arg, target_ty)?))
-                    }
+                    self.shared_reference_argument_text(arg, target_ty)
                 } else {
                     self.value_at_type(arg, target_ty)
                 }
@@ -1450,11 +1440,29 @@ impl FunctionEmitter<'_> {
         let rust_name = self.function_rust_name(function)?;
         let emitted_params = self.emitted_function_param_types(&rust_name)?;
 
+        // Only the parameters the callee actually LIFTS may be bound here. A
+        // parameter that erases is rendered `SmeltUnknown` in the emitted
+        // signature, so binding it to the type TypeScript inferred describes a
+        // signature that was never emitted. es-toolkit's `countBy<T, K extends
+        // PropertyKey>` erases `K`, and binding `K = string` from the call site
+        // made the callback adapter declare `-> String` against a callee whose
+        // bound reads `Fn(..) -> SmeltUnknown` (E0271), and the result local
+        // `SmeltRecord<String, f64>` against a returned `SmeltJsMap<SmeltUnknown,
+        // f64>` (E0308).
+        let liftable = crate::classes::liftable_type_params(
+            self.mir,
+            function,
+            &self.context.owned_callback_params,
+        );
         let type_params = function
             .type_params
             .iter()
             .map(|param| param.name)
+            .filter(|name| liftable.contains(name))
             .collect::<Vec<_>>();
+        if type_params.is_empty() {
+            return Ok(None);
+        }
         let mut declared = Vec::new();
         let mut actual = Vec::new();
         for (index, param) in function.params.iter().enumerate() {

@@ -1,7 +1,7 @@
 # es-toolkit generated suite — remaining-failure triage
 
-Baseline at the start of this pass: **909 passed / 150 failed**. Now: **928 passed / 131 failed** (matches
-`blocker-logs/es-toolkit-ci-baseline.json`'s pinned ref `e008a2818cd8`).
+Baseline at the start of this pass: **909 passed / 150 failed**. Now: **961 passed / 98 failed**
+(`main` at `37674f1` alone is 954/105).
 
 Reproduce with:
 
@@ -205,7 +205,28 @@ Both were passing for the wrong reason and now fail honestly:
   `Array(1000)...` and `Array(999)...` were empty, so the assertion compared
   `[]` to `[]`.
 
-## `throw new Error(...)` discards the Error object (largest single remaining root)
+## RESOLVED: `throw new Error(...)` discards the Error object
+
+**This root is fixed on `main` as of `cb5cf1b`** — it was still open when the
+note below was written. `src/chunk.ts:26` now emits
+
+```rust
+smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record(SmeltRecord::from([
+    ("__smelt_error".to_owned(), SmeltUnknown::String("Error".to_owned())),
+    ("message".to_owned(), SmeltUnknown::String("Size must be an integer greater than zero.".to_owned())),
+]))))
+```
+
+so thrown values do carry the error object. The 3400-odd remaining
+`smelt_throw(SmeltUnknown::String` sites are the TEST HARNESS's own assertion
+failures, not library `throw`s — the original `grep -c` did not separate the
+two, which is what made the count look total. Anything still failing in the
+promise/util/error areas needs re-triaging against a fresh run rather than
+being attributed here.
+
+The original note follows.
+
+### Superseded: `throw new Error(...)` discards the Error object (largest single remaining root)
 
 Found by reading generated code, not yet fixed. Every `throw` in the generated
 crate collapses its operand to a bare message string:
@@ -401,3 +422,103 @@ there) instead of being diagnosed, and the wrong value then flows into a
 call or a comparison. The in-flight function-statics work adds a diagnostic
 for the function-receiver case; the same treatment for unmodeled string
 methods would have surfaced this immediately rather than at runtime.
+
+
+## `Function.prototype.apply` had no lowering arm (FIXED)
+
+Found by reading generated code for `flow`, then reduced to a two-line repro.
+`fn.apply(thisArg, argsArray)` fell through the static-member dispatch to the
+field-read path, resolved `apply` as an ABSENT member, and lowered to a bare
+`SmeltUnknown::Null` — silently, with no diagnostic. `flow`'s generated body:
+
+```rust
+let _smelt_tmp_4: f64 = funcs.len() as f64;
+let _smelt_tmp_5: bool = _smelt_tmp_4.clone() != 0.0;
+if _smelt_tmp_5.clone() {
+    _smelt_tmp_6 = SmeltUnknown::Null;   // <-- funcs[0].apply(this, args)
+    result = _smelt_tmp_6.clone();
+```
+
+`.call` in the loop directly below it lowered correctly, which is what made the
+failure look like a composition bug rather than a missing member.
+
+This is the third independent instance of the same meta-defect recorded in this
+log: **an unmodeled member silently becomes a value** instead of being
+diagnosed (the others were function props and `localeCompare`). Worth a
+systematic sweep rather than another one-off.
+
+Fixed by an `apply` arm mirroring the existing `call` arm, spreading the
+trailing array through `ClosureCallSpread`. Moved 3 tests (105 -> 102):
+`flow`/`flowRight` "should supply each function with the return value of the
+previous" and `throttle` "should call the function with correct arguments".
+Also removed a latent miscompile: `.apply` on a callable object previously
+emitted a direct `__smelt_call` struct-field read that computed the wrong value
+at runtime, and did not compile at all when the interface lowered to a newtype.
+
+### CORRECTION: the cluster was never about placeholders
+
+The placeholder machinery was already working. `curry.placeholder` lowers
+correctly to `SmeltUnknown::Symbol("Symbol(curry.placeholder)@10319")` and the
+`filter(item => item === curry.placeholder)` predicate compares against it —
+verified by reading the regenerated `dist-smelt/src/curry.rs`. The earlier claim
+in this log that the assignments were dropped and the read resolved to `null`
+was **stale**: that was fixed before this pass.
+
+The real second root was **an overloaded callable interface dropping its call
+arguments**. The generated struct carries ONE `__smelt_call` slot, typed from
+the FIRST call signature. `CurriedFunction2` declares four signatures of
+differing arity, so every call site adapted to the zero-argument one:
+
+```rust
+_smelt_tmp_8 = { let smelt_callback = curried.__smelt_call…;
+  Rc::new(move |arg0, arg1| { let v = (smelt_callback)(); /* args 2 and 3 discarded */ … }) };
+```
+
+Fixed by collapsing a differing-arity overload set to one erased variadic slot —
+which overload runs is decided by the runtime argument list, a genuine dynamic
+boundary — exactly as `ty/annotations.rs` already collapses a differing-arity
+UNION. Uniform-arity interfaces keep their concrete slot.
+
+### Still open in the `flow`/`partial` cluster (5 tests, three further roots)
+
+- **Overload selection ignores argument TYPES** — blocks `partial`/`partialRight`
+  "should work with curried functions" and `flow`/`flowRight` "curried functions
+  with placeholders". `signature_accepts_arg_count` picks the first overload
+  matching the ARITY, so `curried(2, 3)` selects the PLACEHOLDER overload
+  `(t1: __, t2: T2)` instead of `(t1: T1, t2: T2): R`; TypeScript rejects the
+  first because `2` is not the placeholder's unique symbol. The assertion then
+  const-folds to `_smelt_tmp_10 = !(false);`. Needs argument types threaded into
+  `function_member_type_for_arg_count` / `interface_call_signature_type` plus an
+  assignability test.
+- **Erased -> fixed-arity -> erased round trip loses arity** — blocks
+  `partialRight` "supports placeholders". The TS overload declares a 2-parameter
+  result, so the erased variadic is adapted down to a 2-arg `Rc<dyn Fn>` and
+  immediately re-erased; `par('a','b','d')` loses its third argument. The
+  narrowing adapter should not be inserted when both ends are the dynamic
+  boundary.
+- **`fn.length`** (2) and **`new par() instanceof Foo`** (2) remain as recorded.
+
+### Separately confirmed: a `__smelt_call` slot read as a struct FIELD is called without an adapter
+
+Pre-existing and unrelated to the `apply` work (verified by stashing: identical
+output before and after). `let t = c.__smelt_call.clone(); (t)(2.0, 3.0)` calls a
+`SmeltErasedFunction` with call syntax — E0618. No corpus reaches it.
+
+### Separately confirmed: callable-object construction via a function-static assign
+
+Reduced while building an `.apply` repro, and PRE-EXISTING on `main` (verified
+with the change stashed). This source:
+
+```ts
+interface Callable { (x: number, y: number): number; tag(): string; }
+const fn = ((x: number, y: number) => x + y) as Callable;
+fn.tag = () => 'tag';
+return fn;
+```
+
+lowers `Callable` to a NEWTYPE (`available field is: 0`) while the call site
+still emits `c.__smelt_call`, so it fails to compile with E0609 — even for a
+plain direct call, before `.apply` is involved. Building the same value with
+`Object.assign` instead lowers correctly and passes. So the defect is in the
+`as`-cast + function-static-assign construction path, not in the callable
+interface itself.

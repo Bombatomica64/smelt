@@ -264,12 +264,18 @@ impl ModuleBuilder<'_> {
             static_methods: Vec::new(),
             abstract_methods: Vec::new(),
             implements: vec![],
+            protocols: Vec::new(),
         }));
         self.items.insert(class_name_str.to_owned(), class_item_id);
         // Pre-register every method's `ItemId` so a body can call siblings
         // declared later in the class (`self.helper()`, `cls.helper()`).
         let method_slots =
             self.reserve_class_method_slots(class, class_name_str, class_sym, materialized.is_some())?;
+        if let Some(base_sym) = base {
+            let aliases = self.reserve_super_method_aliases(base_sym, class_name_str, class_sym)?;
+            hir_module.items.extend(aliases.iter().copied());
+            method_ids.extend(aliases);
+        }
         let mut enum_members = HashMap::new();
         let mut abstract_methods = Vec::new();
         let mut property_descriptors = Vec::new();
@@ -573,7 +579,18 @@ impl ModuleBuilder<'_> {
             constructor_id = Some(init_id);
             hir_module.items.push(init_id);
         } else if constructor_id.is_none() {
-            let init_id = self.synthesize_default_init(class_sym, class_ty, span);
+            // Python inherits `__init__` when a subclass does not declare one.
+            // Preserve that signature and initialization under Smelt's flattened
+            // class layout rather than silently replacing it with `new()`.
+            let init_id = if let Some(base_sym) = base.filter(|symbol| {
+                self.ctx.krate.items.iter().any(|item| {
+                    matches!(item, Item::Class(class) if class.name == *symbol && class.constructor.is_some())
+                })
+            }) {
+                self.synthesize_inherited_init(class_sym, class_ty, base_sym, span)?
+            } else {
+                self.synthesize_default_init(class_sym, class_ty, span)
+            };
             constructor_id = Some(init_id);
             hir_module.items.push(init_id);
         }
@@ -585,6 +602,7 @@ impl ModuleBuilder<'_> {
                 .insert(class_name_str.to_owned(), std::mem::take(&mut lowered.enum_members));
         }
 
+        let protocols = self.python_class_protocols(method_ids)?;
         let class_item = Item::Class(Class {
             name: class_sym,
             span,
@@ -600,6 +618,7 @@ impl ModuleBuilder<'_> {
             static_methods: std::mem::take(&mut lowered.static_methods),
             abstract_methods: std::mem::take(&mut lowered.abstract_methods),
             implements: vec![],
+            protocols,
         });
         let class_index = usize::try_from(class_item_id.0).map_err(|err| {
             SmeltError::unsupported(
@@ -617,8 +636,8 @@ impl ModuleBuilder<'_> {
         Ok(())
     }
 
-    /// Collect the instance fields a class declares by assigning them in
-    /// `__init__`, rather than by a class-level annotation.
+    /// Collect instance fields assigned by `__init__` or `__new__`, rather than
+    /// declared by a class-level annotation.
     ///
     /// Python has no requirement that an instance field be annotated in the
     /// class body; the idiomatic declaration is the constructor assignment
@@ -630,20 +649,17 @@ impl ModuleBuilder<'_> {
     ///         self.inner = inner      # <- this *is* the declaration
     /// ```
     ///
-    /// Without this pass such a class lowers with an empty field list, and
-    /// [`Self::field_type`]'s fieldless-class fallback then types *every*
-    /// `self.<name>` as the receiver's own class. That is silently wrong: it
-    /// makes `self.inner` a `B`, so `self.inner.a()` finds no method on `B` and
-    /// falls through to the unsupported-call diagnostic, and passing
-    /// `self.inner` to a parameter typed `A` fails to type-check.
+    /// Without this pass such a class lowers with an empty field list, so later
+    /// reads cannot recover the field's concrete type for method dispatch or
+    /// typed function arguments.
     ///
     /// The rule is general, not a per-shape special case: a constructor
     /// parameter (or an explicitly annotated constructor assignment) bound to
-    /// `self.<name>` declares `<name>` with that type. Two kinds of assignment
-    /// carry a type precise enough to declare a field:
+    /// an instance field declares that field with the parameter type. Two kinds
+    /// of assignment carry a type precise enough to declare a field:
     ///
-    /// * `self.<name>: T = <value>` — the annotation states the field type;
-    /// * `self.<name> = <param>` — the field takes the parameter's type, which
+    /// * `<instance>.<name>: T = <value>` — the annotation states the field type;
+    /// * `<instance>.<name> = <param>` — the field takes the parameter's type, which
     ///   is the source annotation when present and otherwise `ty`'s resolved
     ///   type for that parameter (issue #93).
     ///
@@ -655,18 +671,22 @@ impl ModuleBuilder<'_> {
     /// assignment to a name is taken so a later re-assignment cannot silently
     /// redeclare the field with a different type.
     ///
-    /// Only the top-level statements of `__init__` are scanned. A field
-    /// assigned inside a branch has no single obvious type and stays out.
+    /// Only top-level initializer statements are scanned. For `__new__`, an
+    /// attribute receiver is recognized as the new instance when the function
+    /// returns that local. A field assigned inside a branch has no single
+    /// obvious type and stays out.
     fn implicit_constructor_fields(
         &mut self,
         class: &StmtClassDef,
     ) -> Result<Vec<Field>, SmeltError> {
-        let Some(init) = class.body.iter().find_map(|statement| match statement {
-            Stmt::FunctionDef(function) if function.name.as_str() == "__init__" => Some(function),
+        let initializers = class.body.iter().filter_map(|statement| match statement {
+            Stmt::FunctionDef(function)
+                if matches!(function.name.as_str(), "__init__" | "__new__") =>
+            {
+                Some(function)
+            }
             _ => None,
-        }) else {
-            return Ok(Vec::new());
-        };
+        });
 
         // Names the class body already declares with an annotation. This pass
         // runs before the body walk that lowers them (methods below need the
@@ -684,53 +704,70 @@ impl ModuleBuilder<'_> {
             })
             .collect();
 
-        // Parameter name -> declared type, skipping the implicit `self`.
-        let mut param_types: HashMap<&str, TypeId> = HashMap::new();
-        for param_with_default in init.parameters.iter_non_variadic_params().skip(1) {
-            let param = &param_with_default.parameter;
-            let param_ty = match param.annotation.as_deref() {
-                Some(annotation) => Some(self.annotation_to_hir(annotation)?),
-                None => self.resolved_param_ty(param),
-            };
-            if let Some(param_ty) = param_ty {
-                param_types.insert(param.name.as_str(), param_ty);
-            }
-        }
-
         let mut collected: Vec<Field> = Vec::new();
-        for statement in &init.body {
-            let Some((field_name, field_ty)) =
-                self.constructor_field_declaration(statement, &param_types)?
-            else {
-                continue;
-            };
-            // An explicit class-level annotation, or an earlier assignment to
-            // the same name, already declared this field.
-            if annotated.contains(field_name.as_str()) {
-                continue;
+        for initializer in initializers {
+            // Parameter name -> declared type, skipping `self` / `cls`.
+            let mut param_types: HashMap<&str, TypeId> = HashMap::new();
+            for param_with_default in initializer.parameters.iter_non_variadic_params().skip(1) {
+                let param = &param_with_default.parameter;
+                let param_ty = match param.annotation.as_deref() {
+                    Some(annotation) => Some(self.annotation_to_hir(annotation)?),
+                    None => self.resolved_param_ty(param),
+                };
+                if let Some(param_ty) = param_ty {
+                    param_types.insert(param.name.as_str(), param_ty);
+                }
             }
-            let field_sym = self.intern_name(&field_name);
-            if collected.iter().any(|field| field.name == field_sym) {
-                continue;
+
+            // `__init__` mutates its first parameter. `__new__` commonly
+            // constructs a local and returns it; that returned local is the
+            // instance whose assignments declare fields.
+            let mut receivers: HashSet<&str> = HashSet::new();
+            if initializer.name.as_str() == "__init__"
+                && let Some(first) = initializer.parameters.iter_non_variadic_params().next()
+            {
+                receivers.insert(first.parameter.name.as_str());
             }
-            // Mirrors the class-level branch: an `Optional[T]` field is what
-            // Rust codegen turns into `Option<T>`.
-            let optional = matches!(
-                self.ctx.krate.types.get(field_ty),
-                Some(Type::Optional(_))
-            );
-            collected.push(Field {
-                name: field_sym,
-                ty: field_ty,
-                visibility: Visibility::Public,
-                optional,
-                span: self.span(statement.range()),
-            });
+            if initializer.name.as_str() == "__new__" {
+                receivers.extend(initializer.body.iter().filter_map(|statement| match statement {
+                    Stmt::Return(ret) => match ret.value.as_deref() {
+                        Some(Expr::Name(name)) => Some(name.id.as_str()),
+                        _ => None,
+                    },
+                    _ => None,
+                }));
+            }
+
+            for statement in &initializer.body {
+                let Some((field_name, field_ty)) =
+                    self.constructor_field_declaration(statement, &receivers, &param_types)?
+                else {
+                    continue;
+                };
+                if annotated.contains(field_name.as_str()) {
+                    continue;
+                }
+                let field_sym = self.intern_name(&field_name);
+                if collected.iter().any(|field| field.name == field_sym) {
+                    continue;
+                }
+                let optional = matches!(
+                    self.ctx.krate.types.get(field_ty),
+                    Some(Type::Optional(_))
+                );
+                collected.push(Field {
+                    name: field_sym,
+                    ty: field_ty,
+                    visibility: Visibility::Public,
+                    optional,
+                    span: self.span(statement.range()),
+                });
+            }
         }
         Ok(collected)
     }
 
-    /// Read one `__init__` statement as an instance-field declaration.
+    /// Read one initializer statement as an instance-field declaration.
     ///
     /// Returns the field name and its type for the two typed assignment shapes
     /// described on [`Self::implicit_constructor_fields`], and `None` for any
@@ -738,15 +775,16 @@ impl ModuleBuilder<'_> {
     fn constructor_field_declaration(
         &mut self,
         statement: &Stmt,
+        receivers: &HashSet<&str>,
         param_types: &HashMap<&str, TypeId>,
     ) -> Result<Option<(String, TypeId)>, SmeltError> {
-        /// `self.<name>` as an assignment target, or `None` for anything else.
-        fn self_field_target(target: &Expr) -> Option<&str> {
+        /// `<instance>.<name>` as an assignment target, or `None` otherwise.
+        fn self_field_target<'a>(target: &'a Expr, receivers: &HashSet<&str>) -> Option<&'a str> {
             let Expr::Attribute(attribute) = target else {
                 return None;
             };
             match attribute.value.as_ref() {
-                Expr::Name(receiver) if receiver.id.as_str() == "self" => {
+                Expr::Name(receiver) if receivers.contains(receiver.id.as_str()) => {
                     Some(attribute.attr.as_str())
                 }
                 _ => None,
@@ -756,7 +794,7 @@ impl ModuleBuilder<'_> {
         match statement {
             // `self.<name>: T = <value>` — the annotation is the declaration.
             Stmt::AnnAssign(assign) => {
-                let Some(field_name) = self_field_target(&assign.target) else {
+                let Some(field_name) = self_field_target(&assign.target, receivers) else {
                     return Ok(None);
                 };
                 let field_ty = self.annotation_to_hir(&assign.annotation)?;
@@ -768,7 +806,7 @@ impl ModuleBuilder<'_> {
                 let [target] = assign.targets.as_slice() else {
                     return Ok(None);
                 };
-                let Some(field_name) = self_field_target(target) else {
+                let Some(field_name) = self_field_target(target, receivers) else {
                     return Ok(None);
                 };
                 Ok(self
@@ -1245,6 +1283,122 @@ impl ModuleBuilder<'_> {
             slots.insert(func.range.start().to_u32(), item_id);
         }
         Ok(slots)
+    }
+
+    /// Clone the immediate base's effective methods under reserved super aliases.
+    ///
+    /// Rust has no inherent-method inheritance and Smelt stores base fields
+    /// directly on the derived struct. Re-emitting the base body as a derived
+    /// method is therefore the typed equivalent of Python's next-MRO dispatch:
+    /// `super().f(x)` becomes `self.__smelt_super_f(x)` without an erased base
+    /// object or dynamic method table.
+    fn reserve_super_method_aliases(
+        &mut self,
+        base_sym: Symbol,
+        class_name: &str,
+        class_sym: Symbol,
+    ) -> Result<Vec<ItemId>, SmeltError> {
+        let methods = self.effective_hir_class_methods(base_sym);
+        let mut aliases = Vec::with_capacity(methods.len());
+        for method_id in methods {
+            let Item::Function(base_method) = self.item_ref(method_id) else {
+                continue;
+            };
+            let mut alias = base_method.clone();
+            let Some(method_name) = self
+                .ctx
+                .krate
+                .symbols
+                .get(base_method.name)
+                .map(ToOwned::to_owned)
+            else {
+                continue;
+            };
+            if method_name.starts_with("__smelt$super$") {
+                continue;
+            }
+            // `$` is not legal in a Python identifier, giving this synthetic
+            // symbol a collision-free namespace. Rust sanitization renders it
+            // as the readable `__smelt_super_<method>` inherent method.
+            let alias_name = format!("__smelt$super${method_name}");
+            let alias_sym = self.intern_name(&alias_name);
+            alias.name = alias_sym;
+            alias.owner = FunctionOwner::ClassMethod {
+                class: class_sym,
+                method: alias_sym,
+            };
+            let alias_id = self.ctx.krate.push_item(Item::Function(alias));
+            self.class_methods
+                .entry(class_name.to_owned())
+                .or_default()
+                .insert(alias_name, alias_id);
+            aliases.push(alias_id);
+        }
+        Ok(aliases)
+    }
+
+    /// Classify typed Python dunder methods for backend trait emission.
+    ///
+    /// Protocol metadata is explicit HIR rather than a backend name check, so a
+    /// TypeScript method that happens to use the same spelling does not acquire
+    /// Python operator semantics. An inherited `__add__` is represented by the
+    /// derived class's typed super alias.
+    fn python_class_protocols(
+        &self,
+        methods: &[ItemId],
+    ) -> Result<Vec<ClassProtocol>, SmeltError> {
+        let named_method = |wanted: &str| {
+            methods.iter().copied().find(|method| {
+                matches!(
+                    self.item_ref(*method),
+                    Item::Function(function)
+                        if self.ctx.krate.symbols.get(function.name) == Some(wanted)
+                )
+            })
+        };
+        let Some(method) = named_method("__add__")
+            .or_else(|| named_method("__smelt$super$__add__"))
+        else {
+            return Ok(Vec::new());
+        };
+        let Item::Function(function) = self.item_ref(method) else {
+            return Ok(Vec::new());
+        };
+        if function.params.len() != 2 || function.is_async {
+            return Err(SmeltError::unsupported(
+                function.span,
+                "Python __add__ must be synchronous and accept exactly one operand",
+            ));
+        }
+        Ok(vec![ClassProtocol::Add { method }])
+    }
+
+    /// Return a class's effective instance methods under single inheritance.
+    fn effective_hir_class_methods(&self, class_sym: Symbol) -> Vec<ItemId> {
+        let Some(class) = self.ctx.krate.items.iter().find_map(|item| match item {
+            Item::Class(class) if class.name == class_sym => Some(class),
+            _ => None,
+        }) else {
+            return Vec::new();
+        };
+        let mut methods = class
+            .base
+            .map(|base| self.effective_hir_class_methods(base))
+            .unwrap_or_default();
+        for &method in &class.methods {
+            let method_name = match self.item_ref(method) {
+                Item::Function(function) => function.name,
+                _ => continue,
+            };
+            if let Some(existing) = methods.iter_mut().find(|candidate| {
+                matches!(self.item_ref(**candidate), Item::Function(function) if function.name == method_name)
+            }) {
+                *existing = method;
+            } else {
+                methods.push(method);
+            }
+        }
+        methods
     }
 
     /// Lower a method or constructor inside a class body.

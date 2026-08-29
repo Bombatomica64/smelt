@@ -2187,6 +2187,19 @@ impl ModuleBuilder<'_> {
                     || self.ctx.krate.types.get(else_ty) == Some(&Type::Unknown)
                 {
                     self.ctx.krate.types.intern(Type::Unknown)
+                } else if self.declared_class_type(then_ty) && self.declared_class_type(else_ty) {
+                    // Two *declared* classes have no common Rust struct, but they
+                    // do have a concrete common representation: the generated
+                    // tagged union. Without this arm both branches fall into the
+                    // string-compatible test below — `is_string_compatible_type`
+                    // accepts any `Type::Class`, because that variant also spells
+                    // an opaque unresolved name — and the conditional unifies to
+                    // `String`, emitting a `String` local that the class values
+                    // are then assigned into. That output does not compile.
+                    self.ctx
+                        .krate
+                        .types
+                        .intern(Type::Union(vec![then_ty, else_ty]))
                 } else if self.is_string_compatible_type(then_ty)
                     && (self.is_string_compatible_type(else_ty)
                         || self.union_has_string_compatible_member(else_ty))

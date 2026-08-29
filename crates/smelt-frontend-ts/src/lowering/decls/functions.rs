@@ -1897,6 +1897,7 @@ impl ModuleBuilder<'_> {
             static_methods,
             abstract_methods,
             implements,
+            protocols: Vec::new(),
         }));
         self.pop_type_parameter_scope();
         self.classes.register(class_source_name, item);

@@ -354,6 +354,16 @@ fn lower_class_table_entry(mir: &mut Mir, class: &smelt_hir::Class, item_functio
             .iter()
             .map(|implemented| implemented.parent)
             .collect(),
+        protocols: class
+            .protocols
+            .iter()
+            .filter_map(|protocol| match protocol {
+                smelt_hir::ClassProtocol::Add { method } => item_functions
+                    .get(method)
+                    .copied()
+                    .map(|method| crate::MirClassProtocol::Add { method }),
+            })
+            .collect(),
     });
 }
 

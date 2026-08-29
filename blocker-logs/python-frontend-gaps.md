@@ -131,43 +131,33 @@ It is intercepted at *statement* level, where the enclosing block is known, so
 the emitted `let`/assignments land in the right block rather than the function
 root.
 
-**Still open: two smaller constructor cases.**
+**Constructor follow-up status.**
 
-* `super().<method>()` on an ordinary method. Under flattening an override
-  *replaces* the inherited slot in the derived impl, so the base body is not
-  present to call, and dispatching back through `self` would recurse forever.
-  This is now refused with a specific message rather than mis-lowered. Making it
-  work needs the base body emitted under a distinct name in the derived impl.
-* A subclass with **no** `__init__` does not inherit its base's. It gets the
-  synthesized zero-argument default, so `B(1)` emits `B::new(1)` against
-  `fn new() -> Self` — a compile error in the generated crate. Unlike the method
-  case this is not fixed by re-emitting the base body, because that body builds
-  and returns an `A` (`let mut self_: A = A { x: 0 }; ... return self_`) while
-  the subclass constructor must return `Self` = `B`. The likely fix is to
-  synthesize a derived constructor that takes the base's parameters and performs
-  the same base-construct-and-copy the `super()` lowering already emits.
+* `super().<method>()` on an ordinary method now lowers through a typed,
+  collision-free alias of the immediate base implementation emitted on the
+  flattened derived class. This bypasses an override without constructing an
+  erased base object or recursing back into the override.
+* A subclass with **no** `__init__` now inherits its base constructor signature.
+  Smelt synthesizes a derived constructor that builds the concrete base and
+  copies its flattened fields, matching explicit `super().__init__` lowering.
 
 ## Constructor-assigned field types
 
-The declaration pass types a constructor-assigned field only from values whose
-type is knowable *before* any method body is lowered: a reference to an
-`__init__` parameter, a scalar literal, or a constructor call for a class the
-module already registered (`self.inner = Inner()`). Anything else — a call
+The declaration pass types an `__init__`- or `__new__`-assigned field only from
+values whose type is knowable *before* any method body is lowered: a reference
+to an initializer parameter, a scalar literal, or a constructor call for a
+class the module already registered (`self.inner = Inner()`). Anything else — a call
 result, an operator expression, an empty container — is left undeclared rather
-than guessed. Note that leaving one undeclared is no longer harmless once a
-class declares *any* field: the fieldless-class fallback below stops applying,
-so the undeclared name becomes a hard `unknown class field` instead of silently
-type-checking.
+than guessed. An undeclared read is a hard `unknown class field` rather than a
+silently fabricated receiver type.
 
-## A latent silent-wrong-type path
+## Removed silent-wrong-type path
 
-`field_type` falls back to `class_has_no_fields(name).then_some(receiver_ty)` —
-on a class with no declared fields, *any* `self.<name>` takes the type of the
-receiver itself. Declaring constructor-assigned fields removes most classes from
-that fallback, but it still fires for genuinely fieldless classes, where reading
-an undeclared attribute silently type-checks as the class instead of raising
-`unknown class field`. Worth revisiting; not changed here because tightening it
-risks classes whose fields Smelt does not yet model.
+The old `field_type` fallback assigned the receiver's class type to every
+unknown attribute on a fieldless class. It has been removed: undeclared reads
+now report `unknown class field`. To avoid losing valid constructor-defined
+shape, the declaration pre-pass also recognizes typed assignments on the local
+instance returned by `__new__` (as well as assignments on `self` in `__init__`).
 
 ## Other shapes worth noting
 
