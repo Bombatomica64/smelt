@@ -809,8 +809,18 @@ impl FunctionEmitter<'_> {
         };
         let left_param_ty = function_ty.params.first().copied().unwrap_or(element_ty);
         let right_param_ty = function_ty.params.get(1).copied().unwrap_or(left_param_ty);
-        let left_arg = self.value_at_type_text("left.clone()", element_ty, left_param_ty)?;
-        let right_arg = self.value_at_type_text("right.clone()", element_ty, right_param_ty)?;
+        let left_arg = self.callback_call_arg_text(
+            function_ty,
+            0,
+            left_param_ty,
+            self.value_at_type_text("left.clone()", element_ty, left_param_ty)?,
+        );
+        let right_arg = self.callback_call_arg_text(
+            function_ty,
+            1,
+            right_param_ty,
+            self.value_at_type_text("right.clone()", element_ty, right_param_ty)?,
+        );
         let closure_text = match self.closure_operand_text_for_declared_type(comparator) {
             Ok(closure_text) => closure_text,
             Err(_) => self.operand_text(comparator)?,

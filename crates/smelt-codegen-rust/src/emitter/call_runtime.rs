@@ -1373,8 +1373,20 @@ impl FunctionEmitter<'_> {
                             }
                         })
                         .collect::<Result<Vec<_>, _>>()?;
-                    for param in params.iter().skip(args.len()) {
-                        rendered_args.push(self.default_value(*param)?);
+                    // A padded argument is a fresh temporary, so a
+                    // by-shared-reference parameter borrows it in place. Without
+                    // this the padding is the one argument in the ladder that
+                    // ignores the callee's ABI (E0308) — es-toolkit's
+                    // `isEqualWith` calls a six-parameter comparator with two
+                    // required arguments and four padded ones.
+                    for (index, param) in params.iter().enumerate().skip(args.len()) {
+                        let default_text = self.default_value(*param)?;
+                        rendered_args.push(match rest_function {
+                            Some(function) => {
+                                self.callback_call_arg_text(function, index, *param, default_text)
+                            }
+                            None => default_text,
+                        });
                     }
                     rendered_args
                 };

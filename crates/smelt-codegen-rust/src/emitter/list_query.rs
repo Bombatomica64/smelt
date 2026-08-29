@@ -535,14 +535,20 @@ impl FunctionEmitter<'_> {
         let float_ty = self.type_id(Type::Float)?;
         let mut call_args = Vec::new();
         if let Some(item_param_ty) = function_ty.params.first().copied() {
-            call_args.push(self.value_at_type_text(
-                "SmeltUnknown::Null",
-                unknown_ty,
+            call_args.push(self.callback_call_arg_text(
+                function_ty,
+                0,
                 item_param_ty,
-            )?);
+                self.value_at_type_text("SmeltUnknown::Null", unknown_ty, item_param_ty)?,
+            ));
         }
         if let Some(index_param_ty) = function_ty.params.get(1).copied() {
-            call_args.push(self.value_at_type_text("index as f64", float_ty, index_param_ty)?);
+            call_args.push(self.callback_call_arg_text(
+                function_ty,
+                1,
+                index_param_ty,
+                self.value_at_type_text("index as f64", float_ty, index_param_ty)?,
+            ));
         }
         let call_text = self.callback_invocation_text(function_ty, &call_args.join(", "));
         Ok(format!(

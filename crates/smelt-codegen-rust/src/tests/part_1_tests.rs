@@ -383,7 +383,7 @@ function anyPass(data: unknown, fns: Array<(value: unknown) => boolean>): boolea
 
     assert!(source.contains("mut fns:"), "{source}");
     assert!(source.contains(".iter().enumerate().any"), "{source}");
-    assert!(source.contains("(closure_arg_0)(data.clone())"), "{source}");
+    assert!(source.contains("(closure_arg_0)(&data)"), "{source}");
     assert!(!source.contains("let item = (*item).clone()"), "{source}");
     assert!(!source.contains("smelt_default_callback"), "{source}");
 }
@@ -912,7 +912,7 @@ const noInitial = values.reduce((acc, value, index) => acc + value + index);
     assert!(source.contains("closure_arg_0.clone() * 2.0"), "{source}");
     assert!(source.contains("closure_arg_0.clone() + 2.0"));
     assert!(
-        source.contains("(smelt_callback)(SmeltUnknown::Number(item.clone() as f64))"),
+        source.contains("(smelt_callback)(&(SmeltUnknown::Number(item.clone() as f64)))"),
         "{source}"
     );
     assert!(source.contains("let mut mutable_total"));
@@ -937,7 +937,7 @@ function zip(
     );
 
     assert!(
-        source.contains("fn_(closure_arg_0.clone(),"),
+        source.contains("fn_(&closure_arg_0,"),
         "captured callback should retain its four-argument ABI: {source}"
     );
     assert!(
@@ -964,7 +964,7 @@ function zip(
     );
 
     assert!(
-        source.contains("fn_(closure_arg_0.clone(),"),
+        source.contains("fn_(&closure_arg_0,"),
         "captured callback should not adopt the same-named free function ABI: {source}"
     );
     assert!(
@@ -1440,11 +1440,11 @@ export function rebindCb(cb: (value: unknown) => unknown): unknown {
     );
 
     assert!(
-        source.contains("::std::rc::Rc<dyn Fn(SmeltUnknown) ->"),
+        source.contains("::std::rc::Rc<dyn Fn(&SmeltUnknown) ->"),
         "rebound callback parameter was not an owned handle: {source}"
     );
     assert!(
-        !source.contains("cb: &dyn Fn(SmeltUnknown)"),
+        !source.contains("cb: &dyn Fn("),
         "rebound callback parameter stayed a borrowed &dyn Fn: {source}"
     );
 }

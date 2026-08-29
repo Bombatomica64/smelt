@@ -2316,7 +2316,7 @@ impl<'mir> FunctionEmitter<'mir> {
             }
             Operand::Const(_) => false,
         };
-        let args = self.function_args_from_smelt_args_text(source)?;
+        let args = self.function_args_from_smelt_args_text(source, ErasedCallTargetAbi::Declared)?;
         let callback_text = if is_borrowed_param {
             function_text.clone()
         } else {
@@ -2900,7 +2900,7 @@ impl<'mir> FunctionEmitter<'mir> {
             }
             Operand::Const(_) => false,
         };
-        let args = self.function_args_from_smelt_args_text(source)?;
+        let args = self.function_args_from_smelt_args_text(source, ErasedCallTargetAbi::Declared)?;
         let callback_text = if is_borrowed_param {
             function_text.clone()
         } else {
@@ -3112,9 +3112,21 @@ impl<'mir> FunctionEmitter<'mir> {
     }
 
     /// Render concrete callback arguments extracted from an erased JS argument vector.
+    ///
+    /// `target_abi` says which ABI the callee behind `smelt_callback` was
+    /// rendered with, and it is not always the one `function` declares. A
+    /// callback reached through a DECLARED function type follows
+    /// [`Self::callback_param_is_shared_reference`], so a by-shared-reference
+    /// parameter is handed `&(..)`. A callback that is a closure this emitter
+    /// just rendered against a different contextual type — the erased-rest
+    /// wrapper in `closures.rs` synthesizes a `FunctionType` purely to describe
+    /// the closure's own parameter list — was rendered by value, and packing
+    /// `&(..)` for it would not type-check (E0308). The two sites disagree about
+    /// the callee, not about the rule, so the caller states which callee it has.
     pub(super) fn function_args_from_smelt_args_text(
         &self,
         function: &FunctionType,
+        target_abi: ErasedCallTargetAbi,
     ) -> Result<String, EmitError> {
         function
             .params
@@ -3124,8 +3136,8 @@ impl<'mir> FunctionEmitter<'mir> {
                 if function.rest == Some(index)
                     && let Some(Type::List(item_ty)) = self.mir.types.get(*param_ty)
                 {
-                    let by_ref =
-                        self.callback_param_is_shared_reference(function, index, *param_ty);
+                    let by_ref = target_abi == ErasedCallTargetAbi::Declared
+                        && self.callback_param_is_shared_reference(function, index, *param_ty);
                     let (open, close) = if by_ref { ("&(", ")") } else { ("", "") };
                     if self.mir.types.get(*item_ty) == Some(&Type::Unknown) {
                         return Ok(format!(
@@ -3152,7 +3164,9 @@ impl<'mir> FunctionEmitter<'mir> {
                 };
                 if function.mutable_params.contains(&index) {
                     Ok(format!("&mut ({arg})"))
-                } else if self.callback_param_is_shared_reference(function, index, *param_ty) {
+                } else if target_abi == ErasedCallTargetAbi::Declared
+                    && self.callback_param_is_shared_reference(function, index, *param_ty)
+                {
                     Ok(format!("&({arg})"))
                 } else {
                     Ok(arg)
@@ -3338,6 +3352,21 @@ impl<'mir> FunctionEmitter<'mir> {
                     for (target_index, target_param) in
                         target_function.params.iter().enumerate().skip(index)
                     {
+                        // The rest list this builds OWNS its elements, so a
+                        // parameter the adapter declares by shared reference
+                        // (`callback_param_is_shared_reference`) is copied out
+                        // before it is packed. Without the copy the vector infers
+                        // `SmeltList<&SmeltUnknown>` and the `Into<Vec<_>>` at the
+                        // erased call fails to resolve (E0277).
+                        let arg_text = if self.callback_param_is_shared_reference(
+                            target_function,
+                            target_index,
+                            *target_param,
+                        ) {
+                            format!("arg{target_index}.clone()")
+                        } else {
+                            format!("arg{target_index}")
+                        };
                         if target_index > index
                             && let Some(Type::List(target_item)) = self.mir.types.get(*target_param)
                         {
@@ -3355,14 +3384,11 @@ impl<'mir> FunctionEmitter<'mir> {
                                 )?
                             };
                             text.push_str(&format!(
-                                "smelt_forwarded_args.extend(arg{target_index}.into_iter().map(|value| {item_text})); "
+                                "smelt_forwarded_args.extend({arg_text}.into_iter().map(|value| {item_text})); "
                             ));
                         } else {
-                            let item_text = self.value_at_type_text(
-                                &format!("arg{target_index}"),
-                                *target_param,
-                                *source_item,
-                            )?;
+                            let item_text =
+                                self.value_at_type_text(&arg_text, *target_param, *source_item)?;
                             text.push_str(&format!("smelt_forwarded_args.push({item_text}); "));
                         }
                     }
@@ -3847,7 +3873,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 "erased rest forwarding closure requires a function type",
             ));
         };
-        let args = self.function_args_from_smelt_args_text(source)?;
+        let args = self.function_args_from_smelt_args_text(source, ErasedCallTargetAbi::Declared)?;
         let source_is_erased = self.is_erased_unknown_rest_function(source) && !source.may_throw;
         let call = if source_is_erased {
             format!("smelt_callback.call({args})")
@@ -3934,7 +3960,7 @@ impl<'mir> FunctionEmitter<'mir> {
         // Non-owned (function-parameter) path: invoke the callback by its operand
         // text directly, with no binding or extra parentheses. Kept inline so the
         // emitted text remains byte-identical to the previous implementation.
-        let args = self.function_args_from_smelt_args_text(source)?;
+        let args = self.function_args_from_smelt_args_text(source, ErasedCallTargetAbi::Declared)?;
         let source_is_erased = self.is_erased_unknown_rest_function(source) && !source.may_throw;
         let call = if source_is_erased {
             format!("{function_text}.call({args})")
