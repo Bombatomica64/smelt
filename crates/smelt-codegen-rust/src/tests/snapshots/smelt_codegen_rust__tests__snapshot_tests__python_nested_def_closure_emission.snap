@@ -11,8 +11,8 @@ fn make_adder(base: i64) -> ::std::rc::Rc<dyn Fn(i64) -> i64> {
     let _smelt_tmp_2 = ::std::rc::Rc::new({
     let base = base.clone();
     move |closure_arg_0: i64| {
-    let _smelt_tmp_2: i64 = closure_arg_0.clone() + base.clone();
-    _smelt_tmp_2.clone()
+    let _smelt_tmp_2: i64 = closure_arg_0 + base;
+    _smelt_tmp_2
     }
 });
     return _smelt_tmp_2.clone();

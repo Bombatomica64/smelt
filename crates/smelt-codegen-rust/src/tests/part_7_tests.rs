@@ -1082,7 +1082,7 @@ export function make(count: number): number[] {
 
     assert!(
         source.contains(
-            "smelt_reflected_construct(\"uint8array\", vec![SmeltUnknown::Number(count.clone() as f64)])"
+            "smelt_reflected_construct(\"uint8array\", vec![SmeltUnknown::Number(count as f64)])"
         ),
         "{source}"
     );
@@ -3005,7 +3005,7 @@ function truncateDifference(left: bigint, right: number): bigint {
     );
 
     assert!(
-        source.contains("(right.clone() as f64).trunc() as i64"),
+        source.contains("(right as f64).trunc() as i64"),
         "{source}"
     );
     // The int-from-float coercion keeps only the parentheses `.trunc()` needs
@@ -3048,7 +3048,7 @@ function isZero(amount: number): boolean {
     );
 
     assert!(
-        source.contains("!({ let smelt_number = amount.clone(); smelt_number != 0.0 && !smelt_number.is_nan() })"),
+        source.contains("!({ let smelt_number = amount; smelt_number != 0.0 && !smelt_number.is_nan() })"),
         "{source}"
     );
 }
@@ -3171,7 +3171,7 @@ function makeDataLast(fn: (value: number, extra: number) => number, extra: numbe
         "{source}"
     );
     assert!(
-        source.contains("(fn_)(closure_arg_0.clone(), extra.clone())"),
+        source.contains("(fn_)(closure_arg_0, extra)"),
         "{source}"
     );
 }
@@ -3801,7 +3801,7 @@ function shiftRaw(raw: bigint): bigint {
     assert!(source.contains(">>"), "{source}");
     assert!(source.contains("fn shift_raw(raw: i64) -> i64"), "{source}");
     assert!(
-        source.contains("(((raw.clone() as f64).trunc() as i128) >>"),
+        source.contains("(((raw as f64).trunc() as i128) >>"),
         "{source}"
     );
     assert!(source.contains("rem_euclid(4294967296.0)"), "{source}");
@@ -3836,7 +3836,7 @@ function sample<T>(data: readonly T[]): T[] {
 ",
     );
 
-    assert!(source.contains("closure_arg_0.clone() as i64"), "{source}");
+    assert!(source.contains("closure_arg_0 as i64"), "{source}");
     assert!(source.contains("usize::try_from(normalized)"), "{source}");
 }
 
@@ -4112,7 +4112,7 @@ function wrap<T>(
         "fixed callback spread calls should read the second fixed parameter from the rest vector: {source}"
     );
     assert!(
-        source.contains("}, n.clone())"),
+        source.contains("}, n)"),
         "fixed callback spread calls should keep trailing scalar arguments after spread expansion: {source}"
     );
 }
@@ -4195,12 +4195,12 @@ function indicesSeen(
     // the binding is forwarded as-is. Borrowing it again would hand the callee a
     // `&&SmeltUnknown` that only compiles through deref coercion.
     assert!(
-        source.contains("predicate(closure_arg_0, closure_arg_1.clone())"),
+        source.contains("predicate(closure_arg_0, closure_arg_1)"),
         "a borrowed callback parameter should forward without a re-borrow: {source}"
     );
     assert!(
         source.contains(
-            "let smelt_push_item = closure_arg_1.clone(); (*smelt_capture_indices.borrow()).borrow_mut().push(smelt_push_item)"
+            "let smelt_push_item = closure_arg_1; (*smelt_capture_indices.borrow()).borrow_mut().push(smelt_push_item)"
         ),
         "captured push should mutate the outer vector storage: {source}"
     );
@@ -4250,7 +4250,7 @@ export function collect(value: number, key: string): Array<[number, string]> {
         "tuple-element array should keep its concrete tuple element type: {source}"
     );
     assert!(
-        source.contains("(value.clone(), key.clone())"),
+        source.contains("(value, key.clone())"),
         "pushed literal should be a concrete tuple value: {source}"
     );
     assert!(
@@ -6572,7 +6572,7 @@ setTimeout(greet, 10, "hi", 3);
     // The wrapper captures by value (move) and invokes the callback directly.
     assert!(source.contains("move ||"), "{source}");
     assert!(
-        source.contains("(smelt_timer_callback)(smelt_timer_arg_0.clone(), smelt_timer_arg_1.clone())"),
+        source.contains("(smelt_timer_callback)(smelt_timer_arg_0.clone(), smelt_timer_arg_1)"),
         "{source}"
     );
     assert!(source.contains("smelt_set_timeout("), "{source}");
@@ -6597,7 +6597,7 @@ setInterval(tick, 5, "tock", 2);
     assert!(source.contains("smelt_timer_arg_0"), "{source}");
     assert!(source.contains("smelt_timer_arg_1"), "{source}");
     assert!(
-        source.contains("(smelt_timer_callback)(smelt_timer_arg_0.clone(), smelt_timer_arg_1.clone())"),
+        source.contains("(smelt_timer_callback)(smelt_timer_arg_0.clone(), smelt_timer_arg_1)"),
         "{source}"
     );
     assert!(source.contains("smelt_set_interval("), "{source}");
@@ -7389,7 +7389,7 @@ export function run(values: number[]): number[] {
 ",
     );
     assert!(
-        source.contains("with_tail(closure_arg_0.clone(), closure_arg_1.clone(), closure_arg_2.clone(), None::<f64>)"),
+        source.contains("with_tail(closure_arg_0, closure_arg_1.clone(), closure_arg_2.clone(), None::<f64>)"),
         "{source}"
     );
 }
@@ -10792,7 +10792,7 @@ export function useIt(): string {
     );
 
     assert!(
-        source.contains("thrower(closure_arg_0.clone())?"),
+        source.contains("thrower(closure_arg_0)?"),
         "the fallible wrapper closure must propagate the throw:\n{source}"
     );
     assert!(
@@ -11365,7 +11365,7 @@ export function pick(flag: boolean, value: string): string | boolean {
         "`boolean && string` is the union of its operand types:\n{source}"
     );
     assert!(
-        source.contains("{ SmeltUnion2::M1(value.clone()) } else { SmeltUnion2::M0(flag.clone()) }"),
+        source.contains("{ SmeltUnion2::M1(value.clone()) } else { SmeltUnion2::M0(flag) }"),
         "each arm must carry the operand JavaScript selects, not a boolean:\n{source}"
     );
 }
@@ -11422,10 +11422,10 @@ export function count(a: number, b: number): number {
     );
 
     let first = source
-        .find("valid(a.clone())")
+        .find("valid(a)")
         .expect("the left guard should be called");
     let second = source
-        .find("valid(b.clone())")
+        .find("valid(b)")
         .expect("the right guard should be called");
     let branch = source
         .find("if _smelt_tmp")
@@ -11532,7 +11532,7 @@ class B(A):
         "the base implementation must be available under a typed alias:\n{source}"
     );
     assert!(
-        impl_b.contains("self.__smelt_super_greet(value.clone())"),
+        impl_b.contains("self.__smelt_super_greet(value)"),
         "super().greet(value) must call the base alias, not the override:\n{source}"
     );
 }

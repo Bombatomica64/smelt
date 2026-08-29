@@ -8,7 +8,7 @@ expression: emitted
 // ... shared generated runtime prelude omitted from selective snapshot ...
 
 fn erase(value: f64) -> SmeltUnknown {
-    let _smelt_tmp_1: SmeltUnknown = SmeltUnknown::Number(value.clone() as f64);
+    let _smelt_tmp_1: SmeltUnknown = SmeltUnknown::Number(value as f64);
     return _smelt_tmp_1;
 }
 

@@ -2176,6 +2176,11 @@ impl<'mir> FunctionEmitter<'mir> {
                     // An index read constructs its result rather than projecting
                     // to a place, so it is likewise already owned.
                     || self.index_place_read_is_owned(place)
+                    // A scalar lowers to a `Copy` Rust type, so reading it out of
+                    // a place already yields an owned value. `i.clone()` on an
+                    // `f64` is what `clippy::clone_on_copy` exists to reject, and
+                    // no hand-written port would spell a loop counter that way.
+                    || self.place_type_is_copy_scalar(place)?
                 {
                     self.place_text(place)
                 } else {
@@ -2185,6 +2190,20 @@ impl<'mir> FunctionEmitter<'mir> {
             Operand::Move(place) => self.place_text(place),
             Operand::Const(constant) => Ok(constant_text(constant)),
         }
+    }
+
+    /// Whether a place reads a scalar that lowers to a `Copy` Rust type.
+    ///
+    /// `bool`, `i64` and `f64` are `Copy`, so a place read of one is already an
+    /// owned value and needs no `.clone()`. Only these three are accepted: every
+    /// other Smelt type either owns a heap allocation (`String`, `SmeltList`) or
+    /// lowers to a type whose `Copy`-ness depends on its parameters, and a wrong
+    /// answer here would emit a move out of a borrowed place.
+    fn place_type_is_copy_scalar(&self, place: &Place) -> Result<bool, EmitError> {
+        Ok(matches!(
+            self.mir.types.get(self.place_ty(place)?),
+            Some(Type::Bool | Type::Int | Type::Float)
+        ))
     }
 
     /// Converts an operand to Rust text for a read whose every use is a `&self`

@@ -9,12 +9,12 @@ expression: emitted
 
 fn plus_one(values: SmeltList<f64>) -> SmeltList<f64> {
     let _smelt_tmp_1 = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: &SmeltList<f64>| {
-    let _smelt_tmp_3: f64 = closure_arg_0.clone() + 1.0;
-    _smelt_tmp_3.clone()
+    let _smelt_tmp_3: f64 = closure_arg_0 + 1.0;
+    _smelt_tmp_3
     });
     let _smelt_tmp_2: SmeltList<f64> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: &SmeltList<f64>| {
-    let _smelt_tmp_3: f64 = closure_arg_0.clone() + 1.0;
-    _smelt_tmp_3.clone()
+    let _smelt_tmp_3: f64 = closure_arg_0 + 1.0;
+    _smelt_tmp_3
     }); let smelt_array = values.clone(); smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>() });
     return _smelt_tmp_2;
 }
@@ -35,19 +35,19 @@ fn spread(values: SmeltList<f64>, args: SmeltList<f64>, func: &dyn Fn(SmeltList<
     let _smelt_tmp_3 = ::std::rc::Rc::new({
     let args = args.clone();
     move |closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: &SmeltList<f64>| {
-    let _smelt_tmp_5: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![closure_arg_0.clone()]; smelt_list_items }));
+    let _smelt_tmp_5: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![closure_arg_0]; smelt_list_items }));
     let _smelt_tmp_6: SmeltList<f64> = Into::<SmeltList<_>>::into(args.clone().borrow().iter().cloned().chain(_smelt_tmp_5.clone().borrow().iter().cloned()).collect::<Vec<_>>());
     let _smelt_tmp_7: f64 = func(_smelt_tmp_6.clone());
-    _smelt_tmp_7.clone()
+    _smelt_tmp_7
     }
 });
     let _smelt_tmp_4: SmeltList<f64> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new({
     let args = args.clone();
     move |closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: &SmeltList<f64>| {
-    let _smelt_tmp_5: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![closure_arg_0.clone()]; smelt_list_items }));
+    let _smelt_tmp_5: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![closure_arg_0]; smelt_list_items }));
     let _smelt_tmp_6: SmeltList<f64> = Into::<SmeltList<_>>::into(args.clone().borrow().iter().cloned().chain(_smelt_tmp_5.clone().borrow().iter().cloned()).collect::<Vec<_>>());
     let _smelt_tmp_7: f64 = func(_smelt_tmp_6.clone());
-    _smelt_tmp_7.clone()
+    _smelt_tmp_7
     }
 }); let smelt_array = values.clone(); smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>() });
     return _smelt_tmp_4;
@@ -66,14 +66,14 @@ fn collect_indices(values: SmeltList<f64>) -> SmeltList<f64> {
     let mut _smelt_tmp_6: f64 = 0.0;
     loop {
     _smelt_tmp_7 = values.len() as f64;
-    _smelt_tmp_8 = _smelt_tmp_6.clone() < _smelt_tmp_7;
+    _smelt_tmp_8 = _smelt_tmp_6 < _smelt_tmp_7;
     if !(_smelt_tmp_8) { break; }
-    _value = values.borrow().get({ let len = values.len() as i64; let index = _smelt_tmp_6.clone() as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0);
-    index = __for_each_index.clone();
+    _value = values.borrow().get({ let len = values.len() as i64; let index = _smelt_tmp_6 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0);
+    index = __for_each_index;
     _smelt_tmp_9 = __for_each_index + 1.0;
     __for_each_index = _smelt_tmp_9;
     _smelt_tmp_10 = { let smelt_push_item = index; indices.borrow_mut().push(smelt_push_item); indices.len() as f64 };
-    _smelt_tmp_6 = _smelt_tmp_6.clone() + 1.0;
+    _smelt_tmp_6 = _smelt_tmp_6 + 1.0;
     }
     return indices;
 }
