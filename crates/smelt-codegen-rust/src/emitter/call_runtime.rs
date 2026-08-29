@@ -102,7 +102,7 @@ impl FunctionEmitter<'_> {
     /// `vec![...]` for `ClosureCall`, a pre-flattened list for
     /// `ClosureCallSpread`), so it is the single parameterized hole in the shared
     /// snippet.
-    fn dynamic_callable_dispatch_text(&self, callee_text: &str, args_expr: &str) -> String {
+    pub(super) fn dynamic_callable_dispatch_text(&self, callee_text: &str, args_expr: &str) -> String {
         // `callee_text` is usually already an owned temporary (an operand render
         // clones the local it reads), so take an owned copy rather than
         // deep-copying it a second time.

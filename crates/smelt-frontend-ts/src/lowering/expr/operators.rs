@@ -573,6 +573,14 @@ impl ModuleBuilder<'_> {
                     ) {
                         return Ok(value);
                     }
+                    // A combinator element that is not statically a `Future`
+                    // is a plain value (or an erased one that may be a promise
+                    // at run time), which `Promise.all` adopts as-is. It must
+                    // travel in the op's operands: lowering to a bare `Sleep`
+                    // kept only its *type*, so the element expression -- and any
+                    // side effect in it -- was dropped and the combinator saw
+                    // `default_value(ty)`. `Promise.all([f(), g()])` on erased
+                    // callables never called `f` or `g` at all.
                     let duration = body.push_expr(Expr {
                         kind: ExprKind::Literal(Literal::Float(0.0)),
                         ty: self.ctx.krate.types.intern(Type::Float),
@@ -585,8 +593,8 @@ impl ModuleBuilder<'_> {
                         .intern(Type::Future(Self::expr_ty(body, value)));
                     Ok(body.push_expr(Expr {
                         kind: ExprKind::AsyncOp {
-                            op: AsyncOp::Sleep,
-                            args: vec![duration],
+                            op: AsyncOp::Resolve,
+                            args: vec![duration, value],
                         },
                         ty,
                         span: self.span(element.span().start, element.span().end),
