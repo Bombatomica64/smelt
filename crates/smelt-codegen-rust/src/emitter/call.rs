@@ -2112,17 +2112,14 @@ impl FunctionEmitter<'_> {
                     Some(Type::Float)
                 )
             {
-                let params = target_function
-                    .params
-                    .iter()
-                    .enumerate()
-                    .map(|(index, param)| {
-                        Ok(format!(
-                            "arg{index}: {}",
-                            self.type_text_with_impl_trait(*param, false)?
-                        ))
-                    })
-                    .collect::<Result<Vec<_>, EmitError>>()?
+                // The wrapper is assigned to `dest_ty`'s `dyn Fn`, so its
+                // parameters must carry whatever `&` that spelling does
+                // (`callback_param_is_shared_reference`); rendering the bare
+                // types here made the two disagree (E0631).
+                let scope = self.current_function_type_params();
+                let substitution = TypeSubstitution::lexical(&scope);
+                let params = self
+                    .callback_arg_decls(target_function, &substitution, MutablePrefix::Apply)?
                     .join(", ");
                 let call_args = (0..target_function.params.len())
                     .map(|index| format!("arg{index}"))

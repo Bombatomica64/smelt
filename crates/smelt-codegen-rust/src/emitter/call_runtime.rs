@@ -2075,7 +2075,8 @@ impl FunctionEmitter<'_> {
             let element = format!(
                 "smelt_spread_args.get({index}).cloned().unwrap_or(SmeltUnknown::Undefined)"
             );
-            rendered.push(self.value_at_type_text(&element, unknown_ty, *param)?);
+            let coerced = self.value_at_type_text(&element, unknown_ty, *param)?;
+            rendered.push(self.callback_call_arg_text(function, index, *param, coerced));
         }
         // The rest parameter collects the remaining elements as a fresh
         // `SmeltList`; coerce each element to the rest item type when needed.
