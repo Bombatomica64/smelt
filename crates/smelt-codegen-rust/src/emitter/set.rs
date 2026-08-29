@@ -48,20 +48,11 @@ impl FunctionEmitter<'_> {
                 self.operand_text(item)?
             ));
         }
-        // When the needle's static type differs from the element type, the
-        // coercion inserts an `as` cast (e.g. an `i64` callback index against a
-        // `Set<number>`). Parenthesize so the reference wraps the whole cast
-        // (`&(x as f64)`) rather than casting a reference (`&x as f64`, an
-        // invalid `&i64 as f64`). A same-typed needle keeps the terse `&needle`.
-        let needle_needs_coercion = self.operand_ty(item)? != item_ty;
-        let item_text = {
-            let coerced = self.value_at_type(item, item_ty)?;
-            if needle_needs_coercion {
-                format!("({coerced})")
-            } else {
-                coerced
-            }
-        };
+        // `shared_reference_argument_text` parenthesizes a coerced needle, so the
+        // reference wraps the whole cast (`&(x as f64)`) rather than casting a
+        // reference (`&x as f64`, an invalid `&i64 as f64`), and hands over the
+        // place itself when no coercion is needed.
+        //
         // Membership goes through the container's own `contains`. For the
         // `HashSet` backing (`bool`/`i64`/`String`) that is value equality, which
         // matches JS SameValueZero for those primitives. For every other element
@@ -71,9 +62,9 @@ impl FunctionEmitter<'_> {
         // JS `Set.prototype.has` semantics — rather than `HashSet`'s structural
         // `Eq`.
         Ok(format!(
-            "{}.contains(&{})",
+            "{}.contains({})",
             self.operand_text(set)?,
-            item_text
+            self.shared_reference_argument_text(item, item_ty)?
         ))
     }
 
@@ -171,26 +162,26 @@ impl FunctionEmitter<'_> {
         // concrete value (e.g. a `number`) from an erased `Set<unknown>` erases
         // the key the same way `set_add_text` erases inserted items; the set
         // stores `SmeltUnknown`, so the lookup key must be erased to match.
-        let item_text = self.value_at_type(item, *item_ty)?;
+        let item_text = self.shared_reference_argument_text(item, *item_ty)?;
         match op {
             smelt_hir::SetRemoveOp::Delete => {
                 if !matches!(self.mir.types.get(dest_ty), Some(Type::Bool)) {
                     return Err(EmitError::new("set delete destination must be bool"));
                 }
-                Ok(format!("{set_text}.remove(&{item_text})"))
+                Ok(format!("{set_text}.remove({item_text})"))
             }
             smelt_hir::SetRemoveOp::Discard => {
                 if !matches!(self.mir.types.get(dest_ty), Some(Type::None)) {
                     return Err(EmitError::new("set discard destination must be None"));
                 }
-                Ok(format!("{{ {set_text}.remove(&{item_text}); () }}"))
+                Ok(format!("{{ {set_text}.remove({item_text}); () }}"))
             }
             smelt_hir::SetRemoveOp::Remove => {
                 if !matches!(self.mir.types.get(dest_ty), Some(Type::None)) {
                     return Err(EmitError::new("set remove destination must be None"));
                 }
                 Ok(format!(
-                    "{{ if !{set_text}.remove(&{item_text}) {{ panic!(\"set remove missing item\"); }} () }}"
+                    "{{ if !{set_text}.remove({item_text}) {{ panic!(\"set remove missing item\"); }} () }}"
                 ))
             }
         }

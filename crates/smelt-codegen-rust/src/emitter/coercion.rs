@@ -2339,12 +2339,12 @@ impl FunctionEmitter<'_> {
                 if is_trivial_reeval_expr(text) {
                     let inner_text = self.extract_value_text(text, *inner)?;
                     return Ok(format!(
-                        "if smelt_unknown_is_nullish(&{text}.clone()) {{ None }} else {{ Some({inner_text}) }}"
+                        "if smelt_unknown_is_nullish(&{text}) {{ None }} else {{ Some({inner_text}) }}"
                     ));
                 }
                 let inner_text = self.extract_value_text("smelt_optional_source", *inner)?;
                 Ok(format!(
-                    "{{ let smelt_optional_source = {text}; if smelt_unknown_is_nullish(&smelt_optional_source.clone()) {{ None }} else {{ Some({inner_text}) }} }}"
+                    "{{ let smelt_optional_source = {text}; if smelt_unknown_is_nullish(&smelt_optional_source) {{ None }} else {{ Some({inner_text}) }} }}"
                 ))
             }
             Some(Type::Tuple(items)) => {

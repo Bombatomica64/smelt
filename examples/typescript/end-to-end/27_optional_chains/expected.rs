@@ -492,9 +492,9 @@ impl<K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, V> SmeltRecord<K, V> 
     fn keys(&self) -> ::std::vec::IntoIter<K> { self.store.borrow().entries().iter().map(|entry| entry.0.clone()).collect::<Vec<_>>().into_iter() }
     fn values(&self) -> ::std::vec::IntoIter<V> where V: Clone { self.store.borrow().entries().iter().map(|entry| entry.1.clone()).collect::<Vec<_>>().into_iter() }
     fn extend<I: IntoIterator<Item = (K, V)>>(&self, iter: I) { for (key, value) in iter { self.insert(key, value); } }
-    fn entry_or_insert(&self, key: K, default: V) -> ::std::cell::RefMut<'_, V> {
+    fn entry_or_insert(&self, key: K, default: impl FnOnce() -> V) -> ::std::cell::RefMut<'_, V> {
         let missing = !self.store.borrow().contains_key(&key);
-        if missing { self.insert(key.clone(), default); }
+        if missing { self.insert(key.clone(), default()); }
         ::std::cell::RefMut::map(self.store.borrow_mut(), move |store| store.get_mut(&key).expect("record entry just inserted"))
     }
 }
@@ -569,9 +569,9 @@ impl<K: SmeltJsKeyEq + Clone, V: Clone> SmeltJsMap<K, V> {
     fn keys(&self) -> ::std::vec::IntoIter<K> { self.store.borrow().entries.iter().map(|(key, _)| key.clone()).collect::<Vec<_>>().into_iter() }
     fn values(&self) -> ::std::vec::IntoIter<V> { self.store.borrow().entries.iter().map(|(_, value)| value.clone()).collect::<Vec<_>>().into_iter() }
     fn extend<I: IntoIterator<Item = (K, V)>>(&mut self, iter: I) { for (key, value) in iter { self.insert(key, value); } }
-    fn entry_or_insert(&mut self, key: K, default: V) -> ::std::cell::RefMut<'_, V> {
+    fn entry_or_insert(&mut self, key: K, default: impl FnOnce() -> V) -> ::std::cell::RefMut<'_, V> {
         let hash = key.js_key_hash();
-        let slot = { let mut store = self.store.borrow_mut(); match store.position(&key, hash) { Some(slot) => slot, None => { let slot = store.entries.len(); store.entries.push((key, default)); store.index.remember(slot, hash); slot } } };
+        let slot = { let mut store = self.store.borrow_mut(); match store.position(&key, hash) { Some(slot) => slot, None => { let slot = store.entries.len(); store.entries.push((key, default())); store.index.remember(slot, hash); slot } } };
         ::std::cell::RefMut::map(self.store.borrow_mut(), move |store| &mut store.entries[slot].1)
     }
 }
