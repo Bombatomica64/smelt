@@ -11403,6 +11403,67 @@ class B(A):
     );
 }
 
+/// Python `super().method()` calls the immediate base implementation without
+/// recursing into the derived override.
+#[test]
+fn python_super_method_uses_a_typed_base_alias() {
+    let source = source_for_py(
+        r"
+class A:
+    def greet(self, value: int) -> int:
+        return value + 1
+
+class B(A):
+    def greet(self, value: int) -> int:
+        return super().greet(value) + 10
+",
+    );
+
+    let impl_b = source
+        .split("impl B {")
+        .nth(1)
+        .unwrap_or_else(|| panic!("expected an `impl B` block:\n{source}"));
+    assert!(
+        impl_b.contains("fn __smelt_super_greet(&self, value: i64) -> i64"),
+        "the base implementation must be available under a typed alias:\n{source}"
+    );
+    assert!(
+        impl_b.contains("self.__smelt_super_greet(value.clone())"),
+        "super().greet(value) must call the base alias, not the override:\n{source}"
+    );
+}
+
+/// A Python `__add__` method becomes a concrete Rust `Add<Rhs>` implementation.
+#[test]
+fn python_add_dunder_emits_a_typed_rust_trait_impl() {
+    let source = source_for_py(
+        r#"
+class Vector:
+    def __init__(self, x: int) -> None:
+        self.x = x
+    def __add__(self, other: "Vector") -> "Vector":
+        return Vector(self.x + other.x)
+
+def combine(left: Vector, right: Vector) -> Vector:
+    return left + right
+"#,
+    );
+
+    assert!(
+        source.contains("impl ::std::ops::Add<Vector> for Vector"),
+        "Python __add__ must map to Rust's typed Add trait:\n{source}"
+    );
+    assert!(
+        source.contains("type Output = Vector;")
+            && source.contains("fn add(self, rhs: Vector) -> Self::Output { self.__add__(rhs) }"),
+        "the Rust adapter must preserve the concrete operand and output types:\n{source}"
+    );
+    assert!(
+        source.contains("left.clone() + right.clone()"),
+        "Python + must use the typed Rust operator without consuming source bindings:\n{source}"
+    );
+}
+
 /// A Python `super().__init__(..)` runs the base constructor and copies the
 /// flattened base slots onto the derived instance, composing across levels.
 #[test]

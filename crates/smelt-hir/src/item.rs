@@ -173,6 +173,18 @@ pub struct Class {
     pub abstract_methods: Vec<MethodSig>,
     /// Interfaces implemented by this class, including supplied type arguments.
     pub implements: Vec<InterfaceHeritage>,
+    /// Source-language class protocols with statically typed Rust mappings.
+    pub protocols: Vec<ClassProtocol>,
+}
+
+/// A source-language class protocol selected for typed backend lowering.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum ClassProtocol {
+    /// Python `__add__`, lowered through a concrete Rust `Add<Rhs>` impl.
+    Add {
+        /// Method implementing the protocol.
+        method: ItemId,
+    },
 }
 
 /// A typed materialized descriptor member.

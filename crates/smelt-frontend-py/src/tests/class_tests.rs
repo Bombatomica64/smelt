@@ -627,7 +627,31 @@ class codes(IntEnum):
     OK = codes.__new__(200, "OK")
 "#);
     let mut ctx = HirCtx::new();
-    lower_module(source, &mut ctx)?;
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let codes = module
+        .items
+        .iter()
+        .find_map(|item_id| match item(&ctx, *item_id).ok()? {
+            Item::Class(class) if symbol(&ctx, class.name).ok()? == "codes" => Some(class),
+            _ => None,
+        })
+        .ok_or("expected codes class")?;
+    ensure_eq(&codes.fields.len(), &2, "__new__-assigned field count")?;
+    ensure(
+        codes.fields.iter().any(|field| {
+            symbol(&ctx, field.name).ok() == Some("_value_")
+                && matches!(ctx.krate.types.get(field.ty), Some(Type::Int))
+        }),
+        "expected _value_ to retain the int parameter type",
+    )?;
+    ensure(
+        codes.fields.iter().any(|field| {
+            symbol(&ctx, field.name).ok() == Some("phrase")
+                && matches!(ctx.krate.types.get(field.ty), Some(Type::String))
+        }),
+        "expected phrase to retain the string parameter type",
+    )?;
     Ok(())
 }
 
@@ -873,8 +897,8 @@ class Ops:
     Ok(())
 }
 
-/// A method call to a name the receiver class does not declare is still
-/// rejected with the unsupported-call diagnostic.
+/// A method call to a name the receiver class does not declare is rejected as
+/// an unknown class member before call lowering can fabricate a receiver type.
 #[test]
 fn unknown_instance_method_rejects() -> TestResult {
     let source = py!(r#"
@@ -889,8 +913,8 @@ def f(c: C) -> int:
     let errors = lower_errors(source, &mut ctx)?;
     let error = first_error(&errors)?;
     ensure(
-        error.message.contains("only calls to top-level functions"),
-        "expected the unsupported-call diagnostic for an unknown method",
+        error.message.contains("unknown class field `nope`"),
+        "expected the unknown-member diagnostic for an unknown method",
     )?;
     Ok(())
 }
@@ -902,10 +926,8 @@ def f(c: C) -> int:
 /// A field assigned from an `__init__` parameter is declared with that
 /// parameter's type, so a method call through the field dispatches statically.
 ///
-/// Without the implicit declaration the class lowers with no fields at all, and
-/// `field_type`'s fieldless-class fallback types `self.inner` as `B` itself —
-/// so `self.inner.a()` looked for `a` on `B`, found nothing, and fell through
-/// to the unsupported-call diagnostic.
+/// Without the implicit declaration the class lowers with no fields at all, so
+/// `self.inner.a()` cannot recover `A` as the receiver type.
 #[test]
 fn constructor_assigned_field_supports_method_dispatch() -> TestResult {
     let source = py!(r#"
@@ -921,6 +943,60 @@ class B:
 "#);
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
+    Ok(())
+}
+
+/// Reading an undeclared attribute is rejected even when the class is empty.
+///
+/// The former fieldless-class fallback silently assigned the receiver's own
+/// class type to every unknown attribute, accepting invalid Python and
+/// poisoning later method dispatch with a fabricated static type.
+#[test]
+fn fieldless_class_does_not_fabricate_unknown_field_types() -> TestResult {
+    let source = py!(r#"
+class Empty:
+    def missing(self) -> int:
+        return self.not_declared
+"#);
+    let mut ctx = HirCtx::new();
+    let errors = lower_errors(source, &mut ctx)?;
+    ensure(
+        first_error(&errors)?
+            .message
+            .contains("unknown class field `not_declared`"),
+        "expected an undeclared field diagnostic",
+    )?;
+    Ok(())
+}
+
+/// Python `__add__` is recorded as an explicit typed class protocol.
+#[test]
+fn add_dunder_declares_a_typed_class_protocol() -> TestResult {
+    let source = py!(r#"
+class Vector:
+    def __init__(self, x: int) -> None:
+        self.x = x
+    def __add__(self, other: "Vector") -> "Vector":
+        return Vector(self.x + other.x)
+
+def combine(left: Vector, right: Vector) -> Vector:
+    return left + right
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let vector = module
+        .items
+        .iter()
+        .find_map(|item_id| match item(&ctx, *item_id).ok()? {
+            Item::Class(class) if symbol(&ctx, class.name).ok()? == "Vector" => Some(class),
+            _ => None,
+        })
+        .ok_or("expected Vector class")?;
+    ensure(
+        matches!(vector.protocols.as_slice(), [ClassProtocol::Add { .. }]),
+        "expected one typed Add protocol",
+    )?;
     Ok(())
 }
 
@@ -1069,14 +1145,9 @@ class A:
     Ok(())
 }
 
-/// `super().<method>()` on an ordinary method is refused explicitly.
-///
-/// Under flattening an override *replaces* the inherited slot in the derived
-/// impl, so the base body is not present to call; dispatching back through
-/// `self` would recurse forever. The limit is stated rather than silently
-/// mis-lowered.
+/// `super().<method>()` targets the reserved immediate-base alias.
 #[test]
-fn super_method_call_is_refused_with_a_specific_message() -> TestResult {
+fn super_method_call_lowers_to_a_base_alias() -> TestResult {
     let source = py!(r#"
 class A:
     def greet(self) -> int:
@@ -1087,12 +1158,62 @@ class B(A):
         return super().greet() + 1
 "#);
     let mut ctx = HirCtx::new();
-    let errors = lower_errors(source, &mut ctx)?;
+    lower_module(source, &mut ctx)?;
     ensure(
-        first_error(&errors)?
-            .message
-            .contains("only super().__init__() is lowered"),
-        "expected the specific super()-method diagnostic",
+        ctx.krate.bodies.iter().any(|candidate| candidate.exprs.iter().any(|expr| {
+            matches!(
+                expr.kind,
+                ExprKind::Method { method, .. }
+                    if symbol(&ctx, method).ok() == Some("__smelt$super$greet")
+            )
+        })),
+        "expected super().greet() to target the base alias",
+    )?;
+    Ok(())
+}
+
+/// A subclass without an explicit `__init__` inherits its base constructor.
+///
+/// The synthesized derived constructor must keep the base parameter list;
+/// replacing it with the ordinary zero-argument default makes the valid
+/// `Child(7)` call lower to a non-existent `Child::new(7)` overload.
+#[test]
+fn subclass_without_init_inherits_base_constructor_signature() -> TestResult {
+    let source = py!(r#"
+class Base:
+    def __init__(self, value: int) -> None:
+        self.value = value
+
+class Child(Base):
+    pass
+
+def make() -> Child:
+    return Child(7)
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let child = module
+        .items
+        .iter()
+        .find_map(|&item_id| match item(&ctx, item_id) {
+            Ok(Item::Class(class)) if symbol(&ctx, class.name).ok() == Some("Child") => Some(class),
+            _ => None,
+        })
+        .ok_or("expected Child class")?;
+    let constructor = child.constructor.ok_or("expected Child constructor")?;
+    let Item::Function(function) = item(&ctx, constructor)? else {
+        return Err("expected Child constructor function".to_owned());
+    };
+    ensure_eq(
+        &function.params.len(),
+        &1,
+        "inherited constructor parameter count",
+    )?;
+    ensure_eq(
+        &symbol(&ctx, function.params[0].name)?,
+        &"value",
+        "inherited constructor parameter name",
     )?;
     Ok(())
 }

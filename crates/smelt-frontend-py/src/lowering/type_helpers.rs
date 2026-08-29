@@ -8,7 +8,6 @@ impl ModuleBuilder<'_> {
         match self.ctx.krate.types.get(receiver_ty) {
             Some(Type::Class { name, .. }) => self
                 .field_type_on_class(*name, field)
-                .or_else(|| self.class_has_no_fields(*name).then_some(receiver_ty))
                 .ok_or_else(|| {
                     let field_name = self.ctx.krate.symbols.get(field).unwrap_or("<unknown>");
                     SmeltError::unsupported(
@@ -54,23 +53,6 @@ impl ModuleBuilder<'_> {
                         .map(|class_field| class_field.ty)
                 })
                 .or_else(|| class.base.and_then(|base| self.field_type_on_class(base, field)))
-        })
-    }
-
-    /// Return whether a class and its bases declare no instance fields.
-    fn class_has_no_fields(&self, class_name: Symbol) -> bool {
-        self.ctx.krate.items.iter().any(|item| {
-            let Item::Class(class) = item else {
-                return false;
-            };
-            class.name == class_name
-                && class.fields.is_empty()
-                && class.descriptors.is_empty()
-                && class.base.is_none_or(|base| {
-                    !self.ctx.krate.items.iter().any(|candidate_item| {
-                        matches!(candidate_item, Item::Class(base_class) if base_class.name == base)
-                    }) || self.class_has_no_fields(base)
-                })
         })
     }
 

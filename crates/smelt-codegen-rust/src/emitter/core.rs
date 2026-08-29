@@ -1630,7 +1630,6 @@ impl<'mir> FunctionEmitter<'mir> {
     }
 
     /// Emits a method or constructor definition.
-    /// Emits a method or constructor definition.
     pub(crate) fn emit_method(&mut self, out: &mut String) -> Result<(), EmitError> {
         match self.function.origin {
             HirOrigin::ClassConstructor { .. } => {
@@ -1793,6 +1792,38 @@ impl<'mir> FunctionEmitter<'mir> {
             self.emit_block(self.entry_block()?, out)?;
         }
         out.push_str("    }\n");
+        Ok(())
+    }
+
+    /// Emit Rust's typed `Add<Rhs>` adapter for a Python `__add__` protocol.
+    ///
+    /// The source method remains the canonical implementation. Rust operator
+    /// syntax consumes cloned operands at generated call sites, while the
+    /// inherent Python method continues to borrow `self`; the adapter bridges
+    /// those ownership conventions without dynamic dispatch or erasure.
+    pub(crate) fn emit_python_add_impl(
+        &mut self,
+        out: &mut String,
+        class_name: &str,
+        impl_generics: &str,
+        type_args: &str,
+    ) -> Result<(), EmitError> {
+        let [_, rhs, ..] = self.function.params.as_slice() else {
+            return Err(EmitError::new(
+                "Python __add__ protocol method is missing its operand parameter",
+            ));
+        };
+        let HirOrigin::ClassMethod { method, .. } = self.function.origin else {
+            return Err(EmitError::new(
+                "Python __add__ protocol target is not an instance method",
+            ));
+        };
+        let rhs_ty = self.parameter_decl_type_text(*rhs)?;
+        let output_ty = self.return_type_text(self.function.return_ty)?;
+        let method_name = sanitize_ident(self.symbol_name(method)?);
+        out.push_str(&format!(
+            "\nimpl{impl_generics} ::std::ops::Add<{rhs_ty}> for {class_name}{type_args} {{\n    type Output = {output_ty};\n    fn add(self, rhs: {rhs_ty}) -> Self::Output {{ self.{method_name}(rhs) }}\n}}\n"
+        ));
         Ok(())
     }
 

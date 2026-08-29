@@ -239,4 +239,160 @@ return_ty: class_ty,
             owner: FunctionOwner::Constructor { class: class_sym },
         }))
     }
+
+    /// Synthesize the initializer Python inherits from a direct base class.
+    ///
+    /// Smelt flattens base fields into the derived Rust struct, so the base
+    /// constructor cannot be reused as a Rust method returning the base type.
+    /// The derived constructor instead accepts the same arguments, constructs
+    /// the base value, and copies its effective fields into the derived `self`.
+    /// This is the implicit counterpart of an explicit
+    /// `super().__init__(...)` and composes through arbitrarily deep chains.
+    fn synthesize_inherited_init(
+        &mut self,
+        class_sym: Symbol,
+        class_ty: TypeId,
+        base_sym: Symbol,
+        span: Span,
+    ) -> Result<ItemId, SmeltError> {
+        let (base_constructor, base_name) = self
+            .ctx
+            .krate
+            .items
+            .iter()
+            .find_map(|item| match item {
+                Item::Class(class) if class.name == base_sym => class.constructor.map(|id| {
+                    (
+                        match self.item_ref(id) {
+                            Item::Function(function) => Some(function.clone()),
+                            _ => None,
+                        },
+                        self.ctx
+                            .krate
+                            .symbols
+                            .get(base_sym)
+                            .unwrap_or("")
+                            .to_owned(),
+                    )
+                }),
+                _ => None,
+            })
+            .and_then(|(constructor, name)| constructor.map(|value| (value, name)))
+            .ok_or_else(|| {
+                SmeltError::unsupported(span, "base class constructor is not available")
+            })?;
+
+        let saved_locals = std::mem::take(&mut self.locals);
+        let mut body = Body::new(None, span);
+        let self_local = body.push_local(LocalDecl {
+            name: Some(self.intern_name("self")),
+            ty: class_ty,
+            mutable: false,
+            span,
+        });
+        self.locals.insert("self".to_owned(), self_local);
+
+        let mut params = Vec::with_capacity(base_constructor.params.len());
+        let mut args = Vec::with_capacity(base_constructor.params.len());
+        for inherited in &base_constructor.params {
+            let local = body.push_local(LocalDecl {
+                name: Some(inherited.name),
+                ty: inherited.ty,
+                mutable: false,
+                span: inherited.span,
+            });
+            body.params.push(local);
+            params.push(Param {
+                local,
+                ..inherited.clone()
+            });
+            args.push(body.push_expr(HirExpr {
+                kind: ExprKind::Local(local),
+                ty: inherited.ty,
+                span: inherited.span,
+            }));
+        }
+
+        let base_ty = self.intern_type(Type::Class {
+            name: base_sym,
+            args: Vec::new(),
+        });
+        let constructed = body.push_expr(HirExpr {
+            kind: ExprKind::New {
+                class: base_sym,
+                args,
+            },
+            ty: base_ty,
+            span,
+        });
+        let base_local = body.push_local(LocalDecl {
+            name: Some(self.intern_name("__smelt_super")),
+            ty: base_ty,
+            mutable: false,
+            span,
+        });
+        let pattern = body.push_pattern(HirPattern::Binding(base_local));
+        let root = body.root;
+        body.push_stmt_to_block(
+            root,
+            HirStmt::Let {
+                pat: pattern,
+                ty: base_ty,
+                value: Some(constructed),
+            },
+        );
+
+        for field in self.inherited_base_fields(&base_name) {
+            let receiver = body.push_expr(HirExpr {
+                kind: ExprKind::Local(self_local),
+                ty: class_ty,
+                span,
+            });
+            let target = body.push_expr(HirExpr {
+                kind: ExprKind::Field {
+                    receiver,
+                    field: field.name,
+                },
+                ty: field.ty,
+                span: field.span,
+            });
+            let base = body.push_expr(HirExpr {
+                kind: ExprKind::Local(base_local),
+                ty: base_ty,
+                span,
+            });
+            let value = body.push_expr(HirExpr {
+                kind: ExprKind::Field {
+                    receiver: base,
+                    field: field.name,
+                },
+                ty: field.ty,
+                span: field.span,
+            });
+            body.push_stmt_to_block(root, HirStmt::Assign { target, value });
+        }
+        let result = body.push_expr(HirExpr {
+            kind: ExprKind::Local(self_local),
+            ty: class_ty,
+            span,
+        });
+        body.blocks[usize::try_from(root.0).unwrap_or(0)].tail = Some(result);
+        self.locals = saved_locals;
+
+        let body_id = self.ctx.krate.push_body(body);
+        let item = Function {
+            name: self.intern_name("__init__"),
+            span,
+            type_params: Vec::new(),
+            params,
+            rest: None,
+            required_params: base_constructor.required_params,
+            return_ty: class_ty,
+            is_async: false,
+            is_test: false,
+            body: Some(body_id),
+            owner: FunctionOwner::Constructor { class: class_sym },
+        };
+        Ok(self.ctx.krate.push_item(Item::Function(item)))
+    }
 }

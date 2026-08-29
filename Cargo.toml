@@ -12,6 +12,7 @@ members = [
     "crates/smelt-test",
     "crates/smelt-transpiler",
     "crates/smelt-py-types",
+    "crates/smelt-python",
 ]
 # smelt-gui is intentionally NOT a workspace member: it pulls in gpui (~25 min
 # cold) and is not needed by the transpiler pipeline. It lives in its own
@@ -31,6 +32,7 @@ default-members = [
     "crates/smelt-specialize",
     "crates/smelt-test",
     "crates/smelt-transpiler",
+    "crates/smelt-python",
 ]
 resolver = "2"
 
