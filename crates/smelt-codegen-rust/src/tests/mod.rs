@@ -54,6 +54,23 @@ fn source_for_py_path(py: &str, path: &str) -> String {
     }
 }
 
+/// Returns the emitted text of the top-level item whose signature starts with
+/// `signature`, up to and including its closing brace.
+///
+/// Assertions about ONE generated function need this: the emitted crate also
+/// carries the runtime prelude, so a bare `source.contains(..)` would happily
+/// match a prelude method of the same name.
+fn emitted_function_body<'a>(source: &'a str, signature: &str) -> &'a str {
+    let start = source
+        .find(signature)
+        .unwrap_or_else(|| panic!("generated source declares `{signature}`:\n{source}"));
+    let rest = source.get(start..).unwrap_or_default();
+    let end = rest
+        .find("\n}\n")
+        .map_or(rest.len(), |offset| offset.saturating_add(3));
+    rest.get(..end).unwrap_or(rest)
+}
+
 mod part_1_tests;
 mod part_2_tests;
 mod part_3_tests;
