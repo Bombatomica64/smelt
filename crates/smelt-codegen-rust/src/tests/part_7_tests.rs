@@ -783,19 +783,22 @@ const erased: unknown = mixed;
         "{source}"
     );
     assert!(
-        source.contains("fn smelt_js_key_order_position<K: SmeltPropertyKey>(order: &[K], key: &K) -> usize"),
+        source.contains(
+            "fn smelt_js_key_order_position<K: SmeltPropertyKey, V>(entries: &[(K, V)], key: &K) -> usize"
+        ),
         "{source}"
     );
-    // Both containers place the key; neither appends unconditionally.
+    // Both containers share ONE ordered store, so the placement happens once,
+    // in `SmeltFieldStore::insert`; neither appends unconditionally.
     assert_eq!(
         source
-            .matches("let position = smelt_js_key_order_position(&order, &key); order.insert(position, key.clone());")
+            .matches("let position = smelt_js_key_order_position(&self.entries, &key);")
             .count(),
-        2,
+        1,
         "{source}"
     );
     assert!(
-        !source.contains("{ self.order.borrow_mut().push(key.clone()); }"),
+        source.contains("self.entries.insert(position, (key, value));"),
         "{source}"
     );
 }
