@@ -2689,11 +2689,23 @@ impl<'mir> FunctionEmitter<'mir> {
             .params
             .iter()
             .enumerate()
-            .map(|(index, source_param)| match target_function.params.get(index) {
-                Some(target_param) => {
-                    self.value_at_type_text(&format!("arg{index}"), *target_param, *source_param)
-                }
-                None => self.default_value(*source_param),
+            .map(|(index, source_param)| {
+                // The wrapped callback's own parameters carry the by-reference ABI
+                // (`callback_param_is_shared_reference`) just as the declarations
+                // above do for the target's. This adapter forwards a value into
+                // each of them, so each forwarded value is borrowed where the
+                // wrapped signature says `&`; Rust extends the temporary's lifetime
+                // to the end of the statement, so `&(expr)` is valid for a value
+                // with no name.
+                let text = match target_function.params.get(index) {
+                    Some(target_param) => self.value_at_type_text(
+                        &format!("arg{index}"),
+                        *target_param,
+                        *source_param,
+                    )?,
+                    None => self.default_value(*source_param)?,
+                };
+                Ok(self.callback_call_arg_text(source_function, index, *source_param, text))
             })
             .collect::<Result<Vec<_>, EmitError>>()?
             .join(", ");
