@@ -1094,9 +1094,11 @@ impl ModuleBuilder<'_> {
                             ));
                         }
                         ArrayExpressionElement::Elision(_) => {
+                            // A hole reads as `undefined` (see the sibling
+                            // elision arm in `array_expression`).
                             let ty = self.ctx.krate.types.intern(Type::Unknown);
                             body.push_expr(Expr {
-                                kind: ExprKind::Literal(Literal::None),
+                                kind: ExprKind::Literal(Literal::Undefined),
                                 ty,
                                 span: self
                                     .span(nested_element.span().start, nested_element.span().end),
@@ -2580,9 +2582,15 @@ impl ModuleBuilder<'_> {
             // the hint and let the element infer its own type instead.
             let element_hint = self.array_element_hint_matches_arity(element, element_hint, body);
             let item = if let ArrayExpressionElement::Elision(elision) = element {
+                // A HOLE in an array literal (`[1, , 2]`) reads as `undefined`,
+                // never as `null`: the index is absent, and every absent
+                // property read in JavaScript answers `undefined`. Lowering it
+                // to `null` made `[1, , 2]` and `[1, null, 2]` indistinguishable
+                // and `[...new Set([1, , 2])]` produce `null` where JavaScript
+                // produces `undefined`.
                 let ty = element_hint.unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
                 body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::None),
+                    kind: ExprKind::Literal(Literal::Undefined),
                     ty,
                     span: self.span(elision.span.start, elision.span.end),
                 })

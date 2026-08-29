@@ -820,6 +820,9 @@ impl FunctionEmitter<'_> {
                 if let Some(text) = self.function_equality_text(*op, lhs, rhs)? {
                     return Ok(text);
                 }
+                if let Some(text) = self.nested_float_equality_text(*op, lhs, rhs)? {
+                    return Ok(text);
+                }
                 if let Some(text) = self.heterogeneous_equality_text(*op, lhs, rhs)? {
                     return Ok(text);
                 }
