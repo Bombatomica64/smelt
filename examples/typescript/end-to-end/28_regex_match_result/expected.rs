@@ -192,7 +192,7 @@ impl Default for SmeltRegExp {
 
 /// A concrete JavaScript RegExp match result (numbered groups, named
 /// groups, `index`, and `input`).
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default)]
 pub struct SmeltMatch {
     id: usize,
     /// Numbered capture groups; entry 0 is the whole match. An absent
@@ -205,6 +205,9 @@ pub struct SmeltMatch {
     /// The full string that was searched (`.input`).
     input: String,
 }
+
+/// Structural equality over the match content, ignoring reference identity.
+impl PartialEq for SmeltMatch { fn eq(&self, other: &Self) -> bool { self.groups == other.groups && self.named == other.named && self.match_index == other.match_index && self.input == other.input } }
 
 #[allow(dead_code)]
 impl SmeltMatch {

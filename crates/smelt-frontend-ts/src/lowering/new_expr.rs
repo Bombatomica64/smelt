@@ -637,6 +637,47 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Push one slot of the fixed `Error` instance layout onto a record.
+    ///
+    /// `ERROR_MARKER_FIELDS` declares the slots every JavaScript `Error`
+    /// instance owns, and Smelt models an error as a record. A slot Smelt has no
+    /// value for is therefore present and `undefined`, not missing — exactly
+    /// what a hand-written Rust `struct` with an `Option` field would be, and
+    /// what a `.stack`/`.cause` read already answers either way.
+    ///
+    /// Materializing them unconditionally is what keeps an error and a copy of
+    /// it structurally equal. Every clone helper writes the whole layout back
+    /// (`e2.stack = e.stack`, `new Ctor(e.message, { cause: e.cause })`), and a
+    /// property STORE always creates the key — so a record that omitted the slot
+    /// came back from a round trip with one property MORE than its source.
+    ///
+    /// The slots are already hidden from `Object.keys`/for-in by the runtime
+    /// error filter, so nothing observable enumerates them.
+    fn push_error_layout_entry(
+        &mut self,
+        entries: &mut Vec<(smelt_hir::ExprId, smelt_hir::ExprId)>,
+        name: &str,
+        value: Option<smelt_hir::ExprId>,
+        span: Span,
+        body: &mut Body,
+    ) {
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let key = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String(name.to_owned())),
+            ty: string_ty,
+            span,
+        });
+        let value = value.unwrap_or_else(|| {
+            body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Undefined),
+                ty: unknown_ty,
+                span,
+            })
+        });
+        entries.push((key, value));
+    }
+
     /// Build the erased-`Error` record used by `new Error(...)` from an optional
     /// message expression already lowered in `body`.
     ///
@@ -685,8 +726,11 @@ impl ModuleBuilder<'_> {
             ty: string_ty,
             span,
         });
+        let mut entries = vec![(marker_key, marker_value), (message_key, message)];
+        self.push_error_layout_entry(&mut entries, "stack", None, span, body);
+        self.push_error_layout_entry(&mut entries, "cause", None, span, body);
         let object = body.push_expr(Expr {
-            kind: ExprKind::DictLit(vec![(marker_key, marker_value), (message_key, message)]),
+            kind: ExprKind::DictLit(entries),
             ty: dict_ty,
             span,
         });
@@ -971,14 +1015,8 @@ impl ModuleBuilder<'_> {
             span,
         });
         let mut entries = vec![(marker_key, marker_value), (message_key, parts.message)];
-        if let Some(cause) = parts.cause {
-            let cause_key = body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::String("cause".to_owned())),
-                ty: string_ty,
-                span,
-            });
-            entries.push((cause_key, cause));
-        }
+        self.push_error_layout_entry(&mut entries, "stack", None, span, body);
+        self.push_error_layout_entry(&mut entries, "cause", parts.cause, span, body);
         if let Some(errors) = parts.errors {
             let errors_key = body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::String("errors".to_owned())),

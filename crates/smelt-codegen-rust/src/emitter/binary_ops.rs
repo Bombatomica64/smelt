@@ -782,6 +782,17 @@ impl FunctionEmitter<'_> {
             Type::Set(item) if !self.type_is_hash_set_key_safe(*item) => {
                 Some(format!("{text}.id"))
             }
+            // The two prelude-backed builtin classes — `SmeltRegExp` (a source
+            // `RegExp`) and `SmeltMatch` (a match result) — both mint an object
+            // id on construction and share it through `Clone`, exactly like the
+            // containers above, so their identity is observable. User-declared
+            // classes still fall through: a value struct has no id at all.
+            Type::Class { name, .. }
+                if self.is_regexp_class_symbol(*name).unwrap_or(false)
+                    || self.is_match_class_symbol(*name).unwrap_or(false) =>
+            {
+                Some(format!("{text}.id"))
+            }
             _ => None,
         }
     }

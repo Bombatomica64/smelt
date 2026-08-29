@@ -1751,10 +1751,10 @@ fn emit_source_with_free_function_router(
         // `__smelt_proto:`-prefixed entries hold members INHERITED from a
         // prototype (`Object.create(proto)`), so they are never own keys — JS
         // `Object.keys` / `for...in` own-key enumeration must skip them.
-        writer.line("fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { if smelt_object_has_host_marker(object) { return false; } !key.starts_with(\"__smelt_proto:\") && key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && key != \"__smelt_map\" && key != \"__smelt_set\" && !(object.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\")) && !(object.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\" | \"stack\")) && !(object.contains_key(\"__smelt_arguments\") && matches!(key, \"__smelt_arguments\" | \"length\")) }");
+        writer.line("fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { if smelt_object_has_host_marker(object) { return false; } !key.starts_with(\"__smelt_proto:\") && key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && key != \"__smelt_map\" && key != \"__smelt_set\" && !(object.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\" | \"lastIndex\")) && !(object.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\" | \"stack\")) && !(object.contains_key(\"__smelt_arguments\") && matches!(key, \"__smelt_arguments\" | \"length\")) }");
         writer
             .line("/// Return whether a record key is visible to JavaScript `for...in` iteration.");
-        writer.line("fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> bool { if smelt_record_has_host_marker(record) { return false; } !key.starts_with(\"__smelt_proto:\") && key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && !(record.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\")) && !(record.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\" | \"stack\")) && !(record.contains_key(\"__smelt_arguments\") && matches!(key, \"__smelt_arguments\" | \"length\")) }");
+        writer.line("fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> bool { if smelt_record_has_host_marker(record) { return false; } !key.starts_with(\"__smelt_proto:\") && key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && !(record.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\" | \"lastIndex\")) && !(record.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\" | \"stack\")) && !(record.contains_key(\"__smelt_arguments\") && matches!(key, \"__smelt_arguments\" | \"length\")) }");
         // `for...in` walks the PROTOTYPE CHAIN; `Object.keys` does not. The two
         // therefore cannot share one key list. Inherited members live behind the
         // `__smelt_proto:` prefix, which the own-key filters above exclude — right
@@ -1847,7 +1847,7 @@ fn emit_source_with_free_function_router(
         // still classified as a class instance rather than a plain object.
         writer.line("/// Create a fresh erased object from a runtime prototype value (`Object.create`).");
         writer.line("fn smelt_object_from_prototype(prototype: SmeltUnknown) -> SmeltUnknown { let mut fields: Vec<(String, SmeltUnknown)> = Vec::new(); match prototype { SmeltUnknown::String(sentinel) if &*sentinel == \"__smelt_proto:class\" => { fields.push((\"__smelt_class\".to_owned(), SmeltUnknown::Bool(true))); }, SmeltUnknown::Object(map) => { for (key, value) in map.iter() { if key == \"__smelt_class\" || key.starts_with(\"__smelt_proto:\") { fields.push((key, value)); } else { fields.push((format!(\"__smelt_proto:{key}\"), value)); } } }, _ => {} } SmeltUnknown::Object(SmeltObject::new(fields)) }");
-        writer.line("fn smelt_prototype_sentinel(value: &SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Null => SmeltUnknown::Null, SmeltUnknown::Array(_) => SmeltUnknown::String(\"__smelt_proto:array\".into()), SmeltUnknown::Promise(_) => SmeltUnknown::String(\"__smelt_proto:promise\".into()), SmeltUnknown::Object(map) if map.contains_key(\"__smelt_class\") => SmeltUnknown::String(\"__smelt_proto:class\".into()), SmeltUnknown::Object(map) => match smelt_reflected_marker_kind(map) { Some(kind) => smelt_reflected_prototype(kind), None => SmeltUnknown::String(\"__smelt_proto:object\".into()) }, SmeltUnknown::String(marker) if &**marker == \"__smelt_proto:object\" => SmeltUnknown::Null, SmeltUnknown::String(marker) if &**marker == \"__smelt_proto:array\" || &**marker == \"__smelt_proto:promise\" || &**marker == \"__smelt_proto:class\" => SmeltUnknown::String(\"__smelt_proto:object\".into()), _ => SmeltUnknown::String(\"__smelt_proto:object\".into()) } }");
+        writer.line("fn smelt_prototype_sentinel(value: &SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Null => SmeltUnknown::Null, SmeltUnknown::Array(_) => SmeltUnknown::String(\"__smelt_proto:array\".into()), SmeltUnknown::Promise(_) => SmeltUnknown::String(\"__smelt_proto:promise\".into()), SmeltUnknown::Object(map) if map.contains_key(\"__smelt_class\") => SmeltUnknown::String(\"__smelt_proto:class\".into()), SmeltUnknown::Object(map) => match smelt_reflected_marker_class(map) { Some(class) => smelt_reflected_prototype(class), None => SmeltUnknown::String(\"__smelt_proto:object\".into()) }, SmeltUnknown::String(marker) if &**marker == \"__smelt_proto:object\" => SmeltUnknown::Null, SmeltUnknown::String(marker) if &**marker == \"__smelt_proto:array\" || &**marker == \"__smelt_proto:promise\" || &**marker == \"__smelt_proto:class\" => SmeltUnknown::String(\"__smelt_proto:object\".into()), _ => SmeltUnknown::String(\"__smelt_proto:object\".into()) } }");
         writer.blank_line();
         writer.line("/// Resolve the JavaScript `Object.prototype.toString.call(x)` tag for an erased value.");
         writer.line("///");
@@ -4074,13 +4074,44 @@ fn emit_source_with_free_function_router(
         // statically typed does not emit `SmeltUnknown`, so the adapters are
         // gated on that need rather than on regex presence alone.
         if needs_unknown {
+            writer.line("/// Erase a concrete RegExp into a `SmeltUnknown` at a dynamic boundary.");
+            writer.line("///");
+            writer.line("/// A JavaScript RegExp object owns three observable data properties:");
+            writer.line("/// `source`, `flags` and the writable `lastIndex`. All three must cross");
+            writer.line("/// the boundary, or a round trip through erased dataflow (`clone(re)`,");
+            writer.line("/// `structuredClone`, a `Record<string, unknown>` bag) silently resets");
+            writer.line("/// `lastIndex` to 0.");
             writer.block("impl IntoSmeltUnknown for SmeltRegExp", |impl_writer| {
                 impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
+                    fn_writer.line("let last_index = *self.last_index.borrow() as f64;");
                     fn_writer.line("SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([");
                     fn_writer.line("(\"source\".to_owned(), SmeltUnknown::String(self.source.into())),");
                     fn_writer.line("(\"flags\".to_owned(), SmeltUnknown::String(self.flags.into())),");
+                    fn_writer.line("(\"lastIndex\".to_owned(), SmeltUnknown::Number(last_index)),");
                     fn_writer.line("(\"__smelt_regexp\".to_owned(), SmeltUnknown::Bool(true)),");
                     fn_writer.line("])))");
+                });
+            });
+            writer.blank_line();
+            writer.line("/// Recover a concrete RegExp from an erased value.");
+            writer.line("///");
+            writer.line("/// The exact inverse of the adapter above: a marker record restores");
+            writer.line("/// `source`, `flags` and `lastIndex`; a bare string is the `new");
+            writer.line("/// RegExp(str)` spelling and yields a flagless pattern. Anything else");
+            writer.line("/// answers the empty pattern, matching `new RegExp(undefined)`.");
+            writer.block("impl SmeltFromUnknown for SmeltRegExp", |impl_writer| {
+                impl_writer.block("fn smelt_from_unknown(value: SmeltUnknown) -> Self", |fn_writer| {
+                    fn_writer.block("match value", |match_writer| {
+                        match_writer.line("SmeltUnknown::String(source) => Self::new(source.to_string(), String::new()),");
+                        match_writer.block("SmeltUnknown::Object(map) =>", |arm_writer| {
+                            arm_writer.line("let source = match map.get(\"source\") { Some(SmeltUnknown::String(source)) => source.to_string(), _ => String::new() };");
+                            arm_writer.line("let flags = match map.get(\"flags\") { Some(SmeltUnknown::String(flags)) => flags.to_string(), _ => String::new() };");
+                            arm_writer.line("let regexp = Self::new(source, flags);");
+                            arm_writer.line("if let Some(SmeltUnknown::Number(last_index)) = map.get(\"lastIndex\") { if last_index.is_finite() && last_index >= 0.0 { *regexp.last_index.borrow_mut() = last_index as usize; } }");
+                            arm_writer.line("regexp");
+                        });
+                        match_writer.line("_ => Self::new(String::new(), String::new()),");
+                    });
                 });
             });
             writer.blank_line();
@@ -4614,7 +4645,7 @@ fn insert_after_crate_header(mut root: String, text: &str) -> String {
 fn emit_smelt_match(writer: &mut CodeWriter, needs_unknown: bool) {
     writer.line("/// A concrete JavaScript RegExp match result (numbered groups, named");
     writer.line("/// groups, `index`, and `input`).");
-    writer.line("#[derive(Clone, Debug, Default, PartialEq)]");
+    writer.line("#[derive(Clone, Debug, Default)]");
     writer.block("pub struct SmeltMatch", |struct_writer| {
         struct_writer.line("id: usize,");
         struct_writer.line("/// Numbered capture groups; entry 0 is the whole match. An absent");
@@ -4627,6 +4658,14 @@ fn emit_smelt_match(writer: &mut CodeWriter, needs_unknown: bool) {
         struct_writer.line("/// The full string that was searched (`.input`).");
         struct_writer.line("input: String,");
     });
+    writer.blank_line();
+    // `id` is reference identity, not content: two matches produced by separate
+    // `exec` calls (or an original and its clone) must still compare structurally
+    // equal under `toEqual`/`isEqual`. This mirrors the hand-written
+    // `SmeltRegExp` `PartialEq`, which excludes its `id` for the same reason;
+    // the derived impl used to make every clone unequal to its source.
+    writer.line("/// Structural equality over the match content, ignoring reference identity.");
+    writer.line("impl PartialEq for SmeltMatch { fn eq(&self, other: &Self) -> bool { self.groups == other.groups && self.named == other.named && self.match_index == other.match_index && self.input == other.input } }");
     writer.blank_line();
     writer.line("#[allow(dead_code)]");
     writer.block("impl SmeltMatch", |impl_writer| {
@@ -4717,6 +4756,35 @@ fn emit_smelt_match(writer: &mut CodeWriter, needs_unknown: bool) {
                 fn_writer.line("object.push((\"index\".to_owned(), SmeltUnknown::Number(self.match_index as f64)));");
                 fn_writer.line("object.push((\"input\".to_owned(), SmeltUnknown::String(self.input.into())));");
                 fn_writer.line("SmeltUnknown::Object(SmeltObject::with_id(self.id, object))");
+            });
+        });
+        writer.blank_line();
+        writer.line("/// Recover a concrete match from an erased value.");
+        writer.line("///");
+        writer.line("/// The inverse of the adapter above, so a match that round-trips through");
+        writer.line("/// erased dataflow (`cloneDeep(/re/.exec(s))`, an `unknown` bag) comes back");
+        writer.line("/// with its groups, named groups, `index` and `input` intact instead of the");
+        writer.line("/// empty `Default::default()` the generic class fallback would produce.");
+        writer.line("/// A bare array (the JavaScript match value IS an array) restores the");
+        writer.line("/// numbered groups; the extra properties are then simply absent.");
+        writer.block("impl SmeltFromUnknown for SmeltMatch", |impl_writer| {
+            impl_writer.block("fn smelt_from_unknown(value: SmeltUnknown) -> Self", |fn_writer| {
+                fn_writer.line("let group_of = |value: SmeltUnknown| match value { SmeltUnknown::String(text) => Some(text.to_string()), _ => None };");
+                fn_writer.block("match value", |match_writer| {
+                    match_writer.block("SmeltUnknown::Array(values) =>", |arm_writer| {
+                        arm_writer.line("Self { id: smelt_next_object_id(), groups: values.into_vec().into_iter().map(group_of).collect(), named: ::std::collections::HashMap::new(), match_index: 0, input: String::new() }");
+                    });
+                    match_writer.block("SmeltUnknown::Object(map) =>", |arm_writer| {
+                        arm_writer.line("let mut groups = Vec::new();");
+                        arm_writer.line("while let Some(entry) = map.get(&groups.len().to_string()) { groups.push(group_of(entry)); }");
+                        arm_writer.line("let mut named = ::std::collections::HashMap::new();");
+                        arm_writer.line("if let Some(SmeltUnknown::Object(entries)) = map.get(\"groups\") { for (name, entry) in entries.iter() { named.insert(name, group_of(entry)); } }");
+                        arm_writer.line("let match_index = match map.get(\"index\") { Some(SmeltUnknown::Number(index)) if index.is_finite() && index >= 0.0 => index as usize, _ => 0 };");
+                        arm_writer.line("let input = match map.get(\"input\") { Some(SmeltUnknown::String(input)) => input.to_string(), _ => String::new() };");
+                        arm_writer.line("Self { id: map.id, groups, named, match_index, input }");
+                    });
+                    match_writer.line("_ => Self::default(),");
+                });
             });
         });
         writer.blank_line();

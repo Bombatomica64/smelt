@@ -9,6 +9,30 @@
 //! The set is intentionally a recognition list, not a support list — names here
 //! may or may not be lowered yet. It only answers "is this a builtin?".
 
+/// The ECMAScript `Error` constructors Smelt models as marker records.
+///
+/// One list, used both by the frontend (which decides that `class X extends
+/// TypeError` inherits the error instance slots) and by the generated runtime's
+/// reflection prelude (which must be able to rebuild any of them through
+/// `Object.getPrototypeOf(e).constructor`). `AggregateError` is last only
+/// because it is the one with a different constructor signature.
+pub const ERROR_CLASS_NAMES: &[&str] = &[
+    "Error",
+    "EvalError",
+    "RangeError",
+    "ReferenceError",
+    "SyntaxError",
+    "TypeError",
+    "URIError",
+    "AggregateError",
+];
+
+/// Returns whether `name` is one of the modeled ECMAScript `Error` constructors.
+#[must_use]
+pub fn is_error_class_name(name: &str) -> bool {
+    ERROR_CLASS_NAMES.contains(&name)
+}
+
 /// Returns whether `name` is a well-known JavaScript/TypeScript global builtin
 /// (ECMAScript intrinsics plus widely available Web/Node runtime globals).
 #[must_use]

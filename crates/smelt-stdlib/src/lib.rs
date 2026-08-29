@@ -23,7 +23,10 @@ pub use classes::{
 pub use deps::BackendDependency;
 pub use diagnostics::{StdlibDiagnostic, UnsupportedForm};
 pub use fields::{FieldRule, typescript_field_rule};
-pub use globals::{GlobalPresence, global_member_presence, is_javascript_global_builtin};
+pub use globals::{
+    ERROR_CLASS_NAMES, GlobalPresence, global_member_presence, is_error_class_name,
+    is_javascript_global_builtin,
+};
 pub use host_object::{
     ByteBufferRole, HOST_OBJECTS, HostObject, TypedArrayElement, byte_buffer_host_objects,
     byte_buffer_role, host_object_by_class, host_object_marker, host_object_markers,
