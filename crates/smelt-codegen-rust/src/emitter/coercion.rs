@@ -616,9 +616,6 @@ impl FunctionEmitter<'_> {
         source: TypeId,
         target: TypeId,
     ) -> Result<String, EmitError> {
-        // `value_text` is usually already an owned temporary (an operand render clones the local
-        // it reads), so take an owned copy rather than deep-copying it a second time.
-        let smelt_owned_value = cloned_value_text(value_text);
         if let Some(injected) = self.inject_union_value_text(value_text, source, target)? {
             return Ok(injected);
         }
@@ -642,6 +639,11 @@ impl FunctionEmitter<'_> {
         } else {
             value_text
         };
+        // `value_text` is usually already an owned temporary (an operand render clones
+        // the local it reads), so take an owned copy rather than deep-copying it a
+        // second time. Bound AFTER the `Default::default()` normalization above, which
+        // rebinds `value_text`.
+        let smelt_owned_value = cloned_value_text(value_text);
         if source == target && !matches!(self.mir.types.get(target), Some(Type::Function(_))) {
             return Ok(value_text.to_owned());
         }
