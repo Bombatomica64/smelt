@@ -2281,6 +2281,21 @@ fn emit_source_with_free_function_router(
         writer.line("    Rejected(String),");
         writer.line("    Taken,");
         writer.line("}");
+        // A priming poll must not own the virtual clock. `from_future_primed`
+        // runs an async body's synchronous prefix at call time; in JavaScript
+        // that prefix only *schedules* its timers, it does not make time pass.
+        // The virtual-clock sleep helper advances the clock to its own deadline
+        // when it is driven, so without this marker priming
+        // `withTimeout(() => delay(1000), 50)`'s `run()` jumped the clock 1000ms
+        // before the 50ms deadline was even armed and the timeout could never
+        // win. This is the same rule `SMELT_RACE_DEPTH` already states for a
+        // `Promise.race` driver, applied to the other place that polls a future
+        // out of band.
+        writer.line("thread_local! {");
+        writer.line("    /// Non-zero while `SmeltFuture::from_future_primed` is running its");
+        writer.line("    /// eager prefix poll; see `smelt_sleep_ms`.");
+        writer.line("    static SMELT_PRIME_DEPTH: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) };");
+        writer.line("}");
         writer.line("pub struct SmeltFuture<T> {");
         writer.line("    state: ::std::rc::Rc<::std::cell::RefCell<SmeltFutureState<T>>>,");
         writer.line("}");
@@ -2310,6 +2325,10 @@ fn emit_source_with_free_function_router(
         writer.line("    /// later resume. Derived/adapter promises deliberately do NOT use this,");
         writer.line("    /// preserving when their continuations and rejections become observable.");
         writer.line("    fn from_future_primed(mut future: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>) -> Self {");
+        writer.line("        struct SmeltPrimeGuard;");
+        writer.line("        impl Drop for SmeltPrimeGuard { fn drop(&mut self) { SMELT_PRIME_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1))); } }");
+        writer.line("        SMELT_PRIME_DEPTH.with(|depth| depth.set(depth.get().saturating_add(1)));");
+        writer.line("        let _smelt_prime_guard = SmeltPrimeGuard;");
         writer.line("        let waker = smelt_eager_poll_waker();");
         writer.line("        let mut cx = ::std::task::Context::from_waker(&waker);");
         writer.line("        let state = match ::std::future::Future::poll(future.as_mut(), &mut cx) {");
@@ -3135,6 +3154,7 @@ fn emit_source_with_free_function_router(
             writer.line("    SMELT_TIMERS.with(|timers| timers.borrow_mut().clear());");
             writer.line("    SMELT_PROMISE_TASKS.with(|tasks| tasks.borrow_mut().clear());");
             writer.line("    SMELT_RACE_DEPTH.with(|depth| depth.set(0));");
+            writer.line("    SMELT_PRIME_DEPTH.with(|depth| depth.set(0));");
             writer.line("}");
             writer.blank_line();
             writer.line(format!(
@@ -3271,6 +3291,15 @@ fn emit_source_with_free_function_router(
                 "async fn {sleep_ms}(delay_ms: f64) {{",
                 sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
             ));
+            // Suspend immediately under an eager prefix poll, before touching the
+            // clock. `from_future_primed` runs an async body's synchronous prefix
+            // at call time; in JavaScript that prefix schedules its timers but
+            // does not make time pass, whereas this helper advances virtual time
+            // to its own deadline as soon as it is driven. Yielding here leaves
+            // the prefix's effects in place and defers all timekeeping to the
+            // first real poll, so a long sleep started inside a primed body
+            // cannot outrun deadlines armed after it (see `SMELT_PRIME_DEPTH`).
+            writer.line("    if SMELT_PRIME_DEPTH.with(::std::cell::Cell::get) > 0 { tokio::task::yield_now().await; }");
             writer.line(format!(
                 "    {drain_promise_tasks}().await;",
                 drain_promise_tasks = smelt_stdlib::runtime_symbols::timers::DRAIN_PROMISE_TASKS,

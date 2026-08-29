@@ -3193,15 +3193,14 @@ impl<'mir> FunctionEmitter<'mir> {
             let awaited =
                 self.value_at_type_text("smelt_async_output", *source_item, *target_item)?;
             if is_borrowed_param {
-                format!(
-                    "SmeltFuture::from_future(Box::pin(async move {{ let smelt_async_output = {call}.await?; Ok::<_, Box<dyn std::error::Error>>({awaited}) }}))"
-                )
+                async_adapter_future_text(&call, &awaited)
             } else {
                 let async_call = call
                     .replace(&function_text, "smelt_async_callback")
                     .replace("smelt_callback", "smelt_async_callback");
                 format!(
-                    "{{ let smelt_async_callback = {function_text}.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_async_output = {async_call}.await?; Ok::<_, Box<dyn std::error::Error>>({awaited}) }})) }}"
+                    "{{ let smelt_async_callback = {function_text}.clone(); {} }}",
+                    async_adapter_future_text(&async_call, &awaited)
                 )
             }
         } else if source.may_throw && !source_returns_future && target_function.may_throw {
@@ -3754,12 +3753,11 @@ impl<'mir> FunctionEmitter<'mir> {
                     .replace("_smelt_adapted_callback", "smelt_async_callback")
                     .replace("smelt_callback", "smelt_async_callback");
                 format!(
-                    "{{ let smelt_async_callback = _smelt_adapted_callback.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_async_output = {async_call}.await?; Ok::<_, Box<dyn std::error::Error>>({awaited}) }})) }}"
+                    "{{ let smelt_async_callback = _smelt_adapted_callback.clone(); {} }}",
+                    async_adapter_future_text(&async_call, &awaited)
                 )
             } else {
-                format!(
-                    "SmeltFuture::from_future(Box::pin(async move {{ let smelt_async_output = {call_text}.await?; Ok::<_, Box<dyn std::error::Error>>({awaited}) }}))"
-                )
+                async_adapter_future_text(&call_text, &awaited)
             }
         } else if source_returns_future
             && uses_adapted_callback
@@ -3782,7 +3780,8 @@ impl<'mir> FunctionEmitter<'mir> {
                 .replace("_smelt_adapted_callback", "smelt_async_callback")
                 .replace("smelt_callback", "smelt_async_callback");
             format!(
-                "{{ let smelt_async_callback = _smelt_adapted_callback.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_async_output = {async_call}.await?; Ok::<_, Box<dyn std::error::Error>>({awaited}) }})) }}"
+                "{{ let smelt_async_callback = _smelt_adapted_callback.clone(); {} }}",
+                async_adapter_future_text(&async_call, &awaited)
             )
         } else if source.may_throw && !source_returns_future && target_function.may_throw {
             format!("{call_text}?")
@@ -5449,3 +5448,25 @@ fn strip_mut_list_adapter_blocks(body: &str) -> String {
 }
 
 // Constant formatting continues in `literals.rs`.
+
+/// Renders an async callback adapter: an inner async call whose settled output is
+/// re-typed for the adapter's own return type.
+///
+/// The inner call is emitted *outside* the returned future's body, on purpose.
+/// Calling a JavaScript async function starts it — the promise it hands back is
+/// already running — and Smelt models that with `SmeltFuture::from_future_primed`,
+/// whose eager first poll runs the body up to its first suspension. That only
+/// happens if the call itself happens. Emitting the call *inside* a lazy
+/// `from_future` body defers it until the adapter's own future is polled, so a
+/// batch of adapted callbacks (`Promise.all(array.map(cb))`, where every element
+/// goes through an arity/type adapter) starts one at a time as the combinator
+/// awaits them and the source's concurrency silently disappears. Hoisting the
+/// call keeps the start eager and defers only the output conversion.
+///
+/// `call_text` is the inner call expression; `awaited_text` converts the binding
+/// `smelt_async_output` to the adapter's output type.
+fn async_adapter_future_text(call_text: &str, awaited_text: &str) -> String {
+    format!(
+        "{{ let smelt_async_source = {call_text}; SmeltFuture::from_future(Box::pin(async move {{ let smelt_async_output = smelt_async_source.await?; Ok::<_, Box<dyn std::error::Error>>({awaited_text}) }})) }}"
+    )
+}
