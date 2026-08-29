@@ -51,6 +51,9 @@ pub struct Config {
     output: Output,
     /// Runtime options.
     runtime: Runtime,
+    /// Generated-Rust options.
+    #[serde(default)]
+    rust: Rust,
     /// Optional strict mode configuration.
     strict: Option<Strict>,
 }
@@ -104,6 +107,12 @@ impl Config {
         self.output.crate_name.as_deref()
     }
 
+    /// Get the global allocator a generated program installs.
+    #[must_use]
+    pub fn rust_allocator(&self) -> Allocator {
+        self.rust.allocator
+    }
+
     /// Get the generated Rust crate target kind.
     #[must_use]
     pub fn output_kind(&self) -> OutputKind {
@@ -148,6 +157,32 @@ pub struct Output {
     kind: OutputKind,
     /// Whether to build the generated crate.
     build: Option<bool>,
+}
+
+/// Generated-Rust configuration from the [rust] section.
+#[derive(Default, Deserialize, Debug, JsonSchema)]
+pub struct Rust {
+    /// Global allocator a generated program installs.
+    #[serde(default)]
+    allocator: Allocator,
+}
+
+/// Global allocator a generated program installs.
+///
+/// Generated code allocates far more than hand-written Rust does — every
+/// JavaScript array, object and string is a separate heap value with reference
+/// semantics — so the allocator is a larger share of the profile than any single
+/// emitter decision. See `smelt_codegen_rust::GeneratedAllocator`.
+#[derive(Clone, Copy, Default, Deserialize, Debug, Eq, JsonSchema, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum Allocator {
+    /// Leave the platform allocator in place. The default: see
+    /// `smelt_codegen_rust::GeneratedAllocator` for why Smelt does not choose
+    /// an allocator on the application author's behalf.
+    #[default]
+    System,
+    /// Install `mimalloc`, which suits this workload's small short-lived values.
+    Mimalloc,
 }
 
 /// Strategy for cloning values in generated code.

@@ -10,7 +10,7 @@ use std::{
 use smelt_hir::format_compact;
 
 use crate::{
-    config::{Config, OutputKind},
+    config::{Allocator, Config, OutputKind},
     lowering,
     manifest::resolve_manifest_path,
     stubs, timing,
@@ -101,7 +101,8 @@ pub(crate) fn build_rust_crate(
             &modules,
             &output_dir,
             &smelt_codegen_rust::EmitOptions::new(crate_name)
-                .with_crate_kind(codegen_crate_kind(config.output_kind())),
+                .with_crate_kind(codegen_crate_kind(config.output_kind()))
+                .with_allocator(codegen_allocator(config.rust_allocator())),
         )
     })?;
 
@@ -131,6 +132,14 @@ fn codegen_crate_kind(output_kind: OutputKind) -> smelt_codegen_rust::CrateKind 
     match output_kind {
         OutputKind::Program => smelt_codegen_rust::CrateKind::Program,
         OutputKind::Library => smelt_codegen_rust::CrateKind::Library,
+    }
+}
+
+/// Maps the manifest's allocator choice onto the codegen enum.
+fn codegen_allocator(allocator: Allocator) -> smelt_codegen_rust::GeneratedAllocator {
+    match allocator {
+        Allocator::Mimalloc => smelt_codegen_rust::GeneratedAllocator::Mimalloc,
+        Allocator::System => smelt_codegen_rust::GeneratedAllocator::System,
     }
 }
 

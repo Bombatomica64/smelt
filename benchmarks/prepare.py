@@ -100,6 +100,11 @@ def write_manifest(name: str, repo: pathlib.Path) -> pathlib.Path:
     src = src.replace('target = "./dist-smelt"', 'target = "./dist-bench"')
     src = re.sub(r"^crate-name = .*$", f'crate-name = "{cfg["crate"]}"', src, flags=re.M)
     (BENCH / "smelt").mkdir(parents=True, exist_ok=True)
+    # The benchmark measures a program built for throughput, so it opts into the
+    # allocator such a program would pick. The regression manifests deliberately
+    # do not: an allocator cannot change what the generated code computes, and
+    # making the gate crates build C would slow CI for no signal.
+    src = src.replace("[rust]", '[rust]\nallocator = "mimalloc"', 1)
     (BENCH / "smelt" / f"{name}.Smelt.toml").write_text(src)
     manifest = repo / "Smelt.bench.toml"
     manifest.write_text(src)

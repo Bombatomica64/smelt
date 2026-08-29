@@ -128,6 +128,8 @@ pub struct EmitOptions {
     pub crate_name: String,
     /// The Rust crate target kind to generate.
     pub crate_kind: CrateKind,
+    /// The global allocator the generated program installs.
+    pub allocator: GeneratedAllocator,
 }
 
 impl Default for EmitOptions {
@@ -136,6 +138,7 @@ impl Default for EmitOptions {
         Self {
             crate_name: "smelt_app".to_owned(),
             crate_kind: CrateKind::Program,
+            allocator: GeneratedAllocator::default(),
         }
     }
 }
@@ -155,6 +158,56 @@ impl EmitOptions {
         self.crate_kind = crate_kind;
         self
     }
+
+    /// Sets the global allocator the generated program installs.
+    #[must_use]
+    pub fn with_allocator(mut self, allocator: GeneratedAllocator) -> Self {
+        self.allocator = allocator;
+        self
+    }
+
+    /// The allocator actually emitted for this crate.
+    ///
+    /// A `#[global_allocator]` is a whole-program choice, so only a generated
+    /// PROGRAM may make it. A generated library is linked into someone else's
+    /// binary, and that binary's author owns the decision; emitting one there
+    /// would silently override it.
+    fn effective_allocator(&self) -> GeneratedAllocator {
+        match self.crate_kind {
+            CrateKind::Program => self.allocator,
+            CrateKind::Library => GeneratedAllocator::System,
+        }
+    }
+}
+
+/// The global allocator a generated program installs.
+///
+/// Generated code allocates far more than hand-written Rust does, because every
+/// JavaScript array, object and string is a separate heap value with JavaScript's
+/// reference semantics. Profiling the es-toolkit corpus put the malloc family at
+/// roughly 30% of `groupBy` and 43% of `partition`, which is a bigger share than
+/// any single thing the emitter does. glibc's allocator is tuned for a general
+/// mix; this workload is a stream of small, short-lived allocations, which is
+/// exactly what a modern thread-caching allocator is built for.
+///
+/// A team hand-writing this library in Rust would reach for one, and generated
+/// programs that care about throughput should opt in with
+/// `[rust] allocator = "mimalloc"`.
+///
+/// The DEFAULT is nonetheless `System`, deliberately. `mimalloc` builds C, which
+/// means a network fetch and a compiler at build time; making that the default
+/// would silently impose it on every program Smelt emits, including the ones in
+/// `examples/`, which are meant to be readable and to build offline. Choosing an
+/// allocator is the application author's call, so Smelt offers it rather than
+/// making it.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum GeneratedAllocator {
+    /// Leave the platform allocator in place.
+    #[default]
+    System,
+    /// Install `mimalloc` as the program's global allocator.
+    Mimalloc,
 }
 
 /// Rust crate target kind emitted by Smelt.
@@ -259,11 +312,16 @@ pub fn emit_crate(
     let output_dir = output_path.as_ref();
     let src_dir = output_dir.join("src");
     fs::create_dir_all(&src_dir)?;
+    let allocator = options.effective_allocator();
     write_if_changed(
         output_dir.join("Cargo.toml"),
-        &deps::cargo_toml(&options.crate_name, &generated_deps(mir)),
+        &deps::cargo_toml(&options.crate_name, &generated_deps(mir), allocator),
     )?;
-    write_crate_root(&src_dir, options.crate_kind, &emit_source(mir)?)?;
+    write_crate_root(
+        &src_dir,
+        options.crate_kind,
+        &emit_source_with_allocator(mir, allocator)?,
+    )?;
     Ok(())
 }
 
@@ -283,12 +341,13 @@ pub fn emit_crate_with_modules(
     let output_dir = output_path.as_ref();
     let src_dir = output_dir.join("src");
     fs::create_dir_all(&src_dir)?;
+    let allocator = options.effective_allocator();
     write_if_changed(
         output_dir.join("Cargo.toml"),
-        &deps::cargo_toml(&options.crate_name, &generated_deps(mir)),
+        &deps::cargo_toml(&options.crate_name, &generated_deps(mir), allocator),
     )?;
 
-    let mapped = emit_mapped_sources(mir, krate, modules)?;
+    let mapped = emit_mapped_sources(mir, krate, modules, allocator)?;
     write_crate_root(&src_dir, options.crate_kind, &mapped.root)?;
     for module in mapped.modules {
         let module_path = src_dir.join(format!("{}.rs", module.name));
@@ -387,7 +446,21 @@ fn needs_timer_helpers(mir: &Mir) -> bool {
 /// Returns a string containing the complete source code for the MIR, including
 /// struct definitions, free functions, and impl blocks for methods.
 pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
-    emit_source_with_free_function_router(mir, |_function, _context, source| Ok(Some(source)))
+    emit_source_with_allocator(mir, GeneratedAllocator::System)
+}
+
+/// Emits Rust source code, installing `allocator` as the program's global allocator.
+///
+/// [`emit_source`] keeps the platform allocator so that callers rendering a
+/// snippet — unit tests, snapshot fixtures, the diagnostics tooling — get source
+/// with no external dependency. Whole-crate emission goes through here.
+pub fn emit_source_with_allocator(
+    mir: &Mir,
+    allocator: GeneratedAllocator,
+) -> Result<String, EmitError> {
+    emit_source_with_free_function_router(mir, allocator, |_function, _context, source| {
+        Ok(Some(source))
+    })
 }
 
 /// Emits Rust source code while allowing callers to route free functions.
@@ -397,6 +470,7 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
 /// caller store it elsewhere, such as in source-shaped sibling modules.
 fn emit_source_with_free_function_router(
     mir: &Mir,
+    allocator: GeneratedAllocator,
     mut route_free_function: impl FnMut(
         &MirFunction,
         &EmitContext,
@@ -432,6 +506,15 @@ fn emit_source_with_free_function_router(
     writer.line("// @generated by smelt. Do not edit by hand.");
     writer.line("#![allow(dead_code, non_snake_case, unused_imports, unused_variables)]");
     writer.blank_line();
+    // A `#[global_allocator]` is an ordinary item, not an inner attribute, so it
+    // does not have to lead the file — the module-mapped root emits the `#[path]`
+    // declarations ahead of everything here, and this lands below them. See
+    // `GeneratedAllocator` for why a generated program installs one at all.
+    if allocator == GeneratedAllocator::Mimalloc {
+        writer.line("#[global_allocator]");
+        writer.line("static SMELT_GLOBAL_ALLOCATOR: ::mimalloc::MiMalloc = ::mimalloc::MiMalloc;");
+        writer.blank_line();
+    }
     if needs_date_now {
         emit_runtime_gate(&mut writer, PreludeGate::DateNow)?;
     }
@@ -4101,13 +4184,14 @@ fn emit_mapped_sources(
     mir: &Mir,
     krate: &smelt_hir::Crate,
     modules: &[(String, smelt_hir::ModuleId)],
+    allocator: GeneratedAllocator,
 ) -> Result<MappedSources, EmitError> {
     let body_modules = body_module_names(krate, modules);
     let mut module_chunks = HashMap::<String, Vec<String>>::new();
     let mut module_paths = HashMap::<String, String>::new();
 
     let mut root =
-        emit_source_with_free_function_router(mir, |function, context, function_source| {
+        emit_source_with_free_function_router(mir, allocator, |function, context, function_source| {
             let HirOrigin::Body(body) = function.origin else {
                 return Ok(Some(function_source));
             };

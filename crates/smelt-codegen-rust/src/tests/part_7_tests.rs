@@ -344,6 +344,7 @@ fn injects_url_dependency_for_url_mapping() {
     let manifest = deps::cargo_toml(
         &EmitOptions::default().crate_name,
         &[GeneratedDep::Stdlib(BackendDependency::Url)],
+        GeneratedAllocator::System,
     );
 
     assert!(manifest.contains("url = \"2\""));
@@ -462,6 +463,7 @@ const context = tz("Pacific/Midway");
             GeneratedDep::Stdlib(BackendDependency::Chrono),
             GeneratedDep::Stdlib(BackendDependency::ChronoTz),
         ],
+        GeneratedAllocator::System,
     );
 
     assert!(source.contains("chrono_tz::Tz"), "{source}");
