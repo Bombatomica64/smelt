@@ -653,7 +653,7 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         }
         let equal_text = if lhs_ty == rhs_ty && lhs_contains_function && rhs_contains_function {
-            self.function_bearing_equality_text(
+            self.structural_leaf_equality_text(
                 &self.operand_text(lhs)?,
                 &self.operand_text(rhs)?,
                 lhs_ty,
@@ -675,8 +675,96 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Emits structural equality recursively while comparing function leaves by identity.
-    fn function_bearing_equality_text(
+    /// Emits structural equality for a value that NESTS floats.
+    ///
+    /// Rust's derived `PartialEq` compares an `f64` leaf with IEEE `==`, so
+    /// `SmeltList<f64> == SmeltList<f64>` answers `false` for two lists that
+    /// both hold `NaN` at the same index. JavaScript's deep-equality algorithms
+    /// compare numeric leaves with `Object.is`, under which `NaN` equals `NaN`
+    /// — the rule the scalar case already follows (see the test matchers'
+    /// `test_numbers_need_same_value`). This applies it at every nested leaf.
+    ///
+    /// Returns `None` for anything without a nested float, and for operands of
+    /// different types, which the heterogeneous path handles.
+    pub(super) fn nested_float_equality_text(
+        &self,
+        op: smelt_hir::BinOp,
+        lhs: &Operand,
+        rhs: &Operand,
+    ) -> Result<Option<String>, EmitError> {
+        if !matches!(
+            op,
+            smelt_hir::BinOp::Eq
+                | smelt_hir::BinOp::NotEq
+                | smelt_hir::BinOp::StrictEq
+                | smelt_hir::BinOp::StrictNotEq
+                | smelt_hir::BinOp::JsStrictEq
+                | smelt_hir::BinOp::JsStrictNotEq
+        ) {
+            return Ok(None);
+        }
+        let lhs_ty = self.operand_ty(lhs)?;
+        if lhs_ty != self.operand_ty(rhs)? || !self.type_nests_float(lhs_ty) {
+            return Ok(None);
+        }
+        let equal_text = self.structural_leaf_equality_text(
+            &self.operand_text(lhs)?,
+            &self.operand_text(rhs)?,
+            lhs_ty,
+        )?;
+        Ok(Some(
+            if matches!(
+                op,
+                smelt_hir::BinOp::NotEq
+                    | smelt_hir::BinOp::StrictNotEq
+                    | smelt_hir::BinOp::JsStrictNotEq
+            ) {
+                format!("!({equal_text})")
+            } else {
+                equal_text
+            },
+        ))
+    }
+
+    /// Returns whether `ty` holds a `Float` INSIDE a structure Smelt compares
+    /// structurally (a list, tuple, string-keyed dict, or optional).
+    ///
+    /// A bare `Float` answers `false` on purpose: a top-level numeric `==`/`!=`
+    /// is IEEE comparison in JavaScript too.
+    fn type_nests_float(&self, ty: TypeId) -> bool {
+        match self.mir.types.get(ty) {
+            Some(Type::List(item) | Type::Optional(item)) => self.type_holds_float(*item),
+            Some(Type::Tuple(items)) => {
+                items.clone().iter().any(|item| self.type_holds_float(*item))
+            }
+            Some(Type::Dict(key, value)) if self.mir.types.get(*key) == Some(&Type::String) => {
+                self.type_holds_float(*value)
+            }
+            _ => false,
+        }
+    }
+
+    /// Returns whether `ty` is a `Float` or nests one, i.e. whether the
+    /// structural comparison of a value of this type reaches a float leaf.
+    fn type_holds_float(&self, ty: TypeId) -> bool {
+        matches!(self.mir.types.get(ty), Some(Type::Float)) || self.type_nests_float(ty)
+    }
+
+    /// Emits structural equality recursively with JavaScript leaf rules.
+    ///
+    /// Two leaf kinds do not follow Rust's derived `PartialEq`:
+    ///
+    /// * a **function** leaf compares by identity, because JavaScript compares
+    ///   function values by reference;
+    /// * a **float** leaf compares with `Object.is`, so `NaN` equals `NaN`.
+    ///   Rust's `f64: PartialEq` is IEEE `==`, under which `NaN != NaN`, which
+    ///   made `expect([NaN, 1]).toEqual([NaN, 1])` fail with the right value on
+    ///   both sides. JavaScript's deep-equality algorithms (`toEqual`,
+    ///   `isDeepEqual`) all compare numeric leaves with `Object.is`. A BARE
+    ///   float never reaches here: a top-level `a != b` on two numbers is
+    ///   ordinary IEEE comparison in JavaScript too, and the test matchers
+    ///   already route a scalar `toEqual(NaN)` through the SameValue path.
+    fn structural_leaf_equality_text(
         &self,
         left: &str,
         right: &str,
@@ -684,9 +772,27 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         Ok(match self.mir.types.get(ty) {
             Some(Type::Function(_)) => self.function_ptr_eq_text(left, right, ty)?,
+            Some(Type::Float) => {
+                format!("({left} == {right} || ({left}.is_nan() && {right}.is_nan()))")
+            }
+            Some(Type::Tuple(items)) => {
+                let mut parts = Vec::with_capacity(items.len());
+                for (index, item) in items.iter().enumerate() {
+                    parts.push(self.structural_leaf_equality_text(
+                        &format!("{left}.{index}"),
+                        &format!("{right}.{index}"),
+                        *item,
+                    )?);
+                }
+                if parts.is_empty() {
+                    "true".to_owned()
+                } else {
+                    parts.join(" && ")
+                }
+            }
             Some(Type::List(item)) => {
                 let item_equal =
-                    self.function_bearing_equality_text("left_item", "right_item", *item)?;
+                    self.structural_leaf_equality_text("left_item", "right_item", *item)?;
                 // `.len()` is the list's own inherent method; `.iter()` reads
                 // the shared buffer. Both are shared borrows, so comparing a
                 // list against itself is fine.
@@ -698,14 +804,14 @@ impl FunctionEmitter<'_> {
             }
             Some(Type::Dict(key, value)) if self.mir.types.get(*key) == Some(&Type::String) => {
                 let value_equal =
-                    self.function_bearing_equality_text("left_value", "right_value", *value)?;
+                    self.structural_leaf_equality_text("left_value", "right_value", *value)?;
                 format!(
                     "{left}.len() == {right}.len() && {left}.iter().all(|(key, left_value)| {right}.get(&key).is_some_and(|right_value| {value_equal}))"
                 )
             }
             Some(Type::Optional(inner)) => {
                 let item_equal =
-                    self.function_bearing_equality_text("left_value", "right_value", *inner)?;
+                    self.structural_leaf_equality_text("left_value", "right_value", *inner)?;
                 format!(
                     "match ({left}.as_ref(), {right}.as_ref()) {{ (Some(left_value), Some(right_value)) => {item_equal}, (None, None) => true, _ => false }}"
                 )
