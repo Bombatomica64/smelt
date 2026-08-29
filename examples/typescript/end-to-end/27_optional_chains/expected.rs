@@ -714,7 +714,7 @@ pub trait SmeltJsKeyEq {
 
 impl SmeltJsKeyEq for SmeltUnknown {
     fn js_key_hash(&self) -> Option<u64> { smelt_js_member_hash_key(self) }
-    fn same_js_key(&self, other: &Self) -> bool { match (self, other) { (SmeltUnknown::Number(left), SmeltUnknown::Number(right)) if left.is_nan() && right.is_nan() => true, (SmeltUnknown::Array(left), SmeltUnknown::Array(right)) => left.id == right.id, (SmeltUnknown::Object(left), SmeltUnknown::Object(right)) => left.id == right.id, (SmeltUnknown::Function(left), SmeltUnknown::Function(right)) => smelt_same_erased_function(left, right), (SmeltUnknown::Promise(left), SmeltUnknown::Promise(right)) => left.id == right.id, _ => self == other } }
+    fn same_js_key(&self, other: &Self) -> bool { match (self, other) { (SmeltUnknown::Number(left), SmeltUnknown::Number(right)) if left.is_nan() && right.is_nan() => true, (SmeltUnknown::Array(left), SmeltUnknown::Array(right)) => left.id == right.id, (SmeltUnknown::Object(left), SmeltUnknown::Object(right)) => left.id == right.id, (SmeltUnknown::Function(left), SmeltUnknown::Function(right)) => smelt_same_erased_function(left, right), (SmeltUnknown::Promise(left), SmeltUnknown::Promise(right)) => left.id == right.id, (SmeltUnknown::String(left), SmeltUnknown::String(right)) => ::std::rc::Rc::ptr_eq(left, right) || left == right, _ => self == other } }
 }
 
 impl SmeltJsKeyEq for String { fn same_js_key(&self, other: &Self) -> bool { self == other } fn js_key_hash(&self) -> Option<u64> { Some(smelt_js_hash_one(self)) } }
@@ -1381,7 +1381,7 @@ fn smelt_unknown_structural_eq(left: &SmeltUnknown, right: &SmeltUnknown, seen: 
         (SmeltUnknown::Undefined, SmeltUnknown::Undefined) => true,
         (SmeltUnknown::Bool(left), SmeltUnknown::Bool(right)) => left == right,
         (SmeltUnknown::Number(left), SmeltUnknown::Number(right)) => left == right || (left.is_nan() && right.is_nan()),
-        (SmeltUnknown::String(left), SmeltUnknown::String(right)) => left == right,
+        (SmeltUnknown::String(left), SmeltUnknown::String(right)) => ::std::rc::Rc::ptr_eq(left, right) || left == right,
         (SmeltUnknown::Symbol(left), SmeltUnknown::Symbol(right)) => left == right,
         (SmeltUnknown::Array(left), SmeltUnknown::Array(right)) => left.len() == right.len() && left.iter().zip(right.iter()).all(|(left, right)| smelt_unknown_structural_eq(&left, &right, seen)),
         (SmeltUnknown::Object(left), SmeltUnknown::Object(right)) => smelt_object_structural_eq(left, right, seen),
