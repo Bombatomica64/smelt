@@ -1372,12 +1372,22 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         span: Span,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        // `fn.apply(thisArg, argsArray)` binds `this` from the LEADING operand.
+        // The operand is not a positional argument -- a plain function or
+        // closure has no receiver parameter -- but it is not nothing either: it
+        // is the receiver the callee's `this` resolves to, installed for the
+        // duration of this one call by `ExprKind::BindThis`. Dropping it used to
+        // be the whole story, which made `func.apply(this, args)` in a wrapper
+        // such as es-toolkit's `ary` silently lose the caller's receiver.
+        let callee = args.first().copied().map_or(receiver, |this_arg| {
+            self.bind_this_receiver(receiver, this_arg, body, span)
+        });
         // `fn.apply(thisArg)` (or `fn.apply()`) forwards no positional
         // arguments, so it is an ordinary zero-argument closure call.
         if args.len() <= 1 {
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::ClosureCall {
-                    callee: receiver,
+                    callee,
                     args: Vec::new(),
                 },
                 ty,
@@ -1399,12 +1409,63 @@ impl ModuleBuilder<'_> {
         self.ctx.krate.types.intern(Type::List(unknown_ty));
         Ok(body.push_expr(Expr {
             kind: ExprKind::ClosureCallSpread {
-                callee: receiver,
+                callee,
                 args: arguments,
             },
             ty,
             span,
         }))
+    }
+
+    /// Wrap a callable so `receiver` becomes the `this` its body observes.
+    ///
+    /// The result keeps the callee's own type: binding a receiver does not
+    /// change what the value IS, only what `this` resolves to inside one call,
+    /// so a typed function stays a typed function and never degrades to
+    /// `SmeltUnknown` at the bind.
+    pub(in crate::lowering) fn bind_this_receiver(
+        &self,
+        callee: smelt_hir::ExprId,
+        receiver: smelt_hir::ExprId,
+        body: &mut Body,
+        span: Span,
+    ) -> smelt_hir::ExprId {
+        let ty = Self::expr_ty(body, callee);
+        // Only a value that is CALLED through a function value can carry a
+        // receiver: a plain function (`Type::Function`, in either of its two
+        // Rust spellings) or a dynamic call surface (`unknown`, a type
+        // parameter, a union). A concrete callable OBJECT -- a generated struct
+        // such as `DebouncedFunction<F>` -- dispatches through its own generated
+        // call member instead, and has no function value to wrap; binding a
+        // receiver onto it would have to change its Rust type. Those keep the
+        // receiver-less behaviour they already had rather than being silently
+        // retyped, which is a known gap rather than a modeled case.
+        if !matches!(
+            self.ctx.krate.types.get(ty),
+            Some(Type::Function(_) | Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) {
+            return callee;
+        }
+        // `fn.apply(null, args)` / `fn.call(undefined, ..)` supply NO receiver.
+        // That is what the channel already answers, so there is nothing to
+        // install: eliding the bind keeps the callee's own Rust value (and
+        // therefore its call ABI) untouched for the single most common `apply`
+        // spelling, instead of wrapping it to install a binding that equals the
+        // default.
+        if matches!(
+            usize::try_from(receiver.0)
+                .ok()
+                .and_then(|index| body.exprs.get(index))
+                .map(|expr| &expr.kind),
+            Some(ExprKind::Literal(Literal::None))
+        ) {
+            return callee;
+        }
+        body.push_expr(Expr {
+            kind: ExprKind::BindThis { callee, receiver },
+            ty,
+            span,
+        })
     }
 
     /// Convert a callback `concat` argument into the list operand expected by HIR.

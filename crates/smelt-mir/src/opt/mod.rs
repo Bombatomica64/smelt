@@ -260,6 +260,12 @@ fn rewrite_rvalue(
 ) -> bool {
     match rvalue {
         Rvalue::Use(operand) => rewrite_operand_except(operand, aliases, dest),
+        Rvalue::ThisRead => false,
+        Rvalue::BindThis { callee, receiver } => {
+            let callee_changed = rewrite_operand_except(callee, aliases, dest);
+            let receiver_changed = rewrite_operand_except(receiver, aliases, dest);
+            callee_changed || receiver_changed
+        }
         Rvalue::GeneratorYield { value, .. } => rewrite_operand_except(value, aliases, dest),
         Rvalue::GeneratorNext {
             generator, value, ..

@@ -594,7 +594,7 @@ fn classify_line(line: &str, in_prelude_helper: bool) -> Category {
 ///
 /// See [`classify_line`] rule 2 for the rationale behind each marker.
 fn is_legitimate_boundary_line(line: &str) -> bool {
-    const BOUNDARY_MARKERS: [&str; 13] = [
+    const BOUNDARY_MARKERS: [&str; 16] = [
         "SmeltUnknown::Function",
         "SmeltUnknown::Promise",
         "IntoSmeltUnknown",
@@ -659,6 +659,25 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // `call_beyond_every_declared_overload_arity_keeps_its_arguments`,
         // `same_arity_call_signatures_are_selected_by_argument_type`).
         "__smelt_call",
+        // The JavaScript `this` receiver channel
+        // (`smelt_push_this`/`smelt_this`/`smelt_bind_this`, emitted for
+        // `ExprKind::ThisRead` and `ExprKind::BindThis`). `this` is supplied by
+        // the CALL, not by the definition site: the same plain function sees a
+        // different receiver depending on whether it was reached as
+        // `object.method()`, `fn.call(thisArg, ..)`, `fn.apply(thisArg, ..)`,
+        // `fn.bind(thisArg)()`, or a bare `fn()`. The source states no type for
+        // it either -- every corpus site spells `this: any` or `this: unknown`
+        // -- and the value is then inspected through runtime narrowing
+        // (`match smelt_this() { SmeltUnknown::Object(map) => .. }`), which is
+        // the "values inspected through runtime narrowing" case verbatim. No
+        // concrete struct, generated union arm, or scoped generic can carry it:
+        // one erased callable is reachable from arbitrarily many unrelated
+        // receiver types at runtime, and the callable's Rust signature is fixed
+        // when it is created, before any of them is known. Proven in
+        // `this_receiver_channel_is_a_boundary` below.
+        "smelt_push_this(",
+        "smelt_this()",
+        "smelt_bind_this(",
     ];
 
     // A JavaScript update-expression (`x++`/`++x`) used as a value snapshots its
@@ -900,6 +919,38 @@ mod tests {
             classify_line(storage, false),
             Category::AvoidableErasure,
             "ordinary erased storage must stay avoidable"
+        );
+    }
+
+    #[test]
+    fn this_receiver_channel_is_a_boundary() {
+        // One erased callable reached through two structurally unrelated
+        // receivers. `capped` is created once, with one fixed Rust signature,
+        // and is then invoked as a method of two objects that share no field.
+        // Whatever type the receiver read could have been given at creation
+        // time would be wrong for at least one of these calls, so no concrete
+        // struct, generated union arm, or scoped generic can represent it --
+        // only the dynamic channel can, and the value is recovered by narrowing
+        // the tag.
+        for line in [
+            "    let _smelt_tmp_1: SmeltUnknown = smelt_this();",
+            "    let _smelt_tmp_4 = capped.smelt_bind_this(SmeltUnknown::Object(left.clone()));",
+            "    let _smelt_tmp_5 = capped.smelt_bind_this(SmeltUnknown::Object(right.clone()));",
+            "        let _smelt_this_guard = smelt_push_this(receiver.clone());",
+        ] {
+            assert_eq!(
+                classify_line(line, false),
+                Category::LegitimateBoundary,
+                "the `this` receiver is supplied by the call site, not by any \
+                 statically known type: {line}"
+            );
+        }
+        // Storing an ordinary program value as `SmeltUnknown` is still
+        // avoidable erasure -- the marker must not widen past the channel.
+        assert_eq!(
+            classify_line("    let total: SmeltUnknown = SmeltUnknown::Number(1.0);", false),
+            Category::AvoidableErasure,
+            "an ordinary erased local is not the `this` channel"
         );
     }
 

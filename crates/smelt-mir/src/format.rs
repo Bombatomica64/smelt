@@ -212,6 +212,12 @@ fn statement_text(statement: &Statement) -> String {
 fn rvalue_text(rvalue: &Rvalue) -> String {
     match rvalue {
         Rvalue::Use(operand) => operand_text(operand),
+        Rvalue::ThisRead => "this".to_owned(),
+        Rvalue::BindThis { callee, receiver } => format!(
+            "bind_this {}, {}",
+            operand_text(callee),
+            operand_text(receiver)
+        ),
         Rvalue::GeneratorYield {
             value,
             unwind,

@@ -1685,6 +1685,25 @@ impl<'builder> ModuleBuilder<'builder> {
                 // which declares no receiver slot to fill) drops it.
                 let receiver_is_positional = function.rest.is_none()
                     && function.params.len() == call.arguments.len();
+                let span = self.span(call.span.start, call.span.end);
+                // A receiver-less callee still OBSERVES the leading operand as
+                // its `this`: it is dropped from the positional list, then bound
+                // as the receiver installed for this one call. Dropping it
+                // outright used to be the whole story, so `fn.call(this, x)` in
+                // es-toolkit's `memoize` resolver and `flow` lost the caller's
+                // receiver even though the callee body reads it. A receiver-first
+                // class method needs no bind: its `this` IS its first parameter.
+                let callable = if receiver_is_positional {
+                    callable
+                } else {
+                    match call.arguments.first() {
+                        Some(argument) => {
+                            let this_arg = self.argument(argument, body)?;
+                            self.bind_this_receiver(callable, this_arg, body, span)
+                        }
+                        None => callable,
+                    }
+                };
                 let args = call
                     .arguments
                     .iter()
@@ -1697,7 +1716,7 @@ impl<'builder> ModuleBuilder<'builder> {
                         args,
                     },
                     ty: function.return_ty,
-                    span: self.span(call.span.start, call.span.end),
+                    span,
                 })));
             }
         }
@@ -1932,14 +1951,102 @@ impl<'builder> ModuleBuilder<'builder> {
                 "calls through function types with never parameters are not lowered",
             ));
         }
+        let span = self.span(call.span.start, call.span.end);
+        let callable = self.bind_member_call_receiver(callee, callable, member, body, span);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::ClosureCall {
                 callee: callable,
                 args,
             },
             ty: function.return_ty,
-            span: self.span(call.span.start, call.span.end),
+            span,
         })))
+    }
+
+    /// Bind `object` as the receiver of an `object.method(..)` callable field read.
+    ///
+    /// In JavaScript the receiver of a member call is the object the member was
+    /// read FROM, so a callable stored as an ordinary property sees that object
+    /// as `this`. Without this the receiver was simply never supplied and any
+    /// `this` in the callee body answered the dynamic channel's default
+    /// (`undefined`) -- es-toolkit's `ary`/`unary`/`spread` specs all store a
+    /// wrapper on an object and call it as a method precisely to observe that.
+    ///
+    /// Concrete class methods never reach here: `callable_static_member_call`
+    /// defers them to `class_static_method_call`, and they are lowered
+    /// receiver-first with `this` as a real bound parameter, so binding the
+    /// dynamic channel as well would install the receiver twice.
+    ///
+    /// `callee` is the lowered member read whose shape decides whether there is
+    /// a receiver at all; `callable` is the (possibly re-typed) value actually
+    /// being called.
+    fn bind_member_call_receiver(
+        &mut self,
+        callee: smelt_hir::ExprId,
+        callable: smelt_hir::ExprId,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        body: &mut Body,
+        span: Span,
+    ) -> smelt_hir::ExprId {
+        let Some(expr) = usize::try_from(callee.0)
+            .ok()
+            .and_then(|index| body.exprs.get(index))
+        else {
+            return callable;
+        };
+        let (ExprKind::Field { receiver, .. } | ExprKind::OptionalField { receiver, .. }) =
+            expr.kind
+        else {
+            return callable;
+        };
+        // Only a callee that is invoked through the ERASED call ABI takes a
+        // receiver here. A callee that kept a concrete `Type::Function` is
+        // invoked as a typed Rust closure whose argument passing is part of its
+        // signature -- `&mut` structural parameters are forwarded by reference
+        // through the call site itself -- so interposing a bound wrapper would
+        // change how the callee is CALLED, not just what `this` resolves to,
+        // and silently drop caller-visible mutations. `.call`, `.apply` and
+        // `.bind` are unaffected by this restriction: there the source names the
+        // receiver explicitly, so honoring it is not optional and the wrapper is
+        // built for that callee's own signature.
+        let callable_ty = Self::expr_ty(body, callable);
+        let callee_uses_erased_call_abi = match self.ctx.krate.types.get(callable_ty) {
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => true,
+            // The variadic `(...args: unknown[]) => unknown` spelling is the one
+            // `Type::Function` that codegen renders as the erased
+            // `SmeltErasedFunction` struct rather than a typed Rust closure, so
+            // it takes a receiver the same way an `unknown` callee does. Every
+            // other `Type::Function` keeps its concrete parameter list, which is
+            // what makes its arguments (`&mut` structural parameters included)
+            // travel by the call site's own ABI.
+            Some(Type::Function(function)) => {
+                !function.is_async
+                    && function.rest == Some(0)
+                    && matches!(function.params.as_slice(), [param]
+                        if matches!(
+                            self.ctx.krate.types.get(*param),
+                            Some(Type::List(item))
+                                if matches!(
+                                    self.ctx.krate.types.get(*item),
+                                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Never)
+                                )
+                        ))
+            }
+            _ => false,
+        };
+        if !callee_uses_erased_call_abi {
+            return callable;
+        }
+        // A receiver that itself erases to `SmeltUnknown` at codegen makes the
+        // member read a RUNTIME `SmeltUnknown` value regardless of the field's
+        // declared type, so there is no owned callable to hang the binding on
+        // and the bound value could not be typed as the field's declared
+        // function type either. The same erasure rule already governs how a
+        // spread call on such a receiver is dispatched, a few branches above.
+        if self.static_member_receiver_dispatches_dynamically(member, body) {
+            return callable;
+        }
+        self.bind_this_receiver(callable, receiver, body, span)
     }
 
     /// Return true when a member access names an actual lowered class method.
@@ -2245,6 +2352,21 @@ impl<'builder> ModuleBuilder<'builder> {
         }
 
         let span = self.span(call.span.start, call.span.end);
+        // `bind`'s LEADING operand is the receiver, not a bound argument (the
+        // bound arguments start at index 1, which is why they are skipped above).
+        // It used to be read by nobody at all, so `fn.bind(context)` produced a
+        // callable that forwarded the bound arguments correctly and lost the
+        // context entirely -- es-toolkit's `spread` spec binds a greeting object
+        // and then reads `this.greeting` inside the callee. Bind it as the
+        // receiver installed for every call of the resulting callable, which is
+        // exactly what `Function.prototype.bind` specifies.
+        let receiver = match call.arguments.first() {
+            Some(argument) => {
+                let this_arg = self.argument(argument, outer_body)?;
+                self.bind_this_receiver(receiver, this_arg, outer_body, span)
+            }
+            None => receiver,
+        };
         let callee_symbol = self.intern_source_name("__smelt_bind_callee");
         let callee_local =
             self.capture_bind_value(receiver, function_ty, callee_symbol, span, outer_body);

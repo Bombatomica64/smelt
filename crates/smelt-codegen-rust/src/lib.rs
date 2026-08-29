@@ -546,6 +546,11 @@ fn emit_source_with_free_function_router(
     // `IsConcatSpreadable` helper, so it stays out of every other prelude.
     let needs_concat_spread =
         stdlib::rvalues(mir).any(|rvalue| matches!(rvalue, Rvalue::ConcatSpread { .. }));
+    // The dynamically scoped `this` channel is only reachable from the two
+    // rvalues that read and install it, so a program that never mentions `this`
+    // (and never binds a receiver) carries none of it.
+    let needs_this_channel = stdlib::rvalues(mir)
+        .any(|rvalue| matches!(rvalue, Rvalue::ThisRead | Rvalue::BindThis { .. }));
     let needs_host_override = stdlib::needs_host_override_runtime(mir);
     let needs_shared_captures = mir
         .closures
@@ -2596,6 +2601,25 @@ fn emit_source_with_free_function_router(
             writer.line("        });");
             writer.line("        self");
             writer.line("    }");
+            // Binding a receiver keeps the callable TYPED: a bound method is
+            // still a function everywhere else in the program, so degrading it
+            // to `SmeltUnknown` at the bind would erase a shape the source
+            // states. `object` rides along so a bound callable object keeps its
+            // own properties.
+            if needs_this_channel {
+            writer.line("    /// Bind a receiver to this callable, as `Function.prototype.bind` does.");
+            writer.line("    fn smelt_bind_this(&self, receiver: SmeltUnknown) -> SmeltErasedFunction {");
+            writer.line("        let callback = self.callback.clone();");
+            writer.line("        SmeltErasedFunction {");
+            writer.line("            callback: ::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| {");
+            writer.line("                let _smelt_this_guard = smelt_push_this(receiver.clone());");
+            writer.line("                (callback)(args)");
+            writer.line("            }),");
+            writer.line("            length: self.length,");
+            writer.line("            object: self.object.clone(),");
+            writer.line("        }");
+            writer.line("    }");
+            }
             writer.line("    /// Read one own property of a callable object, `undefined` when absent.");
             writer.line("    fn smelt_property(&self, name: &str) -> SmeltUnknown {");
             writer.line("        if let Some(value) = self.object.as_ref().and_then(|object| object.get(name)) { return value; }");
@@ -2682,6 +2706,65 @@ fn emit_source_with_free_function_router(
             writer.line("    /// not declare them can still answer a later property read.");
             writer.line("    static SMELT_CALLABLE_PROPERTIES: ::std::cell::RefCell<::std::collections::HashMap<usize, SmeltObject>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
             writer.line("}");
+        }
+        if needs_this_channel {
+        writer.blank_line();
+        // JavaScript `this` is supplied by the CALL, not by the definition site:
+        // the same plain function sees a different receiver depending on whether
+        // it was reached as `object.method()`, `fn.call(thisArg, ..)`, or a bare
+        // `fn()`. That is a genuinely dynamic binding, so it is modeled as a
+        // dynamically scoped channel rather than as a value threaded through the
+        // erased call ABI -- threading it would change the signature of every
+        // erased callable in the program for a feature only a handful of them
+        // read. `smelt_bind_this` installs a receiver for exactly one call and
+        // the guard restores the previous binding on scope exit (including on
+        // unwind), so the channel is always balanced.
+        writer.line("thread_local! {");
+        writer.line("    /// Receiver installed by the innermost active call, `undefined` when none.");
+        writer.line("    static SMELT_THIS: ::std::cell::RefCell<SmeltUnknown> = ::std::cell::RefCell::new(SmeltUnknown::Undefined);");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// Restores the previously installed `this` binding when dropped.");
+        writer.line("struct SmeltThisGuard { previous: SmeltUnknown }");
+        writer.blank_line();
+        writer.line("impl Drop for SmeltThisGuard {");
+        writer.line("    fn drop(&mut self) {");
+        writer.line("        let previous = ::std::mem::replace(&mut self.previous, SmeltUnknown::Undefined);");
+        writer.line("        SMELT_THIS.with(|slot| { *slot.borrow_mut() = previous; });");
+        writer.line("    }");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// Install `receiver` as `this` until the returned guard is dropped.");
+        writer.line("fn smelt_push_this(receiver: SmeltUnknown) -> SmeltThisGuard {");
+        writer.line("    SmeltThisGuard { previous: SMELT_THIS.with(|slot| slot.replace(receiver)) }");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// Read the `this` receiver installed by the innermost active call.");
+        writer.line("fn smelt_this() -> SmeltUnknown {");
+        writer.line("    SMELT_THIS.with(|slot| slot.borrow().clone())");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// Bind a receiver to an erased callable, as `Function.prototype.bind` does.");
+        writer.line("fn smelt_bind_this(callee: SmeltUnknown, receiver: SmeltUnknown) -> SmeltUnknown {");
+        writer.line("    match callee {");
+        writer.line("        SmeltUnknown::Function(function) => SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| {");
+        writer.line("            let _smelt_this_guard = smelt_push_this(receiver.clone());");
+        writer.line("            function(args)");
+        writer.line("        })),");
+        // A callable OBJECT (`__smelt_call`) keeps its property bag: rebuilding
+        // the object with a bound `__smelt_call` preserves every other member,
+        // which is what `throttle`/`debounce` return and then invoke as a method.
+        writer.line("        SmeltUnknown::Object(object) => match object.get(\"__smelt_call\") {");
+        writer.line("            Some(callable @ SmeltUnknown::Function(_)) => {");
+        writer.line("                let bound = object.clone();");
+        writer.line("                bound.insert(\"__smelt_call\".to_owned(), smelt_bind_this(callable, receiver));");
+        writer.line("                SmeltUnknown::Object(bound)");
+        writer.line("            }");
+        writer.line("            _ => SmeltUnknown::Object(object),");
+        writer.line("        },");
+        writer.line("        other => other,");
+        writer.line("    }");
+        writer.line("}");
         }
         if needs_vitest_mock {
             writer.blank_line();

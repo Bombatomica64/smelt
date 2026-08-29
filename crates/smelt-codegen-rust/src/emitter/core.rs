@@ -5197,6 +5197,15 @@ pub(super) fn rvalue_uses_local(value: &Rvalue, local: LocalId) -> bool {
         Rvalue::VitestMockLastResolvedWith { mock, expected } => {
             operand_uses_local(mock, local) || operand_uses_local(expected, local)
         }
+        // A receiver bind reads BOTH the callable it wraps and the receiver it
+        // installs. The callee is very often a closure temp whose only use is
+        // this rvalue (`greeting.call(right)` on a module-level function item),
+        // so missing this arm let the `_ => false` fallthrough elide that
+        // closure's declaration and the bind referenced an undefined local.
+        // `Rvalue::ThisRead` genuinely reads no local and needs no arm.
+        Rvalue::BindThis { callee, receiver } => {
+            operand_uses_local(callee, local) || operand_uses_local(receiver, local)
+        }
         _ => false,
     }
 }

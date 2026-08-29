@@ -36,6 +36,8 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             format!("yield* {}", expr_ref(*generator))
         }
         ExprKind::Call { .. }
+        | ExprKind::ThisRead
+        | ExprKind::BindThis { .. }
         | ExprKind::ClosureCall { .. }
         | ExprKind::ClosureCallSpread { .. }
         | ExprKind::Method { .. }
@@ -1000,6 +1002,10 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::Call { callee, args } => {
             let arg_text = expr_list_text(args);
             format!("call {}({arg_text})", expr_ref(*callee))
+        }
+        ExprKind::ThisRead => "this".to_owned(),
+        ExprKind::BindThis { callee, receiver } => {
+            format!("bind_this {}, {}", expr_ref(*callee), expr_ref(*receiver))
         }
         ExprKind::ClosureCall { callee, args } => {
             let arg_text = expr_list_text(args);

@@ -235,6 +235,73 @@ impl FunctionEmitter<'_> {
                 ))
             }
             Rvalue::Use(operand) => self.value_at_type(operand, dest_ty),
+            // `this` is dynamically scoped: the receiver is whatever the
+            // innermost active call installed, so the read is a runtime channel
+            // read rather than a local. See `Rvalue::BindThis` for the install.
+            Rvalue::ThisRead => Ok("smelt_this()".to_owned()),
+            Rvalue::BindThis { callee, receiver } => {
+                let receiver_text = self.erase(receiver)?;
+                // A callee that still has its `Type::Function` keeps it: the
+                // typed `smelt_bind_this` method returns a `SmeltErasedFunction`
+                // so binding a receiver never costs the callable its static
+                // shape. Only an already-erased callee goes through the free
+                // function, which also handles a callable OBJECT receiver.
+                let callee_ty = self.operand_ty(callee)?;
+                if let Some(Type::Function(function)) = self.mir.types.get(callee_ty).cloned() {
+                    // A `Type::Function` has two Rust spellings (see `rust_type`):
+                    // the erased `SmeltErasedFunction` struct, which carries the
+                    // bind as a method, and a typed `Rc<dyn Fn(..)>` closure,
+                    // which does not. The typed form is rebound by wrapping it in
+                    // an arity-matched closure of the SAME type; the explicit
+                    // annotation is what lets the parameter types be inferred
+                    // from the coercion target instead of respelled here.
+                    if self.is_erased_unknown_rest_function(&function) && !function.may_throw {
+                        // The MIR type says "erased-rest function", but that is
+                        // not the same question as "the emitted Rust VALUE is an
+                        // owned `SmeltErasedFunction`". A borrowed callback
+                        // handle (`&dyn Fn(..)`, how a function PARAMETER is
+                        // rendered) and an erased field read on an erased
+                        // receiver (a `SmeltUnknown`) both carry this type while
+                        // being something else in Rust, and neither can host the
+                        // binding: a borrow cannot move into the `'static`
+                        // callback a bound callable needs, and a `SmeltUnknown`
+                        // is not the struct the destination expects.
+                        // `callee_uses_erased_call_method` is the single
+                        // authority for that distinction, so it decides here
+                        // too. When it says no, the callee is emitted unchanged
+                        // and the receiver is not installed -- the behavior
+                        // every member call had before the channel existed. It
+                        // is a known gap, recorded rather than turned into a
+                        // hard error, because erroring would reject programs
+                        // that transpile today.
+                        if !self.callee_uses_erased_call_method(callee)? {
+                            return self.value_at_type(callee, dest_ty);
+                        }
+                        return Ok(format!(
+                            "{}.smelt_bind_this({receiver_text})",
+                            self.operand_text(callee)?
+                        ));
+                    }
+                    let params = (0..function.params.len())
+                        .map(|index| format!("smelt_bound_arg_{index}"))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    return Ok(format!(
+                        "{{ let smelt_bound_callee = {callee}.clone();                          let smelt_bound_this = {receiver_text};                          let smelt_bound: {ty} = ::std::rc::Rc::new(move |{params}| {{                          let _smelt_this_guard = smelt_push_this(smelt_bound_this.clone());                          (smelt_bound_callee)({params}) }}); smelt_bound }}",
+                        callee = self.operand_text(callee)?,
+                        // `impl Trait` is illegal in a `let` annotation, and the
+                        // annotation is precisely what drives parameter inference
+                        // here, so the boxed `dyn` spelling is required.
+                        ty = self.type_text_with_impl_trait(callee_ty, false)?,
+                    ));
+                }
+                {
+                    Ok(format!(
+                        "smelt_bind_this({}, {receiver_text})",
+                        self.erase(callee)?
+                    ))
+                }
+            }
             Rvalue::GeneratorYield {
                 value,
                 unwind,

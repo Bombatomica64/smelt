@@ -2224,6 +2224,19 @@ impl LoweringCtx<'_> {
                 )?
             }
             ExprKind::Closure(closure) => self.lower_closure_expr(closure, expr.ty, expr.span)?,
+            ExprKind::ThisRead => self.assign_temp(expr.ty, expr.span, Rvalue::ThisRead)?,
+            ExprKind::BindThis { callee, receiver } => {
+                let callee_operand = self.lower_expr(*callee)?;
+                let receiver_operand = self.lower_expr(*receiver)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::BindThis {
+                        callee: callee_operand,
+                        receiver: receiver_operand,
+                    },
+                )?
+            }
             ExprKind::ClosureCall { callee, args } => {
                 let callee_ty = self.hir_expr(*callee)?.ty;
                 let callee_operand = self.lower_expr(*callee)?;

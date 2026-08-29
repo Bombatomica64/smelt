@@ -81,6 +81,30 @@ pub enum ExprKind {
     /// Resume a delegated generator, forwarding each suspension to the caller.
     GeneratorDelegate { generator: ExprId },
     Closure(ClosureExpr),
+    /// Read the JavaScript `this` receiver installed by the active call.
+    ///
+    /// A plain function or function expression has no lexical receiver: in
+    /// JavaScript its `this` is supplied by the CALL, not by the definition
+    /// site. Smelt models that with a dynamically scoped receiver channel --
+    /// [`ExprKind::BindThis`] installs a receiver for the duration of one call
+    /// and this expression reads whatever the innermost active call installed,
+    /// answering `undefined` for a plain (receiver-less) invocation. Arrow
+    /// functions never produce this expression: they capture the enclosing
+    /// function's `this` local lexically, exactly as the source does.
+    ThisRead,
+    /// Bind a receiver to a callable, yielding `Function.prototype.bind`'s value.
+    ///
+    /// The result is a callable that, when invoked, installs `receiver` as the
+    /// `this` seen by [`ExprKind::ThisRead`] in the callee body and restores the
+    /// previous binding afterwards. This is the single representation behind all
+    /// three JavaScript spellings that supply a receiver: `object.method(..)`,
+    /// `fn.call(thisArg, ..)`, and `fn.apply(thisArg, argsArray)`.
+    BindThis {
+        /// The callable whose receiver is being bound.
+        callee: ExprId,
+        /// The value the callee's `this` resolves to.
+        receiver: ExprId,
+    },
     ClosureCall {
         callee: ExprId,
         args: Vec<ExprId>,

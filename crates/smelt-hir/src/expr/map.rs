@@ -89,6 +89,11 @@ impl ExprKind {
             Self::GeneratorDelegate { generator } => Self::GeneratorDelegate {
                 generator: f(generator)?,
             },
+            Self::ThisRead => Self::ThisRead,
+            Self::BindThis { callee, receiver } => Self::BindThis {
+                callee: f(callee)?,
+                receiver: f(receiver)?,
+            },
             Self::ClosureCall { callee, args } => Self::ClosureCall {
                 callee: f(callee)?,
                 args: map_vec(args, f)?,

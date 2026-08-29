@@ -270,9 +270,27 @@ impl ModuleBuilder<'_> {
                     span: self.span(start, end),
                 }));
             }
+            // An unbound `this` is a PLAIN function's receiver. It is not a
+            // module global: the enclosing class-method and constructor paths
+            // bind `this` as a local before lowering a body, so reaching here
+            // means the receiver comes from the call rather than from the
+            // definition site. It used to be listed with the ambient globals
+            // below, which routed it through `module_global_expression` and, for
+            // `Type::Unknown`, fabricated an EMPTY OBJECT LITERAL -- so
+            // `function (this: any) { return this; }` silently returned `{}`
+            // with no diagnostic. It now reads the dynamically scoped receiver
+            // channel that `ExprKind::BindThis` installs.
+            if name == "this" {
+                let ty = self.ctx.krate.types.intern(Type::Unknown);
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::ThisRead,
+                    ty,
+                    span: self.span(start, end),
+                }));
+            }
             if matches!(
                 name,
-                "AbortSignal" | "Object" | "Symbol" | "process" | "strapi" | "require" | "this"
+                "AbortSignal" | "Object" | "Symbol" | "process" | "strapi" | "require"
             ) {
                 let ty = self.ctx.krate.types.intern(Type::Unknown);
                 return self.module_global_expression(name, ty, start, end, body);
