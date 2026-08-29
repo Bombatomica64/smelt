@@ -212,6 +212,10 @@ impl ExprKind {
                 side,
                 operand: f(operand)?,
             },
+            Self::StringLocaleCompare { left, right } => Self::StringLocaleCompare {
+                left: f(left)?,
+                right: f(right)?,
+            },
             Self::StringAffix {
                 op,
                 haystack,

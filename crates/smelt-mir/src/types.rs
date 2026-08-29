@@ -844,6 +844,15 @@ pub enum Rvalue {
         /// String operand to normalize.
         operand: Operand,
     },
+    /// Collate two strings per JavaScript `left.localeCompare(right)` with no
+    /// locale or option arguments (see the runtime `smelt_locale_compare`
+    /// helper for the collation levels that are and are not modeled).
+    StringLocaleCompare {
+        /// Receiver string.
+        left: Operand,
+        /// String compared against the receiver.
+        right: Operand,
+    },
     /// Percent-encode a string per JavaScript `encodeURI` (the full-URI
     /// character set; see the runtime `smelt_encode_uri` helper).
     UriEncode {

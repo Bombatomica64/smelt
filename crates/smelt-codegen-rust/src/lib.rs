@@ -666,6 +666,9 @@ fn emit_source_with_free_function_router(
     if stdlib::needs_uri_encode_runtime(mir) {
         emit_runtime_gate(&mut writer, PreludeGate::UriEncode)?;
     }
+    if stdlib::needs_locale_compare_runtime(mir) {
+        emit_runtime_gate(&mut writer, PreludeGate::LocaleCompare)?;
+    }
     // `smelt_next_object_id` mints fresh JavaScript object reference ids. It is
     // emitted in the `needs_smelt_list` block below (a list mints ids), but a
     // regex/match program without any list still needs it for

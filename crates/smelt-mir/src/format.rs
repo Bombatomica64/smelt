@@ -554,6 +554,13 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
             };
             format!("string_trim_{side_text} {}", operand_text(operand))
         }
+        Rvalue::StringLocaleCompare { left, right } => {
+            format!(
+                "string_locale_compare {}, {}",
+                operand_text(left),
+                operand_text(right)
+            )
+        }
         Rvalue::StringAffix {
             op,
             haystack,

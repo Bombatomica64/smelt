@@ -121,7 +121,11 @@ impl Rvalue {
             } => {
                 visit(unknown_value);
             }
-            Self::StringAffix {
+            Self::StringLocaleCompare {
+                left: haystack,
+                right: needle,
+            }
+            | Self::StringAffix {
                 haystack, needle, ..
             }
             | Self::StringSearch {
@@ -891,7 +895,11 @@ impl Rvalue {
             } => {
                 visit(unknown_value);
             }
-            Self::StringAffix {
+            Self::StringLocaleCompare {
+                left: haystack,
+                right: needle,
+            }
+            | Self::StringAffix {
                 haystack, needle, ..
             }
             | Self::StringSearch {

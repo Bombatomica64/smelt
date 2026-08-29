@@ -131,6 +131,7 @@ impl LoweringCtx<'_> {
             | ExprKind::ObjectToStringTag { .. }
             | ExprKind::StructuredClone { .. }
             | ExprKind::StringTrim { .. }
+            | ExprKind::StringLocaleCompare { .. }
             | ExprKind::StringAffix { .. }
             | ExprKind::StringSearch { .. }
             | ExprKind::StringReplace { .. }

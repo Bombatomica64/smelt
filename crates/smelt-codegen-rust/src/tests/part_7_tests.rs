@@ -3879,6 +3879,69 @@ const sortByImplementation = <T>(
 }
 
 #[test]
+fn emits_runtime_branch_for_an_optional_sort_comparator() {
+    // ECMA-262 `Array.prototype.sort` step 1: `sort(undefined)` is `sort()`.
+    // An optional comparator must therefore stay a real `Option<..>` down to
+    // runtime and be matched, NOT be wrapped in an erased callback whose absent
+    // call yields `undefined` (which the numeric coercion reads as 0, making
+    // every comparison `Equal` and the whole sort a silent no-op).
+    let source = source_for(
+        r"
+export function sortKeysLike(keys: string[], compare?: (a: string, b: string) => number): string[] {
+  return keys.slice().sort(compare);
+}
+",
+    );
+
+    assert!(
+        source.contains("match compare.clone() { Some(smelt_comparator) =>"),
+        "the optional comparator must be matched at runtime: {source}"
+    );
+    assert!(
+        source.contains(
+            "None => { _smelt_tmp_2.borrow_mut().sort_by(|left, right| left.to_string().cmp(&right.to_string())); }"
+        ),
+        "the absent arm must run the default ToString ordering: {source}"
+    );
+    let body = source
+        .split_once("fn sort_keys_like(")
+        .expect("generated function")
+        .1;
+    let body = body.split_once("\nfn ").map_or(body, |(head, _)| head);
+    assert!(
+        !body.contains("SmeltUnknown"),
+        "the optional comparator must not be erased: {body}"
+    );
+}
+
+#[test]
+fn emits_locale_compare_through_the_runtime_collation_helper() {
+    // `String.prototype.localeCompare` used to resolve as an ABSENT member and
+    // lower to a bare `SmeltUnknown::Null` that was then CALLED, so the
+    // comparator answered `NaN` for every pair. It is a modeled builtin now.
+    let source = source_for(
+        r"
+export function collate(a: string, b: string): number {
+  return a.localeCompare(b);
+}
+",
+    );
+
+    assert!(
+        source.contains("smelt_locale_compare(a.clone().as_str(), b.clone().as_str())"),
+        "{source}"
+    );
+    assert!(
+        source.contains("fn smelt_locale_compare(left: &str, right: &str) -> f64"),
+        "the runtime helper must be emitted into the prelude: {source}"
+    );
+    assert!(
+        !source.contains("SmeltUnknown::Null"),
+        "an unmodeled member must not silently become a value: {source}"
+    );
+}
+
+#[test]
 fn emits_spread_sort_for_erased_iterable_generic() {
     let source = source_for(
         r"

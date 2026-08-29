@@ -1847,6 +1847,32 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let element_ty = *list_element_ty;
+        // ECMA-262 `Array.prototype.sort` step 1: passing `undefined` as the
+        // comparator is exactly the same as passing nothing at all — elements
+        // are ordered by their `ToString` coercion. An *optional* comparator
+        // (`compare?: (a, b) => number`, or any variable of an optional
+        // function type) therefore must not be lowered as an ordinary erased
+        // callback: the erased wrapper turns "the callback is absent" into an
+        // `undefined` RESULT, the numeric coercion reads that as `0`, every
+        // comparison answers `Equal`, and the sort silently becomes a no-op.
+        // Keep the optional callable itself as the comparator operand so the
+        // emitter can branch on its presence and fall back to the default
+        // ordering, the way a hand-written `match cmp { Some(f) => .., None =>
+        // .. }` would.
+        if let Some(argument) = comparator_argument
+            && let Some(comparator) = self.optional_sort_comparator(argument, body)?
+        {
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::ListSort {
+                    list,
+                    comparator: Some(comparator),
+                    key: None,
+                    reverse: false,
+                },
+                ty: list_ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
         let comparator = if let Some(argument) = comparator_argument {
             let number_ty = self.ctx.krate.types.intern(Type::Float);
             // Use the body-fallback variant so a comparator whose body uses
@@ -1928,6 +1954,51 @@ impl ModuleBuilder<'_> {
             ty: list_ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Recognize a `sort` argument that is a variable of *optional* function
+    /// type and lower it as-is.
+    ///
+    /// Returns `None` (so the caller falls back to the ordinary callback
+    /// lowering) unless the argument is an identifier bound to a local whose
+    /// type is `Optional(Function)`. Only that shape can be inspected without
+    /// lowering the argument expression, and lowering it speculatively would
+    /// duplicate the side effects of a non-identifier argument such as
+    /// `xs.sort(makeComparator())`.
+    ///
+    /// The returned expression keeps its `Optional(Function)` type all the way
+    /// into MIR; `emitter::list_mutation` branches on the `Option` at runtime.
+    fn optional_sort_comparator(
+        &mut self,
+        argument: &Argument<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Argument::Identifier(identifier) = argument else {
+            return Ok(None);
+        };
+        let Some(local) = self.scope.lookup(identifier.name.as_str()) else {
+            return Ok(None);
+        };
+        let local_ty = Self::local_ty(body, local);
+        let Some(Type::Optional(inner)) = self.ctx.krate.types.get(local_ty).cloned() else {
+            return Ok(None);
+        };
+        let Some(Type::Function(function)) = self.ctx.krate.types.get(inner).cloned() else {
+            return Ok(None);
+        };
+        // A comparator takes two elements and returns a number. Anything else
+        // is not `Array.prototype.sort`'s comparator contract, so leave it to
+        // the ordinary callback path (which reports a precise error).
+        if function.params.len() != 2 {
+            return Ok(None);
+        }
+        let expr = self.identifier_expression(
+            identifier.name.as_str(),
+            identifier.span.start,
+            identifier.span.end,
+            body,
+        )?;
+        Ok(Some(expr))
     }
 
     /// Lower direct TypeScript `Array.prototype.push` calls.

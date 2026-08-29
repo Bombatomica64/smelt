@@ -101,6 +101,14 @@ pub mod strings {
     /// alphanumerics, unreserved marks, URI reserved separators, and `#`);
     /// everything else becomes uppercase `%XX` UTF-8 triplets.
     pub const ENCODE_URI: &str = "smelt_encode_uri";
+
+    /// Collates two strings; backs `a.localeCompare(b)`
+    /// (`Rvalue::StringLocaleCompare`).
+    ///
+    /// Models the primary (case-folded) and tertiary (lowercase-first) levels
+    /// of the Unicode root collation; locales and `Intl.Collator` options are
+    /// not modeled.
+    pub const LOCALE_COMPARE: &str = "smelt_locale_compare";
 }
 
 /// Host-object construction helpers.

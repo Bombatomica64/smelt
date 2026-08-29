@@ -50,5 +50,6 @@
 pub mod captures;
 pub mod clock;
 pub mod source;
+pub mod strings;
 pub mod uri;
 pub mod value;

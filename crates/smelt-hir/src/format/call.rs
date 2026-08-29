@@ -200,6 +200,13 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             };
             format!("string_trim_{side_name} {}", expr_ref(*operand))
         }
+        ExprKind::StringLocaleCompare { left, right } => {
+            format!(
+                "string_locale_compare {} {}",
+                expr_ref(*left),
+                expr_ref(*right)
+            )
+        }
         ExprKind::StringAffix {
             op,
             haystack,
