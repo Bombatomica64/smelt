@@ -551,6 +551,10 @@ impl FunctionEmitter<'_> {
             let body_moves_into_static_block = closure_is_async
                 || closure.is_generator
                 || matches!(self.mir.types.get(closure_return_ty), Some(Type::Future(_)));
+            // Parameter locals whose emitted binding keeps the `&` the contextual
+            // `dyn Fn` owes them. The body must not borrow such a binding again
+            // when it forwards the parameter into another `&T` slot.
+            let mut by_reference_param_locals = Vec::new();
             let mut params = closure
                 .params
                 .iter()
@@ -609,9 +613,15 @@ impl FunctionEmitter<'_> {
                         ));
                         return Ok(format!("{name}: &{local_ty_text}"));
                     }
+                    if !by_ref.is_empty() {
+                        by_reference_param_locals.push(*param);
+                    }
                     Ok(format!("{mutability}{name}: {by_ref}{local_ty_text}"))
                 })
                 .collect::<Result<Vec<_>, EmitError>>()?;
+            emitter
+                .by_reference_param_locals
+                .extend(by_reference_param_locals);
             for (index, extra_ty) in extra_param_tys.iter().enumerate() {
                 params.push(format!(
                     "_arg{index}: {}{}",
