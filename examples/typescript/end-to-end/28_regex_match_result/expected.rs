@@ -310,9 +310,9 @@ fn main() {
     let mut _smelt_tmp_13: f64 = 0.0;
     loop {
     _smelt_tmp_14 = matches.len() as f64;
-    _smelt_tmp_15 = _smelt_tmp_13.clone() < _smelt_tmp_14;
+    _smelt_tmp_15 = _smelt_tmp_13 < _smelt_tmp_14;
     if !(_smelt_tmp_15) { break; }
-    found = matches.borrow().get({ let len = matches.len() as i64; let index = _smelt_tmp_13.clone() as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| SmeltMatch::default());
+    found = matches.borrow().get({ let len = matches.len() as i64; let index = _smelt_tmp_13 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| SmeltMatch::default());
     _smelt_tmp_16 = found.clone().group_owned(0.0 as usize);
     whole = _smelt_tmp_16;
     _smelt_tmp_17 = found.clone().clone();
@@ -322,7 +322,7 @@ fn main() {
     let _ = { println!("{:?}", whole); };
     let _ = { println!("{:?}", letter); };
     let _ = { println!("{:?}", digit); };
-    let _ = { println!("{}", found.index().clone()); };
+    let _ = { println!("{}", found.index()); };
     let _ = { println!("{}", found.input_owned().clone()); };
     _smelt_tmp_24 = found.clone().group_owned(0.0 as usize);
     full = _smelt_tmp_24;
@@ -333,7 +333,7 @@ fn main() {
     let _ = { println!("{:?}", full); };
     let _ = { println!("{:?}", first); };
     let _ = { println!("{:?}", second); };
-    _smelt_tmp_13 = _smelt_tmp_13.clone() + 1.0;
+    _smelt_tmp_13 = _smelt_tmp_13 + 1.0;
     }
     _smelt_tmp_30 = SmeltRegExp::new("(?P<year>\\d{4})-(\\d{2})".to_owned(), "".to_owned());
     single = _smelt_tmp_30;
@@ -354,7 +354,7 @@ fn main() {
     _smelt_tmp_43 = _smelt_tmp_42.group_owned(2.0 as usize);
     let _ = { println!("{:?}", _smelt_tmp_43); };
     _smelt_tmp_45 = found_1.clone().expect("optional value was absent after narrowing");
-    let _ = { println!("{}", _smelt_tmp_45.index().clone()); };
+    let _ = { println!("{}", _smelt_tmp_45.index()); };
     return;
     } else {
     return;

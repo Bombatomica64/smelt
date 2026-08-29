@@ -21,12 +21,12 @@ fn main() {
 impl Point {
     fn new(x: f64, y: f64) -> Self {
     let mut this: Self = Point { x: 0.0, y: 0.0 };
-    this.x = x.clone();
-    this.y = y.clone();
+    this.x = x;
+    this.y = y;
     return this;
     }
     fn sum(&self) -> f64 {
-    let _smelt_tmp_1: f64 = self.x.clone() + self.y.clone();
+    let _smelt_tmp_1: f64 = self.x + self.y;
     return _smelt_tmp_1;
     }
 }

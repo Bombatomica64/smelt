@@ -9,9 +9,9 @@ fn main() {
     let mut i: f64 = 0.0;
     let mut sum: f64 = 0.0;
     loop {
-    _smelt_tmp_2 = i.clone() < 4.0;
+    _smelt_tmp_2 = i < 4.0;
     if !(_smelt_tmp_2) { break; }
-    _smelt_tmp_3 = sum + i.clone();
+    _smelt_tmp_3 = sum + i;
     sum = _smelt_tmp_3;
     _smelt_tmp_4 = i + 1.0;
     i = _smelt_tmp_4;

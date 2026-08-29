@@ -10,7 +10,7 @@ fn main() {
     let _smelt_tmp_3: f64 = -3.0;
     let value: f64 = _smelt_tmp_3;
     let _smelt_tmp_4: bool = !(blocked);
-    let _smelt_tmp_5: bool = if _smelt_tmp_4 { ready.clone() } else { false };
+    let _smelt_tmp_5: bool = if _smelt_tmp_4 { ready } else { false };
     let _smelt_tmp_6: bool = if _smelt_tmp_5 { ready } else { false };
     let _ = { println!("{} {}", _smelt_tmp_6, value); };
     return;

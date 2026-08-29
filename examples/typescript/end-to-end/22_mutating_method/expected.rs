@@ -43,11 +43,11 @@ fn main() {
 impl Counter {
     fn new(value: f64) -> Self {
     let mut this: Self = Counter(::std::rc::Rc::new(::std::cell::RefCell::new(CounterInner { value: 0.0 })));
-    this.0.borrow_mut().value = value.clone();
+    this.0.borrow_mut().value = value;
     return this;
     }
     fn inc(&self, delta: f64) -> f64 {
-    let _smelt_tmp_2: f64 = self.0.borrow().value.clone() + delta.clone();
+    let _smelt_tmp_2: f64 = self.0.borrow().value.clone() + delta;
     self.0.borrow_mut().value = _smelt_tmp_2;
     return self.0.borrow().value.clone();
     }
