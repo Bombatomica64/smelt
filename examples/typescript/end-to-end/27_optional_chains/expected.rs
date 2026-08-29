@@ -605,21 +605,63 @@ pub struct SmeltJsSet<T> {
     store: ::std::rc::Rc<SmeltJsSetStore<T>>,
 }
 
+#[derive(Default, Clone, Copy)]
+pub struct SmeltPreHashedHasher(u64);
+
+impl ::std::hash::Hasher for SmeltPreHashedHasher {
+    fn finish(&self) -> u64 { self.0 }
+    fn write_u64(&mut self, value: u64) { self.0 = value; }
+    fn write(&mut self, bytes: &[u8]) {
+        let mut hasher = SmeltFieldHasher(self.0);
+        ::std::hash::Hasher::write(&mut hasher, bytes);
+        self.0 = ::std::hash::Hasher::finish(&hasher);
+    }
+}
+
+/// A map keyed by an already-hashed `u64`, which is passed through unmixed.
+pub type SmeltPreHashedMap<V> = ::std::collections::HashMap<u64, V, ::std::hash::BuildHasherDefault<SmeltPreHashedHasher>>;
+
+#[derive(Clone, Debug)]
+enum SmeltSlotList {
+    One(usize),
+    Many(Vec<usize>),
+}
+
+impl SmeltSlotList {
+    /// The slots in this bucket, in insertion order.
+    fn slots(&self) -> &[usize] { match self { Self::One(slot) => ::std::slice::from_ref(slot), Self::Many(slots) => slots.as_slice() } }
+    /// Append `slot`, promoting a one-slot bucket to an allocated one.
+    fn push(&mut self, slot: usize) { match self { Self::One(first) => *self = Self::Many(::std::vec![*first, slot]), Self::Many(slots) => slots.push(slot) } }
+    /// Drop `removed` and shift every later slot down by one, mirroring what
+    /// `entries.remove(removed)` did to the positions this bucket stores.
+    /// Returns whether the bucket is now empty and should be dropped.
+    fn forget(&mut self, removed: usize) -> bool {
+        match self {
+            Self::One(slot) => { if *slot == removed { return true; } if *slot > removed { *slot -= 1; } false }
+            Self::Many(slots) => {
+                slots.retain(|existing| *existing != removed);
+                for existing in slots.iter_mut() { if *existing > removed { *existing -= 1; } }
+                match slots.len() { 0 => true, 1 => { *self = Self::One(slots[0]); false }, _ => false }
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 struct SmeltJsSlotIndex {
-    hashed: SmeltFieldMap<u64, Vec<usize>>,
+    hashed: SmeltPreHashedMap<SmeltSlotList>,
     unhashed: Vec<usize>,
 }
 
 impl SmeltJsSlotIndex {
-    fn new() -> Self { Self { hashed: SmeltFieldMap::default(), unhashed: Vec::new() } }
+    fn new() -> Self { Self { hashed: SmeltPreHashedMap::default(), unhashed: Vec::new() } }
     /// Index the freshly pushed slot `slot` under its entry's hash key.
-    fn remember(&mut self, slot: usize, key: Option<u64>) { match key { Some(key) => self.hashed.entry(key).or_default().push(slot), None => self.unhashed.push(slot) } }
+    fn remember(&mut self, slot: usize, key: Option<u64>) { match key { Some(key) => match self.hashed.entry(key) { ::std::collections::hash_map::Entry::Occupied(mut bucket) => bucket.get_mut().push(slot), ::std::collections::hash_map::Entry::Vacant(bucket) => { bucket.insert(SmeltSlotList::One(slot)); } }, None => self.unhashed.push(slot) } }
     /// Drop `slot` from the index and shift every later slot down by one, which
     /// is what `entries.remove(slot)` did to the positions the index stores.
-    fn forget(&mut self, slot: usize) { self.hashed.retain(|_, slots| { slots.retain(|existing| *existing != slot); for existing in slots.iter_mut() { if *existing > slot { *existing -= 1; } } !slots.is_empty() }); self.unhashed.retain(|existing| *existing != slot); for existing in self.unhashed.iter_mut() { if *existing > slot { *existing -= 1; } } }
+    fn forget(&mut self, slot: usize) { self.hashed.retain(|_, slots| !slots.forget(slot)); self.unhashed.retain(|existing| *existing != slot); for existing in self.unhashed.iter_mut() { if *existing > slot { *existing -= 1; } } }
     /// The slots that may hold an entry with hash key `key`.
-    fn slots(&self, key: Option<u64>) -> &[usize] { match key { Some(key) => self.hashed.get(&key).map_or(&[], Vec::as_slice), None => self.unhashed.as_slice() } }
+    fn slots(&self, key: Option<u64>) -> &[usize] { match key { Some(key) => self.hashed.get(&key).map_or(&[], SmeltSlotList::slots), None => self.unhashed.as_slice() } }
 }
 
 /// The members of a `SmeltJsSet` plus the hash index over them.
