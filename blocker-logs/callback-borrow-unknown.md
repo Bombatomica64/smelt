@@ -71,6 +71,29 @@ The plan estimated 10-20% on `partition`/`group_by`/`count_by`/`unique_by`.
 their cost is dominated by hashing and map insertion rather than by the callback
 argument.
 
+## The provenance seam, and the gate that caught it
+
+Two more sites read a callback's parameter ABI off the wrong description of the
+same function. Both were caught by CI's `compile_corpus` tier, which a plain
+`cargo test --all-targets` does **not** run -- it needs
+`cargo test -p smelt-codegen-rust --test compile_corpus -- --ignored`. Add that
+to the gate list for anything that touches a callback signature.
+
+**A monomorphized generic loses the by-reference marker.** `make<T>(x: T) => (v:
+T) => boolean` emits as `fn make<T>(x: T) -> Rc<dyn Fn(&T) -> bool>` and the call
+site monomorphizes it to `Rc<dyn Fn(&f64) -> bool>`; the destination local's MIR
+type is the instantiated `(v: number) => boolean`, which no longer records that
+its parameter came from a type parameter. `emitted_call_result_function_type`
+answers the ABI question from the callee's declaration instead -- restricted to
+callees emitted with real generics, because that is the only case where the
+rendered ABI can outrun MIR. An erased callee renders its return in MIR's own
+vocabulary and the rendered-value adapter has already reshaped the value;
+firing there too over-borrowed an already-adapted value.
+
+**The rendered-text adapter never asked the rule for its forwarded arguments**,
+though it did for its own declarations. Both halves now go through the same
+helpers.
+
 ## Gates
 
 - internal suite green on every target; clippy 144, unchanged from the base
