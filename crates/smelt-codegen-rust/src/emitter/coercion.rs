@@ -17,6 +17,7 @@
 //! See CONTEXT.md (## Coercion).
 
 use super::*;
+use crate::emitter::rendered_text_rewrite::cloned_value_text;
 use crate::rust::RustIdent;
 use smelt_hir::FunctionType;
 
@@ -130,7 +131,7 @@ impl FunctionEmitter<'_> {
         ) {
             let value_text = self.operand_text(operand)?;
             if self.mir.types.get(*source_inner) == Some(&Type::Optional(*target_inner)) {
-                return Ok(format!("{value_text}.clone().flatten()"));
+                return Ok(format!("{}.flatten()", cloned_value_text(&value_text)));
             }
             if source_inner == target_inner {
                 return Ok(value_text);
@@ -310,7 +311,9 @@ impl FunctionEmitter<'_> {
             if self.is_borrowed_callback_capture_name(&text) {
                 return self.borrowed_function_handle_text(&text, target);
             }
-            return Ok(format!("{text}.clone()"));
+            // `text` already renders an owned value here; a second clone would
+            // deep-copy the temporary for nothing.
+            return Ok(cloned_value_text(&text));
         }
         if let Some(Type::Optional(inner)) = self.mir.types.get(self.operand_ty(operand)?)
             && *inner == target
@@ -367,8 +370,8 @@ impl FunctionEmitter<'_> {
                 && self.list_local_all_undefined_constants(operand)?
             {
                 return Ok(format!(
-                    "{{ let smelt_l: SmeltList<_> = ({op}).clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| SmeltUnknown::Undefined).collect::<Vec<_>>()) }}",
-                    op = self.operand_text(operand)?
+                    "{{ let smelt_l: SmeltList<_> = {op}.into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| SmeltUnknown::Undefined).collect::<Vec<_>>()) }}",
+                    op = cloned_value_text(&self.operand_text(operand)?)
                 ));
             }
             let value_text = if matches!(self.mir.types.get(*source_item), Some(Type::List(_)))
@@ -382,8 +385,8 @@ impl FunctionEmitter<'_> {
                 self.value_at_type_text("value", *source_item, *target_item)?
             };
             return Ok(format!(
-                "{{ let smelt_l: SmeltList<_> = ({op}).clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| {value_text}).collect::<Vec<_>>()) }}",
-                op = self.operand_text(operand)?
+                "{{ let smelt_l: SmeltList<_> = {op}.into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| {value_text}).collect::<Vec<_>>()) }}",
+                op = cloned_value_text(&self.operand_text(operand)?)
             ));
         }
         if let Some(Type::List(target_item)) = self.mir.types.get(target)
@@ -613,6 +616,9 @@ impl FunctionEmitter<'_> {
         source: TypeId,
         target: TypeId,
     ) -> Result<String, EmitError> {
+        // `value_text` is usually already an owned temporary (an operand render clones the local
+        // it reads), so take an owned copy rather than deep-copying it a second time.
+        let smelt_owned_value = cloned_value_text(value_text);
         if let Some(injected) = self.inject_union_value_text(value_text, source, target)? {
             return Ok(injected);
         }
@@ -643,7 +649,7 @@ impl FunctionEmitter<'_> {
             if self.is_borrowed_callback_capture_name(value_text) {
                 return self.borrowed_function_handle_text(value_text, target);
             }
-            return Ok(format!("{value_text}.clone()"));
+            return Ok(format!("{smelt_owned_value}"));
         }
         if let (Some(Type::Future(source_item)), Some(Type::Future(target_item))) =
             (self.mir.types.get(source), self.mir.types.get(target))
@@ -687,7 +693,7 @@ impl FunctionEmitter<'_> {
             // `.into()` (reflexive for `SmeltList`, `From<Vec>` otherwise) so the
             // `.id()` identity read is always available.
             return Ok(format!(
-                "{{ let smelt_l: SmeltList<_> = ({value_text}).clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| {element_text}).collect::<Vec<_>>()) }}"
+                "{{ let smelt_l: SmeltList<_> = {smelt_owned_value}.into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| {element_text}).collect::<Vec<_>>()) }}"
             ));
         }
         if let (Some(Type::Tuple(source_items)), Some(Type::Tuple(target_items))) =
@@ -846,16 +852,16 @@ impl FunctionEmitter<'_> {
             (self.mir.types.get(source), self.mir.types.get(target))
             && self.mir.types.get(*source_inner) == Some(&Type::Optional(*target_inner))
         {
-            return Ok(format!("{value_text}.clone().flatten()"));
+            return Ok(format!("{smelt_owned_value}.flatten()"));
         }
         if let (Some(Type::Optional(source_inner)), Some(Type::Optional(target_inner))) =
             (self.mir.types.get(source), self.mir.types.get(target))
         {
             if source_inner == target_inner {
-                return Ok(format!("{value_text}.clone()"));
+                return Ok(format!("{smelt_owned_value}"));
             }
             let mapped_value = self.value_at_type_text("value", *source_inner, *target_inner)?;
-            return Ok(format!("{value_text}.clone().map(|value| {mapped_value})"));
+            return Ok(format!("{smelt_owned_value}.map(|value| {mapped_value})"));
         }
         if let Some(Type::Optional(inner)) = self.mir.types.get(target)
             && matches!(
@@ -868,7 +874,7 @@ impl FunctionEmitter<'_> {
                 return Ok(format!("Some({mapped_value})"));
             }
             return Ok(format!(
-                "match {value_text}.clone() {{ SmeltUnknown::Null | SmeltUnknown::Undefined => None, value => Some({mapped_value}) }}"
+                "match {smelt_owned_value} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => None, value => Some({mapped_value}) }}"
             ));
         }
         if let Some(Type::Optional(inner)) = self.mir.types.get(target)
@@ -889,14 +895,14 @@ impl FunctionEmitter<'_> {
             && *inner == target
         {
             return Ok(format!(
-                "{value_text}.clone().unwrap_or({})",
+                "{smelt_owned_value}.unwrap_or({})",
                 self.default_value(target)?
             ));
         }
         if let Some(Type::Optional(inner)) = self.mir.types.get(source) {
             let mapped_value = self.value_at_type_text("value", *inner, target)?;
             return Ok(format!(
-                "{value_text}.clone().map_or({}, |value| {mapped_value})",
+                "{smelt_owned_value}.map_or({}, |value| {mapped_value})",
                 self.default_value(target)?
             ));
         }
@@ -906,7 +912,7 @@ impl FunctionEmitter<'_> {
         {
             let item_text = self.value_at_type_text("value", *source_item, *target_item)?;
             return Ok(format!(
-                "{value_text}.clone().into_iter().map(|value| {item_text}).collect::<SmeltList<_>>()"
+                "{smelt_owned_value}.into_iter().map(|value| {item_text}).collect::<SmeltList<_>>()"
             ));
         }
         // A fixed-arity tuple flowing into a list target (`[T, U] -> V[]`, as
@@ -1050,6 +1056,9 @@ impl FunctionEmitter<'_> {
             return Ok("SmeltUnknown::Undefined".to_owned());
         }
         let text = self.operand_text(operand)?;
+        // `text` is usually already an owned temporary (an operand render clones the local
+        // it reads), so take an owned copy rather than deep-copying it a second time.
+        let smelt_owned_text = cloned_value_text(&text);
         match self.mir.types.get(self.operand_ty(operand)?) {
             Some(Type::Unknown) => Ok(text),
             // Whether a `Type::TypeParam` is a REAL Rust type parameter or is
@@ -1145,24 +1154,24 @@ impl FunctionEmitter<'_> {
             // one place `Map` spelling diverges from `Record`: a `Record` erases
             // to a plain object, a `Map` to a marker so `isMap`/`isEqual`/
             // `[object Map]` observe it as a Map.
-            Some(Type::JsMap(_, _)) => Ok(format!("({text}).clone().into_smelt_unknown()")),
+            Some(Type::JsMap(_, _)) => Ok(format!("{smelt_owned_text}.into_smelt_unknown()")),
             Some(Type::Dict(key, item))
                 if self.mir.types.get(*key) == Some(&Type::String)
                     && self.mir.types.get(*item) == Some(&Type::Unknown) =>
             {
                 Ok(format!(
-                    "SmeltUnknown::Object(SmeltObject::from_unknown_record(({text}).clone()))"
+                    "SmeltUnknown::Object(SmeltObject::from_unknown_record({smelt_owned_text}))"
                 ))
             }
             Some(Type::Dict(key, item)) if self.mir.types.get(*key) == Some(&Type::String) => {
                 let value_wrap = self.erase_value_text("value", *item)?;
                 if self.mir.types.get(*item) == Some(&Type::Float) {
                     return Ok(format!(
-                        "{{ let smelt_record = ({text}).clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, {value_wrap})).collect())) }}"
+                        "{{ let smelt_record = {smelt_owned_text}; SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, {value_wrap})).collect())) }}"
                     ));
                 }
                 Ok(format!(
-                    "{{ let smelt_record = ({text}).clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, {value_wrap})).collect())) }}"
+                    "{{ let smelt_record = {smelt_owned_text}; SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, {value_wrap})).collect())) }}"
                 ))
             }
             Some(Type::Dict(key, item)) => {
@@ -1173,12 +1182,12 @@ impl FunctionEmitter<'_> {
                 ))
             }
             Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)? => {
-                Ok(format!("({text}).clone().into_smelt_unknown()"))
+                Ok(format!("{smelt_owned_text}.into_smelt_unknown()"))
             }
             // A concrete match value crossing into `unknown` is erased through the
             // single explicit `IntoSmeltUnknown` adapter.
             Some(Type::Class { name, .. }) if self.is_match_class_symbol(*name)? => {
-                Ok(format!("({text}).clone().into_smelt_unknown()"))
+                Ok(format!("{smelt_owned_text}.into_smelt_unknown()"))
             }
             Some(Type::Class { name, .. })
                 if self.is_erased_class_type(self.operand_ty(operand)?)
@@ -1202,7 +1211,7 @@ impl FunctionEmitter<'_> {
                 // primitives) has no such adapter, so it keeps the bare-array
                 // projection below.
                 if !self.type_is_hash_set_key_safe(*item) {
-                    return Ok(format!("({text}).clone().into_smelt_unknown()"));
+                    return Ok(format!("{smelt_owned_text}.into_smelt_unknown()"));
                 }
                 let value_wrap = self.erase_value_text("value", *item)?;
                 // A Set erases to an array; like list bindings, the SAME source
@@ -1212,11 +1221,11 @@ impl FunctionEmitter<'_> {
                 // `SmeltArray::new`.
                 if let Some(bare_local) = self.list_local_identity_key(operand)? {
                     return Ok(format!(
-                        "{{ let smelt_list_id = smelt_list_identity(&({bare_local}) as *const _ as *const () as usize); let mut values = {text}.clone().into_iter().map(|value| {value_wrap}).collect::<Vec<_>>(); values.sort_by_key(smelt_unknown_stable_hash_key); SmeltUnknown::Array(SmeltArray::with_id(smelt_list_id, values)) }}"
+                        "{{ let smelt_list_id = smelt_list_identity(&({bare_local}) as *const _ as *const () as usize); let mut values = {smelt_owned_text}.into_iter().map(|value| {value_wrap}).collect::<Vec<_>>(); values.sort_by_key(smelt_unknown_stable_hash_key); SmeltUnknown::Array(SmeltArray::with_id(smelt_list_id, values)) }}"
                     ));
                 }
                 Ok(format!(
-                    "{{ let mut values = {text}.clone().into_iter().map(|value| {value_wrap}).collect::<Vec<_>>(); values.sort_by_key(smelt_unknown_stable_hash_key); SmeltUnknown::Array(values.into()) }}"
+                    "{{ let mut values = {smelt_owned_text}.into_iter().map(|value| {value_wrap}).collect::<Vec<_>>(); values.sort_by_key(smelt_unknown_stable_hash_key); SmeltUnknown::Array(values.into()) }}"
                 ))
             }
             Some(Type::Tuple(items)) => {
@@ -1233,7 +1242,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Optional(inner)) => {
                 let value_wrap = self.erase_value_text("value", *inner)?;
                 Ok(format!(
-                    "{text}.clone().map_or(SmeltUnknown::Undefined, |value| {value_wrap})"
+                    "{smelt_owned_text}.map_or(SmeltUnknown::Undefined, |value| {value_wrap})"
                 ))
             }
             Some(Type::Function(_)) => {
@@ -1287,7 +1296,7 @@ impl FunctionEmitter<'_> {
             // erased side. The runtime prelude's `IntoSmeltUnknown` adapter
             // reproduces the JavaScript iterator protocol (`next` →
             // `{ value, done }` steps) over the same shared state machine.
-            Some(Type::Generator { .. }) => Ok(format!("({text}).clone().into_smelt_unknown()")),
+            Some(Type::Generator { .. }) => Ok(format!("{smelt_owned_text}.into_smelt_unknown()")),
             Some(Type::GeneratorResult { .. }) => Err(EmitError::new(
                 "generator results require typed done/value projection before erasure",
             )),
@@ -1485,6 +1494,9 @@ impl FunctionEmitter<'_> {
     pub(super) fn erase_value(&self, value: &RenderedValue) -> Result<String, EmitError> {
         let ty = value.ty();
         let value_text = value.text();
+        // `value_text` is usually already an owned temporary (an operand render clones the local
+        // it reads), so take an owned copy rather than deep-copying it a second time.
+        let smelt_owned_value = cloned_value_text(value_text);
         match self.mir.types.get(ty) {
             Some(Type::Unknown) => Ok(value_text.to_owned()),
             Some(Type::TypeParam { .. }) if value_text == "Default::default()" => {
@@ -1539,25 +1551,25 @@ impl FunctionEmitter<'_> {
             // the erased value stays observable as a Map (see the operand-based
             // erasure above).
             Some(Type::JsMap(_, _)) => {
-                Ok(format!("({value_text}).clone().into_smelt_unknown()"))
+                Ok(format!("{smelt_owned_value}.into_smelt_unknown()"))
             }
             Some(Type::Dict(key, item))
                 if self.mir.types.get(*key) == Some(&Type::String)
                     && self.mir.types.get(*item) == Some(&Type::Unknown) =>
             {
                 Ok(format!(
-                    "SmeltUnknown::Object(SmeltObject::from_unknown_record(({value_text}).clone()))"
+                    "SmeltUnknown::Object(SmeltObject::from_unknown_record({smelt_owned_value}))"
                 ))
             }
             Some(Type::Dict(key, item)) if self.mir.types.get(*key) == Some(&Type::String) => {
                 let value_wrap = self.erase_value_text("value", *item)?;
                 if self.mir.types.get(*item) == Some(&Type::Float) {
                     return Ok(format!(
-                        "{{ let smelt_record = ({value_text}).clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, {value_wrap})).collect())) }}"
+                        "{{ let smelt_record = {smelt_owned_value}; SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, {value_wrap})).collect())) }}"
                     ));
                 }
                 Ok(format!(
-                    "{{ let smelt_record = ({value_text}).clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, {value_wrap})).collect())) }}"
+                    "{{ let smelt_record = {smelt_owned_value}; SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, {value_wrap})).collect())) }}"
                 ))
             }
             Some(Type::Dict(key, item)) => {
@@ -1569,13 +1581,13 @@ impl FunctionEmitter<'_> {
                 ))
             }
             Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)? => {
-                Ok(format!("({value_text}).clone().into_smelt_unknown()"))
+                Ok(format!("{smelt_owned_value}.into_smelt_unknown()"))
             }
             // A concrete match value crossing into a dynamic `unknown` boundary
             // is erased through the single explicit `IntoSmeltUnknown` adapter,
             // reproducing the JavaScript match-array-with-properties shape.
             Some(Type::Class { name, .. }) if self.is_match_class_symbol(*name)? => {
-                Ok(format!("({value_text}).clone().into_smelt_unknown()"))
+                Ok(format!("{smelt_owned_value}.into_smelt_unknown()"))
             }
             Some(Type::Class { name, .. })
                 if self.is_erased_class_type(ty) && self.symbol_name(*name)? == "Date" =>
@@ -1776,8 +1788,11 @@ impl FunctionEmitter<'_> {
     /// marker preserves JavaScript object identity for later dynamic `instanceof Date`
     /// checks without changing ordinary typed Date storage or comparisons.
     fn date_unknown_identity_text(&self, value_text: &str) -> String {
+        // `value_text` is usually already an owned temporary (an operand render clones the local
+        // it reads), so take an owned copy rather than deep-copying it a second time.
+        let smelt_owned_value = cloned_value_text(value_text);
         format!(
-            "match {value_text}.clone() {{ SmeltUnknown::Object(value) if value.contains_key(\"__smelt_date\") => SmeltUnknown::Object(value), SmeltUnknown::Number(value) => SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"__smelt_date\".to_owned(), SmeltUnknown::Number(value))]))), value => value }}"
+            "match {smelt_owned_value} {{ SmeltUnknown::Object(value) if value.contains_key(\"__smelt_date\") => SmeltUnknown::Object(value), SmeltUnknown::Number(value) => SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"__smelt_date\".to_owned(), SmeltUnknown::Number(value))]))), value => value }}"
         )
     }
 
@@ -2003,6 +2018,9 @@ impl FunctionEmitter<'_> {
     /// Emits the JavaScript `typeof` string for a runtime-erased value.
     pub(super) fn typeof_value_text(&self, value: &Operand) -> Result<String, EmitError> {
         let text = self.operand_text(value)?;
+        // `text` is usually already an owned temporary (an operand render clones the local
+        // it reads), so take an owned copy rather than deep-copying it a second time.
+        let smelt_owned_text = cloned_value_text(&text);
         let value_ty = self.operand_ty(value)?;
         if let Some(members) = self.concrete_union_members(value_ty) {
             let name = union::union_name(value_ty);
@@ -2018,7 +2036,7 @@ impl FunctionEmitter<'_> {
             return Ok(format!("match {text} {{ {arms} }}"));
         }
         Ok(format!(
-            "match {text}.clone() {{ SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(_) => \"boolean\".to_owned(), SmeltUnknown::Number(_) => \"number\".to_owned(), SmeltUnknown::String(_) => \"string\".to_owned(), SmeltUnknown::Symbol(_) => \"symbol\".to_owned(), SmeltUnknown::Function(_) => \"function\".to_owned(), SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Promise(_) => \"object\".to_owned() }}"
+            "match {smelt_owned_text} {{ SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(_) => \"boolean\".to_owned(), SmeltUnknown::Number(_) => \"number\".to_owned(), SmeltUnknown::String(_) => \"string\".to_owned(), SmeltUnknown::Symbol(_) => \"symbol\".to_owned(), SmeltUnknown::Function(_) => \"function\".to_owned(), SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Promise(_) => \"object\".to_owned() }}"
         ))
     }
 
@@ -2198,6 +2216,9 @@ impl FunctionEmitter<'_> {
         text: &str,
         target: TypeId,
     ) -> Result<String, EmitError> {
+        // `text` is usually already an owned temporary (an operand render clones the local
+        // it reads), so take an owned copy rather than deep-copying it a second time.
+        let smelt_owned_text = cloned_value_text(text);
         if text == "Default::default()" {
             return match self.mir.types.get(target) {
                 Some(Type::None) => Ok("()".to_owned()),
@@ -2228,18 +2249,18 @@ impl FunctionEmitter<'_> {
             // returns; JS does not assert the value is null). Drop it instead of
             // panicking — the old assert turned e.g. `tap(identity)` and a
             // `vi.fn<(x) => void>` transformer into runtime panics.
-            Some(Type::None) => Ok(format!("{{ let _ = {text}.clone(); () }}")),
+            Some(Type::None) => Ok(format!("{{ let _ = {smelt_owned_text}; () }}")),
             Some(Type::Bool) => Ok(format!(
-                "match {text}.clone() {{ SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true }}"
+                "match {smelt_owned_text} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true }}"
             )),
             Some(Type::Float) => Ok(format!(
-                "match {text}.clone() {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}"
+                "match {smelt_owned_text} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}"
             )),
             Some(Type::Int) => Ok(format!(
-                "match {text}.clone() {{ SmeltUnknown::Number(value) => value as i64, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value as i64, _ => 0_i64 }}, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN) as i64, SmeltUnknown::Bool(value) => if value {{ 1_i64 }} else {{ 0_i64 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => 0_i64 }}"
+                "match {smelt_owned_text} {{ SmeltUnknown::Number(value) => value as i64, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value as i64, _ => 0_i64 }}, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN) as i64, SmeltUnknown::Bool(value) => if value {{ 1_i64 }} else {{ 0_i64 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => 0_i64 }}"
             )),
             Some(Type::String) => Ok(format!(
-                "match {text}.clone() {{ SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}"
+                "match {smelt_owned_text} {{ SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}"
             )),
             // Iterable-to-list extraction inspects the source through the
             // `SmeltUnknown` variant space (array/string/`Symbol.iterator`). The
@@ -2288,11 +2309,11 @@ impl FunctionEmitter<'_> {
                 let item_text = self.extract_value_text("value", *item)?;
                 if self.dict_uses_js_key_map(*key) {
                     return Ok(format!(
-                        "if let SmeltUnknown::Object(values) = {text}.clone() {{ SmeltJsMap::from_iter(values.into_iter().map(|(key, value)| ({key_text}, {item_text}))) }} else {{ SmeltJsMap::new() }}"
+                        "if let SmeltUnknown::Object(values) = {smelt_owned_text} {{ SmeltJsMap::from_iter(values.into_iter().map(|(key, value)| ({key_text}, {item_text}))) }} else {{ SmeltJsMap::new() }}"
                     ));
                 }
                 Ok(format!(
-                    "if let SmeltUnknown::Object(values) = {text}.clone() {{ values.into_iter().map(|(key, value)| ({key_text}, {item_text})).collect::<::std::collections::HashMap<_, _>>() }} else {{ ::std::collections::HashMap::new() }}"
+                    "if let SmeltUnknown::Object(values) = {smelt_owned_text} {{ values.into_iter().map(|(key, value)| ({key_text}, {item_text})).collect::<::std::collections::HashMap<_, _>>() }} else {{ ::std::collections::HashMap::new() }}"
                 ))
             }
             // A source `Map` recovers through `SmeltJsMap`'s `SmeltFromUnknown`
@@ -2365,14 +2386,14 @@ impl FunctionEmitter<'_> {
                     format!("({items_text})")
                 };
                 Ok(format!(
-                    "if let SmeltUnknown::Array(smelt_tuple_values) = {text}.clone() {{ {tuple_text} }} else {{ panic!(\"unknown is not tuple\") }}"
+                    "if let SmeltUnknown::Array(smelt_tuple_values) = {smelt_owned_text} {{ {tuple_text} }} else {{ panic!(\"unknown is not tuple\") }}"
                 ))
             }
             Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "PropertyKey" => {
                 Ok(text.to_owned())
             }
             Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)? => Ok(format!(
-                "match {text}.clone() {{ SmeltUnknown::Object(value) => SmeltRegExp::new(match value.get(\"source\") {{ Some(SmeltUnknown::String(source)) => source.to_string(), _ => String::new() }}, match value.get(\"flags\") {{ Some(SmeltUnknown::String(flags)) => flags.to_string(), _ => String::new() }}), _ => SmeltRegExp::default() }}"
+                "match {smelt_owned_text} {{ SmeltUnknown::Object(value) => SmeltRegExp::new(match value.get(\"source\") {{ Some(SmeltUnknown::String(source)) => source.to_string(), _ => String::new() }}, match value.get(\"flags\") {{ Some(SmeltUnknown::String(flags)) => flags.to_string(), _ => String::new() }}), _ => SmeltRegExp::default() }}"
             )),
             Some(Type::Class { .. })
                 if self.type_text_with_impl_trait(target, false)? == "SmeltUnknown" =>
@@ -2435,7 +2456,7 @@ impl FunctionEmitter<'_> {
                         .unwrap_or_else(|| function.rest.unwrap_or(function.params.len()));
                     let default_callback = self.default_value(target)?;
                     return Ok(format!(
-                        "{{ let smelt_value = {text}.clone(); let smelt_function = match smelt_value.clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_function {{ SmeltErasedFunction {{ callback: ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| (smelt_function)(smelt_args).unwrap_or_else(|error| panic!(\"{{}}\", error))), length: {length}.0, object: match smelt_value {{ SmeltUnknown::Object(object) => Some(object), _ => None }} }} }} else {{ {default_callback} }} }}"
+                        "{{ let smelt_value = {smelt_owned_text}; let smelt_function = match smelt_value.clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_function {{ SmeltErasedFunction {{ callback: ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| (smelt_function)(smelt_args).unwrap_or_else(|error| panic!(\"{{}}\", error))), length: {length}.0, object: match smelt_value {{ SmeltUnknown::Object(object) => Some(object), _ => None }} }} }} else {{ {default_callback} }} }}"
                     ));
                 }
                 let target_text = self.type_text_with_impl_trait(target, false)?;
@@ -2490,7 +2511,7 @@ impl FunctionEmitter<'_> {
                 };
                 let default_callback = self.default_value(target)?;
                 Ok(format!(
-                    "{{ let smelt_source_value = {text}.clone(); let smelt_function = match smelt_source_value.clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_function {{ let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function); let smelt_callback: {target_text} = if let Some(smelt_original) = smelt_restore_function_origin::<{target_text}>(&smelt_function) {{ smelt_original }} else {{ ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ let smelt_result = {call_text}; {return_text} }}) }}; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_link_function_identity_key(&smelt_callback, smelt_origin_identity); smelt_callback }} else {{ {default_callback} }} }}"
+                    "{{ let smelt_source_value = {smelt_owned_text}; let smelt_function = match smelt_source_value.clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_function {{ let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function); let smelt_callback: {target_text} = if let Some(smelt_original) = smelt_restore_function_origin::<{target_text}>(&smelt_function) {{ smelt_original }} else {{ ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ let smelt_result = {call_text}; {return_text} }}) }}; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_link_function_identity_key(&smelt_callback, smelt_origin_identity); smelt_callback }} else {{ {default_callback} }} }}"
                 ))
             }
             // An already-erased `SmeltUnknown` at a `Type::Future` position is a
@@ -2636,6 +2657,9 @@ fn is_trivial_reeval_expr(text: &str) -> bool {
 /// backing `Vec` can move whole instead of running a per-element closure.
 /// `char_text` converts one `char` bound to `ch` for the string arm.
 fn erased_to_list_text(text: &str, item_text: Option<&str>, char_text: &str) -> String {
+        // `text` is usually already an owned temporary (an operand render clones the local
+        // it reads), so take an owned copy rather than deep-copying it a second time.
+        let smelt_owned_text = cloned_value_text(text);
     // Converts a `Vec<SmeltUnknown>`-producing expression into the element type.
     let convert = |elements: &str| match item_text {
         None => elements.to_owned(),
@@ -2655,7 +2679,7 @@ fn erased_to_list_text(text: &str, item_text: Option<&str>, char_text: &str) -> 
     let iterator_arm =
         convert("smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null))");
     format!(
-        "{{ let smelt_src = ({text}).clone().into_smelt_unknown(); \
+        "{{ let smelt_src = {smelt_owned_text}.into_smelt_unknown(); \
          let smelt_id = if let SmeltUnknown::Array(value) = &smelt_src {{ value.id }} else {{ smelt_next_object_id() }}; \
          SmeltList::with_id(smelt_id, match smelt_src {{ \
          SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), \

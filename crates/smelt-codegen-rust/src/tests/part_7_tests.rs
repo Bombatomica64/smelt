@@ -3240,7 +3240,7 @@ function group(values: string[]): Record<string, string[]> {
         "{source}"
     );
     assert!(
-        source.contains("output.insert(key.clone().clone(), items.clone());"),
+        source.contains("output.insert(key.clone(), items.clone());"),
         "{source}"
     );
 }
@@ -3774,7 +3774,7 @@ console.log(user[key]);
         "{source}"
     );
     assert!(
-        source.contains("user.get(&key.clone().clone()).cloned().unwrap_or(String::new())"),
+        source.contains("user.get(&key.clone()).cloned().unwrap_or(String::new())"),
         "{source}"
     );
 }
@@ -5081,7 +5081,7 @@ function make(parser: Parser): ValueSetter {
     );
     assert!(
         !source.contains(
-            "sub_priority.clone().clone().expect(\"optional value was absent after narrowing\")"
+            "sub_priority.clone().expect(\"optional value was absent after narrowing\")"
         ),
         "{source}"
     );

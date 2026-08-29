@@ -1,6 +1,7 @@
 //! Core emission helpers.
 
 use super::*;
+use crate::emitter::rendered_text_rewrite::cloned_value_text;
 use crate::emitter::literals::operand_local;
 use smelt_hir::FunctionType;
 
@@ -3029,13 +3030,19 @@ impl<'mir> FunctionEmitter<'mir> {
         value_text: &str,
         source_key: TypeId,
     ) -> Result<String, EmitError> {
+        // The caller's `value_text` is usually already an owned temporary (an
+        // `operand_text` render clones the local it reads), so ask for an owned
+        // copy through `cloned_value_text` rather than appending `.clone()`
+        // unconditionally: a property key is read once per element in every
+        // `groupBy`/`countBy`/`keyBy` loop, and the second copy bought nothing.
+        let owned_value_text = cloned_value_text(value_text);
         match self.mir.types.get(source_key) {
-            Some(Type::String) => Ok(format!("{value_text}.clone()")),
+            Some(Type::String) => Ok(owned_value_text),
             Some(Type::Bool | Type::Int | Type::Float) => Ok(format!("{value_text}.to_string()")),
             Some(Type::Optional(inner)) => {
                 let inner_text = self.property_key_to_string_text("value", *inner)?;
                 Ok(format!(
-                    "{value_text}.clone().map_or(String::new(), |value| {inner_text})"
+                    "{owned_value_text}.map_or(String::new(), |value| {inner_text})"
                 ))
             }
             Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)? => {
@@ -3044,7 +3051,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Some(Type::List(item_ty)) => {
                 let item_text = self.property_key_to_string_text("value", *item_ty)?;
                 Ok(format!(
-                    "{value_text}.clone().into_iter().map(|value| {item_text}).collect::<Vec<_>>().join(\",\")"
+                    "{owned_value_text}.into_iter().map(|value| {item_text}).collect::<Vec<_>>().join(\",\")"
                 ))
             }
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Class { .. }) => {

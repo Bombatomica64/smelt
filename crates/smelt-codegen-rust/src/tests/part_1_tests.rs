@@ -1018,7 +1018,7 @@ export function values(record: Record<string, number>, keys: string[]): number[]
     );
 
     assert!(
-        source.contains(".get(&closure_arg_0.clone().clone())"),
+        source.contains(".get(&closure_arg_0.clone())"),
         "{source}"
     );
 }

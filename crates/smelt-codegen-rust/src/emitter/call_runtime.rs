@@ -1,6 +1,7 @@
 //! Call Runtime emission helpers.
 
 use super::*;
+use crate::emitter::rendered_text_rewrite::cloned_value_text;
 use smelt_hir::FunctionType;
 
 impl FunctionEmitter<'_> {
@@ -102,8 +103,12 @@ impl FunctionEmitter<'_> {
     /// `ClosureCallSpread`), so it is the single parameterized hole in the shared
     /// snippet.
     fn dynamic_callable_dispatch_text(&self, callee_text: &str, args_expr: &str) -> String {
+        // `callee_text` is usually already an owned temporary (an operand render
+        // clones the local it reads), so take an owned copy rather than
+        // deep-copying it a second time.
+        let callee_text = &cloned_value_text(callee_text);
         format!(
-            "{{ let smelt_function_value = {callee_text}.clone(); let smelt_call_args: Vec<SmeltUnknown> = Into::into({args_expr}); let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (smelt_function)(smelt_call_args).unwrap_or_else(|error| panic!(\"{{}}\", error)) }} else {{ SmeltUnknown::Null }} }}"
+            "{{ let smelt_function_value = {callee_text}; let smelt_call_args: Vec<SmeltUnknown> = Into::into({args_expr}); let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (smelt_function)(smelt_call_args).unwrap_or_else(|error| panic!(\"{{}}\", error)) }} else {{ SmeltUnknown::Null }} }}"
         )
     }
 
