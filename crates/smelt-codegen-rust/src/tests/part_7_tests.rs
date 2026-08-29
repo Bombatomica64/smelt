@@ -11910,3 +11910,39 @@ const r = collect([[1, 2]], (v) => 'k');
         "a `T` moved into an `unknown[]` must not lift:\n{source}"
     );
 }
+
+/// A partially lifted parameter is not bound by the erasure round-trip traits.
+///
+/// `IntoSmeltUnknown + SmeltFromUnknown` let a `T` be flattened into
+/// `SmeltUnknown` and rebuilt from one. A partially lifted parameter provably
+/// never makes that trip, so requiring the traits only forces every
+/// instantiating type to implement them — which generated classes do not,
+/// failing at the call site with "the trait bound `Person: SmeltFromUnknown` is
+/// not satisfied".
+#[test]
+fn partial_lift_omits_the_erasure_round_trip_bounds() {
+    let source = source_for(
+        r"
+function pickFirst<T, K extends string>(arr: T[], key: (item: T) => K, fallback: T): T {
+  if (arr.length > 0) { return arr[0]; }
+  return fallback;
+}
+const nums: number[] = [1, 2, 3];
+const v = pickFirst(nums, (n) => (n > 1 ? 'big' : 'small'), 0);
+",
+    );
+
+    let generics = source
+        .split("fn pick_first")
+        .nth(1)
+        .and_then(|rest| rest.split('>').next())
+        .unwrap_or_else(|| panic!("expected a generated `pick_first`:\n{source}"));
+    assert!(
+        generics.contains("T: Clone + Default + 'static"),
+        "a partial lift needs only the bounds its use requires:\n{source}"
+    );
+    assert!(
+        !generics.contains("SmeltFromUnknown"),
+        "a partial lift must not demand the erasure round-trip:\n{source}"
+    );
+}

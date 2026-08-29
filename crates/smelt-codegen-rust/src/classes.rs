@@ -584,8 +584,31 @@ pub(crate) fn liftable_type_params(
         return base;
     }
     base.into_iter()
-        .filter(|name| type_param_only_moved(mir, function, *name))
+        .filter(|name| {
+            type_param_only_moved(mir, function, *name)
+                && !type_param_used_as_map_key(mir, function, *name)
+        })
         .collect()
+}
+
+/// Whether `name` is used as a map key anywhere in this function's locals.
+///
+/// A `SmeltJsMap`/`SmeltRecord` key is compared through the erased JavaScript
+/// key-equality projection, which needs `SmeltJsKeyEq` — a trait a bare `T` does
+/// not carry, and which generated unions do not implement. `ERASED_CARRIER_TOKENS`
+/// already names `same_js_key` as an operation the generic bounds cannot support,
+/// and [`class_type_param_used_as_map_key`] applies the same rule to a class's
+/// fields; free functions had no equivalent, which is how es-toolkit's `keyBy`
+/// lifted a key-position parameter and failed at its call sites with
+/// "the trait bound `SmeltUnion480: SmeltJsKeyEq` is not satisfied".
+///
+/// Emitting the bound instead of refusing the lift would not help: the error is
+/// at the *instantiation*, where the concrete type genuinely lacks the impl.
+fn type_param_used_as_map_key(mir: &Mir, function: &MirFunction, name: Symbol) -> bool {
+    function
+        .locals
+        .iter()
+        .any(|local| type_param_in_dict_key(mir, local.ty, name))
 }
 
 /// Return whether every type parameter that is reachable *only* through a
@@ -1266,6 +1289,23 @@ pub(crate) fn function_impl_generics_list(
     if liftable.is_empty() {
         return Ok(Vec::new());
     }
+    // `IntoSmeltUnknown + SmeltFromUnknown` are the erasure round-trip: they let
+    // a `T` be flattened into `SmeltUnknown` and rebuilt from one. A partially
+    // lifted parameter provably never makes that trip — that is exactly what
+    // `type_param_only_moved` establishes — so requiring the traits only forces
+    // every *instantiating* type to implement them. Generated classes do not,
+    // which is how es-toolkit's `meanBy`/`medianBy` failed at their call sites
+    // with "the trait bound `Person: SmeltFromUnknown` is not satisfied".
+    //
+    // A fully lifted function keeps the historical bound set: it is decided by
+    // the textual trial rather than the opacity analysis, so there is no proof
+    // here that it avoids the round-trip.
+    let partial = liftable.len() < function.type_params.len();
+    let bounds = if partial {
+        "Clone + Default + 'static"
+    } else {
+        "Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static"
+    };
     // Only the lifted parameters get a bound; a constrained sibling erases and
     // must not appear in the emitted generic list (Increment 5).
     function
@@ -1275,12 +1315,7 @@ pub(crate) fn function_impl_generics_list(
         .map(|param| {
             mir.symbols
                 .get(param.name)
-                .map(|name| {
-                    format!(
-                        "{}: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static",
-                        RustIdent::new(name).into_string()
-                    )
-                })
+                .map(|name| format!("{}: {bounds}", RustIdent::new(name).into_string()))
                 .ok_or_else(|| EmitError::new("function type parameter has unknown symbol"))
         })
         .collect()
