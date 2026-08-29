@@ -1697,7 +1697,7 @@ fn emit_source_with_free_function_router(
         writer.blank_line();
         writer.line("impl SmeltJsKeyEq for SmeltUnknown {");
         writer.line("    fn js_key_hash(&self) -> Option<u64> { smelt_js_member_hash_key(self) }");
-        writer.line("    fn same_js_key(&self, other: &Self) -> bool { match (self, other) { (SmeltUnknown::Number(left), SmeltUnknown::Number(right)) if left.is_nan() && right.is_nan() => true, (SmeltUnknown::Array(left), SmeltUnknown::Array(right)) => left.id == right.id, (SmeltUnknown::Object(left), SmeltUnknown::Object(right)) => left.id == right.id, (SmeltUnknown::Function(left), SmeltUnknown::Function(right)) => smelt_same_erased_function(left, right), (SmeltUnknown::Promise(left), SmeltUnknown::Promise(right)) => left.id == right.id, _ => self == other } }");
+        writer.line("    fn same_js_key(&self, other: &Self) -> bool { match (self, other) { (SmeltUnknown::Number(left), SmeltUnknown::Number(right)) if left.is_nan() && right.is_nan() => true, (SmeltUnknown::Array(left), SmeltUnknown::Array(right)) => left.id == right.id, (SmeltUnknown::Object(left), SmeltUnknown::Object(right)) => left.id == right.id, (SmeltUnknown::Function(left), SmeltUnknown::Function(right)) => smelt_same_erased_function(left, right), (SmeltUnknown::Promise(left), SmeltUnknown::Promise(right)) => left.id == right.id, (SmeltUnknown::String(left), SmeltUnknown::String(right)) => ::std::rc::Rc::ptr_eq(left, right) || left == right, _ => self == other } }");
         writer.line("}");
         writer.blank_line();
         writer.line("impl SmeltJsKeyEq for String { fn same_js_key(&self, other: &Self) -> bool { self == other } fn js_key_hash(&self) -> Option<u64> { Some(smelt_js_hash_one(self)) } }");
@@ -2917,7 +2917,16 @@ fn emit_source_with_free_function_router(
         );
         writer.line("        (SmeltUnknown::Number(left), SmeltUnknown::Number(right)) => left == right || (left.is_nan() && right.is_nan()),");
         writer.line(
-            "        (SmeltUnknown::String(left), SmeltUnknown::String(right)) => left == right,",
+            // JavaScript strings are immutable and `SmeltUnknown::String` shares
+            // one `Rc<str>` between every copy of a value, so two strings that are
+            // the SAME allocation are equal without touching their bytes. That is
+            // the common case wherever a string is read out of a value and used as
+            // a key: `groupBy` pulls the same `Rc` out of the same record field for
+            // every element in a group, and this turns each of those comparisons
+            // from a `memcmp` into a pointer compare. `Rc::ptr_eq` is only a fast
+            // path — a differing pointer still falls through to content equality,
+            // so two separately built strings with the same characters stay equal.
+            "        (SmeltUnknown::String(left), SmeltUnknown::String(right)) => ::std::rc::Rc::ptr_eq(left, right) || left == right,",
         );
         writer.line(
             "        (SmeltUnknown::Symbol(left), SmeltUnknown::Symbol(right)) => left == right,",
