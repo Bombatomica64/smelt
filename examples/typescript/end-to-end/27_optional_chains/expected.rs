@@ -1191,7 +1191,7 @@ async fn smelt_await_flatten(value: SmeltUnknown) -> Result<SmeltUnknown, Box<dy
 enum SmeltFutureState<T> {
     Pending(::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>),
     Resolved(T),
-    Rejected(String),
+    Rejected(SmeltUnknown),
     Taken,
 }
 thread_local! {
@@ -1236,7 +1236,7 @@ impl<T> SmeltFuture<T> {
         let mut cx = ::std::task::Context::from_waker(&waker);
         let state = match ::std::future::Future::poll(future.as_mut(), &mut cx) {
             ::std::task::Poll::Ready(Ok(value)) => SmeltFutureState::Resolved(value),
-            ::std::task::Poll::Ready(Err(error)) => SmeltFutureState::Rejected(error.to_string()),
+            ::std::task::Poll::Ready(Err(error)) => SmeltFutureState::Rejected(smelt_thrown_value(&*error)),
             ::std::task::Poll::Pending => SmeltFutureState::Pending(future),
         };
         Self { state: ::std::rc::Rc::new(::std::cell::RefCell::new(state)) }
@@ -1263,7 +1263,7 @@ impl<T> SmeltFuture<T> {
         let guard = self.state.borrow();
         match &*guard {
             SmeltFutureState::Resolved(value) => Ok(value.clone()),
-            SmeltFutureState::Rejected(message) => Err(std::io::Error::new(std::io::ErrorKind::Other, message.clone()).into()),
+            SmeltFutureState::Rejected(payload) => Err(smelt_throw(payload.clone())),
             _ => Err(std::io::Error::new(std::io::ErrorKind::Other, "future already consumed").into()),
         }
     }
