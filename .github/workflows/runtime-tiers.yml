@@ -1,0 +1,128 @@
+name: Runtime tiers
+
+permissions:
+  contents: read
+
+# Every `crates/smelt-codegen-rust/tests/*_runtime.rs` tier lowers a TypeScript
+# fixture to a crate and RUNS it, so a green result means the generated
+# `expect(...)` calls actually held at runtime -- the only gate that catches a
+# value which type-checks, compiles, and is silently WRONG. That is the
+# dominant defect class in this repo (an unmodeled member becoming
+# `SmeltUnknown::Null`, a `Default::default()`, or a fabricated empty object,
+# with no diagnostic); it has been found at seven independent sites and is
+# invisible to every other gate.
+#
+# Each tier is `#[ignore]`d because it is slow, which means a plain `cargo test`
+# NEVER REACHES ANY OF THEM. Before this workflow, `ci.yml` ran exactly two
+# (set_membership, map_lookup) plus the compile-only corpus, leaving ~35 tiers
+# that nothing checked on a pull request -- and that no contributor would run
+# locally, because they do not appear in a default test run.
+#
+# They are sharded rather than run in one step because each test spawns a
+# nested cargo build with its own scratch target directory (~250 MB). Running
+# the whole set on one machine at default parallelism exhausts the disk, and an
+# ENOSPC failure inside a nested build surfaces as an ordinary test failure --
+# a masquerade that has already cost real debugging time. Sharding keeps each
+# runner's disk well inside its budget; `--test-threads=2` bounds it further.
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/runtime-tiers.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/runtime-tiers.yml'
+
+concurrency:
+  group: runtime-tiers-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  runtime-tiers:
+    # Adding a label cannot change a runtime result, and re-running the whole
+    # matrix for one would burn several runner-hours. Mirrors `ci.yml`.
+    if: ${{ github.event.action != 'labeled' }}
+    runs-on: ubuntu-latest
+    strategy:
+      # One shard failing says nothing about the others, and the whole point is
+      # to see the full picture in one run rather than bisecting across pushes.
+      fail-fast: false
+      matrix:
+        include:
+          - shard: values
+            tests: >-
+              js_value_semantics_runtime erased_element_read_runtime
+              erased_to_list_arms_runtime erased_host_roundtrip_runtime
+              array_index_undefined_runtime array_hole_allocation_runtime
+          - shard: references
+            tests: >-
+              list_reference_semantics_runtime map_reference_runtime
+              object_shape_reference_semantics_runtime class_identity_runtime
+              callable_object_identity_runtime object_key_order_runtime
+          - shard: async
+            tests: >-
+              promise_value_fidelity_runtime abort_signal_runtime
+              timer_runtime loop_await_runtime generator_runtime
+          - shard: functions
+            tests: >-
+              this_receiver_runtime function_statics_runtime
+              named_function_expression_runtime arguments_arity_runtime
+              throwing_callback_runtime union_receiver_runtime
+          - shard: throwing
+            tests: >-
+              thrown_payload_runtime try_finally_runtime
+              closure_try_catch_runtime logical_operand_runtime
+              runtime_type_test_runtime
+          - shard: host
+            tests: >-
+              host_representation_runtime boxed_primitive_runtime
+              typed_array_runtime symbol_key_runtime object_create_runtime
+              regexp_compile_cache_runtime math_round_runtime
+    name: runtime (${{ matrix.shard }})
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          # Same lane as the other plain-build jobs so the workspace build is
+          # shared rather than rebuilt per shard.
+          shared-key: build
+
+      # Reclaim the runner's preinstalled Android SDK / .NET / GHC images. Each
+      # nested cargo build wants its own target dir, so headroom here is what
+      # keeps an ENOSPC from being misread as a failing assertion.
+      - name: Free runner disk
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
+          df -h /
+
+      - name: Run runtime tiers
+        run: |
+          set -uo pipefail
+          failed=""
+          for t in ${{ matrix.tests }}; do
+            echo "::group::$t"
+            # `--test-threads=2` bounds concurrent nested target dirs. Keep
+            # going after a failure so one broken tier does not hide the rest.
+            if ! cargo test --release -p smelt-codegen-rust --test "$t" -- --ignored --test-threads=2; then
+              failed="$failed $t"
+            fi
+            df -h / | tail -1
+            echo "::endgroup::"
+          done
+          if [ -n "$failed" ]; then
+            echo "Failing runtime tiers:$failed"
+            exit 1
+          fi
