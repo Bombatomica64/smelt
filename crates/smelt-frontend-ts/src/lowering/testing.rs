@@ -2,3 +2,5 @@
 
 mod matchers;
 mod suites;
+
+pub(in crate::lowering) use matchers::LoweredActual;

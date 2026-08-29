@@ -12,6 +12,23 @@ use smelt_hir::{
 };
 use std::collections::{HashMap, HashSet};
 
+/// An `expect(...)` actual value that has already been lowered to HIR.
+///
+/// The ordinary matcher lowering recovers the actual from the syntactic
+/// `expect(...)` call behind the matcher. The `.resolves` / `.rejects` chains
+/// cannot: their actual is the *awaited* (or *caught*) value, which only exists
+/// after the async lowering has built the `await` or the `try`/`catch` around
+/// it. They pass that value in here instead, so a single matcher
+/// implementation serves both spellings rather than each modifier growing its
+/// own copy of every matcher.
+#[derive(Clone, Copy)]
+pub(in crate::lowering) struct LoweredActual {
+    /// The already-lowered actual value the matcher asserts on.
+    pub value: smelt_hir::ExprId,
+    /// Whether a `.not` modifier appeared in the matcher chain.
+    pub inverted: bool,
+}
+
 impl ModuleBuilder<'_> {
     /// Lower a Node `assert.deepStrictEqual` call statement when one is present.
     pub(in crate::lowering) fn deep_strict_equal_statement(
@@ -87,6 +104,42 @@ impl ModuleBuilder<'_> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<bool, SmeltError> {
+        self.expect_matcher_call(call, None, body)
+    }
+
+    /// Return whether the ordinary matcher lowering can assert `name` against an
+    /// already-lowered actual value.
+    ///
+    /// `.resolves` / `.rejects` delegate to [`Self::expect_matcher_call`] with a
+    /// [`LoweredActual`], and must know *before* building the surrounding
+    /// `await` / `try`-`catch` whether the delegation will be taken; otherwise a
+    /// half-built assertion would be stranded in the body when it is not.
+    /// `toThrow` is excluded because its actual is a callback to invoke, not a
+    /// value to compare, so an awaited actual cannot stand in for it.
+    pub(in crate::lowering) fn matcher_accepts_lowered_actual(name: &str) -> bool {
+        matches!(
+            name,
+            "toBeUndefined"
+                | "toBeNull"
+                | "toHaveBeenCalledTimes"
+                | "toHaveBeenCalledWith"
+                | "toHaveBeenLastCalledWith"
+                | "toHaveLastResolvedWith"
+        ) || TestMatcher::from_name(name).is_some()
+    }
+
+    /// Lower a Vitest `expect(...).matcher(...)` call to HIR assertion statements.
+    ///
+    /// `actual_override` supplies the actual value for matcher chains whose
+    /// receiver is not a syntactic `expect(...)` call — see [`LoweredActual`].
+    /// When it is `None` the actual is recovered from the source `expect(...)`
+    /// call exactly as before.
+    pub(in crate::lowering) fn expect_matcher_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        actual_override: Option<LoweredActual>,
+        body: &mut Body,
+    ) -> Result<bool, SmeltError> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return Ok(false);
         };
@@ -94,13 +147,25 @@ impl ModuleBuilder<'_> {
             member.property.name.as_str(),
             "toThrow" | "toThrowErrorMatchingInlineSnapshot"
         ) {
+            // `toThrow` asserts on a callback, so a pre-lowered value cannot
+            // stand in for it; `matcher_accepts_lowered_actual` keeps callers
+            // from reaching here with one.
+            if actual_override.is_some() {
+                return Ok(false);
+            }
             return self.expect_to_throw_statement(call, member, body);
         }
         if member.property.name == "toBeUndefined" {
-            return self.expect_to_be_none_statement(call, member, body, "toBeUndefined");
+            return self.expect_to_be_none_statement(
+                call,
+                member,
+                actual_override,
+                body,
+                "toBeUndefined",
+            );
         }
         if member.property.name == "toBeNull" {
-            return self.expect_to_be_none_statement(call, member, body, "toBeNull");
+            return self.expect_to_be_none_statement(call, member, actual_override, body, "toBeNull");
         }
         if matches!(
             member.property.name.as_str(),
@@ -110,22 +175,28 @@ impl ModuleBuilder<'_> {
                 | "toHaveLastResolvedWith"
         ) {
             let matcher_name = member.property.name.as_str();
-            let (expect_call, inverted) = self.expect_call_from_matcher_object(&member.object)?;
-            let Expression::Identifier(expect_ident) = &expect_call.callee else {
-                return Ok(false);
+            let (actual, inverted) = match actual_override {
+                Some(actual) => (actual.value, actual.inverted),
+                None => {
+                    let (expect_call, inverted) =
+                        self.expect_call_from_matcher_object(&member.object)?;
+                    let Expression::Identifier(expect_ident) = &expect_call.callee else {
+                        return Ok(false);
+                    };
+                    if !self.imports.is_test_builtin(expect_ident.name.as_str())
+                        || expect_ident.name.as_str() != "expect"
+                    {
+                        return Ok(false);
+                    }
+                    let actual_arg = expect_call.arguments.first().ok_or_else(|| {
+                        SmeltError::unsupported(
+                            self.span(expect_call.span.start, expect_call.span.end),
+                            format!("expect(...).{matcher_name}(...) requires an actual value"),
+                        )
+                    })?;
+                    (self.argument(actual_arg, body)?, inverted)
+                }
             };
-            if !self.imports.is_test_builtin(expect_ident.name.as_str())
-                || expect_ident.name.as_str() != "expect"
-            {
-                return Ok(false);
-            }
-            let actual_arg = expect_call.arguments.first().ok_or_else(|| {
-                SmeltError::unsupported(
-                    self.span(expect_call.span.start, expect_call.span.end),
-                    format!("expect(...).{matcher_name}(...) requires an actual value"),
-                )
-            })?;
-            let actual = self.argument(actual_arg, body)?;
             let bool_ty = self.ctx.krate.types.intern(Type::Bool);
             // Both matchers read the live mock state behind the erased actual
             // (`__smelt_vitest_mock` marker). A non-mock actual passes
@@ -197,24 +268,32 @@ impl ModuleBuilder<'_> {
         let Some(matcher) = TestMatcher::from_name(member.property.name.as_str()) else {
             return Ok(false);
         };
-        let (expect_call, inverted) = self.expect_call_from_matcher_object(&member.object)?;
-        let Expression::Identifier(expect_ident) = &expect_call.callee else {
-            return Ok(false);
+        let mut pending_actual_arg = None;
+        let inverted = match actual_override {
+            Some(actual) => actual.inverted,
+            None => {
+                let (expect_call, inverted) =
+                    self.expect_call_from_matcher_object(&member.object)?;
+                let Expression::Identifier(expect_ident) = &expect_call.callee else {
+                    return Ok(false);
+                };
+                if !self.imports.is_test_builtin(expect_ident.name.as_str())
+                    || expect_ident.name.as_str() != "expect"
+                {
+                    return Ok(false);
+                }
+                pending_actual_arg = Some(expect_call.arguments.first().ok_or_else(|| {
+                    SmeltError::unsupported(
+                        self.span(expect_call.span.start, expect_call.span.end),
+                        format!(
+                            "expect(...).{}(...) requires an actual value",
+                            matcher.source_name()
+                        ),
+                    )
+                })?);
+                inverted
+            }
         };
-        if !self.imports.is_test_builtin(expect_ident.name.as_str())
-            || expect_ident.name.as_str() != "expect"
-        {
-            return Ok(false);
-        }
-        let actual_arg = expect_call.arguments.first().ok_or_else(|| {
-            SmeltError::unsupported(
-                self.span(expect_call.span.start, expect_call.span.end),
-                format!(
-                    "expect(...).{}(...) requires an actual value",
-                    matcher.source_name()
-                ),
-            )
-        })?;
         let expected_arg = call.arguments.first().ok_or_else(|| {
             SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
@@ -224,7 +303,11 @@ impl ModuleBuilder<'_> {
                 ),
             )
         })?;
-        let actual = self.argument(actual_arg, body)?;
+        let actual = match (actual_override, pending_actual_arg) {
+            (Some(actual), _) => actual.value,
+            (None, Some(actual_arg)) => self.argument(actual_arg, body)?,
+            (None, None) => return Ok(false),
+        };
         // Contextually type the expected value from the actual's type for
         // deep-equality matchers. An expected literal such as
         // `[[1, 'a'], [2, 'b']]` in `expect(zip(...)).toEqual([...])` would
@@ -377,6 +460,7 @@ impl ModuleBuilder<'_> {
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        actual_override: Option<LoweredActual>,
         body: &mut Body,
         matcher_name: &str,
     ) -> Result<bool, SmeltError> {
@@ -386,22 +470,33 @@ impl ModuleBuilder<'_> {
                 format!("expect(...).{matcher_name}() does not take arguments"),
             ));
         }
-        let (expect_call, inverted) = self.expect_call_from_matcher_object(&member.object)?;
-        let Expression::Identifier(expect_ident) = &expect_call.callee else {
-            return Ok(false);
+        let (mut actual, inverted, actual_span) = match actual_override {
+            Some(actual) => (
+                actual.value,
+                actual.inverted,
+                self.span(call.span.start, call.span.end),
+            ),
+            None => {
+                let (expect_call, inverted) =
+                    self.expect_call_from_matcher_object(&member.object)?;
+                let Expression::Identifier(expect_ident) = &expect_call.callee else {
+                    return Ok(false);
+                };
+                if !self.imports.is_test_builtin(expect_ident.name.as_str())
+                    || expect_ident.name.as_str() != "expect"
+                {
+                    return Ok(false);
+                }
+                let actual_arg = expect_call.arguments.first().ok_or_else(|| {
+                    SmeltError::unsupported(
+                        self.span(expect_call.span.start, expect_call.span.end),
+                        format!("expect(...).{matcher_name}() requires an actual value"),
+                    )
+                })?;
+                let span = self.span(actual_arg.span().start, actual_arg.span().end);
+                (self.argument(actual_arg, body)?, inverted, span)
+            }
         };
-        if !self.imports.is_test_builtin(expect_ident.name.as_str())
-            || expect_ident.name.as_str() != "expect"
-        {
-            return Ok(false);
-        }
-        let actual_arg = expect_call.arguments.first().ok_or_else(|| {
-            SmeltError::unsupported(
-                self.span(expect_call.span.start, expect_call.span.end),
-                format!("expect(...).{matcher_name}() requires an actual value"),
-            )
-        })?;
-        let mut actual = self.argument(actual_arg, body)?;
         let actual_ty = Self::expr_ty(body, actual);
         if !matches!(self.ctx.krate.types.get(actual_ty), Some(Type::Optional(_)))
             && self.assertion_type_contains_unknown(actual_ty)
@@ -410,7 +505,7 @@ impl ModuleBuilder<'_> {
             actual = body.push_expr(Expr {
                 kind: ExprKind::TypeAssert { value: actual },
                 ty: unknown_ty,
-                span: self.span(actual_arg.span().start, actual_arg.span().end),
+                span: actual_span,
             });
         }
         let none_ty = self.ctx.krate.types.intern(Type::None);
@@ -714,6 +809,25 @@ impl ModuleBuilder<'_> {
                     ty: bool_ty,
                     span: self.span(span.start, span.end),
                 }))
+            }
+        }
+    }
+
+    /// Push a synthesized assertion statement into the block currently being
+    /// lowered into, falling back to the body root.
+    ///
+    /// Assertions are built while lowering an expression, so they cannot use
+    /// `Body::push_stmt` directly: that always appends to the function root,
+    /// which would hoist an assertion out of the `if` or loop body it was
+    /// written in. `current_statement_block` names the block the enclosing
+    /// statement lowering is filling.
+    pub(in crate::lowering) fn push_assertion_stmt(&mut self, body: &mut Body, stmt: Stmt) {
+        match self.current_statement_block {
+            Some(block) => {
+                body.push_stmt_to_block(block, stmt);
+            }
+            None => {
+                body.push_stmt(stmt);
             }
         }
     }
