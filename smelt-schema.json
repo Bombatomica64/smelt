@@ -20,6 +20,10 @@
       "description": "Runtime options.",
       "$ref": "#/$defs/Runtime"
     },
+    "rust": {
+      "description": "Generated-Rust options.",
+      "$ref": "#/$defs/Rust"
+    },
     "strict": {
       "description": "Optional strict mode configuration.",
       "anyOf": [
@@ -186,6 +190,50 @@
           "description": "Never clone values.",
           "type": "string",
           "const": "never"
+        }
+      ]
+    },
+    "Rust": {
+      "description": "Generated-Rust configuration from the [rust] section.",
+      "type": "object",
+      "properties": {
+        "allocator": {
+          "description": "Global allocator a generated program installs.",
+          "$ref": "#/$defs/Allocator"
+        },
+        "release-profile": {
+          "description": "`[profile.release]` the generated crate carries.",
+          "$ref": "#/$defs/ReleaseProfile"
+        }
+      }
+    },
+    "Allocator": {
+      "description": "Global allocator a generated program installs.\n\nGenerated code allocates far more than hand-written Rust does — every\nJavaScript array, object and string is a separate heap value with reference\nsemantics — so the allocator is a larger share of the profile than any single\nemitter decision. See `smelt_codegen_rust::GeneratedAllocator`.",
+      "oneOf": [
+        {
+          "description": "Leave the platform allocator in place. The default: see\n`smelt_codegen_rust::GeneratedAllocator` for why Smelt does not choose\nan allocator on the application author's behalf.",
+          "type": "string",
+          "const": "system"
+        },
+        {
+          "description": "Install `mimalloc`, which suits this workload's small short-lived values.",
+          "type": "string",
+          "const": "mimalloc"
+        }
+      ]
+    },
+    "ReleaseProfile": {
+      "description": "`[profile.release]` the generated crate carries.\n\nSee `smelt_codegen_rust::ReleaseProfile`: Cargo's stock release profile never\ninlines across a codegen unit, and in generated code the runtime prelude is on\nthe far side of that boundary from every hot loop.",
+      "oneOf": [
+        {
+          "description": "Thin LTO and one codegen unit. The default.",
+          "type": "string",
+          "const": "optimized"
+        },
+        {
+          "description": "Cargo's stock release profile.",
+          "type": "string",
+          "const": "default"
         }
       ]
     },
