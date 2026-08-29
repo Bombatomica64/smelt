@@ -204,7 +204,7 @@ const caught = run();
         "both throw arms should enter the payload channel:\n{source}"
     );
     assert!(
-        source.contains(r#"smelt_throw(SmeltUnknown::String("a bare string".to_owned()))"#),
+        source.contains(r#"smelt_throw(SmeltUnknown::String("a bare string".into()))"#),
         "a thrown string must keep its string identity:\n{source}"
     );
     assert!(
@@ -213,7 +213,7 @@ const caught = run();
     );
     assert!(
         source.contains(r#"("code".to_owned(), SmeltUnknown::Number(42.0 as f64))"#)
-            && source.contains(r#"("tag".to_owned(), SmeltUnknown::String("record".to_owned()))"#),
+            && source.contains(r#"("tag".to_owned(), SmeltUnknown::String("record".into()))"#),
         "a thrown record must keep its fields:\n{source}"
     );
     // And the single catch recovers whichever one arrived, without a discriminant
@@ -248,15 +248,15 @@ boom();
         "throw should enter the payload-preserving error channel:\n{source}"
     );
     assert!(
-        !source.contains(r#"smelt_throw(SmeltUnknown::String("out of range".to_owned()))"#),
+        !source.contains(r#"smelt_throw(SmeltUnknown::String("out of range".into()))"#),
         "throw must not collapse an Error to its message string:\n{source}"
     );
     assert!(
-        source.contains(r#"("__smelt_error".to_owned(), SmeltUnknown::String("RangeError".to_owned()))"#),
+        source.contains(r#"("__smelt_error".to_owned(), SmeltUnknown::String("RangeError".into()))"#),
         "the thrown record must carry the spelled error class:\n{source}"
     );
     assert!(
-        source.contains(r#"("message".to_owned(), SmeltUnknown::String("out of range".to_owned()))"#),
+        source.contains(r#"("message".to_owned(), SmeltUnknown::String("out of range".into()))"#),
         "the thrown record must carry the message:\n{source}"
     );
 }
@@ -285,15 +285,15 @@ run();
     );
 
     assert!(
-        !source.contains(r#"smelt_throw(SmeltUnknown::String("callback boom".to_owned()))"#),
+        !source.contains(r#"smelt_throw(SmeltUnknown::String("callback boom".into()))"#),
         "a callback throw must not collapse an Error to its message string:\n{source}"
     );
     assert!(
-        source.contains(r#"("__smelt_error".to_owned(), SmeltUnknown::String("Error".to_owned()))"#),
+        source.contains(r#"("__smelt_error".to_owned(), SmeltUnknown::String("Error".into()))"#),
         "a callback-thrown Error must carry the class marker:\n{source}"
     );
     assert!(
-        source.contains(r#"("message".to_owned(), SmeltUnknown::String("callback boom".to_owned()))"#),
+        source.contains(r#"("message".to_owned(), SmeltUnknown::String("callback boom".into()))"#),
         "a callback-thrown Error must carry the message:\n{source}"
     );
 }
@@ -467,7 +467,7 @@ export function reject(flag: boolean): number {
     );
 
     assert!(
-        source.contains("smelt_throw(SmeltUnknown::String(\"negative\".to_owned()))"),
+        source.contains("smelt_throw(SmeltUnknown::String(\"negative\".into()))"),
         "a thrown string must stay a string payload:\n{source}"
     );
     assert!(

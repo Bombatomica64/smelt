@@ -101,7 +101,7 @@ export function cycle(): unknown {
     );
 
     assert!(
-        source.contains(".insert(SmeltUnknown::String(\"loop\".to_owned()),"),
+        source.contains(".insert(SmeltUnknown::String(\"loop\".into()),"),
         "{source}"
     );
     assert!(!source.contains("expect(\"missing field\") ="), "{source}");
@@ -635,7 +635,7 @@ const isoValues = values.map((value) => value.toISOString());
         "{source}"
     );
     assert!(
-        source.contains("to_iso_string()") && source.contains("SmeltUnknown::String(_smelt_tmp_"),
+        source.contains("to_iso_string()") && source.contains("SmeltUnknown::String((_smelt_tmp_"),
         "{source}"
     );
 }
@@ -1216,7 +1216,7 @@ const ctor = withArg.constructor;
         "{source}"
     );
     assert!(
-        source.contains("Child::new(Some(SmeltUnknown::String(\"value\".to_owned())))"),
+        source.contains("Child::new(Some(SmeltUnknown::String(\"value\".into())))"),
         "{source}"
     );
     assert!(
@@ -2311,7 +2311,7 @@ const value: Record<string, unknown> = { done: false, name: "skip" };
 
     assert!(source.contains("::std::collections::HashMap<String, SmeltUnknown>"));
     assert!(source.contains("SmeltUnknown::Bool(false)"));
-    assert!(source.contains("SmeltUnknown::String(\"skip\".to_owned())"));
+    assert!(source.contains("SmeltUnknown::String(\"skip\".into())"));
 }
 
 #[test]
@@ -2328,7 +2328,7 @@ function passthrough(values: readonly unknown[]): readonly unknown[] {
     );
 
     assert!(source.contains("pub enum SmeltUnknown"));
-    assert!(source.contains("String(String),"));
+    assert!(source.contains("String(::std::rc::Rc<str>),"));
     assert!(source.contains("fn identity(value: SmeltUnknown) -> SmeltUnknown"));
     assert!(
         source
@@ -2359,7 +2359,7 @@ function isArray(value: unknown): boolean {
 
     assert!(source.contains("SmeltUnknown::String"));
     assert!(source.contains("matches!(value.clone(), SmeltUnknown::String(_))"));
-    assert!(source.contains("SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value"));
+    assert!(source.contains("SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string()"));
     assert!(source.contains("matches!(value.clone(), SmeltUnknown::Array(_))"));
 }
 
@@ -2445,7 +2445,7 @@ function isNotOne(value: unknown): boolean {
     // SmeltUnknown's structural `==` (which `==`/`!=` and `isDeepEqual` use).
     assert!(
         source
-            .contains("value.clone().js_strict_eq(&SmeltUnknown::String(\"trailing\".to_owned()))"),
+            .contains("value.clone().js_strict_eq(&SmeltUnknown::String(\"trailing\".into()))"),
         "{source}"
     );
     assert!(
@@ -2465,7 +2465,7 @@ function isEmpty(value: string | number): boolean {
     );
 
     assert!(
-        source.contains("SmeltUnknown::String(\"\".to_owned())"),
+        source.contains("SmeltUnknown::String(\"\".into())"),
         "{source}"
     );
 }
@@ -2482,7 +2482,7 @@ function assign(out: Record<string, unknown>, key: unknown, value: unknown): Rec
     );
 
     assert!(
-        source.contains("SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value"),
+        source.contains("SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string()"),
         "{source}"
     );
     assert!(
@@ -2503,7 +2503,7 @@ function widen(values: string[]): unknown[] {
 
     assert!(
         source.contains(
-            "smelt_l.into_iter().map(|value| SmeltUnknown::String(value)).collect::<Vec<_>>()"
+            "smelt_l.into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>()"
         ),
         "{source}"
     );
@@ -2520,7 +2520,7 @@ function chars(value: string): unknown[] {
     );
 
     assert!(
-        source.contains(".map(|value| SmeltUnknown::String(value)).collect::<Vec<_>>()"),
+        source.contains(".map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>()"),
         "{source}"
     );
 }
@@ -3063,7 +3063,7 @@ function read(output: Record<string, unknown[]>, key: unknown | undefined): unkn
 
     assert!(
         source.contains(
-            ".map_or(String::new(), |value| match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value"
+            ".map_or(String::new(), |value| match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string()"
         ),
         "{source}"
     );
@@ -3264,11 +3264,11 @@ function read(): unknown {
         "{source}"
     );
     assert!(
-        source.contains("SmeltUnknown::String(\"cat\".to_owned())"),
+        source.contains("SmeltUnknown::String(\"cat\".into())"),
         "{source}"
     );
     assert!(
-        source.contains("SmeltUnknown::String(\"dog\".to_owned())"),
+        source.contains("SmeltUnknown::String(\"dog\".into())"),
         "{source}"
     );
 }
@@ -3363,11 +3363,11 @@ function assign(value: unknown): unknown {
 
     assert!(source.contains("match &mut value"), "{source}");
     assert!(
-        source.contains("SmeltUnknown::Object(map) => { map.insert(\"name\".to_owned(), SmeltUnknown::String(\"Grace\".to_owned())); }"),
+        source.contains("SmeltUnknown::Object(map) => { map.insert(\"name\".to_owned(), SmeltUnknown::String(\"Grace\".into())); }"),
         "{source}"
     );
     assert!(
-        source.contains("*other = SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"name\".to_owned(), SmeltUnknown::String(\"Grace\".to_owned()))])));"),
+        source.contains("*other = SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"name\".to_owned(), SmeltUnknown::String(\"Grace\".into()))])));"),
         "{source}"
     );
 }
@@ -4131,7 +4131,7 @@ export function run(): unknown {
     );
 
     assert!(
-        source.contains("(identity)(&(SmeltUnknown::String(\"hello\".to_owned())), _smelt_tmp_2)")
+        source.contains("(identity)(&(SmeltUnknown::String(\"hello\".into())), _smelt_tmp_2)")
             && source.contains("_smelt_tmp_2 = Into::<SmeltList<_>>::into(SmeltList::from("),
         "normal closure calls should preserve fixed arguments and pack an empty rest vector: {source}"
     );
@@ -4306,7 +4306,7 @@ export function widen(a: number[] | string[]): unknown[] {
     );
     assert!(
         source.contains("SmeltUnknown::Number(1.0")
-            && source.contains("SmeltUnknown::String(\"x\".to_owned())"),
+            && source.contains("SmeltUnknown::String(\"x\".into())"),
         "appended scalars should be boxed into the unknown element type: {source}"
     );
 }
@@ -4426,7 +4426,7 @@ function matchUnknown(value: unknown): string[] | undefined {
     );
 
     assert!(
-        source.contains("SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value"),
+        source.contains("SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string()"),
         "{source}"
     );
     assert!(source.contains(".match_string(&match "), "{source}");
@@ -4529,11 +4529,11 @@ const matches = first.test("Nov");
     );
 
     assert!(
-        source.contains("SmeltRegExp::new(source.clone(), flags).test(&haystack)"),
+        source.contains("SmeltRegExp::new(source.to_string(), flags).test(&haystack)"),
         "{source}"
     );
     assert!(
-        source.contains("(\"flags\".to_owned(), SmeltUnknown::String(self.flags))"),
+        source.contains("(\"flags\".to_owned(), SmeltUnknown::String(self.flags.into()))"),
         "{source}"
     );
 }
@@ -9253,7 +9253,7 @@ const failure = new ParseFailure('bad input');
     // instance is erased, because the throw path reads `message` off the erased
     // object and expects that variant.
     assert!(
-        source.contains(r#"("message".to_owned(), SmeltUnknown::String(self.message))"#),
+        source.contains(r#"("message".to_owned(), SmeltUnknown::String(self.message.into()))"#),
         "{source}"
     );
 }
@@ -10364,7 +10364,7 @@ console.log(out);
     );
 
     assert!(
-        source.contains("SmeltUnknown::Symbol(description.to_owned())"),
+        source.contains("SmeltUnknown::Symbol(description.into())"),
         "the symbols projection must re-tag the stripped description as a symbol \
          value:\n{source}"
     );
@@ -11075,7 +11075,7 @@ export function fill(b: string[], n: number[], nested: string[][], i: number): u
         "each of the three reads keeps its own fallibility:\n{source}"
     );
     for tail in [
-        ".cloned().map(|value| SmeltUnknown::String(value)).unwrap_or(SmeltUnknown::Undefined)",
+        ".cloned().map(|value| SmeltUnknown::String(value.into())).unwrap_or(SmeltUnknown::Undefined)",
         ".cloned().map(|value| SmeltUnknown::Number(value as f64)).unwrap_or(SmeltUnknown::Undefined)",
         "collect::<Vec<_>>())) }).unwrap_or(SmeltUnknown::Undefined)",
     ] {
@@ -11148,7 +11148,7 @@ export function pick(value: unknown, index: number): unknown {
     );
     assert!(
         source.contains(
-            "value.chars().nth(index).map(|ch| SmeltUnknown::String(ch.to_string()))).unwrap_or(SmeltUnknown::Undefined)"
+            "value.chars().nth(index).map(|ch| SmeltUnknown::String(ch.to_string().into()))).unwrap_or(SmeltUnknown::Undefined)"
         ),
         "a missing string character on an erased receiver is `undefined`:\n{source}"
     );

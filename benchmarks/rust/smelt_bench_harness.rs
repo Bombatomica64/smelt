@@ -59,7 +59,7 @@ pub fn strings(n: usize, seed: u32) -> Vec<SmeltUnknown> {
             } else {
                 w.to_owned()
             };
-            SmeltUnknown::String(s)
+            SmeltUnknown::String(s.into())
         })
         .collect()
 }
@@ -74,7 +74,7 @@ pub fn records(n: usize, seed: u32) -> Vec<SmeltUnknown> {
             let flag = rng.next() % 2 == 0;
             SmeltUnknown::Object(SmeltObject::new(vec![
                 ("id".to_owned(), SmeltUnknown::Number(i as f64)),
-                ("group".to_owned(), SmeltUnknown::String(group)),
+                ("group".to_owned(), SmeltUnknown::String(group.into())),
                 ("value".to_owned(), SmeltUnknown::Number(value)),
                 ("flag".to_owned(), SmeltUnknown::Bool(flag)),
             ]))

@@ -106,7 +106,7 @@ pub(crate) fn thrown_value_expr(error_text: &str) -> String {
 /// the ABI itself.
 pub(crate) fn panic_payload_record_expr(message_text: &str) -> String {
     format!(
-        "SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"__smelt_error\".to_owned(), SmeltUnknown::String(\"Error\".to_owned())), (\"message\".to_owned(), SmeltUnknown::String({message_text}))])))"
+        "SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"__smelt_error\".to_owned(), SmeltUnknown::String(\"Error\".into())), (\"message\".to_owned(), SmeltUnknown::String({message_text}.into()))])))"
     )
 }
 
@@ -139,7 +139,7 @@ pub(crate) fn emit_thrown_payload_support(writer: &mut CodeWriter) {
         "/// Project a thrown payload to the message text a string-typed `catch` observes.",
     );
     writer.line(format!(
-        "fn {THROWN_MESSAGE_FN}(value: &SmeltUnknown) -> String {{ if let SmeltUnknown::Object(object) = value {{ if let Some(SmeltUnknown::String(message)) = object.get(\"message\") {{ return message; }} }} format!(\"{{value}}\") }}"
+        "fn {THROWN_MESSAGE_FN}(value: &SmeltUnknown) -> String {{ if let SmeltUnknown::Object(object) = value {{ if let Some(SmeltUnknown::String(message)) = object.get(\"message\") {{ return message.to_string(); }} }} format!(\"{{value}}\") }}"
     ));
     writer.line(format!(
         "impl ::std::fmt::Display for {THROWN_TYPE} {{ fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {{ formatter.write_str(&{THROWN_MESSAGE_FN}(&self.value)) }} }}"
