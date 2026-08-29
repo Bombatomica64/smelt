@@ -721,9 +721,13 @@ const hits = values.filter((value) => selected.has(value));
 ",
     );
 
+    // The membership test only reads the needle, so it borrows the callback
+    // parameter rather than cloning it and borrowing the copy. See
+    // `shared_reference_argument_text`.
+    assert!(source.contains(".contains(&closure_arg_0)"), "{source}");
     assert!(
-        source.contains(".contains(&closure_arg_0.clone())"),
-        "{source}"
+        !source.contains(".contains(&closure_arg_0.clone())"),
+        "a set membership test must not clone its needle:\n{source}"
     );
 }
 
