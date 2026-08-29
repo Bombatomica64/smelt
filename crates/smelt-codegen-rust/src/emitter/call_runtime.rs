@@ -1539,14 +1539,22 @@ impl FunctionEmitter<'_> {
                     if callee_is_erased_rest && self.mir.types.get(dest_ty) == Some(&Type::None) {
                         return Ok(format!("{{ {call_text}; () }}"));
                     }
-                    // `SmeltErasedFunction::call` always yields a bare
+                    // Same rule as the `ClosureCall` arm above, for the same
+                    // reason: the erased ABI -- `SmeltErasedFunction::call`, or the
+                    // borrowed `dyn Fn(SmeltList<SmeltUnknown>) -> SmeltUnknown`
+                    // handle it is emitted as -- always yields a bare
                     // `SmeltUnknown`, whatever the callee's declared return type
-                    // says -- the same seam the non-spread `ClosureCall` arm
-                    // above corrects for. Coercing from the declared
-                    // `return_ty` would emit an identity conversion and leave a
-                    // `SmeltUnknown` assigned to, say, a `bool` destination
-                    // (E0308). Keying this on the ABI actually chosen for
-                    // `inner_call` keeps the two in step.
+                    // says. Coercing from the declared `return_ty` emits an
+                    // identity conversion and leaves a `SmeltUnknown` assigned to,
+                    // say, a `bool` destination: an E0308 the moment a spread call
+                    // reaches such a callee with a non-`unknown` return, as
+                    // es-toolkit's `cond` does with `predicate.apply(this, args)`
+                    // on a `(...args: any[]) => boolean`.
+                    //
+                    // The condition keys on the ABI actually chosen for
+                    // `inner_call` above, not just on the erased-rest shape, so the
+                    // two cannot drift: ANY call rendered as `.call(..)` returns the
+                    // erased carrier and needs the same correction.
                     let source_ty = if uses_erased_call_method || callee_is_erased_rest {
                         unknown_ty
                     } else {

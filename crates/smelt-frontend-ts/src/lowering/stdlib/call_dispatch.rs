@@ -1696,70 +1696,76 @@ impl<'builder> ModuleBuilder<'builder> {
             }
         }
         if member.property.name == "apply" {
+            // `fn.apply(thisArg, argsArray)` is the sibling of the `call` arm
+            // above: the LEADING operand binds `this` and the TRAILING operand is
+            // an array whose elements become the positional arguments.
+            //
+            // Without this arm, `apply` on a value whose type is a concrete
+            // `Type::Function` fell through to `static_member_no_absent_fallback`,
+            // which reads `apply` as an ordinary (absent) field of the function
+            // and answers a literal `null` — so `return func.apply(this, args)`
+            // emitted `return SmeltUnknown::Null;` and the call vanished with no
+            // diagnostic. Only the *erased* (`SmeltUnknown`) receiver reached the
+            // runtime `smelt_function_method(.., "apply")` path, so the same
+            // source line behaved differently depending on whether the callee had
+            // kept its static type.
+            //
+            // The `this` operand is dropped rather than passed positionally,
+            // exactly as `callback_apply_method_to_body_expr` (which this arm
+            // delegates to, so the two spellings cannot diverge) already does for
+            // the closure-body form: Smelt erases the JavaScript `this` binding
+            // for a plain function, so a source `function (this: any, ...rest)`
+            // lowers to a closure with no receiver slot. The arity test the `call`
+            // arm uses to detect a receiver-first class method is unavailable here
+            // — `apply`'s argument list is one runtime array whose length is not
+            // statically known — so `apply` keeps the uniform drop.
             let callable = self.expression(&member.object, body)?;
             let callable_ty = Self::expr_ty(body, callable);
-            // `apply` reaches the callee through the packed-argument runtime
-            // ABI, whose emitter resolves `Type::Unknown` out of the type
-            // table, along with the `unknown[]` list its packed argument operand
-            // is typed as. A module that never otherwise mentions `unknown`
-            // would not have interned either, so intern them here alongside the
-            // lowering that needs them -- the same thing the spread-call branch
-            // further down does before building its erased operands.
-            let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
-            self.ctx.krate.types.intern(Type::List(unknown_ty));
+            // `function_member_type` resolves every statically callable receiver
+            // shape — a bare function, a nullishable or union callee, and a
+            // callable interface/object. All of them get the same typed `apply`,
+            // so the argument list travels as arguments rather than through the
+            // runtime member-lookup fallback. es-toolkit's `throttle` calls
+            // `.apply` on a callable-object receiver and needs exactly that.
+            //
+            // No argument count is supplied to the overload picker: `apply`'s own
+            // arity is `(thisArg, argsArray)` and says nothing about how many
+            // arguments the callee will receive — that is the runtime length of
+            // the array, which is why the call is a spread in the first place.
             if let Some(function_ty) = self.function_member_type(callable_ty)
                 && let Some(Type::Function(function)) =
                     self.ctx.krate.types.get(function_ty).cloned()
             {
-                // `fn.apply(thisArg, argsArray)` binds `this` from the leading
-                // operand and spreads the TRAILING array into the positional
-                // arguments. Smelt erases the JavaScript `this` binding for a
-                // plain function or closure, so the leading operand is dropped
-                // exactly as `callback_apply_method_to_body_expr` drops it and
-                // as the `call` arm above drops it for a receiver-less callee.
-                //
-                // The argument count is a runtime property of the array, so the
-                // arity test that settles `call`'s receiver question does not
-                // apply here. A class METHOD is lowered receiver-first and would
-                // need the leading operand PREPENDED to the spread list, which
-                // the packed-argument ABI cannot express; rather than silently
-                // dropping the receiver there, that shape is reported. Before
-                // this arm existed, every `apply` fell through to the field-read
-                // path, resolved `apply` as an absent member, and lowered to a
-                // bare `Null` -- es-toolkit's `flow`/`flowRight` composed
-                // nothing at all because `funcs[0].apply(this, args)` WAS
-                // `null`.
                 let span = self.span(call.span.start, call.span.end);
+                // A class METHOD is lowered receiver-first, so its `this` operand
+                // IS its first parameter and would have to be PREPENDED to the
+                // spread list rather than dropped -- something the packed-argument
+                // ABI cannot express. Dropping it there would shift every argument
+                // left and silently compute the wrong thing, which is the exact
+                // failure class this whole arm exists to remove, so the shape is
+                // reported instead. No corpus reaches it today; the diagnostic is
+                // here so that when one does it fails loudly rather than quietly.
                 if self.static_member_is_concrete_class_method(callable, member, body) {
                     return Err(SmeltError::unsupported(
                         span,
                         "apply on a receiver-first class method is not lowered yet",
                     ));
                 }
-                // `fn.apply(thisArg)` and `fn.apply()` forward no positional
-                // arguments at all, so they are ordinary zero-argument calls.
-                if call.arguments.len() <= 1 {
-                    return Ok(Some(body.push_expr(Expr {
-                        kind: ExprKind::ClosureCall {
-                            callee: callable,
-                            args: Vec::new(),
-                        },
-                        ty: function.return_ty,
+                let args = call
+                    .arguments
+                    .iter()
+                    .map(|argument| self.argument(argument, body))
+                    .collect::<Result<Vec<_>, _>>()?;
+                return self
+                    .callback_apply_method_to_body_expr(
+                        callable,
+                        callable_ty,
+                        &args,
+                        function.return_ty,
+                        body,
                         span,
-                    })));
-                }
-                let arguments_arg = call.arguments.last().ok_or_else(|| {
-                    SmeltError::unsupported(span, "apply requires an arguments array")
-                })?;
-                let arguments = self.argument(arguments_arg, body)?;
-                return Ok(Some(body.push_expr(Expr {
-                    kind: ExprKind::ClosureCallSpread {
-                        callee: callable,
-                        args: arguments,
-                    },
-                    ty: function.return_ty,
-                    span,
-                })));
+                    )
+                    .map(Some);
             }
         }
         let Ok(callee) = self.static_member_no_absent_fallback(member, body) else {

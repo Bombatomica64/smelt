@@ -7764,9 +7764,102 @@ export function makeCurried(): CurriedFunction1<number, string> {
         "record-to-struct adapter must not spell an out-of-scope type param `T1` \
          in the non-generic caller: {source}"
     );
+    // `CurriedFunction1` declares two call signatures of different arities, so
+    // its single `__smelt_call` slot is now the erased variadic callable (see
+    // `add_interface_call_signature_field`) rather than the first signature's
+    // concrete `Fn() -> CurriedFunction1<T1, R>`. That removes the interface's
+    // own type parameters from the slot entirely, which is a strictly stronger
+    // form of the property this test guards: there is no longer any type
+    // argument on the slot that COULD be out of scope. The assertion below
+    // therefore pins the new representation; the out-of-scope check above --
+    // the actual regression -- is unchanged.
     assert!(
-        body.contains("CurriedFunction1<SmeltUnknown, SmeltUnknown>"),
-        "out-of-scope type params should erase to SmeltUnknown: {source}"
+        body.contains("__smelt_call: SmeltErasedFunction"),
+        "an overloaded callable interface's slot should be the erased variadic \
+         callable, leaving no interface type argument to fall out of scope: {source}"
+    );
+}
+
+#[test]
+fn apply_on_typed_function_value_emits_a_call_not_a_null() {
+    // Regression (es-toolkit curry/partial/partialRight/flow): `fn.apply(this, args)`
+    // on a receiver whose type is a concrete `Type::Function` had no lowering arm --
+    // `call` did, `apply` did not -- so the member read fell through to the ordinary
+    // (absent) field path and the WHOLE call collapsed to a literal `null`, with no
+    // diagnostic. Only an erased (`unknown`) receiver reached the runtime
+    // `smelt_function_method(.., "apply")` dispatch, so the identical source line
+    // behaved differently depending on whether the callee had kept its static type.
+    let source = source_for(
+        r"
+export function forward(func: (...args: any[]) => any, args: any[]): any {
+  return func.apply(null, args);
+}
+",
+    );
+    let body = source
+        .split("fn forward")
+        .nth(1)
+        .and_then(|rest| rest.split("\nfn ").next())
+        .unwrap_or("");
+    assert!(
+        !body.contains("return SmeltUnknown::Null;"),
+        "`apply` on a typed function must not collapse to a null literal: {source}"
+    );
+    assert!(
+        body.contains("func(args"),
+        "`apply` should forward the argument array to the callee: {source}"
+    );
+}
+
+#[test]
+fn overloaded_callable_interface_stores_an_erased_variadic_call_slot() {
+    // Regression (es-toolkit compat `curry`): a callable interface's generated
+    // struct carries ONE `__smelt_call` slot. When the interface declares several
+    // call signatures of DIFFERENT arities, no single concrete signature can hold
+    // the value -- which overload runs is decided by the runtime argument list --
+    // yet the slot used to be typed from the FIRST signature. Every call site then
+    // adapted to that signature and silently discarded the arguments actually
+    // passed: es-toolkit's two-argument `curried(2, 3)` emitted `(smelt_callback)()`,
+    // running the zero-argument overload and answering a defaulted value with no
+    // diagnostic.
+    //
+    // The overload set now collapses to one erased variadic callable, exactly as a
+    // union of differing-arity function types already does. A uniformly-shaped
+    // callable interface keeps its precise concrete slot, so nothing is erased that
+    // a concrete Rust `Fn` type could have carried.
+    let source = source_for(
+        r"
+interface Overloaded {
+  (): Overloaded;
+  (t1: number): number;
+  (t1: number, t2: number): number;
+}
+interface Uniform {
+  (t1: number): number;
+}
+export function use_them(a: Overloaded, b: Uniform): number {
+  return a(1, 2) + b(3);
+}
+",
+    );
+    let overloaded_struct = source
+        .split("struct Overloaded")
+        .nth(1)
+        .and_then(|rest| rest.split('}').next())
+        .unwrap_or("");
+    assert!(
+        overloaded_struct.contains("__smelt_call: SmeltErasedFunction"),
+        "an overload set whose arities differ must store the erased variadic \
+         callable, not the first signature: {source}"
+    );
+    let uniform_struct = source
+        .split("struct Uniform")
+        .nth(1)
+        .and_then(|rest| rest.split('}').next())
+        .unwrap_or("");
+    assert!(
+        uniform_struct.contains("__smelt_call: ::std::rc::Rc<dyn Fn(f64) -> f64>"),
+        "a uniformly-shaped callable interface must keep its concrete slot type: {source}"
     );
 }
 

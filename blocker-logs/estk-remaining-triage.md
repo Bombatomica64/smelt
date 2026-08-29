@@ -1,8 +1,7 @@
 # es-toolkit generated suite — remaining-failure triage
 
-Baseline at the start of this pass: **909 passed / 150 failed**. Now: **957 passed / 102 failed**
-(measured on `cb5cf1b` plus the `Function.prototype.apply` lowering; `main` at
-`cb5cf1b` alone is 954/105).
+Baseline at the start of this pass: **909 passed / 150 failed**. Now: **961 passed / 98 failed**
+(`main` at `37674f1` alone is 954/105).
 
 Reproduce with:
 
@@ -456,21 +455,54 @@ Also removed a latent miscompile: `.apply` on a callable object previously
 emitted a direct `__smelt_call` struct-field read that computed the wrong value
 at runtime, and did not compile at all when the interface lowered to a newtype.
 
-### Still open in the `flow`/`partial` cluster (13 tests)
+### CORRECTION: the cluster was never about placeholders
 
-`.apply` was NOT the shared root of this cluster — the remaining failures split
-into at least four distinct roots, verified from their assertion messages:
+The placeholder machinery was already working. `curry.placeholder` lowers
+correctly to `SmeltUnknown::Symbol("Symbol(curry.placeholder)@10319")` and the
+`filter(item => item === curry.placeholder)` predicate compares against it —
+verified by reading the regenerated `dist-smelt/src/curry.rs`. The earlier claim
+in this log that the assignments were dropped and the read resolved to `null`
+was **stale**: that was fixed before this pass.
 
-- **curry placeholders** (~8): `flow`/`flowRight` "should work with a curried
-  function and `_.head`" / "with curried functions with placeholders",
-  `partial`/`partialRight` "should work with curried functions" / "with
-  placeholders and curried functions", `partialRight` "supports placeholders".
-- **`fn.length`** (2): `partial`/`partialRight` "creates a function with a
-  length of 0" — `expect(par.length).toBe(0)`.
-- **`new par() instanceof Foo`** (2): `partial`/`partialRight` "ensures new par
-  is an instance of func" — construction through a partially-applied function.
-- **`this` context** (1): `flow` "should preserve this context",
-  `combined.call(obj, 1, 2)`.
+The real second root was **an overloaded callable interface dropping its call
+arguments**. The generated struct carries ONE `__smelt_call` slot, typed from
+the FIRST call signature. `CurriedFunction2` declares four signatures of
+differing arity, so every call site adapted to the zero-argument one:
+
+```rust
+_smelt_tmp_8 = { let smelt_callback = curried.__smelt_call…;
+  Rc::new(move |arg0, arg1| { let v = (smelt_callback)(); /* args 2 and 3 discarded */ … }) };
+```
+
+Fixed by collapsing a differing-arity overload set to one erased variadic slot —
+which overload runs is decided by the runtime argument list, a genuine dynamic
+boundary — exactly as `ty/annotations.rs` already collapses a differing-arity
+UNION. Uniform-arity interfaces keep their concrete slot.
+
+### Still open in the `flow`/`partial` cluster (5 tests, three further roots)
+
+- **Overload selection ignores argument TYPES** — blocks `partial`/`partialRight`
+  "should work with curried functions" and `flow`/`flowRight` "curried functions
+  with placeholders". `signature_accepts_arg_count` picks the first overload
+  matching the ARITY, so `curried(2, 3)` selects the PLACEHOLDER overload
+  `(t1: __, t2: T2)` instead of `(t1: T1, t2: T2): R`; TypeScript rejects the
+  first because `2` is not the placeholder's unique symbol. The assertion then
+  const-folds to `_smelt_tmp_10 = !(false);`. Needs argument types threaded into
+  `function_member_type_for_arg_count` / `interface_call_signature_type` plus an
+  assignability test.
+- **Erased -> fixed-arity -> erased round trip loses arity** — blocks
+  `partialRight` "supports placeholders". The TS overload declares a 2-parameter
+  result, so the erased variadic is adapted down to a 2-arg `Rc<dyn Fn>` and
+  immediately re-erased; `par('a','b','d')` loses its third argument. The
+  narrowing adapter should not be inserted when both ends are the dynamic
+  boundary.
+- **`fn.length`** (2) and **`new par() instanceof Foo`** (2) remain as recorded.
+
+### Separately confirmed: a `__smelt_call` slot read as a struct FIELD is called without an adapter
+
+Pre-existing and unrelated to the `apply` work (verified by stashing: identical
+output before and after). `let t = c.__smelt_call.clone(); (t)(2.0, 3.0)` calls a
+`SmeltErasedFunction` with call syntax — E0618. No corpus reaches it.
 
 ### Separately confirmed: callable-object construction via a function-static assign
 

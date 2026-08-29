@@ -2843,7 +2843,25 @@ impl<'mir> FunctionEmitter<'mir> {
                     .iter()
                     .enumerate()
                     .map(|(index, target_param)| {
-                        self.erase_value_text(&format!("arg{index}"), *target_param)
+                        // The adapter's own parameters are declared with the
+                        // by-reference ABI (`function_type_param_text` renders
+                        // `&T`/`&mut T` for a shared-reference or mutable slot),
+                        // but the packed argument vector is `Vec<SmeltUnknown>` and
+                        // owns its elements. Take an owned copy before erasing;
+                        // without it a single reference-typed parameter fixed the
+                        // vector's element type to `&SmeltUnknown` and every other
+                        // element became an E0308.
+                        let base = if target_function.mutable_params.contains(&index)
+                            || self.callback_param_is_shared_reference(
+                                target_function,
+                                index,
+                                *target_param,
+                            ) {
+                            format!("arg{index}.clone()")
+                        } else {
+                            format!("arg{index}")
+                        };
+                        self.erase_value_text(&base, *target_param)
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?
                     .join(", ");
