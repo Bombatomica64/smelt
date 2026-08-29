@@ -1187,17 +1187,7 @@ impl FunctionEmitter<'_> {
                 } else if self.callback_param_is_shared_reference(function, index, target_ty)
                 {
                     // The parameter is `&T` (see `callback_param_is_shared_reference`).
-                    // When the argument already has the parameter's type, borrow the
-                    // place directly — that is the whole point of the by-reference
-                    // parameter, and it is what removes the per-element deep copy.
-                    // When a coercion is needed, reference the coerced temporary
-                    // instead; Rust extends its lifetime to the end of the statement,
-                    // so `&(expr)` is valid even though the value is unnamed.
-                    if self.operand_ty(arg)? == target_ty {
-                        Ok(format!("&{}", self.operand_borrow_text(arg)?))
-                    } else {
-                        Ok(format!("&({})", self.value_at_type(arg, target_ty)?))
-                    }
+                    self.shared_reference_argument_text(arg, target_ty)
                 } else {
                     self.value_at_type(arg, target_ty)
                 }

@@ -4183,9 +4183,13 @@ function indicesSeen(
 ",
     );
 
+    // `closure_arg_0` is itself spelled `&SmeltUnknown` (the contextual `dyn Fn`
+    // passes it by shared reference), and `predicate` takes `&SmeltUnknown`, so
+    // the binding is forwarded as-is. Borrowing it again would hand the callee a
+    // `&&SmeltUnknown` that only compiles through deref coercion.
     assert!(
-        source.contains("predicate(&(closure_arg_0.clone()), closure_arg_1.clone())"),
-        "{source}"
+        source.contains("predicate(closure_arg_0, closure_arg_1.clone())"),
+        "a borrowed callback parameter should forward without a re-borrow: {source}"
     );
     assert!(
         source.contains(

@@ -1372,14 +1372,7 @@ impl FunctionEmitter<'_> {
                                 // The parameter is `&T`, so pass a reference. Borrowing
                                 // the place is the point: this is the per-element
                                 // whole-list copy that made array callbacks quadratic.
-                                // A coerced argument is referenced as a temporary,
-                                // whose lifetime Rust extends to the end of the
-                                // statement.
-                                if self.operand_ty(arg)? == *param {
-                                    format!("&{}", self.operand_borrow_text(arg)?)
-                                } else {
-                                    format!("&({})", self.value_at_type(arg, *param)?)
-                                }
+                                self.shared_reference_argument_text(arg, *param)?
                             } else {
                                 self.value_at_type(arg, *param)?
                             };

@@ -1103,6 +1103,17 @@ pub(crate) struct FunctionEmitter<'mir> {
         RefCell<HashMap<(smelt_mir::BlockId, smelt_mir::BlockId, smelt_mir::BlockId), bool>>,
     /// Captured callback names that are emitted as borrowed `Fn` values.
     borrowed_callback_names: HashSet<String>,
+    /// Parameter locals whose emitted Rust binding is already a shared
+    /// reference (`name: &T`) rather than an owned `T`.
+    ///
+    /// A closure assigned to a `dyn Fn(&T, ..)` spells its parameters with the
+    /// `&` that ABI owes them (see `callback_param_is_shared_reference`), but
+    /// MIR still types the local as the bare `T`. A call site that wants a `&T`
+    /// argument would then borrow the place again and hand the callee a `&&T`,
+    /// which only compiles because Rust deref-coerces it away. Recording the
+    /// borrowed parameters lets such a call pass the binding straight through,
+    /// which is what a hand-writing Rust team would spell.
+    by_reference_param_locals: HashSet<LocalId>,
     /// Record types currently being wrapped or extracted through erased objects.
     ///
     /// Callback-bearing records can contain their own option type again, so
