@@ -721,7 +721,7 @@ impl FunctionEmitter<'_> {
         ) {
             return match op {
                 smelt_hir::DictProjectionOp::FromEntries => Ok(format!(
-                    "match {dict_text} {{ SmeltUnknown::Array(entries) => entries.into_iter().filter_map(|entry| match entry {{ SmeltUnknown::Array(values) if values.len() >= 2 => {{ let mut values = values.into_iter(); let key = match values.next()? {{ SmeltUnknown::String(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), _ => return None }}; Some((key, values.next()?)) }}, _ => None }}).collect::<SmeltRecord<String, SmeltUnknown>>(), _ => SmeltRecord::new() }}"
+                    "match {dict_text} {{ SmeltUnknown::Array(entries) => entries.into_iter().filter_map(|entry| match entry {{ SmeltUnknown::Array(values) if values.len() >= 2 => {{ let mut values = values.into_iter(); let key = match values.next()? {{ SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), _ => return None }}; Some((key, values.next()?)) }}, _ => None }}).collect::<SmeltRecord<String, SmeltUnknown>>(), _ => SmeltRecord::new() }}"
                 )),
                 // A byte-backed host record's own enumerable properties are its
                 // *element indices*: `Object.keys(new Uint8Array(1))` is `['0']`,
@@ -746,7 +746,7 @@ impl FunctionEmitter<'_> {
                 // description as `SmeltUnknown::Symbol` keeps the round trip: the
                 // property-key mapping turns that tag back into the prefixed key.
                 smelt_hir::DictProjectionOp::Symbols => Ok(format!(
-                    "match {dict_text} {{ SmeltUnknown::Object(map) => map.keys().into_iter().filter_map(|key| key.strip_prefix(\"__smelt_symbol:\").map(|description| SmeltUnknown::Symbol(description.to_owned()))).collect(), _ => Vec::new() }}"
+                    "match {dict_text} {{ SmeltUnknown::Object(map) => map.keys().into_iter().filter_map(|key| key.strip_prefix(\"__smelt_symbol:\").map(|description| SmeltUnknown::Symbol(description.into()))).collect(), _ => Vec::new() }}"
                 )),
                 // `Object.values`/`Object.entries` of a byte-backed view are its
                 // decoded elements, paired with their index keys — the same own-key
@@ -851,7 +851,7 @@ impl FunctionEmitter<'_> {
                 // one stores the tag directly, and both hand back the tag.
                 if self.mir.types.get(*key_ty) == Some(&Type::String) {
                     Ok(format!(
-                        "{dict_text}.keys().filter_map(|key| key.strip_prefix(\"__smelt_symbol:\").map(|description| SmeltUnknown::Symbol(description.to_owned()))).collect::<Vec<_>>()"
+                        "{dict_text}.keys().filter_map(|key| key.strip_prefix(\"__smelt_symbol:\").map(|description| SmeltUnknown::Symbol(description.into()))).collect::<Vec<_>>()"
                     ))
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                     Ok(format!(

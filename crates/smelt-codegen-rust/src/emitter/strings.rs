@@ -529,7 +529,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
                 let scrutinee = self.erase_concrete_union_text(&text, self.operand_ty(operand)?);
                 Ok(format!(
-                    "match {scrutinee} {{ SmeltUnknown::String(value) => SmeltRegExp::new(value, String::new()), SmeltUnknown::Object(value) => SmeltRegExp::new(match value.get(\"source\") {{ Some(SmeltUnknown::String(source)) => source, _ => String::new() }}, match value.get(\"flags\") {{ Some(SmeltUnknown::String(flags)) => flags, _ => String::new() }}), _ => SmeltRegExp::new(String::new(), String::new()) }}"
+                    "match {scrutinee} {{ SmeltUnknown::String(value) => SmeltRegExp::new(value.to_string(), String::new()), SmeltUnknown::Object(value) => SmeltRegExp::new(match value.get(\"source\") {{ Some(SmeltUnknown::String(source)) => source.to_string(), _ => String::new() }}, match value.get(\"flags\") {{ Some(SmeltUnknown::String(flags)) => flags.to_string(), _ => String::new() }}), _ => SmeltRegExp::new(String::new(), String::new()) }}"
                 ))
             }
             _ => Ok(format!(
@@ -577,7 +577,7 @@ impl FunctionEmitter<'_> {
     /// before the generic `SmeltUnknown::Object(_)` arm, which would otherwise
     /// shadow it.
     pub(super) fn js_error_to_string_arm_text() -> &'static str {
-        "SmeltUnknown::Object(value) if value.contains_key(\"__smelt_error\") => { let smelt_error_name = match value.get(\"name\") { Some(SmeltUnknown::String(name)) => name, _ => match value.get(\"__smelt_error\") { Some(SmeltUnknown::String(class)) => class, _ => \"Error\".to_owned() } }; let smelt_error_message = match value.get(\"message\") { Some(SmeltUnknown::String(message)) => message, _ => String::new() }; if smelt_error_message.is_empty() { smelt_error_name } else if smelt_error_name.is_empty() { smelt_error_message } else { format!(\"{smelt_error_name}: {smelt_error_message}\") } }, "
+        "SmeltUnknown::Object(value) if value.contains_key(\"__smelt_error\") => { let smelt_error_name = match value.get(\"name\") { Some(SmeltUnknown::String(name)) => name.to_string(), _ => match value.get(\"__smelt_error\") { Some(SmeltUnknown::String(class)) => class.to_string(), _ => \"Error\".to_owned() } }; let smelt_error_message = match value.get(\"message\") { Some(SmeltUnknown::String(message)) => message.to_string(), _ => String::new() }; if smelt_error_message.is_empty() { smelt_error_name } else if smelt_error_name.is_empty() { smelt_error_message } else { format!(\"{smelt_error_name}: {smelt_error_message}\") } }, "
     }
 
     /// Renders the JavaScript `ToString` coercion of an owned erased value.
@@ -588,7 +588,7 @@ impl FunctionEmitter<'_> {
     pub(super) fn js_string_coercion_match_text(scrutinee_text: &str) -> String {
         let error_arm = Self::js_error_to_string_arm_text();
         format!(
-            "match {scrutinee_text} {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Object(value) if value.contains_key(\"__smelt_regexp\") => smelt_regexp_literal(&value), {error_arm}SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}"
+            "match {scrutinee_text} {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_regexp\") => smelt_regexp_literal(&value), {error_arm}SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}"
         )
     }
 
@@ -640,7 +640,7 @@ impl FunctionEmitter<'_> {
                 let scrutinee = self.erase_concrete_union_text("value", *inner);
                 let error_arm = Self::js_error_to_string_arm_text();
                 Ok(format!(
-                    "{text}.map_or_else(String::new, |value| match {scrutinee} {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, {error_arm}SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }})"
+                    "{text}.map_or_else(String::new, |value| match {scrutinee} {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), {error_arm}SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }})"
                 ))
             }
             Some(Type::Tuple(_) | Type::Optional(_) | Type::Future(_)) => {
@@ -869,7 +869,7 @@ impl FunctionEmitter<'_> {
             let separator_unknown = self
                 .erase_concrete_union_text(&self.operand_text(separator)?, self.operand_ty(separator)?);
             format!(
-                "{{ let smelt_haystack = {haystack_text}; match {separator_unknown} {{ SmeltUnknown::Object(smelt_object) if smelt_object.contains_key(\"source\") => SmeltRegExp::new(match smelt_object.get(\"source\").cloned() {{ Some(SmeltUnknown::String(source)) => source, _ => String::new() }}, match smelt_object.get(\"flags\").cloned() {{ Some(SmeltUnknown::String(flags)) => flags, _ => String::new() }}).split_string(&smelt_haystack), smelt_separator_unknown => {{ let smelt_separator = match smelt_separator_unknown {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}; if smelt_separator.is_empty() {{ if smelt_haystack.is_empty() {{ Vec::new() }} else {{ smelt_haystack.chars().map(|ch| ch.to_string()).collect::<Vec<_>>() }} }} else {{ smelt_haystack.split(&smelt_separator).map(str::to_owned).collect::<Vec<_>>() }} }} }} }}"
+                "{{ let smelt_haystack = {haystack_text}; match {separator_unknown} {{ SmeltUnknown::Object(smelt_object) if smelt_object.contains_key(\"source\") => SmeltRegExp::new(match smelt_object.get(\"source\").cloned() {{ Some(SmeltUnknown::String(source)) => source.to_string(), _ => String::new() }}, match smelt_object.get(\"flags\").cloned() {{ Some(SmeltUnknown::String(flags)) => flags.to_string(), _ => String::new() }}).split_string(&smelt_haystack), smelt_separator_unknown => {{ let smelt_separator = match smelt_separator_unknown {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}; if smelt_separator.is_empty() {{ if smelt_haystack.is_empty() {{ Vec::new() }} else {{ smelt_haystack.chars().map(|ch| ch.to_string()).collect::<Vec<_>>() }} }} else {{ smelt_haystack.split(&smelt_separator).map(str::to_owned).collect::<Vec<_>>() }} }} }} }}"
             )
         } else {
             let separator_text = self.string_like_operand_text(separator, "string split")?;
@@ -972,7 +972,7 @@ impl FunctionEmitter<'_> {
         let item_text = match self.mir.types.get(*item_ty) {
             Some(Type::Bool | Type::Int | Type::Float) => "item.to_string()".to_owned(),
             Some(Type::Unknown) => {
-                "match item { SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.clone(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }".to_owned()
+                "match item { SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }".to_owned()
             }
             Some(Type::Optional(inner)) => match self.mir.types.get(*inner) {
                 Some(Type::Bool | Type::Int | Type::Float) => {

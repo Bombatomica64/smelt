@@ -421,7 +421,7 @@ export function fallback(value: unknown): unknown {
 ",
     );
     assert!(
-        source.contains("SmeltUnknown::String(\"fallback\".to_owned())"),
+        source.contains("SmeltUnknown::String(\"fallback\".into())"),
         "{source}"
     );
 }
@@ -702,13 +702,13 @@ function protoDepth(value: object): number {
 
     assert!(
         source.contains(
-            "SmeltUnknown::String(marker) if marker == \"__smelt_proto:object\" => SmeltUnknown::Null"
+            "SmeltUnknown::String(marker) if &**marker == \"__smelt_proto:object\" => SmeltUnknown::Null"
         ),
         "object-prototype sentinel must terminate the chain at Null: {source}"
     );
     assert!(
         source.contains(
-            "if marker == \"__smelt_proto:array\" || marker == \"__smelt_proto:promise\" || marker == \"__smelt_proto:class\" => SmeltUnknown::String(\"__smelt_proto:object\".to_owned())"
+            "if &**marker == \"__smelt_proto:array\" || &**marker == \"__smelt_proto:promise\" || &**marker == \"__smelt_proto:class\" => SmeltUnknown::String(\"__smelt_proto:object\".into())"
         ),
         "array/promise/class sentinels must advance toward Object.prototype: {source}"
     );
@@ -806,7 +806,7 @@ export function erase(value: Alpha): unknown {
     );
 
     assert!(
-        source.contains("\"__smelt_class\".to_owned(), SmeltUnknown::String(\"Alpha\".to_owned())"),
+        source.contains("\"__smelt_class\".to_owned(), SmeltUnknown::String(\"Alpha\".into())"),
         "an erased class instance must record its class name in the marker: {source}"
     );
     // The INSTANCE erasure site must name the class. One nameless marker remains
@@ -897,7 +897,7 @@ function shallowClone(obj: object): object {
     // instance is still classified as a class instance, not a plain object.
     assert!(
         source.contains(
-            "SmeltUnknown::String(sentinel) if sentinel == \"__smelt_proto:class\" => { fields.push((\"__smelt_class\".to_owned(), SmeltUnknown::Bool(true))); }"
+            "SmeltUnknown::String(sentinel) if &*sentinel == \"__smelt_proto:class\" => { fields.push((\"__smelt_class\".to_owned(), SmeltUnknown::Bool(true))); }"
         ),
         "a class prototype must carry the class marker onto the fresh object: {source}"
     );

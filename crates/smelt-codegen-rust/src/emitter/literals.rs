@@ -28,7 +28,7 @@ pub(crate) fn constant_text(constant: &Constant) -> String {
         Constant::String(value) => RustExpr::string_literal(value).into_string(),
         Constant::Symbol(value) => {
             format!(
-                "SmeltUnknown::Symbol({}.to_owned())",
+                "SmeltUnknown::Symbol({}.into())",
                 RustExpr::string_literal(value).into_string()
             )
         }

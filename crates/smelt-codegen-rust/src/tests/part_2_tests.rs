@@ -53,7 +53,7 @@ function parseValue(value: any): number {
         .map_or(source.as_str(), |(_, program)| program);
 
     assert!(
-        program.contains("SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value"),
+        program.contains("SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string()"),
         "expected erased input to pass through JavaScript string coercion: {program}"
     );
     assert!(

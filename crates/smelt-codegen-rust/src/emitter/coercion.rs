@@ -1095,7 +1095,7 @@ impl FunctionEmitter<'_> {
             Some(Type::None) => Ok("SmeltUnknown::Null".to_owned()),
             Some(Type::Bool) => Ok(format!("SmeltUnknown::Bool({text})")),
             Some(Type::Int | Type::Float) => Ok(format!("SmeltUnknown::Number({text} as f64)")),
-            Some(Type::String) => Ok(format!("SmeltUnknown::String({text})")),
+            Some(Type::String) => Ok(crate::rust::erased_string(&text)),
             Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown) => {
                 // `From<SmeltList<SmeltUnknown>> for SmeltArray` carries the list's
                 // own JS reference id, so erasing the same binding twice reuses one
@@ -1510,7 +1510,7 @@ impl FunctionEmitter<'_> {
                     value.parenthesized_if_needed()
                 ))
             }
-            Some(Type::String) => Ok(format!("SmeltUnknown::String({value_text})")),
+            Some(Type::String) => Ok(crate::rust::erased_string(value_text)),
             Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown) => {
                 // Method receiver: wrap a loose operand before `.into()`.
                 Ok(format!(
@@ -1729,7 +1729,7 @@ impl FunctionEmitter<'_> {
     /// variants themselves.
     pub(super) fn erase_string_array_text(&self, value_iter_text: &str) -> String {
         format!(
-            "SmeltUnknown::Array({value_iter_text}.into_iter().map(SmeltUnknown::String).collect())"
+            "SmeltUnknown::Array({value_iter_text}.into_iter().map(|value| SmeltUnknown::String(value.into())).collect())"
         )
     }
 
@@ -1903,7 +1903,7 @@ impl FunctionEmitter<'_> {
         } else {
             let class_name = self.symbol_source_name(*name)?;
             format!(
-                "smelt_object_entries.push((\"__smelt_class\".to_owned(), SmeltUnknown::String({class_name:?}.to_owned()))); "
+                "smelt_object_entries.push((\"__smelt_class\".to_owned(), SmeltUnknown::String({class_name:?}.into()))); "
             )
         };
         // A reference record's JS identity is its shared cell, so every erasure
@@ -2237,7 +2237,7 @@ impl FunctionEmitter<'_> {
                 "match {text}.clone() {{ SmeltUnknown::Number(value) => value as i64, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value as i64, _ => 0_i64 }}, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN) as i64, SmeltUnknown::Bool(value) => if value {{ 1_i64 }} else {{ 0_i64 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => 0_i64 }}"
             )),
             Some(Type::String) => Ok(format!(
-                "match {text}.clone() {{ SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}"
+                "match {text}.clone() {{ SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}"
             )),
             // Iterable-to-list extraction inspects the source through the
             // `SmeltUnknown` variant space (array/string/`Symbol.iterator`). The
@@ -2250,13 +2250,13 @@ impl FunctionEmitter<'_> {
             // preserves the backing array id, so already-erased callers are
             // unaffected.
             Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown) => {
-                Ok(erased_to_list_text(text, None, "SmeltUnknown::String(ch.to_string())"))
+                Ok(erased_to_list_text(text, None, "SmeltUnknown::String(ch.to_string().into())"))
             }
             Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::String) => {
                 Ok(erased_to_list_text(
                     text,
                     Some(
-                        "if let SmeltUnknown::String(value) = value { value } else { value.to_string() }",
+                        "if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }",
                     ),
                     "ch.to_string()",
                 ))
@@ -2264,7 +2264,7 @@ impl FunctionEmitter<'_> {
             Some(Type::List(item)) => {
                 let item_text = self.extract_value_text("value", *item)?;
                 let char_text =
-                    self.extract_value_text("SmeltUnknown::String(ch.to_string())", *item)?;
+                    self.extract_value_text("SmeltUnknown::String(ch.to_string().into())", *item)?;
                 Ok(erased_to_list_text(text, Some(&item_text), &char_text))
             }
             Some(Type::Dict(key, item))
@@ -2272,13 +2272,13 @@ impl FunctionEmitter<'_> {
                     && self.mir.types.get(*item) == Some(&Type::Unknown) =>
             {
                 Ok(format!(
-                    "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(value) => SmeltRecord::with_id_from_entries(value.id, value.into_iter()), SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect(), SmeltUnknown::String(value) => value.chars().enumerate().map(|(index, ch)| (index.to_string(), SmeltUnknown::String(ch.to_string()))).collect(), SmeltUnknown::Function(value) => SmeltRecord::from([(\"__smelt_call\".to_owned(), SmeltUnknown::Function(value))]), _ => SmeltRecord::new() }}"
+                    "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(value) => SmeltRecord::with_id_from_entries(value.id, value.into_iter()), SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect(), SmeltUnknown::String(value) => value.chars().enumerate().map(|(index, ch)| (index.to_string(), SmeltUnknown::String(ch.to_string().into()))).collect(), SmeltUnknown::Function(value) => SmeltRecord::from([(\"__smelt_call\".to_owned(), SmeltUnknown::Function(value))]), _ => SmeltRecord::new() }}"
                 ))
             }
             Some(Type::Dict(key, item)) if self.mir.types.get(*key) == Some(&Type::String) => {
                 let item_text = self.extract_value_text("value", *item)?;
                 Ok(format!(
-                    "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(values) => SmeltRecord::with_id_from_entries(values.id, values.into_iter().map(|(key, value)| (key, {item_text}))), SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(index, value)| (index.to_string(), {item_text})).collect(), SmeltUnknown::String(value) => value.chars().enumerate().map(|(index, ch)| {{ let value = SmeltUnknown::String(ch.to_string()); (index.to_string(), {item_text}) }}).collect(), _ => SmeltRecord::new() }}"
+                    "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(values) => SmeltRecord::with_id_from_entries(values.id, values.into_iter().map(|(key, value)| (key, {item_text}))), SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(index, value)| (index.to_string(), {item_text})).collect(), SmeltUnknown::String(value) => value.chars().enumerate().map(|(index, ch)| {{ let value = SmeltUnknown::String(ch.to_string().into()); (index.to_string(), {item_text}) }}).collect(), _ => SmeltRecord::new() }}"
                 ))
             }
             Some(Type::Dict(key, item)) if self.mir.types.get(*key) != Some(&Type::String) => {
@@ -2370,7 +2370,7 @@ impl FunctionEmitter<'_> {
                 Ok(text.to_owned())
             }
             Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)? => Ok(format!(
-                "match {text}.clone() {{ SmeltUnknown::Object(value) => SmeltRegExp::new(match value.get(\"source\") {{ Some(SmeltUnknown::String(source)) => source, _ => String::new() }}, match value.get(\"flags\") {{ Some(SmeltUnknown::String(flags)) => flags, _ => String::new() }}), _ => SmeltRegExp::default() }}"
+                "match {text}.clone() {{ SmeltUnknown::Object(value) => SmeltRegExp::new(match value.get(\"source\") {{ Some(SmeltUnknown::String(source)) => source.to_string(), _ => String::new() }}, match value.get(\"flags\") {{ Some(SmeltUnknown::String(flags)) => flags.to_string(), _ => String::new() }}), _ => SmeltRegExp::default() }}"
             )),
             Some(Type::Class { .. })
                 if self.type_text_with_impl_trait(target, false)? == "SmeltUnknown" =>
