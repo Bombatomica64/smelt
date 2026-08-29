@@ -11911,14 +11911,15 @@ const r = collect([[1, 2]], (v) => 'k');
     );
 }
 
-/// A partially lifted parameter is not bound by the erasure round-trip traits.
+/// A partially lifted parameter drops the *inbound* half of the erasure
+/// round-trip, and keeps the outbound half.
 ///
-/// `IntoSmeltUnknown + SmeltFromUnknown` let a `T` be flattened into
-/// `SmeltUnknown` and rebuilt from one. A partially lifted parameter provably
-/// never makes that trip, so requiring the traits only forces every
-/// instantiating type to implement them — which generated classes do not,
-/// failing at the call site with "the trait bound `Person: SmeltFromUnknown` is
-/// not satisfied".
+/// `SmeltFromUnknown` rebuilds a `T` from a `SmeltUnknown`, which
+/// `type_param_only_moved` rules out, so the bound only forces every
+/// instantiating type to implement a trait nothing calls — which generated
+/// classes do not, failing with "the trait bound `Person: SmeltFromUnknown` is
+/// not satisfied". `IntoSmeltUnknown` stays: the emitter can erase a `T` at a
+/// call boundary even when the body only moves it.
 #[test]
 fn partial_lift_omits_the_erasure_round_trip_bounds() {
     let source = source_for(
@@ -11938,8 +11939,8 @@ const v = pickFirst(nums, (n) => (n > 1 ? 'big' : 'small'), 0);
         .and_then(|rest| rest.split('>').next())
         .unwrap_or_else(|| panic!("expected a generated `pick_first`:\n{source}"));
     assert!(
-        generics.contains("T: Clone + Default + 'static"),
-        "a partial lift needs only the bounds its use requires:\n{source}"
+        generics.contains("T: Clone + Default + IntoSmeltUnknown + 'static"),
+        "a partial lift keeps the outbound erasure bound:\n{source}"
     );
     assert!(
         !generics.contains("SmeltFromUnknown"),

@@ -1289,20 +1289,31 @@ pub(crate) fn function_impl_generics_list(
     if liftable.is_empty() {
         return Ok(Vec::new());
     }
-    // `IntoSmeltUnknown + SmeltFromUnknown` are the erasure round-trip: they let
-    // a `T` be flattened into `SmeltUnknown` and rebuilt from one. A partially
-    // lifted parameter provably never makes that trip — that is exactly what
-    // `type_param_only_moved` establishes — so requiring the traits only forces
-    // every *instantiating* type to implement them. Generated classes do not,
-    // which is how es-toolkit's `meanBy`/`medianBy` failed at their call sites
-    // with "the trait bound `Person: SmeltFromUnknown` is not satisfied".
+    // The two halves of the erasure round-trip are not equally necessary, and a
+    // partial lift can drop exactly one of them.
     //
-    // A fully lifted function keeps the historical bound set: it is decided by
-    // the textual trial rather than the opacity analysis, so there is no proof
-    // here that it avoids the round-trip.
+    // `SmeltFromUnknown` is the *inbound* half: rebuilding a `T` from a
+    // `SmeltUnknown`. `type_param_only_moved` rules that out directly — its
+    // destination rule rejects any `T`-typed slot filled from a value that never
+    // carried a `T`, which is what un-erasing into a `T` looks like. So the
+    // bound only forces every *instantiating* type to implement a trait nothing
+    // calls, and generated classes do not: that is how es-toolkit's
+    // `meanBy`/`medianBy` failed with "the trait bound `Person: SmeltFromUnknown`
+    // is not satisfied".
+    //
+    // `IntoSmeltUnknown` is the *outbound* half and stays. The MIR body may only
+    // move a `T`, yet the emitter can still erase it at a call boundary: es-toolkit's
+    // `flatMap` hands its `SmeltList<U>` to `flatten`, whose parameter is
+    // `SmeltList<SmeltUnknown>`, so the emitted call maps `into_smelt_unknown()`
+    // over the elements. That conversion is invisible to an analysis of the
+    // body's own statements, so the bound has to be assumed.
+    //
+    // A fully lifted function keeps the historical set: it is decided by the
+    // textual trial rather than the opacity analysis, so nothing here proves
+    // anything about it.
     let partial = liftable.len() < function.type_params.len();
     let bounds = if partial {
-        "Clone + Default + 'static"
+        "Clone + Default + IntoSmeltUnknown + 'static"
     } else {
         "Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static"
     };
