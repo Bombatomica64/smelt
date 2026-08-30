@@ -27,6 +27,19 @@ pub const ERROR_CLASS_NAMES: &[&str] = &[
     "AggregateError",
 ];
 
+/// The Node.js release the deterministic non-DOM, Node-compatible target
+/// profile reports.
+///
+/// Single source of truth for every place the profile has to answer "which Node
+/// is this?": the `process.versions.node` member of the modeled `process`
+/// object and the `process.version` string. Keeping both derived from one
+/// constant is what stops a value model and a member model from disagreeing
+/// about the same host global.
+pub const NODE_PROFILE_VERSION: &str = "20.0.0";
+
+/// The `process.version` spelling of [`NODE_PROFILE_VERSION`] (`v`-prefixed).
+pub const NODE_PROFILE_VERSION_STRING: &str = "v20.0.0";
+
 /// Returns whether `name` is one of the modeled ECMAScript `Error` constructors.
 #[must_use]
 pub fn is_error_class_name(name: &str) -> bool {

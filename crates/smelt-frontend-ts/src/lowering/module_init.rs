@@ -755,6 +755,17 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
     /// Register annotated module-level variables for later function-body lookup.
     pub(super) fn collect_module_global_decl(&mut self, decl: &oxc::ast::ast::VariableDeclaration<'_>) {
+        // Ambient declarations declare nothing: `declare let process: …` says the
+        // HOST provides `process`, so the module has no such global to type or
+        // const-fold. Registering it here made every read of the name resolve
+        // through `module_global_expression`, which fabricates the declared
+        // type's default value (`None`, `false`, `0`, `""`, `{}`, `[]`) for a
+        // module global whose initializer never ran — turning a host lookup into
+        // a wrong compile-time constant. Reads fall through to the host/global
+        // resolution path instead.
+        if decl.declare {
+            return;
+        }
         for declarator in &decl.declarations {
             let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
                 if matches!(
@@ -928,6 +939,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
         module: &mut Module,
         errors: &mut Vec<SmeltError>,
     ) {
+        // An ambient declaration never creates a binding, so there is nothing to
+        // lift to a mutable global (see `collect_module_global_decl`).
+        if decl.declare {
+            return;
+        }
         // `var` is treated like `let`; `const` bindings can never be reassigned
         // and keep the existing inline/const-item path.
         if !matches!(
@@ -2341,6 +2357,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
         &mut self,
         decl: &oxc::ast::ast::VariableDeclaration<'_>,
     ) -> Result<Vec<smelt_hir::ItemId>, SmeltError> {
+        // `export declare const x: T` is an ambient re-export of a host binding:
+        // it emits no const item, because there is no initializer to emit.
+        if decl.declare {
+            return Ok(Vec::new());
+        }
         if decl.kind != oxc::ast::ast::VariableDeclarationKind::Const {
             return Err(SmeltError::unsupported(
                 self.span(decl.span.start, decl.span.end),

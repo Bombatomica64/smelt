@@ -2890,6 +2890,16 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         block: smelt_hir::BlockId,
     ) -> Result<(), SmeltError> {
+        // An ambient declaration (`declare let process: …`) ASSERTS that the
+        // host already provides the binding; it never creates one. Lowering it
+        // as an ordinary declaration minted a runtime local seeded with the
+        // declared type's default (`None` for an optional annotation), so
+        // `typeof process !== 'undefined'` answered `false` before any host
+        // lookup could happen. Reads of the name instead fall through to the
+        // host/global resolution path in `expr::references`.
+        if decl.declare {
+            return Ok(());
+        }
         for declarator in &decl.declarations {
             // A module-level `let`/`var` binding lifted to a mutable global is
             // fully represented by its thread-local item (its literal
