@@ -5329,6 +5329,69 @@ function mapType(values: unknown[]): string[] {
 }
 
 #[test]
+fn narrows_a_typeof_only_local_to_a_static_str() {
+    let source = source_for(
+        r"
+export function sameKind(a: unknown, b: unknown): boolean {
+  if (typeof a !== typeof b) {
+    return false;
+  }
+  switch (typeof a) {
+    case 'string':
+    case 'boolean':
+      return true;
+    default:
+      return false;
+  }
+}
+",
+    );
+
+    // A local defined only by a `typeof`, and read only by an equality and a
+    // string `switch`, carries the `&'static str` the helper returns -- no
+    // owned copy, and no `.as_str()` on a value that is already a `&str`.
+    assert!(
+        source.contains("let _smelt_tmp_2: &'static str = smelt_typeof(&a);"),
+        "{source}"
+    );
+    assert!(
+        source.contains("let _smelt_tmp_3: &'static str = smelt_typeof(&b);"),
+        "{source}"
+    );
+    assert!(
+        source.contains("let _smelt_tmp_5: &'static str;")
+            && source.contains("_smelt_tmp_5 = smelt_typeof(&a);"),
+        "{source}"
+    );
+    assert!(!source.contains("smelt_typeof(&a).to_owned()"), "{source}");
+    // The equality compares the two borrowed spellings directly, and the
+    // `switch` matches the binding rather than an `.as_str()` it does not have.
+    assert!(
+        source.contains("_smelt_tmp_2 != _smelt_tmp_3") && source.contains("match _smelt_tmp_5 {"),
+        "{source}"
+    );
+}
+
+#[test]
+fn keeps_an_owned_string_when_a_typeof_local_escapes() {
+    let source = source_for(
+        r"
+export function kindOf(value: unknown): string {
+  return typeof value;
+}
+",
+    );
+
+    // Returned as the function's `String`, which is not a read this analysis
+    // knows how to spell against a `&'static str`, so the local keeps the owned
+    // form. The whitelist falls back rather than guessing.
+    assert!(
+        source.contains("let _smelt_tmp_1: String = smelt_typeof(&value).to_owned();"),
+        "{source}"
+    );
+}
+
+#[test]
 fn emits_union_typeof_as_borrowed_static_str_match() {
     let source = source_for(
         r"
