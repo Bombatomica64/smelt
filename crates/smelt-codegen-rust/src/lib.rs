@@ -546,6 +546,11 @@ fn emit_source_with_free_function_router(
     let needs_vitest_mock = stdlib::needs_vitest_mock_runtime(mir);
     let needs_structured_clone = stdlib::rvalues(mir)
         .any(|rvalue| matches!(rvalue, Rvalue::StructuredClone { .. }));
+    // Only crates that ask for the `typeof` of an ERASED value need the shared
+    // tag-to-spelling helper. A `typeof` over a concrete union is decided per
+    // member at compile time and stays inline at its site, so a crate whose only
+    // `typeof` is that shape carries none of this.
+    let needs_typeof = stdlib::rvalues(mir).any(|rvalue| matches!(rvalue, Rvalue::TypeofValue { .. }));
     // Only crates that actually concatenate an erased argument need the
     // `IsConcatSpreadable` helper, so it stays out of every other prelude.
     let needs_concat_spread =
@@ -2209,6 +2214,14 @@ fn emit_source_with_free_function_router(
         // cannot disagree about the chain.
         writer.line("/// Whether an `Object.create` prototype has to be recorded to stay observable.");
         writer.line("fn smelt_prototype_slot_is_observable(prototype: &SmeltUnknown) -> bool { !matches!(prototype, SmeltUnknown::String(sentinel) if &**sentinel == \"__smelt_proto:object\" || &**sentinel == \"__smelt_proto:class\") }");
+        // JavaScript `typeof` answers one of seven fixed spellings, decided purely
+        // by the erased value's tag. Every source `typeof` asks the same question,
+        // so the tag-to-spelling table lives here once and returns a `&'static str`
+        // rather than being inlined -- and re-allocated -- at each site.
+        if needs_typeof {
+            writer.line("/// Resolve the JavaScript `typeof` spelling for an erased value.");
+            writer.line("fn smelt_typeof(value: &SmeltUnknown) -> &'static str { match value { SmeltUnknown::Undefined => \"undefined\", SmeltUnknown::Bool(_) => \"boolean\", SmeltUnknown::Number(_) => \"number\", SmeltUnknown::String(_) => \"string\", SmeltUnknown::Symbol(_) => \"symbol\", SmeltUnknown::Function(_) => \"function\", SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Promise(_) => \"object\" } }");
+        }
         writer.blank_line();
         writer.blank_line();
         writer.line("thread_local! {");

@@ -572,8 +572,9 @@ fn opens_more_braces_than_it_closes(line: &str) -> bool {
 ///      promises are irreducibly dynamic (JS closures/interop, async values).
 ///    - `IntoSmeltUnknown` / `into_smelt_unknown` / `to_smelt_unknown` — explicit
 ///      boundary adapters, exactly the sanctioned way to cross into erasure.
-///    - runtime narrowing helpers (`js_typeof`, `tag_check`, `smelt_unknown_is_`,
-///      `as_smelt_`, `.expect_`) — inspecting an already-dynamic value.
+///    - runtime narrowing helpers (`js_typeof`, `smelt_typeof(`, `tag_check`,
+///      `smelt_unknown_is_`, `as_smelt_`, `.expect_`) — inspecting an
+///      already-dynamic value.
 /// 3. **Avoidable erasure** — everything else. This deliberately captures
 ///    `SmeltUnknown` in program function signatures, `Vec<SmeltUnknown>` storage,
 ///    and concrete-tag construction (`SmeltUnknown::Number/String/Bool/...`) used
@@ -594,13 +595,23 @@ fn classify_line(line: &str, in_prelude_helper: bool) -> Category {
 ///
 /// See [`classify_line`] rule 2 for the rationale behind each marker.
 fn is_legitimate_boundary_line(line: &str) -> bool {
-    const BOUNDARY_MARKERS: [&str; 19] = [
+    const BOUNDARY_MARKERS: [&str; 20] = [
         "SmeltUnknown::Function",
         "SmeltUnknown::Promise",
         "IntoSmeltUnknown",
         "into_smelt_unknown",
         "to_smelt_unknown",
         "js_typeof",
+        // `typeof` over an erased value reads that value's runtime tag: the same
+        // runtime-narrowing boundary `js_typeof`/`tag_check` name, just factored
+        // into one prelude helper instead of an inlined `match` per site (see
+        // `FunctionEmitter::typeof_str_text`). The nine-arm table it replaced was
+        // classified here through its `SmeltUnknown::Function` arm; keeping the
+        // call site classified the same way is what makes the two spellings
+        // comparable across a baseline diff. `typeof` over a CONCRETE union does
+        // not reach this marker -- it stays an inline per-member match and names
+        // no `SmeltUnknown` at all. Proven in `erased_typeof_call_is_a_boundary`.
+        "smelt_typeof(",
         "tag_check",
         "smelt_unknown_is_",
         // The exception-payload ABI (`crates/smelt-codegen-rust/src/thrown.rs`).
@@ -1000,6 +1011,38 @@ mod tests {
             classify_line("    let entries: Vec<(String, SmeltUnknown)> = Vec::new();", false),
             Category::AvoidableErasure,
             "an ordinary erased entry list is not the prototype slot"
+        );
+    }
+
+    #[test]
+    fn erased_typeof_call_is_a_boundary() {
+        // `typeof` on an erased value asks for that value's runtime tag. The
+        // inlined nine-arm `match` this call replaced was already classified as
+        // a boundary (its `SmeltUnknown::Function` arm matched), so the helper
+        // call must classify the same way -- otherwise factoring an identical
+        // table out of 20-odd sites would read as an erasure regression.
+        let call = "    _smelt_tmp_11 = smelt_typeof(&a).to_owned();";
+        assert_eq!(
+            classify_line(call, false),
+            Category::LegitimateBoundary,
+            "reading an erased value's runtime tag is runtime narrowing"
+        );
+        // The residual erased value on a line that ALSO calls `smelt_typeof` is
+        // covered by the same boundary, exactly as it was when the tag match was
+        // spelled out inline on that line.
+        let nested = "    _smelt_tmp_4 = smelt_typeof(&(match nested.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"k\"), _ => SmeltUnknown::Undefined })).to_owned();";
+        assert_eq!(
+            classify_line(nested, false),
+            Category::LegitimateBoundary,
+            "the tag read covers the erased operand it narrows"
+        );
+        // A concrete union's `typeof` never mentions `SmeltUnknown`, so it is
+        // not counted at all; ordinary erased storage stays avoidable.
+        let storage = "    let tag: SmeltUnknown = value.clone();";
+        assert_eq!(
+            classify_line(storage, false),
+            Category::AvoidableErasure,
+            "ordinary erased storage must stay avoidable"
         );
     }
 

@@ -17,7 +17,7 @@
 //! See CONTEXT.md (## Coercion).
 
 use super::*;
-use crate::emitter::rendered_text_rewrite::cloned_value_text;
+use crate::emitter::rendered_text_rewrite::{borrowed_value_text, cloned_value_text};
 use crate::rust::RustIdent;
 use smelt_hir::FunctionType;
 
@@ -2154,13 +2154,38 @@ impl FunctionEmitter<'_> {
         self.tag_check_raw(&text, kind)
     }
 
-    /// Emits the JavaScript `typeof` string for a runtime-erased value.
+    /// Emits the JavaScript `typeof` string for a value.
+    ///
+    /// The answer is one of seven fixed spellings, so both paths select a
+    /// `&'static str` and only then take the owned `String` the destination
+    /// wants -- a hand-written port would not build a fresh `String` per
+    /// evaluation just to name a type.
     pub(super) fn typeof_value_text(&self, value: &Operand) -> Result<String, EmitError> {
-        let text = self.operand_text(value)?;
-        // `text` is usually already an owned temporary (an operand render clones the local
-        // it reads), so take an owned copy rather than deep-copying it a second time.
-        let smelt_owned_text = cloned_value_text(&text);
+        Ok(format!("{}.to_owned()", self.typeof_str_text(value)?))
+    }
+
+    /// Emits the JavaScript `typeof` spelling for a value as a `&'static str`.
+    ///
+    /// The borrowed half of [`Self::typeof_value_text`], so a destination that
+    /// can hold a `&'static str` skips the copy entirely.
+    ///
+    /// A concrete union stays inline: its arms are decided per member type at
+    /// compile time, so there is no shared table to factor out. An erased value
+    /// goes to the `smelt_typeof` prelude helper instead -- the arms are the same
+    /// nine tags at every site, so inlining the match once per source `typeof`
+    /// is pure duplication.
+    pub(super) fn typeof_str_text(&self, value: &Operand) -> Result<String, EmitError> {
         let value_ty = self.operand_ty(value)?;
+        // `typeof` only reads the value's tag, so both paths take it by shared
+        // reference. A callback parameter already spelled `&T` is passed through
+        // rather than borrowed again -- see `shared_reference_argument_text` for
+        // why a `&&T` is not what a hand-written port would spell.
+        let place = self.operand_borrow_text(value)?;
+        let reference = if self.operand_renders_as_shared_reference(value) {
+            place
+        } else {
+            borrowed_value_text(&place)
+        };
         if let Some(members) = self.concrete_union_members(value_ty) {
             let name = union::union_name(value_ty);
             let arms = members
@@ -2168,15 +2193,13 @@ impl FunctionEmitter<'_> {
                 .enumerate()
                 .map(|(index, member)| {
                     let kind = self.typeof_static_type_text(*member);
-                    format!("{name}::M{index}(_) => {kind:?}.to_owned()")
+                    format!("{name}::M{index}(_) => {kind:?}")
                 })
                 .collect::<Vec<_>>()
                 .join(", ");
-            return Ok(format!("match {text} {{ {arms} }}"));
+            return Ok(format!("match {reference} {{ {arms} }}"));
         }
-        Ok(format!(
-            "match {smelt_owned_text} {{ SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(_) => \"boolean\".to_owned(), SmeltUnknown::Number(_) => \"number\".to_owned(), SmeltUnknown::String(_) => \"string\".to_owned(), SmeltUnknown::Symbol(_) => \"symbol\".to_owned(), SmeltUnknown::Function(_) => \"function\".to_owned(), SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Promise(_) => \"object\".to_owned() }}"
-        ))
+        Ok(format!("smelt_typeof({reference})"))
     }
 
     /// Return the JavaScript `typeof` spelling for one concrete union member.
