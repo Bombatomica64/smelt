@@ -1464,6 +1464,12 @@ impl<'mir> FunctionEmitter<'mir> {
                 _ => None,
             })
             .collect::<HashSet<_>>();
+        // The prototype chain only exists on an erased JavaScript object. A
+        // concretely typed dictionary (`HashMap<String, String>`) has no
+        // prototype slot and can never carry one of the hidden keys, so the
+        // fallback is emitted only for the erased projection — where the source
+        // value type is the tagged carrier itself.
+        let source_is_erased = matches!(self.mir.types.get(source_value), Some(Type::Unknown));
         let mut field_text = Vec::new();
         for field in target_fields {
             let field_key = self.symbol_name(field.name)?;
@@ -1476,11 +1482,18 @@ impl<'mir> FunctionEmitter<'mir> {
             // projected into an interface-shaped record loses exactly the
             // methods the object path can still see, and each missing member
             // silently becomes a fabricated default callback.
-            let proto_key = format!("__smelt_proto:{field_key}");
-            let method_key = format!(
-                "{prefix}{field_key}",
-                prefix = crate::class_proto::METHOD_KEY_PREFIX,
-            );
+            let prototype_fallback = if source_is_erased {
+                format!(
+                    ".or_else(|| smelt_record_map.get({proto_key:?})).or_else(|| smelt_record_map.get({method_key:?}))",
+                    proto_key = format!("__smelt_proto:{field_key}"),
+                    method_key = format!(
+                        "{prefix}{field_key}",
+                        prefix = crate::class_proto::METHOD_KEY_PREFIX,
+                    ),
+                )
+            } else {
+                String::new()
+            };
             let lookup_text = if field_key.contains('_') {
                 let mut camel = String::new();
                 let mut upper_next = false;
@@ -1495,12 +1508,10 @@ impl<'mir> FunctionEmitter<'mir> {
                     }
                 }
                 format!(
-                    "smelt_record_map.get({field_key:?}).or_else(|| smelt_record_map.get({camel:?})).or_else(|| smelt_record_map.get({proto_key:?})).or_else(|| smelt_record_map.get({method_key:?}))"
+                    "smelt_record_map.get({field_key:?}).or_else(|| smelt_record_map.get({camel:?})){prototype_fallback}"
                 )
             } else {
-                format!(
-                    "smelt_record_map.get({field_key:?}).or_else(|| smelt_record_map.get({proto_key:?})).or_else(|| smelt_record_map.get({method_key:?}))"
-                )
+                format!("smelt_record_map.get({field_key:?}){prototype_fallback}")
             };
             let lookup_value = if let Some(Type::Dict(key, _)) = self.mir.types.get(source_value) {
                 if self.dict_uses_smelt_record(*key) {
