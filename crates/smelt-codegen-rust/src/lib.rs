@@ -82,6 +82,7 @@ use smelt_hir::{AsyncOp, BodyId, Type, TypeId};
 use smelt_mir::{HirOrigin, Mir, MirClassProtocol, MirFunction, Rvalue};
 
 mod byte_buffer_prelude;
+pub(crate) mod class_proto;
 pub(crate) mod classes;
 pub(crate) mod classify;
 pub(crate) mod deps;
@@ -1881,10 +1882,10 @@ fn emit_source_with_free_function_router(
         // `__smelt_proto:`-prefixed entries hold members INHERITED from a
         // prototype (`Object.create(proto)`), so they are never own keys — JS
         // `Object.keys` / `for...in` own-key enumeration must skip them.
-        writer.line("fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { if smelt_object_has_host_marker(object) { return false; } !key.starts_with(\"__smelt_proto:\") && key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && key != \"__smelt_map\" && key != \"__smelt_set\" && !(object.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\" | \"lastIndex\")) && !(object.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\" | \"stack\")) && !(object.contains_key(\"__smelt_arguments\") && matches!(key, \"__smelt_arguments\" | \"length\")) }");
+        writer.line("fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { if smelt_object_has_host_marker(object) { return false; } !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && key != \"__smelt_map\" && key != \"__smelt_set\" && !(object.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\" | \"lastIndex\")) && !(object.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\" | \"stack\")) && !(object.contains_key(\"__smelt_arguments\") && matches!(key, \"__smelt_arguments\" | \"length\")) }");
         writer
             .line("/// Return whether a record key is visible to JavaScript `for...in` iteration.");
-        writer.line("fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> bool { if smelt_record_has_host_marker(record) { return false; } !key.starts_with(\"__smelt_proto:\") && key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && !(record.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\" | \"lastIndex\")) && !(record.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\" | \"stack\")) && !(record.contains_key(\"__smelt_arguments\") && matches!(key, \"__smelt_arguments\" | \"length\")) }");
+        writer.line("fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> bool { if smelt_record_has_host_marker(record) { return false; } !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && !(record.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\" | \"lastIndex\")) && !(record.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\" | \"stack\")) && !(record.contains_key(\"__smelt_arguments\") && matches!(key, \"__smelt_arguments\" | \"length\")) }");
         // `for...in` walks the PROTOTYPE CHAIN; `Object.keys` does not. The two
         // therefore cannot share one key list. Inherited members live behind the
         // `__smelt_proto:` prefix, which the own-key filters above exclude — right
@@ -3109,7 +3110,11 @@ fn emit_source_with_free_function_router(
         // Prototype-chain read. `Object.create(proto)` stores the prototype's
         // members behind a `__smelt_proto:` prefix so they stay out of own-key
         // enumeration; an own field shadows the inherited one, exactly as in JS.
-        writer.line("    let smelt_field_value = match map.get(field) { Some(value) => Some(value), None => map.get(&format!(\"__smelt_proto:{field}\")) };");
+        // A class instance answers a method read from its prototype slot, the
+        // same way `Object.create(proto)` answers an inherited property from
+        // `__smelt_proto:`. Both are consulted only after the own property
+        // misses, exactly as JavaScript's prototype chain does.
+        writer.line("    let smelt_field_value = match map.get(field) { Some(value) => Some(value), None => match map.get(&format!(\"__smelt_proto:{field}\")) { Some(value) => Some(value), None => map.get(&format!(\"__smelt_method:{field}\")) } };");
         writer.line("    match smelt_field_value.unwrap_or(SmeltUnknown::Undefined) {");
         writer.line("        SmeltUnknown::Object(getter) if getter.contains_key(\"__smelt_get\") => match getter.get(\"__smelt_get\") {");
         writer.line("            Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| panic!(\"{}\", error)),");
@@ -3161,8 +3166,17 @@ fn emit_source_with_free_function_router(
         writer.line("    if left.id == right.id { return true; }");
         writer.line("    let key = (left.id, right.id);");
         writer.line("    if !seen.insert(key) { return true; }");
-        writer.line("    let left_entries = left.iter().collect::<Vec<_>>();");
-        writer.line("    if left_entries.len() != right.len() { return false; }");
+        // Prototype-carried members (`__smelt_proto:<name>`) are NOT own
+        // properties in JavaScript, so structural equality must not see them.
+        // Erasing a class instance now pushes one bound `SmeltUnknown::Function`
+        // per method under that prefix, and function values compare by `Rc`
+        // pointer — without this filter two structurally equal instances of the
+        // same class would each carry distinct closures and compare unequal.
+        // The same rule already governs `Object.create(proto)` results, whose
+        // inherited keys live under the same prefix.
+        writer.line("    let left_entries = left.iter().filter(|(key, _)| !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\")).collect::<Vec<_>>();");
+        writer.line("    let right_own = right.iter().filter(|(key, _)| !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\")).count();");
+        writer.line("    if left_entries.len() != right_own { return false; }");
         writer.line("    left_entries.into_iter().all(|(key, left_value)| right.get(&key).is_some_and(|right_value| smelt_unknown_structural_eq(&left_value, &right_value, seen)))");
         writer.line("}");
         writer.blank_line();
@@ -3195,7 +3209,10 @@ fn emit_source_with_free_function_router(
         writer.blank_line();
         writer.line("fn smelt_object_structural_hash<H: ::std::hash::Hasher>(object: &SmeltObject, state: &mut H, seen: &mut ::std::collections::HashSet<usize>) {");
         writer.line("    if !seen.insert(object.id) { 255_u8.hash(state); return; }");
-        writer.line("    let mut entries = object.iter().collect::<Vec<_>>();");
+        // Mirror the `__smelt_proto:` filter in `smelt_object_structural_eq`:
+        // `Hash` and `PartialEq` must agree, and prototype-carried members are
+        // not part of an object's own structural identity.
+        writer.line("    let mut entries = object.iter().filter(|(key, _)| !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\")).collect::<Vec<_>>();");
         writer.line("    entries.sort_by(|left, right| left.0.cmp(&right.0));");
         writer.line("    entries.len().hash(state);");
         writer.line("    for (key, value) in entries { key.hash(state); smelt_unknown_structural_hash(&value, state, seen); }");
@@ -4115,6 +4132,8 @@ fn emit_source_with_free_function_router(
                         .iter()
                         .map(|param| param.name)
                         .collect(),
+                    // An object shape has no method bodies to bind.
+                    has_proto_entries: false,
                 },
                 needs_unknown,
             )?;
@@ -4695,6 +4714,20 @@ fn emit_source_with_free_function_router(
                 emitter.emit_method(&mut out)?;
             }
         }
+        // A class instance that crosses into erased code keeps its methods, as
+        // prototype-carried members. Without this the erased view held only
+        // fields, and every method read off it answered `undefined` — which the
+        // erased call sites silently replaced with a fabricated default.
+        // Gated on `needs_unknown`: the adapters are written in terms of the
+        // erased carrier, and a program that never erases anything does not
+        // emit `SmeltUnknown` at all (the Python specialization fixtures are
+        // exactly that shape, and unconditional emission made them E0425).
+        if needs_unknown
+            && let Some(proto_entries) =
+                class_proto::class_proto_entries_method(mir, &context, class)?
+        {
+            out.push_str(&proto_entries);
+        }
         out.push_str("}\n");
         for protocol in &class.protocols {
             match protocol {
@@ -5100,7 +5133,7 @@ fn emit_unknown_serde_impls(writer: &mut CodeWriter) {
                     match_writer.line("Self::String(value) => serializer.serialize_str(value),");
                     match_writer.line("Self::Symbol(value) => serializer.serialize_str(value),");
                     match_writer.line("Self::Array(values) => serde::Serialize::serialize(&*values.values.borrow(), serializer),");
-                    match_writer.line("Self::Object(values) => serde::Serialize::serialize(&values.iter().filter(|(key, _)| key != \"__smelt_class\").collect::<::std::collections::HashMap<_, _>>(), serializer),");
+                    match_writer.line("Self::Object(values) => serde::Serialize::serialize(&values.iter().filter(|(key, _)| key != \"__smelt_class\" && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\")).collect::<::std::collections::HashMap<_, _>>(), serializer),");
                     match_writer.line("Self::Function(_) => serializer.serialize_str(\"function () { [native code] }\"),");
                     match_writer.line("Self::Promise(_) => serializer.serialize_str(\"[object Promise]\"),");
                 });
@@ -5176,6 +5209,7 @@ fn emit_reference_class_storage(
             fields: effective_class_fields(mir, class),
             static_fields: &class.static_fields,
             type_param_names: class.type_params.iter().map(|param| param.name).collect(),
+            has_proto_entries: class_proto::class_has_proto_entries(mir, context, class),
         },
         needs_unknown,
     )
@@ -5204,6 +5238,11 @@ struct ReferenceRecordShape<'a> {
     static_fields: &'a [smelt_mir::MirStaticField],
     /// Generic parameter symbols, for the lexical type-parameter scope.
     type_param_names: Vec<smelt_hir::Symbol>,
+    /// Whether the type emits `__smelt_proto_entries` (see [`crate::class_proto`]).
+    ///
+    /// Only a `class` has method bodies to bind; an object *shape* has none, so
+    /// it is always `false` there.
+    has_proto_entries: bool,
 }
 
 /// Emit the handle newtype, inner record, and identity impls for one record type.
@@ -5222,6 +5261,7 @@ fn emit_reference_record_storage(
         fields,
         static_fields,
         type_param_names,
+        has_proto_entries,
     } = shape;
     let inner_name = format!("{name}Inner");
     let scoped_type_params = type_param_names.iter().copied().collect::<HashSet<_>>();
@@ -5372,6 +5412,7 @@ fn emit_reference_record_storage(
             impl_generics,
             type_args,
             fields,
+            *has_proto_entries,
         )?;
     }
     writer.blank_line();
@@ -5416,6 +5457,7 @@ fn emit_reference_class_into_smelt_unknown_impl(
     impl_generics: &str,
     type_args: &str,
     fields: &[smelt_mir::MirField],
+    has_proto_entries: bool,
 ) -> Result<(), EmitError> {
     writer.block(
         format!("impl{impl_generics} IntoSmeltUnknown for {name}{type_args}"),
@@ -5427,9 +5469,19 @@ fn emit_reference_class_into_smelt_unknown_impl(
                 fn_writer.line(
                     "let __smelt_id = smelt_reference_object_identity(::std::rc::Rc::as_ptr(&self.0) as usize);",
                 );
+                // The prototype members are collected BEFORE the cell is
+                // borrowed: each adapter clones the handle, and taking the
+                // `Ref` first would not conflict but reads worse than keeping
+                // the two phases separate.
+                if has_proto_entries {
+                    fn_writer.line(format!(
+                        "let __smelt_proto = self.{method}();",
+                        method = class_proto::PROTO_ENTRIES_METHOD,
+                    ));
+                }
                 fn_writer.line("let __smelt_inner = self.0.borrow();");
                 fn_writer.line(
-                    "SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, Vec::from([",
+                    "let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([",
                 );
                 for field in fields {
                     if matches!(field.visibility, smelt_hir::Visibility::Private) {
@@ -5445,7 +5497,11 @@ fn emit_reference_class_into_smelt_unknown_impl(
                     .unwrap_or_else(|_| "SmeltUnknown::Null".to_owned());
                     fn_writer.line(format!("({key:?}.to_owned(), {value}),"));
                 }
-                fn_writer.line("])))");
+                fn_writer.line("]);");
+                if has_proto_entries {
+                    fn_writer.line("__smelt_entries.extend(__smelt_proto);");
+                }
+                fn_writer.line("SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries))");
             });
         },
     );
@@ -5720,7 +5776,7 @@ fn emit_record_into_smelt_unknown_impl(
 /// `SmeltFromUnknown`). Everything else — callbacks, compiled regexes, futures,
 /// generators — has no inbound impl in the prelude, so the field keeps the
 /// record's `Default` rather than emitting a call that would not compile.
-fn type_supports_from_unknown(mir: &Mir, ty: TypeId) -> bool {
+pub(crate) fn type_supports_from_unknown(mir: &Mir, ty: TypeId) -> bool {
     match mir.types.get(ty) {
         Some(
             Type::Bool
@@ -5818,7 +5874,7 @@ fn emit_record_from_smelt_unknown_impl(
 }
 
 /// Renders a generated record field as a `SmeltUnknown` expression.
-fn record_field_unknown_text(mir: &Mir, value_text: &str, ty: TypeId) -> Result<String, EmitError> {
+pub(crate) fn record_field_unknown_text(mir: &Mir, value_text: &str, ty: TypeId) -> Result<String, EmitError> {
     Ok(match mir.types.get(ty) {
         Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
             format!("({value_text}).into_smelt_unknown()")
@@ -5986,7 +6042,7 @@ fn generated_deps(mir: &Mir) -> Vec<GeneratedDep> {
 }
 
 /// Helper struct for emitting Rust code from a MirFunction.
-fn sanitize_ident(name: &str) -> String {
+pub(crate) fn sanitize_ident(name: &str) -> String {
     RustIdent::new(name).into_string()
 }
 

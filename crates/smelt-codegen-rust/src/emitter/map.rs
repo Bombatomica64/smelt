@@ -750,7 +750,7 @@ impl FunctionEmitter<'_> {
                 // compare storage keys instead of elements, and would recurse
                 // through `buffer` back into the view.
                 smelt_hir::DictProjectionOp::Keys => Ok(format!(
-                    "match {dict_text} {{ SmeltUnknown::Object(map) => {index_keys}(&SmeltUnknown::Object(map.clone())).unwrap_or_else(|| map.keys().into_iter().filter(|key| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").collect()), _ => Vec::new() }}",
+                    "match {dict_text} {{ SmeltUnknown::Object(map) => {index_keys}(&SmeltUnknown::Object(map.clone())).unwrap_or_else(|| map.keys().into_iter().filter(|key| !key.starts_with(\"__smelt_symbol:\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").collect()), _ => Vec::new() }}",
                     index_keys = smelt_stdlib::runtime_symbols::byte_buffer::INDEX_KEYS,
                 )),
                 smelt_hir::DictProjectionOp::ForInKeys => Ok(format!(
@@ -771,11 +771,11 @@ impl FunctionEmitter<'_> {
                 // decoded elements, paired with their index keys — the same own-key
                 // set `Object.keys` reports above.
                 smelt_hir::DictProjectionOp::Values => Ok(format!(
-                    "match {dict_text} {{ SmeltUnknown::Object(map) => {elements}(&SmeltUnknown::Object(map.clone())).unwrap_or_else(|| map.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").map(|(_, value)| value).collect()), _ => Vec::new() }}",
+                    "match {dict_text} {{ SmeltUnknown::Object(map) => {elements}(&SmeltUnknown::Object(map.clone())).unwrap_or_else(|| map.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").map(|(_, value)| value).collect()), _ => Vec::new() }}",
                     elements = smelt_stdlib::runtime_symbols::byte_buffer::ELEMENTS,
                 )),
                 smelt_hir::DictProjectionOp::Entries => Ok(format!(
-                    "match {dict_text} {{ SmeltUnknown::Object(map) => {elements}(&SmeltUnknown::Object(map.clone())).map_or_else(|| map.clone().into_iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").collect::<Vec<_>>(), |values| values.into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect::<Vec<_>>()), _ => Vec::new() }}",
+                    "match {dict_text} {{ SmeltUnknown::Object(map) => {elements}(&SmeltUnknown::Object(map.clone())).map_or_else(|| map.clone().into_iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").collect::<Vec<_>>(), |values| values.into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect::<Vec<_>>()), _ => Vec::new() }}",
                     elements = smelt_stdlib::runtime_symbols::byte_buffer::ELEMENTS,
                 )),
             };
@@ -893,16 +893,16 @@ impl FunctionEmitter<'_> {
                         // its internal storage fields; see the `Keys` arm above.
                         if self.dict_holds_erased_values(self.operand_ty(dict)?) {
                             return Ok(format!(
-                                "{helper}(&{dict_text}).unwrap_or_else(|| {dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").map(|(_, value)| value).collect::<Vec<_>>())",
+                                "{helper}(&{dict_text}).unwrap_or_else(|| {dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").map(|(_, value)| value).collect::<Vec<_>>())",
                                 helper = smelt_stdlib::runtime_symbols::byte_buffer::RECORD_ELEMENTS,
                             ));
                         }
                         Ok(format!(
-                            "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").map(|(_, value)| value).collect::<Vec<_>>()"
+                            "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").map(|(_, value)| value).collect::<Vec<_>>()"
                         ))
                     } else {
                         Ok(format!(
-                            "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").map(|(_, value)| value.clone()).collect::<Vec<_>>()"
+                            "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").map(|(_, value)| value.clone()).collect::<Vec<_>>()"
                         ))
                     }
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
@@ -926,16 +926,16 @@ impl FunctionEmitter<'_> {
                         // its decoded elements; see the `Keys` arm above.
                         if self.dict_holds_erased_values(self.operand_ty(dict)?) {
                             return Ok(format!(
-                                "{helper}(&{dict_text}).map_or_else(|| {dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").collect::<Vec<_>>(), |values| values.into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect::<Vec<_>>())",
+                                "{helper}(&{dict_text}).map_or_else(|| {dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").collect::<Vec<_>>(), |values| values.into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect::<Vec<_>>())",
                                 helper = smelt_stdlib::runtime_symbols::byte_buffer::RECORD_ELEMENTS,
                             ));
                         }
                         Ok(format!(
-                            "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").collect::<Vec<_>>()"
+                            "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").collect::<Vec<_>>()"
                         ))
                     } else {
                         Ok(format!(
-                            "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && key != \"__smelt_class\").map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>()"
+                            "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>()"
                         ))
                     }
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {

@@ -1381,12 +1381,18 @@ export function make(): Duration {
 ",
     );
 
+    // The erased projection consults the prototype slots after the own key
+    // misses, matching `smelt_get_object_field`; see `crate::class_proto`.
     assert!(
-        source.contains("Duration { years: smelt_record_map.get(\"years\").cloned().map(|value|"),
+        source.contains(
+            "Duration { years: smelt_record_map.get(\"years\").or_else(|| smelt_record_map.get(\"__smelt_proto:years\")).or_else(|| smelt_record_map.get(\"__smelt_method:years\")).cloned().map(|value|"
+        ),
         "{source}"
     );
     assert!(
-        source.contains("months: smelt_record_map.get(\"months\").cloned().map(|value|"),
+        source.contains(
+            "months: smelt_record_map.get(\"months\").or_else(|| smelt_record_map.get(\"__smelt_proto:months\")).or_else(|| smelt_record_map.get(\"__smelt_method:months\")).cloned().map(|value|"
+        ),
         "{source}"
     );
 }
@@ -11873,9 +11879,13 @@ def check(r: Ok | Err) -> bool:
 ",
     );
 
+    // Cut at the end of `check` itself: the tail of the file holds the class
+    // `impl` blocks, whose erased-prototype adapters legitimately mention
+    // `SmeltUnknown`, and the assertion below is about this body only.
     let check_body = source
         .split("fn check(")
         .nth(1)
+        .and_then(|tail| tail.split_once("\n}\n").map(|(body, _)| body))
         .unwrap_or_else(|| panic!("expected a generated `check`:\n{source}"));
     assert!(
         check_body.contains("M0(value) => value.is_ok()")
