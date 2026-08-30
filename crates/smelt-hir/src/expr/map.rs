@@ -747,7 +747,7 @@ impl ExprKind {
                 kind,
             },
             Self::TypeofValue { value } => Self::TypeofValue { value: f(value)? },
-            Self::PrototypeSentinel { value } => Self::PrototypeSentinel { value: f(value)? },
+            Self::PrototypeSentinel { value, own_slot_shadows } => Self::PrototypeSentinel { value: f(value)?, own_slot_shadows },
             Self::BoxPrimitive { value } => Self::BoxPrimitive { value: f(value)? },
             Self::DefineProperties {
                 target,

@@ -2007,6 +2007,18 @@ fn emit_source_with_free_function_router(
             writer.blank_line();
         }
         writer.line("fn smelt_prototype_sentinel(value: &SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Null => SmeltUnknown::Null, SmeltUnknown::Array(_) => SmeltUnknown::String(\"__smelt_proto:array\".into()), SmeltUnknown::Promise(_) => SmeltUnknown::String(\"__smelt_proto:promise\".into()), SmeltUnknown::Object(map) if map.contains_key(\"__smelt_class\") => SmeltUnknown::String(\"__smelt_proto:class\".into()), SmeltUnknown::Object(map) => match smelt_reflected_marker_class(map) { Some(class) => smelt_reflected_prototype(class), None => SmeltUnknown::String(\"__smelt_proto:object\".into()) }, SmeltUnknown::String(marker) if &**marker == \"__smelt_proto:object\" => SmeltUnknown::Null, SmeltUnknown::String(marker) if &**marker == \"__smelt_proto:array\" || &**marker == \"__smelt_proto:promise\" || &**marker == \"__smelt_proto:class\" => SmeltUnknown::String(\"__smelt_proto:object\".into()), _ => SmeltUnknown::String(\"__smelt_proto:object\".into()) } }");
+        // `v.__proto__` is NOT `Object.getPrototypeOf(v)`. In JavaScript the
+        // `__proto__` accessor is inherited from `Object.prototype`, so a value
+        // whose prototype is `null` (`Object.create(null)`) does not inherit it
+        // and a `__proto__` write on such a value stores an ordinary OWN
+        // property that a later read has to answer. Smelt represents a
+        // null-prototype object as a plain erased object, so the own slot is the
+        // only observable trace of that case; everything else answers the same
+        // sentinel `Object.getPrototypeOf` does. Keeping the two spellings on
+        // separate helpers is what lets `Object.getPrototypeOf` stay blind to own
+        // properties, which the spec requires.
+        writer.line("/// Read the JavaScript `__proto__` accessor for an erased value.");
+        writer.line("fn smelt_proto_accessor(value: &SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Object(map) if map.contains_key(\"__proto__\") => smelt_get_object_field(map, \"__proto__\"), other => smelt_prototype_sentinel(other) } }");
         writer.blank_line();
         writer.line("/// Resolve the JavaScript `Object.prototype.toString.call(x)` tag for an erased value.");
         writer.line("///");

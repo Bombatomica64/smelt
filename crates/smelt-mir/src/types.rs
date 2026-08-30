@@ -683,6 +683,9 @@ pub enum Rvalue {
     PrototypeSentinel {
         /// Value whose prototype sentinel is being computed.
         value: Operand,
+        /// Whether an own `__proto__` slot on the receiver shadows the answer;
+        /// see [`smelt_hir::ExprKind::PrototypeSentinel`].
+        own_slot_shadows: bool,
     },
     /// Box a primitive the way `Object(value)` does; objects pass through
     /// (see the runtime `smelt_box_value`).

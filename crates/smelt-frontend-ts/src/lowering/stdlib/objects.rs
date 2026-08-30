@@ -436,7 +436,12 @@ impl ModuleBuilder<'_> {
         let span = self.span(call.span.start, call.span.end);
         let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::PrototypeSentinel { value },
+            kind: ExprKind::PrototypeSentinel {
+                value,
+                // `Object.getPrototypeOf` is specified to ignore own properties,
+                // unlike the `__proto__` accessor.
+                own_slot_shadows: false,
+            },
             ty: unknown_ty,
             span,
         })))

@@ -882,6 +882,17 @@ pub enum ExprKind {
     PrototypeSentinel {
         /// Value whose prototype sentinel is being computed.
         value: ExprId,
+        /// Whether an own `__proto__` slot on the receiver shadows the answer.
+        ///
+        /// `Object.getPrototypeOf(v)` never consults own properties, so it sets
+        /// this to `false`. The `v.__proto__` accessor does: in JavaScript
+        /// `__proto__` is an accessor inherited from `Object.prototype`, so a
+        /// value with a null prototype (`Object.create(null)`) does not inherit
+        /// it and a `__proto__` write there stores an ordinary own property that
+        /// a later read must answer. Smelt represents a null-prototype object as
+        /// a plain erased object, so the own slot is the only observable trace of
+        /// that case and the accessor has to prefer it.
+        own_slot_shadows: bool,
     },
     /// Box a primitive the way `Object(value)` does (objects pass through).
     ///

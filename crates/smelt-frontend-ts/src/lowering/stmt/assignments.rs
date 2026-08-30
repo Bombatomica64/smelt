@@ -315,7 +315,7 @@ impl ModuleBuilder<'_> {
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        self.static_member_with_absent_fallback(member, body, true, true)
+        self.static_member_with_absent_fallback(member, body, true, true, false)
     }
 
     /// Lower a static member expression that is an assignment *target*.
@@ -333,7 +333,7 @@ impl ModuleBuilder<'_> {
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        self.static_member_with_absent_fallback(member, body, true, false)
+        self.static_member_with_absent_fallback(member, body, true, false, true)
     }
 
     /// Lower a static member read without the absent-list-field `undefined`
@@ -348,19 +348,23 @@ impl ModuleBuilder<'_> {
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        self.static_member_with_absent_fallback(member, body, false, true)
+        self.static_member_with_absent_fallback(member, body, false, true, false)
     }
 
     /// Shared static-member lowering; `absent_list_field_is_undefined` gates
     /// the JS absent-property-read-yields-`undefined` rule for list receivers,
-    /// and `reject_unmodeled_function_field` gates the function-receiver
-    /// rejection described on [`Self::static_member_assignment_target`].
+    /// `reject_unmodeled_function_field` gates the function-receiver
+    /// rejection described on [`Self::static_member_assignment_target`], and
+    /// `is_assignment_target` marks the one caller whose result is a write
+    /// destination rather than a value (so the `__proto__` accessor read below
+    /// must not claim it).
     fn static_member_with_absent_fallback(
         &mut self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &mut Body,
         absent_list_field_is_undefined: bool,
         reject_unmodeled_function_field: bool,
+        is_assignment_target: bool,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         if let Some(expr) = self.global_alias_member_read(member, body)? {
             return Ok(expr);
@@ -417,10 +421,16 @@ impl ModuleBuilder<'_> {
         // receiver in any other position keeps the rejection.
         let receiver = match &member.object {
             Expression::StaticMemberExpression(object) if !reject_unmodeled_function_field => {
-                self.static_member_with_absent_fallback(object, body, true, false)?
+                self.static_member_with_absent_fallback(object, body, true, false, false)?
             }
             object => self.expression(object, body)?,
         };
+        if !is_assignment_target
+            && member.property.name == "__proto__"
+            && let Some(expr) = self.proto_accessor_read(member, receiver, body)
+        {
+            return Ok(expr);
+        }
         let receiver_ty = Self::expr_ty(body, receiver);
         let optional_access = member.optional
             || matches!(
@@ -883,6 +893,49 @@ impl ModuleBuilder<'_> {
             ty,
             span,
         })
+    }
+
+    /// Lower a `receiver.__proto__` *read* to the prototype accessor.
+    ///
+    /// `__proto__` is not an ordinary property: it is an accessor inherited from
+    /// `Object.prototype` whose getter is `Object.getPrototypeOf(Object(this))`.
+    /// Lowering it as a field read answered an own slot (usually absent, so
+    /// `undefined`) instead of the prototype. It shares HIR with
+    /// `Object.getPrototypeOf`, differing only in `own_slot_shadows`: a value
+    /// with a `null` prototype does not inherit the accessor at all, so a
+    /// `__proto__` write there really does create an own property that the read
+    /// must answer first.
+    ///
+    /// Writes are excluded by the caller — `obj.__proto__ = v` keeps its existing
+    /// store lowering, which is what makes the null-prototype own slot exist.
+    fn proto_accessor_read(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        receiver: smelt_hir::ExprId,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        let span = self.span(member.span.start, member.span.end);
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let value = if Self::expr_ty(body, receiver) == unknown_ty {
+            receiver
+        } else {
+            body.push_expr(Expr {
+                kind: ExprKind::UnknownCast {
+                    value: receiver,
+                    target: unknown_ty,
+                },
+                ty: unknown_ty,
+                span,
+            })
+        };
+        Some(body.push_expr(Expr {
+            kind: ExprKind::PrototypeSentinel {
+                value,
+                own_slot_shadows: true,
+            },
+            ty: unknown_ty,
+            span,
+        }))
     }
 
     /// Lower opaque static Object metadata reads such as `Object.prototype`.
