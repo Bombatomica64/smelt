@@ -110,6 +110,9 @@ pub enum NumericPredicateOp {
     IsFinite,
     /// Test whether a number is an integer.
     IsInteger,
+    /// Test whether a number is an integer inside the IEEE-754 double
+    /// exactly-representable range (`Number.isSafeInteger`).
+    IsSafeInteger,
     /// Test whether a number is NaN.
     IsNaN,
 }
