@@ -66,6 +66,7 @@ jobs:
               list_reference_semantics_runtime map_reference_runtime
               object_shape_reference_semantics_runtime class_identity_runtime
               callable_object_identity_runtime object_key_order_runtime
+              erased_class_method_runtime
           - shard: async
             tests: >-
               promise_value_fidelity_runtime abort_signal_runtime
