@@ -627,6 +627,34 @@ pub(super) fn cloned_value_text(text: &str) -> String {
     }
 }
 
+/// Renders `text` as a shared borrow of the value it evaluates to.
+///
+/// The counterpart to [`cloned_value_text`] for a callee that reads a value
+/// through `&T` instead of taking it by value: a postfix chain keeps the plain
+/// `&value` / `&value.field` spelling a hand-written port would use, while any
+/// looser expression is parenthesised so the `&` cannot bind more tightly than
+/// the caller meant. When the text already ends in a `.clone()` that clone is
+/// dropped -- borrowing a value never needs an owned copy of it -- unless the
+/// clone is the whole expression's tail on a non-postfix form, where removing
+/// it could change what is borrowed, so it is kept and parenthesised instead.
+///
+/// Like [`cloned_value_text`] this is a syntax-directed peephole on text this
+/// module already owns, not a per-construct special case.
+pub(super) fn borrowed_value_text(text: &str) -> String {
+    let trimmed = text.trim();
+    if is_postfix_chain(trimmed) {
+        // `a.clone()` and `a` borrow the same value, so the copy is dead weight
+        // behind a `&`. Only strip it from a postfix chain, where the prefix is
+        // itself a complete expression naming the same place.
+        let borrowed = trimmed.strip_suffix(".clone()").unwrap_or(trimmed);
+        if is_postfix_chain(borrowed) {
+            return format!("&{borrowed}");
+        }
+        return format!("&{trimmed}");
+    }
+    format!("&({trimmed})")
+}
+
 /// Whether `text` is a primary expression followed only by field, method, and
 /// index postfixes -- `a`, `a.b`, `f(x).g()`, `xs[0].y`.
 ///

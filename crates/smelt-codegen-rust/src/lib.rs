@@ -542,6 +542,11 @@ fn emit_source_with_free_function_router(
     let needs_vitest_mock = stdlib::needs_vitest_mock_runtime(mir);
     let needs_structured_clone = stdlib::rvalues(mir)
         .any(|rvalue| matches!(rvalue, Rvalue::StructuredClone { .. }));
+    // Only crates that ask for the `typeof` of an ERASED value need the shared
+    // tag-to-spelling helper. A `typeof` over a concrete union is decided per
+    // member at compile time and stays inline at its site, so a crate whose only
+    // `typeof` is that shape carries none of this.
+    let needs_typeof = stdlib::rvalues(mir).any(|rvalue| matches!(rvalue, Rvalue::TypeofValue { .. }));
     // Only crates that actually concatenate an erased argument need the
     // `IsConcatSpreadable` helper, so it stays out of every other prelude.
     let needs_concat_spread =
@@ -1977,6 +1982,14 @@ fn emit_source_with_free_function_router(
         // still classified as a class instance rather than a plain object.
         writer.line("/// Create a fresh erased object from a runtime prototype value (`Object.create`).");
         writer.line("fn smelt_object_from_prototype(prototype: SmeltUnknown) -> SmeltUnknown { let mut fields: Vec<(String, SmeltUnknown)> = Vec::new(); match prototype { SmeltUnknown::String(sentinel) if &*sentinel == \"__smelt_proto:class\" => { fields.push((\"__smelt_class\".to_owned(), SmeltUnknown::Bool(true))); }, SmeltUnknown::Object(map) => { for (key, value) in map.iter() { if key == \"__smelt_class\" || key.starts_with(\"__smelt_proto:\") { fields.push((key, value)); } else { fields.push((format!(\"__smelt_proto:{key}\"), value)); } } }, _ => {} } SmeltUnknown::Object(SmeltObject::new(fields)) }");
+        // JavaScript `typeof` answers one of seven fixed spellings, decided purely
+        // by the erased value's tag. Every source `typeof` asks the same question,
+        // so the tag-to-spelling table lives here once and returns a `&'static str`
+        // rather than being inlined -- and re-allocated -- at each site.
+        if needs_typeof {
+            writer.line("/// Resolve the JavaScript `typeof` spelling for an erased value.");
+            writer.line("fn smelt_typeof(value: &SmeltUnknown) -> &'static str { match value { SmeltUnknown::Undefined => \"undefined\", SmeltUnknown::Bool(_) => \"boolean\", SmeltUnknown::Number(_) => \"number\", SmeltUnknown::String(_) => \"string\", SmeltUnknown::Symbol(_) => \"symbol\", SmeltUnknown::Function(_) => \"function\", SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Promise(_) => \"object\" } }");
+        }
         writer.line("fn smelt_prototype_sentinel(value: &SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Null => SmeltUnknown::Null, SmeltUnknown::Array(_) => SmeltUnknown::String(\"__smelt_proto:array\".into()), SmeltUnknown::Promise(_) => SmeltUnknown::String(\"__smelt_proto:promise\".into()), SmeltUnknown::Object(map) if map.contains_key(\"__smelt_class\") => SmeltUnknown::String(\"__smelt_proto:class\".into()), SmeltUnknown::Object(map) => match smelt_reflected_marker_class(map) { Some(class) => smelt_reflected_prototype(class), None => SmeltUnknown::String(\"__smelt_proto:object\".into()) }, SmeltUnknown::String(marker) if &**marker == \"__smelt_proto:object\" => SmeltUnknown::Null, SmeltUnknown::String(marker) if &**marker == \"__smelt_proto:array\" || &**marker == \"__smelt_proto:promise\" || &**marker == \"__smelt_proto:class\" => SmeltUnknown::String(\"__smelt_proto:object\".into()), _ => SmeltUnknown::String(\"__smelt_proto:object\".into()) } }");
         writer.blank_line();
         writer.line("/// Resolve the JavaScript `Object.prototype.toString.call(x)` tag for an erased value.");

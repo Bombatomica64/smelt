@@ -5243,7 +5243,7 @@ function swap(data: unknown[], i: number, j: number): void {
 }
 
 #[test]
-fn emits_callback_typeof_unknown_as_runtime_match() {
+fn emits_callback_typeof_unknown_through_shared_static_str_helper() {
     let source = source_for(
         r"
 function mapType(values: unknown[]): string[] {
@@ -5252,6 +5252,12 @@ function mapType(values: unknown[]): string[] {
 ",
     );
 
+    // The tag-to-spelling table is a `&'static str` lookup in the prelude, not a
+    // `String`-allocating match re-inlined at every `typeof` in the source.
+    assert!(
+        source.contains("fn smelt_typeof(value: &SmeltUnknown) -> &'static str"),
+        "{source}"
+    );
     assert!(
         source.contains("SmeltUnknown::Symbol(_) => \"symbol\""),
         "{source}"
@@ -5260,6 +5266,43 @@ function mapType(values: unknown[]): string[] {
         source.contains(
             "SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Promise(_) => \"object\""
         ),
+        "{source}"
+    );
+    assert!(!source.contains("\"symbol\".to_owned()"), "{source}");
+    // Exactly one copy of the table: the helper's own body.
+    assert_eq!(
+        source
+            .matches("SmeltUnknown::Symbol(_) => \"symbol\"")
+            .count(),
+        1,
+        "{source}"
+    );
+    // The site reads the value by shared reference rather than cloning it. The
+    // callback parameter is already spelled `&SmeltUnknown`, so it is passed
+    // through instead of being borrowed a second time.
+    assert!(
+        source.contains("smelt_typeof(closure_arg_0).to_owned()"),
+        "{source}"
+    );
+}
+
+#[test]
+fn emits_union_typeof_as_borrowed_static_str_match() {
+    let source = source_for(
+        r"
+function describe(value: string | number[]): string {
+  return typeof value;
+}
+",
+    );
+
+    // A concrete union decides its arms per member type, so the match stays at
+    // the site -- but it selects a `&'static str` and borrows its scrutinee.
+    assert!(!source.contains("\"string\".to_owned(), "), "{source}");
+    assert!(
+        source.contains("= match &value { SmeltUnion")
+            && source.contains("::M0(_) => \"string\", ")
+            && source.contains("::M1(_) => \"object\" }.to_owned();"),
         "{source}"
     );
 }
