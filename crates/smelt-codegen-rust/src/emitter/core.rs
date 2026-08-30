@@ -1526,6 +1526,13 @@ impl<'mir> FunctionEmitter<'mir> {
                 if self.can_render_dict_value_as(source_value, *inner) {
                     let mapped = self.value_at_type_text("value", source_value, *inner)?;
                     format!("{lookup_value}.map(|value| {mapped})")
+                } else if self.can_render_dict_value_as(source_value, field.ty) {
+                    // The dictionary value is already optional-shaped, so the
+                    // `get` produced an `Option<Option<_>>`; flatten it instead of
+                    // discarding the field. Without this arm the projection
+                    // answered `None` for a value that was actually present.
+                    let mapped = self.value_at_type_text("value", source_value, field.ty)?;
+                    format!("{lookup_value}.map_or(None, |value| {mapped})")
                 } else {
                     "None".to_owned()
                 }
@@ -1641,8 +1648,19 @@ impl<'mir> FunctionEmitter<'mir> {
     /// Returns whether a non-callback dictionary value can populate a field.
     fn can_render_non_function_dict_value_as(&self, source: TypeId, target: TypeId) -> bool {
         if let Some(Type::Optional(inner)) = self.mir.types.get(target) {
-            return self.can_render_non_function_dict_value_as(source, *inner)
-                || matches!(self.mir.types.get(source), Some(Type::None));
+            // An optional field accepts the inner type (the `get` already supplies
+            // the outer `Option`) or an absent value. It must ALSO accept a source
+            // that is itself optional-shaped — the checks below reach that through
+            // `source == target` — so fall through rather than returning here. The
+            // early return dropped every field whose dictionary value carried the
+            // same `Option<T>` the field declares: an object literal
+            // `{ edges: ['leading'] }` projected into an interface whose `edges` is
+            // `Array<...> | undefined` silently became `edges: None`.
+            if self.can_render_non_function_dict_value_as(source, *inner)
+                || matches!(self.mir.types.get(source), Some(Type::None))
+            {
+                return true;
+            }
         }
         source == target
             || self.structural_record_adapter_available(source, target)
