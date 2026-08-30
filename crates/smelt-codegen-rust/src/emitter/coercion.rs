@@ -1935,8 +1935,30 @@ impl FunctionEmitter<'_> {
         } else {
             "SmeltObject::new(smelt_object_entries)"
         };
+        // A class instance keeps its methods across the erasure seam, as
+        // prototype-carried members (`__smelt_proto:<name>`). Without them an
+        // erased instance answered `undefined` for every method read and the
+        // erased call site substituted a fabricated default. Interfaces have no
+        // method bodies to bind, so they contribute nothing here — which is why
+        // this consults `mir.classes` rather than the record type.
+        let proto_entries = match self
+            .mir
+            .classes
+            .iter()
+            .find(|class| class.name == *name)
+        {
+            Some(class)
+                if crate::class_proto::class_has_proto_entries(self.mir, self.context, class) =>
+            {
+                format!(
+                    "smelt_object_entries.extend(smelt_struct_value.{method}()); ",
+                    method = crate::class_proto::PROTO_ENTRIES_METHOD,
+                )
+            }
+            _ => String::new(),
+        };
         Ok(format!(
-            "{{ let smelt_object_value = {value_text}; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); {entries} {host_markers}{class_marker}SmeltUnknown::Object({object_ctor}) }}"
+            "{{ let smelt_object_value = {value_text}; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); {entries} {host_markers}{class_marker}{proto_entries}SmeltUnknown::Object({object_ctor}) }}"
         ))
     }
 

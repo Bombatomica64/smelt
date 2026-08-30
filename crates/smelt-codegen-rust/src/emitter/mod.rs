@@ -132,7 +132,8 @@ mod tuple;
 mod types;
 mod union;
 
-use literals::{assigned_locals, constant_text, method_mutates_this};
+pub(crate) use literals::method_mutates_this;
+use literals::{assigned_locals, constant_text};
 use rendered_value::{Precedence, RenderedValue};
 use types::MutablePrefix;
 pub(crate) use union::emit_union_definitions;
