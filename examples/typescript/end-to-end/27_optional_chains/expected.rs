@@ -135,6 +135,32 @@ fn smelt_field_hash_bytes(bytes: &[u8]) -> u64 {
     hash
 }
 
+/// A cheap same-length tie-break for a property key: length, first byte, last byte.
+///
+/// Equal keys MUST produce equal fingerprints, so every `SmeltPropertyKey`
+/// impl delegates here rather than computing its own -- a `String` entry and
+/// the `&str` a lookup borrows against it must agree or the lookup would
+/// report a present key absent. Unequal keys may collide; a fingerprint hit
+/// is always confirmed with full key equality.
+#[inline]
+fn smelt_field_fingerprint(bytes: &[u8]) -> u32 {
+    let first = bytes.first().copied().unwrap_or(0) as u32;
+    let last = bytes.last().copied().unwrap_or(0) as u32;
+    ((bytes.len() as u32) << 16) | (first << 8) | last
+}
+
+/// One property of a store: its key, its value, and the key's fingerprint.
+///
+/// `fingerprint` is derived from `key` at insert time and is never updated
+/// independently -- the key of an existing entry is never rewritten, only its
+/// value is -- so the two cannot drift apart.
+#[derive(Debug)]
+pub struct SmeltFieldEntry<K, V> {
+    fingerprint: u32,
+    key: K,
+    value: V,
+}
+
 /// Entries a property store scans linearly before it builds a hash index.
 ///
 /// Set where an object stops looking like a record and starts looking like a
@@ -152,7 +178,7 @@ const SMELT_FIELD_SCAN_LIMIT: usize = 12;
 /// `SMELT_FIELD_SCAN_LIMIT` — a small store never hashes a key at all.
 #[derive(Debug)]
 pub struct SmeltFieldStore<K, V> {
-    entries: Vec<(K, V)>,
+    entries: Vec<SmeltFieldEntry<K, V>>,
     index: Option<SmeltFieldMap<u64, usize>>,
 }
 
@@ -163,7 +189,7 @@ impl<K, V> SmeltFieldStore<K, V> {
     fn len(&self) -> usize { self.entries.len() }
     /// Borrow the key/value pairs in JavaScript own-key order.
     #[inline]
-    fn entries(&self) -> &[(K, V)] { &self.entries }
+    fn entries(&self) -> &[SmeltFieldEntry<K, V>] { &self.entries }
 }
 
 impl<K, V> Default for SmeltFieldStore<K, V> {
@@ -175,7 +201,7 @@ impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V> SmeltFieldStore<K, V> {
     fn reindex(&mut self) {
         if self.entries.len() <= SMELT_FIELD_SCAN_LIMIT { self.index = None; return; }
         let mut index: SmeltFieldMap<u64, usize> = SmeltFieldMap::with_capacity_and_hasher(self.entries.len(), ::std::default::Default::default());
-        for (position, entry) in self.entries.iter().enumerate() { index.entry(entry.0.smelt_key_hash()).or_insert(position); }
+        for (position, entry) in self.entries.iter().enumerate() { index.entry(entry.key.smelt_key_hash()).or_insert(position); }
         self.index = Some(index);
     }
     /// Return the entry position holding `key`, or `None`.
@@ -184,26 +210,33 @@ impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V> SmeltFieldStore<K, V> {
     /// the length first, so a handful of differently sized property names are
     /// rejected without touching their bytes, and the key is never hashed. That
     /// is the whole point — hashing a short key costs more than the scan it
-    /// would save. Past `SMELT_FIELD_SCAN_LIMIT` entries the store is a
+    /// would save. Two keys of the SAME length are the case that costs, so
+    /// each entry carries a `smelt_field_fingerprint` — length, first byte,
+    /// last byte — that is compared first and rejects such a key out of the
+    /// entries vector, without dereferencing its bytes. A fingerprint hit is
+    /// still confirmed with full key equality, so the answer is unchanged.
+    /// Past `SMELT_FIELD_SCAN_LIMIT` entries the store is a
     /// dictionary rather than a record, and the hash index resolves the
     /// position directly; a hash collision between two DISTINCT keys is
     /// vanishingly unlikely but not impossible, so a failed key confirmation
     /// falls back to the scan rather than reporting the key absent.
     #[inline]
     fn position<Q>(&self, key: &Q) -> Option<usize> where K: ::std::borrow::Borrow<Q>, Q: Eq + SmeltPropertyKey + ?Sized {
+        let fingerprint = key.smelt_key_fingerprint();
         if let Some(index) = self.index.as_ref() {
             let start = *index.get(&key.smelt_key_hash())?;
-            if self.entries[start].0.borrow() == key { return Some(start); }
+            let entry = &self.entries[start];
+            if entry.fingerprint == fingerprint && entry.key.borrow() == key { return Some(start); }
         }
-        self.entries.iter().position(|entry| entry.0.borrow() == key)
+        self.entries.iter().position(|entry| entry.fingerprint == fingerprint && entry.key.borrow() == key)
     }
     #[inline]
     fn get<Q>(&self, key: &Q) -> Option<&V> where K: ::std::borrow::Borrow<Q>, Q: Eq + SmeltPropertyKey + ?Sized {
-        self.position(key).map(|position| &self.entries[position].1)
+        self.position(key).map(|position| &self.entries[position].value)
     }
     fn get_mut<Q>(&mut self, key: &Q) -> Option<&mut V> where K: ::std::borrow::Borrow<Q>, Q: Eq + SmeltPropertyKey + ?Sized {
         let position = self.position(key)?;
-        Some(&mut self.entries[position].1)
+        Some(&mut self.entries[position].value)
     }
     #[inline]
     fn contains_key<Q>(&self, key: &Q) -> bool where K: ::std::borrow::Borrow<Q>, Q: Eq + SmeltPropertyKey + ?Sized {
@@ -212,7 +245,7 @@ impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V> SmeltFieldStore<K, V> {
     /// Remove `key`, returning its value; later positions shift, so reindex.
     fn remove<Q>(&mut self, key: &Q) -> Option<V> where K: ::std::borrow::Borrow<Q>, Q: Eq + SmeltPropertyKey + ?Sized {
         let position = self.position(key)?;
-        let (_, value) = self.entries.remove(position);
+        let value = self.entries.remove(position).value;
         self.reindex();
         Some(value)
     }
@@ -222,17 +255,19 @@ impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V> SmeltFieldStore<K, V> {
     /// single added mapping; only an array-index key landing before an existing
     /// entry shifts later positions and forces a rebuild.
     fn insert(&mut self, key: K, value: V) -> Option<V> {
-        if let Some(position) = self.position(&key) { return Some(::std::mem::replace(&mut self.entries[position].1, value)); }
+        if let Some(position) = self.position(&key) { return Some(::std::mem::replace(&mut self.entries[position].value, value)); }
         let position = smelt_js_key_order_position(&self.entries, &key);
         if position == self.entries.len() {
             let hash = if self.index.is_some() { key.smelt_key_hash() } else { 0 };
-            self.entries.push((key, value));
+            let fingerprint = key.smelt_key_fingerprint();
+            self.entries.push(SmeltFieldEntry { fingerprint, key, value });
             match self.index.as_mut() {
                 Some(index) => { index.entry(hash).or_insert(position); }
                 None => self.reindex(),
             }
         } else {
-            self.entries.insert(position, (key, value));
+            let fingerprint = key.smelt_key_fingerprint();
+            self.entries.insert(position, SmeltFieldEntry { fingerprint, key, value });
             self.reindex();
         }
         None
@@ -458,15 +493,18 @@ fn smelt_canonical_array_index(key: &str) -> Option<u32> {
 /// trait exists so the shared ordering logic can ask a generic `K` whether
 /// it spells an array index without the containers hard-coding `String`,
 /// and so a lookup can hash a borrowed `str` key the same way the stored
-/// `String` was hashed. Both impls must agree on `smelt_key_hash`, which is
-/// why both delegate to `smelt_field_hash_bytes`.
+/// `String` was hashed. Both impls must agree on `smelt_key_hash` and on
+/// `smelt_key_fingerprint`, which is why both delegate to the shared
+/// `smelt_field_hash_bytes`/`smelt_field_fingerprint` functions.
 pub trait SmeltPropertyKey {
     fn smelt_array_index(&self) -> Option<u32>;
     fn smelt_key_hash(&self) -> u64;
+    /// The stored-entry tie-break for this key; see `smelt_field_fingerprint`.
+    fn smelt_key_fingerprint(&self) -> u32;
 }
 
-impl SmeltPropertyKey for str { fn smelt_array_index(&self) -> Option<u32> { smelt_canonical_array_index(self) } #[inline] fn smelt_key_hash(&self) -> u64 { smelt_field_hash_bytes(self.as_bytes()) } }
-impl SmeltPropertyKey for String { fn smelt_array_index(&self) -> Option<u32> { smelt_canonical_array_index(self) } #[inline] fn smelt_key_hash(&self) -> u64 { smelt_field_hash_bytes(self.as_bytes()) } }
+impl SmeltPropertyKey for str { fn smelt_array_index(&self) -> Option<u32> { smelt_canonical_array_index(self) } #[inline] fn smelt_key_hash(&self) -> u64 { smelt_field_hash_bytes(self.as_bytes()) } #[inline] fn smelt_key_fingerprint(&self) -> u32 { smelt_field_fingerprint(self.as_bytes()) } }
+impl SmeltPropertyKey for String { fn smelt_array_index(&self) -> Option<u32> { smelt_canonical_array_index(self) } #[inline] fn smelt_key_hash(&self) -> u64 { smelt_field_hash_bytes(self.as_bytes()) } #[inline] fn smelt_key_fingerprint(&self) -> u32 { smelt_field_fingerprint(self.as_bytes()) } }
 
 /// Return the position a newly inserted key takes in a JavaScript own-key order.
 ///
@@ -474,10 +512,10 @@ impl SmeltPropertyKey for String { fn smelt_array_index(&self) -> Option<u32> { 
 /// is found with two binary searches: one for the end of that run, one for
 /// the ascending slot inside it. A non-index key appends. Appending keys in
 /// ascending index order therefore stays linear overall, never quadratic.
-fn smelt_js_key_order_position<K: SmeltPropertyKey, V>(entries: &[(K, V)], key: &K) -> usize {
+fn smelt_js_key_order_position<K: SmeltPropertyKey, V>(entries: &[SmeltFieldEntry<K, V>], key: &K) -> usize {
     let Some(index) = key.smelt_array_index() else { return entries.len() };
-    let indexed = entries.partition_point(|entry| entry.0.smelt_array_index().is_some());
-    entries[..indexed].partition_point(|entry| entry.0.smelt_array_index().is_some_and(|existing| existing < index))
+    let indexed = entries.partition_point(|entry| entry.key.smelt_array_index().is_some());
+    entries[..indexed].partition_point(|entry| entry.key.smelt_array_index().is_some_and(|existing| existing < index))
 }
 
 impl<K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, V> SmeltRecord<K, V> {
@@ -488,9 +526,9 @@ impl<K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, V> SmeltRecord<K, V> 
     fn insert(&self, key: K, value: V) -> Option<V> { self.store.borrow_mut().insert(key, value) }
     fn remove<Q>(&self, key: &Q) -> Option<V> where K: ::std::borrow::Borrow<Q>, Q: Eq + ::std::hash::Hash + SmeltPropertyKey + ?Sized { self.store.borrow_mut().remove(key) }
     fn get<Q>(&self, key: &Q) -> Option<V> where K: ::std::borrow::Borrow<Q>, Q: Eq + ::std::hash::Hash + SmeltPropertyKey + ?Sized, V: Clone { self.store.borrow().get(key).cloned() }
-    fn iter(&self) -> ::std::vec::IntoIter<(K, V)> where V: Clone { self.store.borrow().entries().iter().map(|entry| (entry.0.clone(), entry.1.clone())).collect::<Vec<_>>().into_iter() }
-    fn keys(&self) -> ::std::vec::IntoIter<K> { self.store.borrow().entries().iter().map(|entry| entry.0.clone()).collect::<Vec<_>>().into_iter() }
-    fn values(&self) -> ::std::vec::IntoIter<V> where V: Clone { self.store.borrow().entries().iter().map(|entry| entry.1.clone()).collect::<Vec<_>>().into_iter() }
+    fn iter(&self) -> ::std::vec::IntoIter<(K, V)> where V: Clone { self.store.borrow().entries().iter().map(|entry| (entry.key.clone(), entry.value.clone())).collect::<Vec<_>>().into_iter() }
+    fn keys(&self) -> ::std::vec::IntoIter<K> { self.store.borrow().entries().iter().map(|entry| entry.key.clone()).collect::<Vec<_>>().into_iter() }
+    fn values(&self) -> ::std::vec::IntoIter<V> where V: Clone { self.store.borrow().entries().iter().map(|entry| entry.value.clone()).collect::<Vec<_>>().into_iter() }
     fn extend<I: IntoIterator<Item = (K, V)>>(&self, iter: I) { for (key, value) in iter { self.insert(key, value); } }
     fn entry_or_insert(&self, key: K, default: impl FnOnce() -> V) -> ::std::cell::RefMut<'_, V> {
         let missing = !self.store.borrow().contains_key(&key);
@@ -518,13 +556,13 @@ impl<K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, V: Clone> IntoIterato
 }
 
 impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V: PartialEq> PartialEq for SmeltRecord<K, V> {
-    fn eq(&self, other: &Self) -> bool { let left = self.store.borrow(); let right = other.store.borrow(); left.len() == right.len() && left.entries().iter().all(|entry| right.get(&entry.0).is_some_and(|found| *found == entry.1)) }
+    fn eq(&self, other: &Self) -> bool { let left = self.store.borrow(); let right = other.store.borrow(); left.len() == right.len() && left.entries().iter().all(|entry| right.get(&entry.key).is_some_and(|found| *found == entry.value)) }
 }
 
 impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V: Eq> Eq for SmeltRecord<K, V> {}
 
 impl<K, V> PartialEq<::std::collections::HashMap<K, V>> for SmeltRecord<K, V> where K: Eq + ::std::hash::Hash, V: PartialEq {
-    fn eq(&self, other: &::std::collections::HashMap<K, V>) -> bool { let store = self.store.borrow(); store.len() == other.len() && store.entries().iter().all(|entry| other.get(&entry.0).is_some_and(|found| *found == entry.1)) }
+    fn eq(&self, other: &::std::collections::HashMap<K, V>) -> bool { let store = self.store.borrow(); store.len() == other.len() && store.entries().iter().all(|entry| other.get(&entry.key).is_some_and(|found| *found == entry.value)) }
 }
 
 #[derive(Clone)]
@@ -801,9 +839,9 @@ impl SmeltObject {
     fn get(&self, key: &str) -> Option<SmeltUnknown> { self.store.borrow().get(key).cloned() }
     fn insert(&self, key: String, value: SmeltUnknown) -> Option<SmeltUnknown> { self.store.borrow_mut().insert(key, value) }
     fn remove(&self, key: &str) -> Option<SmeltUnknown> { self.store.borrow_mut().remove(key) }
-    fn iter(&self) -> ::std::vec::IntoIter<(String, SmeltUnknown)> { self.store.borrow().entries().iter().map(|entry| (entry.0.clone(), entry.1.clone())).collect::<Vec<_>>().into_iter() }
-    fn keys(&self) -> Vec<String> { self.store.borrow().entries().iter().map(|entry| entry.0.clone()).collect() }
-    fn values(&self) -> Vec<SmeltUnknown> { self.store.borrow().entries().iter().map(|entry| entry.1.clone()).collect() }
+    fn iter(&self) -> ::std::vec::IntoIter<(String, SmeltUnknown)> { self.store.borrow().entries().iter().map(|entry| (entry.key.clone(), entry.value.clone())).collect::<Vec<_>>().into_iter() }
+    fn keys(&self) -> Vec<String> { self.store.borrow().entries().iter().map(|entry| entry.key.clone()).collect() }
+    fn values(&self) -> Vec<SmeltUnknown> { self.store.borrow().entries().iter().map(|entry| entry.value.clone()).collect() }
 }
 
 /// Return whether an erased object key is visible to JavaScript `for...in` iteration.
