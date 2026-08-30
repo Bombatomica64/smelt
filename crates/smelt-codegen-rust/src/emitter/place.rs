@@ -1004,6 +1004,15 @@ impl FunctionEmitter<'_> {
     /// inputs produced `"3null"` where JavaScript produces `"3undefined"`.
     /// Whether a missing OBJECT PROPERTY should likewise be `Undefined` is a
     /// separate question about property access and is deliberately left alone.
+    ///
+    /// The OBJECT arm reads through `smelt_get_object_field`, the same helper
+    /// the erased STATIC field read uses. In JavaScript `o[k]` and `o.k` are one
+    /// operation, so the two spellings have to answer identically; when this
+    /// arm carried its own inlined `byte_buffer_element(..).unwrap_or_else(||
+    /// values.get(..))` they diverged, and every marker-record rule the static
+    /// read grew (`err.name` off `__smelt_error`, `x.constructor`, a `Map`'s
+    /// `size` and iteration methods, the global object's builtin constructors)
+    /// was invisible to the computed spelling.
     pub(super) fn unknown_index_text(
         &self,
         base_text: &str,
@@ -1035,10 +1044,9 @@ impl FunctionEmitter<'_> {
                             smelt_key.parse::<usize>().ok().and_then(|index| values.get(index).cloned()).unwrap_or(SmeltUnknown::Undefined)
                         }}
                     }}
-                    SmeltUnknown::Object(values) => {byte_buffer_element}(&values, &{key_text}).unwrap_or_else(|| values.get(&{key_text}).unwrap_or(SmeltUnknown::Undefined)),
+                    SmeltUnknown::Object(values) => smelt_get_object_field(&values, &{key_text}),
                     _ => SmeltUnknown::Undefined,
-                }}"#,
-                byte_buffer_element = smelt_stdlib::runtime_symbols::byte_buffer::ELEMENT,
+                }}"#
             ));
         }
         let numeric_index_text = match self.mir.types.get(index_ty) {
@@ -1075,10 +1083,9 @@ impl FunctionEmitter<'_> {
                         let normalized = if index < 0 {{ len + index }} else {{ index }};
                         usize::try_from(normalized).ok().and_then(|index| values.get(index).cloned()).unwrap_or(SmeltUnknown::Undefined)
                     }}
-                SmeltUnknown::Object(values) => {byte_buffer_element}(&values, &{key_text}).unwrap_or_else(|| values.get(&{key_text}).unwrap_or(SmeltUnknown::Undefined)),
+                SmeltUnknown::Object(values) => smelt_get_object_field(&values, &{key_text}),
                 _ => SmeltUnknown::Undefined,
-            }}",
-            byte_buffer_element = smelt_stdlib::runtime_symbols::byte_buffer::ELEMENT,
+            }}"
         ))
     }
 

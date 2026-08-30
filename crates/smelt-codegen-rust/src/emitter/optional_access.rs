@@ -487,12 +487,21 @@ impl FunctionEmitter<'_> {
                 } else {
                     "values.get(index).cloned()".to_owned()
                 };
+                // Read the OBJECT arm through `smelt_get_object_field`, the same
+                // helper the erased static field read uses, so `o?.[k]` answers
+                // what `o.k` answers: `o` may be a marker record whose property
+                // is synthesized rather than stored (`err.name`, `x.constructor`,
+                // a Map's `size`, the global object's builtin constructors), and
+                // an own-field-only `values.get` was blind to all of them.
+                // `Undefined` is the helper's "no such property" answer and maps
+                // back to `None`, which is what the optional-read shape means.
+                let object_field = format!("smelt_get_object_field(&values, &{key_text})");
                 let object_some = if self.mir.types.get(result_ty) == Some(&Type::String) {
                     format!(
-                        "values.get(&{key_text}).map(|value| match value {{ SmeltUnknown::String(value) => value.to_string(), other => other.to_string() }})"
+                        "match {object_field} {{ SmeltUnknown::Undefined => None, SmeltUnknown::String(value) => Some(value.to_string()), other => Some(other.to_string()) }}"
                     )
                 } else {
-                    format!("values.get(&{key_text})")
+                    format!("match {object_field} {{ SmeltUnknown::Undefined => None, value => Some(value) }}")
                 };
                 let primitive_none = "SmeltUnknown::Bool(_) | SmeltUnknown::Number(_) | SmeltUnknown::Symbol(_) | SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => None";
                 Ok(format!(

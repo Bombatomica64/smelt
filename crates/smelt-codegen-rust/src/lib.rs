@@ -3025,6 +3025,22 @@ fn emit_source_with_free_function_router(
             class_of = smelt_stdlib::runtime_symbols::host::MARKER_CONSTRUCTOR_CLASS,
             namespace = smelt_stdlib::runtime_symbols::host::BUILTIN_NAMESPACE,
         ));
+        // The ambient global object's properties ARE the modeled JavaScript
+        // globals. `globalThis.Error` already resolved to the modeled
+        // constructor through the static-member normalization in the frontend,
+        // but the same read spelled with a runtime key (`globalThis[type]`, the
+        // shape every lodash-derived typed-array/error spec loop uses) answered
+        // `undefined`, so `new (globalThis[type])(...)` fabricated a
+        // null-returning closure call and every value it produced compared
+        // equal to every other. Resolving the name against the interned
+        // builtin-constructor registry — the same table the static spelling
+        // uses — makes the two spellings agree. A name this profile models no
+        // constructor for is still genuinely absent, and an own field set on
+        // the global object still wins.
+        writer.line(format!(
+            "    if map.contains_key(\"__smelt_global_object\") && !map.contains_key(field) && smelt_builtin_construct_kind(field).is_some() {{ return {namespace}(field); }}",
+            namespace = smelt_stdlib::runtime_symbols::host::BUILTIN_NAMESPACE,
+        ));
         writer.line("    if field == \"size\" && let Some(SmeltUnknown::Array(pairs)) = map.get(\"__smelt_map\") { return SmeltUnknown::Number(pairs.len() as f64); }");
         // Same synthesis for an erased `Set` (`{ __smelt_set: [members...] }`):
         // real Sets expose `.size` through `Set.prototype`, absent from the marker
@@ -3212,9 +3228,17 @@ fn emit_source_with_free_function_router(
             });
         });
         writer.blank_line();
+        // `Default` is what every ABSENT erased slot falls back to: an
+        // out-of-range element read, a `resize` fill, a `new Array(n)` hole.
+        // JavaScript answers `undefined` for every one of those -- reading a
+        // missing index or a hole never produces `null`, which is a value a
+        // program has to store deliberately. Defaulting to `Null` made
+        // `[1, , 2]`-shaped holes and missing reads indistinguishable from a
+        // stored `null`, so `at(['a','b','c'], [4])` compared unequal to
+        // `[undefined]`.
         writer.block("impl Default for SmeltUnknown", |impl_writer| {
             impl_writer.block("fn default() -> Self", |fn_writer| {
-                fn_writer.line("Self::Null");
+                fn_writer.line("Self::Undefined");
             });
         });
         writer.blank_line();

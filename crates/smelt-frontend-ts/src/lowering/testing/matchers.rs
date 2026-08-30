@@ -774,6 +774,58 @@ impl ModuleBuilder<'_> {
     }
 
     /// Build the boolean expression that means a supported matcher has failed.
+    /// Route a DEEP-equality comparison of class-typed operands through the
+    /// erased structural comparison.
+    ///
+    /// Vitest's `toEqual`/`toStrictEqual` compare own enumerable properties, not
+    /// identity — only `toBe` is identity. A Smelt class with reference
+    /// semantics gets `PartialEq = Rc::ptr_eq`, so lowering the deep matchers to
+    /// a plain `!=` on the class type asked "is this the same object", which no
+    /// freshly built value can ever satisfy: `expect(clone(error)).toEqual(error)`
+    /// was unsatisfiable by construction, and so was every other deep assertion
+    /// about a class instance.
+    ///
+    /// Erasing both operands makes the comparison `SmeltUnknown`'s
+    /// `PartialEq` — `smelt_unknown_structural_eq`, the structural walk that is
+    /// what the matcher means. It is applied only when a class type is involved:
+    /// every other operand type already compares structurally, and rerouting
+    /// those through erasure would trade correct typed comparisons (float leaves,
+    /// tuples, lists) for a slower erased one.
+    fn deep_equality_operands(
+        &mut self,
+        actual: smelt_hir::ExprId,
+        expected: smelt_hir::ExprId,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) -> (smelt_hir::ExprId, smelt_hir::ExprId) {
+        let actual_ty = self.type_param_constraint_or_self(Self::expr_ty(body, actual));
+        let expected_ty = self.type_param_constraint_or_self(Self::expr_ty(body, expected));
+        let is_class = |ty: smelt_hir::TypeId| {
+            matches!(self.ctx.krate.types.get(ty), Some(Type::Class { .. }))
+        };
+        if !is_class(actual_ty) && !is_class(expected_ty) {
+            return (actual, expected);
+        }
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let span = self.span(span.start, span.end);
+        let erase = |value: smelt_hir::ExprId, ty: smelt_hir::TypeId, body: &mut Body| {
+            if ty == unknown_ty {
+                return value;
+            }
+            body.push_expr(Expr {
+                kind: ExprKind::UnknownCast {
+                    value,
+                    target: unknown_ty,
+                },
+                ty: unknown_ty,
+                span,
+            })
+        };
+        let actual = erase(actual, actual_ty, body);
+        let expected = erase(expected, expected_ty, body);
+        (actual, expected)
+    }
+
     pub(in crate::lowering) fn expect_matcher_failure_expr(
         &mut self,
         matcher: TestMatcher,
@@ -783,7 +835,12 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         match matcher {
-            TestMatcher::Be | TestMatcher::Equal | TestMatcher::StrictEqual => {
+            TestMatcher::Equal | TestMatcher::StrictEqual => {
+                let (actual, expected) =
+                    self.deep_equality_operands(actual, expected, span, body);
+                Ok(self.comparison_expr(BinOp::NotEq, actual, expected, span, body))
+            }
+            TestMatcher::Be => {
                 Ok(self.comparison_expr(BinOp::NotEq, actual, expected, span, body))
             }
             TestMatcher::Contain => {
