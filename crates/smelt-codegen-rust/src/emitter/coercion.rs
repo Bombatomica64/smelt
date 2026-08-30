@@ -2274,7 +2274,7 @@ impl FunctionEmitter<'_> {
             // value. The adapter is identity on an existing `SmeltUnknown` and
             // preserves the backing array id, so already-erased callers are
             // unaffected.
-            Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown) => {
+            Some(Type::List(_)) if self.list_items_render_as_unknown(target) => {
                 Ok(erased_to_list_text(text, None, "SmeltUnknown::String(ch.to_string().into())"))
             }
             Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::String) => {
@@ -2594,7 +2594,30 @@ impl FunctionEmitter<'_> {
                 } else {
                     format!("arg{index}")
                 };
-                let item_text = self.erase_value_text(&arg_text, *param_ty)?;
+                // A list parameter whose elements are already `SmeltUnknown`
+                // here erases by ALIASING the array, not by rebuilding it. In
+                // JavaScript, passing an array where `unknown` is expected hands
+                // over the same object: the erased value the callee sees must be
+                // the array the caller holds, so a write through either is
+                // visible through the other. `From<SmeltList<SmeltUnknown>> for
+                // SmeltArray` is exactly that re-wrap — it carries both halves
+                // of the reference (the `id` and the shared buffer) — whereas
+                // the generic `erase_value_text` path walks the elements and
+                // builds a detached copy.
+                //
+                // `erase_value_text` cannot reach that conclusion on its own:
+                // it is handed the raw MIR type, sees a `Type::TypeParam` it
+                // cannot prove is `Unknown`, and misses its own
+                // `List<Unknown>` fast path. The predicate below is sound only
+                // because these `arg{index}` bindings were declared under
+                // `TypeSubstitution::erased()` (see `callback_arg_decls` at the
+                // caller), which renders every type parameter as
+                // `SmeltUnknown`.
+                let item_text = if self.erased_param_is_unknown_list(*param_ty) {
+                    format!("SmeltUnknown::Array(({arg_text}).into())")
+                } else {
+                    self.erase_value_text(&arg_text, *param_ty)?
+                };
                 statements.push(format!("smelt_call_args.push({item_text});"));
             }
         }
@@ -2602,6 +2625,53 @@ impl FunctionEmitter<'_> {
             "{{ let mut smelt_call_args = Vec::new(); {} smelt_call_args }}",
             statements.join(" ")
         ))
+    }
+
+    /// Whether `list_ty` is a list whose elements render as `SmeltUnknown` in
+    /// the *current* emission scope.
+    ///
+    /// `Type::Unknown` is that outright. A `Type::TypeParam` is too whenever the
+    /// enclosing Rust item does not declare it: `rust_type` resolves such a name
+    /// to [`crate::type_substitution::Resolved::Erased`], so `List<T>` is
+    /// emitted as `SmeltList<SmeltUnknown>` and the per-element conversion the
+    /// general path would run is `into_smelt_unknown()` on a value that already
+    /// IS a `SmeltUnknown` — the identity impl. An *in-scope* `T` is a real Rust
+    /// generic and must keep going through the general path, which converts each
+    /// element through `SmeltFromUnknown`.
+    ///
+    /// Scope-aware rather than unconditional, and deliberately so: every
+    /// destination Rust type is rendered by `type_text` under
+    /// `TypeSubstitution::lexical(self.current_function_type_params())`, so this
+    /// asks exactly the question that renderer answers.
+    pub(super) fn list_items_render_as_unknown(&self, list_ty: TypeId) -> bool {
+        let Some(Type::List(item)) = self.mir.types.get(list_ty) else {
+            return false;
+        };
+        match self.mir.types.get(*item) {
+            Some(Type::Unknown) => true,
+            Some(Type::TypeParam { name }) => !self.current_function_has_type_param(*name),
+            _ => false,
+        }
+    }
+
+    /// Whether `param_ty` is a list whose elements are `SmeltUnknown` once the
+    /// erased substitution is applied.
+    ///
+    /// `Type::Unknown` is that outright; a `Type::TypeParam` is too, because
+    /// `TypeSubstitution::erased()` renders every type parameter as
+    /// `SmeltUnknown` regardless of what the enclosing item declares. Only use
+    /// this where the surrounding declaration was itself rendered under that
+    /// substitution — elsewhere a type parameter may stand for a concrete Rust
+    /// generic, and treating it as `Unknown` would be wrong. The scope-aware
+    /// question is [`Self::list_items_render_as_unknown`].
+    fn erased_param_is_unknown_list(&self, param_ty: TypeId) -> bool {
+        let Some(Type::List(item)) = self.mir.types.get(param_ty) else {
+            return false;
+        };
+        matches!(
+            self.mir.types.get(*item),
+            Some(Type::Unknown | Type::TypeParam { .. })
+        )
     }
 
     /// Return whether `Option<T>` stores erased values that can carry explicit
@@ -2667,25 +2737,56 @@ fn is_trivial_reeval_expr(text: &str) -> bool {
 /// `Symbol.iterator`.
 ///
 /// `item_text` converts one erased element bound to `value`; `None` means the
-/// element type IS `SmeltUnknown`, so elements pass through unconverted and each
-/// backing `Vec` can move whole instead of running a per-element closure.
+/// element type IS `SmeltUnknown`, so elements pass through unconverted.
 /// `char_text` converts one `char` bound to `ch` for the string arm.
+///
+/// # Why the array arm aliases when `item_text` is `None`
+///
+/// A JavaScript array is a reference value, and `SmeltList<SmeltUnknown>` and
+/// `SmeltArray` model that identically: an `id` plus a *shared*
+/// `Rc<RefCell<Vec<SmeltUnknown>>>`. When no element conversion is needed the
+/// two representations are byte-identical, so extracting an erased array into a
+/// typed list is a re-wrap of the SAME array, not the construction of a new one.
+/// Rebuilding the element vector (`values.into_vec()` into a fresh `Rc`) kept
+/// the `id` but detached the storage, producing a half reference: a stale
+/// snapshot wearing the live array's identity. A write through the typed handle
+/// — `arr.push(x)` inside a callback that received the array being iterated —
+/// then went to a dead copy and was invisible through the erased value, even
+/// though JavaScript says both names denote one object.
+///
+/// It is also where the time went. Every crossing of an erased boundary paid an
+/// O(n) memcpy plus n `SmeltUnknown` clones and n drops; a library that routes
+/// each call through a runtime dispatcher (so the boundary is crossed once per
+/// callback invocation) turned an O(n) operation into O(n^2).
+///
+/// When `item_text` is `Some(..)` the elements genuinely have to be converted,
+/// so that arm still rebuilds — but it keeps `values.id`, exactly as before.
+/// Every non-array arm builds a list that did not exist in the source program,
+/// so it mints a fresh identity through `SmeltList::new`.
 fn erased_to_list_text(text: &str, item_text: Option<&str>, char_text: &str) -> String {
         // `text` is usually already an owned temporary (an operand render clones the local
         // it reads), so take an owned copy rather than deep-copying it a second time.
         let smelt_owned_text = cloned_value_text(text);
-    // Converts a `Vec<SmeltUnknown>`-producing expression into the element type.
+    // Converts a `Vec<SmeltUnknown>`-producing expression into the element type,
+    // then wraps it in a list with a FRESH JS reference identity. Only the array
+    // arm has a source identity to carry over.
     let convert = |elements: &str| match item_text {
-        None => elements.to_owned(),
-        Some(item) => format!("{elements}.into_iter().map(|value| {item}).collect::<Vec<_>>()"),
+        None => format!("SmeltList::new({elements})"),
+        Some(item) => format!(
+            "SmeltList::new({elements}.into_iter().map(|value| {item}).collect::<Vec<_>>())"
+        ),
     };
     let byte_buffer_elements = smelt_stdlib::runtime_symbols::byte_buffer::ELEMENTS;
     let arguments_elements = smelt_stdlib::runtime_symbols::host::ARGUMENTS_ELEMENTS;
     let array_arm = match item_text {
-        None => "values.into_vec()".to_owned(),
-        Some(item) => format!("values.into_iter().map(|value| {item}).collect::<Vec<_>>()"),
+        // The aliasing re-wrap: same identity, same buffer, no copy.
+        None => "SmeltList::with_storage(values.id, values.storage())".to_owned(),
+        Some(item) => format!(
+            "SmeltList::with_id(values.id, values.into_iter().map(|value| {item}).collect::<Vec<_>>())"
+        ),
     };
-    let string_arm = format!("value.chars().map(|ch| {char_text}).collect::<Vec<_>>()");
+    let string_arm =
+        format!("SmeltList::new(value.chars().map(|ch| {char_text}).collect::<Vec<_>>())");
     let bytes_arm = convert("smelt_bytes");
     let arguments_arm = convert("smelt_args");
     let map_arm = convert("pairs.into_vec()");
@@ -2694,9 +2795,8 @@ fn erased_to_list_text(text: &str, item_text: Option<&str>, char_text: &str) -> 
         convert("smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null))");
     format!(
         "{{ let smelt_src = {smelt_owned_text}.into_smelt_unknown(); \
-         let smelt_id = if let SmeltUnknown::Array(value) = &smelt_src {{ value.id }} else {{ smelt_next_object_id() }}; \
-         SmeltList::with_id(smelt_id, match smelt_src {{ \
-         SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), \
+         match smelt_src {{ \
+         SmeltUnknown::Null | SmeltUnknown::Undefined => SmeltList::new(Vec::new()), \
          SmeltUnknown::Array(values) => {array_arm}, \
          SmeltUnknown::String(value) => {string_arm}, \
          SmeltUnknown::Object(value) => \
@@ -2707,6 +2807,6 @@ fn erased_to_list_text(text: &str, item_text: Option<&str>, char_text: &str) -> 
          else {{ match value.get(\"__smelt_symbol_iterator\") {{ \
          Some(SmeltUnknown::Function(iterator)) => {iterator_arm}, \
          _ => panic!(\"unknown is not iterable\") }} }}, \
-         _ => panic!(\"unknown is not iterable\") }}) }}"
+         _ => panic!(\"unknown is not iterable\") }} }}"
     )
 }
