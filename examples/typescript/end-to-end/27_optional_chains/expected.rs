@@ -1385,6 +1385,7 @@ fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {
     if field == "constructor" && !map.contains_key("constructor") && let Some(SmeltUnknown::String(class_name)) = map.get("__smelt_class") { return smelt_class_constructor(class_name.to_string()); }
     if let Some(element) = smelt_host_buffer_element(map, field) { return element; }
     if field == "constructor" && !map.contains_key("constructor") && let Some(class) = smelt_marker_constructor_class(map) { return smelt_builtin_namespace(class); }
+    if map.contains_key("__smelt_global_object") && !map.contains_key(field) && smelt_builtin_construct_kind(field).is_some() { return smelt_builtin_namespace(field); }
     if field == "size" && let Some(SmeltUnknown::Array(pairs)) = map.get("__smelt_map") { return SmeltUnknown::Number(pairs.len() as f64); }
     if field == "size" && let Some(SmeltUnknown::Array(members)) = map.get("__smelt_set") { return SmeltUnknown::Number(members.len() as f64); }
     if let Some(SmeltUnknown::Array(pairs)) = map.get("__smelt_map") {
@@ -1510,7 +1511,7 @@ impl PartialEq for SmeltUnknown {
 
 impl Default for SmeltUnknown {
     fn default() -> Self {
-        Self::Null
+        Self::Undefined
     }
 }
 

@@ -379,14 +379,21 @@ function classify(tag: string): number {
 }
 
 #[test]
-fn dynamic_global_computed_read_lowers_to_erased_undefined() -> Result<(), String> {
+fn dynamic_global_computed_read_reads_the_global_object() -> Result<(), String> {
     // A dynamic computed key (`globalThis[key]`, `key: string`) names no
-    // statically-known global property. It is a genuine dynamic boundary: the
-    // value could be any global (a constructor, an object, a number, or
-    // absent), so no concrete type, union, or scoped generic can represent it —
-    // it must be `SmeltUnknown`. Smelt's deterministic profile models no runtime
-    // global-object property store, so the read resolves to the JS-correct
-    // `undefined`, cast to `Unknown` for the downstream erased-value paths.
+    // STATICALLY-known global property, but it does name one at runtime. It is a
+    // genuine dynamic boundary — the value could be any global (a constructor,
+    // an object, a number, or absent) — so the RESULT is `SmeltUnknown`; what it
+    // is not is a compile-time constant.
+    //
+    // This assertion previously required the read to fold to `undefined`,
+    // encoding "the profile models no global-object property store". That was
+    // the defect, not the contract: it made the two spellings of one JavaScript
+    // operation disagree, since `globalThis.Error` normalized to the modeled
+    // constructor while `globalThis[name]` with `name === "Error"` answered
+    // `undefined`. The read now lowers to a real erased index read on the
+    // global-object value, which resolves a modeled builtin constructor by name
+    // at runtime and still answers `undefined` for an unmodeled name.
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r"
@@ -399,7 +406,14 @@ export function dyn(key: string): unknown {
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     ensure!(crate_has_expr(&ctx, |kind| matches!(
         kind,
-        ExprKind::Literal(Literal::Undefined)
+        ExprKind::Index { .. }
+    )));
+    // The receiver is the global-object marker value, not a fabricated empty
+    // record: its `__smelt_global_object` key is what the runtime property
+    // resolution keys off.
+    ensure!(crate_has_expr(&ctx, |kind| matches!(
+        kind,
+        ExprKind::Literal(Literal::String(text)) if text == "__smelt_global_object"
     )));
     ensure!(crate_has_expr(&ctx, |kind| matches!(
         kind,

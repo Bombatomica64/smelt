@@ -9685,10 +9685,14 @@ fn erased_reads_and_writes_reach_a_byte_buffers_bytes() {
     // compare two different buffers as equal; index writes landed in a property
     // instead of the storage, so the typed-array clone shape
     // `result[i] = clone(source[i])` produced a record with stray numeric keys.
+    // `o[k]` and `o.k` are one JavaScript operation, so the erased index read
+    // resolves its OBJECT arm through the same `smelt_get_object_field` helper
+    // the erased field read uses rather than inlining its own lookup; the byte
+    // -buffer attempt lives inside that helper, asserted just below.
     let indexed = source_for("export function f(value: any): any { return value[1]; }");
     assert!(
-        indexed.contains("smelt_host_buffer_element(&values"),
-        "an erased index read must try the byte-buffer element first:\n{indexed}"
+        indexed.contains("SmeltUnknown::Object(values) => smelt_get_object_field(&values"),
+        "an erased index read must resolve an object through the field helper:\n{indexed}"
     );
     let field = source_for("export function f(value: any): any { return value.length; }");
     assert!(
@@ -9699,6 +9703,96 @@ fn erased_reads_and_writes_reach_a_byte_buffers_bytes() {
     assert!(
         assign.contains("smelt_host_buffer_set_element(map, &key, value.clone())"),
         "an erased index write must offer the byte storage the write first:\n{assign}"
+    );
+}
+
+#[test]
+fn a_dynamic_global_object_read_resolves_a_modeled_builtin_constructor() {
+    // `globalThis.Error` normalizes to the modeled constructor at lowering time,
+    // but the SAME read spelled with a runtime key used to fold to a constant
+    // `undefined`, so `new (globalThis[type])(msg)` fabricated a null-returning
+    // closure call and every error it "constructed" compared equal to every
+    // other. Both spellings now resolve against one registry: the read reaches
+    // the global-object marker record, and the record answers a modeled
+    // constructor name with the interned builtin namespace value.
+    let source = source_for(
+        "export function f(name: any): any { return (globalThis as any)[name]; }",
+    );
+    assert!(
+        source.contains("__smelt_global_object"),
+        "a dynamic global read must reach the global-object value:\n{source}"
+    );
+    assert!(
+        source.contains(
+            "if map.contains_key(\"__smelt_global_object\") && !map.contains_key(field) && smelt_builtin_construct_kind(field).is_some()"
+        ),
+        "the global object must resolve a modeled builtin constructor by name:\n{source}"
+    );
+    // A name this profile models no constructor for stays genuinely absent
+    // rather than becoming a fabricated empty namespace record.
+    assert!(
+        source.contains("smelt_builtin_namespace(field)"),
+        "the resolved value must be the interned namespace value:\n{source}"
+    );
+}
+
+#[test]
+fn an_optional_erased_index_read_resolves_synthesized_properties() {
+    // `o?.[k]` reads the object arm through the same helper `o.k` uses, so a
+    // marker record's synthesized properties (an error's `name`, a Map's `size`,
+    // the global object's constructors) are visible to both spellings. An
+    // own-field-only `values.get(..)` was blind to every one of them.
+    let source = source_for(
+        "export function f(value: any, key: string): any { return value?.[key] ?? 1; }",
+    );
+    assert!(
+        source.contains("smelt_get_object_field(&values"),
+        "an optional erased index read must use the field helper:\n{source}"
+    );
+}
+
+#[test]
+fn an_absent_erased_slot_defaults_to_undefined_not_null() {
+    // `Default::default()` is what every ABSENT erased slot falls back to: an
+    // out-of-range element read, a `resize` fill, a `new Array(n)` hole.
+    // JavaScript answers `undefined` for all of them; `null` is a value a
+    // program has to store deliberately, so defaulting to it made a hole and a
+    // stored `null` indistinguishable.
+    let source = source_for("export function f(value: any): any { return value; }");
+    assert!(
+        source.contains("impl Default for SmeltUnknown"),
+        "the erased default impl must be emitted:\n{source}"
+    );
+    let default_impl = source
+        .split("impl Default for SmeltUnknown")
+        .nth(1)
+        .unwrap_or_default();
+    assert!(
+        default_impl.contains("Self::Undefined"),
+        "an absent erased slot must default to `undefined`:\n{default_impl}"
+    );
+}
+
+#[test]
+fn a_deep_equality_matcher_on_a_class_compares_structurally() {
+    // Vitest `toEqual` compares own enumerable properties; only `toBe` is
+    // identity. A class with reference semantics gets `PartialEq = Rc::ptr_eq`,
+    // so lowering `toEqual` to a plain `!=` on the class type asked "is this the
+    // same object" — unsatisfiable for any freshly built value, which is why
+    // `expect(clone(err)).toEqual(err)` could never pass. Erasing both operands
+    // makes the comparison `SmeltUnknown`'s structural walk.
+    let source = source_for(
+        "import { describe, expect, it } from 'vitest';\n\
+         class Point { x: number; constructor(x: number) { this.x = x; } move(): Point { return new Point(this.x); } }\n\
+         describe('p', () => { it('eq', () => { const a = new Point(1); expect(a.move()).toEqual(a); }); });",
+    );
+    assert!(
+        source.contains("into_smelt_unknown()"),
+        "a class-typed deep-equality comparison must erase both operands:\n{source}"
+    );
+    assert!(
+        !source.contains("a.clone() != a.clone()"),
+        "a class-typed deep-equality comparison must not compare by identity:\n{source}"
     );
 }
 

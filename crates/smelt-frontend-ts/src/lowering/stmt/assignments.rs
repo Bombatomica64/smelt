@@ -265,16 +265,16 @@ impl ModuleBuilder<'_> {
     /// * Any other key — a runtime variable (`globalThis[type]` in the
     ///   lodash-style typed-array/error spec loops) or a literal that names no
     ///   modeled global — is a genuine dynamic property lookup on the global
-    ///   object. Smelt's deterministic profile has no runtime global-object
-    ///   property store keyed by an arbitrary string, so the lookup resolves to
-    ///   the JavaScript-correct `undefined`, tagged `SmeltUnknown` because the
-    ///   value's static shape is genuinely erased at this dynamic boundary (see
-    ///   the `SmeltUnknown` regression test `dynamic_global_computed_read_*`).
-    ///   Downstream truthiness guards, `|| fallback`, and `new Ctor(...)`
-    ///   dispatch through the existing erased-value machinery, so a present
-    ///   guard folds to the absent branch and an unguarded construction becomes
-    ///   a dynamic closure call — matching how the profile already treats
-    ///   unmodeled host globals as absent.
+    ///   object, and is lowered as exactly that: an erased computed read whose
+    ///   receiver is the global-object value. It used to fold to a constant
+    ///   `undefined`, which made the two spellings of one JavaScript operation
+    ///   disagree — `globalThis.Error` resolved to the modeled constructor while
+    ///   `globalThis[name]` with `name === "Error"` answered `undefined`, so
+    ///   `new (globalThis[type])(...)` fabricated a null-returning closure call
+    ///   instead of constructing. The runtime read resolves a modeled global
+    ///   constructor by name off the global-object marker record and still
+    ///   answers `undefined` for a name this profile does not model, so an
+    ///   unmodeled global stays absent.
     pub(in crate::lowering) fn global_alias_computed_read(
         &mut self,
         member: &oxc::ast::ast::ComputedMemberExpression<'_>,
@@ -286,40 +286,15 @@ impl ModuleBuilder<'_> {
                 return self.identifier_expression(name, member.span.start, member.span.end, body);
             }
         }
-        Ok(self.dynamic_global_object_read(member.span.start, member.span.end, body))
-    }
-
-    /// Build the value of a dynamic global-object property lookup.
-    ///
-    /// The deterministic profile models no runtime global-object property store,
-    /// so a read keyed by an arbitrary runtime string resolves to the
-    /// JavaScript-correct `undefined`. It is tagged `SmeltUnknown` (not
-    /// `Type::None`) because the result feeds erased-value code paths — dynamic
-    /// `new Ctor(...)` construction, `|| fallback`, truthiness guards — that
-    /// expect a dynamic boundary value, and the property's static shape is
-    /// genuinely unknown here.
-    pub(in crate::lowering) fn dynamic_global_object_read(
-        &mut self,
-        start: u32,
-        end: u32,
-        body: &mut Body,
-    ) -> smelt_hir::ExprId {
-        let span = self.span(start, end);
-        let none_ty = self.ctx.krate.types.intern(Type::None);
+        let receiver =
+            self.global_object_value_expression(member.span.start, member.span.end, body);
+        let index = self.expression(&member.expression, body)?;
         let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
-        let undefined = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::Undefined),
-            ty: none_ty,
-            span,
-        });
-        body.push_expr(Expr {
-            kind: ExprKind::UnknownCast {
-                value: undefined,
-                target: unknown_ty,
-            },
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::Index { receiver, index },
             ty: unknown_ty,
-            span,
-        })
+            span: self.span(member.span.start, member.span.end),
+        }))
     }
 
     /// Return whether a property name is a member every JavaScript function has.
