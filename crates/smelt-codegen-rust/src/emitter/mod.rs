@@ -129,6 +129,7 @@ mod strings;
 mod strings_io;
 mod throw;
 mod tuple;
+mod typeof_str_locals;
 mod types;
 mod union;
 
@@ -1094,6 +1095,12 @@ pub(crate) struct FunctionEmitter<'mir> {
     declared_locals: RefCell<HashSet<LocalId>>,
     /// Locals that must be declared before structured block emission.
     predeclared_locals: HashSet<LocalId>,
+    /// Locals whose emitted Rust type is `&'static str` rather than `String`.
+    ///
+    /// A `typeof` produces one of seven fixed spellings, so its destination
+    /// never needs an owned copy. See [`typeof_str_locals`] for exactly which
+    /// locals qualify and why the analysis is a whitelist.
+    static_typeof_str_locals: HashSet<LocalId>,
     /// Compiler temporaries folded into the `throw` expression that consumes
     /// them, so neither their declaration nor their assignment is emitted.
     folded_throw_payloads: HashSet<LocalId>,

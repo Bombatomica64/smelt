@@ -3,6 +3,7 @@
 use super::*;
 use crate::emitter::rendered_text_rewrite::cloned_value_text;
 use crate::emitter::literals::operand_local;
+use crate::emitter::typeof_str_locals;
 use smelt_hir::FunctionType;
 
 /// How the emitted Rust value for a callee is invoked.
@@ -58,6 +59,7 @@ impl<'mir> FunctionEmitter<'mir> {
             mutable_locals: assigned_locals(mir, context, function),
             declared_locals: RefCell::new(declared_locals),
             predeclared_locals,
+            static_typeof_str_locals: typeof_str_locals::static_typeof_str_locals(mir, function),
             folded_throw_payloads,
             termination_cache: RefCell::new(HashMap::new()),
             loop_exit_cache: RefCell::new(HashMap::new()),
@@ -448,14 +450,14 @@ impl<'mir> FunctionEmitter<'mir> {
                 out.push_str(&format!(
                     "    let {mutability}{}: {} = {};\n",
                     name,
-                    self.type_text_with_impl_trait(decl.ty, false)?,
-                    self.default_value(decl.ty)?
+                    self.local_declaration_type_text(local, decl.ty)?,
+                    self.local_default_value(local, decl.ty)?
                 ));
             } else {
                 out.push_str(&format!(
                     "    let {mutability}{}: {};\n",
                     name,
-                    self.type_text_with_impl_trait(decl.ty, false)?
+                    self.local_declaration_type_text(local, decl.ty)?
                 ));
             }
             self.mark_local_declared(local);
@@ -471,6 +473,47 @@ impl<'mir> FunctionEmitter<'mir> {
     /// without perturbing straight-line entry-block declarations.
     pub(super) fn predeclared_locals(&self) -> HashSet<LocalId> {
         self.predeclared_locals.clone()
+    }
+
+    /// Whether a local's emitted Rust type is `&'static str` rather than `String`.
+    ///
+    /// True only for a local this crate's `typeof` analysis accepted; see
+    /// [`typeof_str_locals`] for the whitelist and its rationale.
+    pub(super) fn local_is_static_typeof_str(&self, local: LocalId) -> bool {
+        self.static_typeof_str_locals.contains(&local)
+    }
+
+    /// The Rust type a local's declaration spells.
+    ///
+    /// The same text as [`Self::type_text_with_impl_trait`] for the local's MIR
+    /// type, except for a local holding a `typeof` result: MIR has one string
+    /// type and no borrowed one, so it types that local `String` while the value
+    /// it holds is one of seven `&'static str` literals.
+    pub(super) fn local_declaration_type_text(
+        &self,
+        local: LocalId,
+        ty: TypeId,
+    ) -> Result<String, EmitError> {
+        if self.local_is_static_typeof_str(local) {
+            return Ok("&'static str".to_owned());
+        }
+        self.type_text_with_impl_trait(ty, false)
+    }
+
+    /// The value a local's declaration is seeded with before its first
+    /// assignment, for a local that must be initialised at its declaration.
+    ///
+    /// `String::new()` for an owned string; the empty `&'static str` for a
+    /// `typeof` local, which never holds an owned one.
+    pub(super) fn local_default_value(
+        &self,
+        local: LocalId,
+        ty: TypeId,
+    ) -> Result<String, EmitError> {
+        if self.local_is_static_typeof_str(local) {
+            return Ok("\"\"".to_owned());
+        }
+        self.default_value(ty)
     }
 
     /// Returns whether a predeclared local should keep a concrete default.
@@ -1986,6 +2029,7 @@ impl<'mir> FunctionEmitter<'mir> {
             mutable_locals: HashSet::new(),
             declared_locals: RefCell::new(HashSet::new()),
             predeclared_locals: HashSet::new(),
+            static_typeof_str_locals: HashSet::new(),
             folded_throw_payloads: HashSet::new(),
             termination_cache: RefCell::new(HashMap::new()),
             loop_exit_cache: RefCell::new(HashMap::new()),
@@ -2042,6 +2086,7 @@ impl<'mir> FunctionEmitter<'mir> {
             mutable_locals: HashSet::new(),
             declared_locals: RefCell::new(HashSet::new()),
             predeclared_locals: HashSet::new(),
+            static_typeof_str_locals: HashSet::new(),
             folded_throw_payloads: HashSet::new(),
             termination_cache: RefCell::new(HashMap::new()),
             loop_exit_cache: RefCell::new(HashMap::new()),
@@ -2088,6 +2133,7 @@ impl<'mir> FunctionEmitter<'mir> {
             mutable_locals: HashSet::new(),
             declared_locals: RefCell::new(HashSet::new()),
             predeclared_locals: HashSet::new(),
+            static_typeof_str_locals: HashSet::new(),
             folded_throw_payloads: HashSet::new(),
             termination_cache: RefCell::new(HashMap::new()),
             loop_exit_cache: RefCell::new(HashMap::new()),
@@ -2130,6 +2176,7 @@ impl<'mir> FunctionEmitter<'mir> {
             mutable_locals: HashSet::new(),
             declared_locals: RefCell::new(HashSet::new()),
             predeclared_locals: HashSet::new(),
+            static_typeof_str_locals: HashSet::new(),
             folded_throw_payloads: HashSet::new(),
             termination_cache: RefCell::new(HashMap::new()),
             loop_exit_cache: RefCell::new(HashMap::new()),
