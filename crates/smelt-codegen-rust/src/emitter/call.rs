@@ -238,6 +238,55 @@ impl FunctionEmitter<'_> {
                     sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
                 ))
             }
+            smelt_hir::AsyncOp::Resolve => {
+                // `Promise.resolve(v)`: defer one microtask, then settle with the
+                // operand. The value is rendered at the future's own item type so
+                // the emitted `Ok(..)` agrees with the declared `SmeltFuture<T>`;
+                // with no operand (`Promise.resolve()`) the item type is unit.
+                let Some(duration) = args.first() else {
+                    return Err(EmitError::new(
+                        "async resolve requires a duration operand",
+                    ));
+                };
+                let duration_text = self.operand_text(duration)?;
+                let value_text = match args.get(1) {
+                    Some(value) => {
+                        let Some(Type::Future(item_ty)) = self.mir.types.get(dest_ty) else {
+                            return Err(EmitError::new(
+                                "async resolve must produce a future type",
+                            ));
+                        };
+                        self.value_at_type(value, *item_ty)?
+                    }
+                    None => "()".to_owned(),
+                };
+                Ok(format!(
+                    "SmeltFuture::from_future(Box::pin(async move {{ {sleep_ms}({duration_text} as f64).await; Ok::<_, Box<dyn std::error::Error>>({value_text}) }}))",
+                    sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
+                ))
+            }
+            smelt_hir::AsyncOp::Reject => {
+                // `Promise.reject(reason)`: defer one microtask, then settle in
+                // the error channel with the reason unchanged. The reason takes
+                // the same `throw` path a `throw` statement takes, so a non-Error
+                // reason keeps its own properties (JavaScript rejects with any
+                // value) and a program with no erased values keeps the plain
+                // string error form.
+                let Some(duration) = args.first() else {
+                    return Err(EmitError::new(
+                        "async reject requires a duration operand",
+                    ));
+                };
+                let duration_text = self.operand_text(duration)?;
+                let payload = match args.get(1) {
+                    Some(reason) => self.thrown_payload_text(reason)?,
+                    None => self.undefined_thrown_payload_text(),
+                };
+                Ok(format!(
+                    "SmeltFuture::from_future(Box::pin(async move {{ {sleep_ms}({duration_text} as f64).await; Err::<_, Box<dyn std::error::Error>>({payload}) }}))",
+                    sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
+                ))
+            }
             smelt_hir::AsyncOp::SetTimeout => {
                 let [callback, duration, extra @ ..] = args else {
                     return Err(EmitError::new(
@@ -1018,9 +1067,24 @@ impl FunctionEmitter<'_> {
                 ))
             }
             Callee::Indirect(indirect_callee) => {
-                let Some(Type::Function(function)) =
-                    self.mir.types.get(self.operand_ty(indirect_callee)?)
-                else {
+                // An erased callee (source `unknown`, a union, an erased class)
+                // has no static function type, so the concrete callable shape is
+                // only known at run time. It is the same boundary `ClosureCall`
+                // already routes through `dynamic_callable_dispatch_text`; the
+                // two call forms must agree, or moving a call between the
+                // statement and terminator forms changes whether it is emittable
+                // at all.
+                let callee_ty = self.operand_ty(indirect_callee)?;
+                if self.callee_is_dynamically_dispatched(callee_ty) {
+                    let callee_text = self.operand_text(indirect_callee)?;
+                    let rendered_args = args
+                        .iter()
+                        .map(|arg| self.erase(arg))
+                        .collect::<Result<Vec<_>, EmitError>>()?;
+                    let args_expr = format!("vec![{}]", rendered_args.join(", "));
+                    return Ok(self.dynamic_callable_dispatch_text(&callee_text, &args_expr));
+                }
+                let Some(Type::Function(function)) = self.mir.types.get(callee_ty) else {
                     return Err(EmitError::new("indirect call target is not a function"));
                 };
                 let callee_text = self.operand_text(indirect_callee)?;
@@ -2383,6 +2447,18 @@ impl FunctionEmitter<'_> {
             .unwrap_or_else(|| "<unnameable callee>".to_owned())
     }
 
+    /// Returns whether a callee's type carries no static signature, so its call
+    /// must go through the run-time callable dispatch.
+    ///
+    /// Mirrors the `Rvalue::ClosureCall` erased-callee test so both call forms
+    /// classify a callee identically.
+    pub(super) fn callee_is_dynamically_dispatched(&self, callee_ty: TypeId) -> bool {
+        matches!(
+            self.mir.types.get(callee_ty),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) || self.is_erased_class_type(callee_ty)
+    }
+
     /// Returns the static return type of a call expression.
     pub(super) fn call_source_ty(&self, callee: &Callee) -> Result<TypeId, EmitError> {
         let source_ty = match callee {
@@ -2398,9 +2474,14 @@ impl FunctionEmitter<'_> {
                 function.return_ty
             }
             Callee::Indirect(indirect_callee) => {
-                let Some(Type::Function(function)) =
-                    self.mir.types.get(self.operand_ty(indirect_callee)?)
-                else {
+                let callee_ty = self.operand_ty(indirect_callee)?;
+                // A dynamically dispatched callee has no static signature, so
+                // its call produces the erased carrier (see the matching arm in
+                // `indirect` call emission).
+                if self.callee_is_dynamically_dispatched(callee_ty) {
+                    return self.type_id(Type::Unknown);
+                }
+                let Some(Type::Function(function)) = self.mir.types.get(callee_ty) else {
                     return Err(EmitError::new("indirect call target is not a function"));
                 };
                 function.return_ty

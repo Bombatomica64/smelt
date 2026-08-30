@@ -699,71 +699,84 @@ impl FunctionEmitter<'_> {
                 "{{ {prefix}{list_mut}.sort_by({closure}); {result_text} }}"
             ));
         }
+        // A TypeScript receiver (`returns_list`) follows JavaScript's default
+        // ordering for every element surface it supports; a Python receiver
+        // (`sort()` with no key, `returns_list == false`) keeps source-native
+        // scalar ordering and only borrows the JS coercion for erased items.
+        if let Some(sort_call) = self.js_default_sort_call_text(element_ty, &list_mut)?
+            && (returns_list || !self.element_sorts_natively(element_ty))
+        {
+            return Ok(format!("{{ {sort_call}; {result_text} }}"));
+        }
         match self.mir.types.get(*item_ty) {
-            Some(Type::Bool | Type::Int | Type::Float | Type::String) if returns_list => {
-                Ok(format!(
-                    "{{ {list_mut}.sort_by(|left, right| left.to_string().cmp(&right.to_string())); {result_text} }}"
-                ))
-            }
             Some(Type::Bool | Type::Int | Type::String) => {
                 Ok(format!("{{ {list_mut}.sort(); {result_text} }}"))
             }
             Some(Type::Float) => Ok(format!(
                 "{{ {list_mut}.sort_by(|left, right| left.partial_cmp(right).expect(\"list sort incomparable float\")); {result_text} }}"
             )),
-            // A `TypeParam` element takes the erased coercion path only when it
-            // is not a type parameter of the enclosing function: such a leaked
-            // `TypeParam` (e.g. a `T[keyof T]` element from a generic call
-            // reached through an erased value) renders as `SmeltUnknown`, so the
-            // string-coercion comparison below is well typed. A type parameter
-            // that IS in scope renders as a real generic (`T`) that has no
-            // `into_smelt_unknown`/coercion, so it must not take this path.
-            Some(Type::TypeParam { name })
-                if !self.current_function_has_type_param(*name) =>
-            {
-                self.default_sort_by_string_coercion_text(
-                    element_ty, &list_mut, &result_text,
-                )
-            }
-            // Erased and union elements follow JavaScript's default sort:
-            // compare the `ToString` coercion of each element. Concrete unions
-            // project through `into_smelt_unknown` first so the coercion match
-            // sees the erased `SmeltUnknown` shape. Rust's `sort_by` is stable,
-            // so equal-key structured values ("[object Object]") keep their
-            // original order, matching the JS default sort on objects.
-            Some(Type::Unknown | Type::Union(_) | Type::Never) => {
-                self.default_sort_by_string_coercion_text(element_ty, &list_mut, &result_text)
-            }
             _ => Err(EmitError::new(
                 "list sort supports bool, int, float, string, and erased items",
             )),
         }
     }
 
-    /// Emit a comparator-less default sort for an erased element type.
+    /// True when the element type has a native Rust ordering usable directly by
+    /// a Python-style `list.sort()` (booleans, integers, floats, strings).
+    fn element_sorts_natively(&self, element_ty: TypeId) -> bool {
+        matches!(
+            self.mir.types.get(element_ty),
+            Some(Type::Bool | Type::Int | Type::Float | Type::String)
+        )
+    }
+
+    /// Emit the `sort_by(..)` CALL (no surrounding block, no trailing `;`) that
+    /// implements JavaScript's comparator-less `Array.prototype.sort` for
+    /// `element_ty`, or `None` when the element type has no modeled `ToString`.
     ///
-    /// JavaScript's default `Array.prototype.sort` compares elements by their
-    /// `ToString` coercion. This shared helper is used for the erased element
-    /// surfaces (`unknown`, concrete unions, leaked non-scoped type parameters,
-    /// `never`), each of which renders as `SmeltUnknown`: concrete unions project
-    /// through `into_smelt_unknown` first so the coercion match sees the erased
-    /// shape, and the resulting string keys are compared. `sort_by` is stable,
-    /// so equal-key structured values keep their original order.
-    fn default_sort_by_string_coercion_text(
+    /// JavaScript's default sort compares elements by their `ToString`
+    /// coercion, never numerically. Scalars stringify directly; the erased
+    /// surfaces (`unknown`, concrete unions, `never`, and a leaked non-scoped
+    /// type parameter, all of which render as `SmeltUnknown`) go through the
+    /// shared string-coercion match, with concrete unions projected via
+    /// `into_smelt_unknown` first so the match sees the erased shape.
+    ///
+    /// A type parameter that IS in scope renders as a real generic (`T`) with no
+    /// `into_smelt_unknown`, so it is deliberately excluded. Structured concrete
+    /// shapes (nested lists, records) are excluded for the same reason: their JS
+    /// `ToString` is not modeled yet.
+    ///
+    /// `sort_by` is stable, so equal-key values keep their original order, which
+    /// is what the JS default sort does for values sharing a `ToString`.
+    ///
+    /// Factored out of the comparator-less path so the optional-comparator path
+    /// (`array.sort(maybeCompare)`) can reuse the exact same ordering in its
+    /// `None` arm.
+    fn js_default_sort_call_text(
         &self,
         element_ty: TypeId,
         list_text: &str,
-        result_text: &str,
-    ) -> Result<String, EmitError> {
-        let left_key = Self::js_string_coercion_match_text(
-            &self.erase_concrete_union_text("left.clone()", element_ty),
-        );
-        let right_key = Self::js_string_coercion_match_text(
-            &self.erase_concrete_union_text("right.clone()", element_ty),
-        );
-        Ok(format!(
-            "{{ {list_text}.sort_by(|left, right| ({left_key}).cmp(&({right_key}))); {result_text} }}"
-        ))
+    ) -> Result<Option<String>, EmitError> {
+        match self.mir.types.get(element_ty) {
+            Some(Type::Bool | Type::Int | Type::Float | Type::String) => Ok(Some(format!(
+                "{list_text}.sort_by(|left, right| left.to_string().cmp(&right.to_string()))"
+            ))),
+            Some(Type::TypeParam { name }) if self.current_function_has_type_param(*name) => {
+                Ok(None)
+            }
+            Some(Type::Unknown | Type::Union(_) | Type::Never | Type::TypeParam { .. }) => {
+                let left_key = Self::js_string_coercion_match_text(
+                    &self.erase_concrete_union_text("left.clone()", element_ty),
+                );
+                let right_key = Self::js_string_coercion_match_text(
+                    &self.erase_concrete_union_text("right.clone()", element_ty),
+                );
+                Ok(Some(format!(
+                    "{list_text}.sort_by(|left, right| ({left_key}).cmp(&({right_key})))"
+                )))
+            }
+            _ => Ok(None),
+        }
     }
 
     /// Converts a JavaScript `Array.prototype.sort` comparator closure to Rust.
@@ -799,8 +812,61 @@ impl FunctionEmitter<'_> {
                 "comparator sort is only supported for array sort",
             ));
         }
-        let Some(Type::Function(function_ty)) = self.mir.types.get(self.operand_ty(comparator)?)
-        else {
+        let comparator_ty = self.operand_ty(comparator)?;
+        // `array.sort(maybeCompare)` where `maybeCompare` may be absent at
+        // runtime. ECMA-262 `SortCompare` step 1 makes an `undefined`
+        // comparator identical to no comparator at all, so the `None` arm must
+        // run the DEFAULT `ToString` ordering, not "every comparison is Equal".
+        // The optional stays a real `Option<Rc<dyn Fn..>>` all the way down and
+        // is matched here, exactly as hand-written Rust would; it is not erased
+        // to `SmeltUnknown`.
+        if let Some(Type::Optional(inner)) = self.mir.types.get(comparator_ty).cloned() {
+            let Some(default_sort) = self.js_default_sort_call_text(element_ty, list_text)? else {
+                return Err(EmitError::new(
+                    "array sort with an optional comparator needs a default ordering for its element type",
+                ));
+            };
+            let some_arm = self.list_sort_comparator_call_text(
+                inner,
+                element_ty,
+                "smelt_comparator",
+                list_text,
+            )?;
+            let comparator_text = self.operand_text(comparator)?;
+            return Ok(format!(
+                "{{ match {comparator_text} {{ Some(smelt_comparator) => {{ {some_arm}; }} None => {{ {default_sort}; }} }}; {result_text} }}"
+            ));
+        }
+        let closure_text = match self.closure_operand_text_for_declared_type(comparator) {
+            Ok(closure_text) => closure_text,
+            Err(_) => self.operand_text(comparator)?,
+        };
+        let sort_call = self.list_sort_comparator_call_text(
+            comparator_ty,
+            element_ty,
+            "smelt_comparator",
+            list_text,
+        )?;
+        Ok(format!(
+            "{{ let mut smelt_comparator = {closure_text}; {sort_call}; {result_text} }}"
+        ))
+    }
+
+    /// Emit the `sort_by(..)` call for an already-bound comparator binding.
+    ///
+    /// `comparator_ty` must be the comparator's function type and
+    /// `comparator_ident` the name of an in-scope binding holding it. Split out
+    /// of `list_sort_comparator_text` so the optional-comparator `Some(..)` arm
+    /// can reuse the identical comparison, argument adaptation and
+    /// number-to-`Ordering` mapping as the always-present case.
+    fn list_sort_comparator_call_text(
+        &self,
+        comparator_ty: TypeId,
+        element_ty: TypeId,
+        comparator_ident: &str,
+        list_text: &str,
+    ) -> Result<String, EmitError> {
+        let Some(Type::Function(function_ty)) = self.mir.types.get(comparator_ty) else {
             return Err(EmitError::new("array sort comparator must be a closure"));
         };
         // A `number` return compares directly; an erased return (`unknown`,
@@ -827,13 +893,9 @@ impl FunctionEmitter<'_> {
             right_param_ty,
             self.value_at_type_text("right.clone()", element_ty, right_param_ty)?,
         );
-        let closure_text = match self.closure_operand_text_for_declared_type(comparator) {
-            Ok(closure_text) => closure_text,
-            Err(_) => self.operand_text(comparator)?,
-        };
         let ordering_coercion = if coerce_result { ".smelt_into_f64()" } else { "" };
         Ok(format!(
-            "{{ let mut smelt_comparator = {closure_text}; {list_text}.sort_by(|left, right| {{ let ordering = (smelt_comparator)({left_arg}, {right_arg}){ordering_coercion}; if ordering < 0.0 {{ std::cmp::Ordering::Less }} else if ordering > 0.0 {{ std::cmp::Ordering::Greater }} else {{ std::cmp::Ordering::Equal }} }}); {result_text} }}"
+            "{list_text}.sort_by(|left, right| {{ let ordering = ({comparator_ident})({left_arg}, {right_arg}){ordering_coercion}; if ordering < 0.0 {{ std::cmp::Ordering::Less }} else if ordering > 0.0 {{ std::cmp::Ordering::Greater }} else {{ std::cmp::Ordering::Equal }} }})"
         ))
     }
 

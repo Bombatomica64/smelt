@@ -37,6 +37,11 @@ impl FunctionEmitter<'_> {
                         "{receiver_text}.as_ref().and_then(|_smelt_value| {mapped})"
                     ));
                 }
+                if let Some(erased) = self.erased_field_optional_map_text(&value, field_ty, *dest_inner)? {
+                    return Ok(format!(
+                        "{receiver_text}.as_ref().and_then(|_smelt_value| {erased})"
+                    ));
+                }
                 let mapped = self.value_at_type_text(&value, field_ty, *dest_inner)?;
                 return Ok(format!(
                     "{receiver_text}.as_ref().map(|_smelt_value| {mapped})"
@@ -53,11 +58,56 @@ impl FunctionEmitter<'_> {
                 if let Some(Type::Optional(field_inner)) = self.mir.types.get(field_ty) {
                     return self.optional_inner_map_text(&value, *field_inner, *dest_inner);
                 }
+                if let Some(erased) = self.erased_field_optional_map_text(&value, field_ty, *dest_inner)? {
+                    return Ok(erased);
+                }
                 let mapped = self.value_at_type_text(&value, field_ty, *dest_inner)?;
                 return Ok(format!("Some({mapped})"));
             }
             self.value_at_type_text(&value, field_ty, dest_ty)
         }
+    }
+
+    /// Emits an `Option<T>` for a *dynamically* read field whose static type is
+    /// erased to `SmeltUnknown`.
+    ///
+    /// A field read on a union, an erased class, or an `unknown` receiver has no
+    /// static field type, so `field_access_type` reports `Type::Unknown` and the
+    /// emitted text is a `SmeltUnknown`-producing dynamic lookup that yields
+    /// `SmeltUnknown::Undefined`/`Null` when the property is simply absent. The
+    /// destination here is an `Option<T>`, i.e. the source expression's type is
+    /// `T | undefined`, so an absent property must land in that `None` — the same
+    /// answer JavaScript gives.
+    ///
+    /// Coercing the raw lookup straight to `T` instead would hand `None`'s job to
+    /// `value_at_type_text`, which has no way to say "absent" and must invent a
+    /// `T`: for a callback destination that is a synthesized default closure
+    /// returning `false`, which then silently displaces the `??` fallback the
+    /// source wrote (`options?.shouldRetry ?? DEFAULT_SHOULD_RETRY` bound a
+    /// never-retry stub). This is the "unmodeled member silently becomes a value"
+    /// shape; propagating `None` diagnoses it structurally instead.
+    ///
+    /// Returns `None` when the field type is not erased, leaving the statically
+    /// typed paths — where the field provably exists — on their `map`/`Some`
+    /// emission.
+    fn erased_field_optional_map_text(
+        &self,
+        value_text: &str,
+        field_ty: TypeId,
+        dest_inner: TypeId,
+    ) -> Result<Option<String>, EmitError> {
+        if !matches!(self.mir.types.get(field_ty), Some(Type::Unknown)) {
+            return Ok(None);
+        }
+        // An erased destination keeps the raw tagged value, `Undefined` included,
+        // so there is nothing to narrow and `Some(..)` already round-trips.
+        if matches!(self.mir.types.get(dest_inner), Some(Type::Unknown)) {
+            return Ok(None);
+        }
+        let mapped = self.value_at_type_text("_smelt_field", field_ty, dest_inner)?;
+        Ok(Some(format!(
+            "match {value_text} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => None, _smelt_field => Some({mapped}) }}"
+        )))
     }
 
     /// Emits Rust for a TypeScript optional-chain index read.

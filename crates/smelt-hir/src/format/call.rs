@@ -36,6 +36,8 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             format!("yield* {}", expr_ref(*generator))
         }
         ExprKind::Call { .. }
+        | ExprKind::ThisRead
+        | ExprKind::BindThis { .. }
         | ExprKind::ClosureCall { .. }
         | ExprKind::ClosureCallSpread { .. }
         | ExprKind::Method { .. }
@@ -199,6 +201,13 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 crate::expr::StringTrimSide::End => "end",
             };
             format!("string_trim_{side_name} {}", expr_ref(*operand))
+        }
+        ExprKind::StringLocaleCompare { left, right } => {
+            format!(
+                "string_locale_compare {} {}",
+                expr_ref(*left),
+                expr_ref(*right)
+            )
         }
         ExprKind::StringAffix {
             op,
@@ -978,6 +987,8 @@ fn async_op_text(op: AsyncOp, args: &[ExprId]) -> String {
         AsyncOp::SpawnLocal => "async_spawn_local",
         AsyncOp::CreateTask => "async_create_task",
         AsyncOp::WaitFor => "async_wait_for",
+        AsyncOp::Resolve => "async_resolve",
+        AsyncOp::Reject => "async_reject",
         AsyncOp::HttpGetText => "async_http_get_text",
     };
     let args_text = args
@@ -998,6 +1009,10 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::Call { callee, args } => {
             let arg_text = expr_list_text(args);
             format!("call {}({arg_text})", expr_ref(*callee))
+        }
+        ExprKind::ThisRead => "this".to_owned(),
+        ExprKind::BindThis { callee, receiver } => {
+            format!("bind_this {}, {}", expr_ref(*callee), expr_ref(*receiver))
         }
         ExprKind::ClosureCall { callee, args } => {
             let arg_text = expr_list_text(args);

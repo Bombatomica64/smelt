@@ -1143,7 +1143,7 @@ fn smelt_eager_poll_waker() -> ::std::task::Waker {
 #[derive(Clone)]
 pub struct SmeltPromise {
     id: usize,
-    state: ::std::rc::Rc<::std::cell::RefCell<Option<Result<SmeltUnknown, String>>>>,
+    state: ::std::rc::Rc<::std::cell::RefCell<Option<Result<SmeltUnknown, SmeltUnknown>>>>,
     future: ::std::rc::Rc<::std::cell::RefCell<Option<SmeltPromiseFuture>>>,
 }
 
@@ -1164,13 +1164,13 @@ impl SmeltPromise {
         if self.state.borrow().is_none() {
             let taken = self.future.borrow_mut().take();
             if let Some(future) = taken {
-                let settled = future.await.map_err(|error| error.to_string());
+                let settled = future.await.map_err(|error| smelt_thrown_value(&*error));
                 *self.state.borrow_mut() = Some(settled);
             }
         }
         loop {
             if let Some(result) = self.state.borrow().clone() {
-                return result.map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error).into());
+                return result.map_err(smelt_throw);
             }
             tokio::task::yield_now().await;
         }
@@ -1191,8 +1191,13 @@ async fn smelt_await_flatten(value: SmeltUnknown) -> Result<SmeltUnknown, Box<dy
 enum SmeltFutureState<T> {
     Pending(::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>),
     Resolved(T),
-    Rejected(String),
+    Rejected(SmeltUnknown),
     Taken,
+}
+thread_local! {
+    /// Non-zero while `SmeltFuture::from_future_primed` is running its
+    /// eager prefix poll; see `smelt_sleep_ms`.
+    static SMELT_PRIME_DEPTH: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) };
 }
 pub struct SmeltFuture<T> {
     state: ::std::rc::Rc<::std::cell::RefCell<SmeltFutureState<T>>>,
@@ -1223,11 +1228,15 @@ impl<T> SmeltFuture<T> {
     /// later resume. Derived/adapter promises deliberately do NOT use this,
     /// preserving when their continuations and rejections become observable.
     fn from_future_primed(mut future: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>) -> Self {
+        struct SmeltPrimeGuard;
+        impl Drop for SmeltPrimeGuard { fn drop(&mut self) { SMELT_PRIME_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1))); } }
+        SMELT_PRIME_DEPTH.with(|depth| depth.set(depth.get().saturating_add(1)));
+        let _smelt_prime_guard = SmeltPrimeGuard;
         let waker = smelt_eager_poll_waker();
         let mut cx = ::std::task::Context::from_waker(&waker);
         let state = match ::std::future::Future::poll(future.as_mut(), &mut cx) {
             ::std::task::Poll::Ready(Ok(value)) => SmeltFutureState::Resolved(value),
-            ::std::task::Poll::Ready(Err(error)) => SmeltFutureState::Rejected(error.to_string()),
+            ::std::task::Poll::Ready(Err(error)) => SmeltFutureState::Rejected(smelt_thrown_value(&*error)),
             ::std::task::Poll::Pending => SmeltFutureState::Pending(future),
         };
         Self { state: ::std::rc::Rc::new(::std::cell::RefCell::new(state)) }
@@ -1254,7 +1263,7 @@ impl<T> SmeltFuture<T> {
         let guard = self.state.borrow();
         match &*guard {
             SmeltFutureState::Resolved(value) => Ok(value.clone()),
-            SmeltFutureState::Rejected(message) => Err(std::io::Error::new(std::io::ErrorKind::Other, message.clone()).into()),
+            SmeltFutureState::Rejected(payload) => Err(smelt_throw(payload.clone())),
             _ => Err(std::io::Error::new(std::io::ErrorKind::Other, "future already consumed").into()),
         }
     }

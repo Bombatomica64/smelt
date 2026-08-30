@@ -61,6 +61,26 @@ impl FunctionEmitter<'_> {
         ))
     }
 
+    /// Converts JavaScript `left.localeCompare(right)` to a call to the runtime
+    /// collation helper (`smelt_locale_compare`).
+    ///
+    /// Both operands are string-like, so they reach the helper as `&str`; the
+    /// helper answers the negative / zero / positive `f64` that a comparator
+    /// contract expects. See the runtime item for which collation levels are
+    /// modeled.
+    pub(super) fn string_locale_compare_text(
+        &self,
+        left: &Operand,
+        right: &Operand,
+    ) -> Result<String, EmitError> {
+        let left_text = self.string_like_operand_text(left, "localeCompare")?;
+        let right_text = self.string_like_operand_text(right, "localeCompare")?;
+        Ok(format!(
+            "{locale_compare}({left_text}.as_str(), {right_text}.as_str())",
+            locale_compare = smelt_stdlib::runtime_symbols::strings::LOCALE_COMPARE,
+        ))
+    }
+
     /// Converts a string trim operation to Rust text.
     pub(super) fn string_trim_text(
         &self,

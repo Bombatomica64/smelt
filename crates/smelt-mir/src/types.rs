@@ -764,6 +764,23 @@ pub enum Rvalue {
         /// Captured operands in closure capture order.
         captures: Vec<Operand>,
     },
+    /// Read the JavaScript `this` receiver installed by the innermost active call.
+    ///
+    /// Evaluates to the receiver a [`Rvalue::BindThis`] callable installed for
+    /// the duration of the current invocation, or `undefined` when the current
+    /// call supplied none (a plain `f()` invocation).
+    ThisRead,
+    /// Bind a receiver to a callable value, as `Function.prototype.bind` does.
+    ///
+    /// The result is a callable that installs `receiver` as the `this` seen by
+    /// [`Rvalue::ThisRead`] inside the callee for the duration of one call and
+    /// restores the previous binding afterwards.
+    BindThis {
+        /// The callable whose receiver is bound.
+        callee: Operand,
+        /// The receiver value the callee's `this` resolves to.
+        receiver: Operand,
+    },
     /// Call a closure value.
     ClosureCall {
         /// Closure value to call.
@@ -843,6 +860,15 @@ pub enum Rvalue {
         form: smelt_hir::StringNormalizeForm,
         /// String operand to normalize.
         operand: Operand,
+    },
+    /// Collate two strings per JavaScript `left.localeCompare(right)` with no
+    /// locale or option arguments (see the runtime `smelt_locale_compare`
+    /// helper for the collation levels that are and are not modeled).
+    StringLocaleCompare {
+        /// Receiver string.
+        left: Operand,
+        /// String compared against the receiver.
+        right: Operand,
     },
     /// Percent-encode a string per JavaScript `encodeURI` (the full-URI
     /// character set; see the runtime `smelt_encode_uri` helper).

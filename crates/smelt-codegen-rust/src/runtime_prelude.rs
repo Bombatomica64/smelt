@@ -48,6 +48,9 @@ pub(crate) enum PreludeGate {
     SharedCaptures,
     /// `encodeURI` (`stdlib::needs_uri_encode_runtime`).
     UriEncode,
+    /// The `smelt_locale_compare` string-collation helper backing
+    /// `String.prototype.localeCompare`.
+    LocaleCompare,
     /// JS reference-identity minting on its own, for a regex/match program with
     /// no list (`needs_regex && !needs_smelt_list`).
     ObjectIdentity,
@@ -74,6 +77,7 @@ impl PreludeGate {
         Self::VirtualClock,
         Self::SharedCaptures,
         Self::UriEncode,
+        Self::LocaleCompare,
         Self::ObjectIdentity,
         Self::SmeltList,
     ];
@@ -94,6 +98,7 @@ impl PreludeGate {
                 "smelt_shared_capture",
             ],
             Self::UriEncode => &["smelt_encode_uri"],
+            Self::LocaleCompare => &["smelt_locale_compare"],
             Self::ObjectIdentity => &["SMELT_NEXT_OBJECT_ID", "smelt_next_object_id"],
             Self::SmeltList => &["SMELT_NEXT_OBJECT_ID", "smelt_next_object_id", "SmeltList"],
         }

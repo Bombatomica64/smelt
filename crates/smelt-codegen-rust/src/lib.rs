@@ -468,6 +468,8 @@ fn needs_timer_helpers(mir: &Mir) -> bool {
             value,
             Rvalue::AsyncOp {
                 op: AsyncOp::Sleep
+                    | AsyncOp::Resolve
+                    | AsyncOp::Reject
                     | AsyncOp::SetTimeout
                     | AsyncOp::ClearTimeout
                     | AsyncOp::SetInterval
@@ -544,6 +546,11 @@ fn emit_source_with_free_function_router(
     // `IsConcatSpreadable` helper, so it stays out of every other prelude.
     let needs_concat_spread =
         stdlib::rvalues(mir).any(|rvalue| matches!(rvalue, Rvalue::ConcatSpread { .. }));
+    // The dynamically scoped `this` channel is only reachable from the two
+    // rvalues that read and install it, so a program that never mentions `this`
+    // (and never binds a receiver) carries none of it.
+    let needs_this_channel = stdlib::rvalues(mir)
+        .any(|rvalue| matches!(rvalue, Rvalue::ThisRead | Rvalue::BindThis { .. }));
     let needs_host_override = stdlib::needs_host_override_runtime(mir);
     let needs_shared_captures = mir
         .closures
@@ -665,6 +672,9 @@ fn emit_source_with_free_function_router(
     }
     if stdlib::needs_uri_encode_runtime(mir) {
         emit_runtime_gate(&mut writer, PreludeGate::UriEncode)?;
+    }
+    if stdlib::needs_locale_compare_runtime(mir) {
+        emit_runtime_gate(&mut writer, PreludeGate::LocaleCompare)?;
     }
     // `smelt_next_object_id` mints fresh JavaScript object reference ids. It is
     // emitted in the `needs_smelt_list` block below (a list mints ids), but a
@@ -2162,8 +2172,18 @@ fn emit_source_with_free_function_router(
         writer.line("#[derive(Clone)]");
         writer.line("pub struct SmeltPromise {");
         writer.line("    id: usize,");
+        // The settled state's error slot is the *same* exception-payload ABI
+        // `smelt_throw`/`smelt_thrown_value` define (see `thrown.rs`), not a new
+        // erasure: a JavaScript rejection reason is any value at all, so it has
+        // no static type to preserve here. It previously held a `String`, which
+        // silently destroyed every rejection reason that was not exactly its own
+        // `message` — `Promise.reject({ status: 400 })` settled as the string
+        // "[object Object]" and was re-inflated on await as a synthetic
+        // `{ __smelt_error: "Error", message }` record with `status` gone. Since
+        // the payload arrives as a `SmeltUnknown` and leaves as one, storing it
+        // as a `SmeltUnknown` keeps it whole across the settle boundary.
         writer.line(
-            "    state: ::std::rc::Rc<::std::cell::RefCell<Option<Result<SmeltUnknown, String>>>>,",
+            "    state: ::std::rc::Rc<::std::cell::RefCell<Option<Result<SmeltUnknown, SmeltUnknown>>>>,",
         );
         writer.line("    future: ::std::rc::Rc<::std::cell::RefCell<Option<SmeltPromiseFuture>>>,");
         writer.line("}");
@@ -2179,11 +2199,11 @@ fn emit_source_with_free_function_router(
             // `SmeltPromise::rejected` is only referenced by the Vitest mock
             // runtime (`mockRejectedValue*`), so it is gated on the same flag to
             // keep every non-mock crate's prelude byte-identical.
-            writer.line("    /// Create an already-rejected erased promise value. Awaiting it yields");
-            writer.line("    /// `Err` through the shared settle state, carrying a JS-faithful message");
-            writer.line("    /// (an Error-like object's `message` string, else the value's display),");
-            writer.line("    /// matching the existing string-based thrown-error ABI.");
-            writer.line("    fn rejected(value: SmeltUnknown) -> Self { let message = match &value { SmeltUnknown::Object(map) => match map.get(\"message\") { Some(SmeltUnknown::String(text)) => text.to_string(), _ => value.to_string() }, SmeltUnknown::String(text) => text.to_string(), other => other.to_string() }; Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(Some(Err(message)))), future: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }");
+            writer.line("    /// Create an already-rejected erased promise value. The rejection");
+            writer.line("    /// reason is kept whole in the shared settle state and re-enters the");
+            writer.line("    /// error channel unchanged on await, so a non-`Error` reason keeps its");
+            writer.line("    /// own properties (JavaScript rejects with any value, not a message).");
+            writer.line("    fn rejected(value: SmeltUnknown) -> Self { Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(Some(Err(value)))), future: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }");
         }
         writer.line("    /// Store a live future behind a cloneable erased promise handle. This");
         writer.line("    /// is the lazy constructor used by derived/adapter promises (await");
@@ -2203,13 +2223,13 @@ fn emit_source_with_free_function_router(
         writer.line("            let taken = self.future.borrow_mut().take();");
         writer.line("            if let Some(future) = taken {");
         writer
-            .line("                let settled = future.await.map_err(|error| error.to_string());");
+            .line("                let settled = future.await.map_err(|error| smelt_thrown_value(&*error));");
         writer.line("                *self.state.borrow_mut() = Some(settled);");
         writer.line("            }");
         writer.line("        }");
         writer.line("        loop {");
         writer.line("            if let Some(result) = self.state.borrow().clone() {");
-        writer.line("                return result.map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error).into());");
+        writer.line("                return result.map_err(smelt_throw);");
         writer.line("            }");
         // The result cell is still empty: another task (or a timer callback) must
         // settle it. When timer helpers exist, drive the cooperative scheduler and
@@ -2263,12 +2283,33 @@ fn emit_source_with_free_function_router(
         writer.line("    Pending(::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>),");
         writer.line("    Resolved(T),");
         // A synchronous prefix that threw during eager priming (see
-        // `smelt_eager_poll_waker`) is stored as a rejection, kept as a `String`
-        // so the state stays cloneable-in-effect: JS promises may be awaited more
-        // than once and each await re-observes the same rejection, so `smelt_await`
-        // rebuilds an error from this message on every call.
-        writer.line("    Rejected(String),");
+        // `smelt_eager_poll_waker`) is stored as a rejection. JS promises may be
+        // awaited more than once and each await re-observes the SAME rejection,
+        // so the state has to hold something `smelt_await` can rebuild an error
+        // from on every call — which is why it is a value and not the
+        // `Box<dyn Error>` itself. It holds the thrown payload
+        // `smelt_throw`/`smelt_thrown_value` already define (see `thrown.rs`),
+        // not a new erasure: this slot previously held a `String`, which reduced
+        // every rejection to its message text and re-inflated it as a synthetic
+        // `{ __smelt_error, message }` record, so `async () => { throw "oops"; }`
+        // handed its `catch` an object where JavaScript hands it the string.
+        writer.line("    Rejected(SmeltUnknown),");
         writer.line("    Taken,");
+        writer.line("}");
+        // A priming poll must not own the virtual clock. `from_future_primed`
+        // runs an async body's synchronous prefix at call time; in JavaScript
+        // that prefix only *schedules* its timers, it does not make time pass.
+        // The virtual-clock sleep helper advances the clock to its own deadline
+        // when it is driven, so without this marker priming
+        // `withTimeout(() => delay(1000), 50)`'s `run()` jumped the clock 1000ms
+        // before the 50ms deadline was even armed and the timeout could never
+        // win. This is the same rule `SMELT_RACE_DEPTH` already states for a
+        // `Promise.race` driver, applied to the other place that polls a future
+        // out of band.
+        writer.line("thread_local! {");
+        writer.line("    /// Non-zero while `SmeltFuture::from_future_primed` is running its");
+        writer.line("    /// eager prefix poll; see `smelt_sleep_ms`.");
+        writer.line("    static SMELT_PRIME_DEPTH: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) };");
         writer.line("}");
         writer.line("pub struct SmeltFuture<T> {");
         writer.line("    state: ::std::rc::Rc<::std::cell::RefCell<SmeltFutureState<T>>>,");
@@ -2299,11 +2340,15 @@ fn emit_source_with_free_function_router(
         writer.line("    /// later resume. Derived/adapter promises deliberately do NOT use this,");
         writer.line("    /// preserving when their continuations and rejections become observable.");
         writer.line("    fn from_future_primed(mut future: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>) -> Self {");
+        writer.line("        struct SmeltPrimeGuard;");
+        writer.line("        impl Drop for SmeltPrimeGuard { fn drop(&mut self) { SMELT_PRIME_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1))); } }");
+        writer.line("        SMELT_PRIME_DEPTH.with(|depth| depth.set(depth.get().saturating_add(1)));");
+        writer.line("        let _smelt_prime_guard = SmeltPrimeGuard;");
         writer.line("        let waker = smelt_eager_poll_waker();");
         writer.line("        let mut cx = ::std::task::Context::from_waker(&waker);");
         writer.line("        let state = match ::std::future::Future::poll(future.as_mut(), &mut cx) {");
         writer.line("            ::std::task::Poll::Ready(Ok(value)) => SmeltFutureState::Resolved(value),");
-        writer.line("            ::std::task::Poll::Ready(Err(error)) => SmeltFutureState::Rejected(error.to_string()),");
+        writer.line("            ::std::task::Poll::Ready(Err(error)) => SmeltFutureState::Rejected(smelt_thrown_value(&*error)),");
         writer.line("            ::std::task::Poll::Pending => SmeltFutureState::Pending(future),");
         writer.line("        };");
         writer.line("        Self { state: ::std::rc::Rc::new(::std::cell::RefCell::new(state)) }");
@@ -2330,7 +2375,7 @@ fn emit_source_with_free_function_router(
         writer.line("        let guard = self.state.borrow();");
         writer.line("        match &*guard {");
         writer.line("            SmeltFutureState::Resolved(value) => Ok(value.clone()),");
-        writer.line("            SmeltFutureState::Rejected(message) => Err(std::io::Error::new(std::io::ErrorKind::Other, message.clone()).into()),");
+        writer.line("            SmeltFutureState::Rejected(payload) => Err(smelt_throw(payload.clone())),");
         writer.line("            _ => Err(std::io::Error::new(std::io::ErrorKind::Other, \"future already consumed\").into()),");
         writer.line("        }");
         writer.line("    }");
@@ -2565,6 +2610,25 @@ fn emit_source_with_free_function_router(
             writer.line("        });");
             writer.line("        self");
             writer.line("    }");
+            // Binding a receiver keeps the callable TYPED: a bound method is
+            // still a function everywhere else in the program, so degrading it
+            // to `SmeltUnknown` at the bind would erase a shape the source
+            // states. `object` rides along so a bound callable object keeps its
+            // own properties.
+            if needs_this_channel {
+            writer.line("    /// Bind a receiver to this callable, as `Function.prototype.bind` does.");
+            writer.line("    fn smelt_bind_this(&self, receiver: SmeltUnknown) -> SmeltErasedFunction {");
+            writer.line("        let callback = self.callback.clone();");
+            writer.line("        SmeltErasedFunction {");
+            writer.line("            callback: ::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| {");
+            writer.line("                let _smelt_this_guard = smelt_push_this(receiver.clone());");
+            writer.line("                (callback)(args)");
+            writer.line("            }),");
+            writer.line("            length: self.length,");
+            writer.line("            object: self.object.clone(),");
+            writer.line("        }");
+            writer.line("    }");
+            }
             writer.line("    /// Read one own property of a callable object, `undefined` when absent.");
             writer.line("    fn smelt_property(&self, name: &str) -> SmeltUnknown {");
             writer.line("        if let Some(value) = self.object.as_ref().and_then(|object| object.get(name)) { return value; }");
@@ -2651,6 +2715,65 @@ fn emit_source_with_free_function_router(
             writer.line("    /// not declare them can still answer a later property read.");
             writer.line("    static SMELT_CALLABLE_PROPERTIES: ::std::cell::RefCell<::std::collections::HashMap<usize, SmeltObject>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
             writer.line("}");
+        }
+        if needs_this_channel {
+        writer.blank_line();
+        // JavaScript `this` is supplied by the CALL, not by the definition site:
+        // the same plain function sees a different receiver depending on whether
+        // it was reached as `object.method()`, `fn.call(thisArg, ..)`, or a bare
+        // `fn()`. That is a genuinely dynamic binding, so it is modeled as a
+        // dynamically scoped channel rather than as a value threaded through the
+        // erased call ABI -- threading it would change the signature of every
+        // erased callable in the program for a feature only a handful of them
+        // read. `smelt_bind_this` installs a receiver for exactly one call and
+        // the guard restores the previous binding on scope exit (including on
+        // unwind), so the channel is always balanced.
+        writer.line("thread_local! {");
+        writer.line("    /// Receiver installed by the innermost active call, `undefined` when none.");
+        writer.line("    static SMELT_THIS: ::std::cell::RefCell<SmeltUnknown> = ::std::cell::RefCell::new(SmeltUnknown::Undefined);");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// Restores the previously installed `this` binding when dropped.");
+        writer.line("struct SmeltThisGuard { previous: SmeltUnknown }");
+        writer.blank_line();
+        writer.line("impl Drop for SmeltThisGuard {");
+        writer.line("    fn drop(&mut self) {");
+        writer.line("        let previous = ::std::mem::replace(&mut self.previous, SmeltUnknown::Undefined);");
+        writer.line("        SMELT_THIS.with(|slot| { *slot.borrow_mut() = previous; });");
+        writer.line("    }");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// Install `receiver` as `this` until the returned guard is dropped.");
+        writer.line("fn smelt_push_this(receiver: SmeltUnknown) -> SmeltThisGuard {");
+        writer.line("    SmeltThisGuard { previous: SMELT_THIS.with(|slot| slot.replace(receiver)) }");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// Read the `this` receiver installed by the innermost active call.");
+        writer.line("fn smelt_this() -> SmeltUnknown {");
+        writer.line("    SMELT_THIS.with(|slot| slot.borrow().clone())");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// Bind a receiver to an erased callable, as `Function.prototype.bind` does.");
+        writer.line("fn smelt_bind_this(callee: SmeltUnknown, receiver: SmeltUnknown) -> SmeltUnknown {");
+        writer.line("    match callee {");
+        writer.line("        SmeltUnknown::Function(function) => SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| {");
+        writer.line("            let _smelt_this_guard = smelt_push_this(receiver.clone());");
+        writer.line("            function(args)");
+        writer.line("        })),");
+        // A callable OBJECT (`__smelt_call`) keeps its property bag: rebuilding
+        // the object with a bound `__smelt_call` preserves every other member,
+        // which is what `throttle`/`debounce` return and then invoke as a method.
+        writer.line("        SmeltUnknown::Object(object) => match object.get(\"__smelt_call\") {");
+        writer.line("            Some(callable @ SmeltUnknown::Function(_)) => {");
+        writer.line("                let bound = object.clone();");
+        writer.line("                bound.insert(\"__smelt_call\".to_owned(), smelt_bind_this(callable, receiver));");
+        writer.line("                SmeltUnknown::Object(bound)");
+        writer.line("            }");
+        writer.line("            _ => SmeltUnknown::Object(object),");
+        writer.line("        },");
+        writer.line("        other => other,");
+        writer.line("    }");
+        writer.line("}");
         }
         if needs_vitest_mock {
             writer.blank_line();
@@ -3124,6 +3247,7 @@ fn emit_source_with_free_function_router(
             writer.line("    SMELT_TIMERS.with(|timers| timers.borrow_mut().clear());");
             writer.line("    SMELT_PROMISE_TASKS.with(|tasks| tasks.borrow_mut().clear());");
             writer.line("    SMELT_RACE_DEPTH.with(|depth| depth.set(0));");
+            writer.line("    SMELT_PRIME_DEPTH.with(|depth| depth.set(0));");
             writer.line("}");
             writer.blank_line();
             writer.line(format!(
@@ -3260,6 +3384,15 @@ fn emit_source_with_free_function_router(
                 "async fn {sleep_ms}(delay_ms: f64) {{",
                 sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
             ));
+            // Suspend immediately under an eager prefix poll, before touching the
+            // clock. `from_future_primed` runs an async body's synchronous prefix
+            // at call time; in JavaScript that prefix schedules its timers but
+            // does not make time pass, whereas this helper advances virtual time
+            // to its own deadline as soon as it is driven. Yielding here leaves
+            // the prefix's effects in place and defers all timekeeping to the
+            // first real poll, so a long sleep started inside a primed body
+            // cannot outrun deadlines armed after it (see `SMELT_PRIME_DEPTH`).
+            writer.line("    if SMELT_PRIME_DEPTH.with(::std::cell::Cell::get) > 0 { tokio::task::yield_now().await; }");
             writer.line(format!(
                 "    {drain_promise_tasks}().await;",
                 drain_promise_tasks = smelt_stdlib::runtime_symbols::timers::DRAIN_PROMISE_TASKS,

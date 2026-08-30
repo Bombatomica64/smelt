@@ -573,6 +573,14 @@ impl ModuleBuilder<'_> {
                     ) {
                         return Ok(value);
                     }
+                    // A combinator element that is not statically a `Future`
+                    // is a plain value (or an erased one that may be a promise
+                    // at run time), which `Promise.all` adopts as-is. It must
+                    // travel in the op's operands: lowering to a bare `Sleep`
+                    // kept only its *type*, so the element expression -- and any
+                    // side effect in it -- was dropped and the combinator saw
+                    // `default_value(ty)`. `Promise.all([f(), g()])` on erased
+                    // callables never called `f` or `g` at all.
                     let duration = body.push_expr(Expr {
                         kind: ExprKind::Literal(Literal::Float(0.0)),
                         ty: self.ctx.krate.types.intern(Type::Float),
@@ -585,8 +593,8 @@ impl ModuleBuilder<'_> {
                         .intern(Type::Future(Self::expr_ty(body, value)));
                     Ok(body.push_expr(Expr {
                         kind: ExprKind::AsyncOp {
-                            op: AsyncOp::Sleep,
-                            args: vec![duration],
+                            op: AsyncOp::Resolve,
+                            args: vec![duration, value],
                         },
                         ty,
                         span: self.span(element.span().start, element.span().end),
@@ -1086,9 +1094,11 @@ impl ModuleBuilder<'_> {
                             ));
                         }
                         ArrayExpressionElement::Elision(_) => {
+                            // A hole reads as `undefined` (see the sibling
+                            // elision arm in `array_expression`).
                             let ty = self.ctx.krate.types.intern(Type::Unknown);
                             body.push_expr(Expr {
-                                kind: ExprKind::Literal(Literal::None),
+                                kind: ExprKind::Literal(Literal::Undefined),
                                 ty,
                                 span: self
                                     .span(nested_element.span().start, nested_element.span().end),
@@ -2572,9 +2582,15 @@ impl ModuleBuilder<'_> {
             // the hint and let the element infer its own type instead.
             let element_hint = self.array_element_hint_matches_arity(element, element_hint, body);
             let item = if let ArrayExpressionElement::Elision(elision) = element {
+                // A HOLE in an array literal (`[1, , 2]`) reads as `undefined`,
+                // never as `null`: the index is absent, and every absent
+                // property read in JavaScript answers `undefined`. Lowering it
+                // to `null` made `[1, , 2]` and `[1, null, 2]` indistinguishable
+                // and `[...new Set([1, , 2])]` produce `null` where JavaScript
+                // produces `undefined`.
                 let ty = element_hint.unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
                 body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::None),
+                    kind: ExprKind::Literal(Literal::Undefined),
                     ty,
                     span: self.span(elision.span.start, elision.span.end),
                 })

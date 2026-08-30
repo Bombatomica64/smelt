@@ -3879,6 +3879,115 @@ const sortByImplementation = <T>(
 }
 
 #[test]
+fn emits_runtime_branch_for_an_optional_sort_comparator() {
+    // ECMA-262 `Array.prototype.sort` step 1: `sort(undefined)` is `sort()`.
+    // An optional comparator must therefore stay a real `Option<..>` down to
+    // runtime and be matched, NOT be wrapped in an erased callback whose absent
+    // call yields `undefined` (which the numeric coercion reads as 0, making
+    // every comparison `Equal` and the whole sort a silent no-op).
+    let source = source_for(
+        r"
+export function sortKeysLike(keys: string[], compare?: (a: string, b: string) => number): string[] {
+  return keys.slice().sort(compare);
+}
+",
+    );
+
+    assert!(
+        source.contains("match compare.clone() { Some(smelt_comparator) =>"),
+        "the optional comparator must be matched at runtime: {source}"
+    );
+    assert!(
+        source.contains(
+            "None => { _smelt_tmp_2.borrow_mut().sort_by(|left, right| left.to_string().cmp(&right.to_string())); }"
+        ),
+        "the absent arm must run the default ToString ordering: {source}"
+    );
+    let body = source
+        .split_once("fn sort_keys_like(")
+        .expect("generated function")
+        .1;
+    let body = body.split_once("\nfn ").map_or(body, |(head, _)| head);
+    assert!(
+        !body.contains("SmeltUnknown"),
+        "the optional comparator must not be erased: {body}"
+    );
+}
+
+#[test]
+fn emits_locale_compare_through_the_runtime_collation_helper() {
+    // `String.prototype.localeCompare` used to resolve as an ABSENT member and
+    // lower to a bare `SmeltUnknown::Null` that was then CALLED, so the
+    // comparator answered `NaN` for every pair. It is a modeled builtin now.
+    let source = source_for(
+        r"
+export function collate(a: string, b: string): number {
+  return a.localeCompare(b);
+}
+",
+    );
+
+    assert!(
+        source.contains("smelt_locale_compare(a.clone().as_str(), b.clone().as_str())"),
+        "{source}"
+    );
+    assert!(
+        source.contains("fn smelt_locale_compare(left: &str, right: &str) -> f64"),
+        "the runtime helper must be emitted into the prelude: {source}"
+    );
+    assert!(
+        !source.contains("SmeltUnknown::Null"),
+        "an unmodeled member must not silently become a value: {source}"
+    );
+}
+
+#[test]
+fn emits_nan_equal_leaves_for_a_nested_float_comparison() {
+    // JavaScript deep equality compares numeric leaves with `Object.is`, so
+    // `NaN` equals `NaN`. Rust's `f64: PartialEq` is IEEE `==`, under which it
+    // does not, and `SmeltList<f64> == SmeltList<f64>` inherits that — so
+    // `expect([NaN, 1]).toEqual([NaN, 1])` failed with the right value on both
+    // sides. The scalar case already had this rule; this is the nested one.
+    let source = source_for(
+        r"
+export function listsEqual(left: number[], right: number[]): boolean {
+  return left == right;
+}
+",
+    );
+    assert!(
+        source.contains("left_item.is_nan() && right_item.is_nan()"),
+        "a float leaf inside a list must compare NaN-equal: {source}"
+    );
+}
+
+#[test]
+fn lowers_an_array_hole_to_undefined_not_null() {
+    // A hole in an array literal reads as `undefined` in JavaScript, never as
+    // `null` — the index is absent, and an absent property read answers
+    // `undefined`. Lowering it to `null` made `[1, , 2]` indistinguishable from
+    // `[1, null, 2]`.
+    let source = source_for(
+        r"
+export function holes(): unknown[] {
+  return [1, , 2];
+}
+",
+    );
+
+    let body = source.split_once("fn holes(").expect("generated function").1;
+    let body = body.split_once("\nfn ").map_or(body, |(head, _)| head);
+    assert!(
+        body.contains("SmeltUnknown::Undefined"),
+        "the hole must be `undefined`: {body}"
+    );
+    assert!(
+        !body.contains("SmeltUnknown::Null"),
+        "the hole must not become `null`: {body}"
+    );
+}
+
+#[test]
 fn emits_spread_sort_for_erased_iterable_generic() {
     let source = source_for(
         r"

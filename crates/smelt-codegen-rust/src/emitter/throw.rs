@@ -36,24 +36,45 @@ impl FunctionEmitter<'_> {
     /// through a runtime helper without ever naming an `unknown`-typed value), and
     /// requiring the id there would spuriously fail emission.
     pub(super) fn throw_terminator_text(&self, operand: &Operand) -> Result<String, EmitError> {
-        let payload = if stdlib::needs_unknown_type(self.mir) {
-            let operand_ty = self.operand_ty(operand)?;
-            let value_text = self.operand_text(operand)?;
-            let erased = if matches!(self.mir.types.get(operand_ty), Some(Type::Unknown)) {
-                value_text
-            } else {
-                self.erase_value_text(&value_text, operand_ty)?
-            };
-            thrown::throw_expr(&erased)
-        } else {
-            format!(
-                "std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", {})).into()",
-                self.operand_text(operand)?
-            )
-        };
+        let payload = self.thrown_payload_text(operand)?;
         Ok(format!(
             "    return Err::<_, Box<dyn std::error::Error>>({payload});\n"
         ))
+    }
+
+    /// Renders the `Box<dyn std::error::Error>` an operand enters the error
+    /// channel as.
+    ///
+    /// Shared by the `throw` terminator and `Promise.reject`, which are the same
+    /// operation in JavaScript: both settle the error channel with an arbitrary
+    /// value. Keeping one renderer means a rejection reason and a thrown value
+    /// have identical fidelity — an erased program keeps the payload whole
+    /// through `smelt_throw`, and a program with no erased values keeps the plain
+    /// string `std::io::Error` form.
+    pub(super) fn thrown_payload_text(&self, operand: &Operand) -> Result<String, EmitError> {
+        if !stdlib::needs_unknown_type(self.mir) {
+            return Ok(format!(
+                "std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", {})).into()",
+                self.operand_text(operand)?
+            ));
+        }
+        let operand_ty = self.operand_ty(operand)?;
+        let value_text = self.operand_text(operand)?;
+        let erased = if matches!(self.mir.types.get(operand_ty), Some(Type::Unknown)) {
+            value_text
+        } else {
+            self.erase_value_text(&value_text, operand_ty)?
+        };
+        Ok(thrown::throw_expr(&erased))
+    }
+
+    /// Renders the payload for a rejection with no reason (`Promise.reject()`),
+    /// which JavaScript settles with `undefined`.
+    pub(super) fn undefined_thrown_payload_text(&self) -> String {
+        if stdlib::needs_unknown_type(self.mir) {
+            return thrown::throw_expr("SmeltUnknown::Undefined");
+        }
+        "std::io::Error::new(std::io::ErrorKind::Other, \"undefined\").into()".to_owned()
     }
 
     /// Renders the `catch` binding for a caught `Box<dyn std::error::Error>`.

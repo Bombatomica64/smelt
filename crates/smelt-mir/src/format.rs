@@ -212,6 +212,12 @@ fn statement_text(statement: &Statement) -> String {
 fn rvalue_text(rvalue: &Rvalue) -> String {
     match rvalue {
         Rvalue::Use(operand) => operand_text(operand),
+        Rvalue::ThisRead => "this".to_owned(),
+        Rvalue::BindThis { callee, receiver } => format!(
+            "bind_this {}, {}",
+            operand_text(callee),
+            operand_text(receiver)
+        ),
         Rvalue::GeneratorYield {
             value,
             unwind,
@@ -553,6 +559,13 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 smelt_hir::StringTrimSide::End => "end",
             };
             format!("string_trim_{side_text} {}", operand_text(operand))
+        }
+        Rvalue::StringLocaleCompare { left, right } => {
+            format!(
+                "string_locale_compare {}, {}",
+                operand_text(left),
+                operand_text(right)
+            )
         }
         Rvalue::StringAffix {
             op,
@@ -1378,6 +1391,8 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 smelt_hir::AsyncOp::SpawnLocal => "async_spawn_local",
                 smelt_hir::AsyncOp::CreateTask => "async_create_task",
                 smelt_hir::AsyncOp::WaitFor => "async_wait_for",
+                smelt_hir::AsyncOp::Resolve => "async_resolve",
+                smelt_hir::AsyncOp::Reject => "async_reject",
                 smelt_hir::AsyncOp::HttpGetText => "async_http_get_text",
             };
             let arg_list = args.iter().map(operand_text).collect::<Vec<_>>().join(", ");

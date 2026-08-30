@@ -33,6 +33,10 @@ pub struct RuntimeModule {
 /// order, which the emitter's gate manifest fixes.
 const MODULES: &[RuntimeModule] = &[
     RuntimeModule {
+        name: "strings",
+        source: include_str!("strings.rs"),
+    },
+    RuntimeModule {
         name: "value",
         source: include_str!("value.rs"),
     },

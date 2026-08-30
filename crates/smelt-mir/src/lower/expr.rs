@@ -567,6 +567,18 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
+            ExprKind::StringLocaleCompare { left, right } => {
+                let lowered_left = self.lower_expr(*left)?;
+                let lowered_right = self.lower_expr(*right)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::StringLocaleCompare {
+                        left: lowered_left,
+                        right: lowered_right,
+                    },
+                )?
+            }
             ExprKind::UriEncode { operand } => {
                 let lowered_operand = self.lower_expr(*operand)?;
                 self.assign_temp(
@@ -2224,6 +2236,19 @@ impl LoweringCtx<'_> {
                 )?
             }
             ExprKind::Closure(closure) => self.lower_closure_expr(closure, expr.ty, expr.span)?,
+            ExprKind::ThisRead => self.assign_temp(expr.ty, expr.span, Rvalue::ThisRead)?,
+            ExprKind::BindThis { callee, receiver } => {
+                let callee_operand = self.lower_expr(*callee)?;
+                let receiver_operand = self.lower_expr(*receiver)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::BindThis {
+                        callee: callee_operand,
+                        receiver: receiver_operand,
+                    },
+                )?
+            }
             ExprKind::ClosureCall { callee, args } => {
                 let callee_ty = self.hir_expr(*callee)?.ty;
                 let callee_operand = self.lower_expr(*callee)?;

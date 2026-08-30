@@ -14,6 +14,7 @@ use smelt_hir::{
 };
 use smelt_stdlib::RuleId;
 
+use super::testing::LoweredActual;
 use super::{ModuleBuilder, SmeltError, stdlib_dispatch};
 
 /// Static properties and runtime-spread record sources produced when lowering
@@ -682,6 +683,21 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower async Vitest matcher chains as `Promise<void>` test-side effects.
+    ///
+    /// `expect(promise).resolves.M(...)` and `expect(promise).rejects.M(...)`
+    /// are the ordinary matcher `M` applied to the promise's settled value.
+    /// Rather than reimplementing every matcher per modifier, this awaits (and
+    /// for `rejects`, catches) the actual and hands the resulting value to the
+    /// ordinary `expect(value).M(...)` lowering as a
+    /// [`LoweredActual`];
+    /// `M` is therefore dispatched by exactly the same rules as the synchronous
+    /// spelling. `rejects.toThrow` keeps its dedicated path because its
+    /// assertion is about the rejection itself, not about a value.
+    ///
+    /// Two shapes still fall through to the inert `Promise<void>` placeholder:
+    /// an erased actual (no static `Future<T>`, so awaiting it would be invalid
+    /// HIR — mirroring the ordinary erased-`await` fallback), and a matcher the
+    /// synchronous lowering does not implement either.
     pub(super) fn vitest_async_expect_call(
         &mut self,
         call: &CallExpression<'_>,
@@ -690,12 +706,26 @@ impl ModuleBuilder<'_> {
         let Expression::StaticMemberExpression(matcher) = &call.callee else {
             return Ok(None);
         };
-        let Expression::StaticMemberExpression(modifier) = &matcher.object else {
+        let Expression::StaticMemberExpression(outer_modifier) = &matcher.object else {
             return Ok(None);
         };
+        let mut modifier: &oxc::ast::ast::StaticMemberExpression<'_> = outer_modifier;
+        // `expect(p).resolves.not.toBe(x)` puts `.not` between the modifier and
+        // the matcher, exactly as the synchronous chain puts it between
+        // `expect(...)` and the matcher. Peel it here so the delegation can pass
+        // the same `inverted` flag the synchronous lowering derives.
+        let mut inverted = false;
+        if modifier.property.name == "not" {
+            let Expression::StaticMemberExpression(inner) = &modifier.object else {
+                return Ok(None);
+            };
+            inverted = true;
+            modifier = &**inner;
+        }
         if !matches!(modifier.property.name.as_str(), "resolves" | "rejects") {
             return Ok(None);
         }
+        let rejects = modifier.property.name == "rejects";
         let Expression::CallExpression(expect_call) = &modifier.object else {
             return Ok(None);
         };
@@ -711,9 +741,11 @@ impl ModuleBuilder<'_> {
                 "expect(...).resolves/rejects matcher requires an actual promise",
             ));
         };
-        if modifier.property.name == "rejects"
+        let matcher_name = matcher.property.name.as_str();
+        if rejects
+            && !inverted
             && matches!(
-                matcher.property.name.as_str(),
+                matcher_name,
                 "toThrow" | "toThrowErrorMatchingInlineSnapshot"
             )
         {
@@ -721,25 +753,176 @@ impl ModuleBuilder<'_> {
         }
 
         let actual = self.argument(actual_arg, body)?;
-        if self
-            .awaitable_inner_type(Self::expr_ty(body, actual))
-            .is_none()
-        {
+        let actual_ty = Self::expr_ty(body, actual);
+        if self.awaitable_inner_type(actual_ty).is_none() {
             return Err(SmeltError::unsupported(
                 self.span(actual_arg.span().start, actual_arg.span().end),
                 "expect(...).resolves/rejects actual value must be a Promise<T>",
             ));
         }
+        let span = self.span(call.span.start, call.span.end);
+        if let Some(item_ty) = self.future_inner_type(actual_ty)
+            && Self::matcher_accepts_lowered_actual(matcher_name)
+        {
+            if rejects {
+                self.vitest_rejects_matcher(call, actual, item_ty, inverted, span, body)?;
+            } else {
+                let awaited = body.push_expr(Expr {
+                    kind: ExprKind::Await(actual),
+                    ty: item_ty,
+                    span,
+                });
+                self.expect_matcher_call(
+                    call,
+                    Some(LoweredActual {
+                        value: awaited,
+                        inverted,
+                    }),
+                    body,
+                )?;
+            }
+            return Ok(Some(self.vitest_async_void_expr(span, body)));
+        }
         for argument in &call.arguments {
             self.argument(argument, body)?;
         }
+        Ok(Some(self.vitest_async_void_expr(span, body)))
+    }
+
+    /// Build the inert `Promise<void>` an async matcher chain evaluates to.
+    ///
+    /// The assertion itself lowers to statements, so the chain's *expression*
+    /// value only has to satisfy the enclosing `await`.
+    fn vitest_async_void_expr(&mut self, span: smelt_hir::Span, body: &mut Body) -> smelt_hir::ExprId {
         let none_ty = self.ctx.krate.types.intern(Type::None);
         let ty = self.ctx.krate.types.intern(Type::Future(none_ty));
-        Ok(Some(body.push_expr(Expr {
+        body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::None),
             ty,
-            span: self.span(call.span.start, call.span.end),
-        })))
+            span,
+        })
+    }
+
+    /// Lower `expect(promise).rejects.M(...)` for a value-comparing matcher `M`.
+    ///
+    /// The rejection payload is the actual value the matcher asserts on, so the
+    /// await runs inside a `try` and the matcher is emitted into the `catch`
+    /// body, where the caught value is in scope. A separate `did_throw` flag
+    /// then reports a promise that resolved when the test required a rejection
+    /// -- without it, a non-rejecting promise would skip the catch body and the
+    /// assertion would pass vacuously, which is the failure mode this whole
+    /// path exists to remove.
+    ///
+    /// The caught value is typed `Unknown`: a thrown JavaScript payload is
+    /// genuinely dynamic (any value may be thrown, from anywhere in the awaited
+    /// call graph), which is the same reason the ordinary `catch (e)` binding
+    /// lowers to `Unknown`. `comparison_expr` inserts the checked cast on the
+    /// expected side, so the matcher still compares against its concrete type.
+    fn vitest_rejects_matcher(
+        &mut self,
+        call: &CallExpression<'_>,
+        actual: smelt_hir::ExprId,
+        item_ty: smelt_hir::TypeId,
+        inverted: bool,
+        span: smelt_hir::Span,
+        body: &mut Body,
+    ) -> Result<(), SmeltError> {
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+
+        let did_throw = body.push_local(smelt_hir::LocalDecl {
+            name: Some(self.intern_source_name("did_throw")),
+            ty: bool_ty,
+            mutable: true,
+            span,
+        });
+        let did_throw_pat = body.push_pattern(Pattern::Binding(did_throw));
+        let false_expr = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(false)),
+            ty: bool_ty,
+            span,
+        });
+        self.push_assertion_stmt(
+            body,
+            Stmt::Let {
+                pat: did_throw_pat,
+                ty: bool_ty,
+                value: Some(false_expr),
+            },
+        );
+
+        let try_block = body.push_block(span);
+        let awaited = body.push_expr(Expr {
+            kind: ExprKind::Await(actual),
+            ty: item_ty,
+            span,
+        });
+        body.push_stmt_to_block(try_block, Stmt::Expr(awaited));
+
+        let caught = body.push_local(smelt_hir::LocalDecl {
+            name: Some(self.intern_source_name("error")),
+            ty: unknown_ty,
+            mutable: false,
+            span,
+        });
+        let catch_block = body.push_block(span);
+        let did_throw_target = body.push_expr(Expr {
+            kind: ExprKind::Local(did_throw),
+            ty: bool_ty,
+            span,
+        });
+        let true_expr = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(true)),
+            ty: bool_ty,
+            span,
+        });
+        body.push_stmt_to_block(
+            catch_block,
+            Stmt::Assign {
+                target: did_throw_target,
+                value: true_expr,
+            },
+        );
+        let caught_expr = body.push_expr(Expr {
+            kind: ExprKind::Local(caught),
+            ty: unknown_ty,
+            span,
+        });
+        let previous_block = self.current_statement_block.replace(catch_block);
+        let lowered = self.expect_matcher_call(
+            call,
+            Some(LoweredActual {
+                value: caught_expr,
+                inverted,
+            }),
+            body,
+        );
+        self.current_statement_block = previous_block;
+        lowered?;
+
+        self.push_assertion_stmt(
+            body,
+            Stmt::TryCatch {
+                body: try_block,
+                catch_binding: Some(caught),
+                catch_body: Some(catch_block),
+                finally_body: None,
+            },
+        );
+
+        let did_throw_check = body.push_expr(Expr {
+            kind: ExprKind::Local(did_throw),
+            ty: bool_ty,
+            span,
+        });
+        let failed = self.unary_bool_expr(UnaryOp::Not, did_throw_check, call.span, body);
+        self.push_test_failure_if(
+            failed,
+            "expect(...).rejects.<matcher>(...) did not reject",
+            call.span,
+            body,
+        );
+        Ok(())
     }
 
     /// Lower `await expect(promise).rejects.toThrow(...)` to native exception flow.
@@ -1847,6 +2030,32 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let element_ty = *list_element_ty;
+        // ECMA-262 `Array.prototype.sort` step 1: passing `undefined` as the
+        // comparator is exactly the same as passing nothing at all — elements
+        // are ordered by their `ToString` coercion. An *optional* comparator
+        // (`compare?: (a, b) => number`, or any variable of an optional
+        // function type) therefore must not be lowered as an ordinary erased
+        // callback: the erased wrapper turns "the callback is absent" into an
+        // `undefined` RESULT, the numeric coercion reads that as `0`, every
+        // comparison answers `Equal`, and the sort silently becomes a no-op.
+        // Keep the optional callable itself as the comparator operand so the
+        // emitter can branch on its presence and fall back to the default
+        // ordering, the way a hand-written `match cmp { Some(f) => .., None =>
+        // .. }` would.
+        if let Some(argument) = comparator_argument
+            && let Some(comparator) = self.optional_sort_comparator(argument, body)?
+        {
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::ListSort {
+                    list,
+                    comparator: Some(comparator),
+                    key: None,
+                    reverse: false,
+                },
+                ty: list_ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
         let comparator = if let Some(argument) = comparator_argument {
             let number_ty = self.ctx.krate.types.intern(Type::Float);
             // Use the body-fallback variant so a comparator whose body uses
@@ -1928,6 +2137,51 @@ impl ModuleBuilder<'_> {
             ty: list_ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Recognize a `sort` argument that is a variable of *optional* function
+    /// type and lower it as-is.
+    ///
+    /// Returns `None` (so the caller falls back to the ordinary callback
+    /// lowering) unless the argument is an identifier bound to a local whose
+    /// type is `Optional(Function)`. Only that shape can be inspected without
+    /// lowering the argument expression, and lowering it speculatively would
+    /// duplicate the side effects of a non-identifier argument such as
+    /// `xs.sort(makeComparator())`.
+    ///
+    /// The returned expression keeps its `Optional(Function)` type all the way
+    /// into MIR; `emitter::list_mutation` branches on the `Option` at runtime.
+    fn optional_sort_comparator(
+        &mut self,
+        argument: &Argument<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Argument::Identifier(identifier) = argument else {
+            return Ok(None);
+        };
+        let Some(local) = self.scope.lookup(identifier.name.as_str()) else {
+            return Ok(None);
+        };
+        let local_ty = Self::local_ty(body, local);
+        let Some(Type::Optional(inner)) = self.ctx.krate.types.get(local_ty).cloned() else {
+            return Ok(None);
+        };
+        let Some(Type::Function(function)) = self.ctx.krate.types.get(inner).cloned() else {
+            return Ok(None);
+        };
+        // A comparator takes two elements and returns a number. Anything else
+        // is not `Array.prototype.sort`'s comparator contract, so leave it to
+        // the ordinary callback path (which reports a precise error).
+        if function.params.len() != 2 {
+            return Ok(None);
+        }
+        let expr = self.identifier_expression(
+            identifier.name.as_str(),
+            identifier.span.start,
+            identifier.span.end,
+            body,
+        )?;
+        Ok(Some(expr))
     }
 
     /// Lower direct TypeScript `Array.prototype.push` calls.

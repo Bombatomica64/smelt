@@ -91,6 +91,8 @@ impl LoweringCtx<'_> {
     pub(super) fn place_unsupported(&self, expr: &smelt_hir::Expr) -> LowerError {
         match &expr.kind {
             ExprKind::Local(_)
+            | ExprKind::ThisRead
+            | ExprKind::BindThis { .. }
             | ExprKind::Field { .. }
             | ExprKind::Index { .. }
             | ExprKind::TupleIndex { .. }
@@ -131,6 +133,7 @@ impl LoweringCtx<'_> {
             | ExprKind::ObjectToStringTag { .. }
             | ExprKind::StructuredClone { .. }
             | ExprKind::StringTrim { .. }
+            | ExprKind::StringLocaleCompare { .. }
             | ExprKind::StringAffix { .. }
             | ExprKind::StringSearch { .. }
             | ExprKind::StringReplace { .. }
