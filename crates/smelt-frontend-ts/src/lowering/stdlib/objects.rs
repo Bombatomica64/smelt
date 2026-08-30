@@ -715,7 +715,7 @@ impl ModuleBuilder<'_> {
                     return Ok(None);
                 }
                 let descriptor = self.argument(descriptor, body)?;
-                let descriptor = self.erase_to_unknown(descriptor, unknown_ty, span, body);
+                let descriptor = Self::erase_to_unknown(descriptor, unknown_ty, span, body);
                 let string_ty = self.ctx.krate.types.intern(Type::String);
                 let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
                 let descriptors = body.push_expr(Expr {
@@ -739,7 +739,6 @@ impl ModuleBuilder<'_> {
 
     /// Wrap `value` in an erasure cast unless it is already `unknown`-typed.
     pub(in crate::lowering) fn erase_to_unknown(
-        &mut self,
         value: smelt_hir::ExprId,
         unknown_ty: smelt_hir::TypeId,
         span: Span,
