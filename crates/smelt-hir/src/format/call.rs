@@ -929,8 +929,15 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             format!("unknown_is {kind:?} {}", expr_ref(*value))
         }
         ExprKind::TypeofValue { value } => format!("typeof {}", expr_ref(*value)),
-        ExprKind::PrototypeSentinel { value } => {
-            format!("prototype_sentinel {}", expr_ref(*value))
+        ExprKind::PrototypeSentinel {
+            value,
+            own_slot_shadows,
+        } => {
+            if *own_slot_shadows {
+                format!("proto_accessor {}", expr_ref(*value))
+            } else {
+                format!("prototype_sentinel {}", expr_ref(*value))
+            }
         }
         ExprKind::BoxPrimitive { value } => format!("box_primitive {}", expr_ref(*value)),
         ExprKind::ObjectFromPrototype { prototype } => {

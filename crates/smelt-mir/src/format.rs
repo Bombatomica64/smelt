@@ -385,8 +385,13 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
         }
         Rvalue::PrototypeSentinel {
             value: unknown_value,
+            own_slot_shadows,
         } => {
-            format!("prototype_sentinel {}", operand_text(unknown_value))
+            if *own_slot_shadows {
+                format!("proto_accessor {}", operand_text(unknown_value))
+            } else {
+                format!("prototype_sentinel {}", operand_text(unknown_value))
+            }
         }
         Rvalue::BoxPrimitive { value } => {
             format!("box_primitive {}", operand_text(value))

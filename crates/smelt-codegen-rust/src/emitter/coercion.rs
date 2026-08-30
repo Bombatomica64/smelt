@@ -2094,10 +2094,24 @@ impl FunctionEmitter<'_> {
     /// source spelling that narrows the receiver first (e.g. an
     /// `Optional(unknown)` from `as typeof Object.prototype | null`) still
     /// hands the helper a plain `SmeltUnknown`.
-    pub(super) fn prototype_sentinel_text(&self, value: &Operand) -> Result<String, EmitError> {
+    /// With `own_slot_shadows` set the emission goes through
+    /// `smelt_proto_accessor` instead, which answers an own `__proto__` slot
+    /// before falling back to the sentinel. That is the `v.__proto__` accessor
+    /// rather than `Object.getPrototypeOf(v)`; see
+    /// [`smelt_hir::ExprKind::PrototypeSentinel`] for why the two differ.
+    pub(super) fn prototype_sentinel_text(
+        &self,
+        value: &Operand,
+        own_slot_shadows: bool,
+    ) -> Result<String, EmitError> {
         let unknown_ty = self.type_id(Type::Unknown)?;
         let text = self.value_at_type(value, unknown_ty)?;
-        Ok(format!("smelt_prototype_sentinel(&({text}))"))
+        let helper = if own_slot_shadows {
+            "smelt_proto_accessor"
+        } else {
+            "smelt_prototype_sentinel"
+        };
+        Ok(format!("{helper}(&({text}))"))
     }
 
     /// Emits `Object(value)` as a boxed primitive.
