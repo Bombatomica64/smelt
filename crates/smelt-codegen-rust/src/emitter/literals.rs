@@ -178,7 +178,7 @@ fn callee_is_reference_class_method(context: &EmitContext, callee: &MirFunction)
 }
 
 /// Checks if a method mutates the `this` parameter (self).
-pub(super) fn method_mutates_this(function: &MirFunction) -> bool {
+pub(crate) fn method_mutates_this(function: &MirFunction) -> bool {
     function.blocks.iter().any(|block| {
         block.statements.iter().any(|statement| {
             matches!(
