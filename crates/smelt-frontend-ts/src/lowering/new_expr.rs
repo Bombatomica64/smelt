@@ -2089,6 +2089,13 @@ impl ModuleBuilder<'_> {
                 if let Some(expr) = self.global_detection_chain_expression(logical, body) {
                     return Ok(expr);
                 }
+                // A guard the target profile already decides short-circuits the
+                // whole expression before any operand-shape helper runs: several
+                // of them lower the RIGHT operand first, and the dead operand is
+                // exactly the one the profile cannot resolve.
+                if let Some(expr) = self.short_circuited_static_guard(logical, body) {
+                    return Ok(expr);
+                }
                 if let Some(expr) = self.same_value_zero_logical(logical, body)? {
                     return Ok(expr);
                 }
