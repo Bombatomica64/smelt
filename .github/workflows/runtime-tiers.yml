@@ -90,6 +90,7 @@ jobs:
               typed_array_runtime symbol_key_runtime object_create_runtime
               regexp_compile_cache_runtime math_round_runtime
               define_properties_runtime proto_accessor_runtime
+              ambient_declaration_runtime
     name: runtime (${{ matrix.shard }})
     steps:
       - name: Checkout
