@@ -594,7 +594,7 @@ fn classify_line(line: &str, in_prelude_helper: bool) -> Category {
 ///
 /// See [`classify_line`] rule 2 for the rationale behind each marker.
 fn is_legitimate_boundary_line(line: &str) -> bool {
-    const BOUNDARY_MARKERS: [&str; 16] = [
+    const BOUNDARY_MARKERS: [&str; 18] = [
         "SmeltUnknown::Function",
         "SmeltUnknown::Promise",
         "IntoSmeltUnknown",
@@ -678,6 +678,24 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         "smelt_push_this(",
         "smelt_this()",
         "smelt_bind_this(",
+        // The erased class-prototype slot
+        // (`crates/smelt-codegen-rust/src/class_proto.rs`). A generated class
+        // keeps its concrete struct and its precisely typed inherent methods;
+        // `__smelt_proto_entries` exists ONLY so that an instance which has
+        // already crossed into erased code can still answer a method read.
+        // That read is `smelt_get_object_field(&map, "has")` — a member looked
+        // up by STRING NAME on a value whose static type is `unknown`. No
+        // concrete Rust type can represent it: the set of a class's methods
+        // reached by runtime name is not a struct field, not a generated union
+        // arm, and not a scoped generic — the consumer (e.g. es-toolkit's
+        // `memoize`, whose `cache` parameter is a dynamic bag) never names the
+        // class at all. Each adapter is exactly the explicit boundary shim the
+        // policy calls for: `SmeltFromUnknown` in, the real typed method in the
+        // middle, an erased result out. Proven in
+        // `erased_class_prototype_slot_is_a_boundary` below and executed by
+        // `crates/smelt-codegen-rust/tests/erased_class_method_runtime.rs`.
+        "__smelt_proto_entries",
+        "smelt_proto_entries",
     ];
 
     // A JavaScript update-expression (`x++`/`++x`) used as a value snapshots its
@@ -919,6 +937,33 @@ mod tests {
             classify_line(storage, false),
             Category::AvoidableErasure,
             "ordinary erased storage must stay avoidable"
+        );
+    }
+
+    /// A class's erased prototype slot is a boundary.
+    ///
+    /// The class itself stays concrete — this is only the adapter that lets an
+    /// already-erased instance answer a method looked up by string name. An
+    /// ordinary erased local is unaffected, so the marker does not widen past
+    /// the slot.
+    #[test]
+    fn erased_class_prototype_slot_is_a_boundary() {
+        for line in [
+            "    fn __smelt_proto_entries(&self) -> Vec<(String, SmeltUnknown)> {",
+            "        let mut smelt_proto_entries: Vec<(String, SmeltUnknown)> = Vec::new();",
+            "        smelt_object_entries.extend(smelt_struct_value.__smelt_proto_entries());",
+        ] {
+            assert_eq!(
+                classify_line(line, false),
+                Category::LegitimateBoundary,
+                "a method reached by runtime name on an erased instance has no \
+                 concrete, union, or generic spelling: {line}"
+            );
+        }
+        assert_eq!(
+            classify_line("    let entries: Vec<(String, SmeltUnknown)> = Vec::new();", false),
+            Category::AvoidableErasure,
+            "an ordinary erased entry list is not the prototype slot"
         );
     }
 
