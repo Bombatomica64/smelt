@@ -85,7 +85,8 @@ jobs:
             tests: >-
               host_representation_runtime boxed_primitive_runtime
               typed_array_runtime symbol_key_runtime object_create_runtime
-              regexp_compile_cache_runtime math_round_runtime
+              proto_accessor_runtime regexp_compile_cache_runtime
+              math_round_runtime
     name: runtime (${{ matrix.shard }})
     steps:
       - name: Checkout
