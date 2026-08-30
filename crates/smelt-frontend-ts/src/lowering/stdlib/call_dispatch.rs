@@ -308,13 +308,25 @@ impl<'builder> ModuleBuilder<'builder> {
                 &probed_arg_tys,
             ) else {
                 if self.ctx.krate.types.get(callee_ty) == Some(&Type::Unknown) {
-                    for arg in &call.arguments {
-                        let _ = self.argument(arg, body)?;
-                    }
-                    let ty = self.ctx.krate.types.intern(Type::Unknown);
+                    // `f(..)(..)` where the inner call's declared return type is
+                    // `any`/`unknown`. The value is still callable at runtime —
+                    // JavaScript looks the call up on the value, not on its
+                    // static type — so dispatch it through the erased callable
+                    // ABI, the same route the arity-shortfall branch below takes
+                    // for `negate(fn)()`. Lowering it to `undefined` instead
+                    // discarded the outer call *and* its arguments' effects, and
+                    // any assertion over the result then compared the wrong
+                    // value (`expect(makeAdder(2)(3)).toBe(5)` became a test that
+                    // `5` is not nullish).
+                    let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+                    let args = call
+                        .arguments
+                        .iter()
+                        .map(|arg| self.argument(arg, body))
+                        .collect::<Result<Vec<_>, _>>()?;
                     return Ok(body.push_expr(Expr {
-                        kind: ExprKind::Literal(Literal::None),
-                        ty,
+                        kind: ExprKind::ClosureCall { callee, args },
+                        ty: unknown_ty,
                         span: self.span(call.span.start, call.span.end),
                     }));
                 }
@@ -765,6 +777,8 @@ impl<'builder> ModuleBuilder<'builder> {
             let return_ty = selected_overload
                 .as_ref()
                 .map_or(implementation_return_ty, |signature| signature.return_ty);
+            let return_ty =
+                self.representable_overload_return_ty(implementation_return_ty, return_ty);
             if params
                 .iter()
                 .any(|param| self.concrete_type_requires_never_value(*param))
@@ -2601,6 +2615,72 @@ impl<'builder> ModuleBuilder<'builder> {
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Keep an implementation's dynamic-arity function return over an overload's
+    /// fixed-arity claim about it.
+    ///
+    /// TypeScript overloads are a *caller-side* argument-checking device: the
+    /// value a call produces is whatever the single implementation body
+    /// returns. When that body returns a variadic callable (`(...args) => R`)
+    /// while the matched overload declares a fixed-arity result
+    /// (`(t2: T2, t3: T3) => R`), adopting the overload's type forces codegen to
+    /// materialize a fixed-arity Rust closure around a dynamic-arity runtime
+    /// value. That adapter is lossy in two ways no later pass can undo: calls
+    /// carrying more arguments than the declared arity silently drop the
+    /// surplus, and `Function.length` answers the declared parameter count
+    /// instead of the callable's own (0 for a rest-only function).
+    ///
+    /// So when the implementation's return type is a variadic function and the
+    /// overload's fixed-arity replacement carries *no static information beyond
+    /// its arity* — every parameter and the return type erased to `unknown` —
+    /// the implementation's representation wins: the trade is a real runtime
+    /// arity for an unenforceable claim about one. An overload that genuinely
+    /// refines the shape (concrete parameter or return types, a curried
+    /// interface, a non-function return) still wins, so this never costs
+    /// precision that the declaration actually supplied.
+    fn representable_overload_return_ty(
+        &self,
+        implementation_return_ty: smelt_hir::TypeId,
+        overload_return_ty: smelt_hir::TypeId,
+    ) -> smelt_hir::TypeId {
+        if implementation_return_ty == overload_return_ty {
+            return overload_return_ty;
+        }
+        let (
+            Some(Type::Function(implementation_function)),
+            Some(Type::Function(overload_function)),
+        ) = (
+            self.ctx.krate.types.get(implementation_return_ty),
+            self.ctx.krate.types.get(overload_return_ty),
+        ) else {
+            return overload_return_ty;
+        };
+        if implementation_function.rest.is_some()
+            && overload_function.rest.is_none()
+            && self.function_type_is_bare_erased_shape(overload_function)
+        {
+            return implementation_return_ty;
+        }
+        overload_return_ty
+    }
+
+    /// Whether a function type says nothing about its values beyond its arity.
+    ///
+    /// Every parameter and the return type is either `unknown` or a type
+    /// parameter that overload instantiation left unbound — a slot the call
+    /// site supplied no evidence for, which codegen renders as `SmeltUnknown`
+    /// exactly like `unknown` itself. Such a signature constrains no argument
+    /// and promises no result: it is a bare callable shape carrying only an
+    /// arity.
+    fn function_type_is_bare_erased_shape(&self, function: &FunctionType) -> bool {
+        let carries_no_type = |ty: &smelt_hir::TypeId| {
+            matches!(
+                self.ctx.krate.types.get(*ty),
+                Some(Type::Unknown | Type::TypeParam { .. })
+            )
+        };
+        function.params.iter().all(carries_no_type) && carries_no_type(&function.return_ty)
     }
 
     /// Select the TypeScript overload signature that matches a call site.
