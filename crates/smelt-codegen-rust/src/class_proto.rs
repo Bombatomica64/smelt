@@ -45,8 +45,13 @@
 //! rejects is simply absent — exactly the pre-existing behaviour — rather than
 //! being routed through a fabricated value.
 
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "crate-visible helpers are shared with the parent module and the emitter shards"
+)]
+
 use smelt_hir::{Type, TypeId};
-use smelt_mir::{FuncId, HirOrigin, Mir, MirClass, MirFunction};
+use smelt_mir::{FuncId, HirOrigin, LocalId, Mir, MirClass, MirFunction};
 
 use crate::emitter::{EmitContext, method_mutates_this};
 use crate::{
@@ -152,9 +157,7 @@ pub(crate) fn method_is_proto_eligible(
         return false;
     }
     function.params.iter().skip(1).all(|param| {
-        function
-            .locals
-            .get(param.0 as usize)
+        local_decl(function, *param)
             .is_some_and(|local| type_supports_from_unknown(mir, local.ty))
     })
 }
@@ -173,24 +176,20 @@ fn method_adapter_text(
 ) -> Result<String, EmitError> {
     let mut args = Vec::new();
     for (index, param) in function.params.iter().skip(1).enumerate() {
-        let local = function
-            .locals
-            .get(param.0 as usize)
+        let _local = local_decl(function, *param)
             .ok_or_else(|| EmitError::new("class method parameter has no local declaration"))?;
-        let _ = local.ty;
         args.push(format!(
             "SmeltFromUnknown::smelt_from_unknown(smelt_args.get({index}).cloned().unwrap_or(SmeltUnknown::Undefined))"
         ));
     }
-    let call = format!("smelt_receiver.{rust_method}({})", args.join(", "));
     // A throwing method returns `Result<_, Box<dyn Error>>`; the erased
     // callback's own return type is the same `Result`, so the `?` propagates
     // the thrown value across the seam rather than swallowing it.
-    let call = if function.can_throw {
-        format!("{call}?")
-    } else {
-        call
-    };
+    let try_operator = if function.can_throw { "?" } else { "" };
+    let call = format!(
+        "smelt_receiver.{rust_method}({}){try_operator}",
+        args.join(", ")
+    );
     let result = if matches!(mir.types.get(function.return_ty), Some(Type::None)) {
         // A `void` method evaluates to `undefined` in JavaScript.
         "{ let () = smelt_result; SmeltUnknown::Undefined }".to_owned()
@@ -281,4 +280,9 @@ pub(crate) fn class_has_proto_entries(
 /// Look up a MIR function by id.
 fn function_by_id(mir: &Mir, id: FuncId) -> Option<&MirFunction> {
     mir.functions.get(usize::try_from(id.0).ok()?)
+}
+
+/// Look up a local declaration in a function by id.
+fn local_decl(function: &MirFunction, local: LocalId) -> Option<&smelt_mir::LocalDecl> {
+    function.locals.get(usize::try_from(local.0).ok()?)
 }
