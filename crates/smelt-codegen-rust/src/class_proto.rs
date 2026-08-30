@@ -247,8 +247,9 @@ pub(crate) fn class_proto_entries_method(
     let mut out = String::new();
     out.push_str("    /// Prototype-carried members of this class, as receiver-bound erased functions.\n");
     out.push_str("    ///\n");
-    out.push_str("    /// Keyed under the runtime's `__smelt_proto:` prefix, which `smelt_get_object_field`\n");
-    out.push_str("    /// resolves through and which key enumeration, structural equality and JSON skip.\n");
+    out.push_str("    /// Keyed under the runtime's `__smelt_method:` prefix, which `smelt_get_object_field`\n");
+    out.push_str("    /// resolves after the own property misses, and which key enumeration, structural\n");
+    out.push_str("    /// equality, hashing and JSON all skip -- a class's methods are non-enumerable.\n");
     out.push_str("    #[allow(dead_code)]\n");
     out.push_str(&format!(
         "    fn {PROTO_ENTRIES_METHOD}(&self) -> Vec<(String, SmeltUnknown)> {{\n"

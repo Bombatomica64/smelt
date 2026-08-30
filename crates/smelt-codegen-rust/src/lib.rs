@@ -4718,7 +4718,14 @@ fn emit_source_with_free_function_router(
         // prototype-carried members. Without this the erased view held only
         // fields, and every method read off it answered `undefined` — which the
         // erased call sites silently replaced with a fabricated default.
-        if let Some(proto_entries) = class_proto::class_proto_entries_method(mir, &context, class)? {
+        // Gated on `needs_unknown`: the adapters are written in terms of the
+        // erased carrier, and a program that never erases anything does not
+        // emit `SmeltUnknown` at all (the Python specialization fixtures are
+        // exactly that shape, and unconditional emission made them E0425).
+        if needs_unknown
+            && let Some(proto_entries) =
+                class_proto::class_proto_entries_method(mir, &context, class)?
+        {
             out.push_str(&proto_entries);
         }
         out.push_str("}\n");
