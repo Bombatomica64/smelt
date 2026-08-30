@@ -147,6 +147,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             ctx,
             scope: LocalScope::default(),
             module_globals: HashMap::new(),
+            ambient_value_declarations: HashSet::new(),
             mutable_global_items: HashMap::new(),
             items,
             imports: ImportScope::default(),
@@ -755,16 +756,22 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
     /// Register annotated module-level variables for later function-body lookup.
     pub(super) fn collect_module_global_decl(&mut self, decl: &oxc::ast::ast::VariableDeclaration<'_>) {
-        // Ambient declarations declare nothing: `declare let process: …` says the
-        // HOST provides `process`, so the module has no such global to type or
-        // const-fold. Registering it here made every read of the name resolve
-        // through `module_global_expression`, which fabricates the declared
-        // type's default value (`None`, `false`, `0`, `""`, `{}`, `[]`) for a
-        // module global whose initializer never ran — turning a host lookup into
-        // a wrong compile-time constant. Reads fall through to the host/global
-        // resolution path instead.
+        // `declare let process: …` says the HOST provides `process`. The
+        // declaration still contributes the name's TYPE — that is all a
+        // `declare` is — but recording it as an ordinary module global made
+        // every read resolve through `module_global_expression`, which
+        // fabricates the declared type's default value (`None`, `false`, `0`,
+        // `""`, `{}`, `[]`) for a global whose initializer never ran, turning a
+        // host lookup into a wrong compile-time constant. Recording the name
+        // here lets `expr::references` consult the host/ambient-global path
+        // first; see `ambient_value_declarations`.
         if decl.declare {
-            return;
+            for declarator in &decl.declarations {
+                Self::collect_ambient_declaration_names(
+                    &declarator.id,
+                    &mut self.ambient_value_declarations,
+                );
+            }
         }
         for declarator in &decl.declarations {
             let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
@@ -880,6 +887,40 @@ impl<'ctx> ModuleBuilder<'ctx> {
             if let Ok(ty) = self.ts_type_to_hir(&annotation.type_annotation) {
                 self.module_globals
                     .insert(binding.name.as_str().to_owned(), ty);
+            }
+        }
+    }
+
+    /// Record every name an ambient declaration's binding pattern introduces.
+    ///
+    /// Destructuring an ambient declaration is legal TypeScript, so the whole
+    /// pattern is walked rather than only the plain identifier form.
+    fn collect_ambient_declaration_names(
+        pattern: &BindingPattern<'_>,
+        names: &mut HashSet<String>,
+    ) {
+        match pattern {
+            BindingPattern::BindingIdentifier(binding) => {
+                names.insert(binding.name.as_str().to_owned());
+            }
+            BindingPattern::ObjectPattern(object) => {
+                for property in &object.properties {
+                    Self::collect_ambient_declaration_names(&property.value, names);
+                }
+                if let Some(rest) = &object.rest {
+                    Self::collect_ambient_declaration_names(&rest.argument, names);
+                }
+            }
+            BindingPattern::ArrayPattern(array) => {
+                for element in array.elements.iter().flatten() {
+                    Self::collect_ambient_declaration_names(element, names);
+                }
+                if let Some(rest) = &array.rest {
+                    Self::collect_ambient_declaration_names(&rest.argument, names);
+                }
+            }
+            BindingPattern::AssignmentPattern(assignment) => {
+                Self::collect_ambient_declaration_names(&assignment.left, names);
             }
         }
     }

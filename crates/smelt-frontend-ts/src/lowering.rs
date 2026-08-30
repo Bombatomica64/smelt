@@ -546,6 +546,15 @@ struct ModuleBuilder<'ctx> {
     scope: state::local_scope::LocalScope,
     /// Typed top-level mutable bindings visible from nested function bodies.
     module_globals: HashMap<String, smelt_hir::TypeId>,
+    /// Names introduced by an ambient (`declare`) value declaration.
+    ///
+    /// An ambient declaration contributes a TYPE and nothing else: the host
+    /// already provides the binding, so the module must not materialize one.
+    /// The names are tracked separately from [`Self::module_globals`] (which
+    /// still carries their declared type) so a read can consult the host /
+    /// ambient-global resolution path FIRST and only fall back to the declared
+    /// type when the target profile models no such global.
+    ambient_value_declarations: HashSet<String>,
     /// Module-level `let`/`var` bindings lifted to mutable globals, mapped to
     /// their HIR item id. Reads of these names lower to `GlobalGet` and writes
     /// to `GlobalSet` instead of the const-inline or local-assignment paths.

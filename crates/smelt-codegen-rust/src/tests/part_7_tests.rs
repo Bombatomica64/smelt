@@ -2229,7 +2229,7 @@ fn emits_generic_interface_storage_with_phantom_parameter() {
 interface Boxed<T> {
   value: T;
 }
-declare const boxed: Boxed<number>;
+const boxed: Boxed<number> = { value: 1 };
 const copied: Boxed<number> = boxed;
 ",
     );
@@ -2867,14 +2867,17 @@ const value = numericResult.value;
 fn keeps_unknown_conditionals_erased_before_string_compatible_fallbacks() {
     let source = source_for(
         r"
-declare const value: unknown;
-declare const fallback: Date;
+const value: unknown = 1;
+const fallback: Date = new Date();
 const selected: unknown = value ? value : fallback;
 ",
     );
 
     assert!(
-        source.contains("if _smelt_tmp_3 { value } else { match fallback"),
+        // The temp index is incidental (it moves with the fixture's own
+        // statement count); the property is that the truthy arm yields the
+        // erased value UNCHANGED and only the `Date` fallback is re-tagged.
+        source.contains("{ value } else { match fallback"),
         "{source}"
     );
     assert!(

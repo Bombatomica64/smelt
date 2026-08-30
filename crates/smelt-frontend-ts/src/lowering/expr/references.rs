@@ -224,6 +224,16 @@ impl ModuleBuilder<'_> {
             {
                 return self.item_function_closure_expression(item, start, end, body);
             }
+            // An AMBIENT name resolves through the host first: the declaration
+            // is a claim about a binding the host already provides, so the
+            // profile's modeled global wins over materializing the declared
+            // type's default. Only when the profile models no such global does
+            // the declared type decide the read.
+            if self.ambient_value_declarations.contains(name)
+                && let Some(expr) = self.node_process_value_expression(name, start, end, body)
+            {
+                return Ok(expr);
+            }
             if let Some(ty) = self.module_globals.get(name).copied() {
                 return self.module_global_expression(name, ty, start, end, body);
             }
