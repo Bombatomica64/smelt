@@ -75,11 +75,13 @@ jobs:
           - shard: functions
             tests: >-
               this_receiver_runtime function_statics_runtime
+              erased_call_dispatch_runtime
               named_function_expression_runtime arguments_arity_runtime
               throwing_callback_runtime union_receiver_runtime
           - shard: throwing
             tests: >-
               thrown_payload_runtime try_finally_runtime
+              vitest_async_matcher_runtime
               closure_try_catch_runtime logical_operand_runtime
               runtime_type_test_runtime
           - shard: host
