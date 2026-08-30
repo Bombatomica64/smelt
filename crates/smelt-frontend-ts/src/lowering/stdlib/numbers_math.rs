@@ -584,6 +584,7 @@ return_ty: string_ty,
                 let op = match member.property.name.as_str() {
                     "isFinite" => NumericPredicateOp::IsFinite,
                     "isInteger" => NumericPredicateOp::IsInteger,
+                    "isSafeInteger" => NumericPredicateOp::IsSafeInteger,
                     "isNaN" => NumericPredicateOp::IsNaN,
                     _ => return Ok(None),
                 };
@@ -610,6 +611,30 @@ return_ty: string_ty,
         };
         let mut operand = self.argument(argument, body)?;
         let operand_ty = Self::expr_ty(body, operand);
+        // `Number.isSafeInteger` does not coerce: ECMAScript answers `false` for
+        // every non-Number argument. Asserting an erased operand to `number`
+        // here would make `Number.isSafeInteger('1')` answer `true`, so the
+        // erased operand is carried through unchanged and the codegen tests its
+        // runtime tag instead.
+        if matches!(op, NumericPredicateOp::IsSafeInteger)
+            && matches!(
+                self.ctx.krate.types.get(operand_ty),
+                Some(
+                    Type::Unknown
+                        | Type::TypeParam { .. }
+                        | Type::Class { .. }
+                        | Type::Optional(_)
+                        | Type::Union(_)
+                )
+            )
+        {
+            let ty = self.ctx.krate.types.intern(Type::Bool);
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::NumericPredicate { op, operand },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
         if !matches!(self.ctx.krate.types.get(operand_ty), Some(Type::Int | Type::Float)) {
             if ((source_name == "isNaN" || source_name == "Number.isNaN")
                 && self.is_date_constructor_arg_type(operand_ty))

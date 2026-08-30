@@ -3081,10 +3081,17 @@ impl ModuleBuilder<'_> {
                 entries.push((key, value));
                 continue;
             }
+            // A METHOD SHORTHAND is a function-valued property, and nothing
+            // else: `{ f() { .. } }` and `{ f: function () { .. } }` build the
+            // same object. Only the iterable-marker spelling was lowered as a
+            // real function; every other method became `null`, so a descriptor
+            // table's `get() { return 2 }`, an object of callbacks written in
+            // shorthand, and `{ toString() { .. } }` all silently lost their
+            // body with no diagnostic. Lowering every method through the same
+            // function-expression path removes the special case rather than
+            // adding one.
             if object_property.method {
-                if self.object_method_erases_to_iterable_marker(object_property)
-                    && let Expression::FunctionExpression(function) = &object_property.value
-                {
+                if let Expression::FunctionExpression(function) = &object_property.value {
                     let key = self.object_property_key_expr(object_property, body)?;
                     let value =
                         self.function_expression_value(function, None, object_property.span, body)?;
@@ -3133,10 +3140,10 @@ impl ModuleBuilder<'_> {
         for property in &object.properties {
             match property {
                 ObjectPropertyKind::ObjectProperty(object_property) => {
+                    // Same rule as the non-spread path above: a method
+                    // shorthand is a function-valued property.
                     if object_property.method {
-                        if self.object_method_erases_to_iterable_marker(object_property)
-                            && let Expression::FunctionExpression(function) = &object_property.value
-                        {
+                        if let Expression::FunctionExpression(function) = &object_property.value {
                             let key = self.object_property_key_expr(object_property, body)?;
                             let value = self.function_expression_value(
                                 function,
@@ -3258,22 +3265,6 @@ impl ModuleBuilder<'_> {
             ty: record_ty,
             span: self.span(object.span.start, object.span.end),
         }))
-    }
-
-    /// Return true for `[Symbol.iterator]()` methods that only mark an object as iterable.
-    pub(in crate::lowering) fn object_method_erases_to_iterable_marker(
-        &self,
-        object_property: &oxc::ast::ast::ObjectProperty<'_>,
-    ) -> bool {
-        let Ok(start) = usize::try_from(object_property.span.start) else {
-            return false;
-        };
-        let Ok(end) = usize::try_from(object_property.span.end) else {
-            return false;
-        };
-        self.source
-            .get(start..end)
-            .is_some_and(|text| text.contains("[Symbol.iterator]"))
     }
 
     /// Lower `...(condition && { ... })` object spread sources to conditional records.

@@ -904,6 +904,21 @@ pub enum ExprKind {
         /// Prototype the fresh object inherits from.
         prototype: ExprId,
     },
+    /// Install a property-descriptor table onto an erased object.
+    ///
+    /// Lowers to the `smelt_define_properties` runtime helper, which is the
+    /// shared body of `Object.defineProperty` and `Object.defineProperties`:
+    /// both spellings hand a target object a map from property key to
+    /// descriptor, and differ only in whether that map has one entry or many.
+    /// Before this existed the two calls lowered to an opaque `null` and the
+    /// mutation was DROPPED, so a `cloneDeep` of a `defineProperties` result
+    /// came back missing every defined key.
+    DefineProperties {
+        /// Object the properties are installed on; also the result value.
+        target: ExprId,
+        /// Erased object mapping property key to property descriptor.
+        descriptors: ExprId,
+    },
     UnknownCast {
         value: ExprId,
         target: TypeId,

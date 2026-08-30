@@ -83,6 +83,7 @@ pub const TYPESCRIPT_CALLS: &[CallRecognition] = &[
     static_call("Math", "atan2", RuleId::TsMathNumeric),
     static_call("Number", "isFinite", RuleId::TsNumberPredicate),
     static_call("Number", "isInteger", RuleId::TsNumberPredicate),
+    static_call("Number", "isSafeInteger", RuleId::TsNumberPredicate),
     static_call("Number", "isNaN", RuleId::TsNumberPredicate),
     static_call("Number", "parseFloat", RuleId::TsNumberParseFloat),
     static_call("Number", "parseInt", RuleId::TsNumberParseInt),

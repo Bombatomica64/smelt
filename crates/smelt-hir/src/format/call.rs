@@ -105,6 +105,7 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             let op_name = match op {
                 crate::expr::NumericPredicateOp::IsFinite => "is_finite",
                 crate::expr::NumericPredicateOp::IsInteger => "is_integer",
+                crate::expr::NumericPredicateOp::IsSafeInteger => "is_safe_integer",
                 crate::expr::NumericPredicateOp::IsNaN => "is_nan",
             };
             format!("numeric_{op_name} {}", expr_ref(*operand))
@@ -933,6 +934,14 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             format!("prototype_sentinel {}", expr_ref(*value))
         }
         ExprKind::BoxPrimitive { value } => format!("box_primitive {}", expr_ref(*value)),
+        ExprKind::DefineProperties {
+            target,
+            descriptors,
+        } => format!(
+            "define_properties {} {}",
+            expr_ref(*target),
+            expr_ref(*descriptors)
+        ),
         ExprKind::ObjectFromPrototype { prototype } => {
             format!("object_from_prototype {}", expr_ref(*prototype))
         }

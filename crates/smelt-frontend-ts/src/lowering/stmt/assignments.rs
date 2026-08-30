@@ -965,11 +965,21 @@ impl ModuleBuilder<'_> {
         let op = match member.property.name.as_str() {
             "isFinite" => NumericPredicateOp::IsFinite,
             "isInteger" => NumericPredicateOp::IsInteger,
+            "isSafeInteger" => NumericPredicateOp::IsSafeInteger,
             "isNaN" => NumericPredicateOp::IsNaN,
             _ => return None,
         };
         let span = self.span(member.span.start, member.span.end);
-        let number_ty = self.ctx.krate.types.intern(Type::Float);
+        // `Number.isSafeInteger` performs no ToNumber step, so its callable form
+        // must accept an ERASED value and test the runtime tag. Typing the
+        // parameter `number` would coerce at the call site and make
+        // `['1'].every(Number.isSafeInteger)` answer `true`, the same defect the
+        // direct-call path avoids.
+        let number_ty = if matches!(op, NumericPredicateOp::IsSafeInteger) {
+            self.ctx.krate.types.intern(Type::Unknown)
+        } else {
+            self.ctx.krate.types.intern(Type::Float)
+        };
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let value_name = self.intern_source_name("value");
         let mut closure_body = Body::new(None, span);
