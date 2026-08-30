@@ -9,7 +9,7 @@ use oxc::syntax::operator::{BinaryOperator, LogicalOperator};
 use smelt_hir::{
     BinOp, Body, DictProjectionOp, Expr, ExprKind, FunctionType, Literal, PrimitiveCastOp,
     StringAffixOp, StringCaseOp, StringNormalizeForm, StringReplaceOp, StringSearchOp,
-    StringTrimSide, Type, UnknownKind,
+    Span, StringTrimSide, Type, UnknownKind,
 };
 
 impl ModuleBuilder<'_> {
@@ -667,12 +667,106 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Lower `Object.defineProperty` / `Object.defineProperties` to a real
+    /// property installation.
+    ///
+    /// The two statics differ only in shape: `defineProperty` names ONE key and
+    /// its descriptor, `defineProperties` hands over a whole key-to-descriptor
+    /// table. Normalizing the singular form into a one-entry table lets both
+    /// spellings share `ExprKind::DefineProperties` and the single runtime
+    /// helper behind it, instead of each growing its own rule.
+    ///
+    /// A non-string property key (`Object.defineProperty(o, Symbol.toStringTag,
+    /// d)`) falls through to the opaque metadata path: symbol keys are not
+    /// modeled, and inventing a string key for one would collide with a real
+    /// property of the same name.
+    pub(in crate::lowering) fn object_define_properties_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        if object.name != "Object" {
+            return Ok(None);
+        }
+        let span = self.span(call.span.start, call.span.end);
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let (target, descriptors) = match member.property.name.as_str() {
+            "defineProperties" => {
+                let [target, descriptors] = call.arguments.as_slice() else {
+                    return Ok(None);
+                };
+                let target = self.argument(target, body)?;
+                let descriptors = self.argument(descriptors, body)?;
+                (target, descriptors)
+            }
+            "defineProperty" => {
+                let [target, key, descriptor] = call.arguments.as_slice() else {
+                    return Ok(None);
+                };
+                let target = self.argument(target, body)?;
+                let key = self.argument(key, body)?;
+                if self.ctx.krate.types.get(Self::expr_ty(body, key)) != Some(&Type::String) {
+                    return Ok(None);
+                }
+                let descriptor = self.argument(descriptor, body)?;
+                let descriptor = self.erase_to_unknown(descriptor, unknown_ty, span, body);
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
+                let descriptors = body.push_expr(Expr {
+                    kind: ExprKind::DictLit(Vec::from([(key, descriptor)])),
+                    ty: dict_ty,
+                    span,
+                });
+                (target, descriptors)
+            }
+            _ => return Ok(None),
+        };
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::DefineProperties {
+                target,
+                descriptors,
+            },
+            ty: unknown_ty,
+            span,
+        })))
+    }
+
+    /// Wrap `value` in an erasure cast unless it is already `unknown`-typed.
+    pub(in crate::lowering) fn erase_to_unknown(
+        &mut self,
+        value: smelt_hir::ExprId,
+        unknown_ty: smelt_hir::TypeId,
+        span: Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        if Self::expr_ty(body, value) == unknown_ty {
+            return value;
+        }
+        body.push_expr(Expr {
+            kind: ExprKind::UnknownCast {
+                value,
+                target: unknown_ty,
+            },
+            ty: unknown_ty,
+            span,
+        })
+    }
+
     /// Lower opaque side-effecting `Object` metadata calls.
     pub(in crate::lowering) fn object_metadata_mutation_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if let Some(expr) = self.object_define_properties_call(call, body)? {
+            return Ok(Some(expr));
+        }
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return Ok(None);
         };

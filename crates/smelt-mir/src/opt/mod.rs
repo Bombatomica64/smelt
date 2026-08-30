@@ -342,6 +342,13 @@ fn rewrite_rvalue(
         | Rvalue::UnknownCast { value: operand, .. } => {
             rewrite_operand_except(operand, aliases, dest)
         }
+        Rvalue::DefineProperties {
+            target,
+            descriptors,
+        } => {
+            rewrite_operand_except(target, aliases, dest)
+                | rewrite_operand_except(descriptors, aliases, dest)
+        }
         Rvalue::StringContains {
             haystack,
             needle,

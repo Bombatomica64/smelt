@@ -2129,6 +2129,27 @@ impl FunctionEmitter<'_> {
         Ok(format!("smelt_object_from_prototype({text})"))
     }
 
+    /// Emits `Object.defineProperty` / `Object.defineProperties` as a property
+    /// installation on an erased object.
+    ///
+    /// Both operands cross the erased-`unknown` seam because a descriptor table
+    /// is an ordinary JavaScript object whose values have no common static
+    /// shape (a data descriptor holds `value`, an accessor descriptor holds
+    /// `get`). The runtime helper returns the target, which is what the two
+    /// `Object` statics answer.
+    pub(super) fn define_properties_text(
+        &self,
+        target: &Operand,
+        descriptors: &Operand,
+    ) -> Result<String, EmitError> {
+        let unknown_ty = self.type_id(Type::Unknown)?;
+        let target_text = self.value_at_type(target, unknown_ty)?;
+        let descriptors_text = self.value_at_type(descriptors, unknown_ty)?;
+        Ok(format!(
+            "smelt_define_properties({target_text}, {descriptors_text})"
+        ))
+    }
+
     /// Emits the JavaScript `Object.prototype.toString.call(x)` tag probe.
     ///
     /// Defers the tag resolution to the `smelt_object_to_string_tag` runtime

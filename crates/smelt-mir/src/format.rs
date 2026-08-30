@@ -391,6 +391,14 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
         Rvalue::BoxPrimitive { value } => {
             format!("box_primitive {}", operand_text(value))
         }
+        Rvalue::DefineProperties {
+            target,
+            descriptors,
+        } => format!(
+            "define_properties {} {}",
+            operand_text(target),
+            operand_text(descriptors)
+        ),
         Rvalue::ObjectFromPrototype { prototype } => {
             format!("object_from_prototype {}", operand_text(prototype))
         }

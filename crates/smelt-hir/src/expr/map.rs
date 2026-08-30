@@ -749,6 +749,13 @@ impl ExprKind {
             Self::TypeofValue { value } => Self::TypeofValue { value: f(value)? },
             Self::PrototypeSentinel { value } => Self::PrototypeSentinel { value: f(value)? },
             Self::BoxPrimitive { value } => Self::BoxPrimitive { value: f(value)? },
+            Self::DefineProperties {
+                target,
+                descriptors,
+            } => Self::DefineProperties {
+                target: f(target)?,
+                descriptors: f(descriptors)?,
+            },
             Self::ObjectFromPrototype { prototype } => Self::ObjectFromPrototype {
                 prototype: f(prototype)?,
             },

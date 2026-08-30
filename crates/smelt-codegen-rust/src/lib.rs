@@ -547,6 +547,10 @@ fn emit_source_with_free_function_router(
     // `IsConcatSpreadable` helper, so it stays out of every other prelude.
     let needs_concat_spread =
         stdlib::rvalues(mir).any(|rvalue| matches!(rvalue, Rvalue::ConcatSpread { .. }));
+    // Only crates that actually define properties through the `Object` statics
+    // carry the descriptor-installation helper.
+    let needs_define_properties =
+        stdlib::rvalues(mir).any(|rvalue| matches!(rvalue, Rvalue::DefineProperties { .. }));
     // The dynamically scoped `this` channel is only reachable from the two
     // rvalues that read and install it, so a program that never mentions `this`
     // (and never binds a receiver) carries none of it.
@@ -1978,6 +1982,30 @@ fn emit_source_with_free_function_router(
         // still classified as a class instance rather than a plain object.
         writer.line("/// Create a fresh erased object from a runtime prototype value (`Object.create`).");
         writer.line("fn smelt_object_from_prototype(prototype: SmeltUnknown) -> SmeltUnknown { let mut fields: Vec<(String, SmeltUnknown)> = Vec::new(); match prototype { SmeltUnknown::String(sentinel) if &*sentinel == \"__smelt_proto:class\" => { fields.push((\"__smelt_class\".to_owned(), SmeltUnknown::Bool(true))); }, SmeltUnknown::Object(map) => { for (key, value) in map.iter() { if key == \"__smelt_class\" || key.starts_with(\"__smelt_proto:\") { fields.push((key, value)); } else { fields.push((format!(\"__smelt_proto:{key}\"), value)); } } }, _ => {} } SmeltUnknown::Object(SmeltObject::new(fields)) }");
+        // `Object.defineProperty(o, k, d)` and `Object.defineProperties(o, ds)`
+        // both install descriptors on an object, so the frontend normalizes the
+        // singular form into the plural one and both land here. Previously both
+        // lowered to an opaque `null` and the mutation was DROPPED outright.
+        //
+        // What is modeled is the descriptor's VALUE: a data descriptor's `value`,
+        // or the one-shot result of an accessor descriptor's `get`. Object
+        // literal getters that Smelt already collapses to their return
+        // expression arrive as a plain value rather than a function, so both
+        // spellings are accepted.
+        //
+        // ENUMERABILITY is the one attribute that must be honoured rather than
+        // ignored, and it is honoured by NOT installing the property. An erased
+        // object is a flat key/value store with no per-property attribute table,
+        // so a key it holds is enumerable by construction: installing a
+        // `enumerable: false` property would make it appear in `Object.keys`,
+        // in spread, in `JSON.stringify` and in structural equality, all of
+        // which JavaScript hides it from. Leaving it out keeps every one of
+        // those answers right and only loses a direct `o.k` read.
+        if needs_define_properties {
+            writer.line("/// Install a property-descriptor table on an erased object (`Object.defineProperties`).");
+            writer.line("fn smelt_define_properties(target: SmeltUnknown, descriptors: SmeltUnknown) -> SmeltUnknown { if let (SmeltUnknown::Object(map), SmeltUnknown::Object(table)) = (&target, &descriptors) { for (key, descriptor) in table.iter() { let SmeltUnknown::Object(entry) = descriptor else { continue }; let enumerable = match entry.get(\"enumerable\") { None | Some(SmeltUnknown::Null) | Some(SmeltUnknown::Undefined) => false, Some(SmeltUnknown::Bool(value)) => value, Some(SmeltUnknown::Number(value)) => value != 0.0 && !value.is_nan(), Some(SmeltUnknown::String(value)) => !value.is_empty(), Some(_) => true }; if !enumerable { continue; } let value = if let Some(value) = entry.get(\"value\") { value } else if let Some(getter) = entry.get(\"get\") { match getter { SmeltUnknown::Function(getter) => (getter)(Vec::new()).unwrap_or(SmeltUnknown::Undefined), other => other } } else { SmeltUnknown::Undefined }; map.insert(key, value); } } target }");
+            writer.blank_line();
+        }
         writer.line("fn smelt_prototype_sentinel(value: &SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Null => SmeltUnknown::Null, SmeltUnknown::Array(_) => SmeltUnknown::String(\"__smelt_proto:array\".into()), SmeltUnknown::Promise(_) => SmeltUnknown::String(\"__smelt_proto:promise\".into()), SmeltUnknown::Object(map) if map.contains_key(\"__smelt_class\") => SmeltUnknown::String(\"__smelt_proto:class\".into()), SmeltUnknown::Object(map) => match smelt_reflected_marker_class(map) { Some(class) => smelt_reflected_prototype(class), None => SmeltUnknown::String(\"__smelt_proto:object\".into()) }, SmeltUnknown::String(marker) if &**marker == \"__smelt_proto:object\" => SmeltUnknown::Null, SmeltUnknown::String(marker) if &**marker == \"__smelt_proto:array\" || &**marker == \"__smelt_proto:promise\" || &**marker == \"__smelt_proto:class\" => SmeltUnknown::String(\"__smelt_proto:object\".into()), _ => SmeltUnknown::String(\"__smelt_proto:object\".into()) } }");
         writer.blank_line();
         writer.line("/// Resolve the JavaScript `Object.prototype.toString.call(x)` tag for an erased value.");
