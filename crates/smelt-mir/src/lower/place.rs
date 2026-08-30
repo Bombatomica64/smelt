@@ -269,6 +269,7 @@ impl LoweringCtx<'_> {
             | ExprKind::PrototypeSentinel { .. }
             | ExprKind::BoxPrimitive { .. }
             | ExprKind::ObjectFromPrototype { .. }
+            | ExprKind::DefineProperties { .. }
             | ExprKind::Block(_)
             | ExprKind::Lambda { .. }
             | ExprKind::Closure(_)

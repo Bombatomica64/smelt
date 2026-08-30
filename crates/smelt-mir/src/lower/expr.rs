@@ -255,6 +255,21 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
+            ExprKind::DefineProperties {
+                target,
+                descriptors,
+            } => {
+                let lowered_target = self.lower_expr(*target)?;
+                let lowered_descriptors = self.lower_expr(*descriptors)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::DefineProperties {
+                        target: lowered_target,
+                        descriptors: lowered_descriptors,
+                    },
+                )?
+            }
             ExprKind::ObjectFromPrototype { prototype } => {
                 let lowered_prototype = self.lower_expr(*prototype)?;
                 self.assign_temp(

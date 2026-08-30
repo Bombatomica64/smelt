@@ -5105,6 +5105,10 @@ pub(super) fn rvalue_uses_local(value: &Rvalue, local: LocalId) -> bool {
             needle: rhs,
             ..
         }
+        | Rvalue::DefineProperties {
+            target: lhs,
+            descriptors: rhs,
+        }
         | Rvalue::StringContains {
             haystack: lhs,
             needle: rhs,

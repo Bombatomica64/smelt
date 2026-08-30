@@ -696,6 +696,15 @@ pub enum Rvalue {
         /// Prototype the fresh object inherits from.
         prototype: Operand,
     },
+    /// Install a property-descriptor table onto an erased object
+    /// (`Object.defineProperty` / `Object.defineProperties`; see the runtime
+    /// `smelt_define_properties`).
+    DefineProperties {
+        /// Object the properties are installed on; also the result value.
+        target: Operand,
+        /// Erased object mapping property key to property descriptor.
+        descriptors: Operand,
+    },
     /// Extract a typed value from a TypeScript `unknown` value.
     UnknownCast {
         /// Value being extracted.

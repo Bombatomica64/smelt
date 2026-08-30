@@ -1026,6 +1026,10 @@ impl FunctionEmitter<'_> {
             Rvalue::ObjectFromPrototype { prototype } => {
                 self.object_from_prototype_text(prototype)
             }
+            Rvalue::DefineProperties {
+                target,
+                descriptors,
+            } => self.define_properties_text(target, descriptors),
             Rvalue::UnknownCast {
                 value: unknown_value,
                 target,

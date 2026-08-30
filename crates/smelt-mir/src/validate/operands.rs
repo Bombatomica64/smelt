@@ -120,6 +120,13 @@ impl Rvalue {
             Self::ObjectFromPrototype { prototype } => {
                 visit(prototype);
             }
+            Self::DefineProperties {
+                target,
+                descriptors,
+            } => {
+                visit(target);
+                visit(descriptors);
+            }
             Self::UnknownCast {
                 value: unknown_value,
                 ..
@@ -898,6 +905,13 @@ impl Rvalue {
             }
             Self::ObjectFromPrototype { prototype } => {
                 visit(prototype);
+            }
+            Self::DefineProperties {
+                target,
+                descriptors,
+            } => {
+                visit(target);
+                visit(descriptors);
             }
             Self::UnknownCast {
                 value: unknown_value,

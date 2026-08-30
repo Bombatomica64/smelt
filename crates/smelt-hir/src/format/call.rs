@@ -934,6 +934,14 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             format!("prototype_sentinel {}", expr_ref(*value))
         }
         ExprKind::BoxPrimitive { value } => format!("box_primitive {}", expr_ref(*value)),
+        ExprKind::DefineProperties {
+            target,
+            descriptors,
+        } => format!(
+            "define_properties {} {}",
+            expr_ref(*target),
+            expr_ref(*descriptors)
+        ),
         ExprKind::ObjectFromPrototype { prototype } => {
             format!("object_from_prototype {}", expr_ref(*prototype))
         }
