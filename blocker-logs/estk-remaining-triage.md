@@ -605,3 +605,78 @@ plain direct call, before `.apply` is involved. Building the same value with
 `Object.assign` instead lowers correctly and passes. So the defect is in the
 `as`-cast + function-static-assign construction path, not in the callable
 interface itself.
+
+## `__proto__` is a READ defect, not a store defect (FIXED)
+
+The recorded diagnosis — "a `__proto__` write on a plain object creates an
+ordinary own property instead of swapping the prototype, so merge copies it" —
+is **wrong**, in the half that named the write. The spec's source is
+`Object.create(null)`, and a null-prototype value does not inherit the
+`__proto__` accessor from `Object.prototype`, so in real JavaScript
+`source.__proto__ = {...}` there *does* store an ordinary own property. Node
+agrees: `Object.keys(source)` is `["__proto__", "a"]`. The generated store was
+already correct, and the first assertion (`expect(result).toEqual({ a: 2 })`)
+already passed — es-toolkit's `isUnsafeProperty` guard was observable all along.
+
+The only failing assertion was the READ, `expect(result.__proto__).toBe(
+Object.prototype)`. `x.__proto__` lowered as an ordinary field read
+(`smelt_get_object_field(&map, "__proto__")`), so on `result`, which has no own
+`__proto__` slot, it answered `Undefined`. `__proto__` is an accessor inherited
+from `Object.prototype` whose getter is `Object.getPrototypeOf(Object(this))`.
+
+Fix: the read shares HIR with `Object.getPrototypeOf` — `PrototypeSentinel`
+gained `own_slot_shadows`, set only for the `__proto__` spelling, which emits
+`smelt_proto_accessor` (own slot first, then the sentinel) instead of
+`smelt_prototype_sentinel`. `Object.getPrototypeOf` stays blind to own
+properties as specified. Writes keep their existing store lowering, which is
+what makes the null-prototype own slot exist. Guarded by
+`crates/smelt-codegen-rust/tests/proto_accessor_runtime.rs`.
+
+## `debounce` / `throttle` edge options — ONE root, not two (FIXED)
+
+`throttle ... trailing edge only` and `debounce ... leading edge` share a single
+root, and neither involves the virtual clock: both failed on their FIRST,
+synchronous assertion, before any `delay`. They are mirror images of the same
+dropped option — with `edges` ignored, throttle's default fires the leading edge
+it was told to suppress, and debounce's default never fires the leading edge it
+was told to use.
+
+Generated evidence, `debounce_spec.rs`:
+
+```rust
+DebounceOptions { signal: smelt_record_map.get("signal")..., edges: None }
+```
+
+`edges: None` — hard-coded, while the record plainly holds an `"edges"` entry.
+The record-to-interface projection asks whether the record's value type can
+render as the optional field's INNER type; for a literal in which every property
+is optional the value type is already `Option<T>`, which fails that question, so
+the field was written as `None`. `can_render_non_function_dict_value_as` also
+returned early on an optional target, so the identical-`Option<T>` case never
+reached its own `source == target` check. Both are fixed in
+`emitter/core.rs::record_projection`; guarded by
+`crates/smelt-codegen-rust/tests/optional_record_field_runtime.rs`, which fails
+on the pre-fix compiler (verified by reverting only that emitter change).
+
+## `debounce should not add multiple abort event listeners` — NOT a shared root
+
+Third of the three "timer/mock" rows, and unrelated to the two above. Generated
+`debounce_spec.rs`:
+
+```rust
+let add_event_listener_spy: SmeltUnknown = SmeltUnknown::Null;
+```
+
+`vi.spyOn(signal, 'addEventListener')` lowers to an inert placeholder — by
+design: `lowering/stdlib.rs::vitest_spy_on_call` discards its target and returns
+`vitest_mock_handle_expr`, recording nothing except for the special
+`Date.getTimezoneOffset` case. The spec then reads
+`addEventListenerSpy.mock.calls`, which is `Null`.
+
+Making it pass is a feature, not a fix, and a two-part one: (1) a real `vi.spyOn`
+that replaces a live method with a recording wrapper and restores it on
+`mockRestore`, and (2) a host `AbortSignal` whose `addEventListener` is an
+interceptable member at all — today registration is the runtime manipulating the
+`__smelt_abort_listeners` array on the marker record, so there is no property for
+a spy to wrap. Part 2 touches the host-representation seam, which regates all
+three corpora. Not attempted; reported as scope, not rejected.
