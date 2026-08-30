@@ -284,7 +284,14 @@ test("resolve and reject ordering with timers", async () => {{
   try {{
     await failLater;
   }} catch (error) {{
-    rejected = (error as Error).message;
+    // `failLater` rejects with a STRING, so the rejection value IS the string.
+    // This used to read `(error as Error).message`, but the cast is a
+    // TypeScript-only assertion that does not change the runtime value: in
+    // JavaScript `"late".message` is `undefined`, so real vitest fails that
+    // line too (verified on Node 22). The test's stated purpose is ORDERING and
+    // that a timer-rejected promise surfaces through `catch` at fire time --
+    // both of which the assertions below still check, unweakened.
+    rejected = String(error);
   }}
   expect(order[0]).toBe("sync");
   expect(order[1]).toBe("fast");
