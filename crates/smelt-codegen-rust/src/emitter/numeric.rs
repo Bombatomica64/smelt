@@ -279,16 +279,33 @@ impl FunctionEmitter<'_> {
         operand: &Operand,
     ) -> Result<String, EmitError> {
         let operand_ty = self.operand_ty(operand)?;
-        let operand_text = if matches!(
+        let is_numeric_operand = matches!(
             self.mir.types.get(operand_ty),
             Some(Type::Int | Type::Float)
-        ) {
-            self.float_operand_text(operand)?
-        } else if matches!(
+        );
+        let is_erased_operand = matches!(
             self.mir.types.get(operand_ty),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) || self.is_erased_class_type(operand_ty)
-        {
+        ) || self.is_erased_class_type(operand_ty);
+        // `Number.isSafeInteger` performs NO type coercion: ECMAScript returns
+        // `false` for every argument whose type is not Number, so `'1'` is not a
+        // safe integer even though `Number('1')` is. An erased operand therefore
+        // has to be tested on its RUNTIME TAG rather than pushed through the
+        // number coercion the other predicates here use.
+        if matches!(op, smelt_hir::NumericPredicateOp::IsSafeInteger) && !is_numeric_operand {
+            let carries_runtime_tag = is_erased_operand
+                || matches!(self.mir.types.get(operand_ty), Some(Type::Optional(_)));
+            if !carries_runtime_tag {
+                return Ok("false".to_owned());
+            }
+            let value_text = self.value_at_type(operand, self.type_id(Type::Unknown)?)?;
+            return Ok(format!(
+                "(match {value_text} {{ SmeltUnknown::Number(smelt_value) => smelt_value.fract() == 0.0 && smelt_value.abs() <= 9007199254740991.0, _ => false }})"
+            ));
+        }
+        let operand_text = if is_numeric_operand {
+            self.float_operand_text(operand)?
+        } else if is_erased_operand {
             self.value_at_type(operand, self.type_id(Type::Float)?)?
         } else {
             return Ok("false".to_owned());
@@ -296,6 +313,12 @@ impl FunctionEmitter<'_> {
         Ok(match op {
             smelt_hir::NumericPredicateOp::IsFinite => format!("{operand_text}.is_finite()"),
             smelt_hir::NumericPredicateOp::IsInteger => format!("{operand_text}.fract() == 0.0"),
+            // `Number.isSafeInteger(x)` is `Number.isInteger(x)` narrowed to the
+            // range a double represents exactly. The operand is bound once so a
+            // side-effecting expression is not evaluated twice.
+            smelt_hir::NumericPredicateOp::IsSafeInteger => format!(
+                "{{ let smelt_value: f64 = {operand_text}; smelt_value.fract() == 0.0 && smelt_value.abs() <= 9007199254740991.0 }}"
+            ),
             smelt_hir::NumericPredicateOp::IsNaN => format!("{operand_text}.is_nan()"),
         })
     }

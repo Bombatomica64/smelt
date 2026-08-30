@@ -105,6 +105,7 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             let op_name = match op {
                 crate::expr::NumericPredicateOp::IsFinite => "is_finite",
                 crate::expr::NumericPredicateOp::IsInteger => "is_integer",
+                crate::expr::NumericPredicateOp::IsSafeInteger => "is_safe_integer",
                 crate::expr::NumericPredicateOp::IsNaN => "is_nan",
             };
             format!("numeric_{op_name} {}", expr_ref(*operand))

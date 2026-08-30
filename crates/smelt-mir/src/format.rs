@@ -455,6 +455,7 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
             let op_text = match op {
                 smelt_hir::NumericPredicateOp::IsFinite => "is_finite",
                 smelt_hir::NumericPredicateOp::IsInteger => "is_integer",
+                smelt_hir::NumericPredicateOp::IsSafeInteger => "is_safe_integer",
                 smelt_hir::NumericPredicateOp::IsNaN => "is_nan",
             };
             format!("numeric_{op_text} {}", operand_text(operand))

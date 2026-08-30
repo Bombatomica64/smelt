@@ -965,6 +965,7 @@ impl ModuleBuilder<'_> {
         let op = match member.property.name.as_str() {
             "isFinite" => NumericPredicateOp::IsFinite,
             "isInteger" => NumericPredicateOp::IsInteger,
+            "isSafeInteger" => NumericPredicateOp::IsSafeInteger,
             "isNaN" => NumericPredicateOp::IsNaN,
             _ => return None,
         };
