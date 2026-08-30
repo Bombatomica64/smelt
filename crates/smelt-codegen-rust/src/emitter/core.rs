@@ -1477,6 +1477,10 @@ impl<'mir> FunctionEmitter<'mir> {
             // methods the object path can still see, and each missing member
             // silently becomes a fabricated default callback.
             let proto_key = format!("__smelt_proto:{field_key}");
+            let method_key = format!(
+                "{prefix}{field_key}",
+                prefix = crate::class_proto::METHOD_KEY_PREFIX,
+            );
             let lookup_text = if field_key.contains('_') {
                 let mut camel = String::new();
                 let mut upper_next = false;
@@ -1491,11 +1495,11 @@ impl<'mir> FunctionEmitter<'mir> {
                     }
                 }
                 format!(
-                    "smelt_record_map.get({field_key:?}).or_else(|| smelt_record_map.get({camel:?})).or_else(|| smelt_record_map.get({proto_key:?}))"
+                    "smelt_record_map.get({field_key:?}).or_else(|| smelt_record_map.get({camel:?})).or_else(|| smelt_record_map.get({proto_key:?})).or_else(|| smelt_record_map.get({method_key:?}))"
                 )
             } else {
                 format!(
-                    "smelt_record_map.get({field_key:?}).or_else(|| smelt_record_map.get({proto_key:?}))"
+                    "smelt_record_map.get({field_key:?}).or_else(|| smelt_record_map.get({proto_key:?})).or_else(|| smelt_record_map.get({method_key:?}))"
                 )
             };
             let lookup_value = if let Some(Type::Dict(key, _)) = self.mir.types.get(source_value) {

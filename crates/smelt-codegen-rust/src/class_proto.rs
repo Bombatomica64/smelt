@@ -23,7 +23,8 @@
 //! fn __smelt_proto_entries(&self) -> Vec<(String, SmeltUnknown)>
 //! ```
 //!
-//! that builds one erased, receiver-bound adapter per eligible method. Both
+//! that builds one erased, receiver-bound adapter per eligible method, keyed
+//! under [`METHOD_KEY_PREFIX`]. Both
 //! erasure paths (the inline `class_unknown_object_text` adapter and the
 //! generated `IntoSmeltUnknown` impl) append its result, so an instance erases
 //! the same way whichever path the emitter took.
@@ -55,6 +56,30 @@ use crate::{
 
 /// Name of the generated inherent method that lists a class's prototype members.
 pub(crate) const PROTO_ENTRIES_METHOD: &str = "__smelt_proto_entries";
+
+/// Key prefix under which a class's prototype methods are stored on an erased
+/// instance.
+///
+/// Deliberately NOT the existing `__smelt_proto:` prefix, which
+/// `smelt_object_from_prototype` uses for `Object.create(proto)` results.
+/// Those inherited properties are *enumerable*, so `for...in` walks them;
+/// a class's methods and accessors are defined non-enumerable by the language,
+/// so `for...in` must not. Sharing one prefix would have to pick one of those
+/// two behaviours and be wrong about the other — remeda's `isEmptyish`, which
+/// probes emptiness with a bare `for (const _ in data) return false`, caught
+/// exactly that. `smelt_get_object_field` resolves both prefixes; every
+/// enumeration, structural-equality, hashing and JSON view skips both.
+pub(crate) const METHOD_KEY_PREFIX: &str = "__smelt_method:";
+
+/// Prefixes the frontends give a synthesized accessor method.
+///
+/// A source `get x()` / `set x(v)` lowers to an ordinary method named
+/// `__smelt_get_x` / `__smelt_set_x`; the accessor is reached in JavaScript by
+/// *reading* `x`, never by calling `__smelt_get_x`. Publishing it as a callable
+/// member would invent a method the source never declared, so accessors are
+/// excluded here. Exposing them properly needs an accessor slot the erased
+/// carrier does not yet have (a read that invokes), which is separate work.
+const ACCESSOR_PREFIXES: [&str; 2] = ["__smelt_get_", "__smelt_set_"];
 
 /// Whether `ty` can be produced from an erased `SmeltUnknown` result.
 ///
@@ -106,6 +131,18 @@ pub(crate) fn method_is_proto_eligible(
         return false;
     };
     if function.is_async || function.is_generator || function.rest.is_some() {
+        return false;
+    }
+    let HirOrigin::ClassMethod { method: name, .. } = function.origin else {
+        return false;
+    };
+    let Some(spelling) = mir.symbols.get(name) else {
+        return false;
+    };
+    if ACCESSOR_PREFIXES
+        .iter()
+        .any(|prefix| spelling.starts_with(prefix))
+    {
         return false;
     }
     if !return_type_is_erasable(mir, function.return_ty) {
@@ -199,7 +236,7 @@ pub(crate) fn class_proto_entries_method(
                 .ok_or_else(|| EmitError::new("class method references an unknown symbol"))?,
         );
         let adapter = method_adapter_text(mir, function, &rust_method)?;
-        let key = format!("__smelt_proto:{source_name}");
+        let key = format!("{METHOD_KEY_PREFIX}{source_name}");
         pushes.push(format!(
             "        smelt_proto_entries.push(({key:?}.to_owned(), {adapter}));\n"
         ));
