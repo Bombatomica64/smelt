@@ -235,13 +235,17 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
-            ExprKind::PrototypeSentinel { value } => {
+            ExprKind::PrototypeSentinel {
+                value,
+                own_slot_shadows,
+            } => {
                 let lowered_value = self.lower_expr(*value)?;
                 self.assign_temp(
                     expr.ty,
                     expr.span,
                     Rvalue::PrototypeSentinel {
                         value: lowered_value,
+                        own_slot_shadows: *own_slot_shadows,
                     },
                 )?
             }
