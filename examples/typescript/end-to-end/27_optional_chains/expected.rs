@@ -1104,6 +1104,8 @@ impl SmeltArray {
     fn with_id(id: usize, values: Vec<SmeltUnknown>) -> Self { Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)) } }
     /// Reuse an existing shared buffer, so a re-wrap keeps aliasing the same array.
     fn with_storage(id: usize, values: ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>>) -> Self { Self { id, values } }
+    /// Another handle on this array's shared buffer.
+    fn storage(&self) -> ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>> { ::std::rc::Rc::clone(&self.values) }
     /// Snapshot the elements. This COPIES: mutating the result does not write back.
     fn into_vec(self) -> Vec<SmeltUnknown> { self.values.borrow().clone() }
     /// Element count.

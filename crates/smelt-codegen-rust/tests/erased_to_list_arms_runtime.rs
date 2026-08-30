@@ -112,3 +112,50 @@ test("a string iterates into a list whose element type is concrete", () => {
 "#;
     run_fixture(source, "erased_to_list_string_arm");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn an_array_extracted_from_an_erased_value_aliases_the_source_array() {
+    // A JavaScript array is a reference value, so the `unknown[]` a callee
+    // receives across an erased boundary IS the caller's array — a `push`
+    // through the callee's handle must be visible to the caller.
+    //
+    // `SmeltList<SmeltUnknown>` and `SmeltArray` have the identical
+    // `id` + `Rc<RefCell<Vec<SmeltUnknown>>>` representation, so the extraction
+    // is a re-wrap of one array and not the construction of a second. It used to
+    // rebuild the element vector into a fresh `Rc`, which kept the identity but
+    // detached the storage: the write below landed in a copy that died with the
+    // call, and the caller observed `[1, 2, 3]`. (That rebuild was also an O(n)
+    // memcpy per crossing, which is what made a per-callback erased dispatcher
+    // quadratic.)
+    let source = r#"
+import { test, expect } from "vitest";
+
+function pushInto(values: unknown[]): number {
+  values.push(99);
+  return values.length;
+}
+
+function callErased(fn: unknown, value: unknown): unknown {
+  const callable = fn as (values: unknown) => unknown;
+  return callable(value);
+}
+
+test("an array extracted from an erased value aliases the source array", () => {
+  const values: unknown[] = [1, 2, 3];
+  expect(callErased(pushInto, values)).toBe(4);
+  expect(values.length).toBe(4);
+  expect(values[3]).toBe(99);
+});
+
+test("a non-array source still builds a fresh list", () => {
+  // Only the array arm has a source array to alias; every other arm builds a
+  // list that did not exist in the source program and so mints a fresh identity.
+  const built: unknown[] = [];
+  expect(callErased(pushInto, "ab")).toBe(3);
+  expect(callErased(pushInto, undefined)).toBe(1);
+  expect(built.length).toBe(0);
+});
+"#;
+    run_fixture(source, "erased_to_list_aliasing");
+}

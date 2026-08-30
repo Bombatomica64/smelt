@@ -2080,6 +2080,14 @@ fn emit_source_with_free_function_router(
             "    /// Reuse an existing shared buffer, so a re-wrap keeps aliasing the same array.",
         );
         writer.line("    fn with_storage(id: usize, values: ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>>) -> Self { Self { id, values } }");
+        // The twin of `SmeltList::storage()`. An erased array re-wrapped as a
+        // typed `SmeltList<SmeltUnknown>` must keep aliasing the SAME buffer, or
+        // the round-trip produces a stale snapshot wearing the live array's id
+        // (see the `From<SmeltList<SmeltUnknown>>` comment below for the same
+        // argument in the other direction). Without this accessor the only way
+        // back was `into_vec()`, which copies.
+        writer.line("    /// Another handle on this array's shared buffer.");
+        writer.line("    fn storage(&self) -> ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>> { ::std::rc::Rc::clone(&self.values) }");
         writer.line(
             "    /// Snapshot the elements. This COPIES: mutating the result does not write back.",
         );

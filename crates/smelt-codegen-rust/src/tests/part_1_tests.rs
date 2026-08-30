@@ -1364,11 +1364,11 @@ export function toList(arr: unknown[] | null | undefined): unknown[] {
     );
 
     assert!(
-        source.contains(".into_smelt_unknown(); let smelt_id = if let SmeltUnknown::Array"),
+        source.contains(".into_smelt_unknown(); match smelt_src { SmeltUnknown::Null"),
         "iterable extraction did not normalize its source through IntoSmeltUnknown: {source}"
     );
     assert!(
-        !source.contains("let smelt_src = arr.clone().clone(); let smelt_id"),
+        !source.contains("let smelt_src = arr.clone().clone(); match smelt_src"),
         "iterable extraction still matched SmeltUnknown arms on a non-erased source: {source}"
     );
 }

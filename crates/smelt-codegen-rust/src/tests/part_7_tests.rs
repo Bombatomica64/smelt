@@ -4217,9 +4217,18 @@ function wrap<T>(
     // (`closure_arg_0.get({..index..})`). The callable-typed parameter's read
     // is hoisted into a `let smelt_source_value = closure_arg_0.get(..)` binding
     // by the callable-object narrowing, so assert on the shared `.get(` read.
+    //
+    // `data: readonly T[]` is extracted out of the packed rest vector, and `T`
+    // is not a Rust generic in this emission scope, so its elements are already
+    // `SmeltUnknown`: the extraction re-wraps the SAME array rather than
+    // rebuilding its element vector (see `erased_to_list_text`). That is what
+    // keeps a `purry`-style runtime dispatcher from paying an O(n) copy on every
+    // crossing, and it is what makes the array a callback receives BE the array
+    // being iterated.
     assert!(
         source.contains("closure_arg_0.borrow().get(")
-            && source.contains("SmeltUnknown::Array(values) => values.into_iter()"),
+            && source
+                .contains("SmeltUnknown::Array(values) => SmeltList::with_storage(values.id,"),
         "fixed callback spread calls should read the first fixed parameter from the rest vector: {source}"
     );
     assert!(
