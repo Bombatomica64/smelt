@@ -786,7 +786,7 @@ const erased: unknown = mixed;
     );
     assert!(
         source.contains(
-            "fn smelt_js_key_order_position<K: SmeltPropertyKey, V>(entries: &[(K, V)], key: &K) -> usize"
+            "fn smelt_js_key_order_position<K: SmeltPropertyKey, V>(entries: &[SmeltFieldEntry<K, V>], key: &K) -> usize"
         ),
         "{source}"
     );
@@ -800,7 +800,7 @@ const erased: unknown = mixed;
         "{source}"
     );
     assert!(
-        source.contains("self.entries.insert(position, (key, value));"),
+        source.contains("self.entries.insert(position, SmeltFieldEntry { fingerprint, key, value });"),
         "{source}"
     );
 }
