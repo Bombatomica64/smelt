@@ -1,6 +1,6 @@
 # Bug-library transpile probes (TypeScript + Python)
 
-_Generated 2026-09-02 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
+_Generated 2026-09-03 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
 
 Each library is checked out at a pinned ref (see `.github/compat/libraries.json`), given its `.github/compat/<name>/Smelt.toml`, and run through `smelt build`. If a crate is emitted, its generated `cargo test` suite is run and counted. Otherwise every source/test file is scanned individually with `smelt dump-hir` to enumerate the full set of distinct blocker classes (single-file mode cannot resolve cross-file imports, so bare `unresolved name/identifier` errors are excluded as scan noise).
 
@@ -12,10 +12,10 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 
 | Library | Lang | Transpile | Tests (pass/fail) | First abort | Blocker classes | Dominant |
 | --- | --- | --- | --- | --- | ---: | --- |
-| [es-toolkit](https://github.com/toss/es-toolkit) | TS | **yes** | 1012 / 47 | — | — | — |
+| [es-toolkit](https://github.com/toss/es-toolkit) | TS | **yes** | 1013 / 46 | — | — | — |
 | [radash](https://github.com/sodiray/radash) | TS | **yes** | transpiled (counts unparsed) | — | — | — |
 | [ts-pattern](https://github.com/gvergnaud/ts-pattern) | TS | **no** | n/a | `src/internals/helpers.ts` | 11 | non-working Rust (11r/0s) |
-| [valibot](https://github.com/fabian-hiller/valibot) | TS | **no** | n/a | `library/src/storages/globalConfig/globalConfig.ts` | 21 | non-working Rust (19r/2s) |
+| [valibot](https://github.com/fabian-hiller/valibot) | TS | **no** | n/a | `library/src/storages/globalConfig/globalConfig.ts` | 20 | non-working Rust (18r/2s) |
 | [neverthrow](https://github.com/supermacro/neverthrow) | TS | **no** | n/a | `src/result.ts` | 4 | non-working Rust (3r/1s) |
 | [immer](https://github.com/immerjs/immer) | TS | **no** | n/a | `__tests__/spec_ts.ts` | 7 | non-working Rust (7r/0s) |
 | [rxjs](https://github.com/ReactiveX/rxjs) | TS | **no** | n/a | `packages/rxjs/spec/Observable-spec.ts` | 24 | non-working Rust (24r/0s) |
@@ -29,7 +29,7 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 
 - Source: `toss/es-toolkit` @ `e008a2818cd8`
 - Transpile: **yes** — Rust crate emitted
-- Generated `cargo test`: **1012 passed / 47 failed**
+- Generated `cargo test`: **1013 passed / 46 failed**
 
 ## radash
 
@@ -63,7 +63,7 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 - Source: `fabian-hiller/valibot` @ `1f9b18338ad5`
 - Transpile: **no** — `smelt build` aborts at `library/src/storages/globalConfig/globalConfig.ts`
 - Tests passing: **n/a** (no Rust crate emitted)
-- Files scanned: 1083 · with blockers: 65
+- Files scanned: 1083 · with blockers: 63
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
@@ -73,7 +73,6 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 | 5 | 5 | missing-stdlib (builtin class) | unresolved class `X` |
 | 5 | 5 | non-working Rust | index access is only lowered for arrays, strings, and records for now (receiver: Some(Opti |
 | 3 | 3 | non-working Rust | regex replacement supports only g/i/m/s RegExp literal flags |
-| 2 | 2 | non-working Rust | exported const declarations require an initializer |
 | 2 | 2 | non-working Rust | new Set(iterable) currently requires an array argument |
 | 2 | 2 | non-working Rust | expect(...).resolves/rejects actual value must be a Promise<T> |
 | 2 | 2 | non-working Rust | describe blocks only support direct it/test/describe calls for now |
@@ -81,6 +80,7 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 | 1 | 1 | non-working Rust | empty nested arrays require an explicit type annotation |
 | 1 | 1 | non-working Rust | string normalize requires a literal normalization form |
 | 1 | 1 | non-working Rust | JSON.parse<T>() currently supports exactly one text argument |
+| 1 | 1 | non-working Rust | field access is only lowered for Record<string, T>, class, and interface values for now (r |
 
 ## neverthrow
 
