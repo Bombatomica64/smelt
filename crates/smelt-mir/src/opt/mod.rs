@@ -976,7 +976,7 @@ fn rewrite_place(place: &mut Place, aliases: &HashMap<LocalId, LocalId>) -> bool
             *local = resolved;
             changed
         }
-        Place::Index { base, index } => {
+        Place::Index { base, index, .. } => {
             let resolved = resolve_alias(aliases, *base);
             let changed = resolved != *base;
             *base = resolved;

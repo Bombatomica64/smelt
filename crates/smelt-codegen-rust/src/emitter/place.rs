@@ -337,7 +337,11 @@ impl FunctionEmitter<'_> {
                     sanitize_ident(self.symbol_name(*field)?)
                 ))
             }
-            Place::Index { base, index } => {
+            Place::Index {
+                base,
+                index,
+                negative,
+            } => {
                 let base_ty = self.local_decl(*base)?.ty;
                 if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
                     && self.is_match_class_symbol(*name)?
@@ -363,7 +367,7 @@ impl FunctionEmitter<'_> {
                         // that cell while this one is live.
                         let base_text = self.local_value_text(*base)?;
                         let index_text =
-                            self.normalized_read_index_text(&format!("{base_text}.len()"), index)?;
+                            self.normalized_read_index_text(&format!("{base_text}.len()"), index, *negative)?;
                         let missing = self.element_missing_value_text(*item_ty)?;
                         let read_text = list_read_text(&base_text);
                         // `unwrap_or` takes its argument BY VALUE, so the
@@ -390,6 +394,7 @@ impl FunctionEmitter<'_> {
                         let index_text = self.normalized_read_index_text(
                             &format!("{base_text}.as_ref().map_or(0, SmeltList::len)"),
                             index,
+                            *negative,
                         )?;
                         let access =
                             if matches!(self.mir.types.get(*item_ty), Some(Type::Optional(_))) {
@@ -444,6 +449,7 @@ impl FunctionEmitter<'_> {
                         let index_text = self.normalized_read_index_text(
                             &format!("{base_text}.chars().count()"),
                             index,
+                            *negative,
                         )?;
                         Ok(format!(
                             "{base_text}.chars().nth({index_text}).map(|ch| ch.to_string()).expect(\"index out of bounds\")"
@@ -677,7 +683,11 @@ impl FunctionEmitter<'_> {
     pub(super) fn assignment_place_text(&self, place: &Place) -> Result<String, EmitError> {
         match place {
             Place::Local(local) => self.local_mut_value_text(*local),
-            Place::Index { base, index } => {
+            Place::Index {
+                base,
+                index,
+                negative,
+            } => {
                 let base_ty = self.local_decl(*base)?.ty;
                 match self.mir.types.get(base_ty) {
                     Some(Type::List(_)) => {
@@ -693,7 +703,7 @@ impl FunctionEmitter<'_> {
                         let base_mut = self.local_mut_value_text(*base)?;
                         let base_read = self.local_value_text(*base)?;
                         let index_text =
-                            self.normalized_index_text(&format!("{base_read}.len()"), index)?;
+                            self.normalized_index_text(&format!("{base_read}.len()"), index, *negative)?;
                         Ok(format!("{base_mut}[{index_text}]"))
                     }
                     Some(Type::Dict(key_ty, _)) => {
@@ -774,10 +784,12 @@ impl FunctionEmitter<'_> {
         &self,
         len_expr: &str,
         index: &Operand,
+        negative: NegativeIndex,
     ) -> Result<String, EmitError> {
         self.normalized_index_text_with_fallback(
             len_expr,
             index,
+            negative,
             "usize::try_from(normalized).expect(\"negative index out of bounds\")",
         )
     }
@@ -817,21 +829,27 @@ impl FunctionEmitter<'_> {
 
     /// Converts an element index into a Rust `usize` expression for a READ.
     ///
-    /// JavaScript element reads are total: `arr[-1]` and `arr[arr.length]` are
-    /// `undefined`, never an error. A positive out-of-range index already
-    /// reaches that behavior through `Vec::get` returning `None`, so a still
-    /// negative normalized index must reach it too. Converting the miss to
-    /// `usize::MAX` (never a valid slot of a live `Vec`, whose capacity is
-    /// bounded by `isize::MAX` bytes) makes the subsequent `get` miss instead
-    /// of panicking, so both directions of out-of-range agree.
+    /// Element reads are total in both source languages: an out-of-range index
+    /// answers `undefined`/the missing value, never an error. A positive
+    /// out-of-range index already reaches that behavior through `Vec::get`
+    /// returning `None`, so a negative index that addresses no slot must reach
+    /// it too. Converting the miss to `usize::MAX` (never a valid slot of a live
+    /// `Vec`, whose capacity is bounded by `isize::MAX` bytes) makes the
+    /// subsequent `get` miss instead of panicking, so both directions of
+    /// out-of-range agree.
+    ///
+    /// Which negative indexes address a slot is `negative`'s question, not this
+    /// one's; see [`Self::normalized_index_text_with_fallback`].
     pub(super) fn normalized_read_index_text(
         &self,
         len_expr: &str,
         index: &Operand,
+        negative: NegativeIndex,
     ) -> Result<String, EmitError> {
         self.normalized_index_text_with_fallback(
             len_expr,
             index,
+            negative,
             "usize::try_from(normalized).unwrap_or(usize::MAX)",
         )
     }
@@ -841,10 +859,20 @@ impl FunctionEmitter<'_> {
     /// `usize_conversion` is the trailing expression that turns the normalized
     /// `i64` (bound as `normalized`) into a `usize`; it is the only part that
     /// differs between a read (miss) and a write (panic).
+    ///
+    /// `negative` decides whether a negative subscript is normalized at all.
+    /// Python counts back from the end, so `xs[-1]` becomes `len - 1` and names
+    /// the last element. JavaScript does not: a negative subscript is a PROPERTY
+    /// KEY, so `xs[-1]` addresses no element and reads `undefined` even when the
+    /// array is non-empty. Wrapping unconditionally silently answered `xs[-1]`
+    /// with `xs[len - 1]` in generated TypeScript — a wrong value, not a crash.
+    /// Leaving the index alone lets the same out-of-range machinery below turn
+    /// it into the miss both languages already agree on for `xs[len]`.
     fn normalized_index_text_with_fallback(
         &self,
         len_expr: &str,
         index: &Operand,
+        negative: NegativeIndex,
         usize_conversion: &str,
     ) -> Result<String, EmitError> {
         let index_ty = self.operand_ty(index)?;
@@ -853,9 +881,18 @@ impl FunctionEmitter<'_> {
         } else {
             self.value_at_type(index, self.type_id(Type::Float)?)?
         };
-        Ok(format!(
-            "{{ let len = {len_expr} as i64; let index = {index_text} as i64; let normalized = if index < 0 {{ len + index }} else {{ index }}; {usize_conversion} }}"
-        ))
+        let normalize = match negative {
+            NegativeIndex::FromEnd => {
+                format!("let len = {len_expr} as i64; let index = {index_text} as i64; let normalized = if index < 0 {{ len + index }} else {{ index }};")
+            }
+            // No `len` binding: nothing consults the length when a negative
+            // index cannot reach a slot, and emitting it anyway would take a
+            // second borrow of the receiver inside its own `get(..)` argument.
+            NegativeIndex::OutOfRange => {
+                format!("let normalized = {index_text} as i64;")
+            }
+        };
+        Ok(format!("{{ {normalize} {usize_conversion} }}"))
     }
 
     /// A JS element read that flows into an optional slot keeps its fallibility.
@@ -873,8 +910,16 @@ impl FunctionEmitter<'_> {
         operand: &Operand,
         inner: TypeId,
     ) -> Result<Option<String>, EmitError> {
-        let (Operand::Copy(Place::Index { base, index }) | Operand::Move(Place::Index { base, index })) =
-            operand
+        let (Operand::Copy(Place::Index {
+            base,
+            index,
+            negative,
+        })
+        | Operand::Move(Place::Index {
+            base,
+            index,
+            negative,
+        })) = operand
         else {
             return Ok(None);
         };
@@ -889,7 +934,7 @@ impl FunctionEmitter<'_> {
             Some(Type::List(item_ty)) => {
                 let base_text = self.local_value_text(*base)?;
                 let index_text =
-                    self.normalized_read_index_text(&format!("{base_text}.len()"), index)?;
+                    self.normalized_read_index_text(&format!("{base_text}.len()"), index, *negative)?;
                 // Read borrow, as in the total list index read above: the
                 // `.len()` in the index argument borrows the same shared cell.
                 let read = format!(
@@ -913,7 +958,7 @@ impl FunctionEmitter<'_> {
             Some(Type::String) if self.mir.types.get(inner) == Some(&Type::String) => {
                 let base_text = self.local_value_text(*base)?;
                 let index_text = self
-                    .normalized_read_index_text(&format!("{base_text}.chars().count()"), index)?;
+                    .normalized_read_index_text(&format!("{base_text}.chars().count()"), index, *negative)?;
                 Ok(Some(format!(
                     "{base_text}.chars().nth({index_text}).map(|ch| ch.to_string())"
                 )))
@@ -948,8 +993,16 @@ impl FunctionEmitter<'_> {
         &self,
         operand: &Operand,
     ) -> Result<Option<String>, EmitError> {
-        let (Operand::Copy(Place::Index { base, index }) | Operand::Move(Place::Index { base, index })) =
-            operand
+        let (Operand::Copy(Place::Index {
+            base,
+            index,
+            negative,
+        })
+        | Operand::Move(Place::Index {
+            base,
+            index,
+            negative,
+        })) = operand
         else {
             return Ok(None);
         };
@@ -971,7 +1024,7 @@ impl FunctionEmitter<'_> {
                 }
                 let base_text = self.local_value_text(*base)?;
                 let index_text =
-                    self.normalized_read_index_text(&format!("{base_text}.len()"), index)?;
+                    self.normalized_read_index_text(&format!("{base_text}.len()"), index, *negative)?;
                 let erased_value = self.erase_value_text("value", item_ty)?;
                 let read_text = list_read_text(&base_text);
                 Ok(Some(format!(
@@ -981,7 +1034,7 @@ impl FunctionEmitter<'_> {
             Some(Type::String) => {
                 let base_text = self.local_value_text(*base)?;
                 let index_text = self
-                    .normalized_read_index_text(&format!("{base_text}.chars().count()"), index)?;
+                    .normalized_read_index_text(&format!("{base_text}.chars().count()"), index, *negative)?;
                 Ok(Some(format!(
                     "{base_text}.chars().nth({index_text}).map(|ch| SmeltUnknown::String(ch.to_string().into())).unwrap_or(SmeltUnknown::Undefined)"
                 )))

@@ -169,9 +169,11 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
 
     let item_functions = assign_function_ids(krate)?;
     let global_ids = lower_globals(krate, &mut mir);
+    let languages = index_source_languages(krate);
     let tables = LoweringTables {
         item_functions: &item_functions,
         global_ids: &global_ids,
+        languages: &languages,
     };
     lower_type_tables(krate, &mut mir, &item_functions);
     lower_item_functions(krate, &mut mir, &tables, helpers, &mut errors);
@@ -228,6 +230,25 @@ struct LoweringTables<'hir> {
     item_functions: &'hir FunctionIds,
     /// Mapping of mutable-global HIR items to their `Mir::globals` index.
     global_ids: &'hir HashMap<smelt_hir::ItemId, u32>,
+    /// Source language of every file in the crate, keyed by the `FileId` that
+    /// each expression's span carries.
+    languages: &'hir HashMap<smelt_hir::FileId, smelt_hir::Language>,
+}
+
+/// Index every module's source language by the `FileId` its spans carry.
+///
+/// A crate is not single-language: the transpiler picks a frontend per file, so
+/// TypeScript and Python modules can sit in one [`smelt_hir::Crate`]. Semantics
+/// that differ between the two -- negative element indexing, for one -- must be
+/// decided per site, and an expression identifies its file through its span.
+fn index_source_languages(
+    krate: &smelt_hir::Crate,
+) -> HashMap<smelt_hir::FileId, smelt_hir::Language> {
+    krate
+        .modules
+        .iter()
+        .map(|module| (module.source.file, module.source.language))
+        .collect()
 }
 
 /// Populate [`Mir::globals`] from every HIR mutable-global item.
@@ -444,6 +465,7 @@ fn lower_item_functions(
             krate,
             item_functions: tables.item_functions,
             global_ids: tables.global_ids,
+            languages: tables.languages,
             loop_index_ty: helpers.loop_index_ty,
             loop_bool_ty: helpers.loop_bool_ty,
             closure_base: mir.closures.len(),
@@ -505,6 +527,7 @@ fn lower_module_bodies(
             krate,
             item_functions: tables.item_functions,
             global_ids: tables.global_ids,
+            languages: tables.languages,
             loop_index_ty: helpers.loop_index_ty,
             loop_bool_ty: helpers.loop_bool_ty,
             closure_base: mir.closures.len(),

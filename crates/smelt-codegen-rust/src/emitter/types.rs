@@ -706,7 +706,7 @@ impl FunctionEmitter<'_> {
                     _ => self.type_id(Type::Unknown),
                 }
             }
-            Place::Index { base, index } => {
+            Place::Index { base, index, .. } => {
                 let base_ty = self.local_decl(*base)?.ty;
                 if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
                     && self.is_match_class_symbol(*name)?

@@ -5065,7 +5065,7 @@ fn place_reads_local(place: &Place, local: LocalId) -> bool {
         | Place::Field {
             base: candidate, ..
         } => *candidate == local,
-        Place::Index { base, index } => *base == local || operand_uses_local(index, local),
+        Place::Index { base, index, .. } => *base == local || operand_uses_local(index, local),
     }
 }
 
@@ -5074,7 +5074,7 @@ pub(super) fn assignment_place_reads_local(place: &Place, local: LocalId) -> boo
     match place {
         Place::Local(_) => false,
         Place::Field { base, .. } => *base == local,
-        Place::Index { base, index } => *base == local || operand_uses_local(index, local),
+        Place::Index { base, index, .. } => *base == local || operand_uses_local(index, local),
     }
 }
 

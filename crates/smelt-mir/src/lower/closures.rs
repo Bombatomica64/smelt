@@ -130,6 +130,7 @@ impl LoweringCtx<'_> {
             krate: self.krate,
             item_functions: self.item_functions,
             global_ids: self.global_ids,
+            languages: self.languages,
             loop_index_ty: self.loop_index_ty,
             loop_bool_ty: self.loop_bool_ty,
             closure_base: closure_index

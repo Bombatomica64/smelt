@@ -510,7 +510,28 @@ pub enum Place {
         base: LocalId,
         /// The index expression.
         index: Box<Operand>,
+        /// What a negative index means at this site.
+        negative: NegativeIndex,
     },
+}
+
+/// What a negative element index means at an indexed place.
+///
+/// JavaScript and Python disagree, and the disagreement is not observable from
+/// the index value or the collection type: `xs[-1]` is `undefined` in
+/// JavaScript but the LAST ELEMENT in Python. The rule therefore belongs to the
+/// source language of the site, which only HIR lowering knows -- a single crate
+/// can mix TypeScript and Python modules, so codegen cannot infer it and must
+/// not guess.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NegativeIndex {
+    /// Python: a negative index counts back from the collection's end, so it is
+    /// normalized to `len + index` before the slot is addressed.
+    FromEnd,
+    /// JavaScript: a negative subscript addresses no element at all. It is a
+    /// property key, not a position, so an element read answers `undefined`
+    /// rather than wrapping around to a real slot.
+    OutOfRange,
 }
 
 /// An operand in MIR.

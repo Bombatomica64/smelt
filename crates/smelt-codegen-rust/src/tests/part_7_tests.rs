@@ -5246,7 +5246,7 @@ function swap(data: unknown[], i: number, j: number): void {
 
     assert!(source.contains("let __smelt_destructure"), "{source}");
     assert!(source.contains("__smelt_destructure.borrow().get"), "{source}");
-    assert!(source.contains("index = 1.0"), "{source}");
+    assert!(source.contains("normalized = 1.0"), "{source}");
     assert_eq!(
         source
             .matches("data.borrow_mut()[smelt_assign_index] = smelt_assign_value")
@@ -11326,6 +11326,53 @@ export function pick(arr: number[], index: number): number {
     assert!(
         source.contains("usize::try_from(normalized).unwrap_or(usize::MAX)"),
         "the normalized index must degrade to a miss:\n{source}"
+    );
+}
+
+#[test]
+fn a_typescript_element_read_does_not_wrap_a_negative_index() {
+    // `arr[-1]` is `undefined` in JavaScript. It is a PROPERTY key, not a
+    // position: only `Array.prototype.at` counts back from the end. The shared
+    // index normalizer applied Python's `len + index` wrap to both frontends, so
+    // a generated TypeScript `arr[-1]` silently answered `arr[arr.length - 1]` —
+    // a wrong VALUE, with no panic and no diagnostic to notice it by. This is
+    // what moved es-toolkit's `at` rows: `at(['a','b','c'], [-4])` normalizes to
+    // `-1` in source and must then miss, not wrap around to `'c'`.
+    let source = source_for(
+        r"
+export function pick(arr: number[], index: number): number {
+  return arr[index];
+}
+",
+    );
+
+    assert!(
+        !source.contains("if index < 0 { len + index }"),
+        "a TypeScript element read must not count a negative index from the end:\n{source}"
+    );
+    assert!(
+        source.contains("let normalized = index as i64;"),
+        "the index must reach the out-of-range machinery unchanged:\n{source}"
+    );
+}
+
+#[test]
+fn a_python_element_read_still_wraps_a_negative_index() {
+    // The contrast that makes the rule above a per-site policy rather than a
+    // global one: Python's `xs[-1]` IS the last element. One crate can mix
+    // TypeScript and Python modules, so the wrap cannot be switched off in the
+    // emitter — it is carried on the lowered place, from the source language of
+    // the file the expression was written in.
+    let source = source_for_py(
+        r"
+values: list[int] = [1, 2, 3]
+last_value: int = values[-1]
+",
+    );
+
+    assert!(
+        source.contains("let normalized = if index < 0 { len + index } else { index }"),
+        "a Python element read must still count a negative index from the end:\n{source}"
     );
 }
 

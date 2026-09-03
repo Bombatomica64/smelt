@@ -48,8 +48,8 @@ impl FunctionEmitter<'_> {
         // stored list through the container's entry accessor, which is what a
         // hand-written Rust port does (`groups.entry(key).or_default().push(x)`)
         // and which copies neither the old nor the new group.
-        if let Operand::Copy(Place::Index { base, index })
-        | Operand::Move(Place::Index { base, index }) = list
+        if let Operand::Copy(Place::Index { base, index, .. })
+        | Operand::Move(Place::Index { base, index, .. }) = list
             && let Some(Type::Dict(key_ty, value_ty)) =
                 self.mir.types.get(self.local_decl(*base)?.ty)
             && *value_ty == list_ty
@@ -258,8 +258,8 @@ impl FunctionEmitter<'_> {
                                 field: *field,
                             })
                         }
-                        Operand::Copy(Place::Index { base, index })
-                        | Operand::Move(Place::Index { base, index }) => {
+                        Operand::Copy(Place::Index { base, index, .. })
+                        | Operand::Move(Place::Index { base, index, .. }) => {
                             Some(ListAliasOrigin::Index {
                                 base: *base,
                                 index: index.clone(),

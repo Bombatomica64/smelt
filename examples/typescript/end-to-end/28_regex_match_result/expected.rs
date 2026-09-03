@@ -315,7 +315,7 @@ fn main() {
     _smelt_tmp_14 = matches.len() as f64;
     _smelt_tmp_15 = _smelt_tmp_13 < _smelt_tmp_14;
     if !(_smelt_tmp_15) { break; }
-    found = matches.borrow().get({ let len = matches.len() as i64; let index = _smelt_tmp_13 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| SmeltMatch::default());
+    found = matches.borrow().get({ let normalized = _smelt_tmp_13 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| SmeltMatch::default());
     _smelt_tmp_16 = found.clone().group_owned(0.0 as usize);
     whole = _smelt_tmp_16;
     _smelt_tmp_17 = found.clone().clone();

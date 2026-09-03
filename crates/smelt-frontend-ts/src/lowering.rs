@@ -343,6 +343,7 @@ pub fn to_hir_with_options(
             SourceFile {
                 path: path.to_owned(),
                 language: Language::TypeScript,
+                file: file_id,
             },
         )));
     }

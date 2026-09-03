@@ -353,7 +353,7 @@ fn validate_place(
         Place::Field { base, .. } => {
             validate_place(mir, function, definitions, &Place::Local(*base), errors);
         }
-        Place::Index { base, index } => {
+        Place::Index { base, index, .. } => {
             validate_place(mir, function, definitions, &Place::Local(*base), errors);
             validate_operand(mir, function, definitions, index, errors);
         }

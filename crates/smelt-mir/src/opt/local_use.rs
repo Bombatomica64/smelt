@@ -154,6 +154,6 @@ pub(super) fn operand_reads_local(operand: &Operand, local: LocalId) -> bool {
 pub(super) fn place_reads_local(place: &Place, local: LocalId) -> bool {
     match place {
         Place::Local(candidate) | Place::Field { base: candidate, .. } => *candidate == local,
-        Place::Index { base, index } => *base == local || operand_reads_local(index, local),
+        Place::Index { base, index, .. } => *base == local || operand_reads_local(index, local),
     }
 }

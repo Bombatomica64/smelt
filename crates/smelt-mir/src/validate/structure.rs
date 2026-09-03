@@ -109,6 +109,10 @@ fn validate_statement(
                 &crate::Place::Index {
                     base: *base,
                     index: Box::new(index.clone()),
+                    // `validate_place_exists` only resolves the base local and
+                    // the index operand, so the negative-index rule carried by
+                    // a real place is not consulted here.
+                    negative: crate::NegativeIndex::OutOfRange,
                 },
                 errors,
             );

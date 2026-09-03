@@ -53,6 +53,7 @@ impl LoweringCtx<'_> {
                 Ok(Place::Index {
                     base,
                     index: Box::new(index_operand),
+                    negative: self.negative_index_policy(expr.span),
                 })
             }
             ExprKind::TupleIndex { tuple, index } => {
@@ -65,6 +66,9 @@ impl LoweringCtx<'_> {
                 Ok(Place::Index {
                     base,
                     index: Box::new(Operand::Const(Constant::Int(tuple_index))),
+                    // A tuple index is a resolved, non-negative position; the
+                    // policy never applies, so record the language's anyway.
+                    negative: self.negative_index_policy(expr.span),
                 })
             }
             ExprKind::TypeAssert { value } | ExprKind::UnknownCast { value, .. } => {

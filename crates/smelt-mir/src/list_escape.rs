@@ -703,7 +703,7 @@ impl<'a> BodyWalk<'a> {
                 self.visit_rvalue(value, None);
             }
             Statement::AssignPlace {
-                place: Place::Index { base, index },
+                place: Place::Index { base, index, .. },
                 value,
             } => {
                 self.mutate_receiver(*base);
