@@ -24,8 +24,8 @@ pub use deps::BackendDependency;
 pub use diagnostics::{StdlibDiagnostic, UnsupportedForm};
 pub use fields::{FieldRule, typescript_field_rule};
 pub use globals::{
-    ERROR_CLASS_NAMES, GlobalPresence, global_member_presence, is_error_class_name,
-    is_javascript_global_builtin,
+    ERROR_CLASS_NAMES, GlobalPresence, NODE_PROFILE_VERSION, NODE_PROFILE_VERSION_STRING,
+    global_member_presence, is_error_class_name, is_javascript_global_builtin,
 };
 pub use host_object::{
     ByteBufferRole, HOST_OBJECTS, HostObject, TypedArrayElement, byte_buffer_host_objects,

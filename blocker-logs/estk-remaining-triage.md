@@ -680,3 +680,49 @@ interceptable member at all — today registration is the runtime manipulating t
 `__smelt_abort_listeners` array on the marker record, so there is no property for
 a spy to wrap. Part 2 touches the host-representation seam, which regates all
 three corpora. Not attempted; reported as scope, not rejected.
+## Resolved: `isNode` — an ambient `declare` created a value (2026-08-30)
+
+`src/predicate/isNode.ts` writes `declare let process: {...} | undefined`. That
+was lowered as an ordinary variable declaration: a module-init local seeded with
+the declared type's default AND a `module_globals` entry, so every read of
+`process` resolved through `module_global_expression`, which MATERIALIZES the
+declared type's default for a global whose initializer never ran. The generated
+`is_node` opened with `let _smelt_tmp_0: bool = true;` — the `typeof` guard
+already decided against the host, before any lookup.
+
+Two general rules now cover it, plus one profile model:
+
+1. An ambient declaration contributes a TYPE only. It emits no module-init
+   local, no lifted mutable global and no const item, and a read of an ambient
+   name consults the profile's host/global path FIRST, falling back to the
+   declared type only when the profile models no such global.
+2. A statically decided guard does not force its dead operand to lower. Folding
+   `typeof window` to the profile's answer used to leave the dead
+   `window?.document` to resolve a binding the non-DOM profile deliberately does
+   not provide, which aborted the whole crate build.
+3. `process` gained a value model (`version`, `versions.node`) consistent with
+   the profile's existing claim that it is present, derived from one
+   `smelt_stdlib::NODE_PROFILE_VERSION`.
+
+**It moves exactly ONE row** (1008/51 -> 1009/50 at `59cb09c`). The corpus has
+only three ambient value declarations — `process`, `window`, `global` — so the
+"probably more" guess in the overnight notes was wrong for es-toolkit;
+remeda/radash/nest have none, and strapi's two (`declare const strapi: any`)
+already routed through the same fallback.
+
+**`isBrowser should return true in browser environment` is NOT a lowering
+defect and should not be chased.** That spec is `@vitest-environment happy-dom`
+and asserts DOM presence; Smelt's target profile is non-DOM by construction
+(`global_member_presence("window") == Absent`), so `isBrowser()` correctly folds
+to `false`. Every other happy-dom spec is already listed in the corpus
+`exclude`; this one is not, which is why it shows as a failure.
+
+### Left undone, found here
+
+A read of an ambient name the profile models NOTHING for still materializes the
+declared type's default (`Boxed<f64>` from an empty record, `None` for an
+optional). That is the same "unmodeled member becomes a value" class, now
+isolated to one call site (`module_global_expression`), and the honest answer is
+a named blocker rather than a fabricated value. Two codegen fixtures depended on
+it and had to be given real bindings; changing the fallback itself is a separate
+piece of work with its own blast radius.

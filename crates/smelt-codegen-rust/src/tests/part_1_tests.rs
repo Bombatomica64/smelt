@@ -2,11 +2,17 @@
 
 use super::*;
 
-/// A tag check against a statically-absent (`None`-typed) ambient global folds
-/// to a compile-time constant instead of emitting `matches!((), SmeltUnknown::…)`
-/// which does not type-check (E0308). Mirrors es-toolkit `isBrowser`/`isNode`,
-/// which guard on `typeof window !== 'undefined'` / `typeof process !==
-/// 'undefined'` where the ambient global is absent in the non-DOM profile.
+/// A tag check against an ambient global the target profile models as ABSENT
+/// folds to a compile-time constant instead of emitting `matches!((),
+/// SmeltUnknown::…)`, which does not type-check (E0308). Mirrors es-toolkit's
+/// `isBrowser`, which guards on `typeof window !== 'undefined'` where `window`
+/// is absent in the non-DOM profile.
+///
+/// The fold used to come out of the ambient declaration's fabricated `None`
+/// binding, which left an intermediate `let _smelt_tmp_0: bool = true;`. The
+/// answer now comes from the profile registry itself (`window` is absent), so
+/// the guard decides the whole `&&` and the function folds to `return false;` —
+/// the same property, reached without inventing a value for a host binding.
 #[test]
 fn folds_tag_check_of_absent_ambient_global() {
     let source = source_for(
@@ -21,10 +27,11 @@ fn folds_tag_check_of_absent_ambient_global() {
         !source.contains("matches!((), SmeltUnknown"),
         "absent-global tag check must fold, not emit matches!((), ...): {source}"
     );
-    // The absent global's nullish check folds to a constant boolean.
+    // The absent global's guard decides the whole expression, so the dead
+    // operand is never lowered and the function folds to a constant.
     assert!(
-        source.contains("let _smelt_tmp_0: bool = true;"),
-        "absent-global nullish tag check should fold to true: {source}"
+        source.contains("fn is_browser() -> bool {\n    return false;\n}"),
+        "absent-global guard should fold the whole predicate to false: {source}"
     );
 }
 

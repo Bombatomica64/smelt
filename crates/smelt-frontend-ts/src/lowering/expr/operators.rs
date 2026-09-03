@@ -1327,6 +1327,13 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.global_detection_chain_expression(logical, body) {
             return Ok(expr);
         }
+        // A guard the profile already decides short-circuits the whole
+        // expression BEFORE any value-shape helper runs, because several of them
+        // lower the right operand first (`logical_and_numeric_value_expression`
+        // does) and the dead operand is exactly the one that cannot be lowered.
+        if let Some(expr) = self.short_circuited_static_guard(logical, body) {
+            return Ok(expr);
+        }
         if let Some(expr) = self.logical_or_fallback_expression(logical, body)? {
             return Ok(expr);
         }
@@ -1342,6 +1349,9 @@ impl ModuleBuilder<'_> {
             BinOp::Or
         };
         let lhs = self.expression(&logical.left, body)?;
+        if let Some(expr) = Self::short_circuited_logical_operand(logical, lhs, body) {
+            return Ok(expr);
+        }
         let rhs = self.expression(&logical.right, body)?;
         let span = self.span(logical.span.start, logical.span.end);
         if let Some(expr) = self.logical_operand_value_expression(logical, body, lhs, rhs)? {
@@ -1353,6 +1363,80 @@ impl ModuleBuilder<'_> {
             ty,
             span,
         }))
+    }
+
+    /// Fold `<statically decided guard> && <dead operand>` (and the `||` mirror)
+    /// to the guard's constant, without lowering the dead operand at all.
+    ///
+    /// JavaScript never evaluates the right operand of a `&&` whose left operand
+    /// is falsy, nor of a `||` whose left operand is truthy. Smelt folds
+    /// existence guards against the target profile to a constant, so the dead
+    /// operand is routinely one that CANNOT be lowered — es-toolkit's `isBrowser`
+    /// reads `window?.document` behind `typeof window !== 'undefined'`, and the
+    /// non-DOM profile provides no `window` binding on purpose. Visiting it
+    /// anyway turned a correctly-folded `false` into an `unresolved identifier`
+    /// blocker that aborted the whole crate build.
+    ///
+    /// [`Self::static_guard_value`] answers from the AST alone, so this runs
+    /// before the value-shape helpers — several of which lower the right operand
+    /// first — and costs one pattern match when it does not apply.
+    pub(in crate::lowering) fn short_circuited_static_guard(
+        &mut self,
+        logical: &oxc::ast::ast::LogicalExpression<'_>,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        let value = self.static_guard_value(&logical.left)?;
+        let decides = match logical.operator {
+            LogicalOperator::And => !value,
+            LogicalOperator::Or => value,
+            LogicalOperator::Coalesce => false,
+        };
+        if !decides {
+            return None;
+        }
+        let ty = self.ctx.krate.types.intern(Type::Bool);
+        Some(body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(value)),
+            ty,
+            span: self.span(logical.span.start, logical.span.end),
+        }))
+    }
+
+    /// Return the whole `&&`/`||` result when the LEFT operand already decided it.
+    ///
+    /// JavaScript's logical operators short-circuit: the right operand of a
+    /// `&&` whose left operand is falsy is never evaluated, and neither is the
+    /// right operand of a `||` whose left operand is truthy. Smelt folds plenty
+    /// of guards to a compile-time literal — a `typeof` probe against the target
+    /// profile's absent globals is the common one — and until now it still went
+    /// on to LOWER the dead operand, which then had to resolve names that only
+    /// exist in the branch JavaScript never takes. es-toolkit's `isBrowser`
+    /// (`typeof window !== 'undefined' && window?.document != null`) is the
+    /// instance: `typeof window` folds to `false` for the non-DOM profile, and
+    /// lowering `window?.document` anyway demands a `window` binding the profile
+    /// deliberately does not provide.
+    ///
+    /// Deliberately narrow: only a `bool` LITERAL left operand short-circuits,
+    /// so this folds exactly the guards lowering already reduced to a constant
+    /// and never speculates about a runtime value's truthiness. The folded
+    /// result is the left operand itself, which is what JavaScript yields.
+    fn short_circuited_logical_operand(
+        logical: &oxc::ast::ast::LogicalExpression<'_>,
+        lhs: smelt_hir::ExprId,
+        body: &Body,
+    ) -> Option<smelt_hir::ExprId> {
+        let index = usize::try_from(lhs.0).ok()?;
+        let Some(ExprKind::Literal(Literal::Bool(value))) =
+            body.exprs.get(index).map(|expr| &expr.kind)
+        else {
+            return None;
+        };
+        let decides = match logical.operator {
+            LogicalOperator::And => !value,
+            LogicalOperator::Or => *value,
+            LogicalOperator::Coalesce => false,
+        };
+        decides.then_some(lhs)
     }
 
     /// Lower `a && b` / `a || b` in a VALUE position to the operand JavaScript
@@ -1516,9 +1600,15 @@ impl ModuleBuilder<'_> {
                 )
                 .map(Some);
         }
+        if let Some(expr) = self.short_circuited_static_guard(logical, body) {
+            return Ok(Some(expr));
+        }
         let Ok(cond) = self.condition_expression(&logical.left, body) else {
             return Ok(None);
         };
+        if let Some(expr) = Self::short_circuited_logical_operand(logical, cond, body) {
+            return Ok(Some(expr));
+        }
         // `x instanceof T && x.field` narrows `x` for the right operand exactly
         // as it does in the value form.
         let rhs_narrowing = if logical.operator == LogicalOperator::And {

@@ -712,9 +712,59 @@ impl ModuleBuilder<'_> {
     /// deliberate seam: a genuinely unsupported ambient global can be reinstated
     /// here to fold its `typeof` existence guards to the absent answer.
     pub(super) fn is_absent_ambient_global(name: &str) -> bool {
-        // No absent ambient globals currently; discard the operand explicitly.
-        let _ = name;
-        false
+        // Derived from the profile registry rather than a hand-kept list here, so
+        // "which globals are absent" cannot drift between the `"X" in globalThis`
+        // answer and the `typeof X` answer. The global-object ALIASES are
+        // excluded: `self` is absent as a *member* of the global object in this
+        // profile but is still a usable alias spelling for the global object
+        // itself, and `global_typeof_probe` answers those first.
+        !ambient_globals::is_global_alias_name(name)
+            && smelt_stdlib::global_member_presence(name) == smelt_stdlib::GlobalPresence::Absent
+    }
+
+    /// Constant truth value of a guard expression, computed WITHOUT lowering it.
+    ///
+    /// Recognizes `typeof <absent-global> ===/!== "undefined"`, the one guard
+    /// shape whose fold is what makes the *other* operand of a `&&` unlowerable:
+    /// the profile deliberately provides no `window` binding, so
+    /// `typeof window !== 'undefined' && window?.document != null` can only be
+    /// lowered if the dead right operand is never visited. Answering purely from
+    /// the AST is what lets [`Self::logical_expression`] short-circuit before any
+    /// of the value-shape helpers lower the right operand.
+    pub(super) fn static_guard_value(&self, expression: &Expression<'_>) -> Option<bool> {
+        let Expression::BinaryExpression(binary) = Self::unparenthesized_expression(expression)
+        else {
+            return None;
+        };
+        if !matches!(
+            binary.operator,
+            BinaryOperator::StrictEquality
+                | BinaryOperator::StrictInequality
+                | BinaryOperator::Equality
+                | BinaryOperator::Inequality
+        ) {
+            return None;
+        }
+        let Expression::UnaryExpression(unary) = &binary.left else {
+            return None;
+        };
+        if unary.operator != UnaryOperator::Typeof {
+            return None;
+        }
+        let Expression::StringLiteral(kind_lit) = &binary.right else {
+            return None;
+        };
+        if kind_lit.value.as_str() != "undefined"
+            || !self.typeof_operand_is_absent_global(&unary.argument)
+        {
+            return None;
+        }
+        // The operand is absent, so `typeof X === "undefined"` is `true` and
+        // `!==` is `false`.
+        Some(!matches!(
+            binary.operator,
+            BinaryOperator::StrictInequality | BinaryOperator::Inequality
+        ))
     }
 
     /// Return a static array-identity answer when the operand's type settles it.

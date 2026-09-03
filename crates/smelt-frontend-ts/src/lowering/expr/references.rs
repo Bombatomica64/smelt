@@ -224,6 +224,16 @@ impl ModuleBuilder<'_> {
             {
                 return self.item_function_closure_expression(item, start, end, body);
             }
+            // An AMBIENT name resolves through the host first: the declaration
+            // is a claim about a binding the host already provides, so the
+            // profile's modeled global wins over materializing the declared
+            // type's default. Only when the profile models no such global does
+            // the declared type decide the read.
+            if self.ambient_value_declarations.contains(name)
+                && let Some(expr) = self.node_process_value_expression(name, start, end, body)
+            {
+                return Ok(expr);
+            }
             if let Some(ty) = self.module_globals.get(name).copied() {
                 return self.module_global_expression(name, ty, start, end, body);
             }
@@ -287,6 +297,9 @@ impl ModuleBuilder<'_> {
                     ty,
                     span: self.span(start, end),
                 }));
+            }
+            if let Some(expr) = self.node_process_value_expression(name, start, end, body) {
+                return Ok(expr);
             }
             if matches!(
                 name,
@@ -828,6 +841,83 @@ impl ModuleBuilder<'_> {
         Some(body.push_expr(Expr {
             kind: ExprKind::BuiltinNamespace {
                 name: name.to_owned(),
+            },
+            ty: unknown_ty,
+            span,
+        }))
+    }
+
+    /// Lower a bare `process` reference to the modeled Node `process` object.
+    ///
+    /// The active target profile is the deterministic non-DOM, *Node-compatible*
+    /// environment: `smelt_stdlib::global_member_presence("process")` already
+    /// answers `Present`, `global` is a present global alias (Node-only) and
+    /// `window` is absent. The value side of that commitment was missing — a
+    /// bare `process` read fell through to `module_global_expression`, whose
+    /// `Type::Unknown` arm fabricates an EMPTY record. Every member read then
+    /// silently answered `undefined`, so a Node-detection probe such as
+    /// `process?.versions?.node != null` returned the OPPOSITE of the profile
+    /// the crate is compiled for.
+    ///
+    /// The modeled members mirror what the profile already models at the member
+    /// level (`process.version.match(…)` folds to `"v20.0.0"` in
+    /// `node_process_static_member`), so the value model and the member models
+    /// cannot disagree. Like `global_object_value_expression`, this mints a
+    /// record per read rather than a shared handle: the profile's `process` is
+    /// never compared by identity nor mutated, and a shared runtime handle is
+    /// the correct model only once either becomes observable.
+    fn node_process_value_expression(
+        &mut self,
+        name: &str,
+        start: u32,
+        end: u32,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        if name != "process" {
+            return None;
+        }
+        let span = self.span(start, end);
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let dict_ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Dict(string_ty, unknown_ty));
+        let string_entry = |field: &str, value: &str, body: &mut Body| {
+            let key = body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String(field.to_owned())),
+                ty: string_ty,
+                span,
+            });
+            let value = body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String(value.to_owned())),
+                ty: string_ty,
+                span,
+            });
+            (key, value)
+        };
+        let node_entry = string_entry("node", smelt_stdlib::NODE_PROFILE_VERSION, body);
+        let versions = body.push_expr(Expr {
+            kind: ExprKind::DictLit(vec![node_entry]),
+            ty: dict_ty,
+            span,
+        });
+        let versions_key = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String("versions".to_owned())),
+            ty: string_ty,
+            span,
+        });
+        let version_entry = string_entry("version", smelt_stdlib::NODE_PROFILE_VERSION_STRING, body);
+        let object = body.push_expr(Expr {
+            kind: ExprKind::DictLit(vec![version_entry, (versions_key, versions)]),
+            ty: dict_ty,
+            span,
+        });
+        Some(body.push_expr(Expr {
+            kind: ExprKind::UnknownCast {
+                value: object,
+                target: unknown_ty,
             },
             ty: unknown_ty,
             span,

@@ -147,6 +147,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             ctx,
             scope: LocalScope::default(),
             module_globals: HashMap::new(),
+            ambient_value_declarations: HashSet::new(),
             mutable_global_items: HashMap::new(),
             items,
             imports: ImportScope::default(),
@@ -755,6 +756,23 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
     /// Register annotated module-level variables for later function-body lookup.
     pub(super) fn collect_module_global_decl(&mut self, decl: &oxc::ast::ast::VariableDeclaration<'_>) {
+        // `declare let process: …` says the HOST provides `process`. The
+        // declaration still contributes the name's TYPE — that is all a
+        // `declare` is — but recording it as an ordinary module global made
+        // every read resolve through `module_global_expression`, which
+        // fabricates the declared type's default value (`None`, `false`, `0`,
+        // `""`, `{}`, `[]`) for a global whose initializer never ran, turning a
+        // host lookup into a wrong compile-time constant. Recording the name
+        // here lets `expr::references` consult the host/ambient-global path
+        // first; see `ambient_value_declarations`.
+        if decl.declare {
+            for declarator in &decl.declarations {
+                Self::collect_ambient_declaration_names(
+                    &declarator.id,
+                    &mut self.ambient_value_declarations,
+                );
+            }
+        }
         for declarator in &decl.declarations {
             let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
                 if matches!(
@@ -873,6 +891,40 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
+    /// Record every name an ambient declaration's binding pattern introduces.
+    ///
+    /// Destructuring an ambient declaration is legal TypeScript, so the whole
+    /// pattern is walked rather than only the plain identifier form.
+    fn collect_ambient_declaration_names(
+        pattern: &BindingPattern<'_>,
+        names: &mut HashSet<String>,
+    ) {
+        match pattern {
+            BindingPattern::BindingIdentifier(binding) => {
+                names.insert(binding.name.as_str().to_owned());
+            }
+            BindingPattern::ObjectPattern(object) => {
+                for property in &object.properties {
+                    Self::collect_ambient_declaration_names(&property.value, names);
+                }
+                if let Some(rest) = &object.rest {
+                    Self::collect_ambient_declaration_names(&rest.argument, names);
+                }
+            }
+            BindingPattern::ArrayPattern(array) => {
+                for element in array.elements.iter().flatten() {
+                    Self::collect_ambient_declaration_names(element, names);
+                }
+                if let Some(rest) = &array.rest {
+                    Self::collect_ambient_declaration_names(&rest.argument, names);
+                }
+            }
+            BindingPattern::AssignmentPattern(assignment) => {
+                Self::collect_ambient_declaration_names(&assignment.left, names);
+            }
+        }
+    }
+
     /// Classify module-level `let`/`var` bindings that are mutated anywhere in
     /// the module and lift each to a [`Item::MutableGlobal`].
     ///
@@ -928,6 +980,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
         module: &mut Module,
         errors: &mut Vec<SmeltError>,
     ) {
+        // An ambient declaration never creates a binding, so there is nothing to
+        // lift to a mutable global (see `collect_module_global_decl`).
+        if decl.declare {
+            return;
+        }
         // `var` is treated like `let`; `const` bindings can never be reassigned
         // and keep the existing inline/const-item path.
         if !matches!(
@@ -2341,6 +2398,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
         &mut self,
         decl: &oxc::ast::ast::VariableDeclaration<'_>,
     ) -> Result<Vec<smelt_hir::ItemId>, SmeltError> {
+        // `export declare const x: T` is an ambient re-export of a host binding:
+        // it emits no const item, because there is no initializer to emit.
+        if decl.declare {
+            return Ok(Vec::new());
+        }
         if decl.kind != oxc::ast::ast::VariableDeclarationKind::Const {
             return Err(SmeltError::unsupported(
                 self.span(decl.span.start, decl.span.end),

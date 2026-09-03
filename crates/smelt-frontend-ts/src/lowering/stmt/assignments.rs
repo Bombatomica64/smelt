@@ -1263,7 +1263,9 @@ impl ModuleBuilder<'_> {
         if Self::is_process_version_member(&member.object) {
             let ty = self.ctx.krate.types.intern(Type::String);
             return Some(body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::String("v20.0.0".to_owned())),
+                kind: ExprKind::Literal(Literal::String(
+                    smelt_stdlib::NODE_PROFILE_VERSION_STRING.to_owned(),
+                )),
                 ty,
                 span: self.span(member.span.start, member.span.end),
             }));
