@@ -4217,6 +4217,44 @@ impl<'mir> FunctionEmitter<'mir> {
         ))
     }
 
+    /// Registration text linking an erased callable to the class it constructs.
+    ///
+    /// Erasing `class X extends Host {}` to a callable value drops the one thing
+    /// `instanceof` needs: which class the callable constructs. The instances
+    /// record their own class (`__smelt_class`), so the callable records the
+    /// class names whose instances belong to it — the class itself plus every
+    /// subclass declared in this crate, resolved here where the hierarchy is
+    /// known rather than by a runtime class-graph walk.
+    ///
+    /// Empty text unless the callable returns a class AND this crate has host
+    /// override slots, since the registry only exists (and is only consulted)
+    /// there: a crate that never reassigns a host global emits byte-identical
+    /// output.
+    fn constructed_class_registration_text(&self, return_ty: TypeId) -> String {
+        let Some(Type::Class { name, .. }) = self.mir.types.get(return_ty) else {
+            return String::new();
+        };
+        if crate::stdlib::host_override_slot_names(self.mir).is_empty() {
+            return String::new();
+        }
+        let Ok(class_name) = self.symbol_source_name(*name) else {
+            return String::new();
+        };
+        let mut classes = vec![format!("{class_name:?}")];
+        for class in &self.mir.classes {
+            if class.name != *name
+                && self.class_extends_or_equals(class.name, *name)
+                && let Ok(subclass_name) = self.symbol_source_name(class.name)
+            {
+                classes.push(format!("{subclass_name:?}"));
+            }
+        }
+        format!(
+            "smelt_register_function_classes(&smelt_erased_fn, &[{}]); ",
+            classes.join(", ")
+        )
+    }
+
     /// Adapts a concrete callback to the erased JavaScript callback surface.
     pub(super) fn rest_vector_unknown_adapter_text(
         &self,
@@ -4246,9 +4284,10 @@ impl<'mir> FunctionEmitter<'mir> {
                 // the last point that knows both the arity and the allocation it
                 // belongs to. es-toolkit `rest(func)` reads `func.length` off
                 // exactly this adapter.
-                "{{ let smelt_source_fn = {function_text}.clone(); let smelt_callback = smelt_source_fn.clone(); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = {inner}; smelt_link_function_identity(&smelt_erased_fn, &smelt_source_fn); {register}(&smelt_erased_fn, {length}.0); smelt_erased_fn }}",
+                "{{ let smelt_source_fn = {function_text}.clone(); let smelt_callback = smelt_source_fn.clone(); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = {inner}; smelt_link_function_identity(&smelt_erased_fn, &smelt_source_fn); {register}(&smelt_erased_fn, {length}.0); {class_registration}smelt_erased_fn }}",
                 register = smelt_stdlib::runtime_symbols::function_length::REGISTER,
                 length = self.operand_function_length(operand)?,
+                class_registration = self.constructed_class_registration_text(source.return_ty),
             )));
         }
         // Non-owned (function-parameter) path: invoke the callback by its operand

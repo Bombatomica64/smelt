@@ -94,6 +94,15 @@ pub struct HirCtx {
     pub export_aliases: HashMap<String, ItemId>,
     /// Exported item names grouped by source module path.
     pub module_exports: HashMap<String, HashMap<String, ItemId>>,
+    /// Names that alias the ambient global object, grouped by source module path.
+    ///
+    /// Populated when a module binds the global object (`const g = globalThis;`
+    /// or the portable `(typeof globalThis === 'object' && globalThis) || …`
+    /// detection chain) so that an importer of that binding recognizes it as the
+    /// global object too. Without this carry, `import { globalThis } from
+    /// './globalThis'` would read members off a fresh empty record instead of
+    /// resolving them against the modeled global.
+    pub module_global_object_aliases: HashMap<String, HashSet<String>>,
     /// Exported object constants used as namespace-like API surfaces.
     pub object_namespaces: HashMap<String, HashMap<String, ItemId>>,
     /// Exported object constants with literal data values.
@@ -157,6 +166,7 @@ impl HirCtx {
             krate: HirCrate::new(),
             export_aliases: HashMap::new(),
             module_exports: HashMap::new(),
+            module_global_object_aliases: HashMap::new(),
             object_namespaces: HashMap::new(),
             object_consts: HashMap::new(),
             object_value_collections: HashMap::new(),

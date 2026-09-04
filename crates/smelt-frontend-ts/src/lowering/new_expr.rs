@@ -176,8 +176,13 @@ impl ModuleBuilder<'_> {
         if callee.name == "Array" {
             return self.array_constructor_expression(new_expr, body);
         }
-        if callee.name == "String" {
-            return self.string_constructor_expression(new_expr, body);
+        if callee.name == "String" && !self.classes.contains("String") {
+            return self.boxed_primitive_constructor_expression(
+                new_expr,
+                body,
+                "__smelt_string",
+                Literal::String(String::new()),
+            );
         }
         if callee.name == "Object" && !self.classes.contains("Object") {
             return self.object_constructor_expression(new_expr, body, type_hint);
@@ -763,37 +768,6 @@ impl ModuleBuilder<'_> {
                 field: UrlField::Href,
                 url,
             },
-            ty,
-            span: self.span(new_expr.span.start, new_expr.span.end),
-        }))
-    }
-
-    /// Lower boxed `new String(value)` as its primitive string payload.
-    pub(super) fn string_constructor_expression(
-        &mut self,
-        new_expr: &oxc::ast::ast::NewExpression<'_>,
-        body: &mut Body,
-    ) -> Result<smelt_hir::ExprId, SmeltError> {
-        if new_expr.arguments.len() > 1 {
-            return Err(SmeltError::unsupported(
-                self.span(new_expr.span.start, new_expr.span.end),
-                "new String(...) supports at most one argument",
-            ));
-        }
-        let ty = self.ctx.krate.types.intern(Type::String);
-        let Some(argument) = new_expr.arguments.first() else {
-            return Ok(body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::String(String::new())),
-                ty,
-                span: self.span(new_expr.span.start, new_expr.span.end),
-            }));
-        };
-        let value = self.argument(argument, body)?;
-        if Self::expr_ty(body, value) == ty {
-            return Ok(value);
-        }
-        Ok(body.push_expr(Expr {
-            kind: ExprKind::TypeAssert { value },
             ty,
             span: self.span(new_expr.span.start, new_expr.span.end),
         }))
@@ -1467,18 +1441,23 @@ impl ModuleBuilder<'_> {
         ))
     }
 
-    /// Lower a boxed primitive wrapper (`new Number(v)`, `new Boolean(v)`) to a
-    /// marker-bearing record.
+    /// Lower a boxed primitive wrapper (`new Number(v)`, `new Boolean(v)`,
+    /// `new String(v)`) to a marker-bearing record.
     ///
-    /// This is the boxed wrapper **object**, distinct from the `Number(x)` /
-    /// `Boolean(x)` coercion calls (which already lower to primitive values
-    /// elsewhere). The boxed object has `typeof === "object"`, so es-toolkit's
-    /// `isNumber`/`isBoolean` (`typeof x === "number"`) must report `false` for
-    /// it: modeling it as a record erased to `SmeltUnknown::Object` makes the
-    /// runtime `typeof` narrowing correctly miss. The wrapped value is retained
-    /// alongside the wrapper's dedicated marker so a later dynamic
-    /// `instanceof Number`/`instanceof Boolean` resolves through the marker,
-    /// mirroring the `ArrayBuffer` model.
+    /// All three wrappers share this one rule: `new` builds an **object**, so the
+    /// wrapper has reference identity of its own (`new String('a') !==
+    /// new String('a')`), answers `typeof === "object"` — which is why
+    /// es-toolkit's `isNumber`/`isBoolean`/`isString` (`typeof x === "number"`)
+    /// must report `false` for it, and modeling it as a record erased to
+    /// `SmeltUnknown::Object` is what makes the runtime narrowing correctly miss
+    /// — and keeps its payload under the wrapper's own identity marker, so a
+    /// later dynamic `instanceof Number`/`Boolean`/`String` resolves through that
+    /// marker (mirroring the `ArrayBuffer` model) and `valueOf`/member reads
+    /// unbox it.
+    ///
+    /// The `Number(x)` / `Boolean(x)` / `String(x)` CALLS are coercions, not
+    /// constructions: they lower to primitive values on their own path and are
+    /// unaffected.
     pub(super) fn boxed_primitive_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
@@ -1502,6 +1481,7 @@ impl ModuleBuilder<'_> {
         } else {
             let default_ty = self.ctx.krate.types.intern(match &default_value {
                 Literal::Bool(_) => Type::Bool,
+                Literal::String(_) => Type::String,
                 _ => Type::Float,
             });
             body.push_expr(Expr {

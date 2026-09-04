@@ -2540,6 +2540,16 @@ impl FunctionEmitter<'_> {
         {
             return Ok(check);
         }
+        // A host constructor this crate REASSIGNS (`globalThis.File = class File
+        // extends Blob {}`) lives in an override slot, and `instanceof` reads the
+        // binding — so the check has to read the slot too. The static marker
+        // probe below answers for the native builtin only, which made
+        // `new File(...) instanceof File` false for exactly the override the
+        // crate had just installed. Every other spelling of "is the global
+        // present / what does it construct" already goes through the slot.
+        if let Some(check) = self.host_override_instance_of_text(value, value_ty, class_name)? {
+            return Ok(check);
+        }
         // One list of builtin error classes, shared with the erasure that stamps
         // `__smelt_error` for a user class whose base chain reaches one
         // (`host_base_markers`), so the probe and the marker cannot disagree.
@@ -2844,8 +2854,59 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Return whether `source` is the same as or derives from `target`.
-    /// Return whether `source` is the same as or derives from `target`.
+    /// Slot-aware `instanceof` for a host name this crate reassigns.
+    ///
+    /// Returns `None` when the class has no override slot in this crate, no
+    /// identity marker to recognize its native records by, or a statically
+    /// concrete operand that the ordinary class path answers — leaving every
+    /// other case exactly as it was.
+    fn host_override_instance_of_text(
+        &self,
+        value: &Operand,
+        value_ty: TypeId,
+        class_name: &str,
+    ) -> Result<Option<String>, EmitError> {
+        if !crate::stdlib::host_override_slot_names(self.mir)
+            .iter()
+            .any(|(_, name)| name == class_name)
+        {
+            return Ok(None);
+        }
+        let Some(markers) = host_instance_markers(class_name) else {
+            return Ok(None);
+        };
+        let value_is_dynamic = matches!(
+            self.mir.types.get(value_ty),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
+        );
+        if !(value_is_dynamic || self.is_erased_class_type(value_ty)) {
+            return Ok(None);
+        }
+        let value_text = self.operand_text(value)?;
+        let probed = if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
+            format!("{value_text}.clone().unwrap_or(SmeltUnknown::Undefined)")
+        } else {
+            format!("{value_text}.clone()")
+        };
+        let marker_list = markers
+            .iter()
+            .map(|marker| format!("\"{marker}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let slot = format!(
+            "{prefix}{suffix}",
+            prefix = smelt_stdlib::runtime_symbols::host_override::SLOT_PREFIX,
+            suffix = crate::stdlib::host_override_slot_suffix(class_name),
+        );
+        Ok(Some(format!(
+            "{slot}.with(|smelt_slot| smelt_host_override_instance_of(smelt_slot, &{probed}, &[{marker_list}]))"
+        )))
+    }
+
+    /// Return whether `source` is `target` or derives from it.
+    ///
+    /// Walks the declared base chain, which is how a statically typed
+    /// `instanceof` between two generated classes is answered.
     pub(super) fn class_extends_or_equals(&self, source: Symbol, target: Symbol) -> bool {
         let mut current = Some(source);
         while let Some(class_name) = current {

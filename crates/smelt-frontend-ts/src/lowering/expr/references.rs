@@ -984,6 +984,30 @@ impl ModuleBuilder<'_> {
         Some(self.global_object_value_expression(logical.span.start, logical.span.end, body))
     }
 
+    /// Return whether an expression *folds* to the ambient global object.
+    ///
+    /// This is the value-level counterpart of
+    /// [`Self::expr_is_global_alias`]: it accepts the portable
+    /// global-detection chain (`(typeof globalThis === 'object' && globalThis)
+    /// || (typeof window === 'object' && window) || …`) that
+    /// [`Self::global_detection_chain_expression`] already collapses to the
+    /// single global-object value, including the parenthesized spelling. It is
+    /// deliberately separate from `expr_is_global_alias`, which answers the
+    /// narrower "is this a *name* bound to the global object" question that the
+    /// erasure denylists key on.
+    pub(in crate::lowering) fn expr_folds_to_global_alias(
+        &self,
+        expression: &Expression<'_>,
+    ) -> bool {
+        match Self::unparenthesized_expression(expression) {
+            Expression::LogicalExpression(logical) if logical.operator == LogicalOperator::Or => {
+                self.or_chain_resolves_to_global(&logical.left)
+                    || self.clause_is_present_global_guard(&logical.right)
+            }
+            _ => false,
+        }
+    }
+
     /// Return whether an `||` chain of `(typeof X === 'object' && X)` clauses
     /// resolves to a present global object under the active profile.
     ///
