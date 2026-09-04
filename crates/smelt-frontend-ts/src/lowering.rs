@@ -204,6 +204,8 @@ struct AssertionNarrowing {
 /// A local arrow/function callback value that has not escaped its defining body.
 #[derive(Debug, Clone)]
 struct LocalCallback {
+    /// Root span identifying the lexical body that owns the materialized closure.
+    defining_body_span: Option<Span>,
     /// Whether the binding's local also HOLDS the closure value at runtime.
     ///
     /// A local callback is normally inlined at each use, which keeps a call

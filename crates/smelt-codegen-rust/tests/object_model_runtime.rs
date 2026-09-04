@@ -328,6 +328,10 @@ class Holder {
     this.run = run;
   }
 }
+test("an earlier body binds add as a plain two-field callback", () => {
+  const add = ({ a, b }: { a: number; b: number }) => a + b;
+  expect(add({ a: 1, b: 2 })).toBe(3);
+});
 test("two reads of one callback binding are the same value", () => {
   const d = () => 1;
   const left = d;
@@ -343,6 +347,17 @@ test("a callback keeps its identity through a container and a field", () => {
   const holder = new Holder(d);
   expect(holder.run).toBe(d);
   expect(holder).toEqual({ run: d });
+});
+test("one body's callback binding wins over an earlier body's same name", () => {
+  // The FIRST of two sibling bodies to bind `add` registers a compact
+  // callback; this second one binds it to a curried closure of a different
+  // shape. The binding a body introduces has to win there -- radash's `curry`
+  // suite declares `add` exactly this way, and `add(5)` used to call the other
+  // body's closure and stop compiling.
+  const add = (y: number) => (x: number) => x + y;
+  const addFive = add(5);
+  expect(addFive(1)).toBe(6);
+  expect(add(2)(3)).toBe(5);
 });
 "#;
     run_fixture(source, "smelt_object_model_callback_identity");
