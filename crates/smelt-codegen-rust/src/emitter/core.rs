@@ -3632,6 +3632,20 @@ impl<'mir> FunctionEmitter<'mir> {
             target_return_ty,
             &substitution,
         );
+        // An adapter whose body is placed inside `Box::pin(async move ..)`
+        // rebinds every by-reference parameter to an owned clone before the body
+        // runs (see `owned_arg_bindings` below, and the E0521 it avoids). That
+        // rebinding changes what `argN` NAMES inside the body -- an owned value,
+        // not a borrow -- so the forwarding built below has to be written against
+        // that effective form. Computing it after the forwarding, as this used to,
+        // left the zero-copy arm handing an owned value to a callback declared to
+        // take a reference (E0308).
+        let source_type_text_for_params =
+            self.type_text_with_impl_trait(self.operand_ty(operand)?, false)?;
+        let body_is_static_future = source.is_async
+            || matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_)))
+            || source_type_text_for_params.contains("Future<Output")
+            || matches!(self.mir.types.get(target_return_ty), Some(Type::Future(_)));
         let forwarded = source
             .params
             .iter()
@@ -3719,16 +3733,27 @@ impl<'mir> FunctionEmitter<'mir> {
                     );
                     let wrapped_takes_reference =
                         self.callback_param_is_shared_reference(source, index, *source_param);
+                    // A declared reference an async adapter has already rebound to
+                    // an owned clone is, inside the body, an owned value.
+                    let declared_reference_is_owned_in_body =
+                        declares_reference && body_is_static_future;
                     // The zero-copy path, and the reason the ABI exists: the same
-                    // by-reference type on both sides forwards the borrow untouched.
+                    // by-reference type on both sides forwards the borrow untouched --
+                    // re-borrowing the owned rebinding where there is one.
                     if declares_reference && wrapped_takes_reference && declared == *source_param {
-                        return Ok(format!("arg{index}"));
+                        return Ok(if declared_reference_is_owned_in_body {
+                            format!("&arg{index}")
+                        } else {
+                            format!("arg{index}")
+                        });
                     }
                     // Otherwise a conversion runs, and every conversion arm is written
                     // against an owned value — so a declared reference is copied back
                     // into one first. That copy is per CALL of the adapter, and only
-                    // where the two sides genuinely disagree about the type.
-                    let source_text = if declares_reference {
+                    // where the two sides genuinely disagree about the type; a
+                    // parameter the async rebinding already owns needs no second copy.
+                    let source_text = if declares_reference && !declared_reference_is_owned_in_body
+                    {
                         format!("arg{index}.clone()")
                     } else {
                         format!("arg{index}")
@@ -4024,8 +4049,6 @@ impl<'mir> FunctionEmitter<'mir> {
         // by-VALUE ABI used to hand the body — which happens per CALL and only for
         // the async adapters, not for the synchronous per-element ones the
         // by-reference ABI exists to speed up.
-        let body_is_static_future = source_returns_future
-            || matches!(self.mir.types.get(target_return_ty), Some(Type::Future(_)));
         let owned_arg_bindings: Vec<String> = if body_is_static_future {
             target_function
                 .params
