@@ -293,22 +293,43 @@ impl ModuleBuilder<'_> {
             argument,
             Argument::ArrowFunctionExpression(_) | Argument::FunctionExpression(_)
         ) {
-            let direct_expr = self.argument(argument, body)?;
-            let direct_ty = Self::expr_ty(body, direct_expr);
-            if let Some(Type::Function(function)) = self.ctx.krate.types.get(direct_ty).cloned() {
-                return Ok(ClosureCallback {
-                    expr: direct_expr,
-                    return_ty: function.return_ty,
-                });
-            }
-            if let Some(callback) = self.bound_callable_value_callback(
-                argument,
-                direct_expr,
-                direct_ty,
-                expected_param_tys,
-                body,
-            ) {
+            // A callback factory whose callee is only *declared* here has no
+            // lowerable value, so a failed attempt falls through to the opaque
+            // callback below instead of failing the whole call.
+            let direct = match self.argument(argument, body) {
+                Ok(expr) => Some(expr),
+                Err(error) if matches!(argument, Argument::CallExpression(_)) => {
+                    drop(error);
+                    None
+                }
+                Err(error) => return Err(error),
+            };
+            if let Some(direct_expr) = direct {
+                let direct_ty = Self::expr_ty(body, direct_expr);
+                if let Some(Type::Function(function)) =
+                    self.ctx.krate.types.get(direct_ty).cloned()
+                {
+                    return Ok(ClosureCallback {
+                        expr: direct_expr,
+                        return_ty: function.return_ty,
+                    });
+                }
+                if let Some(callback) = self.bound_callable_value_callback(
+                    argument,
+                    direct_expr,
+                    direct_ty,
+                    expected_param_tys,
+                    body,
+                ) {
+                    let span = self.span(argument.span().start, argument.span().end);
+                    let return_ty = callback.ty;
+                    let expr =
+                        self.callback_expr_to_closure(&callback, expected_param_tys, span, body)?;
+                    return Ok(ClosureCallback { expr, return_ty });
+                }
+            } else {
                 let span = self.span(argument.span().start, argument.span().end);
+                let callback = self.opaque_member_callback(expected_param_tys);
                 let return_ty = callback.ty;
                 let expr =
                     self.callback_expr_to_closure(&callback, expected_param_tys, span, body)?;
@@ -407,30 +428,36 @@ impl ModuleBuilder<'_> {
                 // JavaScript truthy result into it.
                 let span = self.span(argument.span().start, argument.span().end);
                 if matches!(argument, Argument::CallExpression(_)) {
-                    let direct_expr = self.argument(argument, body)?;
-                    let direct_ty = Self::expr_ty(body, direct_expr);
-                    if let Some(callback) = self.bound_callable_value_callback(
-                        argument,
-                        direct_expr,
-                        direct_ty,
+                    // The factory's value when it can be lowered; the opaque
+                    // callback when the callee is only declared here.
+                    let callback = self
+                        .argument(argument, body)
+                        .ok()
+                        .and_then(|direct_expr| {
+                            let direct_ty = Self::expr_ty(body, direct_expr);
+                            self.bound_callable_value_callback(
+                                argument,
+                                direct_expr,
+                                direct_ty,
+                                expected_param_tys,
+                                body,
+                            )
+                        })
+                        .unwrap_or_else(|| self.opaque_member_callback(expected_param_tys));
+                    let callback = self.coerce_callback_expr_to_truthy(callback, span)?;
+                    let expr = self.callback_expr_to_closure_with_return_ty(
+                        bool_ty,
+                        &callback,
                         expected_param_tys,
+                        None,
+                        None,
+                        span,
                         body,
-                    ) {
-                        let callback = self.coerce_callback_expr_to_truthy(callback, span)?;
-                        let expr = self.callback_expr_to_closure_with_return_ty(
-                            bool_ty,
-                            &callback,
-                            expected_param_tys,
-                            None,
-                            None,
-                            span,
-                            body,
-                        )?;
-                        return Ok(ClosureCallback {
-                            expr,
-                            return_ty: bool_ty,
-                        });
-                    }
+                    )?;
+                    return Ok(ClosureCallback {
+                        expr,
+                        return_ty: bool_ty,
+                    });
                 }
                 let callback =
                     self.callback_argument(argument, expected_param_tys, context, body)?;
