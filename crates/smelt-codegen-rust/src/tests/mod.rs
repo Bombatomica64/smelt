@@ -94,3 +94,4 @@ mod tail_r8_tests;
 mod truthiness_lowering_tests;
 mod name_and_shape_tests;
 mod object_model_tests;
+mod function_semantics_tests;

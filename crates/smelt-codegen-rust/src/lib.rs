@@ -3246,6 +3246,15 @@ fn emit_source_with_free_function_router(
             writer.line("fn smelt_concat_spread(value: SmeltUnknown) -> Vec<SmeltUnknown> { match value { SmeltUnknown::Array(values) => values.into_vec(), other => ::std::vec![other] } }");
             writer.blank_line();
         }
+        // One key test shared by every erased-Map accessor, so a read and a write
+        // cannot disagree about which entry a key names. A `{ __smelt_map: [..] }`
+        // entry is a two-element array, and Map key identity is SameValueZero.
+        writer.line("/// Whether an erased Map entry (a `[key, value]` pair) is keyed by `key`.");
+        writer.line("fn smelt_map_entry_key_is(entry: &SmeltUnknown, key: &SmeltUnknown) -> bool {");
+        writer.line("    let SmeltUnknown::Array(pair) = entry else { return false };");
+        writer.line("    pair.get(0).is_some_and(|entry_key| entry_key.same_js_key(key))");
+        writer.line("}");
+        writer.blank_line();
         writer.line("fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {");
         if needs_vitest_mock {
             // Vitest exposes a `.mock` accessor on every mock function carrying
@@ -3358,11 +3367,23 @@ fn emit_source_with_free_function_router(
         // handing the callback `(entry, index)`. The arm covers the spellings that
         // do go through a field read (`m["forEach"]`, a detached method value).
         //
-        // The mutators (`set`/`delete`/`clear`) are deliberately absent, matching
-        // the erased-Set block: source code that mutates a Map holds it at the
-        // typed `SmeltJsMap`, whose own methods already mutate the shared
-        // storage. Only *reads* reach an erased receiver.
+        // The mutators (`set`/`delete`/`clear`) are synthesized too, because a
+        // Map does NOT always reach a mutation site at its typed `SmeltJsMap`:
+        // a declared `Map<K, V> | SomeCacheInterface` erases the whole union to
+        // `SmeltUnknown`, and es-toolkit's `memoize` mutates its cache through
+        // exactly that spelling (`cache.set(key, result)`). With the mutators
+        // missing, the read answered `undefined`, the call collapsed to a null
+        // callback, and every write vanished silently — a memoizing function
+        // never memoized. The marker array is the map's own shared storage
+        // (`SmeltArray` is an `Rc<RefCell<..>>` handle), so an insert, a delete
+        // and a clear all land in the same entries every later read walks. Key
+        // identity is SameValueZero (`same_js_key`) and the return values are
+        // JavaScript's: `set` answers the map, `delete` a boolean, `clear`
+        // `undefined`.
         writer.line("    if let Some(SmeltUnknown::Array(pairs)) = map.get(\"__smelt_map\") {");
+        // The live handle, kept alongside the read-only snapshot the accessors
+        // below close over: a mutator must reach the shared storage, not a copy.
+        writer.line("        let entry_store = pairs.clone();");
         writer.line("        let pairs = pairs.into_vec();");
         writer.line("        let entry_at = |pair: &SmeltUnknown| -> Option<(SmeltUnknown, SmeltUnknown)> { let SmeltUnknown::Array(entry) = pair else { return None }; let mut entry = entry.clone().into_vec().into_iter(); match (entry.next(), entry.next()) { (Some(key), Some(value)) => Some((key, value)), _ => None } };");
         writer.line("        let entries = pairs.iter().filter_map(entry_at).collect::<Vec<_>>();");
@@ -3373,6 +3394,9 @@ fn emit_source_with_free_function_router(
         writer.line("            \"get\" => { let entries = entries.clone(); return SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let needle = args.into_iter().next().unwrap_or(SmeltUnknown::Undefined); Ok(entries.iter().find(|(key, _)| key.same_js_key(&needle)).map_or(SmeltUnknown::Undefined, |(_, value)| value.clone())) })); }");
         writer.line("            \"has\" => { let entries = entries.clone(); return SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let needle = args.into_iter().next().unwrap_or(SmeltUnknown::Undefined); Ok(SmeltUnknown::Bool(entries.iter().any(|(key, _)| key.same_js_key(&needle)))) })); }");
         writer.line("            \"forEach\" => { let entries = entries.clone(); let receiver = SmeltUnknown::Object(map.clone()); return SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { if let Some(SmeltUnknown::Function(callback)) = args.into_iter().next() { for (key, value) in entries.clone() { callback(vec![value, key, receiver.clone()])?; } } Ok(SmeltUnknown::Undefined) })); }");
+        writer.line("            \"set\" => { let store = entry_store.clone(); let receiver = SmeltUnknown::Object(map.clone()); return SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let mut args = args.into_iter(); let key = args.next().unwrap_or(SmeltUnknown::Undefined); let value = args.next().unwrap_or(SmeltUnknown::Undefined); let existing = store.iter().position(|pair| smelt_map_entry_key_is(&pair, &key)); let entry = SmeltUnknown::Array(vec![key, value].into()); match existing { Some(index) => store.set_index(index, entry), None => store.push(entry) } Ok(receiver.clone()) })); }");
+        writer.line("            \"delete\" => { let store = entry_store.clone(); return SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let needle = args.into_iter().next().unwrap_or(SmeltUnknown::Undefined); let kept = store.iter().filter(|pair| !smelt_map_entry_key_is(pair, &needle)).collect::<Vec<_>>(); let removed = kept.len() != store.len(); store.replace_all(kept); Ok(SmeltUnknown::Bool(removed)) })); }");
+        writer.line("            \"clear\" => { let store = entry_store.clone(); return SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| { store.replace_all(Vec::new()); Ok(SmeltUnknown::Undefined) })); }");
         writer.line("            _ => {}");
         writer.line("        }");
         writer.line("    }");
@@ -3386,6 +3410,10 @@ fn emit_source_with_free_function_router(
         // member array (Set keys equal values); `entries` yields `[value, value]`
         // pairs; `has` applies SameValueZero (`same_js_key`); `forEach` invokes the
         // callback with `(value, value, set)` per JS semantics.
+        // The mutators (`add`/`delete`/`clear`) stay absent: unlike a Map, a Set
+        // whose element type is concrete erases to a plain `SmeltUnknown::Array`
+        // rather than to the `{ __smelt_set: [..] }` marker, so a write through
+        // an erased Set is a different (unmodeled) shape, not this one.
         writer.line("    if let Some(SmeltUnknown::Array(members)) = map.get(\"__smelt_set\") {");
         writer.line("        let members = members.into_vec();");
         writer.line("        match field {");
