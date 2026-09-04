@@ -265,3 +265,68 @@ test("a subclass of a specific builtin error keeps that base's identity", () => 
 "#;
     run_fixture(source, "smelt_object_model_error_subclass");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_presence_test_answers_at_its_own_reach() {
+    // JavaScript has two presence tests over one property name, and they differ
+    // for everything a value inherits: `key in value` walks the prototype chain,
+    // `Object.hasOwn(value, key)` stops at the value's own properties. Both
+    // lower to the same containment node, so the node has to carry which reach
+    // it wants -- while it did not, adding the `Object.prototype` fallback for
+    // `in` also made `Object.hasOwn({}, 'toString')` answer `true`.
+    //
+    // The second half is the other side of the same rule: a property Smelt
+    // SYNTHESIZES rather than stores as a record entry is an OWN property in
+    // JavaScript, so both tests must see it. A boxed `String` wrapper's `length`
+    // and character indices are the case that reached a corpus (remeda's
+    // `isEmptyish` reads `'length' in data` on one), and an array's `length` is
+    // own while its `Symbol.iterator` is inherited.
+    let source = r#"
+import { test, expect } from "vitest";
+function erase(value: unknown): unknown {
+  return value;
+}
+test("`in` walks the prototype chain and `Object.hasOwn` does not", () => {
+  const o: any = erase({ a: 1 });
+  expect("toString" in o).toBe(true);
+  expect(Object.hasOwn(o, "toString")).toBe(false);
+  expect("hasOwnProperty" in o).toBe(true);
+  expect(Object.hasOwn(o, "hasOwnProperty")).toBe(false);
+  expect("a" in o).toBe(true);
+  expect(Object.hasOwn(o, "a")).toBe(true);
+  expect("b" in o).toBe(false);
+  expect(Object.hasOwn(o, "b")).toBe(false);
+});
+test("the unbound own-key probe agrees with Object.hasOwn", () => {
+  const o: any = erase({ a: 1 });
+  expect(Object.prototype.hasOwnProperty.call(o, "a")).toBe(true);
+  expect(Object.prototype.hasOwnProperty.call(o, "toString")).toBe(false);
+});
+test("a boxed String's length and indices are own properties", () => {
+  const boxed: any = erase(new String("test"));
+  expect(typeof boxed).toBe("object");
+  expect("length" in boxed).toBe(true);
+  expect(boxed.length).toBe(4);
+  expect(Object.hasOwn(boxed, "length")).toBe(true);
+  expect("0" in boxed).toBe(true);
+  expect(boxed[0]).toBe("t");
+  expect("9" in boxed).toBe(false);
+  expect(Object.hasOwn(boxed, "9")).toBe(false);
+  expect("toString" in boxed).toBe(true);
+  expect(Object.hasOwn(boxed, "toString")).toBe(false);
+});
+test("an array's length is own and its iterator is inherited", () => {
+  const a: any = erase([1, 2, 3]);
+  expect("length" in a).toBe(true);
+  expect(Object.hasOwn(a, "length")).toBe(true);
+  expect("1" in a).toBe(true);
+  expect(Object.hasOwn(a, "1")).toBe(true);
+  expect("3" in a).toBe(false);
+  expect(Object.hasOwn(a, "3")).toBe(false);
+  expect("toString" in a).toBe(true);
+  expect(Object.hasOwn(a, "toString")).toBe(false);
+});
+"#;
+    run_fixture(source, "smelt_object_model_presence_reach");
+}

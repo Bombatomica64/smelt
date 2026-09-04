@@ -3301,8 +3301,14 @@ function hasLength(value: unknown): boolean {
     );
 
     assert!(
-        source.contains("SmeltUnknown::Array(values) => smelt_key == \"length\""),
-        "{source}"
+        source.contains("smelt_has_own_property("),
+        "`Object.hasOwn` must ask the own-property authority:\n{source}"
+    );
+    assert!(
+        source.contains(
+            "SmeltUnknown::Array(values) => key == \"length\" || values.named_keys().contains(&key.to_owned())"
+        ),
+        "an array's `length` and named keys are own properties:\n{source}"
     );
     // The `hasOwn` lowering must inspect the erased value directly, not cast it
     // into a typed record. Scope the check to the emitted `has_length` function
@@ -5141,7 +5147,14 @@ function select(value: unknown, context?: (value: unknown) => unknown): unknown 
 
     assert!(source.contains(".map_or_else("), "{source}");
     assert!(source.contains("SmeltUnknown::Function"), "{source}");
-    assert!(!source.contains(".is_some() ||"), "{source}");
+    // Scoped to the emitted function: the runtime prelude's own-property
+    // authority spells its own `.is_some() ||` for the byte-view element probe,
+    // which is unrelated to this program's selection.
+    let function_body = source
+        .split("fn select")
+        .nth(1)
+        .expect("generated source defines select");
+    assert!(!function_body.contains(".is_some() ||"), "{source}");
 }
 
 #[test]
@@ -10080,7 +10093,7 @@ fn typed_array_own_keys_are_its_element_indices() {
         "export function f(value: any, key: string): boolean { return Object.hasOwn(value, key); }",
     );
     assert!(
-        has_own.contains("smelt_host_buffer_element(&values, &smelt_key).is_some()"),
+        has_own.contains("smelt_host_buffer_element(map, key).is_some()"),
         "a property test on a view must see its element indices:\n{has_own}"
     );
 }

@@ -357,3 +357,46 @@ test("a replacement string expands its dollar patterns", () => {
 "#;
     run_fixture(source, "smelt_regex_replacement_patterns");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_bounded_repetition_with_a_large_upper_bound_still_compiles() {
+    // JavaScript imposes no size limit on a `RegExp`. Rust's `regex` crate
+    // defaults to a 10 MiB compiled program because it is written to accept
+    // patterns from untrusted input -- and `X{0,N}` for a large `N`, the
+    // idiomatic JavaScript way to write a repetition that cannot be made to
+    // backtrack forever, expands to roughly `N` copies of `X` and blows that
+    // budget. The pattern below is remeda's `stringToPath` scanner, which pairs
+    // four such bounds with named groups and a sticky flag; over the default
+    // budget the engine reported it as a SYNTAX error, so a perfectly
+    // well-formed pattern behaved as if it could not be parsed.
+    //
+    // Nothing about this is visible in the emitted text: the pattern is
+    // translated at emit time and the budget only decides whether the automaton
+    // can be built, so the program has to run.
+    let source = r#"
+import { test, expect } from "vitest";
+
+const PATH_RE =
+  /\.{0,4096}(?<propName>[^.[\]]+)|\['(?<quoted>.{0,4096}?)'\]|\["(?<doubleQuoted>.{0,4096}?)"\]|\[(?<unquoted>.{0,4096}?)\]/uy;
+
+function firstProp(path: string): string {
+  PATH_RE.lastIndex = 0;
+  const match = PATH_RE.exec(path);
+  if (match === null) {
+    return "";
+  }
+  const groups = match.groups!;
+  return groups.propName ?? groups.quoted ?? groups.doubleQuoted ?? groups.unquoted ?? "";
+}
+
+test("a bounded repetition with a large upper bound compiles and matches", () => {
+  expect(firstProp("alpha.beta")).toBe("alpha");
+  expect(firstProp("['quoted']")).toBe("quoted");
+  expect(firstProp('["double"]')).toBe("double");
+  expect(firstProp("[12]")).toBe("12");
+  expect(firstProp("")).toBe("");
+});
+"#;
+    run_fixture(source, "smelt_regex_large_bounded_repetition");
+}
