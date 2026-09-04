@@ -1684,6 +1684,24 @@ pub enum Rvalue {
         /// Compare only the most recent recorded call (`toHaveBeenLastCalledWith`).
         last: bool,
     },
+    /// `vi.restoreAllMocks()`: undo every installed spy, newest first.
+    VitestRestoreAllMocks,
+    /// `vi.spyOn(target, name)`: install a recording mock over the member and
+    /// evaluate to it.
+    VitestSpyOn {
+        /// The object whose member is replaced.
+        target: Operand,
+        /// The member name.
+        name: Operand,
+    },
+    /// Whether two values are deep-equal under the vitest matcher rules,
+    /// where either side may hold an asymmetric matcher (bool).
+    VitestAsymmetricEqual {
+        /// The actual value under assertion.
+        actual: Operand,
+        /// The expected value, possibly an asymmetric matcher or containing one.
+        expected: Operand,
+    },
     /// Whether a Vitest mock's most recent result deep-equals `expected`
     /// after flattening a resolved promise (bool).
     VitestMockLastResolvedWith {
@@ -2032,4 +2050,11 @@ pub enum BuiltinFn {
     ConsoleWrite,
     /// Write exact text to stderr.
     ConsoleErrorWrite,
+    /// Parse JSON text (`JSON.parse`).
+    ///
+    /// A builtin rather than an rvalue because it is *fallible*: malformed text
+    /// throws a catchable `SyntaxError` in JavaScript. Only `Terminator::Call`
+    /// and `Terminator::Await` carry an `unwind` edge, so a fallible operation
+    /// has to be a call to reach an enclosing `try`.
+    JsonParse,
 }

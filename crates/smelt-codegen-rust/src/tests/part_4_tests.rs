@@ -515,10 +515,18 @@ values: list[int] = json.loads(text)
 "#,
     );
 
-    assert!(ts_source.contains("serde_json::from_str::<SmeltList<f64>>(&"));
-    assert!(py_source.contains("serde_json::from_str::<SmeltList<i64>>(&"));
-    assert!(ts_source.contains(".expect(\"JSON parse failed\")"));
-    assert!(py_source.contains(".expect(\"JSON parse failed\")"));
+    // `JSON.parse` / `json.loads` is fallible in both source languages, so it
+    // goes through the one adapter that reports a malformed document on the
+    // error channel instead of aborting. The declared destination type is then
+    // reached by the ordinary coercion off the parsed dynamic value -- which is
+    // also what makes the destination assertion as lenient as the source
+    // languages are, rather than as strict as a typed `serde` deserialization.
+    assert!(ts_source.contains("smelt_json_parse(&"), "{ts_source}");
+    assert!(py_source.contains("smelt_json_parse(&"), "{py_source}");
+    assert!(!ts_source.contains("JSON parse failed"), "{ts_source}");
+    assert!(!py_source.contains("JSON parse failed"), "{py_source}");
+    assert!(ts_source.contains("let values: SmeltList<f64>"), "{ts_source}");
+    assert!(py_source.contains("let values: SmeltList<i64>"), "{py_source}");
 }
 
 #[test]
@@ -530,10 +538,11 @@ const values = JSON.parse(text);
 "#,
     );
 
-    // A record destination is not `Deserialize`; parse into the erased
-    // `SmeltUnknown` (which is) and coerce into the record afterwards.
+    // A record destination is not `Deserialize`; the adapter parses into the
+    // erased `SmeltUnknown` (which is) and the record is reached by coercion.
+    assert!(ts_source.contains("smelt_json_parse(&"), "{ts_source}");
     assert!(
-        ts_source.contains("serde_json::from_str::<SmeltUnknown>(&"),
+        ts_source.contains("serde_json::from_str::<SmeltUnknown>(text)"),
         "{ts_source}"
     );
     assert!(
@@ -563,14 +572,13 @@ const bag = JSON.parse(text) as Record<string, unknown>;
             "#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]"
         )
     );
+    // Every destination -- a generated interface struct as much as a
+    // `Record<string, unknown>` -- is reached by coercing the parsed dynamic
+    // value, so there is one parse shape and no non-`Deserialize` destination
+    // is ever named to `serde`.
+    assert!(ts_source.contains("smelt_json_parse(&"), "{ts_source}");
     assert!(
-        ts_source.contains("serde_json::from_str::<ServerConfig>(&")
-            || ts_source.contains("serde_json::from_str::<SmeltUnknown>(&")
-    );
-    // The `Record<string, unknown>` destination routes through `SmeltUnknown`
-    // rather than deserializing straight into the non-`Deserialize` record.
-    assert!(
-        ts_source.contains("serde_json::from_str::<SmeltUnknown>(&"),
+        ts_source.contains("serde_json::from_str::<SmeltUnknown>(text)"),
         "{ts_source}"
     );
     assert!(

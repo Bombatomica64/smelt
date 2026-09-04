@@ -38,13 +38,17 @@ export function useFoo(): unknown {
 ",
     );
 
+    // Assert on the key text, not on the helper that reads it: the field-read
+    // emitter picks between an object-typed and an erased-value helper, and the
+    // invariant under test is only which *spelling* reaches the key argument.
+    let body = emitted_function_body(&source, "fn read_foo");
     assert!(
-        source.contains("smelt_get_object_field(&map, \"foo\")"),
-        "an erased `.foo` read must key on the source spelling:\n{source}"
+        body.contains("\"foo\""),
+        "an erased `.foo` read must key on the source spelling:\n{body}"
     );
     assert!(
-        !source.contains("smelt_get_object_field(&map, \"Foo\")"),
-        "a declaration named `Foo` must not rename the property `foo`:\n{source}"
+        !body.contains("\"Foo\""),
+        "a declaration named `Foo` must not rename the property `foo`:\n{body}"
     );
 }
 

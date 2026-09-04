@@ -66,6 +66,7 @@ impl ExprKind {
             | Self::NumericRandom
             | Self::DateNow
             | Self::DateResetNow
+            | Self::VitestRestoreAllMocks
             | Self::DateTimezoneOffset
             | Self::DateResetTimezoneOffset
             | Self::Block(_)
@@ -648,6 +649,14 @@ impl ExprKind {
                 mock: f(mock)?,
                 args: map_vec(args, f)?,
                 last,
+            },
+            Self::VitestSpyOn { target, name } => Self::VitestSpyOn {
+                target: f(target)?,
+                name: f(name)?,
+            },
+            Self::VitestAsymmetricEqual { actual, expected } => Self::VitestAsymmetricEqual {
+                actual: f(actual)?,
+                expected: f(expected)?,
             },
             Self::VitestMockLastResolvedWith { mock, expected } => {
                 Self::VitestMockLastResolvedWith {

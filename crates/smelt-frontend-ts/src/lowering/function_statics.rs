@@ -193,7 +193,7 @@ impl ModuleBuilder<'_> {
 
     /// Resolve a `f.prop` read against the recorded function statics.
     pub(in crate::lowering) fn function_static_property_read(
-        &mut self,
+        &self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {

@@ -5,7 +5,7 @@
 
 use smelt_hir::Type;
 
-use crate::{Callee, LocalDecl, Mir, Rvalue, Statement, Terminator};
+use crate::{BuiltinFn, Callee, LocalDecl, Mir, Rvalue, Statement, Terminator};
 
 use super::super::{local_index, usize_from_u32};
 use super::operand_local;
@@ -105,6 +105,13 @@ fn terminator_can_throw(terminator: &Terminator, throwing: &[bool]) -> bool {
             ..
         } => true,
         Terminator::Await { unwind: None, .. } => true,
+        // A fallible builtin with no handler in scope leaves the function
+        // through its error channel, so the enclosing function throws.
+        Terminator::Call {
+            callee: Callee::Builtin(BuiltinFn::JsonParse),
+            unwind: None,
+            ..
+        } => true,
         Terminator::Goto(_)
         | Terminator::Call { .. }
         | Terminator::Await { .. }

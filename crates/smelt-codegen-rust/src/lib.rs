@@ -81,6 +81,7 @@ use crate::{rust::erased_string, type_substitution::TypeSubstitution};
 use smelt_hir::{AsyncOp, BodyId, Type, TypeId};
 use smelt_mir::{HirOrigin, Mir, MirClassProtocol, MirFunction, Rvalue};
 
+mod asymmetric_matcher_prelude;
 mod builtin_member_prelude;
 mod byte_buffer_prelude;
 pub(crate) mod class_proto;
@@ -2054,6 +2055,8 @@ fn emit_source_with_free_function_router(
         writer.line("/// `smelt_for_in_record_keys`. Symbol keys are never enumerated by `for...in`.");
         writer.line("fn smelt_for_in_js_map_keys<V: Clone>(map: &SmeltJsMap<SmeltUnknown, V>) -> Vec<SmeltUnknown> { let mut keys = Vec::new(); let mut seen = ::std::collections::HashSet::new(); for (key, _) in smelt_own_js_map_entries(map) { if matches!(key, SmeltUnknown::Symbol(_)) { continue; } if let SmeltUnknown::String(text) = &key { if !seen.insert(text.to_string()) { continue; } } keys.push(key); } for key in map.keys() { let SmeltUnknown::String(text) = &key else { continue; }; if let Some(inherited) = text.strip_prefix(\"__smelt_proto:\") { let inherited = inherited.to_owned(); if seen.insert(inherited.clone()) { keys.push(SmeltUnknown::String(inherited.as_str().into())); } } } keys }");
         writer.blank_line();
+        emit_own_keys_projection(&mut writer);
+        writer.blank_line();
         writer.line("/// Stringify a marker-bearing erased RegExp as JavaScript does: `/source/flags`.");
         writer.line("fn smelt_regexp_literal(map: &SmeltObject) -> String { let source = match map.get(\"source\") { Some(SmeltUnknown::String(source)) => source.to_string(), _ => String::new() }; let flags = match map.get(\"flags\") { Some(SmeltUnknown::String(flags)) => flags.to_string(), _ => String::new() }; format!(\"/{source}/{flags}\") }");
         writer.blank_line();
@@ -2783,6 +2786,18 @@ fn emit_source_with_free_function_router(
         writer.line("/// Return an erased AbortController/AbortSignal method bound to its shared record.");
         writer.line("fn smelt_abort_method(object: SmeltObject, method: &str) -> SmeltUnknown { let method = method.to_owned(); SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let signal = smelt_abort_signal_object(&object); match method.as_str() { \"abort\" | \"dispatchEvent\" => { if let Some(signal) = signal { smelt_abort_signal_fire(&signal); } Ok(if method == \"dispatchEvent\" { SmeltUnknown::Bool(true) } else { SmeltUnknown::Undefined }) } \"addEventListener\" => { if let Some(signal) = signal { let event_type = match args.first() { Some(SmeltUnknown::String(value)) => value.to_string(), _ => String::new() }; if event_type == \"abort\" { if let Some(listener @ SmeltUnknown::Function(_)) = args.get(1).cloned() { let mut listeners = match signal.get(\"__smelt_abort_listeners\") { Some(SmeltUnknown::Array(values)) => values.into_vec(), _ => Vec::new() }; listeners.push(listener); signal.insert(\"__smelt_abort_listeners\".to_owned(), SmeltUnknown::Array(listeners.into())); } } } Ok(SmeltUnknown::Undefined) } \"removeEventListener\" => { if let Some(signal) = signal { if let Some(target @ SmeltUnknown::Function(_)) = args.get(1).cloned() { let listeners: Vec<SmeltUnknown> = match signal.get(\"__smelt_abort_listeners\") { Some(SmeltUnknown::Array(values)) => values.into_vec(), _ => Vec::new() }.into_iter().filter(|listener| !listener.js_strict_eq(&target)).collect(); signal.insert(\"__smelt_abort_listeners\".to_owned(), SmeltUnknown::Array(listeners.into())); } } Ok(SmeltUnknown::Undefined) } _ => Ok(SmeltUnknown::Undefined) } })) }");
         writer.blank_line();
+        // The one place that decides "own member, else synthesized host
+        // method". A host object such as an `AbortSignal` is a marker-bearing
+        // record with no stored `addEventListener` field, so the member read has
+        // to synthesize the method -- but only when the key is genuinely absent,
+        // because source code (and `vi.spyOn`) may install a real member of that
+        // name and JavaScript's own-property lookup wins over the prototype.
+        // Both the member-read emitter and `smelt_vitest_spy_on` ask this, so a
+        // spy resolves the same member the program would have called.
+        writer.line("/// The synthesized host method a member read resolves to, if the object");
+        writer.line("/// carries a host marker and has no OWN member of that name.");
+        writer.line("fn smelt_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if object.contains_key(name) { return None; } if (object.contains_key(\"__smelt_abortcontroller\") || object.contains_key(\"__smelt_abortsignal\")) && matches!(name, \"abort\" | \"addEventListener\" | \"removeEventListener\" | \"dispatchEvent\" | \"throwIfAborted\") { return Some(smelt_abort_method(object.clone(), name)); } None }");
+        writer.blank_line();
         writer.block("pub enum SmeltUnknown", |unknown_writer| {
             unknown_writer.line("Null,");
             unknown_writer.line("Undefined,");
@@ -3114,7 +3129,7 @@ fn emit_source_with_free_function_router(
             writer.line("/// the recorded and expected argument vectors this way reconciles the two so");
             writer.line("/// `toHaveBeenLastCalledWith()` matches an omitted-argument call.");
             writer.line("fn smelt_vitest_mock_trim_trailing_nullish(args: &[SmeltUnknown]) -> &[SmeltUnknown] { let mut end = args.len(); while end > 0 && matches!(args[end - 1], SmeltUnknown::Undefined | SmeltUnknown::Null) { end -= 1; } &args[..end] }");
-            writer.line("fn smelt_vitest_mock_called_with(value: &SmeltUnknown, expected: Vec<SmeltUnknown>, last: bool) -> bool { let expected = smelt_vitest_mock_trim_trailing_nullish(&expected); let call_matches = |call: &Vec<SmeltUnknown>| { let call = smelt_vitest_mock_trim_trailing_nullish(call); call.len() == expected.len() && call.iter().zip(expected.iter()).all(|(left, right)| smelt_unknown_structural_eq(left, right, &mut ::std::collections::HashSet::new())) }; match smelt_vitest_mock_state(value) { Some(state) => { let state = state.borrow(); if last { state.calls.last().is_some_and(call_matches) } else { state.calls.iter().any(call_matches) } }, None => true } }");
+            writer.line("fn smelt_vitest_mock_called_with(value: &SmeltUnknown, expected: Vec<SmeltUnknown>, last: bool) -> bool { let expected = smelt_vitest_mock_trim_trailing_nullish(&expected); let call_matches = |call: &Vec<SmeltUnknown>| { let call = smelt_vitest_mock_trim_trailing_nullish(call); call.len() == expected.len() && call.iter().zip(expected.iter()).all(|(left, right)| smelt_vitest_asymmetric_equals(left, right, &mut ::std::collections::HashSet::new())) }; match smelt_vitest_mock_state(value) { Some(state) => { let state = state.borrow(); if last { state.calls.last().is_some_and(call_matches) } else { state.calls.iter().any(call_matches) } }, None => true } }");
             writer.blank_line();
             writer.line("/// `expect(mock).toHaveLastResolvedWith(...)`: true when the mock's most");
             writer.line("/// recent recorded result deep-equals the expected value. An async mock");
@@ -3122,7 +3137,57 @@ fn emit_source_with_free_function_router(
             writer.line("/// its settled `Ok` value before comparison (the caller has already awaited");
             writer.line("/// it, so the shared state cell is populated). Non-mock actuals pass");
             writer.line("/// vacuously, mirroring the other mock matchers.");
-            writer.line("fn smelt_vitest_mock_last_resolved_with(value: &SmeltUnknown, expected: SmeltUnknown) -> bool { match smelt_vitest_mock_state(value) { Some(state) => { let last = state.borrow().results.last().cloned(); match last { Some(result) => { let resolved = match &result { SmeltUnknown::Promise(promise) => match &*promise.state.borrow() { Some(Ok(value)) => value.clone(), _ => return false }, other => other.clone() }; smelt_unknown_structural_eq(&resolved, &expected, &mut ::std::collections::HashSet::new()) }, None => false } }, None => true } }");
+            writer.line("fn smelt_vitest_mock_last_resolved_with(value: &SmeltUnknown, expected: SmeltUnknown) -> bool { match smelt_vitest_mock_state(value) { Some(state) => { let last = state.borrow().results.last().cloned(); match last { Some(result) => { let resolved = match &result { SmeltUnknown::Promise(promise) => match &*promise.state.borrow() { Some(Ok(value)) => value.clone(), _ => return false }, other => other.clone() }; smelt_vitest_asymmetric_equals(&resolved, &expected, &mut ::std::collections::HashSet::new()) }, None => false } }, None => true } }");
+            asymmetric_matcher_prelude::emit(&mut writer);
+            writer.blank_line();
+            // `vi.spyOn(target, name)` is a real boundary adapter, not a
+            // placeholder: it resolves the member's CURRENT value through the
+            // shared `smelt_host_method` decision the member-read emitter uses,
+            // wraps it in a mock whose default outcome FORWARDS to it, and writes
+            // the mock back onto the target. Library code that later reads the
+            // member therefore calls the mock and the mock calls the original, so
+            // the recorded calls are the ones the program actually made and the
+            // original side effect still happens.
+            writer.line("thread_local! {");
+            writer.line("    /// Installed spies, newest last: the target object, the member name,");
+            writer.line("    /// and the member's value before the spy replaced it (`None` when the");
+            writer.line("    /// member had no own value, so restoring removes the key again).");
+            writer.line("    static SMELT_VITEST_SPIES: ::std::cell::RefCell<Vec<(SmeltObject, String, Option<SmeltUnknown>)>> = const { ::std::cell::RefCell::new(Vec::new()) };");
+            writer.line("}");
+            writer.blank_line();
+            writer.line("/// Restore one recorded spy, putting the target member back as it was.");
+            writer.line("fn smelt_vitest_restore_spy(target: &SmeltObject, name: &str, original: Option<SmeltUnknown>) { match original { Some(value) => { target.insert(name.to_owned(), value); } None => { target.remove(name); } } }");
+            writer.blank_line();
+            writer.line("/// `vi.restoreAllMocks()`: undo every installed spy, newest first.");
+            writer.line("fn smelt_vitest_restore_all_mocks() { let spies = SMELT_VITEST_SPIES.with(|spies| ::std::mem::take(&mut *spies.borrow_mut())); for (target, name, original) in spies.into_iter().rev() { smelt_vitest_restore_spy(&target, &name, original); } }");
+            writer.blank_line();
+            writer.line("/// `vi.spyOn(target, name)`: install a recording mock over `target[name]`.");
+            writer.line("///");
+            writer.line("/// The mock forwards to the member's current value, so the original");
+            writer.line("/// behaviour still runs; its `mockRestore` puts the member back. A target");
+            writer.line("/// that is not an object has no member to replace, so it yields a bare");
+            writer.line("/// recording mock rather than failing the program.");
+            writer.line("fn smelt_vitest_spy_on(target: &SmeltUnknown, name: &str) -> SmeltUnknown {");
+            writer.line("    let SmeltUnknown::Object(object) = target else { return smelt_vitest_mock_new(None); };");
+            writer.line("    let own = object.get(name);");
+            writer.line("    let original = smelt_host_method(object, name).or_else(|| own.clone());");
+            writer.line("    let mock = smelt_vitest_mock_new(original);");
+            writer.line("    object.insert(name.to_owned(), mock.clone());");
+            writer.line("    SMELT_VITEST_SPIES.with(|spies| spies.borrow_mut().push((object.clone(), name.to_owned(), own.clone())));");
+            writer.line("    // `mockRestore` both clears the recorded activity (the shared");
+            writer.line("    // implementation already installed by `smelt_vitest_mock_new`) and puts");
+            writer.line("    // the target member back, which a bare `vi.fn()` mock has no target to");
+            writer.line("    // do. Replacing the field keeps that difference in ONE place.");
+            writer.line("    if let SmeltUnknown::Object(handle) = &mock {");
+            writer.line("        let clear = handle.get(\"mockRestore\");");
+            writer.line("        let restore_target = object.clone();");
+            writer.line("        let restore_name = name.to_owned();");
+            writer.line("        let restore_original = own;");
+            writer.line("        let handle_value = mock.clone();");
+            writer.line("        handle.insert(\"mockRestore\".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { if let Some(SmeltUnknown::Function(clear)) = &clear { let _ = clear(args); } smelt_vitest_restore_spy(&restore_target, &restore_name, restore_original.clone()); Ok(handle_value.clone()) })));",);
+            writer.line("    }");
+            writer.line("    mock");
+            writer.line("}");
         }
         writer.blank_line();
         {
@@ -4081,6 +4146,11 @@ fn emit_source_with_free_function_router(
         // because `SmeltThrown`'s own `Display` falls back to it for non-error
         // payloads.
         thrown::emit_thrown_payload_support(&mut writer);
+        // The fallible `JSON.parse` adapter reports through that same channel,
+        // so it follows the ABI it depends on.
+        if needs_serde_json && stdlib::needs_json_parse_runtime(mir) {
+            thrown::emit_json_parse_support(&mut writer);
+        }
         writer.blank_line();
         writer.line("impl Eq for SmeltUnknown {}");
         writer.blank_line();
@@ -4667,6 +4737,8 @@ fn emit_source_with_free_function_router(
         // before there is a case to size it against.
         writer.line("thread_local! { static SMELT_REGEX_CACHE: ::std::cell::RefCell<::std::collections::HashMap<String, ::std::option::Option<::std::rc::Rc<fancy_regex::Regex>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }");
         writer.blank_line();
+        emit_regex_substitution(&mut writer);
+        writer.blank_line();
         writer.line("#[derive(Clone, Debug)]");
         writer.block("pub struct SmeltRegExp", |struct_writer| {
             struct_writer.line("id: usize,");
@@ -4687,8 +4759,14 @@ fn emit_source_with_free_function_router(
                 fn_writer.line("self.flags.chars().any(|value| value == flag)");
             });
             impl_writer.line("/// Compile the Rust regex equivalent for this JavaScript RegExp.");
+            impl_writer.line("///");
+            impl_writer.line("/// A pattern that does not compile is a hard error naming the original");
+            impl_writer.line("/// JavaScript spelling. Every RegExp operation goes through here for");
+            impl_writer.line("/// that reason: the alternative -- returning the haystack unchanged, as");
+            impl_writer.line("/// `replace`/`split`/`matchAll` used to -- turned an untranslated");
+            impl_writer.line("/// pattern into a silent no-op that looked like a passing program.");
             impl_writer.block("fn compiled(&self) -> ::std::rc::Rc<fancy_regex::Regex>", |fn_writer| {
-                fn_writer.line("self.try_compiled().expect(\"regex compile failed\")");
+                fn_writer.line("match self.try_compiled() { Some(regex) => regex, None => panic!(\"SyntaxError: invalid regular expression: /{}/{}\", self.source, self.flags) }");
             });
             impl_writer.line("/// Try to compile the Rust regex equivalent for this JavaScript RegExp.");
             impl_writer.line("///");
@@ -4712,7 +4790,7 @@ fn emit_source_with_free_function_router(
             });
             impl_writer.line("/// Match a string with JavaScript String.prototype.match semantics.");
             impl_writer.block("pub fn match_string(&self, haystack: &str) -> Option<Vec<String>>", |fn_writer| {
-                fn_writer.line("let regex = self.try_compiled()?;");
+                fn_writer.line("let regex = self.compiled();");
                 fn_writer.block("if self.has_flag('g')", |if_writer| {
                     if_writer.line("let matches = regex.find_iter(haystack).filter_map(Result::ok).map(|value| value.as_str().to_owned()).collect::<Vec<_>>();");
                     if_writer.line("if matches.is_empty() { None } else { Some(matches) }");
@@ -4724,29 +4802,31 @@ fn emit_source_with_free_function_router(
             });
             impl_writer.line("/// Split a string with JavaScript RegExp separator semantics.");
             impl_writer.block("pub fn split_string(&self, haystack: &str) -> Vec<String>", |fn_writer| {
-                fn_writer.line("let Some(regex) = self.try_compiled() else { return vec![haystack.to_owned()]; };");
+                fn_writer.line("let regex = self.compiled();");
                 fn_writer.line("regex.split(haystack).filter_map(Result::ok).map(str::to_owned).collect::<Vec<_>>()");
             });
             impl_writer.line("/// Replace matches with JavaScript RegExp-aware String.prototype.replace semantics.");
+            impl_writer.line("///");
+            impl_writer.line("/// The replacement string is a PATTERN, not literal text: `$&`, `` $` ``,");
+            impl_writer.line("/// `$'`, `$$`, `$n` and `$<name>` all stand for parts of the match (see");
+            impl_writer.line("/// `smelt_regex_substitution`). It is expanded per match, which is why");
+            impl_writer.line("/// this walks `captures_iter` rather than `find_iter`. The global and");
+            impl_writer.line("/// single-replacement cases are one loop that stops after the first");
+            impl_writer.line("/// match, so the two cannot disagree about the expansion.");
             impl_writer.block("pub fn replace_string(&self, haystack: &str, replacement: &str, force_all: bool) -> String", |fn_writer| {
-                fn_writer.line("let Some(regex) = self.try_compiled() else { return haystack.to_owned(); };");
+                fn_writer.line("let regex = self.compiled();");
                 fn_writer.line("let replace_all = force_all || self.has_flag('g');");
-                fn_writer.block("if replace_all", |if_writer| {
-                    if_writer.line("let mut output = String::new();");
-                    if_writer.line("let mut last_end = 0usize;");
-                    if_writer.block("for matched in regex.find_iter(haystack).filter_map(Result::ok)", |for_writer| {
-                        for_writer.line("output.push_str(&haystack[last_end..matched.start()]);");
-                        for_writer.line("output.push_str(replacement);");
-                        for_writer.line("last_end = matched.end();");
-                    });
-                    if_writer.line("output.push_str(&haystack[last_end..]);");
-                    if_writer.line("output");
+                fn_writer.line("let mut output = String::new();");
+                fn_writer.line("let mut last_end = 0usize;");
+                fn_writer.block("for captures in regex.captures_iter(haystack).filter_map(Result::ok)", |for_writer| {
+                    for_writer.line("let Some(matched) = captures.get(0) else { continue; };");
+                    for_writer.line("output.push_str(haystack.get(last_end..matched.start()).unwrap_or(\"\"));");
+                    for_writer.line("output.push_str(&smelt_regex_substitution(replacement, haystack, &captures));");
+                    for_writer.line("last_end = matched.end();");
+                    for_writer.line("if !replace_all { break; }");
                 });
-                fn_writer.line("else if let Ok(Some(matched)) = regex.find(haystack) {");
-                fn_writer.line("    format!(\"{}{}{}\", &haystack[..matched.start()], replacement, &haystack[matched.end()..])");
-                fn_writer.line("} else {");
-                fn_writer.line("    haystack.to_owned()");
-                fn_writer.line("}");
+                fn_writer.line("output.push_str(haystack.get(last_end..).unwrap_or(\"\"));");
+                fn_writer.line("output");
             });
             impl_writer.line("/// Execute this RegExp and return a concrete `SmeltMatch` result.");
             impl_writer.line("///");
@@ -4766,7 +4846,7 @@ fn emit_source_with_free_function_router(
             });
             impl_writer.line("/// Return concrete `SmeltMatch` results for String.prototype.matchAll.");
             impl_writer.block("pub fn match_all_indices(&self, haystack: &str) -> Vec<SmeltMatch>", |fn_writer| {
-                fn_writer.line("let Some(regex) = self.try_compiled() else { return Vec::new(); };");
+                fn_writer.line("let regex = self.compiled();");
                 fn_writer.block("regex.captures_iter(haystack).filter_map(Result::ok).filter_map(|captures|", |map_writer| {
                     map_writer.line("let matched = captures.get(0)?;");
                     map_writer.line("Some(SmeltMatch::from_captures(&regex, &captures, matched.start(), haystack))");
@@ -5367,6 +5447,110 @@ fn insert_after_crate_header(mut root: String, text: &str) -> String {
 /// frontend still assigns for `exec`/`matchAll` consumers), it is converted
 /// with the explicit [`IntoSmeltUnknown`] adapter — the single place where the
 /// concrete match is intentionally erased.
+/// Emits the JavaScript replacement-pattern expander used by `String.replace`.
+///
+/// The second argument of `String.prototype.replace` is not literal text: ECMA-262
+/// `GetSubstitution` gives `$$`, `$&`, `` $` ``, `$'`, `$n`/`$nn` and `$<name>`
+/// meanings relative to the current match, and any other `$x` stays literal.
+/// The runtime used to push the replacement verbatim, so `'\\$&'` — the whole
+/// point of a pattern like `escapeRegExp`'s — inserted the two characters `$&`
+/// instead of the matched text.
+fn emit_regex_substitution(writer: &mut CodeWriter) {
+    writer.line("/// Expand one JavaScript replacement pattern against a match (ECMA-262 `GetSubstitution`).");
+    writer.line("///");
+    writer.line("/// `$$` is a literal `$`, `$&` the match, `` $` `` and `$'` the text before");
+    writer.line("/// and after it, `$n`/`$nn` a numbered group (two digits preferred when that");
+    writer.line("/// group exists), `$<name>` a named group. Anything else, including a `$n`");
+    writer.line("/// past the last group, is left exactly as written.");
+    writer.line("fn smelt_regex_substitution(replacement: &str, haystack: &str, captures: &fancy_regex::Captures<'_>) -> String {");
+    writer.line("    let Some(whole) = captures.get(0) else { return replacement.to_owned(); };");
+    writer.line("    let chars: Vec<char> = replacement.chars().collect();");
+    writer.line("    let mut out = String::with_capacity(replacement.len());");
+    writer.line("    let mut index = 0usize;");
+    writer.line("    while let Some(&ch) = chars.get(index) {");
+    writer.line("        if ch != '$' { out.push(ch); index = index.saturating_add(1); continue; }");
+    writer.line("        match chars.get(index.saturating_add(1)) {");
+    writer.line("            Some('$') => { out.push('$'); index = index.saturating_add(2); }");
+    writer.line("            Some('&') => { out.push_str(whole.as_str()); index = index.saturating_add(2); }");
+    writer.line("            Some('`') => { out.push_str(haystack.get(..whole.start()).unwrap_or(\"\")); index = index.saturating_add(2); }");
+    writer.line("            Some('\\'') => { out.push_str(haystack.get(whole.end()..).unwrap_or(\"\")); index = index.saturating_add(2); }");
+    writer.line("            Some('<') => {");
+    writer.line("                let open = index.saturating_add(2);");
+    writer.line("                match (open..chars.len()).find(|position| chars.get(*position) == Some(&'>')) {");
+    writer.line("                    Some(close) => {");
+    writer.line("                        let name: String = chars.get(open..close).unwrap_or_default().iter().collect();");
+    writer.line("                        if let Some(group) = captures.name(&name) { out.push_str(group.as_str()); }");
+    writer.line("                        index = close.saturating_add(1);");
+    writer.line("                    }");
+    writer.line("                    None => { out.push('$'); index = index.saturating_add(1); }");
+    writer.line("                }");
+    writer.line("            }");
+    writer.line("            Some(digit) if digit.is_ascii_digit() => {");
+    writer.line("                let first = digit.to_digit(10).unwrap_or(0) as usize;");
+    writer.line("                let second = chars.get(index.saturating_add(2)).and_then(|next| next.to_digit(10));");
+    writer.line("                let two_digit = second.map(|value| first.saturating_mul(10).saturating_add(value as usize));");
+    writer.line("                let total = captures.len();");
+    writer.line("                let selected = match two_digit { Some(group) if group >= 1 && group < total => Some((group, 3usize)), _ => if first >= 1 && first < total { Some((first, 2usize)) } else { None } };");
+    writer.line("                match selected {");
+    writer.line("                    Some((group, width)) => { if let Some(matched) = captures.get(group) { out.push_str(matched.as_str()); } index = index.saturating_add(width); }");
+    writer.line("                    None => { out.push('$'); index = index.saturating_add(1); }");
+    writer.line("                }");
+    writer.line("            }");
+    writer.line("            _ => { out.push('$'); index = index.saturating_add(1); }");
+    writer.line("        }");
+    writer.line("    }");
+    writer.line("    out");
+    writer.line("}");
+}
+
+/// Emits the `Reflect.ownKeys` projection and the storage-key → symbol inverse.
+///
+/// `Reflect.ownKeys(o)` answers *every* own key: the string keys in JavaScript's
+/// own-key order, then the symbol keys. `Object.keys` answers only the string
+/// half, which is why the two need separate projections rather than one.
+///
+/// DYNAMIC BOUNDARY (`CLAUDE.md`): the element type is `SmeltUnknown` because
+/// `Reflect.ownKeys` is declared `(target: object) => (string | symbol)[]` in
+/// TypeScript's own lib. The list genuinely mixes two disjoint runtime kinds and
+/// consumers discriminate them at run time (`typeof key === 'string'`), so no
+/// concrete element type, generated union arm, or scoped generic can stand in:
+/// choosing `String` is what made the caller's `typeof` guard const-fold to
+/// `false` and lose the symbol keys entirely. The regression test
+/// `stdlib_boundary_tests::reflect_own_keys_keeps_symbol_keys_and_a_dynamic_key_type`
+/// pins that reasoning.
+fn emit_own_keys_projection(writer: &mut CodeWriter) {
+    // The inverse of `smelt_symbol_property_key`: a well-known symbol is stored
+    // under a synthetic member name (`__smelt_symbol_iterator`), not under the
+    // generic `__smelt_symbol:<description>` form, so recovering the symbol
+    // VALUE from a stored key needs the same table read backwards.
+    let well_known_arms = smelt_stdlib::well_known_symbols::spelling_key_pairs()
+        .into_iter()
+        .fold(String::new(), |mut arms, (spelling, key)| {
+            use ::std::fmt::Write as _;
+            let _ = write!(
+                arms,
+                "{key:?} => Some(SmeltUnknown::Symbol({spelling:?}.into())), "
+            );
+            arms
+        });
+    writer.line("/// The symbol value a stored property key denotes, if it is a symbol key.");
+    writer.line(format!(
+        "fn smelt_key_symbol_value(key: &str) -> Option<SmeltUnknown> {{ if let Some(description) = key.strip_prefix(\"__smelt_symbol:\") {{ return Some(SmeltUnknown::Symbol(description.into())); }} match key {{ {well_known_arms}_ => None }} }}"
+    ));
+    writer.blank_line();
+    writer.line("/// `Reflect.ownKeys` over a string-keyed record: string keys, then symbol keys.");
+    writer.line("///");
+    writer.line("/// DYNAMIC BOUNDARY: a key is `string | symbol` in the source type of");
+    writer.line("/// `Reflect.ownKeys`, and callers discriminate with `typeof`.");
+    writer.line("fn smelt_own_keys<V>(record: &SmeltRecord<String, V>) -> Vec<SmeltUnknown> { let mut strings = Vec::new(); let mut symbols = Vec::new(); for key in record.keys() { if let Some(symbol) = smelt_key_symbol_value(&key) { symbols.push(symbol); } else if smelt_is_for_in_record_key(record, &key) && !key.starts_with(\"__smelt_proto:\") { strings.push(SmeltUnknown::String(key.as_str().into())); } } strings.extend(symbols); strings }");
+    writer.blank_line();
+    writer.line("/// `Reflect.ownKeys` over an erased object: string keys, then symbol keys.");
+    writer.line("fn smelt_own_object_keys(map: &SmeltObject) -> Vec<SmeltUnknown> { let mut strings = Vec::new(); let mut symbols = Vec::new(); for key in map.keys() { if let Some(symbol) = smelt_key_symbol_value(&key) { symbols.push(symbol); } else if smelt_is_for_in_object_key(map, &key) && !key.starts_with(\"__smelt_proto:\") { strings.push(SmeltUnknown::String(key.as_str().into())); } } strings.extend(symbols); strings }");
+    writer.blank_line();
+    writer.line("/// `Reflect.ownKeys` over a `SmeltJsMap` backing: string keys, then symbol keys.");
+    writer.line("fn smelt_own_js_map_keys<V: Clone>(map: &SmeltJsMap<SmeltUnknown, V>) -> Vec<SmeltUnknown> { let mut strings = Vec::new(); let mut symbols = Vec::new(); for (key, _) in smelt_own_js_map_entries(map) { if matches!(key, SmeltUnknown::Symbol(_)) { symbols.push(key); } else { strings.push(key); } } strings.extend(symbols); strings }");
+}
+
 fn emit_smelt_match(writer: &mut CodeWriter, needs_unknown: bool) {
     writer.line("/// A concrete JavaScript RegExp match result (numbered groups, named");
     writer.line("/// groups, `index`, and `input`).");

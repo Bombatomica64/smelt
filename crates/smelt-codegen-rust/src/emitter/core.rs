@@ -2487,7 +2487,7 @@ impl<'mir> FunctionEmitter<'mir> {
         args: &[Operand],
     ) -> Result<String, EmitError> {
         if let Some(Type::Function(function)) = self.mir.types.get(self.operand_ty(callee)?)
-            && let Some(0) = function.rest
+            && function.rest == Some(0)
             && let [rest_param] = function.params.as_slice()
             && let [packed] = args
             && self.operand_ty(packed)? == *rest_param
@@ -5283,6 +5283,12 @@ pub(super) fn rvalue_uses_local(value: &Rvalue, local: LocalId) -> bool {
         }
         Rvalue::VitestMockLastResolvedWith { mock, expected } => {
             operand_uses_local(mock, local) || operand_uses_local(expected, local)
+        }
+        Rvalue::VitestAsymmetricEqual { actual, expected } => {
+            operand_uses_local(actual, local) || operand_uses_local(expected, local)
+        }
+        Rvalue::VitestSpyOn { target, name } => {
+            operand_uses_local(target, local) || operand_uses_local(name, local)
         }
         // A receiver bind reads BOTH the callable it wraps and the receiver it
         // installs. The callee is very often a closure temp whose only use is

@@ -275,6 +275,12 @@ pub enum DictProjectionOp {
     FromEntries,
     /// Project dictionary keys.
     Keys,
+    /// Project every own key, string keys first and then symbol keys.
+    ///
+    /// `Reflect.ownKeys`, whose declared result is `(string | symbol)[]`: unlike
+    /// [`DictProjectionOp::Keys`] it reports symbol-keyed properties too, so its
+    /// element type is the erased carrier rather than `String`.
+    OwnKeys,
     /// Project keys for JavaScript `for...in` iteration.
     ForInKeys,
     /// Project dictionary symbol keys.

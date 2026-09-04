@@ -669,7 +669,7 @@ impl FunctionEmitter<'_> {
             if self.is_borrowed_callback_capture_name(value_text) {
                 return self.borrowed_function_handle_text(value_text, target);
             }
-            return Ok(format!("{smelt_owned_value}"));
+            return Ok(smelt_owned_value);
         }
         if let (Some(Type::Future(source_item)), Some(Type::Future(target_item))) =
             (self.mir.types.get(source), self.mir.types.get(target))
@@ -878,7 +878,7 @@ impl FunctionEmitter<'_> {
             (self.mir.types.get(source), self.mir.types.get(target))
         {
             if source_inner == target_inner {
-                return Ok(format!("{smelt_owned_value}"));
+                return Ok(smelt_owned_value);
             }
             let mapped_value = self.value_at_type_text("value", *source_inner, *target_inner)?;
             return Ok(format!("{smelt_owned_value}.map(|value| {mapped_value})"));

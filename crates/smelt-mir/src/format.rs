@@ -1224,6 +1224,7 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
             let op_text = match op {
                 smelt_hir::DictProjectionOp::FromEntries => "from_entries",
                 smelt_hir::DictProjectionOp::Keys => "keys",
+                smelt_hir::DictProjectionOp::OwnKeys => "own_keys",
                 smelt_hir::DictProjectionOp::ForInKeys => "for_in_keys",
                 smelt_hir::DictProjectionOp::Symbols => "symbols",
                 smelt_hir::DictProjectionOp::Values => "values",
@@ -1267,6 +1268,7 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
         Rvalue::DateNow => "date_now".to_owned(),
         Rvalue::DateSetNow { timestamp } => format!("date_set_now {}", operand_text(timestamp)),
         Rvalue::DateResetNow => "date_reset_now".to_owned(),
+        Rvalue::VitestRestoreAllMocks => "vitest_restore_all_mocks".to_owned(),
         Rvalue::DateTimezoneOffset => "date_timezone_offset".to_owned(),
         Rvalue::DateSetTimezoneOffset { offset } => {
             format!("date_set_timezone_offset {}", operand_text(offset))
@@ -1286,6 +1288,14 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
             if *last { "_last" } else { "" },
             operand_text(mock),
             args.iter().map(operand_text).collect::<Vec<_>>().join(", ")
+        ),
+        Rvalue::VitestSpyOn { target, name } => {
+            format!("vitest_spy_on {} {}", operand_text(target), operand_text(name))
+        }
+        Rvalue::VitestAsymmetricEqual { actual, expected } => format!(
+            "vitest_asymmetric_equal {} {}",
+            operand_text(actual),
+            operand_text(expected)
         ),
         Rvalue::VitestMockLastResolvedWith { mock, expected } => format!(
             "vitest_mock_last_resolved_with {} {}",
@@ -1506,6 +1516,7 @@ fn callee_text(callee: &Callee) -> String {
         Callee::Builtin(BuiltinFn::ConsoleLog) => "@console_log".to_owned(),
         Callee::Builtin(BuiltinFn::ConsoleWrite) => "@console_write".to_owned(),
         Callee::Builtin(BuiltinFn::ConsoleErrorWrite) => "@console_error_write".to_owned(),
+        Callee::Builtin(BuiltinFn::JsonParse) => "@json_parse".to_owned(),
     }
 }
 

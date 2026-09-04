@@ -625,7 +625,7 @@ impl Rvalue {
                 visit(url);
             }
             Self::DateNow => {}
-            Self::DateResetNow => {}
+            Self::DateResetNow | Self::VitestRestoreAllMocks => {}
             Self::GlobalGet { .. } => {}
             Self::GlobalSet { value, .. } => {
                 visit(value);
@@ -651,6 +651,14 @@ impl Rvalue {
                 for arg in args {
                     visit(arg);
                 }
+            }
+            Self::VitestSpyOn { target, name } => {
+                visit(target);
+                visit(name);
+            }
+            Self::VitestAsymmetricEqual { actual, expected } => {
+                visit(actual);
+                visit(expected);
             }
             Self::VitestMockLastResolvedWith { mock, expected } => {
                 visit(mock);
@@ -1411,7 +1419,7 @@ impl Rvalue {
                 visit(url);
             }
             Self::DateNow => {}
-            Self::DateResetNow => {}
+            Self::DateResetNow | Self::VitestRestoreAllMocks => {}
             Self::GlobalGet { .. } => {}
             Self::GlobalSet { value, .. } => {
                 visit(value);
@@ -1437,6 +1445,14 @@ impl Rvalue {
                 for arg in args {
                     visit(arg);
                 }
+            }
+            Self::VitestSpyOn { target, name } => {
+                visit(target);
+                visit(name);
+            }
+            Self::VitestAsymmetricEqual { actual, expected } => {
+                visit(actual);
+                visit(expected);
             }
             Self::VitestMockLastResolvedWith { mock, expected } => {
                 visit(mock);

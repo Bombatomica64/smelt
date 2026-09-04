@@ -219,12 +219,12 @@ impl ModuleBuilder<'_> {
 
     /// Lower direct TypeScript `Object.keys`, `Object.values`, and `Object.entries` calls.
     ///
-    /// `Reflect.ownKeys(record)` is also routed here as `Object.keys`: for the
-    /// plain-record receivers es-toolkit inspects (the `isJSONValue` key walk and
-    /// the `pick` key projection) the two return the same string-key list, since
-    /// Smelt records carry no non-enumerable or symbol keys. Modeling it through
-    /// the existing `DictProjection` keeps a concrete `List<string>` instead of
-    /// leaving `Reflect` an unresolved identifier or erasing the result.
+    /// `Reflect.ownKeys(record)` is routed here too, as its own projection: it
+    /// reports symbol-keyed properties as well as string-keyed ones, and a
+    /// symbol-keyed property IS stored (under the `__smelt_symbol:` key form),
+    /// so it is not interchangeable with `Object.keys`. Its declared result is
+    /// `(string | symbol)[]`, which is why that arm alone yields
+    /// `List<Unknown>`; see [`Lowering::dict_projection_result_ty`].
     pub(in crate::lowering) fn object_projection_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -240,7 +240,7 @@ impl ModuleBuilder<'_> {
             ("Object", "keys") => DictProjectionOp::Keys,
             ("Object", "values") => DictProjectionOp::Values,
             ("Object", "entries") => DictProjectionOp::Entries,
-            ("Reflect", "ownKeys") => DictProjectionOp::Keys,
+            ("Reflect", "ownKeys") => DictProjectionOp::OwnKeys,
             _ => return Ok(None),
         };
         let [dict_argument] = call.arguments.as_slice() else {
@@ -305,6 +305,18 @@ impl ModuleBuilder<'_> {
             DictProjectionOp::FromEntries => return Ok(None),
             DictProjectionOp::Keys | DictProjectionOp::ForInKeys => {
                 self.ctx.krate.types.intern(Type::List(key_ty))
+            }
+            // `Reflect.ownKeys` is declared `(target: object) => (string |
+            // symbol)[]` in TypeScript's own lib, and a consumer discriminates
+            // the two kinds at run time (`typeof key === 'string'`). A
+            // `List<string>` element type is therefore not a narrowing but a
+            // falsehood: it drops the symbol keys and const-folds the caller's
+            // `typeof` guard. `Unknown` is the representation a symbol value
+            // already has everywhere else (see the `Symbols` arm below), and the
+            // dynamic index paths map that tag back to the storage key.
+            DictProjectionOp::OwnKeys => {
+                let own_key_ty = self.ctx.krate.types.intern(Type::Unknown);
+                self.ctx.krate.types.intern(Type::List(own_key_ty))
             }
             // A symbol-keyed property list holds symbol VALUES, not their
             // descriptions: the property key an erased record stores is

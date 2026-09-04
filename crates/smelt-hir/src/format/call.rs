@@ -763,6 +763,7 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             let op_name = match op {
                 crate::expr::DictProjectionOp::FromEntries => "from_entries",
                 crate::expr::DictProjectionOp::Keys => "keys",
+                crate::expr::DictProjectionOp::OwnKeys => "own_keys",
                 crate::expr::DictProjectionOp::ForInKeys => "for_in_keys",
                 crate::expr::DictProjectionOp::Symbols => "symbols",
                 crate::expr::DictProjectionOp::Values => "values",
@@ -794,6 +795,7 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::DateNow => "date_now".to_owned(),
         ExprKind::DateSetNow { timestamp } => format!("date_set_now {}", expr_ref(*timestamp)),
         ExprKind::DateResetNow => "date_reset_now".to_owned(),
+        ExprKind::VitestRestoreAllMocks => "vitest_restore_all_mocks".to_owned(),
         ExprKind::DateTimezoneOffset => "date_timezone_offset".to_owned(),
         ExprKind::DateSetTimezoneOffset { offset } => {
             format!("date_set_timezone_offset {}", expr_ref(*offset))
@@ -816,6 +818,14 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 .map(|arg| expr_ref(*arg))
                 .collect::<Vec<_>>()
                 .join(", ")
+        ),
+        ExprKind::VitestSpyOn { target, name } => {
+            format!("vitest_spy_on {} {}", expr_ref(*target), expr_ref(*name))
+        }
+        ExprKind::VitestAsymmetricEqual { actual, expected } => format!(
+            "vitest_asymmetric_equal {} {}",
+            expr_ref(*actual),
+            expr_ref(*expected)
         ),
         ExprKind::VitestMockLastResolvedWith { mock, expected } => format!(
             "vitest_mock_last_resolved_with {} {}",
