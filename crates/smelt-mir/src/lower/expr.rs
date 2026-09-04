@@ -1903,6 +1903,9 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
+            ExprKind::VitestRestoreAllMocks => {
+                self.assign_temp(expr.ty, expr.span, Rvalue::VitestRestoreAllMocks)?
+            }
             ExprKind::DateResetNow => {
                 self.assign_temp(expr.ty, expr.span, Rvalue::DateResetNow)?
             }
@@ -1959,6 +1962,18 @@ impl LoweringCtx<'_> {
                         mock: mock_operand,
                         args: arg_operands,
                         last: *last,
+                    },
+                )?
+            }
+            ExprKind::VitestSpyOn { target, name } => {
+                let target_operand = self.lower_expr(*target)?;
+                let name_operand = self.lower_expr(*name)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::VitestSpyOn {
+                        target: target_operand,
+                        name: name_operand,
                     },
                 )?
             }

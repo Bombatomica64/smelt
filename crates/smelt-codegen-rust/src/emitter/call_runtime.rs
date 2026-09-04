@@ -1873,6 +1873,14 @@ impl FunctionEmitter<'_> {
             // the dynamic carrier -- deliberately NOT `SmeltUnknown`'s own
             // `PartialEq`, which library code observes and which must stay
             // blind to the test harness's markers.
+            Rvalue::VitestRestoreAllMocks => {
+                Ok("smelt_vitest_restore_all_mocks()".to_owned())
+            }
+            Rvalue::VitestSpyOn { target, name } => Ok(format!(
+                "smelt_vitest_spy_on(&({}), &({}))",
+                self.value_at_type(target, self.type_id(Type::Unknown)?)?,
+                self.value_at_type(name, self.type_id(Type::String)?)?
+            )),
             Rvalue::VitestAsymmetricEqual { actual, expected } => Ok(format!(
                 "smelt_vitest_asymmetric_equals(&({}), &({}), &mut ::std::collections::HashSet::new())",
                 self.value_at_type(actual, self.type_id(Type::Unknown)?)?,
@@ -2460,7 +2468,7 @@ impl FunctionEmitter<'_> {
                     | "throwIfAborted"
             ) {
                 return Ok(format!(
-                    "match {scrutinee} {{ SmeltUnknown::Object(map) if (map.contains_key(\"__smelt_abortcontroller\") || map.contains_key(\"__smelt_abortsignal\")) && !map.contains_key({field_name:?}) => smelt_abort_method(map.clone(), {field_name:?}), SmeltUnknown::Object(map) => match map.get({field_name:?}).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Object(mut getter) if getter.contains_key(\"__smelt_get\") => match getter.remove(\"__smelt_get\") {{ Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| panic!(\"{{}}\", error)), _ => SmeltUnknown::Null }}, value => value }}, _ => SmeltUnknown::Null }}"
+                    "match {scrutinee} {{ SmeltUnknown::Object(map) if smelt_host_method(&map, {field_name:?}).is_some() => smelt_host_method(&map, {field_name:?}).unwrap_or(SmeltUnknown::Undefined), SmeltUnknown::Object(map) => match map.get({field_name:?}).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Object(mut getter) if getter.contains_key(\"__smelt_get\") => match getter.remove(\"__smelt_get\") {{ Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| panic!(\"{{}}\", error)), _ => SmeltUnknown::Null }}, value => value }}, _ => SmeltUnknown::Null }}"
                 ));
             }
             return Ok(format!(

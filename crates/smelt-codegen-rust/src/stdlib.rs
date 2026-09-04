@@ -177,6 +177,8 @@ pub(crate) fn needs_vitest_mock_runtime(mir: &Mir) -> bool {
                 | Rvalue::VitestMockCalledWith { .. }
                 | Rvalue::VitestMockLastResolvedWith { .. }
                 | Rvalue::VitestAsymmetricEqual { .. }
+                | Rvalue::VitestSpyOn { .. }
+                | Rvalue::VitestRestoreAllMocks
         )
     })
 }

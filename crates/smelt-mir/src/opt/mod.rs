@@ -773,7 +773,7 @@ fn rewrite_rvalue(
         }
         Rvalue::HttpGetText { url } => rewrite_operand_except(url, aliases, dest),
         Rvalue::DateNow => false,
-        Rvalue::DateResetNow => false,
+        Rvalue::DateResetNow | Rvalue::VitestRestoreAllMocks => false,
         Rvalue::HostGlobalRead { .. } | Rvalue::HostGlobalPresent { .. } => false,
         Rvalue::HostGlobalWrite { value: stored, .. } => {
             rewrite_operand_except(stored, aliases, dest)
@@ -789,6 +789,11 @@ fn rewrite_rvalue(
         Rvalue::VitestMockCalledTimes { mock, count } => {
             let mut changed = rewrite_operand_except(mock, aliases, dest);
             changed |= rewrite_operand_except(count, aliases, dest);
+            changed
+        }
+        Rvalue::VitestSpyOn { target, name } => {
+            let mut changed = rewrite_operand_except(target, aliases, dest);
+            changed |= rewrite_operand_except(name, aliases, dest);
             changed
         }
         Rvalue::VitestAsymmetricEqual { actual, expected } => {

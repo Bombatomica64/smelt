@@ -263,6 +263,81 @@ test("an ordinary deep equality is unchanged", () => {
 
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_spy_replaces_the_member_records_calls_and_forwards_to_the_original() {
+    // `vi.spyOn` used to lower to an inert `null`, so nothing was installed and
+    // nothing recorded: `spy.mock.calls` read off `null` and coerced to the
+    // empty list. All three halves of a spy are asserted here, because a spy
+    // that records without forwarding breaks the code under test and a spy that
+    // forwards without recording tells the test nothing.
+    //
+    // Both a plain user object and a host `AbortSignal` are covered: the second
+    // is the case that needs the member read and the spy to agree on how a
+    // synthesized host method resolves.
+    let source = r#"
+import { test, expect, vi } from "vitest";
+
+test("a spy over a plain object records, forwards and restores", () => {
+  let calls = 0;
+  // The receiver is erased, which is what puts the member read on the dynamic
+  // path a spy can intercept. A statically typed method call is emitted as a
+  // direct call to the method and never consults the member at all -- a
+  // separate rule about how `recv.m(..)` lowers, not about spies.
+  const target: any = {
+    greet(name: string): string {
+      calls += 1;
+      return `hi ${name}`;
+    },
+  };
+  const original = target.greet;
+  const spy = vi.spyOn(target, "greet");
+  const answer = target.greet("ada");
+
+  // Forwarded: the original ran and produced its value.
+  expect(answer).toBe("hi ada");
+  expect(calls).toBe(1);
+  // Recorded: the call the program made is the call the spy saw.
+  expect(spy.mock.calls.length).toBe(1);
+  expect(spy.mock.calls[0][0]).toBe("ada");
+
+  spy.mockRestore();
+  target.greet("bob");
+  expect(calls).toBe(2);
+});
+
+test("a spy over a host method sees the registrations library code makes", () => {
+  const controller = new AbortController();
+  const spy = vi.spyOn(controller.signal, "addEventListener");
+  let aborted = 0;
+  controller.signal.addEventListener("abort", () => {
+    aborted += 1;
+  });
+
+  expect(spy.mock.calls.length).toBe(1);
+  expect(spy.mock.calls[0][0]).toBe("abort");
+  // Forwarding means the real registration happened, so aborting still fires.
+  controller.abort();
+  expect(aborted).toBe(1);
+});
+
+test("vi.restoreAllMocks puts every spied member back", () => {
+  let calls = 0;
+  const target: any = { value(): number { calls += 1; return 1; } };
+  const spy = vi.spyOn(target, "value");
+  target.value();
+  expect(spy.mock.calls.length).toBe(1);
+  vi.restoreAllMocks();
+  target.value();
+  // The member is the original again, so the spy records nothing more while
+  // the original still runs.
+  expect(spy.mock.calls.length).toBe(1);
+  expect(calls).toBe(2);
+});
+"#;
+    run_fixture(source, "smelt_vitest_spy_on");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn a_replacement_string_expands_its_dollar_patterns() {
     // ECMA-262 `GetSubstitution`. Pushing the replacement verbatim inserted the
     // literal characters `$&` / `$1`, which no static check can see.

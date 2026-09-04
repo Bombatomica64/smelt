@@ -795,6 +795,7 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::DateNow => "date_now".to_owned(),
         ExprKind::DateSetNow { timestamp } => format!("date_set_now {}", expr_ref(*timestamp)),
         ExprKind::DateResetNow => "date_reset_now".to_owned(),
+        ExprKind::VitestRestoreAllMocks => "vitest_restore_all_mocks".to_owned(),
         ExprKind::DateTimezoneOffset => "date_timezone_offset".to_owned(),
         ExprKind::DateSetTimezoneOffset { offset } => {
             format!("date_set_timezone_offset {}", expr_ref(*offset))
@@ -818,6 +819,9 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
+        ExprKind::VitestSpyOn { target, name } => {
+            format!("vitest_spy_on {} {}", expr_ref(*target), expr_ref(*name))
+        }
         ExprKind::VitestAsymmetricEqual { actual, expected } => format!(
             "vitest_asymmetric_equal {} {}",
             expr_ref(*actual),

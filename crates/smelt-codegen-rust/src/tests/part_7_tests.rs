@@ -9036,10 +9036,15 @@ it("configures a chain", () => {
 });
 "#,
     );
+    // Count only the emitted PROGRAM, not the prelude: the prelude both defines
+    // the helper and calls it from the spy adapter, so a whole-source count
+    // moves whenever the runtime grows another caller.
+    let program = source
+        .split_once("@smelt:prelude-end")
+        .map_or(source.as_str(), |(_, program)| program);
     assert_eq!(
-        source.matches("smelt_vitest_mock_new(").count(),
-        // One construction site plus the helper's own definition in the prelude.
-        2,
+        program.matches("smelt_vitest_mock_new(").count(),
+        1,
         "chain must construct exactly one mock\n{source}"
     );
     // The gated mock prelude and its `SmeltPromise::rejected` dependency are

@@ -239,12 +239,14 @@ impl LoweringCtx<'_> {
             | ExprKind::DateNow
             | ExprKind::DateSetNow { .. }
             | ExprKind::DateResetNow
+            | ExprKind::VitestRestoreAllMocks
             | ExprKind::DateTimezoneOffset
             | ExprKind::DateSetTimezoneOffset { .. }
             | ExprKind::DateResetTimezoneOffset
             | ExprKind::VitestMockFn { .. }
             | ExprKind::VitestMockCalledTimes { .. }
             | ExprKind::VitestMockCalledWith { .. }
+            | ExprKind::VitestSpyOn { .. }
             | ExprKind::VitestAsymmetricEqual { .. }
             | ExprKind::VitestMockLastResolvedWith { .. }
             | ExprKind::DateTimezoneContext { .. }

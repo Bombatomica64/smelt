@@ -2751,6 +2751,18 @@ fn emit_source_with_free_function_router(
         writer.line("/// Return an erased AbortController/AbortSignal method bound to its shared record.");
         writer.line("fn smelt_abort_method(object: SmeltObject, method: &str) -> SmeltUnknown { let method = method.to_owned(); SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let signal = smelt_abort_signal_object(&object); match method.as_str() { \"abort\" | \"dispatchEvent\" => { if let Some(signal) = signal { smelt_abort_signal_fire(&signal); } Ok(if method == \"dispatchEvent\" { SmeltUnknown::Bool(true) } else { SmeltUnknown::Undefined }) } \"addEventListener\" => { if let Some(signal) = signal { let event_type = match args.first() { Some(SmeltUnknown::String(value)) => value.to_string(), _ => String::new() }; if event_type == \"abort\" { if let Some(listener @ SmeltUnknown::Function(_)) = args.get(1).cloned() { let mut listeners = match signal.get(\"__smelt_abort_listeners\") { Some(SmeltUnknown::Array(values)) => values.into_vec(), _ => Vec::new() }; listeners.push(listener); signal.insert(\"__smelt_abort_listeners\".to_owned(), SmeltUnknown::Array(listeners.into())); } } } Ok(SmeltUnknown::Undefined) } \"removeEventListener\" => { if let Some(signal) = signal { if let Some(target @ SmeltUnknown::Function(_)) = args.get(1).cloned() { let listeners: Vec<SmeltUnknown> = match signal.get(\"__smelt_abort_listeners\") { Some(SmeltUnknown::Array(values)) => values.into_vec(), _ => Vec::new() }.into_iter().filter(|listener| !listener.js_strict_eq(&target)).collect(); signal.insert(\"__smelt_abort_listeners\".to_owned(), SmeltUnknown::Array(listeners.into())); } } Ok(SmeltUnknown::Undefined) } _ => Ok(SmeltUnknown::Undefined) } })) }");
         writer.blank_line();
+        // The one place that decides "own member, else synthesized host
+        // method". A host object such as an `AbortSignal` is a marker-bearing
+        // record with no stored `addEventListener` field, so the member read has
+        // to synthesize the method -- but only when the key is genuinely absent,
+        // because source code (and `vi.spyOn`) may install a real member of that
+        // name and JavaScript's own-property lookup wins over the prototype.
+        // Both the member-read emitter and `smelt_vitest_spy_on` ask this, so a
+        // spy resolves the same member the program would have called.
+        writer.line("/// The synthesized host method a member read resolves to, if the object");
+        writer.line("/// carries a host marker and has no OWN member of that name.");
+        writer.line("fn smelt_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if object.contains_key(name) { return None; } if (object.contains_key(\"__smelt_abortcontroller\") || object.contains_key(\"__smelt_abortsignal\")) && matches!(name, \"abort\" | \"addEventListener\" | \"removeEventListener\" | \"dispatchEvent\" | \"throwIfAborted\") { return Some(smelt_abort_method(object.clone(), name)); } None }");
+        writer.blank_line();
         writer.block("pub enum SmeltUnknown", |unknown_writer| {
             unknown_writer.line("Null,");
             unknown_writer.line("Undefined,");
@@ -3092,6 +3104,55 @@ fn emit_source_with_free_function_router(
             writer.line("/// vacuously, mirroring the other mock matchers.");
             writer.line("fn smelt_vitest_mock_last_resolved_with(value: &SmeltUnknown, expected: SmeltUnknown) -> bool { match smelt_vitest_mock_state(value) { Some(state) => { let last = state.borrow().results.last().cloned(); match last { Some(result) => { let resolved = match &result { SmeltUnknown::Promise(promise) => match &*promise.state.borrow() { Some(Ok(value)) => value.clone(), _ => return false }, other => other.clone() }; smelt_vitest_asymmetric_equals(&resolved, &expected, &mut ::std::collections::HashSet::new()) }, None => false } }, None => true } }");
             asymmetric_matcher_prelude::emit(&mut writer);
+            writer.blank_line();
+            // `vi.spyOn(target, name)` is a real boundary adapter, not a
+            // placeholder: it resolves the member's CURRENT value through the
+            // shared `smelt_host_method` decision the member-read emitter uses,
+            // wraps it in a mock whose default outcome FORWARDS to it, and writes
+            // the mock back onto the target. Library code that later reads the
+            // member therefore calls the mock and the mock calls the original, so
+            // the recorded calls are the ones the program actually made and the
+            // original side effect still happens.
+            writer.line("thread_local! {");
+            writer.line("    /// Installed spies, newest last: the target object, the member name,");
+            writer.line("    /// and the member's value before the spy replaced it (`None` when the");
+            writer.line("    /// member had no own value, so restoring removes the key again).");
+            writer.line("    static SMELT_VITEST_SPIES: ::std::cell::RefCell<Vec<(SmeltObject, String, Option<SmeltUnknown>)>> = const { ::std::cell::RefCell::new(Vec::new()) };");
+            writer.line("}");
+            writer.blank_line();
+            writer.line("/// Restore one recorded spy, putting the target member back as it was.");
+            writer.line("fn smelt_vitest_restore_spy(target: &SmeltObject, name: &str, original: Option<SmeltUnknown>) { match original { Some(value) => { target.insert(name.to_owned(), value); } None => { target.remove(name); } } }");
+            writer.blank_line();
+            writer.line("/// `vi.restoreAllMocks()`: undo every installed spy, newest first.");
+            writer.line("fn smelt_vitest_restore_all_mocks() { let spies = SMELT_VITEST_SPIES.with(|spies| ::std::mem::take(&mut *spies.borrow_mut())); for (target, name, original) in spies.into_iter().rev() { smelt_vitest_restore_spy(&target, &name, original); } }");
+            writer.blank_line();
+            writer.line("/// `vi.spyOn(target, name)`: install a recording mock over `target[name]`.");
+            writer.line("///");
+            writer.line("/// The mock forwards to the member's current value, so the original");
+            writer.line("/// behaviour still runs; its `mockRestore` puts the member back. A target");
+            writer.line("/// that is not an object has no member to replace, so it yields a bare");
+            writer.line("/// recording mock rather than failing the program.");
+            writer.line("fn smelt_vitest_spy_on(target: &SmeltUnknown, name: &str) -> SmeltUnknown {");
+            writer.line("    let SmeltUnknown::Object(object) = target else { return smelt_vitest_mock_new(None); };");
+            writer.line("    let own = object.get(name);");
+            writer.line("    let original = smelt_host_method(object, name).or_else(|| own.clone());");
+            writer.line("    let mock = smelt_vitest_mock_new(original);");
+            writer.line("    object.insert(name.to_owned(), mock.clone());");
+            writer.line("    SMELT_VITEST_SPIES.with(|spies| spies.borrow_mut().push((object.clone(), name.to_owned(), own.clone())));");
+            writer.line("    // `mockRestore` both clears the recorded activity (the shared");
+            writer.line("    // implementation already installed by `smelt_vitest_mock_new`) and puts");
+            writer.line("    // the target member back, which a bare `vi.fn()` mock has no target to");
+            writer.line("    // do. Replacing the field keeps that difference in ONE place.");
+            writer.line("    if let SmeltUnknown::Object(handle) = &mock {");
+            writer.line("        let clear = handle.get(\"mockRestore\");");
+            writer.line("        let restore_target = object.clone();");
+            writer.line("        let restore_name = name.to_owned();");
+            writer.line("        let restore_original = own;");
+            writer.line("        let handle_value = mock.clone();");
+            writer.line("        handle.insert(\"mockRestore\".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { if let Some(SmeltUnknown::Function(clear)) = &clear { let _ = clear(args); } smelt_vitest_restore_spy(&restore_target, &restore_name, restore_original.clone()); Ok(handle_value.clone()) })));",);
+            writer.line("    }");
+            writer.line("    mock");
+            writer.line("}");
         }
         writer.blank_line();
         {

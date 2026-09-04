@@ -1268,6 +1268,7 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
         Rvalue::DateNow => "date_now".to_owned(),
         Rvalue::DateSetNow { timestamp } => format!("date_set_now {}", operand_text(timestamp)),
         Rvalue::DateResetNow => "date_reset_now".to_owned(),
+        Rvalue::VitestRestoreAllMocks => "vitest_restore_all_mocks".to_owned(),
         Rvalue::DateTimezoneOffset => "date_timezone_offset".to_owned(),
         Rvalue::DateSetTimezoneOffset { offset } => {
             format!("date_set_timezone_offset {}", operand_text(offset))
@@ -1288,6 +1289,9 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
             operand_text(mock),
             args.iter().map(operand_text).collect::<Vec<_>>().join(", ")
         ),
+        Rvalue::VitestSpyOn { target, name } => {
+            format!("vitest_spy_on {} {}", operand_text(target), operand_text(name))
+        }
         Rvalue::VitestAsymmetricEqual { actual, expected } => format!(
             "vitest_asymmetric_equal {} {}",
             operand_text(actual),

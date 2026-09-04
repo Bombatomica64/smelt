@@ -695,6 +695,19 @@ pub enum ExprKind {
         args: Vec<ExprId>,
         last: bool,
     },
+    /// `vi.restoreAllMocks()`: undo every installed spy, newest first.
+    VitestRestoreAllMocks,
+    /// `vi.spyOn(target, name)`: replace `target[name]` with a recording mock
+    /// that forwards to the member's current value, and evaluate to that mock.
+    ///
+    /// The target is a real runtime object and the replacement is a real
+    /// insertion, so library code that later reads `target[name]` calls the
+    /// mock (and the mock calls the original). That is what makes the recorded
+    /// calls the ones the program actually made.
+    VitestSpyOn {
+        target: ExprId,
+        name: ExprId,
+    },
     /// Whether two values are deep-equal under the vitest matcher rules
     /// (`expect(a).toEqual(b)` where either side may hold an ASYMMETRIC
     /// matcher).
