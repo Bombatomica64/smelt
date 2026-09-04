@@ -1084,39 +1084,39 @@ return_ty: function.return_ty,
     /// which for two object arms is undecidable from the runtime tag alone, and
     /// the chosen arm then retyped every leaf (`age: 36` came back as `"36"`).
     ///
-    /// HIR spells a record as `Dict(String, V)`, so the structural merge is:
-    /// the union of the members' keys (always `String`) against the per-field
-    /// union of their value types -- which collapses to the shared value type
-    /// when the members agree and to `Unknown` when they do not. Class and
-    /// erased (`TypeParam`/`Unknown`) members are object-shaped too and merge
-    /// the same way; a member that is not object-shaped at all (a list, a
-    /// tuple, a primitive) has no merged record spelling, and there the honest
-    /// answer is the erased boundary type rather than an affirmatively wrong
-    /// union.
+    /// HIR spells a record as `Dict(String, V)`, so when every member is a
+    /// known record the structural merge is: the union of their keys (always
+    /// `String`) against the per-field union of their value types -- which
+    /// collapses to the shared value type when the members agree and to
+    /// `Unknown` when they do not.
+    ///
+    /// Any other member makes the merged shape genuinely unknown, and there the
+    /// honest answer is the erased boundary type. In particular an intersection
+    /// of *type parameters* (`merge<T, S>(..): T & S`) must not be claimed as a
+    /// record: `merge` is called on arrays too and returns one, and asserting a
+    /// record there would force the value into a record and lose the array.
+    /// A `Class` member is likewise left erased -- a nominal class instance
+    /// merged with more members is not that class.
     fn intersection_object_type(&mut self, members: &[smelt_hir::TypeId]) -> smelt_hir::TypeId {
         let mut value_ty: Option<smelt_hir::TypeId> = None;
         for member in members {
-            match self.ctx.krate.types.get(*member) {
-                Some(Type::Dict(_, field_ty)) => {
-                    let member_value = *field_ty;
-                    match value_ty {
-                        None => value_ty = Some(member_value),
-                        Some(existing) if existing == member_value => {}
-                        // Two different field types under one key: the merged
-                        // record's value type is their union, which for
-                        // unrelated shapes is the erased boundary.
-                        Some(_) => value_ty = Some(self.ctx.krate.types.intern(Type::Unknown)),
-                    }
-                }
-                // Object-shaped but with no member types to contribute.
-                Some(Type::Class { .. } | Type::TypeParam { .. } | Type::Unknown) => {
-                    value_ty = Some(self.ctx.krate.types.intern(Type::Unknown));
-                }
-                _ => return self.ctx.krate.types.intern(Type::Unknown),
+            let Some(Type::Dict(_, field_ty)) = self.ctx.krate.types.get(*member) else {
+                return self.ctx.krate.types.intern(Type::Unknown);
+            };
+            let member_value = *field_ty;
+            match value_ty {
+                None => value_ty = Some(member_value),
+                Some(existing) if existing == member_value => {}
+                // Two different field types under one key: the merged record's
+                // value type is their union, which for unrelated shapes is the
+                // erased boundary.
+                Some(_) => value_ty = Some(self.ctx.krate.types.intern(Type::Unknown)),
             }
         }
+        let Some(value_ty) = value_ty else {
+            return self.ctx.krate.types.intern(Type::Unknown);
+        };
         let key_ty = self.ctx.krate.types.intern(Type::String);
-        let value_ty = value_ty.unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
         self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty))
     }
 
@@ -1162,28 +1162,28 @@ return_ty: function.return_ty,
                 _ => None,
             },
             TSType::TSTupleType(tuple) => {
-                let required = tuple
-                    .element_types
-                    .iter()
-                    .take_while(|item| !matches!(item, TSTupleElement::TSRestType(_)))
-                    .count();
-                if required == tuple.element_types.len() {
-                    // No rest tail: the tuple pins the length exactly. An
-                    // optional element (`[A, B?]`) still counts toward the
-                    // prefix, so treat it as a minimum instead of an exact
-                    // length -- a shorter argument is legal there.
-                    let optional = tuple
-                        .element_types
-                        .iter()
-                        .filter(|item| matches!(item, TSTupleElement::TSOptionalType(_)))
-                        .count();
-                    if optional == 0 {
-                        Some(ParamLength::Exact(required))
-                    } else {
-                        Some(ParamLength::AtLeast(required - optional))
+                // Every non-rest element is one element the argument must
+                // supply, wherever the rest sits: `[T, ...T[]]` and
+                // `[...T[], U]` both demand at least one. A rest element or an
+                // optional element makes the length a minimum; without either,
+                // the tuple pins it exactly.
+                let mut fixed = 0_usize;
+                let mut optional = 0_usize;
+                let mut has_rest = false;
+                for element in &tuple.element_types {
+                    match element {
+                        TSTupleElement::TSRestType(_) => has_rest = true,
+                        TSTupleElement::TSOptionalType(_) => {
+                            fixed += 1;
+                            optional += 1;
+                        }
+                        _ => fixed += 1,
                     }
+                }
+                if has_rest || optional > 0 {
+                    Some(ParamLength::AtLeast(fixed.saturating_sub(optional)))
                 } else {
-                    Some(ParamLength::AtLeast(required))
+                    Some(ParamLength::Exact(fixed))
                 }
             }
             _ => None,

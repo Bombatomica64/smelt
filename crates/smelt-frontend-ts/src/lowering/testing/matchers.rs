@@ -319,26 +319,6 @@ impl ModuleBuilder<'_> {
         } else {
             self.argument(expected_arg, body)?
         };
-        // An empty tuple lowers to Rust `()`, which holds no value, so an
-        // assertion whose BOTH sides are empty tuples compares `()` with `()`
-        // and passes unconditionally -- reporting success for whatever the
-        // program actually computed. That only ever happens because an earlier
-        // lowering step assigned a side the wrong type (a fixed-arity tuple
-        // overload swallowing a plain-array call, say), so it is a lowering
-        // error to report, not a test to pass.
-        if matches!(matcher, TestMatcher::Equal | TestMatcher::StrictEqual)
-            && self.assertion_side_is_empty_tuple(actual, body)
-            && self.assertion_side_is_empty_tuple(expected, body)
-        {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                format!(
-                    "expect(...).{}(...) compares two empty tuples, which is a vacuous assertion; \
-                     one of its operands was mis-typed during lowering",
-                    matcher.source_name()
-                ),
-            ));
-        }
         // Vitest compares primitive numbers with `Object.is` under every
         // equality matcher, not just `toBe`. Only `toBe` additionally treats
         // objects and arrays by reference, so the identity rule stays gated on
@@ -379,18 +359,6 @@ impl ModuleBuilder<'_> {
             body,
         );
         Ok(true)
-    }
-
-    /// Return whether an assertion operand carries the valueless empty tuple.
-    ///
-    /// `Type::Tuple([])` is TypeScript's `[]`, which codegen renders as Rust
-    /// `()`. Nothing can be observed about such an operand, so an assertion
-    /// over it is never meaningful.
-    fn assertion_side_is_empty_tuple(&self, value: smelt_hir::ExprId, body: &Body) -> bool {
-        matches!(
-            self.ctx.krate.types.get(Self::expr_ty(body, value)),
-            Some(Type::Tuple(items)) if items.is_empty()
-        )
     }
 
     /// Return whether Vitest `toBe` needs JavaScript `SameValue` semantics.

@@ -300,6 +300,21 @@ impl FunctionEmitter<'_> {
                     ));
                 }
             }
+            // Neither element type absorbs the other directly, but the crate
+            // may already name a type both convert into — typically the union
+            // that covers both operands' members. `[...xs, ...ys]` over two
+            // different concrete unions is exactly that shape.
+            if let Some(list_ty) = self.narrowest_common_list_ty(*left_item, *right_item) {
+                let left_text =
+                    self.value_at_type_text(&self.operand_text(left)?, left_ty, list_ty)?;
+                let right_text =
+                    self.value_at_type_text(&self.operand_text(right)?, right_ty, list_ty)?;
+                return Ok(format!(
+                    "{}.iter().cloned().chain({}.iter().cloned()).collect::<Vec<_>>()",
+                    list_read_text(&left_text),
+                    list_read_text(&right_text)
+                ));
+            }
             // Same rule as above: neither element type can absorb the other, so
             // there is no correct text — an empty list is a wrong answer, not a
             // fallback.
@@ -314,6 +329,62 @@ impl FunctionEmitter<'_> {
             list_read_text(&self.operand_text(left)?),
             list_read_text(&self.operand_text(right)?)
         ))
+    }
+
+    /// Find the narrowest already-interned `List<E>` whose element type `E`
+    /// both `left` and `right` convert into.
+    ///
+    /// `[...xs, ...ys]` collects into a single `Vec`, so its element type has to
+    /// be one type that covers both operands. When the two element types are
+    /// different concrete unions, that cover is the union of their members —
+    /// and a crate that spells both unions almost always spells their union
+    /// somewhere too, so it can be looked up rather than invented (the emitter
+    /// reads the type table and cannot add to it).
+    ///
+    /// "Narrowest" is the candidate with the fewest members, so a concat never
+    /// widens further than it must; the fully erased `Unknown` is the last
+    /// resort and only when the crate already interns `List<Unknown>`. Returns
+    /// `None` when no interned type covers both — the caller then reports an
+    /// emit error rather than guessing.
+    fn narrowest_common_list_ty(&self, left: TypeId, right: TypeId) -> Option<TypeId> {
+        let mut needed = self.type_union_members(left);
+        needed.extend(self.type_union_members(right));
+        needed.sort_unstable_by_key(|member| member.0);
+        needed.dedup();
+        let mut best: Option<(usize, TypeId)> = None;
+        for (index, candidate) in self.mir.types.all().iter().enumerate() {
+            let Type::Union(members) = candidate else {
+                continue;
+            };
+            if !needed.iter().all(|member| members.contains(member)) {
+                continue;
+            }
+            let Some(candidate_ty) = compact_index(index, "type index does not fit u32")
+                .ok()
+                .map(TypeId)
+            else {
+                continue;
+            };
+            let Some(list_ty) = self.find_type_id(&Type::List(candidate_ty)) else {
+                continue;
+            };
+            if best.is_none_or(|(width, _)| members.len() < width) {
+                best = Some((members.len(), list_ty));
+            }
+        }
+        if let Some((_, list_ty)) = best {
+            return Some(list_ty);
+        }
+        let unknown_ty = self.find_type_id(&Type::Unknown)?;
+        self.find_type_id(&Type::List(unknown_ty))
+    }
+
+    /// Return a type's union members, or the type itself when it is not a union.
+    fn type_union_members(&self, ty: TypeId) -> Vec<TypeId> {
+        match self.mir.types.get(ty) {
+            Some(Type::Union(members)) => members.clone(),
+            _ => vec![ty],
+        }
     }
 
     /// Compute the list type the materialized concat result carries.
