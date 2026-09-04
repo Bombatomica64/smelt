@@ -81,6 +81,7 @@ use crate::{rust::erased_string, type_substitution::TypeSubstitution};
 use smelt_hir::{AsyncOp, BodyId, Type, TypeId};
 use smelt_mir::{HirOrigin, Mir, MirClassProtocol, MirFunction, Rvalue};
 
+mod asymmetric_matcher_prelude;
 mod byte_buffer_prelude;
 pub(crate) mod class_proto;
 pub(crate) mod classes;
@@ -3081,7 +3082,7 @@ fn emit_source_with_free_function_router(
             writer.line("/// the recorded and expected argument vectors this way reconciles the two so");
             writer.line("/// `toHaveBeenLastCalledWith()` matches an omitted-argument call.");
             writer.line("fn smelt_vitest_mock_trim_trailing_nullish(args: &[SmeltUnknown]) -> &[SmeltUnknown] { let mut end = args.len(); while end > 0 && matches!(args[end - 1], SmeltUnknown::Undefined | SmeltUnknown::Null) { end -= 1; } &args[..end] }");
-            writer.line("fn smelt_vitest_mock_called_with(value: &SmeltUnknown, expected: Vec<SmeltUnknown>, last: bool) -> bool { let expected = smelt_vitest_mock_trim_trailing_nullish(&expected); let call_matches = |call: &Vec<SmeltUnknown>| { let call = smelt_vitest_mock_trim_trailing_nullish(call); call.len() == expected.len() && call.iter().zip(expected.iter()).all(|(left, right)| smelt_unknown_structural_eq(left, right, &mut ::std::collections::HashSet::new())) }; match smelt_vitest_mock_state(value) { Some(state) => { let state = state.borrow(); if last { state.calls.last().is_some_and(call_matches) } else { state.calls.iter().any(call_matches) } }, None => true } }");
+            writer.line("fn smelt_vitest_mock_called_with(value: &SmeltUnknown, expected: Vec<SmeltUnknown>, last: bool) -> bool { let expected = smelt_vitest_mock_trim_trailing_nullish(&expected); let call_matches = |call: &Vec<SmeltUnknown>| { let call = smelt_vitest_mock_trim_trailing_nullish(call); call.len() == expected.len() && call.iter().zip(expected.iter()).all(|(left, right)| smelt_vitest_asymmetric_equals(left, right, &mut ::std::collections::HashSet::new())) }; match smelt_vitest_mock_state(value) { Some(state) => { let state = state.borrow(); if last { state.calls.last().is_some_and(call_matches) } else { state.calls.iter().any(call_matches) } }, None => true } }");
             writer.blank_line();
             writer.line("/// `expect(mock).toHaveLastResolvedWith(...)`: true when the mock's most");
             writer.line("/// recent recorded result deep-equals the expected value. An async mock");
@@ -3089,7 +3090,8 @@ fn emit_source_with_free_function_router(
             writer.line("/// its settled `Ok` value before comparison (the caller has already awaited");
             writer.line("/// it, so the shared state cell is populated). Non-mock actuals pass");
             writer.line("/// vacuously, mirroring the other mock matchers.");
-            writer.line("fn smelt_vitest_mock_last_resolved_with(value: &SmeltUnknown, expected: SmeltUnknown) -> bool { match smelt_vitest_mock_state(value) { Some(state) => { let last = state.borrow().results.last().cloned(); match last { Some(result) => { let resolved = match &result { SmeltUnknown::Promise(promise) => match &*promise.state.borrow() { Some(Ok(value)) => value.clone(), _ => return false }, other => other.clone() }; smelt_unknown_structural_eq(&resolved, &expected, &mut ::std::collections::HashSet::new()) }, None => false } }, None => true } }");
+            writer.line("fn smelt_vitest_mock_last_resolved_with(value: &SmeltUnknown, expected: SmeltUnknown) -> bool { match smelt_vitest_mock_state(value) { Some(state) => { let last = state.borrow().results.last().cloned(); match last { Some(result) => { let resolved = match &result { SmeltUnknown::Promise(promise) => match &*promise.state.borrow() { Some(Ok(value)) => value.clone(), _ => return false }, other => other.clone() }; smelt_vitest_asymmetric_equals(&resolved, &expected, &mut ::std::collections::HashSet::new()) }, None => false } }, None => true } }");
+            asymmetric_matcher_prelude::emit(&mut writer);
         }
         writer.blank_line();
         {

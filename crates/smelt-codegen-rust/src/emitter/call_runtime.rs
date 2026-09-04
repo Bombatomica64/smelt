@@ -1868,6 +1868,16 @@ impl FunctionEmitter<'_> {
                     .join(", "),
                 last
             )),
+            // Both operands are erased first: an asymmetric matcher is a
+            // marker-bearing record, so the comparison is a runtime walk over
+            // the dynamic carrier -- deliberately NOT `SmeltUnknown`'s own
+            // `PartialEq`, which library code observes and which must stay
+            // blind to the test harness's markers.
+            Rvalue::VitestAsymmetricEqual { actual, expected } => Ok(format!(
+                "smelt_vitest_asymmetric_equals(&({}), &({}), &mut ::std::collections::HashSet::new())",
+                self.value_at_type(actual, self.type_id(Type::Unknown)?)?,
+                self.value_at_type(expected, self.type_id(Type::Unknown)?)?
+            )),
             Rvalue::VitestMockLastResolvedWith { mock, expected } => Ok(format!(
                 "smelt_vitest_mock_last_resolved_with(&({}), {})",
                 self.value_at_type(mock, self.type_id(Type::Unknown)?)?,

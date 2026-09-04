@@ -609,6 +609,16 @@ struct ModuleBuilder<'ctx> {
     current_statement_block: Option<smelt_hir::BlockId>,
     /// Postfix updates waiting for the variable initializer that reads their original value.
     deferred_postfix_updates: Option<Vec<Stmt>>,
+    /// Number of vitest asymmetric matchers (`expect.any`, `expect.arrayContaining`,
+    /// ...) lowered so far in this module.
+    ///
+    /// A matcher is a VALUE, so it can sit anywhere inside an expected value —
+    /// nested in an object literal, in an array, as one argument of
+    /// `toHaveBeenCalledWith`. Its presence is what decides whether a deep
+    /// equality matcher compares structurally or asks the matcher; comparing the
+    /// counter before and after lowering one operand answers that exactly,
+    /// without re-walking the argument's syntax looking for the spelling.
+    asymmetric_matchers_lowered: usize,
     /// Whether type-test-only lowering may index erased unknown metadata.
     allow_unknown_index_access: bool,
     /// Whether a lifted specialization callable keeps its concrete `this` type through assertions.

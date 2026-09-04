@@ -791,6 +791,11 @@ fn rewrite_rvalue(
             changed |= rewrite_operand_except(count, aliases, dest);
             changed
         }
+        Rvalue::VitestAsymmetricEqual { actual, expected } => {
+            let mut changed = rewrite_operand_except(actual, aliases, dest);
+            changed |= rewrite_operand_except(expected, aliases, dest);
+            changed
+        }
         Rvalue::VitestMockCalledWith { mock, args, .. } => {
             let mut changed = rewrite_operand_except(mock, aliases, dest);
             for arg in args {

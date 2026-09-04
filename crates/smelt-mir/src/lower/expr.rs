@@ -1962,6 +1962,18 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
+            ExprKind::VitestAsymmetricEqual { actual, expected } => {
+                let actual_operand = self.lower_expr(*actual)?;
+                let expected_operand = self.lower_expr(*expected)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::VitestAsymmetricEqual {
+                        actual: actual_operand,
+                        expected: expected_operand,
+                    },
+                )?
+            }
             ExprKind::VitestMockLastResolvedWith { mock, expected } => {
                 let mock_operand = self.lower_expr(*mock)?;
                 let expected_operand = self.lower_expr(*expected)?;

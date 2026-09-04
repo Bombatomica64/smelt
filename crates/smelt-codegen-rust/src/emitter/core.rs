@@ -5245,6 +5245,9 @@ pub(super) fn rvalue_uses_local(value: &Rvalue, local: LocalId) -> bool {
         Rvalue::VitestMockLastResolvedWith { mock, expected } => {
             operand_uses_local(mock, local) || operand_uses_local(expected, local)
         }
+        Rvalue::VitestAsymmetricEqual { actual, expected } => {
+            operand_uses_local(actual, local) || operand_uses_local(expected, local)
+        }
         // A receiver bind reads BOTH the callable it wraps and the receiver it
         // installs. The callee is very often a closure temp whose only use is
         // this rvalue (`greeting.call(right)` on a module-level function item),

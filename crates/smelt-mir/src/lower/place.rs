@@ -245,6 +245,7 @@ impl LoweringCtx<'_> {
             | ExprKind::VitestMockFn { .. }
             | ExprKind::VitestMockCalledTimes { .. }
             | ExprKind::VitestMockCalledWith { .. }
+            | ExprKind::VitestAsymmetricEqual { .. }
             | ExprKind::VitestMockLastResolvedWith { .. }
             | ExprKind::DateTimezoneContext { .. }
             | ExprKind::DateToIsoString { .. }

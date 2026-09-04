@@ -29,7 +29,263 @@ pub(in crate::lowering) struct LoweredActual {
     pub inverted: bool,
 }
 
+/// The vitest asymmetric matcher factories.
+///
+/// An asymmetric matcher is a *value*, not an assertion: `expect.any(Number)`
+/// can be stored, nested inside an expected object or array, or passed as one
+/// argument of `toHaveBeenCalledWith`. What makes it a matcher is that the deep
+/// equality used by `toEqual`/`toStrictEqual`/`toHaveBeenCalledWith` asks it
+/// whether the actual value matches, instead of comparing it structurally.
+///
+/// The name list is the closed vitest API surface, exactly like
+/// [`TestMatcher::from_name`]'s: it is the test harness's own vocabulary, not a
+/// library's spelling, so recognizing it is not a special case for user code.
+const ASYMMETRIC_MATCHER_NAMES: &[&str] = &[
+    "any",
+    "anything",
+    "arrayContaining",
+    "objectContaining",
+    "stringContaining",
+    "stringMatching",
+    "closeTo",
+];
+
+/// Marker key that identifies an erased asymmetric-matcher record at run time.
+///
+/// Same convention as `__smelt_vitest_mock`, `__smelt_map` and `__smelt_set`:
+/// the value's *kind* travels with it as a branded field, so a runtime helper
+/// recognizes it wherever the value ended up.
+const ASYMMETRIC_MARKER_KEY: &str = "__smelt_asymmetric";
+
 impl ModuleBuilder<'_> {
+    /// Lower `expect.<name>(...)` / `expect.not.<name>(...)` as a matcher VALUE.
+    ///
+    /// Returns `None` when the call is not an asymmetric matcher, so the
+    /// ordinary call path continues.
+    ///
+    /// The result is a marker record — `{ __smelt_asymmetric: <name>, sample:
+    /// [<args>], inverted: <bool> }` — erased to the dynamic carrier, which is
+    /// what a matcher's type genuinely is: vitest types these factories `any`,
+    /// they are compared against a value of unrelated static type, and the
+    /// deep-equality helper discriminates them by their brand at run time.
+    ///
+    /// Before this, `expect` in a value position fell through to the generic
+    /// erased-object path and lowered to an EMPTY record, so the member read
+    /// `arrayContaining` answered `undefined`, no callable was found, and the
+    /// emitted fallback callback returned `null` — turning
+    /// `expect(a).toEqual(expect.arrayContaining(b))` into `a == null`, which
+    /// can never hold.
+    ///
+    /// `sample` holds ALL of the factory's arguments as one array rather than
+    /// just the first, so `expect.closeTo(value, precision)` needs no second
+    /// record shape.
+    pub(in crate::lowering) fn vitest_asymmetric_matcher_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let name = member.property.name.as_str();
+        if !ASYMMETRIC_MATCHER_NAMES.contains(&name) {
+            return Ok(None);
+        }
+        let Some(inverted) = self.asymmetric_matcher_receiver_inverted(&member.object) else {
+            return Ok(None);
+        };
+        let span = self.span(call.span.start, call.span.end);
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
+        let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
+
+        let mut sample_items = Vec::with_capacity(call.arguments.len());
+        for argument in &call.arguments {
+            // `expect.any(Ctor)` names a CONSTRUCTOR, and its argument is used
+            // only for that identity. Smelt does not model a builtin
+            // constructor as a first-class constructor object -- `Number` in a
+            // value position lowers to the numeric coercion function, and
+            // `String` to the string one -- so lowering the reference as a
+            // value throws away the very thing the matcher needs. The
+            // referenced NAME is what the runtime compares against a value's
+            // own class identity (its `Symbol.toStringTag` view or its
+            // `__smelt_class` marker), so a constructor REFERENCE contributes
+            // its spelling. Any other expression still lowers as a value and
+            // has its name read off it at run time.
+            if name == "any"
+                && let Some(reference) = Self::constructor_reference_text(argument)
+            {
+                let spelling = body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::String(reference)),
+                    ty: string_ty,
+                    span,
+                });
+                sample_items.push(Self::erase_to_unknown(spelling, unknown_ty, span, body));
+                continue;
+            }
+            let lowered = self.argument_with_hint(argument, body, Some(unknown_ty))?;
+            sample_items.push(Self::erase_to_unknown(lowered, unknown_ty, span, body));
+        }
+        let sample = body.push_expr(Expr {
+            kind: ExprKind::ListLit(sample_items),
+            ty: list_ty,
+            span,
+        });
+        let sample = Self::erase_to_unknown(sample, unknown_ty, span, body);
+        let kind_value = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String(name.to_owned())),
+            ty: string_ty,
+            span,
+        });
+        let kind_value = Self::erase_to_unknown(kind_value, unknown_ty, span, body);
+        let inverted_value = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(inverted)),
+            ty: bool_ty,
+            span,
+        });
+        let inverted_value = Self::erase_to_unknown(inverted_value, unknown_ty, span, body);
+        let string_key = |target: &mut Body, key: &str| {
+            target.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String(key.to_owned())),
+                ty: string_ty,
+                span,
+            })
+        };
+        let marker_key = string_key(body, ASYMMETRIC_MARKER_KEY);
+        let sample_key = string_key(body, "sample");
+        let inverted_key = string_key(body, "inverted");
+        let record = body.push_expr(Expr {
+            kind: ExprKind::DictLit(vec![
+                (marker_key, kind_value),
+                (sample_key, sample),
+                (inverted_key, inverted_value),
+            ]),
+            ty: dict_ty,
+            span,
+        });
+        self.asymmetric_matchers_lowered = self.asymmetric_matchers_lowered.saturating_add(1);
+        Ok(Some(Self::erase_to_unknown(record, unknown_ty, span, body)))
+    }
+
+    /// Build the matcher-aware deep-equality test for `toEqual`/`toStrictEqual`.
+    ///
+    /// Both operands are erased to the dynamic carrier first, because a matcher
+    /// is a marker-bearing record and the comparison is a runtime walk that
+    /// consults that marker at every level. It is deliberately NOT
+    /// `SmeltUnknown`'s `PartialEq`: library code observes that operator, and
+    /// the test harness's markers must stay invisible to it.
+    fn vitest_asymmetric_equal_expr(
+        &mut self,
+        actual: smelt_hir::ExprId,
+        expected: smelt_hir::ExprId,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let span = self.span(span.start, span.end);
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let actual = Self::erase_to_unknown(actual, unknown_ty, span, body);
+        let expected = Self::erase_to_unknown(expected, unknown_ty, span, body);
+        body.push_expr(Expr {
+            kind: ExprKind::VitestAsymmetricEqual { actual, expected },
+            ty: bool_ty,
+            span,
+        })
+    }
+
+    /// Whether an expected argument writes an asymmetric matcher anywhere.
+    ///
+    /// Answered from the syntax, before lowering, because it decides whether the
+    /// expected value may be contextually typed from the actual's type at all —
+    /// a decision that has to be made before the operand is built. The walk
+    /// covers the containers vitest allows a matcher to sit in (array and object
+    /// literals) plus the type-only wrappers, and it deliberately does not
+    /// descend into calls or other computation: a matcher reaching the assertion
+    /// through a variable or a helper is caught afterwards by the lowered-matcher
+    /// count, which needs no hint decision because such an operand is already
+    /// erased.
+    fn argument_holds_asymmetric_matcher(&self, argument: &Argument<'_>) -> bool {
+        argument
+            .as_expression()
+            .is_some_and(|expression| self.expression_holds_asymmetric_matcher(expression))
+    }
+
+    /// The recursive half of [`Self::argument_holds_asymmetric_matcher`].
+    fn expression_holds_asymmetric_matcher(&self, expression: &Expression<'_>) -> bool {
+        match expression {
+            Expression::CallExpression(call) => {
+                let Expression::StaticMemberExpression(member) = &call.callee else {
+                    return false;
+                };
+                ASYMMETRIC_MATCHER_NAMES.contains(&member.property.name.as_str())
+                    && self
+                        .asymmetric_matcher_receiver_inverted(&member.object)
+                        .is_some()
+            }
+            Expression::ArrayExpression(array) => array.elements.iter().any(|element| {
+                element
+                    .as_expression()
+                    .is_some_and(|value| self.expression_holds_asymmetric_matcher(value))
+            }),
+            Expression::ObjectExpression(object) => object.properties.iter().any(|property| {
+                matches!(property, oxc::ast::ast::ObjectPropertyKind::ObjectProperty(entry)
+                    if self.expression_holds_asymmetric_matcher(&entry.value))
+            }),
+            Expression::ParenthesizedExpression(parenthesized) => {
+                self.expression_holds_asymmetric_matcher(&parenthesized.expression)
+            }
+            Expression::TSAsExpression(as_expr) => {
+                self.expression_holds_asymmetric_matcher(&as_expr.expression)
+            }
+            Expression::TSSatisfiesExpression(satisfies) => {
+                self.expression_holds_asymmetric_matcher(&satisfies.expression)
+            }
+            Expression::TSNonNullExpression(non_null) => {
+                self.expression_holds_asymmetric_matcher(&non_null.expression)
+            }
+            _ => false,
+        }
+    }
+
+    /// The dotted spelling of a constructor REFERENCE argument, if it is one.
+    ///
+    /// `Number`, `String`, `MyClass`, `Intl.Locale` — a bare name or a
+    /// namespaced one. Anything else (a call, a literal, an arbitrary
+    /// expression) is `None` and lowers as an ordinary value.
+    fn constructor_reference_text(argument: &Argument<'_>) -> Option<String> {
+        fn reference_text(expression: &Expression<'_>) -> Option<String> {
+            match expression {
+                Expression::Identifier(ident) => Some(ident.name.as_str().to_owned()),
+                Expression::StaticMemberExpression(member) => {
+                    let object = reference_text(&member.object)?;
+                    Some(format!("{object}.{}", member.property.name))
+                }
+                _ => None,
+            }
+        }
+        reference_text(argument.as_expression()?)
+    }
+
+    /// Return whether a matcher receiver is `expect` (`Some(false)`) or
+    /// `expect.not` (`Some(true)`), and `None` when it is neither.
+    fn asymmetric_matcher_receiver_inverted(&self, receiver: &Expression<'_>) -> Option<bool> {
+        let is_expect = |ident: &oxc::ast::ast::IdentifierReference<'_>| {
+            ident.name == "expect" && self.imports.is_test_builtin("expect")
+        };
+        match receiver {
+            Expression::Identifier(ident) => is_expect(ident).then_some(false),
+            Expression::StaticMemberExpression(member) if member.property.name == "not" => {
+                match &member.object {
+                    Expression::Identifier(ident) => is_expect(ident).then_some(true),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
     /// Lower a Node `assert.deepStrictEqual` call statement when one is present.
     pub(in crate::lowering) fn deep_strict_equal_statement(
         &mut self,
@@ -301,6 +557,7 @@ impl ModuleBuilder<'_> {
                 ),
             )
         })?;
+        let matchers_before_operands = self.asymmetric_matchers_lowered;
         let actual = match (actual_override, pending_actual_arg) {
             (Some(actual), _) => actual.value,
             (None, Some(actual_arg)) => self.argument(actual_arg, body)?,
@@ -313,24 +570,49 @@ impl ModuleBuilder<'_> {
         // compare against the actual's `SmeltList<(f64, String)>` (E0308).
         // `array_expression`'s arity guard ignores tuple hints whose arity does
         // not match the literal, so ragged expected values are unaffected.
-        let expected = if matches!(matcher, TestMatcher::Equal | TestMatcher::StrictEqual) {
+        //
+        // An asymmetric matcher is the one thing that hint must not reach. A
+        // matcher's type is the dynamic carrier, so contextually typing
+        // `{ tags: expect.arrayContaining(['b']) }` from an actual
+        // `{ tags: string[] }` asks the erasure to turn the matcher record into
+        // a `SmeltList<String>` — which fails at run time ("unknown is not
+        // iterable"). Where a matcher is written, the expected value keeps its
+        // own inferred type and the comparison is the matcher-aware walk, which
+        // works on the erased carrier anyway.
+        let expected_has_matcher = self.argument_holds_asymmetric_matcher(expected_arg);
+        let expected = if matches!(matcher, TestMatcher::Equal | TestMatcher::StrictEqual)
+            && !expected_has_matcher
+        {
             let actual_ty = Self::expr_ty(body, actual);
             self.argument_with_hint(expected_arg, body, Some(actual_ty))?
         } else {
             self.argument(expected_arg, body)?
         };
+        // An asymmetric matcher anywhere in either operand changes what the
+        // comparison MEANS: `expect(a).toEqual(expect.arrayContaining(b))` asks
+        // the matcher, and `expect(o).toEqual({ id: expect.any(Number) })` asks
+        // it for one nested field. Counting the matchers lowered while building
+        // the two operands answers "is one in there" exactly, at any nesting
+        // depth, without re-walking the argument syntax.
+        let uses_asymmetric_matcher = (expected_has_matcher
+            || self.asymmetric_matchers_lowered != matchers_before_operands)
+            && matches!(matcher, TestMatcher::Equal | TestMatcher::StrictEqual);
         // Vitest compares primitive numbers with `Object.is` under every
         // equality matcher, not just `toBe`. Only `toBe` additionally treats
         // objects and arrays by reference, so the identity rule stays gated on
         // it while the numeric rule applies to the deep matchers too.
-        let use_strict_identity = match matcher {
+        let use_strict_identity = !uses_asymmetric_matcher
+            && match matcher {
             TestMatcher::Be => self.test_to_be_needs_strict_identity(actual, expected, body),
             TestMatcher::Equal | TestMatcher::StrictEqual => {
                 self.test_numbers_need_same_value(actual, expected, body)
             }
             _ => false,
         };
-        let mut failed = if use_strict_identity {
+        let mut failed = if uses_asymmetric_matcher {
+            let holds = self.vitest_asymmetric_equal_expr(actual, expected, call.span, body);
+            self.unary_bool_expr(UnaryOp::Not, holds, call.span, body)
+        } else if use_strict_identity {
             let op = if inverted {
                 BinOp::StrictEq
             } else {

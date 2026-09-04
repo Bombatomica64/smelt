@@ -649,6 +649,10 @@ impl ExprKind {
                 args: map_vec(args, f)?,
                 last,
             },
+            Self::VitestAsymmetricEqual { actual, expected } => Self::VitestAsymmetricEqual {
+                actual: f(actual)?,
+                expected: f(expected)?,
+            },
             Self::VitestMockLastResolvedWith { mock, expected } => {
                 Self::VitestMockLastResolvedWith {
                     mock: f(mock)?,

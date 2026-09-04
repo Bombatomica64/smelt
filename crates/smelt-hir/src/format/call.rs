@@ -818,6 +818,11 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
+        ExprKind::VitestAsymmetricEqual { actual, expected } => format!(
+            "vitest_asymmetric_equal {} {}",
+            expr_ref(*actual),
+            expr_ref(*expected)
+        ),
         ExprKind::VitestMockLastResolvedWith { mock, expected } => format!(
             "vitest_mock_last_resolved_with {} {}",
             expr_ref(*mock),

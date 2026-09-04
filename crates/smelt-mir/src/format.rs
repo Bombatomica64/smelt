@@ -1288,6 +1288,11 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
             operand_text(mock),
             args.iter().map(operand_text).collect::<Vec<_>>().join(", ")
         ),
+        Rvalue::VitestAsymmetricEqual { actual, expected } => format!(
+            "vitest_asymmetric_equal {} {}",
+            operand_text(actual),
+            operand_text(expected)
+        ),
         Rvalue::VitestMockLastResolvedWith { mock, expected } => format!(
             "vitest_mock_last_resolved_with {} {}",
             operand_text(mock),

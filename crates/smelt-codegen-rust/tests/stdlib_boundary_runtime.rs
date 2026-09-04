@@ -211,6 +211,58 @@ test("a JavaScript character class compiles as Rust", () => {
 
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn an_asymmetric_matcher_answers_for_itself_at_every_nesting_depth() {
+    // `expect.arrayContaining(..)` is a matcher VALUE. `expect` in a value
+    // position used to lower to an EMPTY record, so the member read
+    // `arrayContaining` answered `undefined`, the emitted fallback callback
+    // returned `null`, and the assertion became `array == null`. The nesting
+    // cases are the reason the deep equality must consult the marker at every
+    // level rather than only at the top.
+    let source = r#"
+import { test, expect, vi } from "vitest";
+
+test("an asymmetric matcher answers for itself", () => {
+  expect([1, 2, 3]).toEqual(expect.arrayContaining([3, 1]));
+  expect([1]).not.toEqual(expect.arrayContaining([9]));
+  expect([1, 2, 3]).toEqual(expect.not.arrayContaining([9]));
+  expect({ a: 1, b: 2 }).toEqual(expect.objectContaining({ a: 1 }));
+  expect({ a: 1 }).not.toEqual(expect.objectContaining({ a: 2 }));
+  expect("hello world").toEqual(expect.stringContaining("lo wo"));
+  expect("hello").toEqual(expect.stringMatching(/^h.*o$/));
+  expect(1.001).toEqual(expect.closeTo(1, 2));
+  expect(2).not.toEqual(expect.closeTo(1, 2));
+  expect("anything").toEqual(expect.anything());
+  expect(null).not.toEqual(expect.anything());
+  expect(7).toEqual(expect.any(Number));
+  expect("s").toEqual(expect.any(String));
+  expect(7).not.toEqual(expect.any(String));
+});
+
+test("a nested asymmetric matcher answers for its own part of the value", () => {
+  expect({ id: 4, name: "x" }).toEqual({ id: expect.any(Number), name: "x" });
+  expect({ id: "4" }).not.toEqual({ id: expect.any(Number) });
+  expect([1, "a"]).toEqual([expect.any(Number), expect.anything()]);
+  expect({ tags: ["a", "b"] }).toEqual({ tags: expect.arrayContaining(["b"]) });
+});
+
+test("a mock call assertion consults the matcher too", () => {
+  const spy = vi.fn();
+  spy(41, "text");
+  expect(spy).toHaveBeenCalledWith(expect.any(Number), expect.anything());
+  expect(spy).toHaveBeenCalledWith(41, expect.stringContaining("ex"));
+});
+
+test("an ordinary deep equality is unchanged", () => {
+  expect({ a: [1, { b: 2 }] }).toEqual({ a: [1, { b: 2 }] });
+  expect({ a: 1 }).not.toEqual({ a: 1, b: 2 });
+  expect([1, 2]).not.toEqual([2, 1]);
+});
+"#;
+    run_fixture(source, "smelt_asymmetric_matchers");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn a_replacement_string_expands_its_dollar_patterns() {
     // ECMA-262 `GetSubstitution`. Pushing the replacement verbatim inserted the
     // literal characters `$&` / `$1`, which no static check can see.

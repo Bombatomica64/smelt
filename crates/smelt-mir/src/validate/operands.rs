@@ -652,6 +652,10 @@ impl Rvalue {
                     visit(arg);
                 }
             }
+            Self::VitestAsymmetricEqual { actual, expected } => {
+                visit(actual);
+                visit(expected);
+            }
             Self::VitestMockLastResolvedWith { mock, expected } => {
                 visit(mock);
                 visit(expected);
@@ -1437,6 +1441,10 @@ impl Rvalue {
                 for arg in args {
                     visit(arg);
                 }
+            }
+            Self::VitestAsymmetricEqual { actual, expected } => {
+                visit(actual);
+                visit(expected);
             }
             Self::VitestMockLastResolvedWith { mock, expected } => {
                 visit(mock);

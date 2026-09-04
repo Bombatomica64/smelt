@@ -695,6 +695,19 @@ pub enum ExprKind {
         args: Vec<ExprId>,
         last: bool,
     },
+    /// Whether two values are deep-equal under the vitest matcher rules
+    /// (`expect(a).toEqual(b)` where either side may hold an ASYMMETRIC
+    /// matcher).
+    ///
+    /// Distinct from an ordinary structural comparison because an asymmetric
+    /// matcher answers for itself: at every level of the walk, a value branded
+    /// `__smelt_asymmetric` is asked whether it matches its counterpart. That
+    /// rule belongs to the test harness only, so it must not reach
+    /// `SmeltUnknown`'s own `PartialEq`, which library code observes.
+    VitestAsymmetricEqual {
+        actual: ExprId,
+        expected: ExprId,
+    },
     /// Whether a Vitest mock's most recent recorded result deep-equals
     /// `expected` after flattening a resolved promise
     /// (`expect(mock).toHaveLastResolvedWith(...)`); true means the assertion

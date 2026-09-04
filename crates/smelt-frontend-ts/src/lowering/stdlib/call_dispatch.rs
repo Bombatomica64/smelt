@@ -69,6 +69,14 @@ impl<'builder> ModuleBuilder<'builder> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        // A vitest asymmetric matcher (`expect.any(..)`, `expect.not.arrayContaining(..)`)
+        // is a matcher VALUE, so it is recognized before any callee resolution:
+        // `expect` used as a receiver rather than as a callee would otherwise
+        // fall through to the generic erased-object path and become an empty
+        // record. See `ModuleBuilder::vitest_asymmetric_matcher_call`.
+        if let Some(expr) = self.vitest_asymmetric_matcher_call(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.global_alias_namespace_call(call, body)? {
             return Ok(expr);
         }
