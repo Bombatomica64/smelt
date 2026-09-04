@@ -144,3 +144,6 @@ probe.json
 !blocker-logs/estk-final45-predicates.md
 !blocker-logs/estk-final45-misc.md
 !blocker-logs/estk-final45-async.md
+
+# shared cargo target for the es-toolkit probe crate used by parallel implementer worktrees
+/target-estk/
