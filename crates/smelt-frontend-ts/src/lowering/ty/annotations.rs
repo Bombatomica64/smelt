@@ -1090,20 +1090,23 @@ return_ty: function.return_ty,
     /// collapses to the shared value type when the members agree and to
     /// `Unknown` when they do not.
     ///
-    /// Any other member makes the merged shape genuinely unknown, and there the
+    /// A `Class` member is object-shaped but names no members here, so it
+    /// contributes the erased value type -- keeping the record spelling this
+    /// arm has always produced for a class intersection.
+    ///
+    /// Anything else makes the merged shape genuinely unknown, and there the
     /// honest answer is the erased boundary type. In particular an intersection
     /// of *type parameters* (`merge<T, S>(..): T & S`) must not be claimed as a
-    /// record: `merge` is called on arrays too and returns one, and asserting a
-    /// record there would force the value into a record and lose the array.
-    /// A `Class` member is likewise left erased -- a nominal class instance
-    /// merged with more members is not that class.
+    /// record: `merge` is called on arrays too and returns one, so asserting a
+    /// record would force the value into a record and lose the array.
     fn intersection_object_type(&mut self, members: &[smelt_hir::TypeId]) -> smelt_hir::TypeId {
         let mut value_ty: Option<smelt_hir::TypeId> = None;
         for member in members {
-            let Some(Type::Dict(_, field_ty)) = self.ctx.krate.types.get(*member) else {
-                return self.ctx.krate.types.intern(Type::Unknown);
+            let member_value = match self.ctx.krate.types.get(*member) {
+                Some(Type::Dict(_, field_ty)) => *field_ty,
+                Some(Type::Class { .. }) => self.ctx.krate.types.intern(Type::Unknown),
+                _ => return self.ctx.krate.types.intern(Type::Unknown),
             };
-            let member_value = *field_ty;
             match value_ty {
                 None => value_ty = Some(member_value),
                 Some(existing) if existing == member_value => {}
