@@ -2004,10 +2004,10 @@ fn emit_source_with_free_function_router(
         // `__smelt_proto:`-prefixed entries hold members INHERITED from a
         // prototype (`Object.create(proto)`), so they are never own keys — JS
         // `Object.keys` / `for...in` own-key enumeration must skip them.
-        writer.line("fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { if smelt_object_has_host_marker(object) { return false; } !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && key != \"__smelt_map\" && key != \"__smelt_set\" && !(object.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\" | \"lastIndex\")) && !(object.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\" | \"stack\")) && !(object.contains_key(\"__smelt_arguments\") && matches!(key, \"__smelt_arguments\" | \"length\")) }");
+        writer.line("fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { if smelt_object_has_host_marker(object) { return false; } !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && key != \"__smelt_proto_object\" && key != \"__smelt_map\" && key != \"__smelt_set\" && !(object.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\" | \"lastIndex\")) && !(object.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\" | \"stack\")) && !(object.contains_key(\"__smelt_arguments\") && matches!(key, \"__smelt_arguments\" | \"length\")) }");
         writer
             .line("/// Return whether a record key is visible to JavaScript `for...in` iteration.");
-        writer.line("fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> bool { if smelt_record_has_host_marker(record) { return false; } !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && !(record.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\" | \"lastIndex\")) && !(record.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\" | \"stack\")) && !(record.contains_key(\"__smelt_arguments\") && matches!(key, \"__smelt_arguments\" | \"length\")) }");
+        writer.line("fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> bool { if smelt_record_has_host_marker(record) { return false; } !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && key != \"__smelt_proto_object\" && !(record.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\" | \"lastIndex\")) && !(record.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\" | \"stack\")) && !(record.contains_key(\"__smelt_arguments\") && matches!(key, \"__smelt_arguments\" | \"length\")) }");
         // `for...in` walks the PROTOTYPE CHAIN; `Object.keys` does not. The two
         // therefore cannot share one key list. Inherited members live behind the
         // `__smelt_proto:` prefix, which the own-key filters above exclude — right
@@ -2046,7 +2046,7 @@ fn emit_source_with_free_function_router(
         writer.line("/// Drops `__smelt_proto:` / `__smelt_method:` / `__smelt_class` keys (inherited");
         writer.line("/// members, prototype methods and class provenance are not own properties) and");
         writer.line("/// restores a `__smelt_symbol:` key to its `SmeltUnknown::Symbol` tag.");
-        writer.line("fn smelt_own_js_map_entries<V: Clone>(map: &SmeltJsMap<SmeltUnknown, V>) -> Vec<(SmeltUnknown, V)> { map.iter().filter_map(|(key, value)| { let SmeltUnknown::String(text) = &key else { return Some((key, value)); }; let text = text.to_string(); if text.starts_with(\"__smelt_proto:\") || text.starts_with(\"__smelt_method:\") || text == \"__smelt_class\" { return None; } if let Some(description) = text.strip_prefix(\"__smelt_symbol:\") { return Some((SmeltUnknown::Symbol(description.into()), value)); } Some((key, value)) }).collect() }");
+        writer.line("fn smelt_own_js_map_entries<V: Clone>(map: &SmeltJsMap<SmeltUnknown, V>) -> Vec<(SmeltUnknown, V)> { map.iter().filter_map(|(key, value)| { let SmeltUnknown::String(text) = &key else { return Some((key, value)); }; let text = text.to_string(); if text.starts_with(\"__smelt_proto:\") || text.starts_with(\"__smelt_method:\") || text == \"__smelt_class\" || text == \"__smelt_proto_object\" { return None; } if let Some(description) = text.strip_prefix(\"__smelt_symbol:\") { return Some((SmeltUnknown::Symbol(description.into()), value)); } Some((key, value)) }).collect() }");
         writer.blank_line();
         writer.line("/// Every key JavaScript `for...in` yields for a `SmeltJsMap` backing.");
         writer.line("///");
@@ -2131,8 +2131,33 @@ fn emit_source_with_free_function_router(
         // keeps them out of the created object's own-key enumeration. A class
         // prototype keeps the hidden `__smelt_class` marker so the fresh object is
         // still classified as a class instance rather than a plain object.
+        //
+        // Copying the members is not enough on its own, because the prototype
+        // CHAIN is observable: `Object.getPrototypeOf(Object.create(p))` is `p`
+        // itself, so `Object.getPrototypeOf(Object.getPrototypeOf(...))` is
+        // `Object.prototype` and not `null` — the distinction es-toolkit's
+        // `isPlainObject` is built on. The prototype value is therefore also
+        // stored verbatim in a hidden `__smelt_proto_object` slot, which
+        // `smelt_prototype_sentinel` returns as the object's `[[Prototype]]`.
+        // Like every other `__smelt_` marker the slot is invisible to key
+        // enumeration, structural equality, hashing and JSON. A prototype's own
+        // slot is NOT copied: it records that prototype's prototype, not the new
+        // object's.
+        // A marker costs something: it is one more key every raw-entry consumer
+        // has to know to skip. So record the prototype ONLY when the created
+        // object's own shape cannot already imply it. `Object.prototype` (the
+        // `"__smelt_proto:object"` sentinel) is what a fresh plain object already
+        // reports, and a class prototype is already carried by the
+        // `__smelt_class` marker stamped alongside; those two need no slot, which
+        // keeps the overwhelmingly common `Object.create(Object.getPrototypeOf(o))`
+        // clone idiom producing a marker-free object. A concrete object
+        // prototype, `null`, and the array/promise sentinels are not recoverable
+        // from the result, so they are stored.
+        writer.line("/// Whether an `Object.create` prototype has to be recorded to stay observable.");
+        writer.line("fn smelt_prototype_slot_is_observable(prototype: &SmeltUnknown) -> bool { !matches!(prototype, SmeltUnknown::String(sentinel) if &**sentinel == \"__smelt_proto:object\" || &**sentinel == \"__smelt_proto:class\") }");
+        writer.blank_line();
         writer.line("/// Create a fresh erased object from a runtime prototype value (`Object.create`).");
-        writer.line("fn smelt_object_from_prototype(prototype: SmeltUnknown) -> SmeltUnknown { let mut fields: Vec<(String, SmeltUnknown)> = Vec::new(); match prototype { SmeltUnknown::String(sentinel) if &*sentinel == \"__smelt_proto:class\" => { fields.push((\"__smelt_class\".to_owned(), SmeltUnknown::Bool(true))); }, SmeltUnknown::Object(map) => { for (key, value) in map.iter() { if key == \"__smelt_class\" || key.starts_with(\"__smelt_proto:\") { fields.push((key, value)); } else { fields.push((format!(\"__smelt_proto:{key}\"), value)); } } }, _ => {} } SmeltUnknown::Object(SmeltObject::new(fields)) }");
+        writer.line("fn smelt_object_from_prototype(prototype: SmeltUnknown) -> SmeltUnknown { let mut fields: Vec<(String, SmeltUnknown)> = Vec::new(); match &prototype { SmeltUnknown::String(sentinel) if &**sentinel == \"__smelt_proto:class\" => { fields.push((\"__smelt_class\".to_owned(), SmeltUnknown::Bool(true))); }, SmeltUnknown::Object(map) => { for (key, value) in map.iter() { if key == \"__smelt_proto_object\" { continue; } if key == \"__smelt_class\" || key.starts_with(\"__smelt_proto:\") { fields.push((key, value)); } else { fields.push((format!(\"__smelt_proto:{key}\"), value)); } } }, _ => {} } if smelt_prototype_slot_is_observable(&prototype) { fields.push((\"__smelt_proto_object\".to_owned(), prototype)); } SmeltUnknown::Object(SmeltObject::new(fields)) }");
         // `Object.defineProperty(o, k, d)` and `Object.defineProperties(o, ds)`
         // both install descriptors on an object, so the frontend normalizes the
         // singular form into the plural one and both land here. Previously both
@@ -2157,7 +2182,7 @@ fn emit_source_with_free_function_router(
             writer.line("fn smelt_define_properties(target: SmeltUnknown, descriptors: SmeltUnknown) -> SmeltUnknown { if let (SmeltUnknown::Object(map), SmeltUnknown::Object(table)) = (&target, &descriptors) { for (key, descriptor) in table.iter() { let SmeltUnknown::Object(entry) = descriptor else { continue }; let enumerable = match entry.get(\"enumerable\") { None | Some(SmeltUnknown::Null) | Some(SmeltUnknown::Undefined) => false, Some(SmeltUnknown::Bool(value)) => value, Some(SmeltUnknown::Number(value)) => value != 0.0 && !value.is_nan(), Some(SmeltUnknown::String(value)) => !value.is_empty(), Some(_) => true }; if !enumerable { continue; } let value = if let Some(value) = entry.get(\"value\") { value } else if let Some(getter) = entry.get(\"get\") { match getter { SmeltUnknown::Function(getter) => (getter)(Vec::new()).unwrap_or(SmeltUnknown::Undefined), other => other } } else { SmeltUnknown::Undefined }; map.insert(key, value); } } target }");
             writer.blank_line();
         }
-        writer.line("fn smelt_prototype_sentinel(value: &SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Null => SmeltUnknown::Null, SmeltUnknown::Array(_) => SmeltUnknown::String(\"__smelt_proto:array\".into()), SmeltUnknown::Promise(_) => SmeltUnknown::String(\"__smelt_proto:promise\".into()), SmeltUnknown::Object(map) if map.contains_key(\"__smelt_class\") => SmeltUnknown::String(\"__smelt_proto:class\".into()), SmeltUnknown::Object(map) => match smelt_reflected_marker_class(map) { Some(class) => smelt_reflected_prototype(class), None => SmeltUnknown::String(\"__smelt_proto:object\".into()) }, SmeltUnknown::String(marker) if &**marker == \"__smelt_proto:object\" => SmeltUnknown::Null, SmeltUnknown::String(marker) if &**marker == \"__smelt_proto:array\" || &**marker == \"__smelt_proto:promise\" || &**marker == \"__smelt_proto:class\" => SmeltUnknown::String(\"__smelt_proto:object\".into()), _ => SmeltUnknown::String(\"__smelt_proto:object\".into()) } }");
+        writer.line("fn smelt_prototype_sentinel(value: &SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Object(map) if map.contains_key(\"__smelt_proto_object\") => map.get(\"__smelt_proto_object\").unwrap_or(SmeltUnknown::Null), SmeltUnknown::Null => SmeltUnknown::Null, SmeltUnknown::Array(_) => SmeltUnknown::String(\"__smelt_proto:array\".into()), SmeltUnknown::Promise(_) => SmeltUnknown::String(\"__smelt_proto:promise\".into()), SmeltUnknown::Object(map) if map.contains_key(\"__smelt_class\") => SmeltUnknown::String(\"__smelt_proto:class\".into()), SmeltUnknown::Object(map) => match smelt_reflected_marker_class(map) { Some(class) => smelt_reflected_prototype(class), None => SmeltUnknown::String(\"__smelt_proto:object\".into()) }, SmeltUnknown::String(marker) if &**marker == \"__smelt_proto:object\" => SmeltUnknown::Null, SmeltUnknown::String(marker) if &**marker == \"__smelt_proto:array\" || &**marker == \"__smelt_proto:promise\" || &**marker == \"__smelt_proto:class\" => SmeltUnknown::String(\"__smelt_proto:object\".into()), _ => SmeltUnknown::String(\"__smelt_proto:object\".into()) } }");
         // `v.__proto__` is NOT `Object.getPrototypeOf(v)`. In JavaScript the
         // `__proto__` accessor is inherited from `Object.prototype`, so a value
         // whose prototype is `null` (`Object.create(null)`) does not inherit it
@@ -3628,10 +3653,11 @@ fn emit_source_with_free_function_router(
         writer.line("/// Whether an erased object key is an OWN property for structural comparison.");
         writer.line("///");
         writer.line("/// `__smelt_proto:<name>` / `__smelt_method:<name>` carry inherited members and");
-        writer.line("/// `__smelt_class` records the prototype an instance came from; JavaScript");
-        writer.line("/// exposes none of the three as an own property, so deep equality and the");
-        writer.line("/// matching hash both skip them.");
-        writer.line("fn smelt_is_own_structural_key(key: &str) -> bool { !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\" }");
+        writer.line("/// `__smelt_class` records the prototype an instance came from and");
+        writer.line("/// `__smelt_proto_object` holds an `Object.create` result's prototype;");
+        writer.line("/// JavaScript exposes none of the four as an own property, so deep equality");
+        writer.line("/// and the matching hash both skip them.");
+        writer.line("fn smelt_is_own_structural_key(key: &str) -> bool { !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\" && key != \"__smelt_proto_object\" }");
         writer.blank_line();
         writer.line("fn smelt_object_structural_eq(left: &SmeltObject, right: &SmeltObject, seen: &mut ::std::collections::HashSet<(usize, usize)>) -> bool {");
         writer.line("    if left.contains_key(\"__smelt_date\") || right.contains_key(\"__smelt_date\") { let left_date = smelt_unknown_date_value(&SmeltUnknown::Object(left.clone())); let right_date = smelt_unknown_date_value(&SmeltUnknown::Object(right.clone())); return left_date == right_date || (left_date.is_nan() && right_date.is_nan()); }");
@@ -5750,7 +5776,7 @@ fn emit_unknown_serde_impls(writer: &mut CodeWriter) {
                     match_writer.line("Self::String(value) => serializer.serialize_str(value),");
                     match_writer.line("Self::Symbol(value) => serializer.serialize_str(value),");
                     match_writer.line("Self::Array(values) => serde::Serialize::serialize(&*values.values.borrow(), serializer),");
-                    match_writer.line("Self::Object(values) => serde::Serialize::serialize(&values.iter().filter(|(key, _)| key != \"__smelt_class\" && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\")).collect::<::std::collections::HashMap<_, _>>(), serializer),");
+                    match_writer.line("Self::Object(values) => serde::Serialize::serialize(&values.iter().filter(|(key, _)| key != \"__smelt_class\" && key != \"__smelt_proto_object\" && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\")).collect::<::std::collections::HashMap<_, _>>(), serializer),");
                     match_writer.line("Self::Function(_) => serializer.serialize_str(\"function () { [native code] }\"),");
                     match_writer.line("Self::Promise(_) => serializer.serialize_str(\"[object Promise]\"),");
                 });

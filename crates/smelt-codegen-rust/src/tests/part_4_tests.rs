@@ -773,7 +773,7 @@ for (const entry: [string, number] of mapping) {
     // per-entry `.clone()`.
     assert!(
         source.contains(
-            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").collect::<Vec<_>>()"
+            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\" && key != \"__smelt_proto_object\").collect::<Vec<_>>()"
         ),
         "{source}"
     );

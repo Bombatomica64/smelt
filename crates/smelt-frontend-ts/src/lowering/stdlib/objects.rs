@@ -3,7 +3,7 @@
 
 use crate::lowering::ModuleBuilder;
 use crate::SmeltError;
-use oxc::ast::ast::{Argument, Expression, ObjectPropertyKind, PropertyKey};
+use oxc::ast::ast::{Argument, Expression};
 use oxc::span::GetSpan;
 use oxc::syntax::operator::{BinaryOperator, LogicalOperator};
 use smelt_hir::{
@@ -522,6 +522,24 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower `Object.create(proto)` to an erased object shaped from its prototype.
+    ///
+    /// Every prototype spelling takes the SAME path: the value is erased and
+    /// handed to the `smelt_object_from_prototype` runtime helper, which mints a
+    /// fresh object, copies the prototype's own keys behind the
+    /// `__smelt_proto:` prefix (so they resolve on a read but stay out of the
+    /// created object's own-key enumeration), and records the prototype value
+    /// itself so `Object.getPrototypeOf` can answer with the very object that
+    /// was passed in.
+    ///
+    /// Two shortcuts used to bypass it and both lost the prototype CHAIN, which
+    /// is observable: an object-literal prototype was inlined as
+    /// `__smelt_proto:` entries with no record of the parent, and a `null`
+    /// prototype folded to an empty object literal whose `[[Prototype]]` then
+    /// read back as `Object.prototype`. `Object.getPrototypeOf` must answer the
+    /// literal for the first and `null` for the second — the distinction
+    /// `isPlainObject` is built on (`Object.create({})` is not a plain object,
+    /// `Object.create(null)` is). Dropping both also makes a spread or computed
+    /// key in the prototype literal work, which the inlining rejected.
     pub(in crate::lowering) fn object_create_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -542,25 +560,9 @@ impl ModuleBuilder<'_> {
                 "Object.create requires exactly one prototype argument",
             ));
         };
-        if let Argument::ObjectExpression(prototype_object) = prototype {
-            return self.object_create_from_literal_prototype(call, prototype_object, body);
-        }
         let prototype = self.argument(prototype, body)?;
         let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
         let span = self.span(call.span.start, call.span.end);
-        if matches!(self.ctx.krate.types.get(Self::expr_ty(body, prototype)), Some(Type::None)) {
-            return Ok(Some(body.push_expr(Expr {
-                kind: ExprKind::DictLit(Vec::new()),
-                ty: unknown_ty,
-                span,
-            })));
-        }
-        // Any other prototype spelling goes through the runtime helper, which
-        // always mints a fresh object. Returning `prototype` itself (the previous
-        // behavior) aliased a concrete prototype and, for the opaque
-        // `"__smelt_proto:*"` sentinels `Object.getPrototypeOf` yields, handed the
-        // caller a string to assign fields onto — the shape
-        // `Object.assign(Object.create(Object.getPrototypeOf(obj)), obj)` needs.
         let prototype = if Self::expr_ty(body, prototype) == unknown_ty {
             prototype
         } else {
@@ -577,110 +579,6 @@ impl ModuleBuilder<'_> {
             kind: ExprKind::ObjectFromPrototype { prototype },
             ty: unknown_ty,
             span,
-        })))
-    }
-
-    /// Lower `Object.create({ ... })` while marking properties as inherited.
-    pub(in crate::lowering) fn object_create_from_literal_prototype(
-        &mut self,
-        call: &oxc::ast::ast::CallExpression<'_>,
-        prototype_object: &oxc::ast::ast::ObjectExpression<'_>,
-        body: &mut Body,
-    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let span = self.span(call.span.start, call.span.end);
-        let key_ty = self.ctx.krate.types.intern(Type::String);
-        let value_ty = self.ctx.krate.types.intern(Type::Unknown);
-        let dict_ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
-        let mut entries = Vec::new();
-        for property in &prototype_object.properties {
-            let ObjectPropertyKind::ObjectProperty(object_property) = property else {
-                return Err(SmeltError::unsupported(
-                    self.span(property.span().start, property.span().end),
-                    "Object.create prototype spread properties are not lowered yet",
-                ));
-            };
-            let Some(key_text) = self.static_object_property_key_text(object_property)? else {
-                return self.object_create_call_fallback(call, body);
-            };
-            let key = body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::String(format!("__smelt_proto:{key_text}"))),
-                ty: key_ty,
-                span: self.span(
-                    object_property.key.span().start,
-                    object_property.key.span().end,
-                ),
-            });
-            let value = self.object_property_value_expr(object_property, body, Some(value_ty))?;
-            entries.push((key, value));
-        }
-        let object_expr = body.push_expr(Expr {
-            kind: ExprKind::DictLit(entries),
-            ty: dict_ty,
-            span,
-        });
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
-        Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::UnknownCast {
-                value: object_expr,
-                target: unknown_ty,
-            },
-            ty: unknown_ty,
-            span,
-        })))
-    }
-
-    /// Return a static object-literal key when one is available.
-    pub(in crate::lowering) fn static_object_property_key_text(
-        &self,
-        object_property: &oxc::ast::ast::ObjectProperty<'_>,
-    ) -> Result<Option<String>, SmeltError> {
-        if object_property.computed {
-            return Ok(self.computed_string_literal_key(object_property));
-        }
-        match &object_property.key {
-            PropertyKey::StaticIdentifier(ident) => Ok(Some(ident.name.as_str().to_owned())),
-            PropertyKey::StringLiteral(lit) => Ok(Some(lit.value.to_string())),
-            PropertyKey::NumericLiteral(lit) => Ok(Some(lit.raw.as_ref().map_or_else(
-                || {
-                    if lit.value.fract() == 0.0_f64 {
-                        format!("{:.0}", lit.value)
-                    } else {
-                        lit.value.to_string()
-                    }
-                },
-                ToString::to_string,
-            ))),
-            _ => Err(SmeltError::unsupported(
-                self.span(
-                    object_property.key.span().start,
-                    object_property.key.span().end,
-                ),
-                "Object.create prototype keys must be static string keys or computed strings",
-            )),
-        }
-    }
-
-    /// Fall back to the broad erased `Object.create` approximation.
-    pub(in crate::lowering) fn object_create_call_fallback(
-        &mut self,
-        call: &oxc::ast::ast::CallExpression<'_>,
-        body: &mut Body,
-    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let [prototype] = call.arguments.as_slice() else {
-            return Ok(None);
-        };
-        let prototype = self.argument(prototype, body)?;
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
-        if Self::expr_ty(body, prototype) == unknown_ty {
-            return Ok(Some(prototype));
-        }
-        Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::UnknownCast {
-                value: prototype,
-                target: unknown_ty,
-            },
-            ty: unknown_ty,
-            span: self.span(call.span.start, call.span.end),
         })))
     }
 
