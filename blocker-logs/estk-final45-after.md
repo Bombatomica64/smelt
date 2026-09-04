@@ -1,6 +1,6 @@
 # Generated Rust Test Report
 
-- Cargo manifest: `/home/user/smelt/.claude/worktrees/agent-aa9d9211f414db586/third_party/es-toolkit/dist-smelt/Cargo.toml`
+- Cargo manifest: `third_party/es-toolkit/dist-smelt/Cargo.toml`
 - Focused runs: `0`
 - Guard runs: `0`
 - Full suite executed: `true`
@@ -8,7 +8,7 @@
 ## Full Suite
 
 - Status: `failed`
-- Result: `test result: FAILED. 1055 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.75s`
+- Result: `test result: FAILED. 1055 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.80s`
 - Failing tests: `4`
 
 ### Largest Failing Groups
@@ -22,7 +22,7 @@
 
 ### Delta From Baseline
 
-- Baseline report: `/home/user/smelt/blocker-logs/estk-current.md`
+- Baseline report: `blocker-logs/estk-current.md`
 - Resolved tests: `41`
 - Newly failing tests: `0`
 
