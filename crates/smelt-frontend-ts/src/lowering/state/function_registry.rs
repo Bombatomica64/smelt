@@ -170,6 +170,7 @@ mod tests {
         OverloadSignature {
             type_params: Vec::new(),
             params: Vec::new(),
+            param_lengths: Vec::new(),
             rest: None,
             min_rest: 0,
             required_params: None,

@@ -57,6 +57,34 @@ pub struct ObjectConst {
     pub ty: TypeId,
 }
 
+/// The length a parameter's *source* annotation demands of its argument.
+///
+/// TypeScript states array lengths in the type — `[A, B]` is exactly two
+/// elements, `[T, ...T[]]` and `NonEmptyArray<T>` at least one — but HIR lowers
+/// all three to a plain `Type::List`, so the requirement is erased. Overload
+/// selection is where that matters: without it a fixed-arity tuple parameter
+/// accepts any array and the earliest-declared overload wins calls TypeScript
+/// would route elsewhere.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParamLength {
+    /// A rest-less tuple `[A, B]`: exactly this many elements.
+    Exact(usize),
+    /// A required-prefix tuple `[T, ...T[]]` / `NonEmptyArray<T>`: at least
+    /// this many elements.
+    AtLeast(usize),
+}
+
+impl ParamLength {
+    /// Whether an argument of proven length `len` satisfies this requirement.
+    #[must_use]
+    pub fn is_satisfied_by(self, len: usize) -> bool {
+        match self {
+            Self::Exact(want) => len == want,
+            Self::AtLeast(want) => len >= want,
+        }
+    }
+}
+
 /// A TypeScript overload signature attached to a concrete implementation item.
 #[derive(Debug, Clone)]
 pub struct OverloadSignature {
@@ -64,6 +92,12 @@ pub struct OverloadSignature {
     pub type_params: Vec<TypeParamDef>,
     /// Parameter types in source order.
     pub params: Vec<TypeId>,
+    /// Per-parameter length requirement, parallel to [`Self::params`].
+    ///
+    /// `None` where the annotation states no length (`T[]`, `Array<T>`, a
+    /// non-array type). See [`ParamLength`] for why this cannot be recovered
+    /// from the lowered `params` types.
+    pub param_lengths: Vec<Option<ParamLength>>,
     /// Source index of a rest parameter, when this overload declares one.
     pub rest: Option<usize>,
     /// Minimum number of arguments the rest parameter requires.

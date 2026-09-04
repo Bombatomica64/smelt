@@ -2,7 +2,7 @@
 //! and related HIR construction helpers split out of `lowering.rs`.
 
 use crate::lowering::{LocalCallback, LocalCallbackDefault, ModuleBuilder, RestParam, TestMatcher};
-use crate::{SmeltError, camel_to_snake};
+use crate::SmeltError;
 use oxc::ast::ast::{Argument, BindingPattern, Expression, PropertyKey, Statement};
 use oxc::span::GetSpan;
 use oxc::syntax::operator::{BinaryOperator, LogicalOperator, UnaryOperator};
@@ -3868,8 +3868,7 @@ impl ModuleBuilder<'_> {
                     ));
                 }
                 let name = binding.name.as_str();
-                let symbol = self.ctx.krate.symbols.intern(&camel_to_snake(name));
-                self.ctx.krate.names.record(symbol, name);
+                let symbol = self.intern_source_name(name);
                 let local = body.push_local(LocalDecl {
                     name: Some(symbol),
                     ty,

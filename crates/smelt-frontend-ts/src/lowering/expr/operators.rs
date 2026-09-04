@@ -3009,6 +3009,12 @@ impl ModuleBuilder<'_> {
     /// and the literal keeps the single unified candidate when they all
     /// agree. Mixed or erased candidates fall back to `Unknown`, matching the
     /// previous blanket behavior for genuinely heterogeneous literals.
+    ///
+    /// A contextual hint that is a callee's *own* uninstantiated type parameter
+    /// is not a hint at all — `T` in `total<T>(items: readonly T[], …)` names
+    /// nothing at the call site, and adopting it types the literal `List<T>`
+    /// where `T` is out of scope. Nothing downstream can relate that to the
+    /// pieces' real types, so the pieces win instead.
     pub(in crate::lowering) fn array_spread_item_type(
         &mut self,
         pieces: &[(smelt_hir::ExprId, bool)],
@@ -3017,6 +3023,7 @@ impl ModuleBuilder<'_> {
     ) -> smelt_hir::TypeId {
         if let Some(hint) = type_hint
             && let Some(Type::List(item_ty)) = self.ctx.krate.types.get(hint)
+            && !self.type_param_is_out_of_scope(*item_ty)
         {
             return *item_ty;
         }

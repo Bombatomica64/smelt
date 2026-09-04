@@ -1586,19 +1586,20 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let type_params = self.push_type_parameter_scope(function.type_parameters.as_deref())?;
         let result = (|| {
             let mut params = Vec::new();
+            // Recorded alongside the lowered type because the lowering erases
+            // it: `[A, B]`, `[T, ...T[]]` and `T[]` are all `Type::List`.
+            let mut param_lengths = Vec::new();
             for param in &function.params.items {
-                let ty = param
-                    .type_annotation
-                    .as_ref()
-                    .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                    .transpose()?
-                    .ok_or_else(|| {
-                        SmeltError::unsupported(
-                            self.span(param.span.start, param.span.end),
-                            "overload parameters must have explicit type annotations",
-                        )
-                    })?;
-                params.push(ty);
+                let annotation = param.type_annotation.as_ref().ok_or_else(|| {
+                    SmeltError::unsupported(
+                        self.span(param.span.start, param.span.end),
+                        "overload parameters must have explicit type annotations",
+                    )
+                })?;
+                param_lengths.push(Self::parameter_length_requirement(
+                    &annotation.type_annotation,
+                ));
+                params.push(self.ts_type_to_hir(&annotation.type_annotation)?);
             }
             let mut min_rest = 0;
             if let Some(rest) = &function.params.rest {
@@ -1611,6 +1612,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 min_rest = Self::rest_parameter_min_arity(&annotation.type_annotation);
                 let rest_ty = self.ts_type_to_hir(&annotation.type_annotation)?;
                 params.push(self.type_param_constraint_or_self(rest_ty));
+                // A rest parameter's length lives in `min_rest`, so the
+                // parallel vector carries no separate requirement for it.
+                param_lengths.push(None);
             }
             // An ASSERTION overload (`asserts condition`) returns void at runtime,
             // exactly as `function_declaration` records for the implementation
@@ -1648,6 +1652,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             Ok(OverloadSignature {
                 type_params,
                 params,
+                param_lengths,
                 rest: function
                     .params
                     .rest
