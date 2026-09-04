@@ -1095,10 +1095,10 @@ fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { if smel
 /// Return whether a record key is visible to JavaScript `for...in` iteration.
 fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> bool { if smelt_record_has_host_marker(record) { return false; } !key.starts_with("__smelt_proto:") && !key.starts_with("__smelt_method:") && key != "__smelt_date" && key != "__smelt_timezone" && key != "__smelt_class" && !(record.contains_key("__smelt_regexp") && matches!(key, "__smelt_regexp" | "source" | "flags" | "lastIndex")) && !(record.contains_key("__smelt_error") && matches!(key, "__smelt_error" | "message" | "cause" | "errors" | "stack")) && !(record.contains_key("__smelt_arguments") && matches!(key, "__smelt_arguments" | "length")) }
 /// Every key JavaScript `for...in` yields for an erased object, prototype chain included.
-fn smelt_for_in_object_keys(map: &SmeltObject) -> Vec<String> { let mut keys = Vec::new(); let mut seen = ::std::collections::HashSet::new(); for key in map.keys() { if key.starts_with("__smelt_proto:") { continue; } if smelt_is_for_in_object_key(map, &key) && seen.insert(key.clone()) { keys.push(key); } } for key in map.keys() { if let Some(inherited) = key.strip_prefix("__smelt_proto:") { if inherited == SMELT_PROTOTYPE_LINK_NAME { continue; } let inherited = inherited.to_owned(); if seen.insert(inherited.clone()) { keys.push(inherited); } } } keys }
+fn smelt_for_in_object_keys(map: &SmeltObject) -> Vec<String> { let mut keys = Vec::new(); let mut seen = ::std::collections::HashSet::new(); for key in map.keys() { if key.starts_with("__smelt_proto:") { continue; } if smelt_is_for_in_object_key(map, &key) && seen.insert(key.clone()) { keys.push(key); } } for key in map.keys() { if let Some(inherited) = key.strip_prefix("__smelt_proto:") { let inherited = inherited.to_owned(); if seen.insert(inherited.clone()) { keys.push(inherited); } } } keys }
 
 /// Every key JavaScript `for...in` yields for a typed record, prototype chain included.
-fn smelt_for_in_record_keys<V>(record: &SmeltRecord<String, V>) -> Vec<String> { let mut keys = Vec::new(); let mut seen = ::std::collections::HashSet::new(); for key in record.keys() { if key.starts_with("__smelt_proto:") { continue; } if smelt_is_for_in_record_key(record, &key) && seen.insert(key.clone()) { keys.push(key); } } for key in record.keys() { if let Some(inherited) = key.strip_prefix("__smelt_proto:") { if inherited == SMELT_PROTOTYPE_LINK_NAME { continue; } let inherited = inherited.to_owned(); if seen.insert(inherited.clone()) { keys.push(inherited); } } } keys }
+fn smelt_for_in_record_keys<V>(record: &SmeltRecord<String, V>) -> Vec<String> { let mut keys = Vec::new(); let mut seen = ::std::collections::HashSet::new(); for key in record.keys() { if key.starts_with("__smelt_proto:") { continue; } if smelt_is_for_in_record_key(record, &key) && seen.insert(key.clone()) { keys.push(key); } } for key in record.keys() { if let Some(inherited) = key.strip_prefix("__smelt_proto:") { let inherited = inherited.to_owned(); if seen.insert(inherited.clone()) { keys.push(inherited); } } } keys }
 
 /// Own entries of a `SmeltJsMap` backing, with representation markers removed.
 ///
@@ -1112,7 +1112,7 @@ fn smelt_own_js_map_entries<V: Clone>(map: &SmeltJsMap<SmeltUnknown, V>) -> Vec<
 /// Own string keys first, then the enumerable `__smelt_proto:` members with
 /// their prefix stripped -- the same order and the same prototype-chain rule as
 /// `smelt_for_in_record_keys`. Symbol keys are never enumerated by `for...in`.
-fn smelt_for_in_js_map_keys<V: Clone>(map: &SmeltJsMap<SmeltUnknown, V>) -> Vec<SmeltUnknown> { let mut keys = Vec::new(); let mut seen = ::std::collections::HashSet::new(); for (key, _) in smelt_own_js_map_entries(map) { if matches!(key, SmeltUnknown::Symbol(_)) { continue; } if let SmeltUnknown::String(text) = &key { if !seen.insert(text.to_string()) { continue; } } keys.push(key); } for key in map.keys() { let SmeltUnknown::String(text) = &key else { continue; }; if let Some(inherited) = text.strip_prefix("__smelt_proto:") { if inherited == SMELT_PROTOTYPE_LINK_NAME { continue; } let inherited = inherited.to_owned(); if seen.insert(inherited.clone()) { keys.push(SmeltUnknown::String(inherited.as_str().into())); } } } keys }
+fn smelt_for_in_js_map_keys<V: Clone>(map: &SmeltJsMap<SmeltUnknown, V>) -> Vec<SmeltUnknown> { let mut keys = Vec::new(); let mut seen = ::std::collections::HashSet::new(); for (key, _) in smelt_own_js_map_entries(map) { if matches!(key, SmeltUnknown::Symbol(_)) { continue; } if let SmeltUnknown::String(text) = &key { if !seen.insert(text.to_string()) { continue; } } keys.push(key); } for key in map.keys() { let SmeltUnknown::String(text) = &key else { continue; }; if let Some(inherited) = text.strip_prefix("__smelt_proto:") { let inherited = inherited.to_owned(); if seen.insert(inherited.clone()) { keys.push(SmeltUnknown::String(inherited.as_str().into())); } } } keys }
 
 /// The symbol value a stored property key denotes, if it is a symbol key.
 fn smelt_key_symbol_value(key: &str) -> Option<SmeltUnknown> { if let Some(description) = key.strip_prefix("__smelt_symbol:") { return Some(SmeltUnknown::Symbol(description.into())); } match key { "__smelt_symbol_iterator" => Some(SmeltUnknown::Symbol("Symbol.iterator".into())), "__smelt_symbol_async_iterator" => Some(SmeltUnknown::Symbol("Symbol.asyncIterator".into())), "__smelt_symbol_has_instance" => Some(SmeltUnknown::Symbol("Symbol.hasInstance".into())), "__smelt_symbol_is_concat_spreadable" => Some(SmeltUnknown::Symbol("Symbol.isConcatSpreadable".into())), "__smelt_symbol_match" => Some(SmeltUnknown::Symbol("Symbol.match".into())), "__smelt_symbol_match_all" => Some(SmeltUnknown::Symbol("Symbol.matchAll".into())), "__smelt_symbol_replace" => Some(SmeltUnknown::Symbol("Symbol.replace".into())), "__smelt_symbol_search" => Some(SmeltUnknown::Symbol("Symbol.search".into())), "__smelt_symbol_species" => Some(SmeltUnknown::Symbol("Symbol.species".into())), "__smelt_symbol_split" => Some(SmeltUnknown::Symbol("Symbol.split".into())), "__smelt_symbol_to_primitive" => Some(SmeltUnknown::Symbol("Symbol.toPrimitive".into())), "__smelt_symbol_to_string_tag" => Some(SmeltUnknown::Symbol("Symbol.toStringTag".into())), "__smelt_symbol_unscopables" => Some(SmeltUnknown::Symbol("Symbol.unscopables".into())), _ => None } }
@@ -1205,18 +1205,26 @@ fn smelt_builtin_construct_kind(name: &str) -> Option<&'static str> { [("ArrayBu
 thread_local! { static SMELT_BUILTIN_NAMESPACES: ::std::cell::RefCell<::std::collections::HashMap<String, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 fn smelt_builtin_namespace(name: &str) -> SmeltUnknown { SMELT_BUILTIN_NAMESPACES.with(|cache| cache.borrow_mut().entry(name.to_owned()).or_insert_with(|| { let record = SmeltObject::new(Vec::from([("__smelt_builtin_namespace".to_owned(), SmeltUnknown::Bool(true)), ("name".to_owned(), SmeltUnknown::String(name.into()))])); if let Some(kind) = smelt_builtin_construct_kind(name) { record.insert("__smelt_call".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| Ok(smelt_reflected_construct(kind, args))))); } SmeltUnknown::Object(record) }).clone()) }
 fn smelt_fresh_identity(value: SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Object(map) => SmeltUnknown::Object(SmeltObject::with_id(smelt_next_object_id(), map.iter().collect())), SmeltUnknown::Array(array) => SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), array.into_vec())), other => other } }
-/// Create a fresh erased object from a runtime prototype value (`Object.create`).
-fn smelt_object_from_prototype(prototype: SmeltUnknown) -> SmeltUnknown { let mut fields: Vec<(String, SmeltUnknown)> = Vec::new(); match &prototype { SmeltUnknown::String(sentinel) if &**sentinel == "__smelt_proto:class" => { fields.push(("__smelt_class".to_owned(), SmeltUnknown::Bool(true))); }, SmeltUnknown::Object(map) => { for (key, value) in map.iter() { if key == "__smelt_proto:__proto__" { continue; } if key == "__smelt_class" || key.starts_with("__smelt_proto:") { fields.push((key, value)); } else { fields.push((format!("__smelt_proto:{key}"), value)); } } }, _ => {} } if matches!(prototype, SmeltUnknown::Object(_)) { fields.push(("__smelt_proto:__proto__".to_owned(), prototype)); } SmeltUnknown::Object(SmeltObject::new(fields)) }
-fn smelt_prototype_sentinel(value: &SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Null => SmeltUnknown::Null, SmeltUnknown::Array(_) => SmeltUnknown::String("__smelt_proto:array".into()), SmeltUnknown::Promise(_) => SmeltUnknown::String("__smelt_proto:promise".into()), SmeltUnknown::Object(map) if map.contains_key("__smelt_class") => SmeltUnknown::String("__smelt_proto:class".into()), SmeltUnknown::Object(map) => match smelt_reflected_marker_class(map) { Some(class) => smelt_reflected_prototype(class), None => SmeltUnknown::String("__smelt_proto:object".into()) }, SmeltUnknown::String(marker) if &**marker == "__smelt_proto:object" => SmeltUnknown::Null, SmeltUnknown::String(marker) if &**marker == "__smelt_proto:array" || &**marker == "__smelt_proto:promise" || &**marker == "__smelt_proto:class" => SmeltUnknown::String("__smelt_proto:object".into()), _ => SmeltUnknown::String("__smelt_proto:object".into()) } }
-/// Read the JavaScript `__proto__` accessor for an erased value.
-fn smelt_proto_accessor(value: &SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Object(map) if map.contains_key("__proto__") => smelt_get_object_field(map, "__proto__"), SmeltUnknown::Object(map) if map.contains_key("__smelt_proto:__proto__") => map.get("__smelt_proto:__proto__").unwrap_or(SmeltUnknown::Undefined), other => smelt_prototype_sentinel(other) } }
+/// Whether an `Object.create` prototype has to be recorded to stay observable.
+fn smelt_prototype_slot_is_observable(prototype: &SmeltUnknown) -> bool { !matches!(prototype, SmeltUnknown::String(sentinel) if &**sentinel == "__smelt_proto:object" || &**sentinel == "__smelt_proto:class") }
 
-/// Inherited-key spelling of the hidden prototype-link slot.
-///
-/// The `for...in` key walks strip the `__smelt_proto:` prefix to yield inherited
-/// members, which would expose the link slot as a `__proto__` key; they compare
-/// against this name to skip it.
-const SMELT_PROTOTYPE_LINK_NAME: &str = "__proto__";
+
+thread_local! {
+    /// `[[Prototype]]` of objects built by `Object.create`, keyed by object identity.
+    static SMELT_OBJECT_PROTOTYPES: ::std::cell::RefCell<::std::collections::HashMap<usize, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
+}
+
+/// Record the `[[Prototype]]` of the object with this identity.
+fn smelt_register_object_prototype(id: usize, prototype: SmeltUnknown) { SMELT_OBJECT_PROTOTYPES.with(|prototypes| { prototypes.borrow_mut().insert(id, prototype); }); }
+
+/// The recorded `[[Prototype]]` of the object with this identity, if it has one.
+fn smelt_recorded_object_prototype(id: usize) -> Option<SmeltUnknown> { SMELT_OBJECT_PROTOTYPES.with(|prototypes| prototypes.borrow().get(&id).cloned()) }
+
+/// Create a fresh erased object from a runtime prototype value (`Object.create`).
+fn smelt_object_from_prototype(prototype: SmeltUnknown) -> SmeltUnknown { let mut fields: Vec<(String, SmeltUnknown)> = Vec::new(); match &prototype { SmeltUnknown::String(sentinel) if &**sentinel == "__smelt_proto:class" => { fields.push(("__smelt_class".to_owned(), SmeltUnknown::Bool(true))); }, SmeltUnknown::Object(map) => { for (key, value) in map.iter() { if key == "__smelt_class" || key.starts_with("__smelt_proto:") { fields.push((key, value)); } else { fields.push((format!("__smelt_proto:{key}"), value)); } } }, _ => {} } let object = SmeltObject::new(fields); if smelt_prototype_slot_is_observable(&prototype) { smelt_register_object_prototype(object.id, prototype); } SmeltUnknown::Object(object) }
+fn smelt_prototype_sentinel(value: &SmeltUnknown) -> SmeltUnknown { if let SmeltUnknown::Object(map) = value && let Some(prototype) = smelt_recorded_object_prototype(map.id) { return prototype; } match value { SmeltUnknown::Null => SmeltUnknown::Null, SmeltUnknown::Array(_) => SmeltUnknown::String("__smelt_proto:array".into()), SmeltUnknown::Promise(_) => SmeltUnknown::String("__smelt_proto:promise".into()), SmeltUnknown::Object(map) if map.contains_key("__smelt_class") => SmeltUnknown::String("__smelt_proto:class".into()), SmeltUnknown::Object(map) => match smelt_reflected_marker_class(map) { Some(class) => smelt_reflected_prototype(class), None => SmeltUnknown::String("__smelt_proto:object".into()) }, SmeltUnknown::String(marker) if &**marker == "__smelt_proto:object" => SmeltUnknown::Null, SmeltUnknown::String(marker) if &**marker == "__smelt_proto:array" || &**marker == "__smelt_proto:promise" || &**marker == "__smelt_proto:class" => SmeltUnknown::String("__smelt_proto:object".into()), _ => SmeltUnknown::String("__smelt_proto:object".into()) } }
+/// Read the JavaScript `__proto__` accessor for an erased value.
+fn smelt_proto_accessor(value: &SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Object(map) if map.contains_key("__proto__") => smelt_get_object_field(map, "__proto__"), other => smelt_prototype_sentinel(other) } }
 
 thread_local! {
     /// Own JavaScript properties of each function value, keyed by canonical
@@ -1263,21 +1271,37 @@ impl Eq for SmeltObject {}
 impl ::std::hash::Hash for SmeltObject { fn hash<H: ::std::hash::Hasher>(&self, state: &mut H) { let mut smelt_seen = ::std::collections::HashSet::new(); smelt_object_structural_hash(self, state, &mut smelt_seen); } }
 impl IntoIterator for SmeltObject { type Item = (String, SmeltUnknown); type IntoIter = ::std::vec::IntoIter<(String, SmeltUnknown)>; fn into_iter(self) -> Self::IntoIter { self.iter() } }
 
+thread_local! {
+    /// Named (non-index) properties of erased arrays, keyed by array identity.
+    static SMELT_ARRAY_PROPS: ::std::cell::RefCell<::std::collections::HashMap<usize, Vec<(String, SmeltUnknown)>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
+}
+
+/// Read one named property of the array with this identity.
+fn smelt_array_named_property(id: usize, key: &str) -> Option<SmeltUnknown> { SMELT_ARRAY_PROPS.with(|props| props.borrow().get(&id).and_then(|props| props.iter().find(|(name, _)| name == key).map(|(_, value)| value.clone()))) }
+
+/// Write one named property of the array with this identity, creating its table on first use.
+fn smelt_array_set_named_property(id: usize, key: String, value: SmeltUnknown) { SMELT_ARRAY_PROPS.with(|props| { let mut props = props.borrow_mut(); let entries = props.entry(id).or_default(); match entries.iter_mut().find(|(name, _)| *name == key) { Some(slot) => slot.1 = value, None => entries.push((key, value)) } }); }
+
+/// The named property keys of the array with this identity, in insertion order.
+fn smelt_array_named_keys(id: usize) -> Vec<String> { SMELT_ARRAY_PROPS.with(|props| props.borrow().get(&id).map_or_else(Vec::new, |props| props.iter().map(|(name, _)| name.clone()).collect())) }
+
+/// The named properties of the array with this identity, in insertion order.
+fn smelt_array_named_entries(id: usize) -> Vec<(String, SmeltUnknown)> { SMELT_ARRAY_PROPS.with(|props| props.borrow().get(&id).cloned().unwrap_or_default()) }
+
 pub struct SmeltArray {
     id: usize,
     values: ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>>,
-    props: ::std::rc::Rc<::std::cell::RefCell<Option<Vec<(String, SmeltUnknown)>>>>,
 }
 
 impl ::std::fmt::Debug for SmeltArray { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_struct("SmeltArray").field("id", &self.id).field("values", &*self.values.borrow()).finish() } }
-impl Clone for SmeltArray { fn clone(&self) -> Self { Self { id: self.id, values: self.values.clone(), props: self.props.clone() } } }
+impl Clone for SmeltArray { fn clone(&self) -> Self { Self { id: self.id, values: self.values.clone() } } }
 impl SmeltArray {
     /// Create an identity-bearing erased JavaScript array.
-    fn new(values: Vec<SmeltUnknown>) -> Self { Self { id: smelt_next_object_id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)), props: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }
+    fn new(values: Vec<SmeltUnknown>) -> Self { Self { id: smelt_next_object_id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)) } }
     /// Reuse a caller-supplied identity so repeated erasures of one source list compare `===` equal.
-    fn with_id(id: usize, values: Vec<SmeltUnknown>) -> Self { Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)), props: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }
+    fn with_id(id: usize, values: Vec<SmeltUnknown>) -> Self { Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)) } }
     /// Reuse an existing shared buffer, so a re-wrap keeps aliasing the same array.
-    fn with_storage(id: usize, values: ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>>) -> Self { Self { id, values, props: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }
+    fn with_storage(id: usize, values: ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>>) -> Self { Self { id, values } }
     /// Another handle on this array's shared buffer.
     fn storage(&self) -> ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>> { ::std::rc::Rc::clone(&self.values) }
     /// Snapshot the elements. This COPIES: mutating the result does not write back.
@@ -1297,15 +1321,15 @@ impl SmeltArray {
     /// Replace every element in place, so aliases observe the new contents.
     fn replace_all(&self, values: Vec<SmeltUnknown>) { *self.values.borrow_mut() = values; }
     /// Read a NON-INDEX named property (JS `arr.x`), or `None` when absent.
-    fn named_property(&self, key: &str) -> Option<SmeltUnknown> { self.props.borrow().as_ref().and_then(|props| props.iter().find(|(name, _)| name == key).map(|(_, value)| value.clone())) }
+    fn named_property(&self, key: &str) -> Option<SmeltUnknown> { smelt_array_named_property(self.id, key) }
     /// Write a NON-INDEX named property (JS `arr.x = v`), allocating the side table on first use.
-    fn set_named_property(&self, key: String, value: SmeltUnknown) { let mut props = self.props.borrow_mut(); let props = props.get_or_insert_with(Vec::new); match props.iter_mut().find(|(name, _)| *name == key) { Some(slot) => slot.1 = value, None => props.push((key, value)) } }
+    fn set_named_property(&self, key: String, value: SmeltUnknown) { smelt_array_set_named_property(self.id, key, value); }
     /// The named property keys, in insertion order (empty in the common case).
-    fn named_keys(&self) -> Vec<String> { self.props.borrow().as_ref().map_or_else(Vec::new, |props| props.iter().map(|(name, _)| name.clone()).collect()) }
+    fn named_keys(&self) -> Vec<String> { smelt_array_named_keys(self.id) }
     /// Own enumerable keys: the element indices, then the named properties, exactly the order `Object.keys` reports.
     fn own_keys(&self) -> Vec<String> { let mut keys = (0..self.len()).map(|index| index.to_string()).collect::<Vec<_>>(); keys.extend(self.named_keys()); keys }
     /// Own enumerable entries, paired with the keys `own_keys` reports.
-    fn own_entries(&self) -> Vec<(String, SmeltUnknown)> { let mut entries = self.values.borrow().iter().enumerate().map(|(index, value)| (index.to_string(), value.clone())).collect::<Vec<_>>(); if let Some(props) = self.props.borrow().as_ref() { entries.extend(props.iter().cloned()); } entries }
+    fn own_entries(&self) -> Vec<(String, SmeltUnknown)> { let mut entries = self.values.borrow().iter().enumerate().map(|(index, value)| (index.to_string(), value.clone())).collect::<Vec<_>>(); entries.extend(smelt_array_named_entries(self.id)); entries }
 }
 impl From<Vec<SmeltUnknown>> for SmeltArray { fn from(values: Vec<SmeltUnknown>) -> Self { Self::new(values) } }
 impl ::std::iter::FromIterator<SmeltUnknown> for SmeltArray { fn from_iter<T: IntoIterator<Item = SmeltUnknown>>(iter: T) -> Self { Self::new(iter.into_iter().collect()) } }
@@ -1772,13 +1796,21 @@ fn smelt_unknown_structural_eq(left: &SmeltUnknown, right: &SmeltUnknown, seen: 
     }
 }
 
+/// Whether an erased object key is an OWN property for structural comparison.
+///
+/// `__smelt_proto:<name>` / `__smelt_method:<name>` carry inherited members and
+/// `__smelt_class` records which prototype an instance came from;
+/// JavaScript exposes none of the three as an own property, so deep equality
+/// and the matching hash both skip them.
+fn smelt_is_own_structural_key(key: &str) -> bool { !key.starts_with("__smelt_proto:") && !key.starts_with("__smelt_method:") && key != "__smelt_class" }
+
 fn smelt_object_structural_eq(left: &SmeltObject, right: &SmeltObject, seen: &mut ::std::collections::HashSet<(usize, usize)>) -> bool {
     if left.contains_key("__smelt_date") || right.contains_key("__smelt_date") { let left_date = smelt_unknown_date_value(&SmeltUnknown::Object(left.clone())); let right_date = smelt_unknown_date_value(&SmeltUnknown::Object(right.clone())); return left_date == right_date || (left_date.is_nan() && right_date.is_nan()); }
     if left.id == right.id { return true; }
     let key = (left.id, right.id);
     if !seen.insert(key) { return true; }
-    let left_entries = left.iter().filter(|(key, _)| !key.starts_with("__smelt_proto:") && !key.starts_with("__smelt_method:")).collect::<Vec<_>>();
-    let right_own = right.iter().filter(|(key, _)| !key.starts_with("__smelt_proto:") && !key.starts_with("__smelt_method:")).count();
+    let left_entries = left.iter().filter(|(key, _)| smelt_is_own_structural_key(key)).collect::<Vec<_>>();
+    let right_own = right.iter().filter(|(key, _)| smelt_is_own_structural_key(key)).count();
     if left_entries.len() != right_own { return false; }
     left_entries.into_iter().all(|(key, left_value)| right.get(&key).is_some_and(|right_value| smelt_unknown_structural_eq(&left_value, &right_value, seen)))
 }
@@ -1807,7 +1839,7 @@ fn smelt_unknown_stable_hash_key(value: &SmeltUnknown) -> u64 {
 
 fn smelt_object_structural_hash<H: ::std::hash::Hasher>(object: &SmeltObject, state: &mut H, seen: &mut ::std::collections::HashSet<usize>) {
     if !seen.insert(object.id) { 255_u8.hash(state); return; }
-    let mut entries = object.iter().filter(|(key, _)| !key.starts_with("__smelt_proto:") && !key.starts_with("__smelt_method:")).collect::<Vec<_>>();
+    let mut entries = object.iter().filter(|(key, _)| smelt_is_own_structural_key(key)).collect::<Vec<_>>();
     entries.sort_by(|left, right| left.0.cmp(&right.0));
     entries.len().hash(state);
     for (key, value) in entries { key.hash(state); smelt_unknown_structural_hash(&value, state, seen); }
@@ -2584,25 +2616,25 @@ impl SmeltMatch {
 /// `input`. It is the single explicit adapter used when a typed
 /// `SmeltMatch` must flow into erased `unknown` consumer dataflow.
 ///
-/// A JavaScript match result is really an ARRAY with those extra named
-/// properties, and `SmeltArray` can now carry named properties (see its
-/// `props` side table), so this could report `[object Array]` instead --
-/// which is what makes a match compare equal to the plain array a spec
-/// matches it against. It does not yet, because the typed `SmeltList` view
-/// cannot reach those properties: a `T[]`-typed reader of the erased value
-/// (es-toolkit `cloneDeepWith` narrows with `Array.isArray` and then reads
-/// `.index`/`.input`) would take the array branch and copy neither, losing
-/// them from the clone. Flipping this adapter belongs with making the side
-/// table reachable through a typed list handle.
+/// A JavaScript match result IS an array — `Array.isArray(/c/.exec(s))` is
+/// `true` and `Object.prototype.toString.call` reports `[object Array]` —
+/// carrying `index`, `input` and `groups` as ordinary named properties. So
+/// the erasure is a `SmeltUnknown::Array` over the numbered groups plus
+/// three entries in the identity-keyed named-property table. That is what
+/// makes a match compare equal to the plain array a spec matches it
+/// against (es-toolkit `isEqualWith`'s array arm compares only `length` and
+/// the elements), and, because the table is keyed by identity rather than
+/// held on the `SmeltArray`, a `T[]`-typed reader that narrows the value
+/// with `Array.isArray` and then reads `.index`/`.input` (es-toolkit
+/// `cloneDeepWith`) still finds them through its typed list handle.
 impl IntoSmeltUnknown for SmeltMatch {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        let mut object: Vec<(String, SmeltUnknown)> = Vec::new();
-        for (index, value) in self.groups.iter().enumerate() { object.push((index.to_string(), value.clone().map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into())))); }
+        let elements = self.groups.iter().map(|value| value.clone().map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))).collect::<Vec<_>>();
         let groups = self.named.into_iter().map(|(name, value)| (name, value.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into())))).collect::<Vec<_>>();
-        object.push(("groups".to_owned(), SmeltUnknown::Object(SmeltObject::new(groups))));
-        object.push(("index".to_owned(), SmeltUnknown::Number(self.match_index as f64)));
-        object.push(("input".to_owned(), SmeltUnknown::String(self.input.into())));
-        SmeltUnknown::Object(SmeltObject::with_id(self.id, object))
+        smelt_array_set_named_property(self.id, "index".to_owned(), SmeltUnknown::Number(self.match_index as f64));
+        smelt_array_set_named_property(self.id, "input".to_owned(), SmeltUnknown::String(self.input.into()));
+        smelt_array_set_named_property(self.id, "groups".to_owned(), SmeltUnknown::Object(SmeltObject::new(groups)));
+        SmeltUnknown::Array(SmeltArray::with_id(self.id, elements))
     }
 }
 

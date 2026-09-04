@@ -206,6 +206,15 @@ struct AssertionNarrowing {
 struct LocalCallback {
     /// Root span identifying the lexical body that owns the materialized closure.
     defining_body_span: Option<Span>,
+    /// Whether the binding's local also HOLDS the closure value at runtime.
+    ///
+    /// A local callback is normally inlined at each use, which keeps a call
+    /// concrete (and a generic callback instantiable per call site) but gives
+    /// the binding's local no value. When the declaration additionally
+    /// materializes the closure into that local, the binding is a real function
+    /// value with observable JavaScript identity, and a reference must read it
+    /// instead of rebuilding a second closure.
+    materialized: bool,
     /// Lowered callback expression tree.
     callback: CallbackExpr,
     /// Parameter types in source order.

@@ -158,7 +158,7 @@ pub(crate) fn method_is_proto_eligible(
     }
     function.params.iter().skip(1).all(|param| {
         local_decl(function, *param)
-            .is_some_and(|local| type_supports_from_unknown(mir, local.ty))
+            .is_some_and(|local| type_supports_from_unknown(mir, context, local.ty))
     })
 }
 

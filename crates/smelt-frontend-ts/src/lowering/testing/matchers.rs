@@ -454,10 +454,10 @@ impl ModuleBuilder<'_> {
             };
             let bool_ty = self.ctx.krate.types.intern(Type::Bool);
             // Both matchers read the live mock state behind the erased actual
-            // (`__smelt_vitest_mock` marker). A non-mock actual passes
-            // vacuously: the pre-mock matcher was fully vacuous, and unmocked
-            // spy handles (`vi.spyOn`) still lower to plain placeholders, so
-            // failing them here would regress unrelated suites.
+            // (`__smelt_vitest_mock` marker). A value that is not a mock has
+            // recorded no calls, so the runtime helpers answer FALSE for it —
+            // `vi.spyOn` produces a real mock now, and the vacuous pass the
+            // placeholder era needed would only hide a broken assertion.
             let matched = if matcher_name == "toHaveBeenCalledTimes" {
                 let count_arg = call.arguments.first().ok_or_else(|| {
                     SmeltError::unsupported(
@@ -3716,7 +3716,13 @@ impl ModuleBuilder<'_> {
                 self.scope.register_callback(
                     name.to_owned(),
                     LocalCallback {
-                        defining_body_span: body.blocks.first().map(|root_block| root_block.span),
+                        defining_body_span: body
+                            .blocks
+                            .first()
+                            .map(|root_block| root_block.span),
+                        // The `Stmt::Let` above only runs for a predeclared local,
+                        // so that is exactly when the binding holds the closure.
+                        materialized: predeclared_local.is_some(),
                         callback,
                         params,
                         defaults: closure_defaults,
