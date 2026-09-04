@@ -946,6 +946,35 @@ impl<'builder> ModuleBuilder<'builder> {
             } else {
                 return_ty
             };
+            // An overload may promise a concrete return where the
+            // IMPLEMENTATION returns a type parameter no argument bound.
+            // es-toolkit `reduceAsync` is the shape: the implementation is
+            // `<T, U>(array, reducer, initialValue?: U): Promise<U>`, and a
+            // two-argument call supplies nothing that fixes `U` (the erased
+            // `vi.fn` reducer included), so the lowered body hands back a
+            // runtime-tagged value -- for an empty array, `undefined`.
+            // Asserting the overload's `Promise<number>` over that makes the
+            // emitter insert a JS `ToNumber` whose nullish arm MANUFACTURES a
+            // value (`undefined` becomes `f64::NAN`) and then fold
+            // `result === undefined` to `false`: the assertion the source
+            // wrote can never hold. The unbound parameter is the evidence that
+            // the concrete claim has no basis, so the erased return wins --
+            // the same reasoning as `renders_as_erased_function` above.
+            let return_ty = match self.return_leaf_type_param(implementation_return_ty) {
+                Some(name) if return_ty != implementation_return_ty => {
+                    let mut substitutions = HashMap::new();
+                    for (param, arg) in params.iter().zip(&args) {
+                        let arg_ty = Self::expr_ty(body, *arg);
+                        let _ = self.infer_overload_type(*param, arg_ty, &mut substitutions);
+                    }
+                    if substitutions.contains_key(&name) {
+                        return_ty
+                    } else {
+                        implementation_return_ty
+                    }
+                }
+                _ => return_ty,
+            };
             let callee = body.push_expr(Expr {
                 kind: ExprKind::Item(item),
                 ty: self.ctx.krate.types.intern(Type::Function(function_ty)),
@@ -3657,6 +3686,18 @@ impl<'builder> ModuleBuilder<'builder> {
     /// `<T, K extends Keys<T>>(key: K) => (data: T) => ...` before `T` is
     /// known; the later callable context provides it. Enforcing `K`'s bound
     /// while `T` is still present rejects valid curried calls.
+    /// Peel the wrappers that do not decide a return's identity, then report
+    /// the type parameter the leaf names, if it is one.
+    fn return_leaf_type_param(&self, ty: smelt_hir::TypeId) -> Option<smelt_hir::Symbol> {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::TypeParam { name }) => Some(*name),
+            Some(Type::Future(inner) | Type::Optional(inner)) => {
+                self.return_leaf_type_param(*inner)
+            }
+            _ => None,
+        }
+    }
+
     pub(in crate::lowering) fn overload_constraint_contains_unresolved_type_param(
         &self,
         constraint: smelt_hir::TypeId,
