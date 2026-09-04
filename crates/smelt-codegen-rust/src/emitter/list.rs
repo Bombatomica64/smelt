@@ -249,10 +249,18 @@ impl FunctionEmitter<'_> {
                 "{left_read}.iter().cloned().chain({right_read}.iter().cloned()).collect::<Vec<_>>()"
             ));
         }
+        // A concatenation the emitter cannot type must be an error, never a
+        // plausible value: `Default::default()` for a list type is the EMPTY
+        // list, so the two operands were silently discarded and every caller
+        // read an empty array back from a concat that had real elements.
         let (Some(Type::List(left_item)), Some(Type::List(right_item))) =
             (self.mir.types.get(left_ty), self.mir.types.get(right_ty))
         else {
-            return Ok("Default::default()".to_owned());
+            return Err(EmitError::new(format!(
+                "list concatenation needs two list operands, got {:?} and {:?}",
+                self.mir.types.get(left_ty),
+                self.mir.types.get(right_ty)
+            )));
         };
         // `concat` (and spread) always yields a NEW array, so even concatenating
         // an empty list produces a fresh reference identity, not an alias.
@@ -292,7 +300,14 @@ impl FunctionEmitter<'_> {
                     ));
                 }
             }
-            return Ok("Default::default()".to_owned());
+            // Same rule as above: neither element type can absorb the other, so
+            // there is no correct text — an empty list is a wrong answer, not a
+            // fallback.
+            return Err(EmitError::new(format!(
+                "list concatenation cannot reconcile element types {:?} and {:?}",
+                self.mir.types.get(*left_item),
+                self.mir.types.get(*right_item)
+            )));
         }
         Ok(format!(
             "{}.iter().cloned().chain({}.iter().cloned()).collect::<Vec<_>>()",

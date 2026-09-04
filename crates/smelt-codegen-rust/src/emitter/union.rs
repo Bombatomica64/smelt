@@ -493,23 +493,162 @@ impl FunctionEmitter<'_> {
     /// extracted into the member's concrete Rust storage. The final member is the
     /// total fallback so the reconstruction is exhaustive (tsc has already proven
     /// the value inhabits the union).
+    /// The runtime tag is only a discriminator when the arms disagree about it.
+    /// Two object-shaped arms share `SmeltUnknown::Object(_)`, and in source
+    /// order the FIRST of them therefore claimed every object -- and its
+    /// extraction then retyped the recovered value's leaves to that arm's field
+    /// types, so an `A & B`-shaped value forced into arm `A` came back with
+    /// `age: 36` rewritten as the string `"36"`. Silent data corruption, not a
+    /// mis-typing.
+    ///
+    /// So ambiguous arms are ordered by how much evidence their guard actually
+    /// checks: an arm with a structural key check (a class, whose declared
+    /// fields are known) is tried before one with only the shared tag, and
+    /// among the rest an arm whose extraction is lossless -- a record or list of
+    /// erased values, which keeps every leaf as it arrived -- is preferred over
+    /// one that would retype. That makes "no arm matched" resolve to keeping the
+    /// erased value rather than to rewriting it.
     pub(super) fn union_from_smelt_unknown_body(
         &self,
         members: &[TypeId],
     ) -> Result<String, EmitError> {
+        let order = self.union_recovery_order(members);
         let mut body = String::new();
-        for (index, member) in members.iter().enumerate() {
-            let extracted = self.extract_value_text("value", *member)?;
-            if Some(index) == members.len().checked_sub(1) {
+        for (position, &index) in order.iter().enumerate() {
+            let Some(&member) = members.get(index) else {
+                continue;
+            };
+            let extracted = self.extract_value_text("value", member)?;
+            if Some(position) == order.len().checked_sub(1) {
                 body.push_str(&format!("        Self::M{index}({extracted})\n"));
             } else {
-                let pattern = self.union_member_unknown_pattern(*member);
+                let pattern = self.union_member_unknown_pattern(member);
+                let guard = match self.union_member_structural_guard(member, members, index) {
+                    Some(structural) => format!("matches!(value, {pattern}) && {structural}"),
+                    None => format!("matches!(value, {pattern})"),
+                };
                 body.push_str(&format!(
-                    "        if matches!(value, {pattern}) {{ return Self::M{index}({extracted}); }}\n"
+                    "        if {guard} {{ return Self::M{index}({extracted}); }}\n"
                 ));
             }
         }
         Ok(body)
+    }
+
+    /// Order the member indexes by how much evidence their recovery guard has.
+    ///
+    /// Arms whose runtime tag is unique to them keep source order — the tag
+    /// alone decides, so nothing is ambiguous. Arms that share a tag with
+    /// another arm are ranked: structurally checkable first, then lossless
+    /// (nothing is retyped when this arm is the one that catches the value),
+    /// then the remainder. The last entry becomes the unconditional fallback.
+    fn union_recovery_order(&self, members: &[TypeId]) -> Vec<usize> {
+        let mut order: Vec<usize> = (0..members.len()).collect();
+        let tag_of = |index: usize| {
+            members
+                .get(index)
+                .map(|member| self.union_member_unknown_pattern(*member))
+        };
+        let shares_tag = |index: usize| {
+            (0..members.len()).any(|other| other != index && tag_of(other) == tag_of(index))
+        };
+        order.sort_by_key(|&index| {
+            let Some(&member) = members.get(index) else {
+                return (u8::MAX, index);
+            };
+            if !shares_tag(index) {
+                return (0_u8, index);
+            }
+            let rank = if self
+                .union_member_structural_guard(member, members, index)
+                .is_some()
+            {
+                1
+            } else if self.union_member_extraction_is_lossless(member) {
+                2
+            } else {
+                3
+            };
+            (rank, index)
+        });
+        order
+    }
+
+    /// Build a structural key-presence guard that separates `member` from the
+    /// arms it shares a runtime tag with, if its declared shape allows one.
+    ///
+    /// Only a class knows its own field names in MIR; a record is
+    /// `Dict(String, V)` and states no keys, so there is nothing to test and
+    /// this returns `None` for it. The guard asserts every field this arm
+    /// declares that at least one same-tag sibling does not.
+    fn union_member_structural_guard(
+        &self,
+        member: TypeId,
+        members: &[TypeId],
+        index: usize,
+    ) -> Option<String> {
+        let Some(Type::Class { name, .. }) = self.mir.types.get(member) else {
+            return None;
+        };
+        let tag = self.union_member_unknown_pattern(member);
+        let siblings = members
+            .iter()
+            .enumerate()
+            .filter(|(other, ty)| {
+                *other != index && self.union_member_unknown_pattern(**ty) == tag
+            })
+            .map(|(_, ty)| *ty)
+            .collect::<Vec<_>>();
+        if siblings.is_empty() {
+            return None;
+        }
+        let fields = self
+            .mir
+            .classes
+            .iter()
+            .find(|class| class.name == *name)
+            .map(|class| {
+                class
+                    .fields
+                    .iter()
+                    .filter_map(|field| self.symbol_name(field.name).ok())
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>()
+            })?;
+        let distinguishing = fields
+            .into_iter()
+            .filter(|field| {
+                siblings
+                    .iter()
+                    .any(|sibling| !self.union_member_has_field(*sibling, field))
+            })
+            .map(|field| {
+                format!(
+                    "matches!(&value, SmeltUnknown::Object(map) if map.contains_key({field:?}))"
+                )
+            })
+            .collect::<Vec<_>>();
+        if distinguishing.is_empty() {
+            None
+        } else {
+            Some(format!("({})", distinguishing.join(" && ")))
+        }
+    }
+
+    /// Whether recovering into this arm leaves every leaf of the erased value
+    /// exactly as it arrived.
+    ///
+    /// A container of `Unknown` stores the runtime values verbatim; a container
+    /// of a concrete element type re-extracts every leaf into that type, which
+    /// is where `36` became `"36"`.
+    fn union_member_extraction_is_lossless(&self, member: TypeId) -> bool {
+        match self.mir.types.get(member) {
+            Some(Type::Unknown) => true,
+            Some(Type::Dict(_, value) | Type::List(value) | Type::Set(value)) => {
+                matches!(self.mir.types.get(*value), Some(Type::Unknown))
+            }
+            _ => false,
+        }
     }
 
     /// Emit a structural `field in value` check over concrete union arms.

@@ -12,8 +12,18 @@ use smelt_hir::{
 
 impl ModuleBuilder<'_> {
     /// Intern a source identifier name and convert from `camelCase` to `snake_case`.
+    ///
+    /// The symbol's identity is the *exact* source spelling; only its Rust
+    /// rendering is case-folded. Interning on the folded spelling would alias
+    /// names JavaScript keeps apart (a declaration `Foo` and a property `foo`),
+    /// and `OriginalNameTable::record` being last-writer-wins would then let one
+    /// of them decide the key string the other is read with.
     pub(in crate::lowering) fn intern_source_name(&mut self, name: &str) -> smelt_hir::Symbol {
-        let symbol = self.ctx.krate.symbols.intern(&camel_to_snake(name));
+        let symbol = self
+            .ctx
+            .krate
+            .symbols
+            .intern_rendered(name, &camel_to_snake(name));
         self.ctx.krate.names.record(symbol, name);
         symbol
     }

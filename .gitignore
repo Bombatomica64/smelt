@@ -147,3 +147,7 @@ probe.json
 
 # shared cargo target for the es-toolkit probe crate used by parallel implementer worktrees
 /target-estk/
+
+# private per-worktree cargo target dirs for parallel implementer agents
+/target-priv/
+/target-estk-priv/

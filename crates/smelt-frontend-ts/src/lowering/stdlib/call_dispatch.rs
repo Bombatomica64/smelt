@@ -6,7 +6,7 @@
 
 use crate::lowering::{ModuleBuilder, RestParam, stdlib_dispatch};
 use crate::{OverloadSignature, SmeltError, test_support};
-use oxc::ast::ast::{Argument, Expression};
+use oxc::ast::ast::{Argument, ArrayExpressionElement, Expression};
 use oxc::span::GetSpan;
 use smelt_hir::{
     AsyncOp, Body, CaptureMode, ClosureCapture, Expr, ExprKind, Field, FunctionType,
@@ -2646,6 +2646,19 @@ impl<'builder> ModuleBuilder<'builder> {
         if implementation_return_ty == overload_return_ty {
             return overload_return_ty;
         }
+        // The callee's LOWERED return is what its Rust body actually produces.
+        // When that can be absent -- an `Option<T>`, or an erased value that may
+        // carry `undefined` -- and the declared overload return cannot, the
+        // declaration is a lie about a value the call site will observe. Keeping
+        // the declared type there makes the emitter insert a coercion that
+        // MANUFACTURES a value for absence (`map_or(Default::default(), ..)` for
+        // an `Option`, a JS `ToNumber` whose nullish arm is `f64::NAN` for an
+        // erased one) and then const-folds `result === undefined` to `false`.
+        // The presence information wins, exactly as it already does below for a
+        // callee that lowers to the fully-erased function shape.
+        if self.lowered_return_admits_absence(implementation_return_ty, overload_return_ty) {
+            return implementation_return_ty;
+        }
         let (
             Some(Type::Function(implementation_function)),
             Some(Type::Function(overload_function)),
@@ -2662,6 +2675,45 @@ impl<'builder> ModuleBuilder<'builder> {
             return implementation_return_ty;
         }
         overload_return_ty
+    }
+
+    /// Whether the lowered return type can be absent where the declared
+    /// overload return type cannot.
+    ///
+    /// Walks both types together through the wrappers that do not themselves
+    /// decide presence (`Promise`/`Future`, `List`), and reports the first
+    /// position where the lowered side admits absence and the declared side
+    /// does not:
+    ///
+    /// lowered `Optional(T)` against a non-optional declaration — the callee
+    /// returns `None` for some input, as `maxBy` does on an empty array.
+    ///
+    /// A declaration that is itself optional or erased asserts nothing extra,
+    /// so it keeps winning; this only ever *removes* a claim the callee cannot
+    /// honour.
+    ///
+    /// A lowered `Unknown` is deliberately NOT treated as absence here. The
+    /// data-last / purry idiom writes the implementation as
+    /// `f(...args: unknown[]): unknown` precisely so the overloads carry the
+    /// contract, and there the declaration is the more truthful of the two.
+    fn lowered_return_admits_absence(
+        &self,
+        lowered: smelt_hir::TypeId,
+        declared: smelt_hir::TypeId,
+    ) -> bool {
+        let lowered_ty = self.ctx.krate.types.get(lowered);
+        let declared_ty = self.ctx.krate.types.get(declared);
+        match (lowered_ty, declared_ty) {
+            (Some(Type::Future(lowered_inner)), Some(Type::Future(declared_inner)))
+            | (Some(Type::List(lowered_inner)), Some(Type::List(declared_inner))) => {
+                self.lowered_return_admits_absence(*lowered_inner, *declared_inner)
+            }
+            (Some(Type::Optional(_)), Some(declared_kind)) => !matches!(
+                declared_kind,
+                Type::Optional(_) | Type::Unknown | Type::None | Type::TypeParam { .. }
+            ),
+            _ => false,
+        }
     }
 
     /// Whether a function type says nothing about its values beyond its arity.
@@ -3320,6 +3372,60 @@ impl<'builder> ModuleBuilder<'builder> {
         matches!(argument, Argument::ArrayExpression(array) if array.elements.is_empty())
     }
 
+    /// Return whether every length-constrained parameter of `signature` has an
+    /// argument that *proves* the length its annotation demands.
+    ///
+    /// A tuple parameter (`[A, B]`) or a non-empty-array parameter
+    /// (`readonly [T, ...T[]]`, `NonEmptyArray<T>`) is a claim about the
+    /// argument's length, and only the call site can settle it: a spread-free
+    /// array literal with the right element count. A variable of type `T[]`, a
+    /// call result, or a literal containing a spread proves nothing about its
+    /// runtime length, so such a signature is inapplicable — otherwise the
+    /// earliest-declared tuple overload swallows plain-array calls TypeScript
+    /// routes to a later one, and its (often much narrower) return type becomes
+    /// the call's type.
+    ///
+    /// A missing argument is not a failure here: `overload_signature_arity_matches`
+    /// already ruled on arity, and an optional parameter may legally have none.
+    fn overload_param_lengths_are_proven(
+        signature: &OverloadSignature,
+        arguments: &[Argument<'_>],
+    ) -> bool {
+        signature
+            .param_lengths
+            .iter()
+            .enumerate()
+            .all(|(index, requirement)| {
+                let Some(requirement) = *requirement else {
+                    return true;
+                };
+                let Some(argument) = arguments.get(index) else {
+                    return true;
+                };
+                Self::argument_proven_array_length(argument)
+                    .is_some_and(|len| requirement.is_satisfied_by(len))
+            })
+    }
+
+    /// Return the statically known element count of an argument, if it has one.
+    ///
+    /// Only a spread-free array literal does. A spread element contributes an
+    /// unknown number of elements, so a literal containing one has no proven
+    /// length at all.
+    fn argument_proven_array_length(argument: &Argument<'_>) -> Option<usize> {
+        let Argument::ArrayExpression(array) = argument else {
+            return None;
+        };
+        if array
+            .elements
+            .iter()
+            .any(|element| matches!(element, ArrayExpressionElement::SpreadElement(_)))
+        {
+            return None;
+        }
+        Some(array.elements.len())
+    }
+
     /// Return whether an empty array literal `[]` is assignable to `ty`.
     ///
     /// `[]` inhabits collection-shaped types (arrays/lists, sets, dictionaries)
@@ -3389,6 +3495,7 @@ impl<'builder> ModuleBuilder<'builder> {
         if Self::overload_signature_arity_matches(signature, arg_tys.len())
             && signature.rest.is_none()
             && !has_spread_argument
+            && Self::overload_param_lengths_are_proven(signature, arguments)
             && signature
                 .params
                 .iter()
@@ -3407,6 +3514,9 @@ impl<'builder> ModuleBuilder<'builder> {
             return arg_tys.is_empty();
         };
         if rest_index != fixed_params.len() {
+            return false;
+        }
+        if !Self::overload_param_lengths_are_proven(signature, arguments) {
             return false;
         }
         if arg_tys.len() < fixed_params.len() {
@@ -3505,6 +3615,7 @@ impl<'builder> ModuleBuilder<'builder> {
         OverloadSignature {
             type_params: signature.type_params,
             params,
+            param_lengths: signature.param_lengths,
             rest: signature.rest,
             min_rest: signature.min_rest,
             required_params: signature.required_params,
