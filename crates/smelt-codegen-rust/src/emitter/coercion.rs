@@ -1179,6 +1179,10 @@ impl FunctionEmitter<'_> {
                 if self.mir.types.get(*key) == Some(&Type::String)
                     && self.mir.types.get(*item) == Some(&Type::Unknown) =>
             {
+                // The object arm ALIASES the erased object's field store
+                // (`smelt_shared_record`) rather than rebuilding its entries: a
+                // JavaScript object is a reference value, so a write through the
+                // recovered record must reach the object it came from.
                 Ok(format!(
                     "SmeltUnknown::Object(SmeltObject::from_unknown_record({smelt_owned_text}))"
                 ))
@@ -2461,7 +2465,7 @@ impl FunctionEmitter<'_> {
                     && self.mir.types.get(*item) == Some(&Type::Unknown) =>
             {
                 Ok(format!(
-                    "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(value) => SmeltRecord::with_id_from_entries(value.id, value.into_iter()), SmeltUnknown::Array(values) => values.own_entries().into_iter().collect(), SmeltUnknown::String(value) => value.chars().enumerate().map(|(index, ch)| (index.to_string(), SmeltUnknown::String(ch.to_string().into()))).collect(), SmeltUnknown::Function(value) => SmeltRecord::from([(\"__smelt_call\".to_owned(), SmeltUnknown::Function(value))]), _ => SmeltRecord::new() }}"
+                    "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(value) => value.smelt_shared_record(), SmeltUnknown::Array(values) => values.own_entries().into_iter().collect(), SmeltUnknown::String(value) => value.chars().enumerate().map(|(index, ch)| (index.to_string(), SmeltUnknown::String(ch.to_string().into()))).collect(), SmeltUnknown::Function(value) => SmeltRecord::from([(\"__smelt_call\".to_owned(), SmeltUnknown::Function(value))]), _ => SmeltRecord::new() }}"
                 ))
             }
             Some(Type::Dict(key, item)) if self.mir.types.get(*key) == Some(&Type::String) => {

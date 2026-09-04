@@ -1940,6 +1940,16 @@ fn emit_source_with_free_function_router(
         writer.blank_line();
         writer.line("impl Clone for SmeltObject { fn clone(&self) -> Self { Self { id: self.id, store: self.store.clone() } } }");
         writer.line("impl SmeltObject {");
+        // A JavaScript object is a REFERENCE value, so recovering an erased one
+        // at its record type must not copy it: `SmeltObject` and
+        // `SmeltRecord<String, SmeltUnknown>` are the same representation (an id
+        // plus a shared field store), so the recovery can hand back a second
+        // handle on the SAME store. Rebuilding the entries instead detached the
+        // recovered record from the value it came from, and every write through
+        // it -- `Object.assign(erasedTarget, source)`, a property store on a
+        // recovered object -- landed in a copy nothing else could see.
+        writer.line("    /// A second handle on this object's own field store.");
+        writer.line("    fn smelt_shared_record(&self) -> SmeltRecord<String, SmeltUnknown> { SmeltRecord { id: self.id, store: ::std::rc::Rc::clone(&self.store) } }");
         writer.line("    /// Build an erased object from entries in source order.");
         writer.line("    ///");
         writer.line("    /// The entry sequence is ordered on purpose: JavaScript own-key order is a");
