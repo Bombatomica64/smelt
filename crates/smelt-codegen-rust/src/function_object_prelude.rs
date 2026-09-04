@@ -53,11 +53,23 @@ pub const PROTOTYPE_LINK_KEY: &str = "__smelt_proto:__proto__";
 /// What a `for...in` loop would yield if it did not skip the slot.
 pub const PROTOTYPE_LINK_INHERITED_NAME: &str = "__proto__";
 
-/// Emit the function-object and construction helpers into the generated prelude.
-pub fn emit(writer: &mut CodeWriter) {
+/// Emit the function-object helpers into the generated prelude.
+///
+/// The own-property bag is always emitted: every erased property read and every
+/// `SmeltErasedFunction` consults it. `[[Construct]]` and the chain walk are
+/// emitted only for a crate that spells them, so a program that never
+/// constructs through a function value carries neither.
+pub fn emit(writer: &mut CodeWriter, needs_construct: bool, needs_instance_of_value: bool) {
     emit_property_bag(writer);
-    emit_construct(writer);
-    emit_instance_of(writer);
+    if needs_construct {
+        emit_construct(writer);
+    }
+    if needs_construct || needs_instance_of_value {
+        emit_callable_of(writer);
+    }
+    if needs_instance_of_value {
+        emit_instance_of(writer);
+    }
 }
 
 /// Emit the identity-keyed own-property bag of function values.
@@ -100,6 +112,10 @@ fn emit_property_bag(writer: &mut CodeWriter) {
     writer.line("/// Read one own property of an erased function value (JS `f.prototype`).");
     writer.line("fn smelt_function_value_property(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>, name: &str) -> SmeltUnknown { let identity = smelt_canonical_function_identity(function); if let Some(value) = smelt_function_property_lookup(identity, name) { return value; } if name == \"prototype\" { return smelt_function_prototype(identity, SmeltUnknown::Function(function.clone())); } SmeltUnknown::Undefined }");
     writer.blank_line();
+}
+
+/// Emit the "callable behind an erased value" resolver both operations need.
+fn emit_callable_of(writer: &mut CodeWriter) {
     writer.line("/// The callable behind an erased value: a function, or a callable object's");
     writer.line("/// `__smelt_call` slot.");
     writer.line("fn smelt_callable_of(value: &SmeltUnknown) -> Option<::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>> { match value { SmeltUnknown::Function(function) => Some(function.clone()), SmeltUnknown::Object(object) => match object.get(\"__smelt_call\") { Some(SmeltUnknown::Function(function)) => Some(function), _ => None }, _ => None } }");

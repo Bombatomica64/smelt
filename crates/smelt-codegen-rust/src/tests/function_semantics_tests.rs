@@ -120,7 +120,7 @@ fn new_through_a_function_value_emits_the_construct_operation() {
     let source = source_for(
         r"
 export function run(make: (...args: unknown[]) => unknown): unknown {
-  return new (make as any)(1);
+  return new make(1);
 }
 ",
     );
@@ -143,9 +143,8 @@ fn instanceof_a_function_value_walks_the_prototype_chain() {
     // runtime never constructs closure values with `new`.
     let source = source_for(
         r"
-export function run(value: unknown): boolean {
-  function C() {}
-  return value instanceof C;
+export function run(value: unknown, ctor: (...args: unknown[]) => unknown): boolean {
+  return value instanceof ctor;
 }
 ",
     );
@@ -170,7 +169,9 @@ fn a_property_write_onto_a_function_value_lands_in_its_property_bag() {
         r"
 export function run(func: (...args: unknown[]) => unknown): unknown {
   const wrapper = function (...args: unknown[]) { return func(...args); };
-  (wrapper as any).prototype = Object.create((func as any).prototype);
+  if ((func as any).prototype) {
+    wrapper.prototype = Object.create((func as any).prototype);
+  }
   return wrapper;
 }
 ",

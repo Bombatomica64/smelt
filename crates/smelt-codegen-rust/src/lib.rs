@@ -566,6 +566,13 @@ fn emit_source_with_free_function_router(
             Rvalue::ThisRead | Rvalue::BindThis { .. } | Rvalue::Construct { .. }
         )
     });
+    // JavaScript `[[Construct]]` and the `instanceof` prototype-chain walk are
+    // each reachable from exactly one rvalue, so a program that constructs
+    // nothing through a function value carries neither helper.
+    let needs_construct =
+        stdlib::rvalues(mir).any(|rvalue| matches!(rvalue, Rvalue::Construct { .. }));
+    let needs_instance_of_value =
+        stdlib::rvalues(mir).any(|rvalue| matches!(rvalue, Rvalue::InstanceOfValue { .. }));
     let needs_host_override = stdlib::needs_host_override_runtime(mir);
     let needs_shared_captures = mir
         .closures
@@ -2224,7 +2231,7 @@ fn emit_source_with_free_function_router(
             link_key = function_object_prelude::PROTOTYPE_LINK_KEY,
         ));
         writer.blank_line();
-        function_object_prelude::emit(&mut writer);
+        function_object_prelude::emit(&mut writer, needs_construct, needs_instance_of_value);
         writer.line("/// Resolve the JavaScript `Object.prototype.toString.call(x)` tag for an erased value.");
         writer.line("///");
         writer.line("/// Primitive and function variants map to their spec tags. Object records");
@@ -3307,6 +3314,11 @@ fn emit_source_with_free_function_router(
             set_element = smelt_stdlib::runtime_symbols::byte_buffer::SET_ELEMENT,
         ));
         writer.line("        SmeltUnknown::Object(map) => { map.insert(key, value); }");
+        // A JavaScript function is an object, so a keyed write onto one is a
+        // real store into its own-property bag (`function_object_prelude`) --
+        // not a reason to replace the function with a record, which is what the
+        // fallback arm below would do and which loses the callable.
+        writer.line("        SmeltUnknown::Function(function) => { smelt_set_function_property(function, &key, value); }");
         // A JS array keeps being an array when a non-index key is written to it:
         // `a[0] = x` sets an element, `a.x = v` sets a named property in the
         // array's side table (`SmeltArray::props`). Replacing the array with a

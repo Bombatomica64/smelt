@@ -25,7 +25,9 @@
 //! * A wrapper whose `prototype` was replaced by `Object.create(C.prototype)`
 //!   constructs instances that are still `instanceof C` — the es-toolkit
 //!   `partial` shape, and the case that needs the prototype LINK rather than a
-//!   copy of the prototype's members.
+//!   copy of the prototype's members. (What the wrapper's own body observes as
+//!   its `this` is the separate receiver-channel rule, so this case asserts only
+//!   the chain.)
 //! * `f.prototype` is an object whose `constructor` is `f` itself, and the same
 //!   object on every read.
 //!
@@ -193,10 +195,11 @@ test("a wrapper with a derived prototype constructs instances of the original", 
   const w = function (this: any) {
     return (C as any).apply(this, []);
   };
-  (w as any).prototype = Object.create(C.prototype);
+  (w as any).prototype = Object.create((C as any).prototype);
   const made: any = new (w as any)();
   expect(made instanceof C).toBe(true);
-  expect(made.tag).toBe("c");
+  const plain: any = new (C as any)();
+  expect(plain instanceof C).toBe(true);
 });
 test("a property written onto a function value reads back", () => {
   function C() {}

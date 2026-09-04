@@ -464,7 +464,7 @@ export function build(key: string, arg: number): unknown {
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     ensure!(crate_has_expr(&ctx, |kind| matches!(
         kind,
-        ExprKind::ClosureCall { .. }
+        ExprKind::Construct { .. }
     )));
     Ok(())
 }

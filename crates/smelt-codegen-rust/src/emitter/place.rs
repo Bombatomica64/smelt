@@ -231,8 +231,29 @@ impl FunctionEmitter<'_> {
                         ))
                     };
                 }
+                // A JavaScript function is an object: a property read on one
+                // answers its own-property bag, where `prototype` is
+                // materialised on first read and where a source-written member
+                // (`wrapper.placeholder`, `partialed.prototype`) lands. The
+                // receiver is erased first so the read shares the one bag every
+                // representation of that function reads through, and so
+                // `prototype.constructor` can be the function itself.
+                //
+                // `Function.prototype`'s own members keep their existing
+                // answers: `apply`/`call`/`bind` are resolved by the
+                // callable-interface and erased-receiver paths, and `length` /
+                // `name` by the arity registry, so routing them here would
+                // change which helper answers them.
                 if matches!(self.mir.types.get(base_ty), Some(Type::Function(_))) {
-                    return Ok(self.null_value_text());
+                    let field_name = self.symbol_source_name(*field)?;
+                    if matches!(field_name, "apply" | "call" | "bind" | "length" | "name") {
+                        return Ok(self.null_value_text());
+                    }
+                    let base_text = self.local_value_text(*base)?;
+                    let erased = self.erase_value_text(&cloned_value_text(&base_text), base_ty)?;
+                    return Ok(format!(
+                        "smelt_get_unknown_field(&{erased}, {field_name:?})"
+                    ));
                 }
                 if smelt_stdlib::typescript_field_rule(self.symbol_source_name(*field)?)
                     == Some(smelt_stdlib::FieldRule::TsConstructor)

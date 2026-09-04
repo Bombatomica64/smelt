@@ -564,13 +564,19 @@ impl FunctionEmitter<'_> {
                     // `Index` erased-object path below. Non-self-referential values
                     // keep the simpler inline form to avoid churn.
                     let base_name = self.local_name(*base)?.to_owned();
+                    // A FUNCTION receiver keeps being a function: the write
+                    // lands in its identity-keyed own-property bag (see
+                    // `crate::function_object_prelude`), which every other
+                    // representation of that function reads through. Falling
+                    // through to the primitive arm replaced the callable with a
+                    // one-property record, so `(f as any).x = 1` lost `f`.
                     if rendered_value.contains(&base_name) {
                         out.push_str(&format!(
-                            "    {{ let smelt_value = {rendered_value}; match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert({field_name:?}.to_owned(), smelt_value); }}, SmeltUnknown::Array(values) => {{ values.set_named_property({field_name:?}.to_owned(), smelt_value); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), smelt_value)]))); }} }} }}\n"
+                            "    {{ let smelt_value = {rendered_value}; match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert({field_name:?}.to_owned(), smelt_value); }}, SmeltUnknown::Array(values) => {{ values.set_named_property({field_name:?}.to_owned(), smelt_value); }}, SmeltUnknown::Function(function) => {{ smelt_set_function_property(function, {field_name:?}, smelt_value); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), smelt_value)]))); }} }} }}\n"
                         ));
                     } else {
                         out.push_str(&format!(
-                            "    match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert({field_name:?}.to_owned(), {rendered_value}); }}, SmeltUnknown::Array(values) => {{ values.set_named_property({field_name:?}.to_owned(), {rendered_value}); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), {rendered_value})]))); }} }}\n"
+                            "    match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert({field_name:?}.to_owned(), {rendered_value}); }}, SmeltUnknown::Array(values) => {{ values.set_named_property({field_name:?}.to_owned(), {rendered_value}); }}, SmeltUnknown::Function(function) => {{ smelt_set_function_property(function, {field_name:?}, {rendered_value}); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), {rendered_value})]))); }} }}\n"
                         ));
                     }
                     return Ok(());

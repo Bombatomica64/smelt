@@ -8189,7 +8189,7 @@ export function makeError(
             .bodies
             .iter()
             .flat_map(|body| body.exprs.iter())
-            .any(|expr| matches!(expr.kind, ExprKind::ClosureCall { .. }))
+            .any(|expr| matches!(expr.kind, ExprKind::Construct { .. }))
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
@@ -8220,7 +8220,7 @@ export const widget = build(Widget, "gadget");
             .bodies
             .iter()
             .flat_map(|body| body.exprs.iter())
-            .any(|expr| matches!(expr.kind, ExprKind::ClosureCall { .. }))
+            .any(|expr| matches!(expr.kind, ExprKind::Construct { .. }))
     );
     ensure!(
         ctx.krate
@@ -8303,7 +8303,7 @@ function make(ctor: MapCacheConstructor): MapCache {
             .bodies
             .iter()
             .flat_map(|body| body.exprs.iter())
-            .any(|expr| matches!(expr.kind, ExprKind::ClosureCall { .. }))
+            .any(|expr| matches!(expr.kind, ExprKind::Construct { .. }))
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())

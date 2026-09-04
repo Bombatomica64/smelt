@@ -88,10 +88,17 @@ impl ModuleBuilder<'_> {
                 }));
             }
             // `new <expr>(...)` over a dynamic callee (`new object[key](...
-            // args)` in lodash-compat `bindKey`). Classes are not first-class
-            // values in Smelt, so a computed callee can only hold a function
-            // value: the construction lowers as a dynamic closure call through
-            // the erased ABI, a genuine dynamic boundary returning `unknown`.
+            // args)` in lodash-compat `bindKey`, `new (C as any)()` wherever
+            // TypeScript needs the cast to accept a plain function as a
+            // constructor). Classes are not first-class values in Smelt, so a
+            // computed callee can only hold a function value, and constructing
+            // through one is JavaScript `[[Construct]]`: the same
+            // `ExprKind::Construct` the named-binding path below uses.
+            //
+            // The SPREAD form (`new f(...args)`) still lowers as a dynamic call:
+            // `ExprKind::Construct` carries positional arguments, and a runtime
+            // argument vector needs its own node. Until it has one, `new
+            // f(...args)` keeps the pre-construction behavior.
             let callee_value = self.expression(&new_expr.callee, body)?;
             let callee_ty = Self::expr_ty(body, callee_value);
             let callable_ty = self.function_member_type(callee_ty);
@@ -131,7 +138,7 @@ impl ModuleBuilder<'_> {
                     })
                     .collect::<Result<Vec<_>, _>>()?;
                 return Ok(body.push_expr(Expr {
-                    kind: ExprKind::ClosureCall {
+                    kind: ExprKind::Construct {
                         callee: callee_value,
                         args,
                     },
