@@ -392,13 +392,22 @@ impl ModuleBuilder<'_> {
     /// dispatch.
     ///
     /// A constructor-type annotation lowers to an ordinary `Type::Function` (see
-    /// `constructor_type_to_hir`), so `new ctor(args)` is just an indirect call
-    /// through that callable value: JavaScript classes *are* constructor
-    /// functions, and invoking one produces the constructed value. This reuses
-    /// the exact `ExprKind::ClosureCall` path a plain `ctor(args)` call takes,
-    /// with the result typed as the callable's declared return type. When the
-    /// binding is present but is *not* a callable value, `None` is returned and
-    /// the caller reports the existing "unresolved class" / non-callable error.
+    /// `constructor_type_to_hir`), so the callee is reached as a VALUE — but
+    /// constructing through a function value is not the same operation as
+    /// calling it. JavaScript `[[Construct]]` allocates an object linked to the
+    /// callee's `prototype`, runs the callee with that object as its receiver,
+    /// and keeps the allocated object unless the callee returned one of its
+    /// own; none of that happens for a plain call. So this lowers to
+    /// `ExprKind::Construct`, not `ExprKind::ClosureCall`, in both the
+    /// concretely-typed and the dynamic case. When the binding is present but
+    /// is *not* a callable value, `None` is returned and the caller reports the
+    /// existing "unresolved class" / non-callable error.
+    ///
+    /// The result type stays the callable's declared return type where there is
+    /// one: a construct signature (`new () => MapCache`) states exactly what
+    /// the construction yields, and a constructor whose body returns an object
+    /// yields that object, so the declared type is the honest answer. A callee
+    /// with no function type is a genuine dynamic boundary and stays `unknown`.
     pub(super) fn new_through_value_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
@@ -429,7 +438,7 @@ impl ModuleBuilder<'_> {
                 .map(|arg| self.argument(arg, body))
                 .collect::<Result<Vec<_>, _>>()?;
             return Ok(Some(body.push_expr(Expr {
-                kind: ExprKind::ClosureCall {
+                kind: ExprKind::Construct {
                     callee: callee_expr,
                     args,
                 },
@@ -453,7 +462,7 @@ impl ModuleBuilder<'_> {
             .map(|arg| self.argument(arg, body))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::ClosureCall {
+            kind: ExprKind::Construct {
                 callee: callee_expr,
                 args,
             },

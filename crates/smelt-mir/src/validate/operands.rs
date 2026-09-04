@@ -54,6 +54,12 @@ impl Rvalue {
                     visit(arg);
                 }
             }
+            Self::Construct { callee, args } => {
+                visit(callee);
+                for arg in args {
+                    visit(arg);
+                }
+            }
             Self::ClosureCallSpread { callee, args } => {
                 visit(callee);
                 visit(args);
@@ -97,6 +103,10 @@ impl Rvalue {
             }
             Self::InstanceOf { value: operand, .. } => {
                 visit(operand);
+            }
+            Self::InstanceOfValue { value, target } => {
+                visit(value);
+                visit(target);
             }
             Self::UnknownIs {
                 value: unknown_value,
@@ -851,6 +861,12 @@ impl Rvalue {
                     visit(arg);
                 }
             }
+            Self::Construct { callee, args } => {
+                visit(callee);
+                for arg in args.iter_mut() {
+                    visit(arg);
+                }
+            }
             Self::ClosureCallSpread { callee, args } => {
                 visit(callee);
                 visit(args);
@@ -894,6 +910,10 @@ impl Rvalue {
             }
             Self::InstanceOf { value: operand, .. } => {
                 visit(operand);
+            }
+            Self::InstanceOfValue { value, target } => {
+                visit(value);
+                visit(target);
             }
             Self::UnknownIs {
                 value: unknown_value,

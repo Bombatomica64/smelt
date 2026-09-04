@@ -302,9 +302,17 @@ fn rewrite_rvalue(
             rewrite_operand_except(callee, aliases, dest),
             |changed, arg| rewrite_operand_except(arg, aliases, dest) | changed,
         ),
+        Rvalue::Construct { callee, args } => args.iter_mut().fold(
+            rewrite_operand_except(callee, aliases, dest),
+            |changed, arg| rewrite_operand_except(arg, aliases, dest) | changed,
+        ),
         Rvalue::ClosureCallSpread { callee, args } => {
             rewrite_operand_except(callee, aliases, dest)
                 | rewrite_operand_except(args, aliases, dest)
+        }
+        Rvalue::InstanceOfValue { value, target } => {
+            rewrite_operand_except(value, aliases, dest)
+                | rewrite_operand_except(target, aliases, dest)
         }
         Rvalue::Binary { lhs, rhs, .. } => {
             rewrite_operand_except(lhs, aliases, dest) | rewrite_operand_except(rhs, aliases, dest)

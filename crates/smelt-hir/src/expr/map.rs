@@ -99,6 +99,10 @@ impl ExprKind {
                 callee: f(callee)?,
                 args: map_vec(args, f)?,
             },
+            Self::Construct { callee, args } => Self::Construct {
+                callee: f(callee)?,
+                args: map_vec(args, f)?,
+            },
             Self::ClosureCallSpread { callee, args } => Self::ClosureCallSpread {
                 callee: f(callee)?,
                 args: f(args)?,
@@ -750,6 +754,10 @@ impl ExprKind {
             Self::InstanceOf { value, class } => Self::InstanceOf {
                 value: f(value)?,
                 class,
+            },
+            Self::InstanceOfValue { value, target } => Self::InstanceOfValue {
+                value: f(value)?,
+                target: f(target)?,
             },
             Self::UnknownIs { value, kind } => Self::UnknownIs {
                 value: f(value)?,

@@ -626,6 +626,17 @@ struct ModuleBuilder<'ctx> {
     /// one, or the earlier capture would observe a slot nothing ever writes.
     /// An entry is consumed by the declaration that fills it.
     forward_referenced_locals: HashSet<String>,
+    /// Names of the local `function` declarations whose OWN body is currently
+    /// being lowered, innermost last.
+    ///
+    /// A function cannot name itself as a value from inside its own body: the
+    /// closure would have to capture the value being constructed, which needs a
+    /// self-referential capture Smelt does not have. `this instanceof wrapper`
+    /// read from inside `wrapper` (the JavaScript idiom for "was I invoked with
+    /// `new`?") is the shape that asks for it, so
+    /// [`Self::instanceof_expression`] consults this stack instead of emitting a
+    /// reference the body cannot resolve.
+    defining_local_functions: Vec<String>,
     /// Whether type-test-only lowering may index erased unknown metadata.
     allow_unknown_index_access: bool,
     /// Whether a lifted specialization callable keeps its concrete `this` type through assertions.

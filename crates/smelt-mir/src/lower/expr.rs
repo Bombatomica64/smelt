@@ -214,6 +214,33 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
+            ExprKind::InstanceOfValue { value, target } => {
+                let lowered_value = self.lower_expr(*value)?;
+                let lowered_target = self.lower_expr(*target)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::InstanceOfValue {
+                        value: lowered_value,
+                        target: lowered_target,
+                    },
+                )?
+            }
+            ExprKind::Construct { callee, args } => {
+                let callee_operand = self.lower_expr(*callee)?;
+                let lowered_args = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::Construct {
+                        callee: callee_operand,
+                        args: lowered_args,
+                    },
+                )?
+            }
             ExprKind::UnknownIs { value, kind } => {
                 let lowered_value = self.lower_expr(*value)?;
                 self.assign_temp(

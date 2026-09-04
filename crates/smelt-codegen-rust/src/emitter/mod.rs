@@ -103,6 +103,7 @@ mod cfg_queries;
 mod closures;
 mod coercion;
 mod control_flow;
+mod construct;
 mod control_flow_match;
 mod core;
 mod dict_entry_update;
