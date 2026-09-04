@@ -2547,8 +2547,18 @@ impl FunctionEmitter<'_> {
         } else {
             format!("{receiver_text}.clone()")
         };
+        // Two reads of one method are `===` in JavaScript, because the method
+        // lives once on the prototype. The receiver capture makes each read a
+        // fresh allocation, so link it to the method's canonical identity (see
+        // `class_proto::method_identity_text`) instead of leaving reference
+        // equality to compare two unrelated addresses.
+        let Some(identity) = crate::class_proto::method_identity_text(self.mir, function)? else {
+            return Ok(Some(format!(
+                "{{ let smelt_receiver = {receiver_clone}; SmeltUnknown::Function(::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>({wrapped_returned}))) }}"
+            )));
+        };
         Ok(Some(format!(
-            "{{ let smelt_receiver = {receiver_clone}; SmeltUnknown::Function(::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>({wrapped_returned}))) }}"
+            "{{ let smelt_receiver = {receiver_clone}; let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>({wrapped_returned})); smelt_link_function_identity_key(&smelt_method, {identity}); SmeltUnknown::Function(smelt_method) }}"
         )))
     }
 

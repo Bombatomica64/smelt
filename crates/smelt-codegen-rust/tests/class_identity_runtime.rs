@@ -238,3 +238,62 @@ test("an exported module-scope constructor function constructs", () => {
 "#;
     run_fixture(source, "smelt_module_constructor_function_identity");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_method_reference_has_one_identity_per_class_and_method() {
+    // In JavaScript a method lives ONCE, on the prototype, so every read of it
+    // denotes the same function value. A generated method reference has to
+    // capture its receiver to stay callable, so each read is a fresh `Rc`;
+    // without a canonical identity per (defining class, method) a bare address
+    // comparison called two reads of one method unequal, and es-toolkit's
+    // `clone` spec (`clonedPerson.greet === person.greet`) failed even though
+    // the clone was correct.
+    //
+    // Identity is per METHOD, not per receiver: reads off two different
+    // instances are equal, reads of two different methods are not, and reads
+    // off two different classes are not. The receiver channel still works --
+    // calling the reference observes that instance's own fields.
+    let source = r#"
+import { test, expect } from "vitest";
+class Person {
+  constructor(public name: string) {}
+  greet(): string {
+    return `Hi ${this.name}`;
+  }
+  farewell(): string {
+    return `Bye ${this.name}`;
+  }
+}
+class Robot {
+  greet(): string {
+    return "beep";
+  }
+}
+test("two reads of one method off one instance are the same function", () => {
+  const person: any = new Person("ada");
+  expect(person.greet).toBe(person.greet);
+});
+test("reads off two instances of one class are the same function", () => {
+  const first: any = new Person("ada");
+  const second: any = new Person("bob");
+  expect(first.greet).toBe(second.greet);
+});
+test("two different methods of one class are different functions", () => {
+  const person: any = new Person("ada");
+  expect(person.greet).not.toBe(person.farewell);
+});
+test("same method name on two classes is not the same function", () => {
+  const person: any = new Person("ada");
+  const robot: any = new Robot();
+  expect(person.greet).not.toBe(robot.greet);
+});
+test("a method reference still observes its own receiver", () => {
+  const first: any = new Person("ada");
+  const second: any = new Person("bob");
+  expect(first.greet()).toBe("Hi ada");
+  expect(second.greet()).toBe("Hi bob");
+});
+"#;
+    run_fixture(source, "smelt_class_method_reference_identity");
+}
