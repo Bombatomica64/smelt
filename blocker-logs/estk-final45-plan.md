@@ -95,6 +95,17 @@ sibling specs. Final validation after all merges: full es-toolkit report with
 | Batch E (measured on D) | 1034 / 25 | 21 cumulative | 0 |
 | Batch G (measured on B+D) | 1039 / 20 | 26 cumulative | 0 |
 | Batch F (measured on E; F14, F28, `clone custom error`; F15 not started) | 1045 / 14 | 31 cumulative | 0 |
+| Batch P (F15 construct semantics, measured on F) | 1052 / 7 | 38 cumulative | 0 |
+| Batch T (tail: RegExp match is an array, `Object.create` keeps prototype identity, `private` fields are properties, non-mock call assertions are false; measured on G) | 1049 / 10 | 36 cumulative | 0 |
+
+**Regression gates found red by Batch T on the E+G merge (`449a55e`):** remeda 1736 / 53 (`stringToPath` ×49,
+`hasProp` ×2, `isEmptyish`, `setPath`; main is 1789 / 0) and the radash generated crate no longer compiles
+(8 errors in `async_test.rs` / `typed_test.rs`; main is 84 / 84). A regression-gate agent is bisecting the
+batch merge commits and fixing the general rule that broke. Batches P and T also chose different
+`Object.create` prototype-link representations (hidden `__smelt_proto:__proto__` entry vs an
+identity-keyed `SMELT_OBJECT_PROTOTYPES` table); the integration agent unifies on the identity-keyed
+table, because a hidden entry has to be filtered from every entry-walking view and T measured that list
+as incomplete (a typed-record recovery turned the slot into `NaN`).
 
 ## Tail: rows that moved but did not close, and follow-ups found while fixing
 
@@ -104,9 +115,9 @@ started passing.
 | row | remaining root | owner |
 | --- | --- | --- |
 | `clone should clone custom error` | **closed by Batch F**: recovering an erased object at `Dict(String, Unknown)` now hands back a second handle on the same store (reference identity), so `Object.assign` writes land. `smelt_class_constructor` (class-constructor VALUE ignores its args) remains a known inaccuracy, handed to Batch P. | done |
-| `isEqualWith … different non-index properties` (lines 181/188 pass) | line 192: a `RegExp.exec` match result must BE an array (erase `SmeltMatch` to array + named props); needs the named-property side table reachable through a typed `SmeltList` handle (id-keyed registry, `smelt-runtime` cannot name `SmeltUnknown`) and `Object.hasOwn(list, nonNumericKey)` to stop lowering to a bounds check. | tail batch |
-| `isPlainObject should return false for invalid plain objects` (line 62 passes) | line 79: `isPlainObject(Object.create({}))` needs prototype-chain identity for `Object.create(<plain object>)`; today `getPrototypeOf(getPrototypeOf(o))` folds to `null`. | tail batch |
-| `cloneDeep should clone instance` (line 166 passes) | line 167: fields assigned in the constructor without a declaration (`this.c = c`) are not class fields in MIR, so the erasure omits them. Frontend class-field inference. | tail batch |
+| `isEqualWith … different non-index properties` | **closed by Batch T** (identity-keyed array props, `RegExp.exec` result erases to an array). Was: line 192: a `RegExp.exec` match result must BE an array (erase `SmeltMatch` to array + named props); needs the named-property side table reachable through a typed `SmeltList` handle (id-keyed registry, `smelt-runtime` cannot name `SmeltUnknown`) and `Object.hasOwn(list, nonNumericKey)` to stop lowering to a bounds check. | tail batch |
+| `isPlainObject should return false for invalid plain objects` | **closed by Batch T** (`Object.create` prototype recorded by identity). Was: line 79: `isPlainObject(Object.create({}))` needs prototype-chain identity for `Object.create(<plain object>)`; today `getPrototypeOf(getPrototypeOf(o))` folds to `null`. | tail batch |
+| `cloneDeep should clone instance` | **closed by Batch T**. The recorded root was wrong: the fields were declared; TS `private` was treated as hidden (only `#name` is), and `__smelt_class` leaked into structural equality. | done |
 | `mergeWith should respect null returned from customizer` | `null | undefined` lowers to one `Type::None`; needs `Type::Null` (or `preserve_observable_absence`) in the canonical type form. L. | deferred, decision needed |
 | `at should return undefined for non-integer indices` | unproven index read typed `Optional<T>`. L. | deferred, decision needed |
 
