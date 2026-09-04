@@ -88,10 +88,17 @@ impl ModuleBuilder<'_> {
                 }));
             }
             // `new <expr>(...)` over a dynamic callee (`new object[key](...
-            // args)` in lodash-compat `bindKey`). Classes are not first-class
-            // values in Smelt, so a computed callee can only hold a function
-            // value: the construction lowers as a dynamic closure call through
-            // the erased ABI, a genuine dynamic boundary returning `unknown`.
+            // args)` in lodash-compat `bindKey`, `new (C as any)()` wherever
+            // TypeScript needs the cast to accept a plain function as a
+            // constructor). Classes are not first-class values in Smelt, so a
+            // computed callee can only hold a function value, and constructing
+            // through one is JavaScript `[[Construct]]`: the same
+            // `ExprKind::Construct` the named-binding path below uses.
+            //
+            // The SPREAD form (`new f(...args)`) still lowers as a dynamic call:
+            // `ExprKind::Construct` carries positional arguments, and a runtime
+            // argument vector needs its own node. Until it has one, `new
+            // f(...args)` keeps the pre-construction behavior.
             let callee_value = self.expression(&new_expr.callee, body)?;
             let callee_ty = Self::expr_ty(body, callee_value);
             let callable_ty = self.function_member_type(callee_ty);
@@ -130,11 +137,19 @@ impl ModuleBuilder<'_> {
                         self.argument_with_hint(arg, body, params.get(index).copied())
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                return Ok(body.push_expr(Expr {
-                    kind: ExprKind::ClosureCall {
+                let kind = if self.construct_through_value_is_dynamic(result_ty) {
+                    ExprKind::Construct {
                         callee: callee_value,
                         args,
-                    },
+                    }
+                } else {
+                    ExprKind::ClosureCall {
+                        callee: callee_value,
+                        args,
+                    }
+                };
+                return Ok(body.push_expr(Expr {
+                    kind,
                     ty: result_ty,
                     span,
                 }));
@@ -386,19 +401,47 @@ impl ModuleBuilder<'_> {
         }))
     }
 
+    /// Return whether `new <value>(..)` through a callable of this return type
+    /// must perform the JavaScript `[[Construct]]` operation.
+    ///
+    /// A *declared* construct signature (`new (name: string) => Widget`) states
+    /// the constructed type, and the value filling it is a typed constructor
+    /// SLOT: it may be a class adapter closure with no function object behind
+    /// it at all, so there is no `prototype` to link and no receiver to install
+    /// — invoking it IS the construction, which is what
+    /// `constructor_type_to_hir` models. An ERASED result (`unknown`, a type
+    /// parameter) means the source told us nothing about what comes out, so the
+    /// value can only be a plain JavaScript function, and constructing through
+    /// one is `[[Construct]]`: allocate, link, install the receiver, and prefer
+    /// an object the body returned.
+    fn construct_through_value_is_dynamic(&self, return_ty: smelt_hir::TypeId) -> bool {
+        matches!(
+            self.ctx.krate.types.get(return_ty),
+            Some(Type::Unknown | Type::TypeParam { .. })
+        )
+    }
+
     /// Lower `new ctor(args)` where `ctor` is a callable value (a binding whose
     /// type is a constructor/function type), returning `None` when the callee is
     /// not such a value so the caller can fall through to the stdlib/class
     /// dispatch.
     ///
     /// A constructor-type annotation lowers to an ordinary `Type::Function` (see
-    /// `constructor_type_to_hir`), so `new ctor(args)` is just an indirect call
-    /// through that callable value: JavaScript classes *are* constructor
-    /// functions, and invoking one produces the constructed value. This reuses
-    /// the exact `ExprKind::ClosureCall` path a plain `ctor(args)` call takes,
-    /// with the result typed as the callable's declared return type. When the
-    /// binding is present but is *not* a callable value, `None` is returned and
-    /// the caller reports the existing "unresolved class" / non-callable error.
+    /// `constructor_type_to_hir`), so the callee is reached as a VALUE — but
+    /// constructing through a function value is not the same operation as
+    /// calling it. JavaScript `[[Construct]]` allocates an object linked to the
+    /// callee's `prototype`, runs the callee with that object as its receiver,
+    /// and keeps the allocated object unless the callee returned one of its
+    /// own; none of that happens for a plain call. So this lowers to
+    /// `ExprKind::Construct`, not `ExprKind::ClosureCall`, in both the
+    /// concretely-typed and the dynamic case. When the binding is present but
+    /// is *not* a callable value, `None` is returned and the caller reports the
+    /// existing "unresolved class" / non-callable error.
+    ///
+    /// The result type stays the callable's declared return type where there is
+    /// one, and that type also decides WHICH operation this is: see
+    /// [`Self::construct_through_value_is_dynamic`]. A callee with no function
+    /// type is a genuine dynamic boundary and stays `unknown`.
     pub(super) fn new_through_value_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
@@ -429,7 +472,7 @@ impl ModuleBuilder<'_> {
                 .map(|arg| self.argument(arg, body))
                 .collect::<Result<Vec<_>, _>>()?;
             return Ok(Some(body.push_expr(Expr {
-                kind: ExprKind::ClosureCall {
+                kind: ExprKind::Construct {
                     callee: callee_expr,
                     args,
                 },
@@ -452,11 +495,19 @@ impl ModuleBuilder<'_> {
             .take(function.params.len())
             .map(|arg| self.argument(arg, body))
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::ClosureCall {
+        let kind = if self.construct_through_value_is_dynamic(function.return_ty) {
+            ExprKind::Construct {
                 callee: callee_expr,
                 args,
-            },
+            }
+        } else {
+            ExprKind::ClosureCall {
+                callee: callee_expr,
+                args,
+            }
+        };
+        Ok(Some(body.push_expr(Expr {
+            kind,
             ty: function.return_ty,
             span: self.span(new_expr.span.start, new_expr.span.end),
         })))

@@ -293,6 +293,11 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
             operand_text(callee),
             args.iter().map(operand_text).collect::<Vec<_>>().join(", ")
         ),
+        Rvalue::Construct { callee, args } => format!(
+            "construct {}({})",
+            operand_text(callee),
+            args.iter().map(operand_text).collect::<Vec<_>>().join(", ")
+        ),
         Rvalue::ClosureCallSpread { callee, args } => {
             format!(
                 "closure_call {}(...{})",
@@ -376,6 +381,13 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
             class,
         } => {
             format!("instanceof {}, class{}", operand_text(operand), class.0)
+        }
+        Rvalue::InstanceOfValue { value, target } => {
+            format!(
+                "instanceof {}, {}",
+                operand_text(value),
+                operand_text(target)
+            )
         }
         Rvalue::UnknownIs {
             value: unknown_value,

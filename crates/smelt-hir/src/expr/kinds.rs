@@ -109,6 +109,23 @@ pub enum ExprKind {
         callee: ExprId,
         args: Vec<ExprId>,
     },
+    /// JavaScript `new callee(args)` where `callee` is a function VALUE — the
+    /// `[[Construct]]` operation, not a call.
+    ///
+    /// Every non-arrow JavaScript function is a constructor, and constructing
+    /// through one is observably different from calling it: an object is
+    /// allocated whose prototype link is the callee's own `prototype` property,
+    /// the callee runs with that object as its `this`, and the result is the
+    /// callee's return value only when that value is an object — otherwise the
+    /// allocated object. All three are what make `new f() instanceof g` answer
+    /// anything but `false`, so a plain [`ExprKind::ClosureCall`] cannot stand
+    /// in for this node.
+    Construct {
+        /// The function value being constructed through.
+        callee: ExprId,
+        /// The spelled constructor arguments.
+        args: Vec<ExprId>,
+    },
     ClosureCallSpread {
         callee: ExprId,
         args: ExprId,
@@ -891,6 +908,21 @@ pub enum ExprKind {
     InstanceOf {
         value: ExprId,
         class: Symbol,
+    },
+    /// JavaScript `value instanceof target` where `target` is a function VALUE
+    /// rather than a nominal class name (`OrdinaryHasInstance`).
+    ///
+    /// The answer is a prototype-chain walk: `value`'s chain is followed link by
+    /// link and each link compared by reference against the target's own
+    /// `prototype` property. A nominal class target keeps
+    /// [`ExprKind::InstanceOf`], whose marker probe already knows the class
+    /// identity at compile time; this node is for the case where the constructor
+    /// is only known at runtime, which is every plain function used as one.
+    InstanceOfValue {
+        /// The value whose prototype chain is walked.
+        value: ExprId,
+        /// The constructor function value whose `prototype` is looked for.
+        target: ExprId,
     },
     UnknownIs {
         value: ExprId,

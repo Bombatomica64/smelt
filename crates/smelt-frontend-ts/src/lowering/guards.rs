@@ -145,24 +145,57 @@ impl ModuleBuilder<'_> {
             && !self.classes.is_pending(class_text)
             && !self.imports.is_value(class_text)
         {
-            // `this instanceof bound` against a *function* value (the JS
-            // constructor-function idiom for detecting `new`-invocation, as in
-            // lodash-compat `bind`/`curry`). Smelt's runtime never constructs
-            // closure values with `new`, so no value can be an instance of a
-            // plain function: the check is truthfully `false`.
+            // `x instanceof f` against a *function* value (the JS
+            // constructor-function idiom, as in lodash-compat `bind`/`curry`
+            // and es-toolkit `partial`). Every non-arrow JavaScript function is
+            // a constructor, so this is `OrdinaryHasInstance`: walk `x`'s
+            // prototype chain looking for the object `f.prototype`. It cannot be
+            // answered at compile time — which function value the binding holds,
+            // and what its `prototype` is, are both runtime facts — so it
+            // lowers to the runtime predicate rather than folding.
+            //
             // Classes are not first-class values in Smelt, so a target that
             // resolves to a local binding or function item can only be a
-            // function value, never a constructible class.
+            // function value, never a nominal class; the nominal path below
+            // keeps its compile-time marker probe.
             let target_is_function_value = self.scope.is_bound(class_text)
                 || self.scope.has_callback(class_text)
                 || self
                     .items
                     .get(class_text)
                     .is_some_and(|&item| matches!(self.item_ref(item), smelt_hir::Item::Function(_)));
-            if target_is_function_value {
+            // The one shape that cannot be lowered: `this instanceof wrapper`
+            // read from INSIDE `wrapper`'s own body (the JS new-detection idiom
+            // in lodash-compat `curry`/`curryRight`). The constructor value is
+            // the closure being defined, so the body has no binding for it --
+            // a self-capturing closure is a capability Smelt does not have yet
+            // -- and naming it would emit an unresolved local. Such a target
+            // keeps the previous `false` answer; every namable target walks the
+            // chain. Recorded here rather than silently: JavaScript answers
+            // `true` for a `new`-invocation, so this stays wrong until a
+            // closure can capture itself.
+            let target_is_namable = !self
+                .defining_local_functions
+                .iter()
+                .any(|defining| defining == class_text);
+            if target_is_function_value && !target_is_namable {
                 let ty = self.ctx.krate.types.intern(Type::Bool);
                 return Ok(body.push_expr(Expr {
                     kind: ExprKind::Literal(Literal::Bool(false)),
+                    ty,
+                    span: self.span(binary.span.start, binary.span.end),
+                }));
+            }
+            if target_is_function_value {
+                let target = self.identifier_expression(
+                    class_text,
+                    class_ident.span.start,
+                    class_ident.span.end,
+                    body,
+                )?;
+                let ty = self.ctx.krate.types.intern(Type::Bool);
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::InstanceOfValue { value, target },
                     ty,
                     span: self.span(binary.span.start, binary.span.end),
                 }));

@@ -1923,7 +1923,7 @@ function clone<T extends object>(value: T): T {
     ensure!(body
         .exprs
         .iter()
-        .any(|expr| matches!(expr.kind, ExprKind::ClosureCall { .. })));
+        .any(|expr| matches!(expr.kind, ExprKind::Construct { .. })));
     ensure!(!body
         .exprs
         .iter()

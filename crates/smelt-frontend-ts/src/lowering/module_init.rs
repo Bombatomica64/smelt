@@ -170,6 +170,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             deferred_postfix_updates: None,
             asymmetric_matchers_lowered: 0,
             forward_referenced_locals: HashSet::new(),
+            defining_local_functions: Vec::new(),
             allow_unknown_index_access,
             preserve_specialization_receiver: false,
             object_namespaces,

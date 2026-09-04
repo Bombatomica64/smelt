@@ -8747,11 +8747,13 @@ function adapt(
 
     // The adapted callable is materialized (called) before any identity or
     // callable-object bookkeeping. A callable value narrowed from an object is
-    // re-erased back to that object when a registration exists; otherwise the
-    // origin is registered so the typed callback survives the erased ABI.
+    // re-erased back to that object when a registration exists; otherwise its
+    // canonical identity is read (before the callable is moved into the
+    // adapter) and the origin is registered, so the typed callback survives the
+    // erased ABI and both spellings denote one JavaScript function.
     assert!(
         source.contains(
-            "let smelt_function_value = (_smelt_adapted_callback)(arg0); if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_function_origin = smelt_function_value.clone();"
+            "let smelt_function_value = (_smelt_adapted_callback)(arg0); if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone();"
         ),
         "{source}"
     );

@@ -487,6 +487,34 @@ impl FunctionEmitter<'_> {
                     ));
                     return Ok(());
                 }
+                // A JavaScript function is an object, so a property write onto
+                // a function-typed place is a real store, not a no-op: the
+                // place-text path below has no slot for it and used to discard
+                // the write (`let _ = value;`). It lands in the function's
+                // identity-keyed own-property bag, which every other
+                // representation of the same function reads through (see
+                // `crate::function_object_prelude`). This is the write side of
+                // the `smelt_get_unknown_field` function arm.
+                if let Some(Type::Function(function)) = self.mir.types.get(base_ty).cloned() {
+                    let unknown_ty = self.type_id(Type::Unknown)?;
+                    let rendered_value = self.rvalue_text_for_dest(value, unknown_ty)?;
+                    let field_name = self.symbol_source_name(*field)?;
+                    let base_text = self.local_value_text(*base)?;
+                    // `Type::Function` has two Rust spellings (see `rust_type`):
+                    // the `SmeltErasedFunction` struct, which carries the store
+                    // as a method, and a typed `Rc<dyn Fn(..)>`, which reaches
+                    // the same bag through the free function.
+                    if self.is_erased_unknown_rest_function(&function) && !function.may_throw {
+                        out.push_str(&format!(
+                            "    {base_text}.smelt_set_property({field_name:?}, {rendered_value});\n"
+                        ));
+                    } else {
+                        out.push_str(&format!(
+                            "    smelt_set_function_property(&{base_text}, {field_name:?}, {rendered_value});\n"
+                        ));
+                    }
+                    return Ok(());
+                }
                 if let Some(statement) =
                     self.descriptor_setter_statement(*base, *field, value)?
                 {
@@ -536,13 +564,19 @@ impl FunctionEmitter<'_> {
                     // `Index` erased-object path below. Non-self-referential values
                     // keep the simpler inline form to avoid churn.
                     let base_name = self.local_name(*base)?.to_owned();
+                    // A FUNCTION receiver keeps being a function: the write
+                    // lands in its identity-keyed own-property bag (see
+                    // `crate::function_object_prelude`), which every other
+                    // representation of that function reads through. Falling
+                    // through to the primitive arm replaced the callable with a
+                    // one-property record, so `(f as any).x = 1` lost `f`.
                     if rendered_value.contains(&base_name) {
                         out.push_str(&format!(
-                            "    {{ let smelt_value = {rendered_value}; match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert({field_name:?}.to_owned(), smelt_value); }}, SmeltUnknown::Array(values) => {{ values.set_named_property({field_name:?}.to_owned(), smelt_value); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), smelt_value)]))); }} }} }}\n"
+                            "    {{ let smelt_value = {rendered_value}; match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert({field_name:?}.to_owned(), smelt_value); }}, SmeltUnknown::Array(values) => {{ values.set_named_property({field_name:?}.to_owned(), smelt_value); }}, SmeltUnknown::Function(function) => {{ smelt_set_function_property(function, {field_name:?}, smelt_value); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), smelt_value)]))); }} }} }}\n"
                         ));
                     } else {
                         out.push_str(&format!(
-                            "    match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert({field_name:?}.to_owned(), {rendered_value}); }}, SmeltUnknown::Array(values) => {{ values.set_named_property({field_name:?}.to_owned(), {rendered_value}); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), {rendered_value})]))); }} }}\n"
+                            "    match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert({field_name:?}.to_owned(), {rendered_value}); }}, SmeltUnknown::Array(values) => {{ values.set_named_property({field_name:?}.to_owned(), {rendered_value}); }}, SmeltUnknown::Function(function) => {{ smelt_set_function_property(function, {field_name:?}, {rendered_value}); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), {rendered_value})]))); }} }}\n"
                         ));
                     }
                     return Ok(());

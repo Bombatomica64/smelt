@@ -3137,6 +3137,7 @@ impl ModuleBuilder<'_> {
         let mut captures = Vec::new();
         for statement in earlier {
             self.collect_statement_capture_names(statement, &HashSet::new(), &mut captures);
+            self.collect_function_declaration_capture_names(statement, &mut captures);
         }
         if let Some(previous) = previous {
             self.scope.bind(name.to_owned(), previous);
@@ -3144,6 +3145,41 @@ impl ModuleBuilder<'_> {
             self.scope.unbind(name);
         }
         captures.iter().any(|capture| capture == name)
+    }
+
+    /// Collect the enclosing names a local `function` DECLARATION's body reads.
+    ///
+    /// A hoisted local function is deferred code exactly as an arrow is: its
+    /// body runs when it is called, so it may read a `const` declared below it.
+    /// The shared capture walk does not descend into a function declaration --
+    /// a function item is not a closure at every site that walk serves -- so
+    /// the forward-reference pass descends itself. Its own parameters are
+    /// excluded, since those are not enclosing names.
+    fn collect_function_declaration_capture_names(
+        &self,
+        statement: &Statement<'_>,
+        captures: &mut Vec<String>,
+    ) {
+        let Statement::FunctionDeclaration(function) = statement else {
+            return;
+        };
+        let Some(function_body) = &function.body else {
+            return;
+        };
+        let mut param_names = HashSet::new();
+        for param in &function.params.items {
+            let mut binding_names = Vec::new();
+            Self::binding_pattern_names(&param.pattern, &mut binding_names);
+            param_names.extend(binding_names);
+        }
+        if let Some(rest) = &function.params.rest {
+            let mut binding_names = Vec::new();
+            Self::binding_pattern_names(&rest.rest.argument, &mut binding_names);
+            param_names.extend(binding_names);
+        }
+        for child in &function_body.statements {
+            self.collect_statement_capture_names(child, &param_names, captures);
+        }
     }
 
     /// Predeclare nested function declarations before source-order statement lowering.
@@ -3766,6 +3802,9 @@ impl ModuleBuilder<'_> {
             return Ok(());
         };
         self.push_type_parameter_scope(function.type_parameters.as_deref())?;
+        // Everything below lowers this function's OWN body, where its name does
+        // not denote a value it can reach (see `defining_local_functions`).
+        self.defining_local_functions.push(id.name.as_str().to_owned());
         let result = (|| {
             let mut param_tys = Vec::new();
             let mut closure_body = Body::new(
@@ -4085,6 +4124,7 @@ impl ModuleBuilder<'_> {
             );
             Ok(())
         })();
+        self.defining_local_functions.pop();
         self.pop_type_parameter_scope();
         result
     }

@@ -1012,6 +1012,10 @@ impl FunctionEmitter<'_> {
                 value: operand,
                 class,
             } => self.instance_of_text(operand, *class),
+            Rvalue::InstanceOfValue { value, target } => {
+                self.instance_of_value_text(value, target)
+            }
+            Rvalue::Construct { callee, args } => self.construct_text(callee, args, dest_ty),
             Rvalue::UnknownIs {
                 value: unknown_value,
                 kind,

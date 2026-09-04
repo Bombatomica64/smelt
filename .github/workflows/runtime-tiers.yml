@@ -79,6 +79,7 @@ jobs:
               erased_call_dispatch_runtime
               named_function_expression_runtime arguments_arity_runtime
               throwing_callback_runtime union_receiver_runtime
+              construct_semantics_runtime
           - shard: throwing
             tests: >-
               thrown_payload_runtime try_finally_runtime

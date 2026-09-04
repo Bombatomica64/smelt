@@ -688,6 +688,14 @@ pub enum Rvalue {
         /// Target class symbol.
         class: Symbol,
     },
+    /// Test whether a value's prototype chain reaches a runtime constructor's
+    /// `prototype` (`OrdinaryHasInstance`, JS `value instanceof target`).
+    InstanceOfValue {
+        /// Value whose prototype chain is walked.
+        value: Operand,
+        /// Constructor function value whose `prototype` is looked for.
+        target: Operand,
+    },
     /// Test the runtime tag of a TypeScript `unknown` value.
     UnknownIs {
         /// Value being tested.
@@ -819,6 +827,18 @@ pub enum Rvalue {
         /// Closure value to call.
         callee: Operand,
         /// Call arguments.
+        args: Vec<Operand>,
+    },
+    /// JavaScript `new callee(args)` through a function VALUE (`[[Construct]]`).
+    ///
+    /// Distinct from [`Rvalue::ClosureCall`] because construction allocates an
+    /// object linked to the callee's `prototype`, runs the callee with that
+    /// object as its receiver, and keeps the allocated object unless the callee
+    /// returned one of its own.
+    Construct {
+        /// Function value being constructed through.
+        callee: Operand,
+        /// Constructor arguments.
         args: Vec<Operand>,
     },
     /// Call a closure value with a runtime argument vector from spread syntax.

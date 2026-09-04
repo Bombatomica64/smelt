@@ -39,6 +39,7 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::ThisRead
         | ExprKind::BindThis { .. }
         | ExprKind::ClosureCall { .. }
+        | ExprKind::Construct { .. }
         | ExprKind::ClosureCallSpread { .. }
         | ExprKind::Method { .. }
         | ExprKind::New { .. } => call_like_expr_text(krate, expr),
@@ -936,6 +937,9 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::InstanceOf { value, class } => {
             format!("instanceof {}, class{}", expr_ref(*value), class.0)
         }
+        ExprKind::InstanceOfValue { value, target } => {
+            format!("instanceof {}, {}", expr_ref(*value), expr_ref(*target))
+        }
         ExprKind::UnknownIs { value, kind } => {
             format!("unknown_is {kind:?} {}", expr_ref(*value))
         }
@@ -1043,6 +1047,10 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::ClosureCall { callee, args } => {
             let arg_text = expr_list_text(args);
             format!("closure_call {}({arg_text})", expr_ref(*callee))
+        }
+        ExprKind::Construct { callee, args } => {
+            let arg_text = expr_list_text(args);
+            format!("construct {}({arg_text})", expr_ref(*callee))
         }
         ExprKind::ClosureCallSpread { callee, args } => {
             format!("closure_call {}(...{})", expr_ref(*callee), expr_ref(*args))

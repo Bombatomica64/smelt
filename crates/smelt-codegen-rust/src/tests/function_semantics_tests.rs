@@ -109,3 +109,120 @@ export function arm(signal: AbortSignal, ms: number): void {
         "a forward-referenced local must never be fabricated as an object:\n{source}"
     );
 }
+
+#[test]
+fn new_through_a_function_value_emits_the_construct_operation() {
+    // JavaScript `new f(args)` on a function value is `[[Construct]]`, not a
+    // call: it allocates an object linked to `f.prototype`, runs `f` with that
+    // object as its receiver, and keeps it unless `f` returned an object. The
+    // lowering used to reuse `ExprKind::ClosureCall`, which expresses none of
+    // that, so `new f()` was indistinguishable from `f()`.
+    let source = source_for(
+        r"
+export function run(make: (...args: unknown[]) => unknown): unknown {
+  return new make(1);
+}
+",
+    );
+
+    assert!(
+        source.contains("smelt_construct("),
+        "`new` through a function value must construct, not call:\n{source}"
+    );
+    assert!(
+        source.contains("fn smelt_construct("),
+        "the construction helper must be emitted:\n{source}"
+    );
+}
+
+#[test]
+fn instanceof_a_function_value_walks_the_prototype_chain() {
+    // Every non-arrow JavaScript function is a constructor, so `x instanceof f`
+    // is a runtime prototype-chain walk. It used to fold to a compile-time
+    // `false` for every function-valued target, on the premise that Smelt's
+    // runtime never constructs closure values with `new`.
+    let source = source_for(
+        r"
+export function run(value: unknown, ctor: (...args: unknown[]) => unknown): boolean {
+  return value instanceof ctor;
+}
+",
+    );
+
+    assert!(
+        source.contains("smelt_instance_of_value("),
+        "`instanceof` a function value must be answered at runtime:\n{source}"
+    );
+    assert!(
+        source.contains("fn smelt_instance_of_value("),
+        "the prototype-chain walk must be emitted:\n{source}"
+    );
+}
+
+#[test]
+fn a_property_write_onto_a_function_value_lands_in_its_property_bag() {
+    // A JavaScript function is an object, so an undeclared property write onto
+    // one is a real store. The write place had no slot for it and the statement
+    // was emitted as a discard (`let _ = value;`), which is how
+    // `wrapper.prototype = Object.create(func.prototype)` silently vanished.
+    let source = source_for(
+        r"
+export function run(func: (...args: unknown[]) => unknown): unknown {
+  const wrapper = function (...args: unknown[]) { return func(...args); };
+  if ((func as any).prototype) {
+    wrapper.prototype = Object.create((func as any).prototype);
+  }
+  return wrapper;
+}
+",
+    );
+
+    assert!(
+        source.contains("smelt_set_property(\"prototype\", ")
+            || source.contains("smelt_set_function_property(&wrapper"),
+        "a property write onto a function value must land:\n{source}"
+    );
+    assert!(
+        source.contains("fn smelt_set_function_property"),
+        "the function-property store must be emitted:\n{source}"
+    );
+}
+
+#[test]
+fn a_property_read_on_a_function_value_reaches_its_property_bag() {
+    // The read side of the same rule: `smelt_get_unknown_field` answered
+    // `undefined` for every field of a `SmeltUnknown::Function`, so
+    // `if (func.prototype)` never took its branch.
+    let source = source_for(
+        r"
+export function run(func: unknown): boolean {
+  return Boolean((func as any).prototype);
+}
+",
+    );
+
+    assert!(
+        source.contains("SmeltUnknown::Function(function) => match smelt_function_value_property("),
+        "an erased property read must consult the function property bag:\n{source}"
+    );
+}
+
+#[test]
+fn object_create_records_a_link_to_its_prototype() {
+    // `Object.create(p)` copies `p`'s own members under the `__smelt_proto:`
+    // prefix so they read as inherited. A copy cannot answer an identity
+    // question, so the prototype itself is also recorded by reference — the
+    // slot an `instanceof` chain walk and `Object.getPrototypeOf` follow.
+    let source = source_for(
+        r"
+export function run(prototype: unknown): unknown {
+  return Object.create(prototype as object);
+}
+",
+    );
+
+    assert!(
+        source.contains("\"__smelt_proto:__proto__\""),
+        "`Object.create` must record a link to its prototype:\n{source}"
+    );
+}

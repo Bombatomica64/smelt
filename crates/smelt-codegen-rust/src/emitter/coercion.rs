@@ -1738,8 +1738,14 @@ impl FunctionEmitter<'_> {
                     let erased_return = self.erase_value_text(&call_text, function.return_ty)?;
                     format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({erased_return})")
                 };
+                // The adapter and the typed callable it wraps are ONE
+                // JavaScript function, so they must resolve to one canonical
+                // identity — that is what makes `f === f` across the seam, and
+                // what makes an own property of the function (`f.prototype`)
+                // the same object whichever spelling reads it. The identity is
+                // taken before the callable is moved into the adapter.
                 Ok(format!(
-                    "{{ let smelt_function_value = {value_text}; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) {{ smelt_callable_object }} else {{ let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text}); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }} }}"
+                    "{{ let smelt_function_value = {value_text}; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) {{ smelt_callable_object }} else {{ let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text}); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); SmeltUnknown::Function(smelt_erased_function) }} }}"
                 ))
             }
             Some(Type::Union(_)) if self.concrete_union_members(ty).is_some() => {
