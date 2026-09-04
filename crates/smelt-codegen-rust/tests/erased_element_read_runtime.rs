@@ -176,3 +176,75 @@ test('a missing string character on an erased receiver is undefined', () => {
 ";
     run_fixture(source, "smelt_erased_receiver_element_read");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn an_object_literal_holding_undefined_erases_as_undefined() {
+    // `null` and `undefined` both collapse to MIR `Type::None`, so a
+    // `Dict<_, None>` cannot say which JS singleton it holds; only the defining
+    // constants can. The list arm recovered that from its defining
+    // `Rvalue::List`; the dict arm did not, and `{ k: undefined }` crossing into
+    // `unknown` emitted a per-entry `SmeltUnknown::Null` constant. es-toolkit's
+    // `isJSONObject({ undefinedProperty: undefined })` then answered `true`,
+    // because `null` IS valid JSON and `undefined` is not.
+    let source = r"
+import { test, expect } from 'vitest';
+
+function typeOfProperty(value: unknown): string {
+  return typeof (value as Record<string, unknown>)['a'];
+}
+function propertyIsNull(value: unknown): boolean {
+  return (value as Record<string, unknown>)['a'] === null;
+}
+
+test('an undefined property stays undefined across erasure', () => {
+  const holder = { a: undefined };
+  const erased: unknown = holder;
+  expect(typeOfProperty(erased)).toBe('undefined');
+  expect(propertyIsNull(erased)).toBe(false);
+});
+test('a null property stays null across erasure', () => {
+  const holder = { a: null };
+  const erased: unknown = holder;
+  expect(typeOfProperty(erased)).toBe('object');
+  expect(propertyIsNull(erased)).toBe(true);
+});
+";
+    run_fixture(source, "smelt_dict_undefined_erasure");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn an_absent_property_on_a_class_receiver_reads_as_undefined() {
+    // A keyed read that resolves to "this receiver has no such property" is
+    // JavaScript `undefined`, never `null` -- and `===` sees the difference, so
+    // the two are not interchangeable. The emitter's index fallback handed back
+    // the `null` tag, which made es-toolkit's `cloneDeep` spec assertion
+    // `expect(b['#b']).toBe(undefined)` fail on a value that was otherwise
+    // right (the private field correctly did not leak as a string key).
+    let source = r"
+import { test, expect } from 'vitest';
+
+class Holder {
+  #hidden = 1;
+  value = 2;
+  reveal(): number {
+    return this.#hidden;
+  }
+}
+
+test('an unmodelled key on a class instance is undefined, not null', () => {
+  const holder = new Holder() as any;
+  expect(typeof holder['#hidden']).toBe('undefined');
+  expect(holder['#hidden']).toBe(undefined);
+  expect(holder['#hidden'] === null).toBe(false);
+  expect(holder['nope']).toBe(undefined);
+});
+test('the declared members are unaffected', () => {
+  const holder = new Holder();
+  expect(holder.value).toBe(2);
+  expect(holder.reveal()).toBe(1);
+});
+";
+    run_fixture(source, "smelt_absent_class_property_read");
+}

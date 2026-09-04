@@ -802,11 +802,13 @@ impl FunctionEmitter<'_> {
                     // (`__smelt_date`, `__smelt_regexp`/`source`/`flags`, ...),
                     // which are representation details, not real JS properties.
                     // This is why e.g. `isShallowEqual(/a/, /b/)` (no own keys) is
-                    // equal. The marker filter (`smelt_is_for_in_record_key`) is
-                    // defined only over `SmeltRecord` — the sole backing where
-                    // those markers can appear — so the `SmeltJsMap` and plain
-                    // dict backings keep the symbol-only filter (they never carry
-                    // internal markers, and the helper would not type-check there).
+                    // equal. `SmeltRecord` gets the filter through
+                    // `smelt_is_for_in_record_key`, which is defined over that
+                    // backing; a `SmeltUnknown`-keyed `SmeltJsMap` gets the same
+                    // rule from `smelt_own_js_map_entries` in the non-`String`
+                    // key branch below. A `SmeltJsMap` DOES carry the markers —
+                    // the erased-object coercion copies them in verbatim — so the
+                    // symbol-only filter used to leak an inherited key here.
                     if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty) {
                         // A byte-backed host record's own keys are its element
                         // indices, not the storage keys the marker filter hides.
@@ -829,8 +831,12 @@ impl FunctionEmitter<'_> {
                         ))
                     }
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
+                    // Own string keys only: the prelude helper strips the
+                    // representation markers and restores symbol tags, then the
+                    // symbol filter drops the symbol-keyed properties
+                    // `Object.keys` never reports.
                     Ok(format!(
-                        "{dict_text}.keys().filter(|key| !matches!(key, SmeltUnknown::Symbol(_))).collect::<Vec<_>>()"
+                        "smelt_own_js_map_entries(&{dict_text}).into_iter().filter(|(key, _)| !matches!(key, SmeltUnknown::Symbol(_))).map(|(key, _)| key).collect::<Vec<_>>()"
                     ))
                 } else {
                     Ok(format!("{dict_text}.keys().cloned().collect::<Vec<_>>()"))
@@ -852,9 +858,10 @@ impl FunctionEmitter<'_> {
                     // this is one branch rather than three identical ones.
                     Ok(format!("smelt_for_in_record_keys(&{dict_text})"))
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
-                    Ok(format!(
-                        "{dict_text}.keys().filter(|key| !matches!(key, SmeltUnknown::Symbol(_))).collect::<Vec<_>>()"
-                    ))
+                    // `for...in` also walks the enumerable `__smelt_proto:`
+                    // members, so it uses the prototype-chain helper rather than
+                    // the own-entries one; see `smelt_for_in_js_map_keys`.
+                    Ok(format!("smelt_for_in_js_map_keys(&{dict_text})"))
                 } else {
                     Ok(format!("{dict_text}.keys().cloned().collect::<Vec<_>>()"))
                 }
@@ -873,8 +880,11 @@ impl FunctionEmitter<'_> {
                         "{dict_text}.keys().filter_map(|key| key.strip_prefix(\"__smelt_symbol:\").map(|description| SmeltUnknown::Symbol(description.into()))).collect::<Vec<_>>()"
                     ))
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
+                    // The mirror image of the `Keys` arm: the same own-entry
+                    // helper restores a `__smelt_symbol:` storage key to its tag,
+                    // and this arm keeps exactly the keys that filter drops.
                     Ok(format!(
-                        "{dict_text}.keys().filter(|key| matches!(key, SmeltUnknown::Symbol(_))).collect::<Vec<_>>()"
+                        "smelt_own_js_map_entries(&{dict_text}).into_iter().map(|(key, _)| key).filter(|key| matches!(key, SmeltUnknown::Symbol(_))).collect::<Vec<_>>()"
                     ))
                 } else {
                     Ok("Vec::<SmeltUnknown>::new()".to_owned())
@@ -906,8 +916,9 @@ impl FunctionEmitter<'_> {
                         ))
                     }
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
+                    // Own, non-symbol entries only -- same rule as the `Keys` arm.
                     Ok(format!(
-                        "{dict_text}.iter().filter(|(key, _)| !matches!(key, SmeltUnknown::Symbol(_))).map(|(_, value)| value).collect::<Vec<_>>()"
+                        "smelt_own_js_map_entries(&{dict_text}).into_iter().filter(|(key, _)| !matches!(key, SmeltUnknown::Symbol(_))).map(|(_, value)| value).collect::<Vec<_>>()"
                     ))
                 } else {
                     Ok(format!("{dict_text}.values().cloned().collect::<Vec<_>>()"))
@@ -939,8 +950,9 @@ impl FunctionEmitter<'_> {
                         ))
                     }
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
+                    // Own, non-symbol entries only -- same rule as the `Keys` arm.
                     Ok(format!(
-                        "{dict_text}.iter().filter(|(key, _)| !matches!(key, SmeltUnknown::Symbol(_))).collect::<Vec<_>>()"
+                        "smelt_own_js_map_entries(&{dict_text}).into_iter().filter(|(key, _)| !matches!(key, SmeltUnknown::Symbol(_))).collect::<Vec<_>>()"
                     ))
                 } else {
                     Ok(format!(

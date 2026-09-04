@@ -1156,6 +1156,33 @@ fn emit_source_with_free_function_router(
         writer.line("/// its identity has to be read before the move.");
         writer.line("fn smelt_link_function_identity_key<D: ?Sized + 'static>(derived: &::std::rc::Rc<D>, canonical: usize) { let key = smelt_retain_callable_key(derived); SMELT_FUNCTION_IDENTITIES.with(|identities| { identities.borrow_mut().insert(key, canonical); }); }");
         writer.blank_line();
+        // One canonical JavaScript identity per (defining class, method).
+        //
+        // In JavaScript a method lives ONCE, on the prototype, so every read of
+        // it denotes the same function value: `a.m === b.m === C.prototype.m`.
+        // A generated method reference cannot be that single allocation — it has
+        // to capture its receiver to stay callable — so each read builds a fresh
+        // `Rc` and a bare address comparison answered `false`.
+        //
+        // The identity registry above already exists for exactly this shape
+        // (erase/extract wrappers of one source callable); it needs a canonical
+        // key that no allocation owns. `smelt_method_identity` mints one leaked
+        // byte per key: a unique address that stays live for the life of the
+        // process, so it can never be recycled underneath the registry, and one
+        // that every read of the same (class, method) pair resolves to.
+        writer.line("thread_local! {");
+        writer.line("    /// Canonical identity address of each class method, keyed by `Class::method`.");
+        writer.line("    static SMELT_METHOD_IDENTITIES: ::std::cell::RefCell<::std::collections::HashMap<&'static str, usize>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// The canonical JavaScript identity of one class method.");
+        writer.line("///");
+        writer.line("/// Allocated once per key and never freed, so it is distinct from every");
+        writer.line("/// callable allocation and stable across every read of the method.");
+        writer.line("fn smelt_method_identity(key: &'static str) -> usize {");
+        writer.line("    SMELT_METHOD_IDENTITIES.with(|identities| *identities.borrow_mut().entry(key).or_insert_with(|| ::std::boxed::Box::leak(::std::boxed::Box::new(0u8)) as *const u8 as usize))");
+        writer.line("}");
+        writer.blank_line();
         // `Function.prototype.length` across the erasure boundary.
         //
         // A typed callable knows its own arity, and `SmeltErasedFunction` carries it
@@ -1960,6 +1987,37 @@ fn emit_source_with_free_function_router(
         writer.blank_line();
         writer.line("/// Every key JavaScript `for...in` yields for a typed record, prototype chain included.");
         writer.line("fn smelt_for_in_record_keys<V>(record: &SmeltRecord<String, V>) -> Vec<String> { let mut keys = Vec::new(); let mut seen = ::std::collections::HashSet::new(); for key in record.keys() { if key.starts_with(\"__smelt_proto:\") { continue; } if smelt_is_for_in_record_key(record, &key) && seen.insert(key.clone()) { keys.push(key); } } for key in record.keys() { if let Some(inherited) = key.strip_prefix(\"__smelt_proto:\") { let inherited = inherited.to_owned(); if seen.insert(inherited.clone()) { keys.push(inherited); } } } keys }");
+        writer.blank_line();
+        // Own-property enumeration over a `SmeltJsMap` backing.
+        //
+        // Smelt's marker convention (`__smelt_proto:` for an `Object.create`
+        // prototype member, `__smelt_method:` for a class's prototype methods,
+        // `__smelt_class` for provenance, `__smelt_symbol:` for a symbol key)
+        // is a property of the *representation*, not of the source object, so
+        // every own-key view has to honour it. `SmeltRecord` did, through
+        // `smelt_is_for_in_record_key`; the `SmeltUnknown`-keyed `SmeltJsMap`
+        // backing did not, even though the erased-object -> `SmeltJsMap`
+        // coercion copies those keys in verbatim. `Object.keys` of an
+        // `Object.create({a: 1})` therefore reported the inherited `a`.
+        //
+        // This is the `SmeltJsMap` twin of that filter: it drops the markers
+        // and turns a stored `__smelt_symbol:x` key back into the
+        // `SmeltUnknown::Symbol` value it denotes, so the callers' own
+        // string-versus-symbol split (`Object.keys` excludes symbol keys,
+        // `Object.getOwnPropertySymbols` keeps only those) works on real tags.
+        writer.line("/// Own entries of a `SmeltJsMap` backing, with representation markers removed.");
+        writer.line("///");
+        writer.line("/// Drops `__smelt_proto:` / `__smelt_method:` / `__smelt_class` keys (inherited");
+        writer.line("/// members, prototype methods and class provenance are not own properties) and");
+        writer.line("/// restores a `__smelt_symbol:` key to its `SmeltUnknown::Symbol` tag.");
+        writer.line("fn smelt_own_js_map_entries<V: Clone>(map: &SmeltJsMap<SmeltUnknown, V>) -> Vec<(SmeltUnknown, V)> { map.iter().filter_map(|(key, value)| { let SmeltUnknown::String(text) = &key else { return Some((key, value)); }; let text = text.to_string(); if text.starts_with(\"__smelt_proto:\") || text.starts_with(\"__smelt_method:\") || text == \"__smelt_class\" { return None; } if let Some(description) = text.strip_prefix(\"__smelt_symbol:\") { return Some((SmeltUnknown::Symbol(description.into()), value)); } Some((key, value)) }).collect() }");
+        writer.blank_line();
+        writer.line("/// Every key JavaScript `for...in` yields for a `SmeltJsMap` backing.");
+        writer.line("///");
+        writer.line("/// Own string keys first, then the enumerable `__smelt_proto:` members with");
+        writer.line("/// their prefix stripped -- the same order and the same prototype-chain rule as");
+        writer.line("/// `smelt_for_in_record_keys`. Symbol keys are never enumerated by `for...in`.");
+        writer.line("fn smelt_for_in_js_map_keys<V: Clone>(map: &SmeltJsMap<SmeltUnknown, V>) -> Vec<SmeltUnknown> { let mut keys = Vec::new(); let mut seen = ::std::collections::HashSet::new(); for (key, _) in smelt_own_js_map_entries(map) { if matches!(key, SmeltUnknown::Symbol(_)) { continue; } if let SmeltUnknown::String(text) = &key { if !seen.insert(text.to_string()) { continue; } } keys.push(key); } for key in map.keys() { let SmeltUnknown::String(text) = &key else { continue; }; if let Some(inherited) = text.strip_prefix(\"__smelt_proto:\") { let inherited = inherited.to_owned(); if seen.insert(inherited.clone()) { keys.push(SmeltUnknown::String(inherited.as_str().into())); } } } keys }");
         writer.blank_line();
         writer.line("/// Stringify a marker-bearing erased RegExp as JavaScript does: `/source/flags`.");
         writer.line("fn smelt_regexp_literal(map: &SmeltObject) -> String { let source = match map.get(\"source\") { Some(SmeltUnknown::String(source)) => source.to_string(), _ => String::new() }; let flags = match map.get(\"flags\") { Some(SmeltUnknown::String(flags)) => flags.to_string(), _ => String::new() }; format!(\"/{source}/{flags}\") }");

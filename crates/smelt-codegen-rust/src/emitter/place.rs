@@ -480,7 +480,11 @@ impl FunctionEmitter<'_> {
                         let default_value = self.default_value(value_ty)?;
                         Ok(format!("{optional_read}.unwrap_or({default_value})"))
                     }
-                    _ => Ok(self.null_value_text()),
+                    // No modelled keyed storage on this receiver, so the key
+                    // is not a property of it: JavaScript answers `undefined`
+                    // for a missing property, which is a DIFFERENT value from
+                    // `null` under `===` (see `absent_value_text`).
+                    _ => Ok(self.absent_value_text()),
                 }
             }
         }
