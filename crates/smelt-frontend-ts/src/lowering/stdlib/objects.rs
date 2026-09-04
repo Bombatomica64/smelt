@@ -1091,10 +1091,41 @@ return_ty,
             });
             dict_shape_ty = self.type_param_constraint_or_self(inner);
         }
-        // `Object.hasOwn(array, index)` checks whether a (numeric) index is a
-        // present element, i.e. `0 <= index < array.length`. Arrays are not
-        // records, so this lowers to an in-bounds comparison rather than a
-        // dictionary key lookup.
+        // `Object.hasOwn(array, index)` with a NUMERIC key checks whether that
+        // index is a present element, i.e. `0 <= index < array.length`, which is
+        // a comparison rather than a dictionary lookup.
+        //
+        // A non-numeric key is a different question. A JavaScript array is an
+        // exotic object whose own keys are its indices AND its named properties
+        // (`Object.hasOwn(/c/.exec(s), 'index')` is `true` — a match result is an
+        // array carrying `index`/`input`/`groups`), and only the runtime knows
+        // which names the array holds. Such a receiver is therefore erased and
+        // asked, exactly as an already-erased array receiver is: the erasure
+        // aliases the array's identity, which is what the named-property table is
+        // keyed by, so the typed handle and the erased view answer alike. Before
+        // this the in-bounds comparison ran on every key, and a string key
+        // parsed to `NaN` and answered a constant `false`.
+        if matches!(self.ctx.krate.types.get(dict_shape_ty), Some(Type::List(_)))
+            && !matches!(
+                self.ctx
+                    .krate
+                    .types
+                    .get(self.type_param_constraint_or_self(Self::expr_ty(body, key))),
+                Some(Type::Int | Type::Float)
+            )
+        {
+            let span = self.span(call.span.start, call.span.end);
+            let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+            dict = body.push_expr(Expr {
+                kind: ExprKind::UnknownCast {
+                    value: dict,
+                    target: unknown_ty,
+                },
+                ty: unknown_ty,
+                span,
+            });
+            dict_shape_ty = unknown_ty;
+        }
         if matches!(self.ctx.krate.types.get(dict_shape_ty), Some(Type::List(_))) {
             let span = self.span(call.span.start, call.span.end);
             let float_ty = self.ctx.krate.types.intern(Type::Float);

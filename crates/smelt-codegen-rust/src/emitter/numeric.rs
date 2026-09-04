@@ -106,8 +106,14 @@ impl FunctionEmitter<'_> {
             // answered `0`, and es-toolkit `rest(func)` — whose default split point
             // is `func.length - 1` — computed `-1` and reshaped every call wrongly.
             Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
+                // The receiver is bound to a reserved name before the match, not
+                // re-spelled inside it: every arm binds `value`, so a receiver
+                // whose own Rust name IS `value` (a source parameter called
+                // `value`, which is the commonest name in a generic helper) had
+                // its arm binding shadow it and the `Function` fallbacks passed
+                // `&&SmeltObject` where a `&SmeltUnknown` was expected (E0308).
                 format!(
-                    "match &{receiver_text} {{ SmeltUnknown::String(value) => value.chars().count(), SmeltUnknown::Array(value) => value.len(), SmeltUnknown::Object(value) => match smelt_get_object_field(value, \"length\") {{ SmeltUnknown::Number(value) => value as usize, _ => {function_length}(&{receiver_text}) as usize }}, SmeltUnknown::Function(_) => {function_length}(&{receiver_text}) as usize, _ => 0 }}",
+                    "{{ let smelt_length_receiver = &{receiver_text}; match smelt_length_receiver {{ SmeltUnknown::String(value) => value.chars().count(), SmeltUnknown::Array(value) => value.len(), SmeltUnknown::Object(value) => match smelt_get_object_field(value, \"length\") {{ SmeltUnknown::Number(value) => value as usize, _ => {function_length}(smelt_length_receiver) as usize }}, SmeltUnknown::Function(_) => {function_length}(smelt_length_receiver) as usize, _ => 0 }} }}",
                     function_length = smelt_stdlib::runtime_symbols::function_length::READ,
                 )
             }

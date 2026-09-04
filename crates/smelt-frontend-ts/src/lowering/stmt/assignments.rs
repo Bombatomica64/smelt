@@ -568,11 +568,16 @@ impl ModuleBuilder<'_> {
         }
         let field_ty = match self.class_field_type(access_receiver_ty, field) {
             Ok(field_ty) => field_ty,
-            // Reading an absent property yields `undefined` in JavaScript. A
-            // Smelt list is a plain vector with no expando-property storage
-            // (e.g. the RegExp match-array `index`/`input` fields), so an
-            // unmodeled field read on a list receiver is truthfully
-            // `undefined` rather than a lowering error.
+            // A JavaScript array is an exotic object: besides its elements it can
+            // carry ordinary named properties, and a `RegExp.exec` result is
+            // exactly that — an array with `index`, `input` and `groups`. So an
+            // unmodeled name on a list receiver is not statically absent; it is a
+            // question only the runtime can answer. Erase the receiver and read
+            // the property off it: the erasure aliases the array's identity, which
+            // is what the named-property table is keyed by, so the typed handle
+            // and an erased view of the same array read the same properties.
+            // Answering a constant `undefined` here dropped `.index`/`.input`
+            // from every clone that narrowed with `Array.isArray` first.
             Err(error) => {
                 if absent_list_field_is_undefined
                     && matches!(
@@ -580,11 +585,23 @@ impl ModuleBuilder<'_> {
                         Some(Type::List(_))
                     )
                 {
+                    let span = self.span(member.span.start, member.span.end);
                     let ty = self.ctx.krate.types.intern(Type::Unknown);
-                    return Ok(body.push_expr(Expr {
-                        kind: ExprKind::Literal(Literal::None),
+                    let erased = body.push_expr(Expr {
+                        kind: ExprKind::UnknownCast {
+                            value: receiver,
+                            target: ty,
+                        },
                         ty,
-                        span: self.span(member.span.start, member.span.end),
+                        span,
+                    });
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::Field {
+                            receiver: erased,
+                            field,
+                        },
+                        ty,
+                        span,
                     }));
                 }
                 return Err(error);

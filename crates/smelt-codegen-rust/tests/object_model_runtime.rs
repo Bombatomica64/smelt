@@ -347,3 +347,70 @@ test("a callback keeps its identity through a container and a field", () => {
 "#;
     run_fixture(source, "smelt_object_model_callback_identity");
 }
+
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_regexp_match_is_an_array_that_carries_its_named_properties() {
+    // `RegExp.prototype.exec` returns an ARRAY in JavaScript --
+    // `Array.isArray(/c/.exec(s))` is `true` -- that additionally carries
+    // `index`, `input` and `groups` as ordinary named properties. Erasing it to
+    // an object instead made `getTag` report `[object Object]`, so a match never
+    // compared equal to the plain array a spec matched it against.
+    //
+    // The named-property table is keyed by array IDENTITY, not held on the
+    // erased `SmeltArray`, which is what lets a reader narrow the value with
+    // `Array.isArray` -- getting a typed list handle whose Rust type cannot even
+    // name the erased carrier -- and still read `.index` off it, ask
+    // `Object.hasOwn` about it, and copy it onto a clone.
+    let source = r#"
+import { test, expect } from "vitest";
+function cloneArrayish<T>(value: T): unknown {
+  if (Array.isArray(value)) {
+    const out: any = [];
+    for (let i = 0; i < value.length; i++) {
+      out[i] = value[i];
+    }
+    if (Object.hasOwn(value, "index")) {
+      // @ts-ignore: a match array's named property
+      out.index = value.index;
+    }
+    if (Object.hasOwn(value, "input")) {
+      // @ts-ignore: a match array's named property
+      out.input = value.input;
+    }
+    return out;
+  }
+  return value;
+}
+test("a match result is an array with named properties", () => {
+  const erased: any = /c/.exec("abcde");
+  expect(Array.isArray(erased)).toBe(true);
+  expect(erased.length).toBe(1);
+  expect(erased[0]).toBe("c");
+  expect(erased.index).toBe(2);
+  expect(erased.input).toBe("abcde");
+  expect(Object.hasOwn(erased, "index")).toBe(true);
+  expect(Object.hasOwn(erased, "nope")).toBe(false);
+  expect(Object.keys(erased)).toEqual(["0", "index", "input", "groups"]);
+});
+test("a match equals the plain array of its groups", () => {
+  const erased: any = /c/.exec("abcde");
+  expect(erased).toEqual(["c"]);
+  expect(["c"]).toEqual(erased);
+});
+test("named properties survive an Array.isArray-narrowed copy", () => {
+  const cloned: any = cloneArrayish(/c/.exec("abcde"));
+  expect(cloned[0]).toBe("c");
+  expect(cloned.index).toBe(2);
+  expect(cloned.input).toBe("abcde");
+});
+test("a numeric Object.hasOwn key is still an in-bounds element check", () => {
+  const list: any = ["a", "b"];
+  expect(Object.hasOwn(list, 0)).toBe(true);
+  expect(Object.hasOwn(list, 1)).toBe(true);
+  expect(Object.hasOwn(list, 2)).toBe(false);
+});
+"#;
+    run_fixture(source, "smelt_object_model_match_array");
+}

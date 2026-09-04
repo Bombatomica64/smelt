@@ -2252,30 +2252,54 @@ fn emit_source_with_free_function_router(
         //
         // A JavaScript array is an *exotic object*: it has index elements AND
         // ordinary named properties (`const a = ['1']; a.x = 2` keeps `a` an
-        // array, with `a.length === 1` and `a.x === 2`). `props` is where the
-        // named half lives — lazily allocated, so an array that never takes a
-        // named property costs one `Rc` and no `Vec`, and shared through its own
-        // `Rc` so every alias of the array observes a named write exactly as it
-        // observes an element write. Values are `SmeltUnknown` regardless of what
-        // the elements are: a named write only reaches an array through an erased
-        // receiver (TypeScript's `T[]` has no named members, so the source needs
-        // an `as any` first), which is a genuine dynamic boundary.
+        // array, with `a.length === 1` and `a.x === 2`). The named half lives in
+        // `SMELT_ARRAY_PROPS`, keyed by the array's IDENTITY rather than stored as
+        // a field here, because one JavaScript array is more than one Rust value:
+        // a typed `SmeltList<T>` and the `SmeltArray` an erasure wraps around its
+        // buffer are the same array (same `id`, same storage) but different
+        // structs, and `SmeltList` lives in `smelt-runtime`, which cannot name
+        // `SmeltUnknown` and so cannot hold the table itself. Keying by identity
+        // is what lets `Array.isArray(v)` narrow an erased match to a typed list
+        // and still read `.index` off it. Values are `SmeltUnknown` regardless of
+        // what the elements are: a named property only reaches an array through an
+        // erased receiver (TypeScript's `T[]` has no named members, so the source
+        // needs an `as any` first), which is a genuine dynamic boundary.
         //
         // Both store seams used to REPLACE the array with a fresh one-property
         // object when the key was not an index, which lost the elements and made
-        // `Array.isArray` answer `false`. `props` is deliberately invisible to
-        // structural equality, `len()`, iteration and JSON — JavaScript compares
-        // arrays index-wise (es-toolkit `isEqualWith`'s array arm compares only
-        // `length` and the elements) and `JSON.stringify` serializes only the
-        // elements — and visible to property reads and to key enumeration, where
-        // it follows the index keys.
+        // `Array.isArray` answer `false`. The named table is deliberately
+        // invisible to structural equality, `len()`, iteration and JSON —
+        // JavaScript compares arrays index-wise (es-toolkit `isEqualWith`'s array
+        // arm compares only `length` and the elements) and `JSON.stringify`
+        // serializes only the elements — and visible to property reads and to key
+        // enumeration, where it follows the index keys.
+        //
+        // The registry is keyed by a monotonically minted id and never pruned, so
+        // it retains what an array with a named property holds for the rest of the
+        // process. That is the same trade the callable-identity registries above
+        // make, and named properties on an array are rare: an array that never
+        // takes one puts nothing in the table.
+        writer.line("thread_local! {");
+        writer.line("    /// Named (non-index) properties of erased arrays, keyed by array identity.");
+        writer.line("    static SMELT_ARRAY_PROPS: ::std::cell::RefCell<::std::collections::HashMap<usize, Vec<(String, SmeltUnknown)>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// Read one named property of the array with this identity.");
+        writer.line("fn smelt_array_named_property(id: usize, key: &str) -> Option<SmeltUnknown> { SMELT_ARRAY_PROPS.with(|props| props.borrow().get(&id).and_then(|props| props.iter().find(|(name, _)| name == key).map(|(_, value)| value.clone()))) }");
+        writer.blank_line();
+        writer.line("/// Write one named property of the array with this identity, creating its table on first use.");
+        writer.line("fn smelt_array_set_named_property(id: usize, key: String, value: SmeltUnknown) { SMELT_ARRAY_PROPS.with(|props| { let mut props = props.borrow_mut(); let entries = props.entry(id).or_default(); match entries.iter_mut().find(|(name, _)| *name == key) { Some(slot) => slot.1 = value, None => entries.push((key, value)) } }); }");
+        writer.blank_line();
+        writer.line("/// The named property keys of the array with this identity, in insertion order.");
+        writer.line("fn smelt_array_named_keys(id: usize) -> Vec<String> { SMELT_ARRAY_PROPS.with(|props| props.borrow().get(&id).map_or_else(Vec::new, |props| props.iter().map(|(name, _)| name.clone()).collect())) }");
+        writer.blank_line();
+        writer.line("/// The named properties of the array with this identity, in insertion order.");
+        writer.line("fn smelt_array_named_entries(id: usize) -> Vec<(String, SmeltUnknown)> { SMELT_ARRAY_PROPS.with(|props| props.borrow().get(&id).cloned().unwrap_or_default()) }");
+        writer.blank_line();
         writer.line("pub struct SmeltArray {");
         writer.line("    id: usize,");
         writer.line(
             "    values: ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>>,",
-        );
-        writer.line(
-            "    props: ::std::rc::Rc<::std::cell::RefCell<Option<Vec<(String, SmeltUnknown)>>>>,",
         );
         writer.line("}");
         writer.blank_line();
@@ -2284,20 +2308,20 @@ fn emit_source_with_free_function_router(
         // `SmeltArray { id: 1, values: [..] }`. Keeping the rendering byte-identical
         // means the storage change is invisible to anything that formats a value.
         writer.line("impl ::std::fmt::Debug for SmeltArray { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_struct(\"SmeltArray\").field(\"id\", &self.id).field(\"values\", &*self.values.borrow()).finish() } }");
-        writer.line("impl Clone for SmeltArray { fn clone(&self) -> Self { Self { id: self.id, values: self.values.clone(), props: self.props.clone() } } }");
+        writer.line("impl Clone for SmeltArray { fn clone(&self) -> Self { Self { id: self.id, values: self.values.clone() } } }");
         writer.line("impl SmeltArray {");
         writer.line("    /// Create an identity-bearing erased JavaScript array.");
-        writer.line("    fn new(values: Vec<SmeltUnknown>) -> Self { Self { id: smelt_next_object_id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)), props: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }");
+        writer.line("    fn new(values: Vec<SmeltUnknown>) -> Self { Self { id: smelt_next_object_id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)) } }");
         writer.line(
             "    /// Reuse a caller-supplied identity so repeated erasures of one source list compare `===` equal.",
         );
         writer.line(
-            "    fn with_id(id: usize, values: Vec<SmeltUnknown>) -> Self { Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)), props: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }",
+            "    fn with_id(id: usize, values: Vec<SmeltUnknown>) -> Self { Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)) } }",
         );
         writer.line(
             "    /// Reuse an existing shared buffer, so a re-wrap keeps aliasing the same array.",
         );
-        writer.line("    fn with_storage(id: usize, values: ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>>) -> Self { Self { id, values, props: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }");
+        writer.line("    fn with_storage(id: usize, values: ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>>) -> Self { Self { id, values } }");
         // The twin of `SmeltList::storage()`. An erased array re-wrapped as a
         // typed `SmeltList<SmeltUnknown>` must keep aliasing the SAME buffer, or
         // the round-trip produces a stale snapshot wearing the live array's id
@@ -2330,17 +2354,19 @@ fn emit_source_with_free_function_router(
         writer.line("    fn replace_all(&self, values: Vec<SmeltUnknown>) { *self.values.borrow_mut() = values; }");
         // The named half of the array's property model. Kept as an insertion-ordered
         // `Vec` rather than a map because JavaScript enumerates an object's string
-        // keys in insertion order and there are only ever a handful of them.
+        // keys in insertion order and there are only ever a handful of them. These
+        // are thin wrappers over the identity-keyed registry, so a typed
+        // `SmeltList` handle reaches the same table through the same `id`.
         writer.line("    /// Read a NON-INDEX named property (JS `arr.x`), or `None` when absent.");
-        writer.line("    fn named_property(&self, key: &str) -> Option<SmeltUnknown> { self.props.borrow().as_ref().and_then(|props| props.iter().find(|(name, _)| name == key).map(|(_, value)| value.clone())) }");
+        writer.line("    fn named_property(&self, key: &str) -> Option<SmeltUnknown> { smelt_array_named_property(self.id, key) }");
         writer.line("    /// Write a NON-INDEX named property (JS `arr.x = v`), allocating the side table on first use.");
-        writer.line("    fn set_named_property(&self, key: String, value: SmeltUnknown) { let mut props = self.props.borrow_mut(); let props = props.get_or_insert_with(Vec::new); match props.iter_mut().find(|(name, _)| *name == key) { Some(slot) => slot.1 = value, None => props.push((key, value)) } }");
+        writer.line("    fn set_named_property(&self, key: String, value: SmeltUnknown) { smelt_array_set_named_property(self.id, key, value); }");
         writer.line("    /// The named property keys, in insertion order (empty in the common case).");
-        writer.line("    fn named_keys(&self) -> Vec<String> { self.props.borrow().as_ref().map_or_else(Vec::new, |props| props.iter().map(|(name, _)| name.clone()).collect()) }");
+        writer.line("    fn named_keys(&self) -> Vec<String> { smelt_array_named_keys(self.id) }");
         writer.line("    /// Own enumerable keys: the element indices, then the named properties, exactly the order `Object.keys` reports.");
         writer.line("    fn own_keys(&self) -> Vec<String> { let mut keys = (0..self.len()).map(|index| index.to_string()).collect::<Vec<_>>(); keys.extend(self.named_keys()); keys }");
         writer.line("    /// Own enumerable entries, paired with the keys `own_keys` reports.");
-        writer.line("    fn own_entries(&self) -> Vec<(String, SmeltUnknown)> { let mut entries = self.values.borrow().iter().enumerate().map(|(index, value)| (index.to_string(), value.clone())).collect::<Vec<_>>(); if let Some(props) = self.props.borrow().as_ref() { entries.extend(props.iter().cloned()); } entries }");
+        writer.line("    fn own_entries(&self) -> Vec<(String, SmeltUnknown)> { let mut entries = self.values.borrow().iter().enumerate().map(|(index, value)| (index.to_string(), value.clone())).collect::<Vec<_>>(); entries.extend(smelt_array_named_entries(self.id)); entries }");
         writer.line("}");
         writer.line("impl From<Vec<SmeltUnknown>> for SmeltArray { fn from(values: Vec<SmeltUnknown>) -> Self { Self::new(values) } }");
         writer.line("impl ::std::iter::FromIterator<SmeltUnknown> for SmeltArray { fn from_iter<T: IntoIterator<Item = SmeltUnknown>>(iter: T) -> Self { Self::new(iter.into_iter().collect()) } }");
@@ -5703,25 +5729,25 @@ fn emit_smelt_match(writer: &mut CodeWriter, needs_unknown: bool) {
         writer.line("/// `input`. It is the single explicit adapter used when a typed");
         writer.line("/// `SmeltMatch` must flow into erased `unknown` consumer dataflow.");
         writer.line("///");
-        writer.line("/// A JavaScript match result is really an ARRAY with those extra named");
-        writer.line("/// properties, and `SmeltArray` can now carry named properties (see its");
-        writer.line("/// `props` side table), so this could report `[object Array]` instead --");
-        writer.line("/// which is what makes a match compare equal to the plain array a spec");
-        writer.line("/// matches it against. It does not yet, because the typed `SmeltList` view");
-        writer.line("/// cannot reach those properties: a `T[]`-typed reader of the erased value");
-        writer.line("/// (es-toolkit `cloneDeepWith` narrows with `Array.isArray` and then reads");
-        writer.line("/// `.index`/`.input`) would take the array branch and copy neither, losing");
-        writer.line("/// them from the clone. Flipping this adapter belongs with making the side");
-        writer.line("/// table reachable through a typed list handle.");
+        writer.line("/// A JavaScript match result IS an array — `Array.isArray(/c/.exec(s))` is");
+        writer.line("/// `true` and `Object.prototype.toString.call` reports `[object Array]` —");
+        writer.line("/// carrying `index`, `input` and `groups` as ordinary named properties. So");
+        writer.line("/// the erasure is a `SmeltUnknown::Array` over the numbered groups plus");
+        writer.line("/// three entries in the identity-keyed named-property table. That is what");
+        writer.line("/// makes a match compare equal to the plain array a spec matches it");
+        writer.line("/// against (es-toolkit `isEqualWith`'s array arm compares only `length` and");
+        writer.line("/// the elements), and, because the table is keyed by identity rather than");
+        writer.line("/// held on the `SmeltArray`, a `T[]`-typed reader that narrows the value");
+        writer.line("/// with `Array.isArray` and then reads `.index`/`.input` (es-toolkit");
+        writer.line("/// `cloneDeepWith`) still finds them through its typed list handle.");
         writer.block("impl IntoSmeltUnknown for SmeltMatch", |impl_writer| {
             impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
-                fn_writer.line("let mut object: Vec<(String, SmeltUnknown)> = Vec::new();");
-                fn_writer.line("for (index, value) in self.groups.iter().enumerate() { object.push((index.to_string(), value.clone().map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into())))); }");
+                fn_writer.line("let elements = self.groups.iter().map(|value| value.clone().map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))).collect::<Vec<_>>();");
                 fn_writer.line("let groups = self.named.into_iter().map(|(name, value)| (name, value.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into())))).collect::<Vec<_>>();");
-                fn_writer.line("object.push((\"groups\".to_owned(), SmeltUnknown::Object(SmeltObject::new(groups))));");
-                fn_writer.line("object.push((\"index\".to_owned(), SmeltUnknown::Number(self.match_index as f64)));");
-                fn_writer.line("object.push((\"input\".to_owned(), SmeltUnknown::String(self.input.into())));");
-                fn_writer.line("SmeltUnknown::Object(SmeltObject::with_id(self.id, object))");
+                fn_writer.line("smelt_array_set_named_property(self.id, \"index\".to_owned(), SmeltUnknown::Number(self.match_index as f64));");
+                fn_writer.line("smelt_array_set_named_property(self.id, \"input\".to_owned(), SmeltUnknown::String(self.input.into()));");
+                fn_writer.line("smelt_array_set_named_property(self.id, \"groups\".to_owned(), SmeltUnknown::Object(SmeltObject::new(groups)));");
+                fn_writer.line("SmeltUnknown::Array(SmeltArray::with_id(self.id, elements))");
             });
         });
         writer.blank_line();
