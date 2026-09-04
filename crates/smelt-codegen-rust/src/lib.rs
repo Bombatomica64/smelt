@@ -2019,6 +2019,8 @@ fn emit_source_with_free_function_router(
         writer.line("/// `smelt_for_in_record_keys`. Symbol keys are never enumerated by `for...in`.");
         writer.line("fn smelt_for_in_js_map_keys<V: Clone>(map: &SmeltJsMap<SmeltUnknown, V>) -> Vec<SmeltUnknown> { let mut keys = Vec::new(); let mut seen = ::std::collections::HashSet::new(); for (key, _) in smelt_own_js_map_entries(map) { if matches!(key, SmeltUnknown::Symbol(_)) { continue; } if let SmeltUnknown::String(text) = &key { if !seen.insert(text.to_string()) { continue; } } keys.push(key); } for key in map.keys() { let SmeltUnknown::String(text) = &key else { continue; }; if let Some(inherited) = text.strip_prefix(\"__smelt_proto:\") { let inherited = inherited.to_owned(); if seen.insert(inherited.clone()) { keys.push(SmeltUnknown::String(inherited.as_str().into())); } } } keys }");
         writer.blank_line();
+        emit_own_keys_projection(&mut writer);
+        writer.blank_line();
         writer.line("/// Stringify a marker-bearing erased RegExp as JavaScript does: `/source/flags`.");
         writer.line("fn smelt_regexp_literal(map: &SmeltObject) -> String { let source = match map.get(\"source\") { Some(SmeltUnknown::String(source)) => source.to_string(), _ => String::new() }; let flags = match map.get(\"flags\") { Some(SmeltUnknown::String(flags)) => flags.to_string(), _ => String::new() }; format!(\"/{source}/{flags}\") }");
         writer.blank_line();
@@ -5312,6 +5314,54 @@ fn insert_after_crate_header(mut root: String, text: &str) -> String {
 /// frontend still assigns for `exec`/`matchAll` consumers), it is converted
 /// with the explicit [`IntoSmeltUnknown`] adapter — the single place where the
 /// concrete match is intentionally erased.
+/// Emits the `Reflect.ownKeys` projection and the storage-key → symbol inverse.
+///
+/// `Reflect.ownKeys(o)` answers *every* own key: the string keys in JavaScript's
+/// own-key order, then the symbol keys. `Object.keys` answers only the string
+/// half, which is why the two need separate projections rather than one.
+///
+/// DYNAMIC BOUNDARY (`CLAUDE.md`): the element type is `SmeltUnknown` because
+/// `Reflect.ownKeys` is declared `(target: object) => (string | symbol)[]` in
+/// TypeScript's own lib. The list genuinely mixes two disjoint runtime kinds and
+/// consumers discriminate them at run time (`typeof key === 'string'`), so no
+/// concrete element type, generated union arm, or scoped generic can stand in:
+/// choosing `String` is what made the caller's `typeof` guard const-fold to
+/// `false` and lose the symbol keys entirely. The regression test
+/// `stdlib_boundary_tests::reflect_own_keys_keeps_symbol_keys_and_a_dynamic_key_type`
+/// pins that reasoning.
+fn emit_own_keys_projection(writer: &mut CodeWriter) {
+    // The inverse of `smelt_symbol_property_key`: a well-known symbol is stored
+    // under a synthetic member name (`__smelt_symbol_iterator`), not under the
+    // generic `__smelt_symbol:<description>` form, so recovering the symbol
+    // VALUE from a stored key needs the same table read backwards.
+    let well_known_arms = smelt_stdlib::well_known_symbols::spelling_key_pairs()
+        .into_iter()
+        .fold(String::new(), |mut arms, (spelling, key)| {
+            use ::std::fmt::Write as _;
+            let _ = write!(
+                arms,
+                "{key:?} => Some(SmeltUnknown::Symbol({spelling:?}.into())), "
+            );
+            arms
+        });
+    writer.line("/// The symbol value a stored property key denotes, if it is a symbol key.");
+    writer.line(format!(
+        "fn smelt_key_symbol_value(key: &str) -> Option<SmeltUnknown> {{ if let Some(description) = key.strip_prefix(\"__smelt_symbol:\") {{ return Some(SmeltUnknown::Symbol(description.into())); }} match key {{ {well_known_arms}_ => None }} }}"
+    ));
+    writer.blank_line();
+    writer.line("/// `Reflect.ownKeys` over a string-keyed record: string keys, then symbol keys.");
+    writer.line("///");
+    writer.line("/// DYNAMIC BOUNDARY: a key is `string | symbol` in the source type of");
+    writer.line("/// `Reflect.ownKeys`, and callers discriminate with `typeof`.");
+    writer.line("fn smelt_own_keys<V>(record: &SmeltRecord<String, V>) -> Vec<SmeltUnknown> { let mut strings = Vec::new(); let mut symbols = Vec::new(); for key in record.keys() { if let Some(symbol) = smelt_key_symbol_value(&key) { symbols.push(symbol); } else if smelt_is_for_in_record_key(record, &key) && !key.starts_with(\"__smelt_proto:\") { strings.push(SmeltUnknown::String(key.as_str().into())); } } strings.extend(symbols); strings }");
+    writer.blank_line();
+    writer.line("/// `Reflect.ownKeys` over an erased object: string keys, then symbol keys.");
+    writer.line("fn smelt_own_object_keys(map: &SmeltObject) -> Vec<SmeltUnknown> { let mut strings = Vec::new(); let mut symbols = Vec::new(); for key in map.keys() { if let Some(symbol) = smelt_key_symbol_value(&key) { symbols.push(symbol); } else if smelt_is_for_in_object_key(map, &key) && !key.starts_with(\"__smelt_proto:\") { strings.push(SmeltUnknown::String(key.as_str().into())); } } strings.extend(symbols); strings }");
+    writer.blank_line();
+    writer.line("/// `Reflect.ownKeys` over a `SmeltJsMap` backing: string keys, then symbol keys.");
+    writer.line("fn smelt_own_js_map_keys<V: Clone>(map: &SmeltJsMap<SmeltUnknown, V>) -> Vec<SmeltUnknown> { let mut strings = Vec::new(); let mut symbols = Vec::new(); for (key, _) in smelt_own_js_map_entries(map) { if matches!(key, SmeltUnknown::Symbol(_)) { symbols.push(key); } else { strings.push(key); } } strings.extend(symbols); strings }");
+}
+
 fn emit_smelt_match(writer: &mut CodeWriter, needs_unknown: bool) {
     writer.line("/// A concrete JavaScript RegExp match result (numbered groups, named");
     writer.line("/// groups, `index`, and `input`).");

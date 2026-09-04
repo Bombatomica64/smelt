@@ -1224,6 +1224,7 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
             let op_text = match op {
                 smelt_hir::DictProjectionOp::FromEntries => "from_entries",
                 smelt_hir::DictProjectionOp::Keys => "keys",
+                smelt_hir::DictProjectionOp::OwnKeys => "own_keys",
                 smelt_hir::DictProjectionOp::ForInKeys => "for_in_keys",
                 smelt_hir::DictProjectionOp::Symbols => "symbols",
                 smelt_hir::DictProjectionOp::Values => "values",

@@ -854,6 +854,10 @@ impl ModuleBuilder<'_> {
                 DictProjectionOp::Keys | DictProjectionOp::ForInKeys => {
                     self.ctx.krate.types.intern(Type::List(string_ty))
                 }
+                // `Reflect.ownKeys` answers `(string | symbol)[]`, so its
+                // element type is the erased carrier -- see
+                // `object_projection_call`.
+                DictProjectionOp::OwnKeys => self.ctx.krate.types.intern(Type::List(unknown)),
                 // Symbol keys come back as erased symbol VALUES, not descriptions,
                 // so re-indexing the receiver with one still resolves to the
                 // internal `__smelt_symbol:` key. See `object_projection_call`.

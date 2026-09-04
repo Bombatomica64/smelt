@@ -291,11 +291,11 @@ fn math_numeric_constants_fold_to_literals() -> Result<(), String> {
     Ok(())
 }
 
-/// `Reflect.ownKeys(record)` lowers to the same `DictProjection`/`Keys` operation
-/// as `Object.keys(record)` (a concrete `List<string>`), since Smelt records
-/// carry no non-enumerable or symbol keys.
+/// `Reflect.ownKeys(record)` lowers to its OWN `DictProjection` operation, not
+/// to the one `Object.keys(record)` uses: it reports symbol-keyed properties as
+/// well as string-keyed ones, and its declared result is `(string | symbol)[]`.
 #[test]
-fn reflect_own_keys_lowers_like_object_keys() -> Result<(), String> {
+fn reflect_own_keys_lowers_to_the_own_key_projection() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
         ts!("const r = { a: 1, b: 2 }; const keys = Reflect.ownKeys(r);"),
@@ -307,11 +307,21 @@ fn reflect_own_keys_lowers_like_object_keys() -> Result<(), String> {
         body.exprs.iter().any(|expr| matches!(
             &expr.kind,
             ExprKind::DictProjection {
+                op: DictProjectionOp::OwnKeys,
+                ..
+            }
+        )),
+        "expected `Reflect.ownKeys(record)` to lower to an OwnKeys DictProjection",
+    );
+    ensure!(
+        !body.exprs.iter().any(|expr| matches!(
+            &expr.kind,
+            ExprKind::DictProjection {
                 op: DictProjectionOp::Keys,
                 ..
             }
         )),
-        "expected `Reflect.ownKeys(record)` to lower to a Keys DictProjection",
+        "`Reflect.ownKeys` must not alias the string-only `Object.keys` projection",
     );
     Ok(())
 }

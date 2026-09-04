@@ -592,7 +592,9 @@ impl ModuleBuilder<'_> {
         let key_ty = *dict_key_ty;
         let value_ty = *dict_value_ty;
         let ty = match op {
-            DictProjectionOp::FromEntries => return Ok(None),
+            // Neither `fromEntries` nor the own-key projection is reachable
+            // through a collection METHOD call: `Reflect.ownKeys` is a static.
+            DictProjectionOp::FromEntries | DictProjectionOp::OwnKeys => return Ok(None),
             DictProjectionOp::Keys | DictProjectionOp::ForInKeys => {
                 self.ctx.krate.types.intern(Type::List(key_ty))
             }
@@ -688,7 +690,9 @@ impl ModuleBuilder<'_> {
             _ => return Ok(None),
         };
         let ty = match op {
-            DictProjectionOp::FromEntries => return Ok(None),
+            // Neither `fromEntries` nor the own-key projection is reachable
+            // through a collection METHOD call: `Reflect.ownKeys` is a static.
+            DictProjectionOp::FromEntries | DictProjectionOp::OwnKeys => return Ok(None),
             DictProjectionOp::Keys | DictProjectionOp::ForInKeys => {
                 self.ctx.krate.types.intern(Type::List(key_ty))
             }

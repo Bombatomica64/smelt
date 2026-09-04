@@ -32,7 +32,9 @@ impl ModuleBuilder<'_> {
         let key_ty = *key_type;
         let value_ty = *value_type;
         let ty = match op {
-            DictProjectionOp::FromEntries => return Ok(None),
+            // Neither is reachable from a Python mapping method: the own-key
+            // projection exists only for the JavaScript `Reflect.ownKeys` static.
+            DictProjectionOp::FromEntries | DictProjectionOp::OwnKeys => return Ok(None),
             DictProjectionOp::Keys | DictProjectionOp::ForInKeys => self.intern_type(Type::List(key_ty)),
             // A symbol-keyed property list holds symbol VALUES, not their
             // descriptions: the property key an erased record stores is

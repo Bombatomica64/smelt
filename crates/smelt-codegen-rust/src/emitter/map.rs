@@ -761,6 +761,15 @@ impl FunctionEmitter<'_> {
                     "match {dict_text} {{ SmeltUnknown::Object(map) => {index_keys}(&SmeltUnknown::Object(map.clone())).unwrap_or_else(|| smelt_for_in_object_keys(&map)), SmeltUnknown::Array(values) => values.own_keys(), _ => Vec::new() }}",
                     index_keys = smelt_stdlib::runtime_symbols::byte_buffer::INDEX_KEYS,
                 )),
+                // `Reflect.ownKeys` reports the string keys AND the symbol keys,
+                // so unlike `Keys` above it cannot filter `__smelt_symbol:` out;
+                // the projection maps those storage keys back to symbol values.
+                // An array's own keys are its indices and named properties, all
+                // strings.
+                smelt_hir::DictProjectionOp::OwnKeys => Ok(format!(
+                    "match {dict_text} {{ SmeltUnknown::Object(map) => {index_keys}(&SmeltUnknown::Object(map.clone())).map_or_else(|| smelt_own_object_keys(&map), |keys| keys.into_iter().map(|key| SmeltUnknown::String(key.as_str().into())).collect()), SmeltUnknown::Array(values) => values.own_keys().into_iter().map(|key| SmeltUnknown::String(key.as_str().into())).collect(), _ => Vec::new() }}",
+                    index_keys = smelt_stdlib::runtime_symbols::byte_buffer::INDEX_KEYS,
+                )),
                 // `Object.getOwnPropertySymbols` yields symbol VALUES. The stored
                 // key is `__smelt_symbol:<description>`; handing back the bare
                 // description (a `String`) made the caller lose the symbol tag, so
@@ -844,6 +853,27 @@ impl FunctionEmitter<'_> {
                     ))
                 } else {
                     Ok(format!("{dict_text}.keys().cloned().collect::<Vec<_>>()"))
+                }
+            }
+            // `Reflect.ownKeys`: the string keys in own-key order, then the
+            // symbol keys. One helper per backing, mirroring the `ForInKeys`
+            // split -- every string-keyed backing derefs to
+            // `&SmeltRecord<String, _>`, and a `SmeltUnknown`-keyed one goes
+            // through the own-entry helper that restores symbol tags.
+            smelt_hir::DictProjectionOp::OwnKeys => {
+                let Some(Type::Dict(key_ty, _) | Type::JsMap(key_ty, _)) =
+                    self.mir.types.get(self.operand_ty(dict)?)
+                else {
+                    return Err(EmitError::new("dict projection receiver must be a dict"));
+                };
+                if self.mir.types.get(*key_ty) == Some(&Type::String) {
+                    Ok(format!("smelt_own_keys(&{dict_text})"))
+                } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
+                    Ok(format!("smelt_own_js_map_keys(&{dict_text})"))
+                } else {
+                    Err(EmitError::new(
+                        "own-key projection needs a string-keyed or erased-keyed record",
+                    ))
                 }
             }
             smelt_hir::DictProjectionOp::ForInKeys => {
