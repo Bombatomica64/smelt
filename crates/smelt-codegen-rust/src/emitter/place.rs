@@ -154,8 +154,14 @@ impl FunctionEmitter<'_> {
                     if field_name == "valueOf" {
                         return Ok(format!("smelt_value_of_method({scrutinee})"));
                     }
+                    // Every receiver shape through one prelude helper: an object
+                    // record, an erased ARRAY (whose `length`, indices and named
+                    // side-table properties are all readable), and the
+                    // `Object.prototype` sentinel. Inlining an object-only `match`
+                    // here answered `undefined` for `arr.x` and for
+                    // `Object.prototype.toString`.
                     return Ok(format!(
-                        "match {scrutinee} {{ SmeltUnknown::Object(map) => smelt_get_object_field(&map, {field_name:?}), _ => SmeltUnknown::Undefined }}"
+                        "smelt_get_unknown_field(&{scrutinee}, {field_name:?})"
                     ));
                 }
                 if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
@@ -174,7 +180,7 @@ impl FunctionEmitter<'_> {
                         ));
                     }
                     return Ok(format!(
-                        "match {base_text}.clone().unwrap_or(SmeltUnknown::Undefined) {{ SmeltUnknown::Object(map) => smelt_get_object_field(&map, {field_name:?}), _ => SmeltUnknown::Undefined }}"
+                        "smelt_get_unknown_field(&{base_text}.clone().unwrap_or(SmeltUnknown::Undefined), {field_name:?})"
                     ));
                 }
                 if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
@@ -1093,14 +1099,7 @@ impl FunctionEmitter<'_> {
                             smelt_key.parse::<usize>().ok().and_then(|index| value.chars().nth(index).map(|ch| SmeltUnknown::String(ch.to_string().into()))).unwrap_or(SmeltUnknown::Undefined)
                         }}
                     }}
-                    SmeltUnknown::Array(values) => {{
-                        let smelt_key = {key_text};
-                        if smelt_key == "length" {{
-                            SmeltUnknown::Number(values.len() as f64)
-                        }} else {{
-                            smelt_key.parse::<usize>().ok().and_then(|index| values.get(index).cloned()).unwrap_or(SmeltUnknown::Undefined)
-                        }}
-                    }}
+                    SmeltUnknown::Array(values) => smelt_get_array_field(&values, &{key_text}),
                     SmeltUnknown::Object(values) => smelt_get_object_field(&values, &{key_text}),
                     _ => SmeltUnknown::Undefined,
                 }}"#

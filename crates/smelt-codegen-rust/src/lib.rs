@@ -2143,6 +2143,13 @@ fn emit_source_with_free_function_router(
         writer.line("/// `[object Math]`). Class instances and unmarked records are plain");
         writer.line("/// `[object Object]`, exactly like JavaScript objects without a custom tag.");
         {
+            // ES2024 §20.1.3.6 step 15: a string-valued `@@toStringTag` wins over
+            // every builtin tag, which is how a plain object can report
+            // `[object string-tagged]` and stop answering `isPlainObject`. The key
+            // comes from the shared well-known-symbol table, so the tag a source
+            // `{ [Symbol.toStringTag]: 'x' }` declares is the very key read here.
+            let to_string_tag_key = smelt_stdlib::well_known_symbols::storage_key("toStringTag")
+                .expect("toStringTag is a modeled well-known symbol");
             let host_tag_arms = smelt_stdlib::HOST_OBJECTS.iter().fold(
                 String::new(),
                 |mut arms, entry| {
@@ -2157,7 +2164,7 @@ fn emit_source_with_free_function_router(
                 },
             );
             writer.line(format!(
-                "fn smelt_object_to_string_tag(value: &SmeltUnknown) -> String {{ match value {{ SmeltUnknown::Null => \"[object Null]\".to_owned(), SmeltUnknown::Undefined => \"[object Undefined]\".to_owned(), SmeltUnknown::Bool(_) => \"[object Boolean]\".to_owned(), SmeltUnknown::Number(_) => \"[object Number]\".to_owned(), SmeltUnknown::String(_) => \"[object String]\".to_owned(), SmeltUnknown::Symbol(_) => \"[object Symbol]\".to_owned(), SmeltUnknown::Array(_) => \"[object Array]\".to_owned(), SmeltUnknown::Function(_) => \"[object Function]\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned(), SmeltUnknown::Object(map) => {{ if map.contains_key(\"__smelt_date\") {{ return \"[object Date]\".to_owned(); }} if map.contains_key(\"__smelt_regexp\") {{ return \"[object RegExp]\".to_owned(); }} if map.contains_key(\"__smelt_error\") {{ return \"[object Error]\".to_owned(); }} if map.contains_key(\"__smelt_global_object\") {{ return \"[object global]\".to_owned(); }} if map.contains_key(\"__smelt_abortcontroller\") {{ return \"[object AbortController]\".to_owned(); }} if map.contains_key(\"__smelt_abortsignal\") {{ return \"[object AbortSignal]\".to_owned(); }} if map.contains_key(\"__smelt_map\") {{ return \"[object Map]\".to_owned(); }} if map.contains_key(\"__smelt_set\") {{ return \"[object Set]\".to_owned(); }} if map.contains_key(\"__smelt_arguments\") {{ return \"[object Arguments]\".to_owned(); }} {host_tag_arms}if map.contains_key(\"__smelt_builtin_namespace\") {{ if let Some(SmeltUnknown::String(name)) = map.get(\"name\") {{ return format!(\"[object {{name}}]\"); }} }} \"[object Object]\".to_owned() }} }} }}",
+                "fn smelt_object_to_string_tag(value: &SmeltUnknown) -> String {{ match value {{ SmeltUnknown::Null => \"[object Null]\".to_owned(), SmeltUnknown::Undefined => \"[object Undefined]\".to_owned(), SmeltUnknown::Bool(_) => \"[object Boolean]\".to_owned(), SmeltUnknown::Number(_) => \"[object Number]\".to_owned(), SmeltUnknown::String(_) => \"[object String]\".to_owned(), SmeltUnknown::Symbol(_) => \"[object Symbol]\".to_owned(), SmeltUnknown::Array(_) => \"[object Array]\".to_owned(), SmeltUnknown::Function(_) => \"[object Function]\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned(), SmeltUnknown::Object(map) => {{ if let Some(SmeltUnknown::String(tag)) = map.get({to_string_tag_key:?}) {{ return format!(\"[object {{tag}}]\"); }} if map.contains_key(\"__smelt_date\") {{ return \"[object Date]\".to_owned(); }} if map.contains_key(\"__smelt_regexp\") {{ return \"[object RegExp]\".to_owned(); }} if map.contains_key(\"__smelt_error\") {{ return \"[object Error]\".to_owned(); }} if map.contains_key(\"__smelt_global_object\") {{ return \"[object global]\".to_owned(); }} if map.contains_key(\"__smelt_abortcontroller\") {{ return \"[object AbortController]\".to_owned(); }} if map.contains_key(\"__smelt_abortsignal\") {{ return \"[object AbortSignal]\".to_owned(); }} if map.contains_key(\"__smelt_map\") {{ return \"[object Map]\".to_owned(); }} if map.contains_key(\"__smelt_set\") {{ return \"[object Set]\".to_owned(); }} if map.contains_key(\"__smelt_arguments\") {{ return \"[object Arguments]\".to_owned(); }} {host_tag_arms}if map.contains_key(\"__smelt_builtin_namespace\") {{ if let Some(SmeltUnknown::String(name)) = map.get(\"name\") {{ return format!(\"[object {{name}}]\"); }} }} \"[object Object]\".to_owned() }} }} }}",
             ));
         }
         writer.blank_line();
@@ -2179,10 +2186,33 @@ fn emit_source_with_free_function_router(
         // mutation went to the temporary and the parent never saw it. It also broke
         // es-toolkit's cycle guards, which do `stack.set(a, b)` before recursing and
         // then rely on the stored handle aliasing the array being filled in.
+        //
+        // A JavaScript array is an *exotic object*: it has index elements AND
+        // ordinary named properties (`const a = ['1']; a.x = 2` keeps `a` an
+        // array, with `a.length === 1` and `a.x === 2`). `props` is where the
+        // named half lives — lazily allocated, so an array that never takes a
+        // named property costs one `Rc` and no `Vec`, and shared through its own
+        // `Rc` so every alias of the array observes a named write exactly as it
+        // observes an element write. Values are `SmeltUnknown` regardless of what
+        // the elements are: a named write only reaches an array through an erased
+        // receiver (TypeScript's `T[]` has no named members, so the source needs
+        // an `as any` first), which is a genuine dynamic boundary.
+        //
+        // Both store seams used to REPLACE the array with a fresh one-property
+        // object when the key was not an index, which lost the elements and made
+        // `Array.isArray` answer `false`. `props` is deliberately invisible to
+        // structural equality, `len()`, iteration and JSON — JavaScript compares
+        // arrays index-wise (es-toolkit `isEqualWith`'s array arm compares only
+        // `length` and the elements) and `JSON.stringify` serializes only the
+        // elements — and visible to property reads and to key enumeration, where
+        // it follows the index keys.
         writer.line("pub struct SmeltArray {");
         writer.line("    id: usize,");
         writer.line(
             "    values: ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>>,",
+        );
+        writer.line(
+            "    props: ::std::rc::Rc<::std::cell::RefCell<Option<Vec<(String, SmeltUnknown)>>>>,",
         );
         writer.line("}");
         writer.blank_line();
@@ -2191,20 +2221,20 @@ fn emit_source_with_free_function_router(
         // `SmeltArray { id: 1, values: [..] }`. Keeping the rendering byte-identical
         // means the storage change is invisible to anything that formats a value.
         writer.line("impl ::std::fmt::Debug for SmeltArray { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_struct(\"SmeltArray\").field(\"id\", &self.id).field(\"values\", &*self.values.borrow()).finish() } }");
-        writer.line("impl Clone for SmeltArray { fn clone(&self) -> Self { Self { id: self.id, values: self.values.clone() } } }");
+        writer.line("impl Clone for SmeltArray { fn clone(&self) -> Self { Self { id: self.id, values: self.values.clone(), props: self.props.clone() } } }");
         writer.line("impl SmeltArray {");
         writer.line("    /// Create an identity-bearing erased JavaScript array.");
-        writer.line("    fn new(values: Vec<SmeltUnknown>) -> Self { Self { id: smelt_next_object_id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)) } }");
+        writer.line("    fn new(values: Vec<SmeltUnknown>) -> Self { Self { id: smelt_next_object_id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)), props: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }");
         writer.line(
             "    /// Reuse a caller-supplied identity so repeated erasures of one source list compare `===` equal.",
         );
         writer.line(
-            "    fn with_id(id: usize, values: Vec<SmeltUnknown>) -> Self { Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)) } }",
+            "    fn with_id(id: usize, values: Vec<SmeltUnknown>) -> Self { Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)), props: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }",
         );
         writer.line(
             "    /// Reuse an existing shared buffer, so a re-wrap keeps aliasing the same array.",
         );
-        writer.line("    fn with_storage(id: usize, values: ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>>) -> Self { Self { id, values } }");
+        writer.line("    fn with_storage(id: usize, values: ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>>) -> Self { Self { id, values, props: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }");
         // The twin of `SmeltList::storage()`. An erased array re-wrapped as a
         // typed `SmeltList<SmeltUnknown>` must keep aliasing the SAME buffer, or
         // the round-trip produces a stale snapshot wearing the live array's id
@@ -2235,6 +2265,19 @@ fn emit_source_with_free_function_router(
         writer.line("    fn push(&self, value: SmeltUnknown) { self.values.borrow_mut().push(value); }");
         writer.line("    /// Replace every element in place, so aliases observe the new contents.");
         writer.line("    fn replace_all(&self, values: Vec<SmeltUnknown>) { *self.values.borrow_mut() = values; }");
+        // The named half of the array's property model. Kept as an insertion-ordered
+        // `Vec` rather than a map because JavaScript enumerates an object's string
+        // keys in insertion order and there are only ever a handful of them.
+        writer.line("    /// Read a NON-INDEX named property (JS `arr.x`), or `None` when absent.");
+        writer.line("    fn named_property(&self, key: &str) -> Option<SmeltUnknown> { self.props.borrow().as_ref().and_then(|props| props.iter().find(|(name, _)| name == key).map(|(_, value)| value.clone())) }");
+        writer.line("    /// Write a NON-INDEX named property (JS `arr.x = v`), allocating the side table on first use.");
+        writer.line("    fn set_named_property(&self, key: String, value: SmeltUnknown) { let mut props = self.props.borrow_mut(); let props = props.get_or_insert_with(Vec::new); match props.iter_mut().find(|(name, _)| *name == key) { Some(slot) => slot.1 = value, None => props.push((key, value)) } }");
+        writer.line("    /// The named property keys, in insertion order (empty in the common case).");
+        writer.line("    fn named_keys(&self) -> Vec<String> { self.props.borrow().as_ref().map_or_else(Vec::new, |props| props.iter().map(|(name, _)| name.clone()).collect()) }");
+        writer.line("    /// Own enumerable keys: the element indices, then the named properties, exactly the order `Object.keys` reports.");
+        writer.line("    fn own_keys(&self) -> Vec<String> { let mut keys = (0..self.len()).map(|index| index.to_string()).collect::<Vec<_>>(); keys.extend(self.named_keys()); keys }");
+        writer.line("    /// Own enumerable entries, paired with the keys `own_keys` reports.");
+        writer.line("    fn own_entries(&self) -> Vec<(String, SmeltUnknown)> { let mut entries = self.values.borrow().iter().enumerate().map(|(index, value)| (index.to_string(), value.clone())).collect::<Vec<_>>(); if let Some(props) = self.props.borrow().as_ref() { entries.extend(props.iter().cloned()); } entries }");
         writer.line("}");
         writer.line("impl From<Vec<SmeltUnknown>> for SmeltArray { fn from(values: Vec<SmeltUnknown>) -> Self { Self::new(values) } }");
         writer.line("impl ::std::iter::FromIterator<SmeltUnknown> for SmeltArray { fn from_iter<T: IntoIterator<Item = SmeltUnknown>>(iter: T) -> Self { Self::new(iter.into_iter().collect()) } }");
@@ -3109,13 +3152,44 @@ fn emit_source_with_free_function_router(
             set_element = smelt_stdlib::runtime_symbols::byte_buffer::SET_ELEMENT,
         ));
         writer.line("        SmeltUnknown::Object(map) => { map.insert(key, value); }");
+        // A JS array keeps being an array when a non-index key is written to it:
+        // `a[0] = x` sets an element, `a.x = v` sets a named property in the
+        // array's side table (`SmeltArray::props`). Replacing the array with a
+        // one-property object — what this used to do — lost every element and made
+        // `Array.isArray(a)` answer `false`.
         writer.line("        SmeltUnknown::Array(array) => {");
         writer.line("            if let Ok(index) = key.parse::<usize>() { array.set_index(index, value); }");
-        writer.line("            else { *target = SmeltUnknown::Object(SmeltObject::new(Vec::from([(key, value)]))); }");
+        writer.line("            else { array.set_named_property(key, value); }");
         writer.line("        }");
         writer.line("        other => { *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([(key, value)]))); }");
         writer.line("    }");
         writer.line("}");
+        writer.blank_line();
+        // The property key a SYMBOL value indexes.
+        //
+        // A well-known symbol (`Symbol.iterator`, `Symbol.toStringTag`, ...) is a
+        // constant of the language, so `obj[Symbol.iterator]` and a declared
+        // `[Symbol.iterator]` member must name ONE member. The frontend folds the
+        // static key spelling through `smelt_stdlib::well_known_symbols`; this is
+        // the runtime half of that same table, for the spelling that only exists
+        // as a value at compile time (a `const s = Symbol.iterator` alias handed
+        // through an erased slot, a symbol read out of `Object.getOwnPropertySymbols`).
+        // Every other symbol — unique `Symbol('d')`, registry `Symbol.for('d')` —
+        // keeps the generic `__smelt_symbol:<description>` storage form, which is
+        // what makes it a key distinct from its own description string.
+        writer.line("/// The property key a symbol value indexes.");
+        {
+            let well_known_arms = smelt_stdlib::well_known_symbols::spelling_key_pairs()
+                .into_iter()
+                .fold(String::new(), |mut arms, (spelling, key)| {
+                    use ::std::fmt::Write as _;
+                    let _ = write!(arms, "{spelling:?} => {key:?}.to_owned(), ");
+                    arms
+                });
+            writer.line(format!(
+                "fn smelt_symbol_property_key(description: &str) -> String {{ match description {{ {well_known_arms}other => format!(\"__smelt_symbol:{{other}}\") }} }}"
+            ));
+        }
         writer.blank_line();
         // JavaScript property-key coercion: `obj[key]` stringifies whatever `key`
         // is. Lives in the prelude because it was previously emitted as a full
@@ -3126,7 +3200,7 @@ fn emit_source_with_free_function_router(
         // A symbol key keeps its `__smelt_symbol:` prefix, which is the storage
         // form symbol-keyed properties use, so a symbol round-trips as a distinct
         // key rather than colliding with its own description string.
-        writer.line("fn smelt_property_key(value: SmeltUnknown) -> String { match value { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => format!(\"__smelt_symbol:{value}\"), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(values) => values.into_vec().into_iter().map(smelt_property_key).collect::<Vec<_>>().join(\",\"), SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() } }");
+        writer.line("fn smelt_property_key(value: SmeltUnknown) -> String { match value { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => smelt_symbol_property_key(&value), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(values) => values.into_vec().into_iter().map(smelt_property_key).collect::<Vec<_>>().join(\",\"), SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() } }");
         writer.blank_line();
         // JavaScript `Array.prototype.concat` normalizes each argument with
         // `IsConcatSpreadable`: an array contributes its elements, and any other
@@ -3282,6 +3356,108 @@ fn emit_source_with_free_function_router(
         writer.line("            _ => SmeltUnknown::Null,");
         writer.line("        },");
         writer.line("        value => value,");
+        writer.line("    }");
+        writer.line("}");
+        writer.blank_line();
+        // `Object.prototype`'s members, as a lookup FALLBACK rather than stored
+        // entries.
+        //
+        // In JavaScript every plain object inherits them: `'toString' in {}` is
+        // `true`, `({}).toString` is a function, and `({}).toString ===
+        // Object.prototype.toString` — one function, on the prototype, so any two
+        // reads are `===`. Smelt models an object as its own entries, so these
+        // members have to come from somewhere else, and they must NOT be entries:
+        // enumeration (`Object.keys`, `for...in`), structural equality and JSON
+        // would then see them, making `{}` a two-key object unequal to `{}`.
+        //
+        // Each member is built once per key and cached with one canonical identity
+        // (`smelt_method_identity`, the same registry class-method reads use),
+        // which is what makes the `===` above hold. The receiver is taken from the
+        // first argument, matching the explicit-`this` spelling
+        // (`Object.prototype.toString.call(v)`); the frontend lowers that spelling
+        // to a direct helper call, so this path serves value-position reads
+        // (`const f = Object.prototype.toString`) and presence checks.
+        //
+        // `constructor` is deliberately NOT in the table: `smelt_get_object_field`
+        // already answers it for a class instance and for a marker-bearing host
+        // record, and a plain object answering `undefined` there is what lets
+        // es-toolkit `isEqualWith` fall through to its `isPlainObject(a) &&
+        // isPlainObject(b)` arm.
+        writer.line("thread_local! {");
+        writer.line("    /// One cached `Object.prototype` member value per key, so repeated reads are `===`.");
+        writer.line("    static SMELT_OBJECT_PROTOTYPE_MEMBERS: ::std::cell::RefCell<::std::collections::HashMap<&'static str, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// Apply one `Object.prototype` member to an explicit receiver.");
+        writer.line("fn smelt_object_prototype_apply(key: &str, args: Vec<SmeltUnknown>) -> SmeltUnknown {");
+        writer.line("    let mut args = args.into_iter();");
+        writer.line("    let receiver = args.next().unwrap_or(SmeltUnknown::Undefined);");
+        writer.line("    match key {");
+        writer.line("        \"Object.prototype.toString\" | \"Object.prototype.toLocaleString\" => SmeltUnknown::String(smelt_object_to_string_tag(&receiver).into()),");
+        writer.line("        \"Object.prototype.valueOf\" => smelt_unbox_primitive(receiver),");
+        writer.line("        \"Object.prototype.hasOwnProperty\" | \"Object.prototype.propertyIsEnumerable\" => { let key = smelt_property_key(args.next().unwrap_or(SmeltUnknown::Undefined)); SmeltUnknown::Bool(match receiver { SmeltUnknown::Object(map) => map.contains_key(&key), SmeltUnknown::Array(values) => values.own_keys().contains(&key), _ => false }) }");
+        // `isPrototypeOf` asks whether the receiver appears on the argument's
+        // prototype CHAIN. Smelt represents a prototype as an opaque sentinel
+        // (`smelt_prototype_sentinel`) rather than as a linked object, so there is
+        // no chain to walk: the honest answer for the only receivers that can
+        // reach here — a plain object or the `Object.prototype` sentinel read as a
+        // value — is `false`, which is also what JavaScript answers for every
+        // plain object receiver.
+        writer.line("        _ => SmeltUnknown::Bool(false),");
+        writer.line("    }");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// Read an `Object.prototype` member, or `None` when the name is not one.");
+        writer.line("fn smelt_object_prototype_member(field: &str) -> Option<SmeltUnknown> {");
+        writer.line("    let key: &'static str = match field {");
+        writer.line("        \"toString\" => \"Object.prototype.toString\",");
+        writer.line("        \"toLocaleString\" => \"Object.prototype.toLocaleString\",");
+        writer.line("        \"valueOf\" => \"Object.prototype.valueOf\",");
+        writer.line("        \"hasOwnProperty\" => \"Object.prototype.hasOwnProperty\",");
+        writer.line("        \"isPrototypeOf\" => \"Object.prototype.isPrototypeOf\",");
+        writer.line("        \"propertyIsEnumerable\" => \"Object.prototype.propertyIsEnumerable\",");
+        writer.line("        _ => return None,");
+        writer.line("    };");
+        writer.line("    Some(SMELT_OBJECT_PROTOTYPE_MEMBERS.with(|members| members.borrow_mut().entry(key).or_insert_with(|| { let function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| Ok(smelt_object_prototype_apply(key, args))); smelt_link_function_identity_key(&function, smelt_method_identity(key)); SmeltUnknown::Function(function) }).clone()))");
+        writer.line("}");
+        writer.blank_line();
+        // Property reads on an erased ARRAY. A JS array answers `length`, its
+        // element indices, and the named properties written through its side
+        // table; `Array.prototype`'s own methods are lowered statically, so a miss
+        // here is `undefined` rather than a prototype walk.
+        writer.line("/// Read a property off an erased JavaScript array (`arr.k` / `arr[k]`).");
+        writer.line("fn smelt_get_array_field(values: &SmeltArray, field: &str) -> SmeltUnknown {");
+        writer.line("    if field == \"length\" { return SmeltUnknown::Number(values.len() as f64); }");
+        writer.line("    if let Ok(index) = field.parse::<usize>() { return values.get(index).unwrap_or(SmeltUnknown::Undefined); }");
+        writer.line("    values.named_property(field).unwrap_or(SmeltUnknown::Undefined)");
+        writer.line("}");
+        writer.blank_line();
+        // One erased property read for every receiver shape, so `v.k` and `v[k]`
+        // cannot diverge and each rule (marker records, array named properties,
+        // the `Object.prototype` fallback) lands in one place.
+        //
+        // Last stop of the chain is `Object.prototype`, whose members every object
+        // inherits — so a read that found no own entry (and no `__smelt_proto:` /
+        // `__smelt_method:` level, both resolved inside `smelt_get_object_field`)
+        // resolves there rather than answering `undefined` for `toString` or
+        // `hasOwnProperty`. It sits HERE, at the property-read seam, and not
+        // inside `smelt_get_object_field`, because helpers that ask that function
+        // for a user-defined OWN override (`smelt_value_of_method`,
+        // `smelt_function_method`) must not be handed the inherited member.
+        //
+        // The `"__smelt_proto:object"` arm is the prototype SENTINEL: Smelt
+        // represents `Object.prototype` (and `Object.getPrototypeOf({})`) as that
+        // opaque string rather than as a record, precisely so its members do not
+        // become enumerable entries of every object created from it. A member read
+        // on the sentinel resolves through the same fallback table an ordinary
+        // object uses, which is what makes `Object.prototype.toString` a value.
+        writer.line("/// Read a property off any erased value (JS `value.field`).");
+        writer.line("fn smelt_get_unknown_field(value: &SmeltUnknown, field: &str) -> SmeltUnknown {");
+        writer.line("    match value {");
+        writer.line("        SmeltUnknown::Object(map) => match smelt_get_object_field(map, field) { SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },");
+        writer.line("        SmeltUnknown::Array(values) => smelt_get_array_field(values, field),");
+        writer.line("        SmeltUnknown::String(marker) if &**marker == \"__smelt_proto:object\" => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined),");
+        writer.line("        _ => SmeltUnknown::Undefined,");
         writer.line("    }");
         writer.line("}");
         writer.blank_line();
@@ -4240,7 +4416,7 @@ fn emit_source_with_free_function_router(
             "impl<K, T> IntoSmeltUnknown for ::std::collections::HashMap<K, T> where K: IntoSmeltUnknown + Eq + ::std::hash::Hash, T: IntoSmeltUnknown",
             |impl_writer| {
                 impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
-                    fn_writer.line("SmeltUnknown::Object(SmeltObject::new(self.into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => format!(\"__smelt_symbol:{value}\"), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => \"null\".to_owned(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))");
+                    fn_writer.line("SmeltUnknown::Object(SmeltObject::new(self.into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => smelt_symbol_property_key(&value), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => \"null\".to_owned(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))");
                 });
             },
         );
@@ -4249,7 +4425,7 @@ fn emit_source_with_free_function_router(
             "impl<K, T> IntoSmeltUnknown for SmeltRecord<K, T> where K: IntoSmeltUnknown + Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, T: IntoSmeltUnknown + Clone",
             |impl_writer| {
                 impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
-                    fn_writer.line("SmeltUnknown::Object(SmeltObject::with_id(self.id, self.iter().into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => format!(\"__smelt_symbol:{value}\"), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => \"null\".to_owned(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))");
+                    fn_writer.line("SmeltUnknown::Object(SmeltObject::with_id(self.id, self.iter().into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => smelt_symbol_property_key(&value), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => \"null\".to_owned(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))");
                 });
             },
         );
@@ -5236,6 +5412,17 @@ fn emit_smelt_match(writer: &mut CodeWriter, needs_unknown: bool) {
         writer.line("/// numbered string keys for the groups plus `groups`, `index`, and");
         writer.line("/// `input`. It is the single explicit adapter used when a typed");
         writer.line("/// `SmeltMatch` must flow into erased `unknown` consumer dataflow.");
+        writer.line("///");
+        writer.line("/// A JavaScript match result is really an ARRAY with those extra named");
+        writer.line("/// properties, and `SmeltArray` can now carry named properties (see its");
+        writer.line("/// `props` side table), so this could report `[object Array]` instead --");
+        writer.line("/// which is what makes a match compare equal to the plain array a spec");
+        writer.line("/// matches it against. It does not yet, because the typed `SmeltList` view");
+        writer.line("/// cannot reach those properties: a `T[]`-typed reader of the erased value");
+        writer.line("/// (es-toolkit `cloneDeepWith` narrows with `Array.isArray` and then reads");
+        writer.line("/// `.index`/`.input`) would take the array branch and copy neither, losing");
+        writer.line("/// them from the clone. Flipping this adapter belongs with making the side");
+        writer.line("/// table reachable through a typed list handle.");
         writer.block("impl IntoSmeltUnknown for SmeltMatch", |impl_writer| {
             impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
                 fn_writer.line("let mut object: Vec<(String, SmeltUnknown)> = Vec::new();");
@@ -5261,7 +5448,12 @@ fn emit_smelt_match(writer: &mut CodeWriter, needs_unknown: bool) {
                 fn_writer.line("let group_of = |value: SmeltUnknown| match value { SmeltUnknown::String(text) => Some(text.to_string()), _ => None };");
                 fn_writer.block("match value", |match_writer| {
                     match_writer.block("SmeltUnknown::Array(values) =>", |arm_writer| {
-                        arm_writer.line("Self { id: smelt_next_object_id(), groups: values.into_vec().into_iter().map(group_of).collect(), named: ::std::collections::HashMap::new(), match_index: 0, input: String::new() }");
+                        arm_writer.line("let mut named = ::std::collections::HashMap::new();");
+                        arm_writer.line("if let Some(SmeltUnknown::Object(entries)) = values.named_property(\"groups\") { for (name, entry) in entries.iter() { named.insert(name, group_of(entry)); } }");
+                        arm_writer.line("let match_index = match values.named_property(\"index\") { Some(SmeltUnknown::Number(index)) if index.is_finite() && index >= 0.0 => index as usize, _ => 0 };");
+                        arm_writer.line("let input = match values.named_property(\"input\") { Some(SmeltUnknown::String(input)) => input.to_string(), _ => String::new() };");
+                        arm_writer.line("let id = values.id;");
+                        arm_writer.line("Self { id, groups: values.into_vec().into_iter().map(group_of).collect(), named, match_index, input }");
                     });
                     match_writer.block("SmeltUnknown::Object(map) =>", |arm_writer| {
                         arm_writer.line("let mut groups = Vec::new();");

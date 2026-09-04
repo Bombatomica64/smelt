@@ -1956,13 +1956,13 @@ impl FunctionEmitter<'_> {
         // host subclasses — including override classes assigned into a
         // `globalThis.<Name>` slot — without any globalThis special-casing.
         let mut host_markers = String::new();
-        for marker in self.host_base_markers(*name) {
+        for (marker, value_text) in self.host_base_markers(*name) {
             use std::fmt::Write as _;
             // `marker` is a fixed `__smelt_*` identifier, so wrap it in explicit
             // quotes rather than Debug-formatting it into a Rust string literal.
             let _ = write!(
                 host_markers,
-                "smelt_object_entries.push((\"{marker}\".to_owned(), SmeltUnknown::Bool(true))); "
+                "smelt_object_entries.push((\"{marker}\".to_owned(), {value_text})); "
             );
         }
         // The marker VALUE is the class name, not a bare `true`. JavaScript exposes
@@ -2027,7 +2027,7 @@ impl FunctionEmitter<'_> {
     }
 
     /// Identity markers a class carries because its base chain reaches a modeled
-    /// host object.
+    /// host object or a builtin `Error`.
     ///
     /// Walks the single-inheritance base chain through `mir.classes`; the first
     /// base that names a registered host object (`smelt_stdlib::host_object_by_class`)
@@ -2035,8 +2035,23 @@ impl FunctionEmitter<'_> {
     /// matching the host subtype relationship the native `new File(...)` records
     /// stamp. Returns an empty vector for a class with no host base (the common
     /// case, which keeps existing erased output byte-identical).
-    fn host_base_markers(&self, class_name: Symbol) -> Vec<&'static str> {
-        let mut markers: Vec<&'static str> = Vec::new();
+    ///
+    /// A builtin `Error` class is not a `HOST_OBJECTS` entry — errors are modeled
+    /// by the `__smelt_error: "<ClassName>"` convention instead — so a class whose
+    /// chain reaches one contributes that marker with the NEAREST BUILTIN base's
+    /// name as its value. That is what makes an erased `class CustomError extends
+    /// Error` instance answer `instanceof Error` (the marker-presence probe) while
+    /// `class MyTypeError extends TypeError` also satisfies `instanceof TypeError`
+    /// (the recorded-name equality arm) and not `instanceof RangeError`; the user
+    /// class itself keeps resolving through `__smelt_class`. `instance_of_text`
+    /// answers those probes off the same `smelt_stdlib::is_error_class_name` list,
+    /// so neither side carries a hand-maintained copy of the error hierarchy.
+    ///
+    /// Each entry is the marker key plus the Rust text of its VALUE: an identity
+    /// marker is a bare `true`, while the error marker records which builtin
+    /// error class the chain reached.
+    fn host_base_markers(&self, class_name: Symbol) -> Vec<(&'static str, String)> {
+        let mut markers: Vec<(&'static str, String)> = Vec::new();
         let mut current = Some(class_name);
         for _ in 0u32..64 {
             let Some(name_sym) = current else { break };
@@ -2046,12 +2061,19 @@ impl FunctionEmitter<'_> {
             let Some(base) = class.base else { break };
             let Some(base_name) = self.mir.symbols.get(base) else { break };
             if let Some(entry) = smelt_stdlib::host_object_by_class(base_name) {
-                markers.push(entry.marker);
+                markers.push((entry.marker, "SmeltUnknown::Bool(true)".to_owned()));
                 if base_name == "File"
                     && let Some(blob) = smelt_stdlib::host_object_marker("Blob")
                 {
-                    markers.push(blob);
+                    markers.push((blob, "SmeltUnknown::Bool(true)".to_owned()));
                 }
+                break;
+            }
+            if smelt_stdlib::is_error_class_name(base_name) {
+                markers.push((
+                    "__smelt_error",
+                    format!("SmeltUnknown::String({base_name:?}.into())"),
+                ));
                 break;
             }
             current = Some(base);
@@ -2439,7 +2461,7 @@ impl FunctionEmitter<'_> {
                     && self.mir.types.get(*item) == Some(&Type::Unknown) =>
             {
                 Ok(format!(
-                    "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(value) => SmeltRecord::with_id_from_entries(value.id, value.into_iter()), SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect(), SmeltUnknown::String(value) => value.chars().enumerate().map(|(index, ch)| (index.to_string(), SmeltUnknown::String(ch.to_string().into()))).collect(), SmeltUnknown::Function(value) => SmeltRecord::from([(\"__smelt_call\".to_owned(), SmeltUnknown::Function(value))]), _ => SmeltRecord::new() }}"
+                    "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(value) => SmeltRecord::with_id_from_entries(value.id, value.into_iter()), SmeltUnknown::Array(values) => values.own_entries().into_iter().collect(), SmeltUnknown::String(value) => value.chars().enumerate().map(|(index, ch)| (index.to_string(), SmeltUnknown::String(ch.to_string().into()))).collect(), SmeltUnknown::Function(value) => SmeltRecord::from([(\"__smelt_call\".to_owned(), SmeltUnknown::Function(value))]), _ => SmeltRecord::new() }}"
                 ))
             }
             Some(Type::Dict(key, item)) if self.mir.types.get(*key) == Some(&Type::String) => {

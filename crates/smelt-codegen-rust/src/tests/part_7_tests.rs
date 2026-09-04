@@ -679,10 +679,10 @@ const first = bag["0"];
 "#,
     );
 
+    // An array's own-key view is its element indices followed by the named
+    // properties in its side table, which is exactly `own_entries`.
     assert!(
-        source.contains(
-            "SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect()"
-        ),
+        source.contains("SmeltUnknown::Array(values) => values.own_entries().into_iter().collect()"),
         "{source}"
     );
 }
@@ -3038,11 +3038,14 @@ function widen(values: unknown[]): number {
 
     // `values.length` lowers to `values.len() as f64`; the coercion seam must
     // not wrap the cast in defensive parentheses, which the compiler flags as
-    // `unused_parens` wherever the value stands alone.
-    assert!(source.contains("as f64"), "{source}");
+    // `unused_parens` wherever the value stands alone. Checked on the emitted
+    // FUNCTION BODY: the runtime prelude legitimately parenthesizes the same
+    // cast where it is an argument (`SmeltUnknown::Number(values.len() as f64)`).
+    let body = emitted_function_body(&source, "fn widen");
+    assert!(body.contains("as f64"), "{body}");
     assert!(
-        !source.contains("(values.len() as f64)"),
-        "int-to-float coercion should not wrap the cast in parentheses: {source}"
+        !body.contains("(values.len() as f64)"),
+        "int-to-float coercion should not wrap the cast in parentheses: {body}"
     );
 }
 
@@ -5610,10 +5613,13 @@ function sizeOf(value: unknown): unknown {
 "#,
     );
 
-    assert!(
-        source.contains("smelt_get_object_field(&map, \"size\")"),
-        "{source}"
-    );
+    // The erased property read goes through the one prelude helper that knows
+    // every receiver shape (object record, array named property,
+    // `Object.prototype` fallback); the object arm inside it is still
+    // `smelt_get_object_field`.
+    let body = emitted_function_body(&source, "fn size_of");
+    assert!(body.contains("smelt_get_unknown_field("), "{body}");
+    assert!(body.contains("\"size\""), "{body}");
 }
 
 #[test]

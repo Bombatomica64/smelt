@@ -512,6 +512,12 @@ impl FunctionEmitter<'_> {
                     let unknown_ty = self.type_id(Type::Unknown)?;
                     let rendered_value = self.rvalue_text_for_dest(value, unknown_ty)?;
                     let base_text = self.local_mut_value_text(*base)?;
+                    // A JavaScript array is an object with named properties too, so
+                    // an ARRAY receiver stores the property in the array's side
+                    // table (`SmeltArray::set_named_property`) and stays an array.
+                    // The fallback arm — a primitive receiver, where JavaScript
+                    // silently discards the write — keeps replacing the value.
+                    //
                     // The SOURCE property name, not the Rust-mangled symbol. An
                     // erased object is a keyed map whose keys are JavaScript
                     // property names, and every read side uses
@@ -532,11 +538,11 @@ impl FunctionEmitter<'_> {
                     let base_name = self.local_name(*base)?.to_owned();
                     if rendered_value.contains(&base_name) {
                         out.push_str(&format!(
-                            "    {{ let smelt_value = {rendered_value}; match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert({field_name:?}.to_owned(), smelt_value); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), smelt_value)]))); }} }} }}\n"
+                            "    {{ let smelt_value = {rendered_value}; match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert({field_name:?}.to_owned(), smelt_value); }}, SmeltUnknown::Array(values) => {{ values.set_named_property({field_name:?}.to_owned(), smelt_value); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), smelt_value)]))); }} }} }}\n"
                         ));
                     } else {
                         out.push_str(&format!(
-                            "    match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert({field_name:?}.to_owned(), {rendered_value}); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), {rendered_value})]))); }} }}\n"
+                            "    match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert({field_name:?}.to_owned(), {rendered_value}); }}, SmeltUnknown::Array(values) => {{ values.set_named_property({field_name:?}.to_owned(), {rendered_value}); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), {rendered_value})]))); }} }}\n"
                         ));
                     }
                     return Ok(());

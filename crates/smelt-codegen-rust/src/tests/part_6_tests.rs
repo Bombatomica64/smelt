@@ -866,7 +866,7 @@ export function run(): unknown {
         "an erased field write must not key on the Rust-mangled name: {source}"
     );
     assert!(
-        source.contains("smelt_get_object_field(&map, \"someProp\")"),
+        source.contains("smelt_get_unknown_field(&obj.clone(), \"someProp\")"),
         "the read side already used the source name and must keep doing so: {source}"
     );
 }
