@@ -609,6 +609,13 @@ struct ModuleBuilder<'ctx> {
     current_statement_block: Option<smelt_hir::BlockId>,
     /// Postfix updates waiting for the variable initializer that reads their original value.
     deferred_postfix_updates: Option<Vec<Stmt>>,
+    /// Names whose local was reserved by
+    /// [`Self::predeclare_forward_referenced_locals`] because a closure in an
+    /// EARLIER statement of the same list already reads them. The declaration
+    /// must then assign INTO that reserved local instead of pushing a second
+    /// one, or the earlier capture would observe a slot nothing ever writes.
+    /// An entry is consumed by the declaration that fills it.
+    forward_referenced_locals: HashSet<String>,
     /// Whether type-test-only lowering may index erased unknown metadata.
     allow_unknown_index_access: bool,
     /// Whether a lifted specialization callable keeps its concrete `this` type through assertions.

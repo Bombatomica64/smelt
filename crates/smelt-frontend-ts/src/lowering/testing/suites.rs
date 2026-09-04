@@ -676,7 +676,7 @@ impl ModuleBuilder<'_> {
         {
             errors.push(error);
         }
-        if let Err(error) = self.predeclare_local_arrow_callbacks(arrow_block_statements(arrow), &mut body)
+        if let Err(error) = self.predeclare_forward_referenced_locals(arrow_block_statements(arrow), &mut body)
         {
             errors.push(error);
         }
@@ -811,7 +811,7 @@ impl ModuleBuilder<'_> {
             errors.push(error);
         }
         if let Err(error) =
-            self.predeclare_local_arrow_callbacks(&function_body.statements, &mut body)
+            self.predeclare_forward_referenced_locals(&function_body.statements, &mut body)
         {
             errors.push(error);
         }

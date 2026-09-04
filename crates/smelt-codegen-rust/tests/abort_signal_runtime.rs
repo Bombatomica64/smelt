@@ -329,3 +329,56 @@ test("a deadline race rejects only when the deadline wins", async () => {{
     );
     run_abort_fixture(&source, "smelt_abort_runtime_deadline_race");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn an_abort_handler_written_before_the_timer_handle_still_clears_it() {
+    // es-toolkit's `timeout` shape: the abort handler is declared BEFORE the
+    // timer handle it clears, which JavaScript allows because the handler only
+    // runs later. Smelt lowers statements in source order, so the handler's
+    // read of `timeoutId` found no binding and fell through to the
+    // module-global fallback, which FABRICATED an empty object for an
+    // `unknown` type -- `clearTimeout({})` matched no numeric handle and
+    // cleared nothing, so disarming the timeout was a silent no-op and the
+    // deadline still fired.
+    let source = r#"
+import { test, expect } from "vitest";
+
+function armed(ms: number, signal: AbortSignal): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const abortHandler = () => {
+      clearTimeout(timeoutId);
+    };
+    const timeoutId = setTimeout(() => {
+      signal.removeEventListener('abort', abortHandler);
+      reject(new Error('deadline'));
+    }, ms);
+    signal.addEventListener('abort', abortHandler, { once: true });
+  });
+}
+
+async function settle(promise: Promise<string>): Promise<string> {
+  try {
+    await promise;
+    return "resolved";
+  } catch {
+    return "rejected";
+  }
+}
+
+test("aborting before the deadline disarms the timer", async () => {
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), 20);
+  const winner = await Promise.race([
+    armed(100, controller.signal).then(() => "deadline", () => "deadline"),
+    new Promise<string>(resolve => setTimeout(() => resolve("work"), 60)),
+  ]);
+  expect(winner).toBe("work");
+});
+test("without an abort the deadline still rejects", async () => {
+  const quiet = new AbortController();
+  expect(await settle(armed(20, quiet.signal))).toBe("rejected");
+});
+"#;
+    run_abort_fixture(source, "smelt_abort_runtime_forward_timer_handle");
+}

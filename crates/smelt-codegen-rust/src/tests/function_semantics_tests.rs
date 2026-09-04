@@ -13,6 +13,11 @@
 //! * An erased `Map` receiver still mutates the map. `Map.prototype.set` on a
 //!   `SmeltUnknown` receiver used to resolve to `undefined`, and the call of an
 //!   `undefined` callee collapses to a null callback, so the write vanished.
+//! * A local read by an EARLIER closure is predeclared and shared. Statements
+//!   lower in source order, but a closure body runs when it is called, so it may
+//!   legitimately read a `const` written below it. The read used to fall through
+//!   to the module-global fallback, which fabricates an empty object for an
+//!   `unknown` type.
 
 use super::*;
 
@@ -72,5 +77,35 @@ export function run(cache: Map<string, number> | Record<string, number>): void {
     assert!(
         source.contains("\"set\" => { let store = entry_store.clone();"),
         "an erased Map must synthesize `set`:\n{source}"
+    );
+}
+
+#[test]
+fn a_local_read_by_an_earlier_closure_is_shared_not_fabricated() {
+    // es-toolkit's `timeout`: the abort handler is written before the timer
+    // handle it clears. The handle must reach the handler, so the local is
+    // reserved before the statement list is lowered and captured through the
+    // shared cell -- the value is assigned after the closure exists.
+    let source = source_for(
+        r"
+export function arm(signal: AbortSignal, ms: number): void {
+  const onAbort = () => { clearTimeout(timeoutId); };
+  const timeoutId = setTimeout(() => { (globalThis as any).fired = true; }, ms);
+  signal.addEventListener('abort', onAbort, { once: true });
+}
+",
+    );
+
+    assert!(
+        source.contains("smelt_clear_timeout((*smelt_capture_timeout_id.borrow()).clone())"),
+        "the forward-read handle must be captured through the shared cell:\n{source}"
+    );
+    assert!(
+        source.contains("(*smelt_capture_timeout_id.borrow_mut()) = "),
+        "the declaration must write into the reserved local:\n{source}"
+    );
+    assert!(
+        !source.contains("smelt_clear_timeout(SmeltUnknown::Object("),
+        "a forward-referenced local must never be fabricated as an object:\n{source}"
     );
 }

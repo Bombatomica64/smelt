@@ -168,6 +168,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             current_arguments_arities: Vec::new(),
             current_statement_block: None,
             deferred_postfix_updates: None,
+            forward_referenced_locals: HashSet::new(),
             allow_unknown_index_access,
             preserve_specialization_receiver: false,
             object_namespaces,

@@ -1479,7 +1479,7 @@ impl ModuleBuilder<'_> {
             ClosureBodyKind::Statements(statements) => self
                 .predeclare_local_function_declarations(statements, &mut closure_body)
                 .and_then(|()| {
-                    self.predeclare_local_arrow_callbacks(statements, &mut closure_body)
+                    self.predeclare_forward_referenced_locals(statements, &mut closure_body)
                 }),
         };
         let lowering_result = if let Err(error) = predeclare_result {
