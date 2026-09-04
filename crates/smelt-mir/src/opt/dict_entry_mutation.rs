@@ -140,6 +140,7 @@ fn triple_is_fusable(
                 Place::Index {
                     base: write_base,
                     index: write_index,
+                    ..
                 },
             value: Rvalue::Use(write_source),
         },
@@ -150,6 +151,7 @@ fn triple_is_fusable(
     let Some(Place::Index {
         base: read_base,
         index: read_index,
+        ..
     }) = operand_place(read_source)
     else {
         return false;

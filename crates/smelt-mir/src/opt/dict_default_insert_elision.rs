@@ -287,6 +287,7 @@ fn then_block_only_seeds_default(
                 Place::Index {
                     base: store_base,
                     index: store_index,
+                    ..
                 },
             value: Rvalue::Use(store_source),
         },
@@ -349,7 +350,7 @@ fn join_creates_entry(function: &MirFunction, join: BlockId, entry: Entry<'_>) -
     else {
         return false;
     };
-    let Some(Place::Index { base, index }) = operand_place(list) else {
+    let Some(Place::Index { base, index, .. }) = operand_place(list) else {
         return false;
     };
     if *base != entry.base {

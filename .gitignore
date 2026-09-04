@@ -125,6 +125,8 @@ _site/
 !blocker-logs/estk-throwing-callbacks.md
 # estk-remaining-triage.md maps the remaining es-toolkit generated failures to root causes
 !blocker-logs/estk-remaining-triage.md
+# estk-js-negative-index.md documents the JavaScript negative-index read fix
+!blocker-logs/estk-js-negative-index.md
 
 # Probe library checkouts (see .github/compat/libraries.json for pinned refs)
 third_party/es-toolkit/

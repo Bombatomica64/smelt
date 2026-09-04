@@ -364,6 +364,7 @@ impl LoweringCtx<'_> {
                 Operand::Copy(Place::Index {
                     base,
                     index: Box::new(index_operand),
+                    negative: self.negative_index_policy(expr.span),
                 })
             }
             ExprKind::OptionalIndex { receiver, index } => {

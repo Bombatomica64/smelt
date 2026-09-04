@@ -12,7 +12,10 @@ use std::collections::HashMap;
 
 use smelt_hir::{ExprId, LocalId as HirLocalId, Stmt as HirStmt};
 
-use crate::{BlockId, Constant, HirOrigin, LocalId, Operand, Place, Rvalue, Statement, Terminator};
+use crate::{
+    BlockId, Constant, HirOrigin, LocalId, NegativeIndex, Operand, Place, Rvalue, Statement,
+    Terminator,
+};
 
 use super::context::{ExceptionTarget, LoopTargets, LoweringCtx};
 use super::{LoweredFunction, LowerError, lower_literal, usize_from_u32};
@@ -659,6 +662,9 @@ impl LoweringCtx<'_> {
             value: Rvalue::Use(Operand::Copy(Place::Index {
                 base: iter_local,
                 index: Box::new(Operand::Copy(Place::Local(idx))),
+                // A desugared `for..of` counter only ever runs 0..len, so the
+                // negative rule is unreachable here either way.
+                negative: NegativeIndex::OutOfRange,
             })),
         });
         self.lower_block_stmts(body_hir)?;

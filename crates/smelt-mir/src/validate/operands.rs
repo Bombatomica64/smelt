@@ -1631,7 +1631,7 @@ pub(super) fn validate_place_exists(
             validate_local_exists(function, *local, errors);
         }
         Place::Field { base, .. } => validate_local_exists(function, *base, errors),
-        Place::Index { base, index } => {
+        Place::Index { base, index, .. } => {
             validate_local_exists(function, *base, errors);
             validate_operand_exists(function, index, errors);
         }

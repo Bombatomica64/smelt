@@ -559,7 +559,11 @@ impl FunctionEmitter<'_> {
                     return Ok(());
                 }
             }
-            Place::Index { base, index } => {
+            Place::Index {
+                base,
+                index,
+                negative,
+            } => {
                 let base_ty = self.local_decl(*base)?.ty;
                 match self.mir.types.get(base_ty) {
                     Some(Type::Dict(key, item)) => {
@@ -599,7 +603,7 @@ impl FunctionEmitter<'_> {
                         let base_mut = list_write_text(&self.local_value_text(*base)?);
                         let base_read = self.local_value_text(*base)?;
                         let index_text =
-                            self.normalized_index_text(&format!("{base_read}.len()"), index)?;
+                            self.normalized_index_text(&format!("{base_read}.len()"), index, *negative)?;
                         // Growing past the end leaves JS *holes*, which read as
                         // `undefined`, not `null` (see `array_hole_value`).
                         let default_value = self.array_hole_value(*item)?;

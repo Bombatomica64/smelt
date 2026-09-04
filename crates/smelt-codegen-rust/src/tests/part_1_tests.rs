@@ -994,8 +994,13 @@ for (let ch: string of word) {
 "#,
     );
 
+    // `word.at(-1)` counts back from the end, so it still binds the length and
+    // normalizes. `word[0]` is a plain subscript: in JavaScript a negative one
+    // addresses no character, so it reads the index straight through. The two
+    // shapes are asserted together because they are the two halves of the same
+    // rule and must not drift into each other.
     assert!(source.contains("let normalized = if index < 0 { len + index } else { index }"));
-    assert!(source.contains(".chars().nth({ let len = word.chars().count() as i64;"));
+    assert!(source.contains(".chars().nth({ let normalized = 0.0 as i64;"));
     assert!(source.contains(".chars().count() as f64"));
     assert!(source.contains("let index = _smelt_tmp_"));
 }

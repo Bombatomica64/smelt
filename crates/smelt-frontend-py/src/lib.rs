@@ -369,6 +369,7 @@ pub fn to_hir_with_options(
             SourceFile {
                 path: path.to_owned(),
                 language: Language::Python,
+                file: file_id,
             },
         )));
     }

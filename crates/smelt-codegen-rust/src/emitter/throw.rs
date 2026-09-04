@@ -172,7 +172,7 @@ fn local_read_counts(function: &MirFunction) -> HashMap<LocalId, usize> {
             Place::Local(local) | Place::Field { base: local, .. } => {
                 *counts.entry(*local).or_default() += 1;
             }
-            Place::Index { base, index } => {
+            Place::Index { base, index, .. } => {
                 *counts.entry(*base).or_default() += 1;
                 count_operand(counts, index);
             }
@@ -198,7 +198,7 @@ fn local_read_counts(function: &MirFunction) -> HashMap<LocalId, usize> {
                     match place {
                         Place::Local(_) => {}
                         Place::Field { base, .. } => *counts.entry(*base).or_default() += 1,
-                        Place::Index { base, index } => {
+                        Place::Index { base, index, .. } => {
                             *counts.entry(*base).or_default() += 1;
                             count_operand(&mut counts, index);
                         }

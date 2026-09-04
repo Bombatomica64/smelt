@@ -17,7 +17,7 @@ use smelt_hir::{
 
 use crate::{
     BasicBlock, BlockId, ExceptionHandler, FuncId, HirOrigin, LocalDecl, LocalId, LocalKind,
-    MirClosure, MirFunction, Operand, Terminator,
+    MirClosure, MirFunction, NegativeIndex, Operand, Terminator,
 };
 
 use super::{LowerError, function_item_for_body, u32_from_usize, usize_from_u32};
@@ -30,6 +30,11 @@ pub(super) struct LoweringCtx<'hir> {
     pub(super) item_functions: &'hir HashMap<smelt_hir::ItemId, FuncId>,
     /// Mapping of mutable-global HIR item IDs to their `Mir::globals` index.
     pub(super) global_ids: &'hir HashMap<smelt_hir::ItemId, u32>,
+    /// Source language of every file in the crate, keyed by span `FileId`.
+    ///
+    /// Read through [`LoweringCtx::negative_index_policy`] so a lowered place
+    /// records the indexing rule of the language the expression was written in.
+    pub(super) languages: &'hir HashMap<smelt_hir::FileId, smelt_hir::Language>,
     /// The HIR body being lowered.
     pub(super) body: &'hir Body,
     /// The MIR function being constructed.
@@ -97,6 +102,8 @@ pub(super) struct LoweringShared<'hir> {
     pub(super) item_functions: &'hir HashMap<smelt_hir::ItemId, FuncId>,
     /// Mapping of mutable-global HIR item IDs to their `Mir::globals` index.
     pub(super) global_ids: &'hir HashMap<smelt_hir::ItemId, u32>,
+    /// Source language of every file in the crate, keyed by span `FileId`.
+    pub(super) languages: &'hir HashMap<smelt_hir::FileId, smelt_hir::Language>,
     /// Numeric type used for generated index-based loop counters.
     pub(super) loop_index_ty: TypeId,
     /// Boolean type used for generated loop conditions.
@@ -256,6 +263,7 @@ impl<'hir> LoweringCtx<'hir> {
             krate: shared.krate,
             item_functions: shared.item_functions,
             global_ids: shared.global_ids,
+            languages: shared.languages,
             body,
             function,
             closures: Vec::new(),
@@ -269,6 +277,23 @@ impl<'hir> LoweringCtx<'hir> {
             finally_scopes: Vec::new(),
             loop_index_ty: shared.loop_index_ty,
             loop_bool_ty: shared.loop_bool_ty,
+        }
+    }
+
+    /// The negative-index rule that applies to an expression at `span`.
+    ///
+    /// Python counts a negative subscript back from the end; JavaScript treats
+    /// it as a property key that addresses no element. The span names the file,
+    /// and the file names the frontend that produced the expression, so this is
+    /// the one point where the two rules are told apart. A span whose file is
+    /// not in the table belongs to a synthesized expression with no source
+    /// module; those come from the TypeScript-shaped lowering paths, so
+    /// [`NegativeIndex::OutOfRange`] is the safe default -- it never invents a
+    /// slot that the source did not address.
+    pub(super) fn negative_index_policy(&self, span: Span) -> NegativeIndex {
+        match self.languages.get(&span.file) {
+            Some(smelt_hir::Language::Python) => NegativeIndex::FromEnd,
+            Some(smelt_hir::Language::TypeScript) | None => NegativeIndex::OutOfRange,
         }
     }
 

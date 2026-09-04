@@ -361,7 +361,7 @@ fn statement_reads(stmt: &Statement, out: &mut Vec<LocalId>) {
             match place {
                 Place::Local(_) => {}
                 Place::Field { base, .. } => out.push(*base),
-                Place::Index { base, index } => {
+                Place::Index { base, index, .. } => {
                     out.push(*base);
                     collect_operand_reads(index, out);
                 }
@@ -415,7 +415,7 @@ fn collect_operand_reads(operand: &Operand, out: &mut Vec<LocalId>) {
         Operand::Copy(place) | Operand::Move(place) => match place {
             Place::Local(local) => out.push(*local),
             Place::Field { base, .. } => out.push(*base),
-            Place::Index { base, index } => {
+            Place::Index { base, index, .. } => {
                 out.push(*base);
                 collect_operand_reads(index, out);
             }

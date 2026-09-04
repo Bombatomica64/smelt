@@ -272,6 +272,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             SourceFile {
                 path: self.path.clone(),
                 language: Language::TypeScript,
+                file: self.file_id,
             },
         );
         let previous_export_aliases = self.ctx.export_aliases.clone();

@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::body::Body;
-use crate::ids::{BodyId, ItemId, ModuleId, Span, Symbol, id_index};
+use crate::ids::{BodyId, FileId, ItemId, ModuleId, Span, Symbol, id_index};
 use crate::item::Item;
 use crate::symbol::{OriginalNameTable, SymbolInterner};
 use crate::ty::TypeInterner;
@@ -107,6 +107,15 @@ pub struct SourceFile {
     pub path: String,
     /// The programming language of the source file.
     pub language: Language,
+    /// The file this module was lowered from.
+    ///
+    /// Every [`crate::Span`] carries the same `FileId`, so this is what lets a
+    /// later pass recover the SOURCE LANGUAGE of an arbitrary expression: build
+    /// a `FileId -> Language` table from the crate's modules and look the span
+    /// up in it. One crate can mix TypeScript and Python modules (the frontend
+    /// is chosen per file), so the language is not a crate-wide property and
+    /// cannot be recovered any other way once HIR is flattened.
+    pub file: FileId,
 }
 
 /// Programming language for a source file.

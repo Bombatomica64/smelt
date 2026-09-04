@@ -285,6 +285,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let source = SourceFile {
             path: self.path.clone(),
             language: Language::Python,
+            file: self.file_id,
         };
         let mut hir_module = Module::new("main", source);
         let module_span = self.span(module.range);

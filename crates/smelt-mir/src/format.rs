@@ -1528,7 +1528,7 @@ fn place_text(place: &Place) -> String {
     match place {
         Place::Local(local) => local_ref(*local),
         Place::Field { base, field } => format!("{}.field{}", local_ref(*base), field.0),
-        Place::Index { base, index } => format!("{}[{}]", local_ref(*base), operand_text(index)),
+        Place::Index { base, index, .. } => format!("{}[{}]", local_ref(*base), operand_text(index)),
     }
 }
 
