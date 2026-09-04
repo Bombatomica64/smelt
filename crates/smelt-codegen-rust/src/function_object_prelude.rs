@@ -22,7 +22,12 @@
 //! * **`x instanceof f` is a prototype-chain walk** (`OrdinaryHasInstance`),
 //!   not a nominal test: it follows `x`'s chain link by link looking for the
 //!   *object* `f.prototype` by reference. That is why `Object.create(p)` has to
-//!   record a real link to `p` and not merely copy `p`'s members.
+//!   record a real link to `p` and not merely copy `p`'s members. The link lives
+//!   in `SMELT_OBJECT_PROTOTYPES`, keyed by the created object's identity (see
+//!   `smelt_register_object_prototype` in `lib.rs`); the chain walk here,
+//!   `v.__proto__` (`smelt_proto_accessor`) and `Object.getPrototypeOf`
+//!   (`smelt_prototype_sentinel`) all read that ONE table, which is what keeps
+//!   the three answers consistent.
 //!
 //! The `prototype` object is materialised on FIRST READ rather than at function
 //! creation. Nothing can observe the object before something reads it, so the
@@ -35,23 +40,6 @@
 //! arrow is the only way to see the difference.
 
 use crate::rust::CodeWriter;
-
-/// Storage key holding an object's real prototype VALUE.
-///
-/// `Object.create(p)` copies `p`'s own members under the `__smelt_proto:` prefix
-/// so they are inherited-but-not-own; that copy loses `p`'s identity, which
-/// `instanceof` and `Object.getPrototypeOf` both need. This key stores the
-/// prototype itself alongside the copy. It deliberately sits UNDER the same
-/// `__smelt_proto:` prefix, so every own-key, enumeration, equality and JSON
-/// filter that already hides that prefix hides this slot too, with no new filter
-/// to keep in sync; only the two `for...in` loops that strip the prefix to yield
-/// inherited keys have to skip it.
-pub const PROTOTYPE_LINK_KEY: &str = "__smelt_proto:__proto__";
-
-/// Property name of the inherited-key spelling of [`PROTOTYPE_LINK_KEY`].
-///
-/// What a `for...in` loop would yield if it did not skip the slot.
-pub const PROTOTYPE_LINK_INHERITED_NAME: &str = "__proto__";
 
 /// Emit the function-object helpers into the generated prelude.
 ///
@@ -74,15 +62,6 @@ pub fn emit(writer: &mut CodeWriter, needs_construct: bool, needs_instance_of_va
 
 /// Emit the identity-keyed own-property bag of function values.
 fn emit_property_bag(writer: &mut CodeWriter) {
-    writer.line("/// Inherited-key spelling of the hidden prototype-link slot.");
-    writer.line("///");
-    writer.line("/// The `for...in` key walks strip the `__smelt_proto:` prefix to yield inherited");
-    writer.line("/// members, which would expose the link slot as a `__proto__` key; they compare");
-    writer.line("/// against this name to skip it.");
-    writer.line(format!(
-        "const SMELT_PROTOTYPE_LINK_NAME: &str = {PROTOTYPE_LINK_INHERITED_NAME:?};"
-    ));
-    writer.blank_line();
     writer.line("thread_local! {");
     writer.line("    /// Own JavaScript properties of each function value, keyed by canonical");
     writer.line("    /// function identity so a typed callable and every erasure adapter derived");
@@ -133,6 +112,11 @@ fn emit_construct(writer: &mut CodeWriter) {
     writer.line("/// `new f() instanceof g` answerable at all. A non-callable operand answers");
     writer.line("/// `undefined`: JavaScript throws a TypeError there, and Smelt models an");
     writer.line("/// unconstructible callee the same way an uncallable one is modeled.");
+    writer.line("///");
+    writer.line("/// The prototype link is established by `smelt_object_from_prototype`, which");
+    writer.line("/// records it in `SMELT_OBJECT_PROTOTYPES` under the allocated object's");
+    writer.line("/// identity — the same table `smelt_instance_of_value` walks below, so");
+    writer.line("/// `new F() instanceof F` holds by construction.");
     writer.line("fn smelt_construct(callee: SmeltUnknown, args: Vec<SmeltUnknown>) -> SmeltUnknown {");
     writer.line("    let Some(function) = smelt_callable_of(&callee) else { return SmeltUnknown::Undefined; };");
     writer.line("    let prototype = smelt_function_value_property(&function, \"prototype\");");

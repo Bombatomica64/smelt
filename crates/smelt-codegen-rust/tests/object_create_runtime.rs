@@ -248,3 +248,87 @@ test("a class instance's methods are not own keys either", () => {
 "#;
     run_fixture(source, "smelt_own_keys_property_key_record");
 }
+
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn object_create_keeps_the_prototype_chains_identity() {
+    // The prototype CHAIN is observable, not just the inherited members:
+    // `Object.getPrototypeOf(Object.create(p))` is `p` itself, so
+    // `Object.getPrototypeOf(Object.getPrototypeOf(...))` is `Object.prototype`
+    // and not `null`. That two-step walk is exactly what separates a plain
+    // object from `Object.create({})`, and both `Object.create({ ... })` (which
+    // used to be inlined as bare `__smelt_proto:` entries) and
+    // `Object.create(null)` (which used to fold to an empty object literal)
+    // answered it wrongly.
+    //
+    // The recorded prototype is a hidden marker, so it stays out of key
+    // enumeration, `for...in`, JSON and structural equality; and it is recorded
+    // only when the result's own shape cannot already imply it, so the
+    // `Object.create(Object.getPrototypeOf(o))` clone idiom over a plain object
+    // still produces a marker-free object.
+    let source = r#"
+import { test, expect } from "vitest";
+function isPlainObject(value: unknown): boolean {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const proto = Object.getPrototypeOf(value) as typeof Object.prototype | null;
+  const hasObjectPrototype =
+    proto === null || proto === Object.prototype || Object.getPrototypeOf(proto) === null;
+  if (!hasObjectPrototype) {
+    return false;
+  }
+  return Object.prototype.toString.call(value) === "[object Object]";
+}
+test("getPrototypeOf answers the very object Object.create was given", () => {
+  const parent = { a: 1 };
+  const child: any = Object.create(parent);
+  expect(Object.getPrototypeOf(child)).toBe(parent);
+  expect(Object.getPrototypeOf(Object.create(null))).toBe(null);
+  expect(Object.getPrototypeOf({})).toBe(Object.prototype);
+  expect(child.a).toBe(1);
+});
+test("the recorded prototype is not an own property", () => {
+  const child: any = Object.create({ a: 1 });
+  expect(Object.keys(child)).toEqual([]);
+  expect(Object.values(child)).toEqual([]);
+  expect(Object.entries(child).length).toBe(0);
+  child.b = 2;
+  expect(Object.keys(child)).toEqual(["b"]);
+  expect(child).toEqual({ b: 2 });
+  expect(JSON.stringify(child)).toBe(JSON.stringify({ b: 2 }));
+});
+test("only a direct Object.prototype (or null) makes a plain object", () => {
+  expect(isPlainObject({})).toBe(true);
+  expect(isPlainObject({ a: 1 })).toBe(true);
+  expect(isPlainObject(Object.create(null))).toBe(true);
+  expect(isPlainObject(Object.create({}))).toBe(false);
+  expect(isPlainObject(Object.create({ a: 1 }))).toBe(false);
+});
+test("cloning a plain object through its own prototype adds no marker", () => {
+  const original: any = { a: 1, b: "two" };
+  const clone: any = Object.assign(Object.create(Object.getPrototypeOf(original)), original);
+  expect(clone).toEqual(original);
+  expect(Object.keys(clone)).toEqual(["a", "b"]);
+  expect(isPlainObject(clone)).toBe(true);
+});
+test("Object.assign returns its target, so the target's prototype survives", () => {
+  // The `withNullPrototype` idiom, and the reason the prototype is recorded by
+  // IDENTITY: this value round-trips through a typed `Record<string, number>`
+  // recovery, which maps every ENTRY through the value conversion. A prototype
+  // held as a hidden entry came back as `NaN` here — neither `null` nor
+  // `Object.prototype`, so remeda's `isDeepEqual` refused to compare it.
+  const withNullProto = (data: Record<string, number>): Record<string, number> =>
+    Object.assign(Object.create(null), data);
+  const bare: any = withNullProto({ a: 1 });
+  expect(Object.getPrototypeOf(bare)).toBe(null);
+  expect(Object.keys(bare)).toEqual(["a"]);
+  expect(bare.a).toBe(1);
+  expect("a" in bare).toBe(true);
+  expect(bare).toEqual({ a: 1 });
+  expect(isPlainObject(bare)).toBe(true);
+});
+"#;
+    run_fixture(source, "smelt_object_create_prototype_identity");
+}

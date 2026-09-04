@@ -211,8 +211,9 @@ export function run(func: unknown): boolean {
 fn object_create_records_a_link_to_its_prototype() {
     // `Object.create(p)` copies `p`'s own members under the `__smelt_proto:`
     // prefix so they read as inherited. A copy cannot answer an identity
-    // question, so the prototype itself is also recorded by reference — the
-    // slot an `instanceof` chain walk and `Object.getPrototypeOf` follow.
+    // question, so the prototype itself is also recorded by reference, in the
+    // identity-keyed `SMELT_OBJECT_PROTOTYPES` table that an `instanceof` chain
+    // walk, `v.__proto__` and `Object.getPrototypeOf` all read.
     let source = source_for(
         r"
 export function run(prototype: unknown): unknown {
@@ -222,7 +223,11 @@ export function run(prototype: unknown): unknown {
     );
 
     assert!(
-        source.contains("\"__smelt_proto:__proto__\""),
+        source.contains("smelt_register_object_prototype(object.id, prototype)"),
         "`Object.create` must record a link to its prototype:\n{source}"
+    );
+    assert!(
+        !source.contains("__smelt_proto:__proto__"),
+        "the prototype link must not be a hidden object entry:\n{source}"
     );
 }

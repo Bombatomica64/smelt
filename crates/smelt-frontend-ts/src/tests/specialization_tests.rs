@@ -75,7 +75,9 @@ fn manifest_materializes_instance_private_accessor_and_static_fields() -> Result
         .iter()
         .find(|field| ctx.krate.symbols.get(field.name) == Some("secret"))
         .ok_or_else(|| "private field is absent".to_owned())?;
-    ensure_eq!(secret.visibility, smelt_hir::Visibility::Private);
+    // `#secret` is an ECMAScript private NAME, so it is not an own property:
+    // `Hidden`, not the compile-time-only `Private`.
+    ensure_eq!(secret.visibility, smelt_hir::Visibility::Hidden);
     let static_names = class
         .static_fields
         .iter()

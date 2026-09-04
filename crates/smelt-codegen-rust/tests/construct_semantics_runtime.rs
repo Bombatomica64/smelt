@@ -236,3 +236,45 @@ test("a prototype read on an erased function value sees the same object", () => 
 "#;
     run_fixture(source, "smelt_construct_function_prototype");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn the_three_prototype_spellings_read_one_chain() {
+    // `Object.getPrototypeOf(v)`, `v.__proto__` and `x instanceof F` are three
+    // spellings of ONE question, so they must read one prototype link. They were
+    // modeled twice at one point — a hidden `__smelt_proto:__proto__` entry on
+    // the object and an identity-keyed table — which let them disagree: an
+    // erased object round-tripped through a typed record loses hidden entries
+    // but keeps its identity, so one spelling advanced the chain and the other
+    // did not. The link now lives only in the identity-keyed table
+    // (`SMELT_OBJECT_PROTOTYPES`), and this pins all three to it.
+    let source = r#"
+import { test, expect } from "vitest";
+test("getPrototypeOf and __proto__ answer the same Object.create argument", () => {
+  const base: any = { a: 1 };
+  const made: any = Object.create(base);
+  expect(Object.getPrototypeOf(made)).toBe(base);
+  expect(made.__proto__).toBe(base);
+  expect(Object.getPrototypeOf(Object.getPrototypeOf(made))).toBe(Object.prototype);
+});
+test("instanceof walks the same chain Object.getPrototypeOf reports", () => {
+  function C(this: any) {
+    this.tag = "c";
+  }
+  const made: any = new (C as any)();
+  expect(Object.getPrototypeOf(made)).toBe((C as any).prototype);
+  expect(made.__proto__).toBe((C as any).prototype);
+  expect(made instanceof C).toBe(true);
+});
+test("an inherited member does not surface as a __proto__ key", () => {
+  const made: any = Object.create({ a: 1 });
+  const keys: string[] = [];
+  for (const key in made) {
+    keys.push(key);
+  }
+  expect(keys).toEqual(["a"]);
+  expect(Object.keys(made)).toEqual([]);
+});
+"#;
+    run_fixture(source, "smelt_construct_one_prototype_chain");
+}

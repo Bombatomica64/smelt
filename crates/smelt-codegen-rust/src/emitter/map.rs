@@ -1,4 +1,13 @@
 //! Map emission helpers.
+//!
+//! Several projections here inline the same own-string-key predicate:
+//! `__smelt_symbol:` names a symbol-keyed property (never a string key),
+//! `__smelt_proto:` / `__smelt_method:` carry inherited members, and
+//! `__smelt_class` records which prototype an instance came from. JavaScript
+//! exposes none of the four as an own string-keyed property, so `Object.keys` /
+//! `values` / `entries` must skip every one of them. Keep the list in sync with
+//! `smelt_is_for_in_object_key` and `smelt_is_own_structural_key` in the runtime
+//! prelude when a marker is added.
 
 use super::*;
 

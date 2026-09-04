@@ -909,6 +909,27 @@ function shallowClone(obj: object): object {
         ),
         "a class prototype must carry the class marker onto the fresh object: {source}"
     );
+    // The prototype's IDENTITY is recorded too, so `Object.getPrototypeOf` of the
+    // result answers with the very value that was passed in — but only when the
+    // result's own shape cannot already imply it. It is keyed by the created
+    // object's id, never stored as an entry, so no view of the object's entries
+    // can see it.
+    assert!(
+        source.contains(
+            "let object = SmeltObject::new(fields); if smelt_prototype_slot_is_observable(&prototype) { smelt_register_object_prototype(object.id, prototype); }"
+        ),
+        "Object.create must record an observable prototype: {source}"
+    );
+    assert!(
+        source.contains(
+            "fn smelt_prototype_slot_is_observable(prototype: &SmeltUnknown) -> bool"
+        ),
+        "the observability test must be emitted alongside: {source}"
+    );
+    assert!(
+        source.contains("static SMELT_OBJECT_PROTOTYPES:"),
+        "the prototype registry must be emitted: {source}"
+    );
 }
 
 #[test]
