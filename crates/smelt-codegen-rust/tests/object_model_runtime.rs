@@ -265,3 +265,85 @@ test("a subclass of a specific builtin error keeps that base's identity", () => 
 "#;
     run_fixture(source, "smelt_object_model_error_subclass");
 }
+
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_class_instance_exposes_its_source_properties_and_hides_its_private_names() {
+    // A TypeScript `private`/`protected` modifier is a COMPILE-TIME restriction:
+    // the field is an ordinary own property, so it enumerates, erases and deep-
+    // compares like any other. A JavaScript `#name` field is a private *name*,
+    // not a string-keyed property, so `obj['#name']` is `undefined` and the slot
+    // is invisible everywhere. The erased view used to filter on the source
+    // modifier instead, dropping every `private` field.
+    //
+    // The instance's prototype (its `__smelt_class` provenance) is likewise not
+    // an own property, so own-property deep equality against a plain object of
+    // the same properties holds -- which is what vitest `toEqual` means.
+    let source = r##"
+import { test, expect } from "vitest";
+class Point {
+  readonly label: string;
+  #secret: number;
+  private x: number;
+  protected y: number;
+  private readonly onRead: () => number;
+  constructor(label: string, secret: number, x: number, y: number, onRead: () => number) {
+    this.label = label;
+    this.#secret = secret;
+    this.x = x;
+    this.y = y;
+    this.onRead = onRead;
+  }
+  readSecret(): number {
+    return this.#secret;
+  }
+}
+test("a #private field is not an own property, a private field is", () => {
+  const onRead = () => 7;
+  const point = new Point("origin", 42, 1, 2, onRead);
+  // @ts-expect-error: a private name is not a string key
+  expect(point["#secret"]).toBe(undefined);
+  expect(point.readSecret()).toBe(42);
+  expect(Object.keys(point)).toEqual(["label", "x", "y", "onRead"]);
+  expect(point).toEqual({ label: "origin", x: 1, y: 2, onRead });
+});
+"##;
+    run_fixture(source, "smelt_object_model_class_own_properties");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_callback_binding_is_one_function_value_however_often_it_is_read() {
+    // A JavaScript function value has observable identity. A local `const`
+    // arrow used to be re-lowered into a FRESH closure at every reference, so
+    // `d === d` was false, and a callback that travelled through a field, a
+    // container or an argument never compared equal to the binding it came
+    // from. A reference now reads the binding the declaration materialized.
+    let source = r#"
+import { test, expect } from "vitest";
+class Holder {
+  readonly run: () => number;
+  constructor(run: () => number) {
+    this.run = run;
+  }
+}
+test("two reads of one callback binding are the same value", () => {
+  const d = () => 1;
+  const left = d;
+  const right = d;
+  expect(left).toBe(right);
+  expect(left).toBe(d);
+});
+test("a callback keeps its identity through a container and a field", () => {
+  const d = () => 1;
+  const pair = [d, d];
+  expect(pair[0]).toBe(pair[1]);
+  expect(pair[0]).toBe(d);
+  const holder = new Holder(d);
+  expect(holder.run).toBe(d);
+  expect(holder).toEqual({ run: d });
+});
+"#;
+    run_fixture(source, "smelt_object_model_callback_identity");
+}

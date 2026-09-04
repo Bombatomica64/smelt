@@ -1734,8 +1734,15 @@ impl FunctionEmitter<'_> {
                     let erased_return = self.erase_value_text(&call_text, function.return_ty)?;
                     format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({erased_return})")
                 };
+                // Erasing a function value builds a fresh forwarding closure, so
+                // the allocation address that JavaScript `===` would compare is a
+                // new one every time. Link the adapter back to the source callable
+                // (as the rest-vector adapter in `core.rs` already does) so two
+                // erasures of one closure — a field read through an erased view and
+                // the same closure erased into an object literal — stay `===`, and
+                // `smelt_same_erased_function` sees through both wrappers.
                 Ok(format!(
-                    "{{ let smelt_function_value = {value_text}; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) {{ smelt_callable_object }} else {{ let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text}); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }} }}"
+                    "{{ let smelt_function_value = {value_text}; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) {{ smelt_callable_object }} else {{ let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text}); smelt_link_function_identity(&smelt_erased_function, &smelt_function_origin); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }} }}"
                 ))
             }
             Some(Type::Union(_)) if self.concrete_union_members(ty).is_some() => {
@@ -1908,7 +1915,7 @@ impl FunctionEmitter<'_> {
         };
         let entries_result = fields
             .iter()
-            .filter(|field| !matches!(field.visibility, smelt_hir::Visibility::Private))
+            .filter(|field| field.visibility.is_own_property())
             .map(|field| {
                 let source_name = self.symbol_source_name(field.name)?;
                 let field_name = sanitize_ident(self.symbol_name(field.name)?);

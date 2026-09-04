@@ -207,7 +207,7 @@ export function readBag(bag: StringBag, key: string): string | undefined {
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     // The index signature's value type is recorded for the class.
     ensure!(!ctx.class_index_values.is_empty());
-    // The class carries a synthesized private `__smelt_index_store` field typed
+    // The class carries a synthesized HIDDEN `__smelt_index_store` field typed
     // `Dict<String, String>` that backs the runtime keyed store (issue #84/#18).
     let string_bag = module
         .items
@@ -221,7 +221,7 @@ export function readBag(bag: StringBag, key: string): string | undefined {
         .ok_or_else(|| "missing StringBag class".to_owned())?;
     ensure!(string_bag.fields.iter().any(|field| {
         ctx.krate.symbols.get(field.name) == Some(smelt_hir::CLASS_INDEX_STORE_FIELD)
-            && matches!(field.visibility, smelt_hir::Visibility::Private)
+            && matches!(field.visibility, smelt_hir::Visibility::Hidden)
             && matches!(
                 ctx.krate.types.get(field.ty),
                 Some(Type::Dict(key, value))

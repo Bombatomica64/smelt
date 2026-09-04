@@ -3600,7 +3600,9 @@ impl ModuleBuilder<'_> {
                 self.scope.register_callback(
                     name.to_owned(),
                     LocalCallback {
-                        defining_body_span: body.blocks.first().map(|root_block| root_block.span),
+                        // The `Stmt::Let` above only runs for a predeclared local,
+                        // so that is exactly when the binding holds the closure.
+                        materialized: predeclared_local.is_some(),
                         callback,
                         params,
                         defaults: closure_defaults,

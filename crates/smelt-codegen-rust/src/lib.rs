@@ -3623,6 +3623,16 @@ fn emit_source_with_free_function_router(
         writer.line("    }");
         writer.line("}");
         writer.blank_line();
+        // The one predicate behind own-property structural equality AND its `Hash`
+        // mirror: they must agree key for key, so both read this list.
+        writer.line("/// Whether an erased object key is an OWN property for structural comparison.");
+        writer.line("///");
+        writer.line("/// `__smelt_proto:<name>` / `__smelt_method:<name>` carry inherited members and");
+        writer.line("/// `__smelt_class` records the prototype an instance came from; JavaScript");
+        writer.line("/// exposes none of the three as an own property, so deep equality and the");
+        writer.line("/// matching hash both skip them.");
+        writer.line("fn smelt_is_own_structural_key(key: &str) -> bool { !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\" }");
+        writer.blank_line();
         writer.line("fn smelt_object_structural_eq(left: &SmeltObject, right: &SmeltObject, seen: &mut ::std::collections::HashSet<(usize, usize)>) -> bool {");
         writer.line("    if left.contains_key(\"__smelt_date\") || right.contains_key(\"__smelt_date\") { let left_date = smelt_unknown_date_value(&SmeltUnknown::Object(left.clone())); let right_date = smelt_unknown_date_value(&SmeltUnknown::Object(right.clone())); return left_date == right_date || (left_date.is_nan() && right_date.is_nan()); }");
         writer.line("    if left.id == right.id { return true; }");
@@ -3636,8 +3646,16 @@ fn emit_source_with_free_function_router(
         // same class would each carry distinct closures and compare unequal.
         // The same rule already governs `Object.create(proto)` results, whose
         // inherited keys live under the same prefix.
-        writer.line("    let left_entries = left.iter().filter(|(key, _)| !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\")).collect::<Vec<_>>();");
-        writer.line("    let right_own = right.iter().filter(|(key, _)| !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\")).count();");
+        //
+        // `__smelt_class` belongs to that group: it records which prototype an
+        // erased instance came from, and a JavaScript class instance has no such
+        // own property. Own-property deep equality — what `toEqual`, `isEqual`
+        // and `PartialEq for SmeltUnknown` all mean — therefore ignores it, so a
+        // clone that keeps its prototype still equals a plain object of the same
+        // own properties. A prototype-SENSITIVE comparison (`toStrictEqual`) has
+        // to ask for the prototype explicitly rather than lean on entry counts.
+        writer.line("    let left_entries = left.iter().filter(|(key, _)| smelt_is_own_structural_key(key)).collect::<Vec<_>>();");
+        writer.line("    let right_own = right.iter().filter(|(key, _)| smelt_is_own_structural_key(key)).count();");
         writer.line("    if left_entries.len() != right_own { return false; }");
         writer.line("    left_entries.into_iter().all(|(key, left_value)| right.get(&key).is_some_and(|right_value| smelt_unknown_structural_eq(&left_value, &right_value, seen)))");
         writer.line("}");
@@ -3674,7 +3692,7 @@ fn emit_source_with_free_function_router(
         // Mirror the `__smelt_proto:` filter in `smelt_object_structural_eq`:
         // `Hash` and `PartialEq` must agree, and prototype-carried members are
         // not part of an object's own structural identity.
-        writer.line("    let mut entries = object.iter().filter(|(key, _)| !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\")).collect::<Vec<_>>();");
+        writer.line("    let mut entries = object.iter().filter(|(key, _)| smelt_is_own_structural_key(key)).collect::<Vec<_>>();");
         writer.line("    entries.sort_by(|left, right| left.0.cmp(&right.0));");
         writer.line("    entries.len().hash(state);");
         writer.line("    for (key, value) in entries { key.hash(state); smelt_unknown_structural_hash(&value, state, seen); }");
@@ -4702,6 +4720,7 @@ fn emit_source_with_free_function_router(
             emit_record_from_smelt_unknown_impl(
                 &mut writer,
                 mir,
+                &context,
                 &name,
                 &impl_generics,
                 &type_params,
@@ -5058,6 +5077,7 @@ fn emit_source_with_free_function_router(
             emit_record_from_smelt_unknown_impl(
                 &mut writer,
                 mir,
+                &context,
                 &name,
                 &impl_generics,
                 &type_params,
@@ -6081,11 +6101,19 @@ fn emit_reference_class_into_smelt_unknown_impl(
                     "let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([",
                 );
                 for field in fields {
-                    if matches!(field.visibility, smelt_hir::Visibility::Private) {
+                    if !field.visibility.is_own_property() {
                         continue;
                     }
-                    let key = mir.symbols.get(field.name).unwrap_or("field");
-                    let field_name = RustIdent::new(key).into_string();
+                    // The erased key is the SOURCE spelling (`mir.names`), the
+                    // Rust field is the sanitized one: `onRead` must read back
+                    // as `"onRead"` from an erased view, not as `"on_read"`.
+                    let field_name = RustIdent::new(mir.symbols.get(field.name).unwrap_or("field"))
+                        .into_string();
+                    let key = mir
+                        .names
+                        .get(field.name)
+                        .or_else(|| mir.symbols.get(field.name))
+                        .unwrap_or("field");
                     let value = record_field_unknown_text(
                         mir,
                         &format!("__smelt_inner.{field_name}.clone()"),
@@ -6348,11 +6376,19 @@ fn emit_record_into_smelt_unknown_impl(
                     "SmeltUnknown::Object(SmeltObject::new(Vec::from([",
                 );
                 for field in fields {
-                    if matches!(field.visibility, smelt_hir::Visibility::Private) {
+                    if !field.visibility.is_own_property() {
                         continue;
                     }
-                    let key = mir.symbols.get(field.name).unwrap_or("field");
-                    let field_name = RustIdent::new(key).into_string();
+                    // The erased key is the SOURCE spelling (`mir.names`), the
+                    // Rust field is the sanitized one: `onRead` must read back
+                    // as `"onRead"` from an erased view, not as `"on_read"`.
+                    let field_name = RustIdent::new(mir.symbols.get(field.name).unwrap_or("field"))
+                        .into_string();
+                    let key = mir
+                        .names
+                        .get(field.name)
+                        .or_else(|| mir.symbols.get(field.name))
+                        .unwrap_or("field");
                     let value =
                         record_field_unknown_text(mir, &format!("self.{field_name}"), field.ty)
                             .unwrap_or_else(|_| "SmeltUnknown::Null".to_owned());
@@ -6373,7 +6409,11 @@ fn emit_record_into_smelt_unknown_impl(
 /// `SmeltFromUnknown`). Everything else — callbacks, compiled regexes, futures,
 /// generators — has no inbound impl in the prelude, so the field keeps the
 /// record's `Default` rather than emitting a call that would not compile.
-pub(crate) fn type_supports_from_unknown(mir: &Mir, ty: TypeId) -> bool {
+pub(crate) fn type_supports_from_unknown(
+    mir: &Mir,
+    context: &emitter::EmitContext,
+    ty: TypeId,
+) -> bool {
     match mir.types.get(ty) {
         Some(
             Type::Bool
@@ -6388,20 +6428,29 @@ pub(crate) fn type_supports_from_unknown(mir: &Mir, ty: TypeId) -> bool {
         // the runtime builtins — `TemplateOptions.escape` is a `RegExp`, and
         // `SmeltRegExp` has no inbound impl — so admitting every class emitted a
         // call that does not compile.
+        //
+        // A *reference* class is generated too, but as an `Rc<RefCell<Inner>>`
+        // newtype by `emit_reference_class_storage`, which emits only the
+        // outbound `IntoSmeltUnknown` half. Recovering a shared handle from an
+        // erased snapshot would in any case invent a new cell rather than
+        // restore the aliasing the handle exists for, so such a field keeps its
+        // `Default` instead.
         Some(Type::Class { name, .. }) => {
             let name = *name;
-            mir.classes.iter().any(|class| class.name == name)
-                || mir.interfaces.iter().any(|item| item.name == name)
+            !context.is_reference_class(name)
+                && (mir.classes.iter().any(|class| class.name == name)
+                    || mir.interfaces.iter().any(|item| item.name == name))
         }
         Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => {
-            type_supports_from_unknown(mir, *item)
+            type_supports_from_unknown(mir, context, *item)
         }
         Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
-            type_supports_from_unknown(mir, *key) && type_supports_from_unknown(mir, *value)
+            type_supports_from_unknown(mir, context, *key)
+                && type_supports_from_unknown(mir, context, *value)
         }
         Some(Type::Tuple(items) | Type::Union(items)) => items
             .iter()
-            .all(|item| type_supports_from_unknown(mir, *item)),
+            .all(|item| type_supports_from_unknown(mir, context, *item)),
         _ => false,
     }
 }
@@ -6423,6 +6472,7 @@ pub(crate) fn type_supports_from_unknown(mir: &Mir, ty: TypeId) -> bool {
 fn emit_record_from_smelt_unknown_impl(
     writer: &mut CodeWriter,
     mir: &Mir,
+    context: &emitter::EmitContext,
     name: &str,
     impl_generics: &str,
     type_args: &str,
@@ -6437,7 +6487,7 @@ fn emit_record_from_smelt_unknown_impl(
                     fn_writer.line("let mut result = Self::default();");
                     fn_writer.block("if let SmeltUnknown::Object(object) = value", |body| {
                         for field in fields {
-                            if matches!(field.visibility, smelt_hir::Visibility::Private) {
+                            if !field.visibility.is_own_property() {
                                 continue;
                             }
                             // Only rebuild fields whose type can actually be
@@ -6447,11 +6497,20 @@ fn emit_record_from_smelt_unknown_impl(
                             // `Default`, and a type added later has to opt in
                             // rather than silently emit a call to a
                             // `SmeltFromUnknown` impl that does not exist.
-                            if !type_supports_from_unknown(mir, field.ty) {
+                            if !type_supports_from_unknown(mir, context, field.ty) {
                                 continue;
                             }
-                            let key = mir.symbols.get(field.name).unwrap_or("field");
-                            let field_name = RustIdent::new(key).into_string();
+                            // Read the SOURCE spelling out of the erased object;
+                            // write the sanitized Rust field. See the outbound
+                            // impl above.
+                            let field_name =
+                                RustIdent::new(mir.symbols.get(field.name).unwrap_or("field"))
+                                    .into_string();
+                            let key = mir
+                                .names
+                                .get(field.name)
+                                .or_else(|| mir.symbols.get(field.name))
+                                .unwrap_or("field");
                             body.block(
                                 format!("if let Some(field) = object.get({key:?})"),
                                 |assign| {

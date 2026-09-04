@@ -4462,9 +4462,14 @@ function makeMapper(): (value: number) => number {
         source.contains("fn make_mapper() -> ::std::rc::Rc<dyn Fn(f64) -> f64>"),
         "{source}"
     );
+    // The returned value is the BINDING, not a second closure: a function value
+    // has observable JavaScript identity, so `mapper` is materialized once and
+    // read back. Either spelling of that read is fine; what matters is that the
+    // return is an `Rc<dyn Fn>` (asserted above) rather than an unboxed closure.
     assert!(
         source.contains("return ::std::rc::Rc::new(")
-            || source.contains("return _smelt_tmp_2.clone()"),
+            || source.contains("return _smelt_tmp_2.clone()")
+            || source.contains("return mapper.clone()"),
         "{source}"
     );
 }
