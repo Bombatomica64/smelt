@@ -83,3 +83,30 @@ keyed by path). Rounds are sequential; each round starts from the merged state.
 sibling specs. Final validation after all merges: full es-toolkit report with
 `--baseline-report blocker-logs/estk-current.md`, remeda 1789/1789, radash 84/84,
 `smelt-unknown-report` es-toolkit ratchet, `cargo clippy --all-targets`, `cargo test`.
+
+## Progress log
+
+| after | es-toolkit | resolved | newly failing |
+| --- | --- | ---: | ---: |
+| baseline | 1014 / 45 | — | — |
+| Batch A + C (Round 1) | 1024 / 35 | 10 | 0 |
+| Batch D | 1027 / 32 | 14 cumulative | 1 (`clone should clone custom error`, see tail) |
+
+## Tail: rows that moved but did not close, and follow-ups found while fixing
+
+Each is a distinct general root, discovered when an earlier assertion in the same test
+started passing.
+
+| row | remaining root | owner |
+| --- | --- | --- |
+| `clone should clone custom error` (regressed by F18, correctly: `instanceof Error` is now true so `clone` takes its error branch) | (a) `new Ctor(msg, {cause})` through a class-constructor VALUE: `smelt_class_constructor` is a stub that ignores args and only stamps `__smelt_class`; (b) `Object.assign(erasedTarget, src)` `UnknownCast`s the target to a detached record, so the write never lands. | Batch F (construct semantics) |
+| `isEqualWith … different non-index properties` (lines 181/188 pass) | line 192: a `RegExp.exec` match result must BE an array (erase `SmeltMatch` to array + named props); needs the named-property side table reachable through a typed `SmeltList` handle (id-keyed registry, `smelt-runtime` cannot name `SmeltUnknown`) and `Object.hasOwn(list, nonNumericKey)` to stop lowering to a bounds check. | tail batch |
+| `isPlainObject should return false for invalid plain objects` (line 62 passes) | line 79: `isPlainObject(Object.create({}))` needs prototype-chain identity for `Object.create(<plain object>)`; today `getPrototypeOf(getPrototypeOf(o))` folds to `null`. | tail batch |
+| `cloneDeep should clone instance` (line 166 passes) | line 167: fields assigned in the constructor without a declaration (`this.c = c`) are not class fields in MIR, so the erasure omits them. Frontend class-field inference. | tail batch |
+| `mergeWith should respect null returned from customizer` | `null | undefined` lowers to one `Type::None`; needs `Type::Null` (or `preserve_observable_absence`) in the canonical type form. L. | deferred, decision needed |
+| `at should return undefined for non-integer indices` | unproven index read typed `Optional<T>`. L. | deferred, decision needed |
+
+Also found, not failing any row: `invertBy.rs` still has one `if true` (an `Array.isArray` fold on an
+erased read); name-keyed predicate lists `isEmpty|isArray|isString|isObject|trim` → `Literal::None`
+in `callbacks/dispatch.rs` and `known_callback_factory_predicate` (`has`/`omit`/`isNot`/`prop`) are the
+same illness as the deleted `lodash_negate_call`.
