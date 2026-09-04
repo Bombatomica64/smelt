@@ -620,6 +620,14 @@ struct ModuleBuilder<'ctx> {
     /// See [`state::import_scope::ImportScope`] for what it does and does not
     /// guarantee about those sets.
     imports: state::import_scope::ImportScope,
+    /// Local name each renamed `export { local as exported }` specifier exports.
+    ///
+    /// Keyed by exported spelling. Re-export specifiers are collected in a
+    /// prepass that runs before statement lowering, so a fact discovered about
+    /// the local *later* (such as "this const binds the ambient global object")
+    /// has to be projected onto the exported spelling once lowering finishes;
+    /// this map is what makes that projection possible.
+    export_renames: HashMap<String, String>,
     /// Object constants that act as namespace-like API surfaces.
     object_namespaces: HashMap<String, HashMap<String, smelt_hir::ItemId>>,
     /// Folded constant values visible to this module: literals, `enum` members,

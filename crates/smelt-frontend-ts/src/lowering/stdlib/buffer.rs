@@ -20,7 +20,7 @@
 //! reads (`buf.length`, `buf.byteLength`) a concrete backing through the erased
 //! object member path instead of a fabricated constant.
 
-use oxc::ast::ast::{CallExpression, Expression};
+use oxc::ast::ast::{Argument, CallExpression, Expression};
 use oxc::span::GetSpan;
 use smelt_hir::{Body, Expr, ExprKind, Literal, Type};
 
@@ -108,24 +108,61 @@ impl ModuleBuilder<'_> {
         span: smelt_hir::Span,
         body: &mut Body,
     ) -> smelt_hir::ExprId {
+        self.buffer_record_from_args(vec![bytes], span, body)
+    }
+
+    /// Construct a modeled `Buffer` record from raw `new Buffer(...)` arguments.
+    ///
+    /// The arguments reach the shared byte-buffer constructor unchanged, which is
+    /// what lets a source the frontend cannot pre-digest (a string plus its
+    /// encoding) be interpreted by the same registry-driven rules that back
+    /// `new Uint8Array(...)`.
+    pub(in crate::lowering) fn buffer_record_from_args(
+        &mut self,
+        args: Vec<smelt_hir::ExprId>,
+        span: smelt_hir::Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
         let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
         body.push_expr(Expr {
             kind: ExprKind::HostConstruct {
                 class_name: BUFFER_CLASS_NAME.to_owned(),
-                args: vec![bytes],
+                args,
             },
             ty: unknown_ty,
             span,
         })
     }
 
+    /// Return whether a `Buffer.from` encoding argument names an implemented
+    /// byte-preserving encoding.
+    ///
+    /// Only a string literal can be checked; a dynamic argument answers `false`
+    /// so the caller raises a blocker instead of guessing UTF-8.
+    fn is_supported_buffer_encoding_argument(argument: &Argument<'_>) -> bool {
+        let Some(Expression::StringLiteral(literal)) = argument.as_expression() else {
+            return false;
+        };
+        matches!(
+            literal.value.to_ascii_lowercase().as_str(),
+            "utf8" | "utf-8" | "latin1" | "binary" | "ascii" | "hex" | "base64" | "base64url"
+        )
+    }
+
     /// Lower Node `Buffer.from(value[, encoding])` to a modeled `Buffer` record.
     ///
     /// `Buffer.from([1, 2, 3])` reuses the numeric source list as the buffer's
-    /// bytes. `Buffer.from("text"[, encoding])` and any other opaque source have
-    /// no cheaply-recoverable byte list, so the source is evaluated for its
-    /// effects and an empty byte list backs the record — the byte contents are
-    /// not observed by es-toolkit's `Buffer` usage, only the identity and length.
+    /// bytes. `Buffer.from("text"[, encoding])` hands the *string* (and its
+    /// encoding, when given) to the byte-buffer constructor, which encodes the
+    /// text into bytes — a Buffer built from a string holds that string's bytes,
+    /// unlike a typed array, which ignores a text source. Any other opaque
+    /// source has no cheaply-recoverable byte list, so it is evaluated for its
+    /// effects and an empty byte list backs the record.
+    ///
+    /// An encoding the runtime does not implement is an honest blocker rather
+    /// than silently mis-encoded bytes: `utf8`/`utf-8`, `latin1`/`binary`,
+    /// `ascii`, `hex` and `base64`/`base64url` are lowered, and a dynamic
+    /// encoding argument cannot be checked, so it is rejected too.
     pub(in crate::lowering) fn buffer_from_call(
         &mut self,
         call: &CallExpression<'_>,
@@ -147,16 +184,30 @@ impl ModuleBuilder<'_> {
             ));
         };
         let source = self.argument(source_argument, body)?;
-        if let Some(encoding) = call.arguments.get(1) {
-            let _ = self.argument(encoding, body)?;
-        }
+        let encoding_argument = call.arguments.get(1);
+        let encoding = match encoding_argument {
+            Some(argument) => Some(self.argument(argument, body)?),
+            None => None,
+        };
         let span = self.span(call.span.start, call.span.end);
         let source_ty = Self::expr_ty(body, source);
-        let bytes = if matches!(self.ctx.krate.types.get(source_ty), Some(Type::List(_))) {
-            source
-        } else {
-            self.buffer_empty_bytes(span, body)
-        };
+        if matches!(self.ctx.krate.types.get(source_ty), Some(Type::List(_))) {
+            return Ok(Some(self.buffer_record_from_bytes(source, span, body)));
+        }
+        if matches!(self.ctx.krate.types.get(source_ty), Some(Type::String)) {
+            if let Some(argument) = encoding_argument
+                && !Self::is_supported_buffer_encoding_argument(argument)
+            {
+                return Err(SmeltError::unsupported(
+                    self.span(argument.span().start, argument.span().end),
+                    "Buffer.from encoding must be a literal utf8/utf-8/latin1/binary/ascii/hex",
+                ));
+            }
+            let mut args = vec![source];
+            args.extend(encoding);
+            return Ok(Some(self.buffer_record_from_args(args, span, body)));
+        }
+        let bytes = self.buffer_empty_bytes(span, body);
         Ok(Some(self.buffer_record_from_bytes(bytes, span, body)))
     }
 

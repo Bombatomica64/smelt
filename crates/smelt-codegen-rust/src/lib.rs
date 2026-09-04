@@ -81,6 +81,7 @@ use crate::{rust::erased_string, type_substitution::TypeSubstitution};
 use smelt_hir::{AsyncOp, BodyId, Type, TypeId};
 use smelt_mir::{HirOrigin, Mir, MirClassProtocol, MirFunction, Rvalue};
 
+mod builtin_member_prelude;
 mod byte_buffer_prelude;
 pub(crate) mod class_proto;
 pub(crate) mod classes;
@@ -661,6 +662,40 @@ fn emit_source_with_free_function_router(
             "    let state = match &value {{ SmeltUnknown::Undefined => {enum_name}::Absent, SmeltUnknown::Object(entries) if entries.contains_key({marker:?}) => {enum_name}::Native, _ => {enum_name}::Ctor(value.clone()) }}; *slot.borrow_mut() = state; value",
             enum_name = smelt_stdlib::runtime_symbols::host_override::OVERRIDE_ENUM,
             marker = smelt_stdlib::runtime_symbols::host_override::NATIVE_CTOR_MARKER,
+        ));
+        writer.line("}");
+        writer.blank_line();
+        // A class erased to a plain callable loses its constructor identity: an
+        // `Rc<dyn Fn>` has no `prototype` and no name, so nothing relates the
+        // stored override to the `__smelt_class` its instances carry. The
+        // erasure site knows both, and records the class names whose instances
+        // are instances of this constructor — the class itself plus every
+        // subclass of it in this crate, computed where the hierarchy is known so
+        // the runtime needs no class graph.
+        writer.line("thread_local! { static SMELT_FUNCTION_CLASSES: ::std::cell::RefCell<::std::collections::HashMap<usize, Vec<&'static str>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }");
+        writer.line("/// Record which classes a callable constructs (the class and its subclasses).");
+        writer.line("fn smelt_register_function_classes<T: ?Sized + 'static>(function: &::std::rc::Rc<T>, classes: &[&'static str]) { let key = smelt_retain_callable_key(function); SMELT_FUNCTION_CLASSES.with(|registry| { registry.borrow_mut().insert(key, classes.to_vec()); }); }");
+        writer.line("/// The classes a stored constructor value constructs, if it is a known one.");
+        writer.line("fn smelt_function_classes(value: &SmeltUnknown) -> Option<Vec<&'static str>> { let SmeltUnknown::Function(function) = value else { return None; }; let key = smelt_retain_callable_key(function); SMELT_FUNCTION_CLASSES.with(|registry| registry.borrow().get(&key).cloned()) }");
+        writer.blank_line();
+        writer.line("/// `value instanceof <HostName>` where the name lives in an override slot.");
+        writer.line("///");
+        writer.line("/// `instanceof` reads the binding, and an overridable host constructor's");
+        writer.line("/// binding is its slot, so the answer follows the slot's state: the native");
+        writer.line("/// builtin is recognized by its identity marker(s); a reassigned constructor");
+        writer.line("/// is recognized by the class its instances record (which is why a native");
+        writer.line("/// record is *not* an instance of a replacement class); and a deleted global");
+        writer.line("/// has no instances at all. A stored constructor with no registered class");
+        writer.line("/// (an ordinary function assigned into the slot) falls back to the marker");
+        writer.line("/// probe rather than answering `false` for the native records still around.");
+        writer.line(format!(
+            "fn smelt_host_override_instance_of(slot: &::std::cell::RefCell<{enum_name}>, value: &SmeltUnknown, markers: &[&str]) -> bool {{",
+            enum_name = smelt_stdlib::runtime_symbols::host_override::OVERRIDE_ENUM,
+        ));
+        writer.line("    let marker_probe = || matches!(value, SmeltUnknown::Object(map) if markers.iter().any(|marker| map.contains_key(*marker)));");
+        writer.line(format!(
+            "    match &*slot.borrow() {{ {enum_name}::Absent => false, {enum_name}::Native => marker_probe(), {enum_name}::Ctor(ctor) => match smelt_function_classes(ctor) {{ Some(classes) => matches!(value, SmeltUnknown::Object(map) if matches!(map.get(\"__smelt_class\"), Some(SmeltUnknown::String(class)) if classes.iter().any(|entry| *entry == &*class))), None => marker_probe() }} }}",
+            enum_name = smelt_stdlib::runtime_symbols::host_override::OVERRIDE_ENUM,
         ));
         writer.line("}");
         writer.blank_line();
@@ -2698,7 +2733,7 @@ fn emit_source_with_free_function_router(
         // field read finds nothing, so `mock.apply(this, args)` actually invokes
         // and records the call instead of yielding `undefined`.
         writer.line("/// Bind `Function.prototype.apply`/`call` on an erased receiver, or read the field of an object receiver.");
-        writer.line("fn smelt_function_method(receiver: SmeltUnknown, method: &str) -> SmeltUnknown { match receiver { SmeltUnknown::Function(function) => { let method = method.to_owned(); SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let forwarded: Vec<SmeltUnknown> = if method == \"apply\" { match args.get(1) { Some(SmeltUnknown::Array(values)) => values.clone().into_vec(), _ => Vec::new() } } else { args.into_iter().skip(1).collect() }; function(forwarded) })) } SmeltUnknown::Object(map) => match smelt_get_object_field(&map, method) { SmeltUnknown::Undefined => match map.get(\"__smelt_call\") { Some(callable @ SmeltUnknown::Function(_)) => smelt_function_method(callable, method), _ => SmeltUnknown::Undefined }, value => value }, _ => SmeltUnknown::Undefined } }");
+        writer.line("fn smelt_function_method(receiver: SmeltUnknown, method: &str) -> SmeltUnknown { match receiver { SmeltUnknown::Function(function) => { let method = method.to_owned(); SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let receiver_method = smelt_is_receiver_method(&function); let forwarded: Vec<SmeltUnknown> = if method == \"apply\" { let mut forwarded = if receiver_method { ::std::vec![args.first().map_or(SmeltUnknown::Undefined, Clone::clone)] } else { Vec::new() }; if let Some(SmeltUnknown::Array(values)) = args.get(1) { forwarded.extend(values.clone().into_vec()); } forwarded } else if receiver_method { args.into_iter().collect() } else { args.into_iter().skip(1).collect() }; function(forwarded) })) } SmeltUnknown::Object(map) => match smelt_get_object_field(&map, method) { SmeltUnknown::Undefined => match map.get(\"__smelt_call\") { Some(callable @ SmeltUnknown::Function(_)) => smelt_function_method(callable, method), _ => SmeltUnknown::Undefined }, value => value }, _ => SmeltUnknown::Undefined } }");
         writer.blank_line();
         // JavaScript `Object.prototype.valueOf` / boxed-primitive unwrapping.
         //
@@ -3277,6 +3312,27 @@ fn emit_source_with_free_function_router(
             "    if map.contains_key(\"__smelt_global_object\") && !map.contains_key(field) && smelt_builtin_construct_kind(field).is_some() {{ return {namespace}(field); }}",
             namespace = smelt_stdlib::runtime_symbols::host::BUILTIN_NAMESPACE,
         ));
+        // A boxed string (`new String('ab')`) is an exotic String object: its
+        // payload's own properties — `length` and the indexed characters — are
+        // properties of the WRAPPER too, so `new String('ab').length` is 2 and
+        // `[0]` is `"a"`. They are not stored as own entries (that would make
+        // them enumerable and would double them in a clone), so they are
+        // synthesized on read, exactly like the erased `Map`'s `.size` below. An
+        // own field still wins, and the payload's *methods* stay on the
+        // prototype rather than becoming own members.
+        writer.line(format!(
+            "    if !map.contains_key(field) && let Some(SmeltUnknown::String(text)) = map.get({string_marker:?}).and(map.get(\"value\")) {{ if field == \"length\" {{ return SmeltUnknown::Number(text.chars().count() as f64); }} if let Ok(index) = field.parse::<usize>() {{ return text.chars().nth(index).map_or(SmeltUnknown::Undefined, |character| SmeltUnknown::String(character.to_string().into())); }} }}",
+            string_marker = smelt_stdlib::host_object_marker("String").unwrap_or("__smelt_string"),
+        ));
+        // A builtin read as a value is a marker record (`smelt_builtin_namespace`),
+        // and JavaScript answers property reads on it: `Array.prototype` is the
+        // builtin's prototype object and `Array.isArray` is a function value. Both
+        // resolve through the shared modeled-member registry, so the value spelling
+        // of a member and its call spelling agree. An own field still wins, and an
+        // unmodeled member stays `undefined` rather than becoming a callable that
+        // cannot run.
+        writer.line("    if !map.contains_key(field) && let Some(SmeltUnknown::String(class)) = map.get(\"__smelt_builtin_namespace\").and(map.get(\"name\")) { if field == \"prototype\" { return smelt_builtin_prototype_object(&class); } if let Some(member) = smelt_builtin_member_value(&class, \"static\", field) { return member; } }");
+        writer.line("    if let Some(SmeltUnknown::String(class)) = map.get(\"__smelt_builtin_prototype\") && let Some(member) = smelt_builtin_member_value(&class, \"prototype\", field) { return member; }");
         writer.line("    if field == \"size\" && let Some(SmeltUnknown::Array(pairs)) = map.get(\"__smelt_map\") { return SmeltUnknown::Number(pairs.len() as f64); }");
         // Same synthesis for an erased `Set` (`{ __smelt_set: [members...] }`):
         // real Sets expose `.size` through `Set.prototype`, absent from the marker
@@ -3421,6 +3477,10 @@ fn emit_source_with_free_function_router(
         writer.line("    Some(SMELT_OBJECT_PROTOTYPE_MEMBERS.with(|members| members.borrow_mut().entry(key).or_insert_with(|| { let function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| Ok(smelt_object_prototype_apply(key, args))); smelt_link_function_identity_key(&function, smelt_method_identity(key)); SmeltUnknown::Function(function) }).clone()))");
         writer.line("}");
         writer.blank_line();
+        // Members of the other builtins (`Array.prototype.slice`,
+        // `Array.isArray`) read as values through the shared registry, the same
+        // way `Object.prototype`'s members do just above.
+        builtin_member_prelude::emit(&mut writer);
         // Property reads on an erased ARRAY. A JS array answers `length`, its
         // element indices, and the named properties written through its side
         // table; `Array.prototype`'s own methods are lowered statically, so a miss

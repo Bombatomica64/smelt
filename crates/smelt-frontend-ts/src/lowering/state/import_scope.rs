@@ -111,6 +111,14 @@ impl ImportScope {
     pub(in crate::lowering) fn is_global_object_alias(&self, name: &str) -> bool {
         self.global_object_aliases.contains(name)
     }
+
+    /// Return every name this module knows to alias the ambient global object.
+    ///
+    /// Used when recording module exports so an importing module can recognize
+    /// an imported global-object alias (an es-toolkit style `globalThis` shim).
+    pub(in crate::lowering) fn global_object_alias_names(&self) -> &HashSet<String> {
+        &self.global_object_aliases
+    }
 }
 
 #[cfg(test)]

@@ -18,9 +18,11 @@
 //! `Object.is(a.valueOf(), b.valueOf())`, so both halves have to work for
 //! `isEqualWith(1, Object(1), noop)` to answer `true`.
 //!
-//! Strings are deliberately not boxed — see `smelt_box_value` in the prelude for
-//! why — so `Object('a')` stays a plain string and compares equal to `'a'`
-//! through the primitive path rather than the wrapper path.
+//! The `Object('a')` CALL deliberately does not box — see `smelt_box_value` in
+//! the prelude for why — so it stays a plain string and compares equal to `'a'`
+//! through the primitive path rather than the wrapper path. `new String('a')` is
+//! the other spelling and does box: `new` builds an object, so the wrapper has
+//! reference identity of its own and is never `===` its payload.
 //!
 //! Each case is a TypeScript Vitest test; lowering it emits a `#[test]`, so this
 //! tier lowers the program to a crate and runs `cargo test` on it — a green run
@@ -128,6 +130,44 @@ test("Object of null or undefined is a fresh empty object", () => {
 });
 "#;
     run_fixture(source, "smelt_object_call_boxes_primitives");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn new_string_boxes_its_payload_with_its_own_identity() {
+    // `new String(x)` is a construction, so it produces a wrapper OBJECT — the
+    // same treatment `new Number`/`new Boolean` already got. Returning the
+    // primitive instead cost the wrapper everything that distinguishes it: two
+    // constructions were the same value, the wrapper was `===` its payload, and
+    // a clone of it could not be a distinct object. The payload's own
+    // properties (`length`, the indexed characters) stay readable through the
+    // wrapper, and the bare `String(x)` CAST is unaffected.
+    let source = r#"
+import { test, expect } from "vitest";
+test("a boxed string is an object holding its payload", () => {
+  const boxed: any = new String("ab");
+  expect(typeof boxed).toBe("object");
+  expect(boxed.valueOf()).toBe("ab");
+  expect(boxed.length).toBe(2);
+  expect(boxed[0]).toBe("a");
+});
+test("a boxed string has its own identity", () => {
+  const boxed: any = new String("ab");
+  expect(boxed).not.toBe("ab");
+  expect(new String("a")).not.toBe(new String("a"));
+});
+test("the String cast still yields a primitive", () => {
+  const cast: any = String("ab");
+  expect(typeof cast).toBe("string");
+  expect(cast).toBe("ab");
+});
+test("an empty boxed string holds the empty payload", () => {
+  const boxed: any = new String();
+  expect(boxed.valueOf()).toBe("");
+  expect(boxed.length).toBe(0);
+});
+"#;
+    run_fixture(source, "smelt_new_string_boxes");
 }
 
 #[test]

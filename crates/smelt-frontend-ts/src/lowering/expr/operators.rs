@@ -3549,7 +3549,15 @@ impl ModuleBuilder<'_> {
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         if let Expression::FunctionExpression(function) = &property.value {
-            if !function.params.items.is_empty() || function.params.rest.is_some() {
+            // Only a plain zero-parameter `function` value can be read as a
+            // getter-style field. A generator returns an iterator when *called*
+            // and its body never runs on the read, so collapsing it would drop
+            // the function entirely.
+            if !function.params.items.is_empty()
+                || function.params.rest.is_some()
+                || function.generator
+                || function.r#async
+            {
                 return self.function_expression_value(function, type_hint, property.span, body);
             }
             let Some(function_body) = &function.body else {
@@ -3567,14 +3575,15 @@ impl ModuleBuilder<'_> {
             if self.function_body_references_arguments(function_body) {
                 return self.function_expression_value(function, type_hint, property.span, body);
             }
+            // The getter collapse only applies to `{ k: function () { return v; } }`,
+            // whose single return expression IS the field's value. Any other body
+            // is a function the property holds, so it lowers as a function value —
+            // fabricating `null` here erased the function, and code that asks
+            // `typeof value === 'function'` (es-toolkit's JSON validators) then
+            // saw a null field instead of the function the source wrote.
             let [Statement::ReturnStatement(statement)] = function_body.statements.as_slice()
             else {
-                let ty = type_hint.unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
-                return Ok(body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::None),
-                    ty,
-                    span: self.span(function.span.start, function.span.end),
-                }));
+                return self.function_expression_value(function, type_hint, property.span, body);
             };
             let Some(argument) = &statement.argument else {
                 return Err(SmeltError::unsupported(

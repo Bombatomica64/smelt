@@ -507,6 +507,38 @@ impl ModuleBuilder<'_> {
                 }
                 return Ok(Some(check));
             }
+            // A statically *erased* operand has no known `typeof` answer, so the
+            // presence question has to survive to runtime. `type_matches_typeof`
+            // has no `Unknown` arm and answers `false` for it, which would fold
+            // `typeof <erased> !== 'undefined'` to the constant `true` — the
+            // exact "only fold when the type pins a single spelling" rule that
+            // `typeof_expression` already documents. Emit the runtime tag test
+            // instead for every type whose runtime tag is not pinned: `unknown`,
+            // a union (whose arms disagree unless *all* of them match, which the
+            // static answer below already handles), and an unconstrained type
+            // parameter.
+            if self.typeof_answer_is_dynamic(value_ty) {
+                let check = body.push_expr(Expr {
+                    kind: ExprKind::UnknownIs {
+                        value,
+                        kind: UnknownKind::Undefined,
+                    },
+                    ty: bool_ty,
+                    span: self.span(binary.span.start, binary.span.end),
+                });
+                if matches!(
+                    binary.operator,
+                    BinaryOperator::StrictInequality | BinaryOperator::Inequality
+                ) {
+                    return Ok(Some(self.unary_bool_expr(
+                        UnaryOp::Not,
+                        check,
+                        binary.span,
+                        body,
+                    )));
+                }
+                return Ok(Some(check));
+            }
             let matches_kind = self.type_matches_typeof(value_ty, "undefined");
             let result = if matches!(
                 binary.operator,
@@ -637,6 +669,39 @@ impl ModuleBuilder<'_> {
             ty: bool_ty,
             span: self.span(binary.span.start, binary.span.end),
         }))
+    }
+
+    /// Return whether the `typeof` answer for a type is decided only at runtime.
+    ///
+    /// A type pins its runtime tag when every value it can hold answers the same
+    /// `typeof`. `unknown` pins nothing; an unconstrained type parameter pins
+    /// nothing; a union pins its answer only when its arms agree. Anything else
+    /// (a concrete primitive, list, class, `Optional`) has a static answer, so
+    /// the caller may keep folding the comparison to a literal.
+    ///
+    /// Used by [`Self::unknown_typeof_comparison`] so an erased operand emits a
+    /// runtime tag test instead of a fabricated constant.
+    pub(super) fn typeof_answer_is_dynamic(&self, ty: smelt_hir::TypeId) -> bool {
+        let resolved = self.type_param_constraint_or_self(ty);
+        match self.ctx.krate.types.get(resolved) {
+            // An unconstrained type parameter resolves to itself here.
+            Some(Type::Unknown | Type::TypeParam { .. }) => true,
+            Some(Type::Union(items)) => {
+                let items = items.clone();
+                let mut agrees = None;
+                for item in items {
+                    if self.typeof_answer_is_dynamic(item) {
+                        return true;
+                    }
+                    let matches_kind = self.type_matches_typeof(item, "undefined");
+                    if *agrees.get_or_insert(matches_kind) != matches_kind {
+                        return true;
+                    }
+                }
+                false
+            }
+            _ => false,
+        }
     }
 
     /// Return whether a name resolves to the ambient global object in this module.

@@ -2951,9 +2951,19 @@ impl ModuleBuilder<'_> {
             // a later reassignment off the alias is handled where assignments are
             // lowered (the name is cleared), and a write *through* the alias stays
             // on the erasure denylist and produces an honest blocker.
+            //
+            // The same holds for the portable global-detection *chain*
+            // (`(typeof globalThis === 'object' && globalThis) || (typeof window
+            // === 'object' && window) || …`): the profile already folds it to the
+            // one present global object, so a binding initialized by it aliases
+            // the global object just as literally as `const g = globalThis;`. This
+            // is the shape shipped by every "universal global" shim, so
+            // recognizing only the bare spelling made the alias depend on which
+            // spelling the source happened to use.
             if let BindingPattern::BindingIdentifier(binding) = &declarator.id
                 && let Some(initializer) = &declarator.init
-                && self.expr_is_global_alias(initializer)
+                && (self.expr_is_global_alias(initializer)
+                    || self.expr_folds_to_global_alias(initializer))
             {
                 self.imports.mark_global_object_alias(binding.name.as_str().to_owned());
                 continue;

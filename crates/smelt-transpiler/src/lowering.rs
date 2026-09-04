@@ -80,6 +80,8 @@ struct FrontendLoweringState {
     ts_export_aliases: HashMap<String, smelt_hir::ItemId>,
     /// TypeScript exports grouped by source module path.
     ts_module_exports: HashMap<String, HashMap<String, smelt_hir::ItemId>>,
+    /// TypeScript global-object alias names grouped by source module path.
+    ts_module_global_object_aliases: HashMap<String, std::collections::HashSet<String>>,
     /// TypeScript exported object constants used as namespace-like APIs.
     ts_object_namespaces: HashMap<String, HashMap<String, smelt_hir::ItemId>>,
     /// TypeScript exported object constants with static literal values.
@@ -682,6 +684,7 @@ fn predeclare_manifest_type_declarations(
         krate,
         export_aliases: state.ts_export_aliases,
         module_exports: state.ts_module_exports,
+        module_global_object_aliases: state.ts_module_global_object_aliases,
         object_namespaces: state.ts_object_namespaces,
         object_consts: state.ts_object_consts,
         object_value_collections: state.ts_object_value_collections,
@@ -720,6 +723,7 @@ fn predeclare_manifest_type_declarations(
     krate = ctx.krate;
     state.ts_export_aliases = ctx.export_aliases;
     state.ts_module_exports = ctx.module_exports;
+    state.ts_module_global_object_aliases = ctx.module_global_object_aliases;
     state.ts_object_namespaces = ctx.object_namespaces;
     state.ts_object_consts = ctx.object_consts;
     state.ts_object_value_collections = ctx.object_value_collections;
@@ -869,6 +873,7 @@ fn lower_manifest_source(
                 krate,
                 export_aliases: state.ts_export_aliases,
                 module_exports: state.ts_module_exports,
+                module_global_object_aliases: state.ts_module_global_object_aliases,
                 object_namespaces: state.ts_object_namespaces,
                 object_consts: state.ts_object_consts,
                 object_value_collections: state.ts_object_value_collections,
@@ -907,6 +912,7 @@ fn lower_manifest_source(
             let next_state = FrontendLoweringState {
                 ts_export_aliases: ctx.export_aliases,
                 ts_module_exports: ctx.module_exports,
+                ts_module_global_object_aliases: ctx.module_global_object_aliases,
                 ts_object_namespaces: ctx.object_namespaces,
                 ts_object_consts: ctx.object_consts,
                 ts_object_value_collections: ctx.object_value_collections,
@@ -943,6 +949,7 @@ fn lower_manifest_source(
             let next_state = FrontendLoweringState {
                 ts_export_aliases: state.ts_export_aliases,
                 ts_module_exports: state.ts_module_exports,
+                ts_module_global_object_aliases: state.ts_module_global_object_aliases,
                 ts_object_namespaces: state.ts_object_namespaces,
                 ts_object_consts: state.ts_object_consts,
                 ts_object_value_collections: state.ts_object_value_collections,
