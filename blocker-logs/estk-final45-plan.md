@@ -91,6 +91,10 @@ sibling specs. Final validation after all merges: full es-toolkit report with
 | baseline | 1014 / 45 | — | — |
 | Batch A + C (Round 1) | 1024 / 35 | 10 | 0 |
 | Batch D | 1027 / 32 | 14 cumulative | 1 (`clone should clone custom error`, see tail) |
+| Batch B (measured on A+C) | 1031 / 28 | 17 cumulative | 0 |
+| Batch E (measured on D) | 1034 / 25 | 21 cumulative | 0 |
+| Batch G (measured on B+D) | 1039 / 20 | 26 cumulative | 0 |
+| Batch F (measured on E; F14, F28, `clone custom error`; F15 not started) | 1045 / 14 | 31 cumulative | 0 |
 
 ## Tail: rows that moved but did not close, and follow-ups found while fixing
 
@@ -99,7 +103,7 @@ started passing.
 
 | row | remaining root | owner |
 | --- | --- | --- |
-| `clone should clone custom error` (regressed by F18, correctly: `instanceof Error` is now true so `clone` takes its error branch) | (a) `new Ctor(msg, {cause})` through a class-constructor VALUE: `smelt_class_constructor` is a stub that ignores args and only stamps `__smelt_class`; (b) `Object.assign(erasedTarget, src)` `UnknownCast`s the target to a detached record, so the write never lands. | Batch F (construct semantics) |
+| `clone should clone custom error` | **closed by Batch F**: recovering an erased object at `Dict(String, Unknown)` now hands back a second handle on the same store (reference identity), so `Object.assign` writes land. `smelt_class_constructor` (class-constructor VALUE ignores its args) remains a known inaccuracy, handed to Batch P. | done |
 | `isEqualWith … different non-index properties` (lines 181/188 pass) | line 192: a `RegExp.exec` match result must BE an array (erase `SmeltMatch` to array + named props); needs the named-property side table reachable through a typed `SmeltList` handle (id-keyed registry, `smelt-runtime` cannot name `SmeltUnknown`) and `Object.hasOwn(list, nonNumericKey)` to stop lowering to a bounds check. | tail batch |
 | `isPlainObject should return false for invalid plain objects` (line 62 passes) | line 79: `isPlainObject(Object.create({}))` needs prototype-chain identity for `Object.create(<plain object>)`; today `getPrototypeOf(getPrototypeOf(o))` folds to `null`. | tail batch |
 | `cloneDeep should clone instance` (line 166 passes) | line 167: fields assigned in the constructor without a declaration (`this.c = c`) are not class fields in MIR, so the erasure omits them. Frontend class-field inference. | tail batch |
