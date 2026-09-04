@@ -2487,7 +2487,7 @@ impl<'mir> FunctionEmitter<'mir> {
         args: &[Operand],
     ) -> Result<String, EmitError> {
         if let Some(Type::Function(function)) = self.mir.types.get(self.operand_ty(callee)?)
-            && let Some(0) = function.rest
+            && function.rest == Some(0)
             && let [rest_param] = function.params.as_slice()
             && let [packed] = args
             && self.operand_ty(packed)? == *rest_param

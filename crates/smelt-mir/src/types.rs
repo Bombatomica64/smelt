@@ -2032,4 +2032,11 @@ pub enum BuiltinFn {
     ConsoleWrite,
     /// Write exact text to stderr.
     ConsoleErrorWrite,
+    /// Parse JSON text (`JSON.parse`).
+    ///
+    /// A builtin rather than an rvalue because it is *fallible*: malformed text
+    /// throws a catchable `SyntaxError` in JavaScript. Only `Terminator::Call`
+    /// and `Terminator::Await` carry an `unwind` edge, so a fallible operation
+    /// has to be a call to reach an enclosing `try`.
+    JsonParse,
 }

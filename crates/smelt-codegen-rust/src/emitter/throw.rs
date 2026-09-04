@@ -166,7 +166,6 @@ fn is_foldable_payload_rvalue(value: &Rvalue) -> bool {
 /// operands, the place bases an assignment reads before writing, and the
 /// terminator operands.
 fn local_read_counts(function: &MirFunction) -> HashMap<LocalId, usize> {
-    let mut counts: HashMap<LocalId, usize> = HashMap::new();
     fn count_place(counts: &mut HashMap<LocalId, usize>, place: &Place) {
         match place {
             Place::Local(local) | Place::Field { base: local, .. } => {
@@ -183,6 +182,8 @@ fn local_read_counts(function: &MirFunction) -> HashMap<LocalId, usize> {
             count_place(counts, place);
         }
     }
+
+    let mut counts: HashMap<LocalId, usize> = HashMap::new();
     for block in &function.blocks {
         for phi in &block.phis {
             for (_, operand) in &phi.incoming {

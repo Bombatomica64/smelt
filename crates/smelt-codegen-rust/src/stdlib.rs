@@ -6,7 +6,7 @@
 )]
 
 use smelt_hir::{AsyncOp, Type};
-use smelt_mir::{Mir, Rvalue, Statement};
+use smelt_mir::{BuiltinFn, Callee, Mir, Rvalue, Statement, Terminator};
 use smelt_stdlib::BackendDependency;
 
 /// Collect shared backend dependencies needed by generated stdlib operations.
@@ -16,7 +16,7 @@ pub(crate) fn backend_dependencies(mir: &Mir) -> Vec<BackendDependency> {
     if any_rvalue_needs(mir, rvalue_needs_reqwest) {
         deps.push(BackendDependency::Reqwest);
     }
-    if any_rvalue_needs(mir, rvalue_needs_serde_json) {
+    if any_rvalue_needs(mir, rvalue_needs_serde_json) || needs_json_parse_runtime(mir) {
         deps.push(BackendDependency::SerdeJson);
     }
     if any_rvalue_needs(mir, |rvalue| rvalue_needs_regex(rvalue, mir)) || needs_unknown_type(mir) {
@@ -249,6 +249,34 @@ fn rvalue_needs_rand(rvalue: &Rvalue) -> bool {
         rvalue,
         Rvalue::NumericRandom | Rvalue::NumericRandomInt { .. } | Rvalue::ListRandomChoice { .. }
     )
+}
+
+/// Returns whether the program calls the fallible `JSON.parse` builtin.
+///
+/// `JSON.parse` is a `Terminator::Call` to [`BuiltinFn::JsonParse`] rather than
+/// an rvalue (it needs an unwind edge), so the rvalue-based dependency scan
+/// cannot see it. Both the Serde dependency and the `smelt_json_parse` prelude
+/// helper are gated on this.
+#[must_use]
+pub(crate) fn needs_json_parse_runtime(mir: &Mir) -> bool {
+    terminators(mir).any(|terminator| {
+        matches!(
+            terminator,
+            Terminator::Call {
+                callee: Callee::Builtin(BuiltinFn::JsonParse),
+                ..
+            }
+        )
+    })
+}
+
+/// Iterates over every block terminator in the program, functions and closures.
+fn terminators(mir: &Mir) -> impl Iterator<Item = &Terminator> {
+    mir.functions
+        .iter()
+        .flat_map(|function| function.blocks.iter())
+        .chain(mir.closures.iter().flat_map(|closure| closure.blocks.iter()))
+        .filter_map(|block| block.terminator.as_ref())
 }
 
 /// Returns true when a MIR rvalue uses Serde JSON APIs.

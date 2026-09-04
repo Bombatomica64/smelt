@@ -922,10 +922,10 @@ impl ModuleBuilder<'_> {
     fn test_failure_message(&self, message: &str, span: oxc::span::Span) -> String {
         let (line, column) = self.line_column(span.start);
         let path = self.path.as_str();
-        match self.assertion_snippet(span) {
-            Some(snippet) => format!("{message}: {snippet} ({path}:{line}:{column})"),
-            None => format!("{message} ({path}:{line}:{column})"),
-        }
+        self.assertion_snippet(span).map_or_else(
+            || format!("{message} ({path}:{line}:{column})"),
+            |snippet| format!("{message}: {snippet} ({path}:{line}:{column})"),
+        )
     }
 
     /// Resolve a byte offset in this module's source to a 1-based line and column.

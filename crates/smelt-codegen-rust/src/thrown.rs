@@ -105,9 +105,42 @@ pub(crate) fn thrown_value_expr(error_text: &str) -> String {
 /// `thrown_tests::one_channel_carries_structurally_unrelated_payloads` covers
 /// the ABI itself.
 pub(crate) fn panic_payload_record_expr(message_text: &str) -> String {
+    error_payload_record_expr("Error", message_text)
+}
+
+/// Renders the erased error record for one builtin error class and message.
+///
+/// The field set is the one `new <ErrorClass>(message)` itself produces (see the
+/// error-construction arm in `reflection_prelude`): the `__smelt_error` class
+/// brand, `message`, and absent `stack`/`cause`. Sharing the shape here is what
+/// lets a `catch` observe a runtime-raised error exactly as it observes a
+/// source-level `throw new SyntaxError(..)`.
+pub(crate) fn error_payload_record_expr(class: &str, message_text: &str) -> String {
     format!(
-        "SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"__smelt_error\".to_owned(), SmeltUnknown::String(\"Error\".into())), (\"message\".to_owned(), SmeltUnknown::String({message_text}.into())), (\"stack\".to_owned(), SmeltUnknown::Undefined), (\"cause\".to_owned(), SmeltUnknown::Undefined)])))"
+        "SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"__smelt_error\".to_owned(), SmeltUnknown::String({class:?}.into())), (\"message\".to_owned(), SmeltUnknown::String({message_text}.into())), (\"stack\".to_owned(), SmeltUnknown::Undefined), (\"cause\".to_owned(), SmeltUnknown::Undefined)])))"
     )
+}
+
+/// Name of the generated fallible `JSON.parse` adapter.
+///
+/// `smelt_json_parse(&str) -> Result<SmeltUnknown, Box<dyn std::error::Error>>`.
+pub(crate) const JSON_PARSE_FN: &str = "smelt_json_parse";
+
+/// Emits the fallible `JSON.parse` adapter into the generated prelude.
+///
+/// `JSON.parse` throws a `SyntaxError` on malformed text and JavaScript code
+/// catches it (`try { JSON.parse(s) } catch { return false }`). The adapter
+/// reports failure through the same error channel a source-level `throw` uses,
+/// carrying the same `SyntaxError` record `new SyntaxError(message)` builds — so
+/// a `catch` binding cannot tell a runtime-raised parse error from a
+/// hand-written one.
+pub(crate) fn emit_json_parse_support(writer: &mut CodeWriter) {
+    writer.blank_line();
+    writer.line("/// `JSON.parse`: parse JSON text, throwing a catchable `SyntaxError`.");
+    writer.line(format!(
+        "fn {JSON_PARSE_FN}(text: &str) -> Result<SmeltUnknown, Box<dyn ::std::error::Error>> {{ match serde_json::from_str::<SmeltUnknown>(text) {{ Ok(value) => Ok(value), Err(error) => Err({THROW_FN}({})) }} }}",
+        error_payload_record_expr("SyntaxError", "error.to_string()")
+    ));
 }
 
 /// Emits the exception-payload ABI into the generated runtime prelude.

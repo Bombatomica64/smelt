@@ -182,7 +182,7 @@ impl ModuleBuilder<'_> {
             span,
         }];
         let mut bound = Vec::new();
-        for (index, param) in function.params.items.iter().enumerate() {
+        for (index, param) in (0_u32..).zip(function.params.items.iter()) {
             let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
                 continue;
             };
@@ -199,7 +199,7 @@ impl ModuleBuilder<'_> {
                 span,
             });
             let index_expr = body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::Float(index as f64)),
+                kind: ExprKind::Literal(Literal::Float(f64::from(index))),
                 ty: float_ty,
                 span,
             });

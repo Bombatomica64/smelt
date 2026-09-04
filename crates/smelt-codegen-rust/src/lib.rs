@@ -4021,6 +4021,11 @@ fn emit_source_with_free_function_router(
         // because `SmeltThrown`'s own `Display` falls back to it for non-error
         // payloads.
         thrown::emit_thrown_payload_support(&mut writer);
+        // The fallible `JSON.parse` adapter reports through that same channel,
+        // so it follows the ABI it depends on.
+        if needs_serde_json && stdlib::needs_json_parse_runtime(mir) {
+            thrown::emit_json_parse_support(&mut writer);
+        }
         writer.blank_line();
         writer.line("impl Eq for SmeltUnknown {}");
         writer.blank_line();

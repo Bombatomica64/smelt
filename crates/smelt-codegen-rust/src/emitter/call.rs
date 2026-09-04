@@ -736,6 +736,26 @@ impl FunctionEmitter<'_> {
                 };
                 Ok(format!("{{ {macro_name}!(\"{format_spec}\", {value}); }}"))
             }
+            Callee::Builtin(BuiltinFn::JsonParse) => {
+                let text = args
+                    .first()
+                    .ok_or_else(|| EmitError::new("JSON parse takes one string argument"))?;
+                if !matches!(
+                    self.mir.types.get(self.operand_ty(text)?),
+                    Some(Type::String)
+                ) {
+                    return Err(EmitError::new("JSON parse input must be a string"));
+                }
+                // The trailing `?` is what marks this call fallible to
+                // `emit_throwing_call_terminator`, which then renders the
+                // `Ok(Ok(v)) / Ok(Err(e))` shape that binds the caught
+                // `SyntaxError` and jumps to the handler's catch block.
+                Ok(format!(
+                    "{}(&{})?",
+                    crate::thrown::JSON_PARSE_FN,
+                    self.operand_text(text)?
+                ))
+            }
             Callee::Static(func) => {
                 let function = self
                     .mir
@@ -2465,6 +2485,9 @@ impl FunctionEmitter<'_> {
             Callee::Builtin(
                 BuiltinFn::ConsoleLog | BuiltinFn::ConsoleWrite | BuiltinFn::ConsoleErrorWrite,
             ) => self.none_ty,
+            // `JSON.parse` yields a dynamic JavaScript value; the destination's
+            // own type drives the ordinary coercion from the erased carrier.
+            Callee::Builtin(BuiltinFn::JsonParse) => return self.type_id(Type::Unknown),
             Callee::Static(func) => {
                 let function = self
                     .mir
