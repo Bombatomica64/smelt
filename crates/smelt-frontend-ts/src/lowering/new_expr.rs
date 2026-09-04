@@ -137,11 +137,19 @@ impl ModuleBuilder<'_> {
                         self.argument_with_hint(arg, body, params.get(index).copied())
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                return Ok(body.push_expr(Expr {
-                    kind: ExprKind::Construct {
+                let kind = if self.construct_through_value_is_dynamic(result_ty) {
+                    ExprKind::Construct {
                         callee: callee_value,
                         args,
-                    },
+                    }
+                } else {
+                    ExprKind::ClosureCall {
+                        callee: callee_value,
+                        args,
+                    }
+                };
+                return Ok(body.push_expr(Expr {
+                    kind,
                     ty: result_ty,
                     span,
                 }));
@@ -393,6 +401,26 @@ impl ModuleBuilder<'_> {
         }))
     }
 
+    /// Return whether `new <value>(..)` through a callable of this return type
+    /// must perform the JavaScript `[[Construct]]` operation.
+    ///
+    /// A *declared* construct signature (`new (name: string) => Widget`) states
+    /// the constructed type, and the value filling it is a typed constructor
+    /// SLOT: it may be a class adapter closure with no function object behind
+    /// it at all, so there is no `prototype` to link and no receiver to install
+    /// — invoking it IS the construction, which is what
+    /// `constructor_type_to_hir` models. An ERASED result (`unknown`, a type
+    /// parameter) means the source told us nothing about what comes out, so the
+    /// value can only be a plain JavaScript function, and constructing through
+    /// one is `[[Construct]]`: allocate, link, install the receiver, and prefer
+    /// an object the body returned.
+    fn construct_through_value_is_dynamic(&self, return_ty: smelt_hir::TypeId) -> bool {
+        matches!(
+            self.ctx.krate.types.get(return_ty),
+            Some(Type::Unknown | Type::TypeParam { .. })
+        )
+    }
+
     /// Lower `new ctor(args)` where `ctor` is a callable value (a binding whose
     /// type is a constructor/function type), returning `None` when the callee is
     /// not such a value so the caller can fall through to the stdlib/class
@@ -411,10 +439,9 @@ impl ModuleBuilder<'_> {
     /// existing "unresolved class" / non-callable error.
     ///
     /// The result type stays the callable's declared return type where there is
-    /// one: a construct signature (`new () => MapCache`) states exactly what
-    /// the construction yields, and a constructor whose body returns an object
-    /// yields that object, so the declared type is the honest answer. A callee
-    /// with no function type is a genuine dynamic boundary and stays `unknown`.
+    /// one, and that type also decides WHICH operation this is: see
+    /// [`Self::construct_through_value_is_dynamic`]. A callee with no function
+    /// type is a genuine dynamic boundary and stays `unknown`.
     pub(super) fn new_through_value_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
@@ -468,11 +495,19 @@ impl ModuleBuilder<'_> {
             .take(function.params.len())
             .map(|arg| self.argument(arg, body))
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::Construct {
+        let kind = if self.construct_through_value_is_dynamic(function.return_ty) {
+            ExprKind::Construct {
                 callee: callee_expr,
                 args,
-            },
+            }
+        } else {
+            ExprKind::ClosureCall {
+                callee: callee_expr,
+                args,
+            }
+        };
+        Ok(Some(body.push_expr(Expr {
+            kind,
             ty: function.return_ty,
             span: self.span(new_expr.span.start, new_expr.span.end),
         })))
