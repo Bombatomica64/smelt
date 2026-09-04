@@ -294,17 +294,25 @@ impl ModuleBuilder<'_> {
             Argument::ArrowFunctionExpression(_) | Argument::FunctionExpression(_)
         ) {
             let direct_expr = self.argument(argument, body)?;
-            if let Some(Type::Function(function)) = self
-                .ctx
-                .krate
-                .types
-                .get(Self::expr_ty(body, direct_expr))
-                .cloned()
-            {
+            let direct_ty = Self::expr_ty(body, direct_expr);
+            if let Some(Type::Function(function)) = self.ctx.krate.types.get(direct_ty).cloned() {
                 return Ok(ClosureCallback {
                     expr: direct_expr,
                     return_ty: function.return_ty,
                 });
+            }
+            if let Some(callback) = self.bound_callable_value_callback(
+                argument,
+                direct_expr,
+                direct_ty,
+                expected_param_tys,
+                body,
+            ) {
+                let span = self.span(argument.span().start, argument.span().end);
+                let return_ty = callback.ty;
+                let expr =
+                    self.callback_expr_to_closure(&callback, expected_param_tys, span, body)?;
+                return Ok(ClosureCallback { expr, return_ty });
             }
         }
         let callback = self.arrow_callback(argument, expected_param_tys, body)?;
@@ -316,6 +324,40 @@ impl ModuleBuilder<'_> {
             body,
         )?;
         Ok(ClosureCallback { expr, return_ty })
+    }
+
+    /// Model a callback argument that is a *call* — a callback factory such as
+    /// `xs.filter(negate(isEven))` — as a call of its already lowered result.
+    ///
+    /// The compact callback IR can only name a captured local, an item, or a
+    /// literal as a callee, so a factory call used to be replaced by a
+    /// fabricated null callee and never ran. Instead the factory's result is
+    /// bound to a local in the enclosing body — evaluated exactly once, as
+    /// JavaScript does, not once per element — and the callback calls that
+    /// local, the same shape a named local of an erased callable type uses.
+    ///
+    /// Returns `None` when the argument is not a call, or when its lowered type
+    /// is not a callable surface at all; callers then keep their existing
+    /// handling. The returned callback's type is the call's result type, so a
+    /// predicate caller must still coerce it to a boolean.
+    fn bound_callable_value_callback(
+        &mut self,
+        argument: &Argument<'_>,
+        direct_expr: smelt_hir::ExprId,
+        direct_ty: smelt_hir::TypeId,
+        expected_param_tys: &[smelt_hir::TypeId],
+        body: &mut Body,
+    ) -> Option<CallbackExpr> {
+        if !matches!(argument, Argument::CallExpression(_)) {
+            return None;
+        }
+        if !self.callback_local_value_is_callable_surface(direct_ty) {
+            return None;
+        }
+        let span = self.span(argument.span().start, argument.span().end);
+        let symbol = self.ctx.krate.symbols.intern("__callback_value");
+        let local = self.capture_bind_value(direct_expr, direct_ty, symbol, span, body);
+        Some(self.opaque_local_callback(local, direct_ty, expected_param_tys))
     }
 
     /// Lower an array predicate callback, coercing JavaScript truthy returns into booleans.
@@ -358,6 +400,38 @@ impl ModuleBuilder<'_> {
             }
             Err(error) => {
                 drop(error);
+                // A predicate built by a factory call must have its erased
+                // result turned into a boolean *here*, while the callback is
+                // still an expression tree: the closure this becomes is typed
+                // `-> bool`, and only the truthiness coercion can put a
+                // JavaScript truthy result into it.
+                let span = self.span(argument.span().start, argument.span().end);
+                if matches!(argument, Argument::CallExpression(_)) {
+                    let direct_expr = self.argument(argument, body)?;
+                    let direct_ty = Self::expr_ty(body, direct_expr);
+                    if let Some(callback) = self.bound_callable_value_callback(
+                        argument,
+                        direct_expr,
+                        direct_ty,
+                        expected_param_tys,
+                        body,
+                    ) {
+                        let callback = self.coerce_callback_expr_to_truthy(callback, span)?;
+                        let expr = self.callback_expr_to_closure_with_return_ty(
+                            bool_ty,
+                            &callback,
+                            expected_param_tys,
+                            None,
+                            None,
+                            span,
+                            body,
+                        )?;
+                        return Ok(ClosureCallback {
+                            expr,
+                            return_ty: bool_ty,
+                        });
+                    }
+                }
                 let callback =
                     self.callback_argument(argument, expected_param_tys, context, body)?;
                 if callback.return_ty == bool_ty {
@@ -412,14 +486,20 @@ impl ModuleBuilder<'_> {
                 kind: CallbackExprKind::FieldTruthy { receiver, field },
                 ty: bool_ty,
             }),
-            kind if self.ctx.krate.types.get(callback.ty) == Some(&Type::Unknown) => {
+            // An erased or type-parameter predicate result is coerced with a real
+            // JavaScript truthiness test, not a `typeof x === "boolean"` tag
+            // check (which is close to the inverse of it).
+            kind if matches!(
+                self.ctx.krate.types.get(callback.ty),
+                Some(Type::Unknown | Type::TypeParam { .. })
+            ) =>
+            {
                 Ok(CallbackExpr {
-                    kind: CallbackExprKind::UnknownIs {
+                    kind: CallbackExprKind::ValueTruthy {
                         value: Box::new(CallbackExpr {
                             kind,
                             ty: callback.ty,
                         }),
-                        kind: UnknownKind::Bool,
                     },
                     ty: bool_ty,
                 })

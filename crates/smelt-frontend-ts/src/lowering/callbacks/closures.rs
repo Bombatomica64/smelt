@@ -181,6 +181,7 @@ impl ModuleBuilder<'_> {
             | CallbackExprKind::Field { receiver, .. }
             | CallbackExprKind::HasField { receiver, .. }
             | CallbackExprKind::FieldTruthy { receiver, .. }
+            | CallbackExprKind::ValueTruthy { value: receiver }
             | CallbackExprKind::UnknownIs {
                 value: receiver, ..
             }
@@ -461,6 +462,21 @@ impl ModuleBuilder<'_> {
                     kind: ExprKind::Field {
                         receiver,
                         field: *field,
+                    },
+                    ty: callback.ty,
+                    span,
+                }))
+            }
+            CallbackExprKind::ValueTruthy { value } => {
+                // The callback tree's truthiness node lowers to exactly the cast
+                // the ordinary expression path uses, so an erased or
+                // type-parameter operand gets the full JS truthiness test rather
+                // than a runtime tag check.
+                let value = self.callback_expr_to_body_expr(value, args, body, span)?;
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::PrimitiveCast {
+                        op: PrimitiveCastOp::ToBool,
+                        operand: value,
                     },
                     ty: callback.ty,
                     span,

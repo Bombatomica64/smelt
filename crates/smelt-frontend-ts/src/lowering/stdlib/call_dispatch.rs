@@ -1248,7 +1248,6 @@ impl<'builder> ModuleBuilder<'builder> {
         Self::node_process_cwd_call,
         Self::commonjs_require_call,
         Self::object_metadata_mutation_call,
-        Self::lodash_negate_call,
         Self::lodash_has_call,
         Self::object_get_own_property_symbols_call,
         Self::object_projection_call,

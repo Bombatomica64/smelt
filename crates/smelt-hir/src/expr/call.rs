@@ -116,6 +116,18 @@ pub enum CallbackExprKind {
         /// Runtime field/key expression.
         field: Box<CallbackExpr>,
     },
+    /// JavaScript truthiness of an arbitrary callback value.
+    ///
+    /// This is the callback-tree spelling of `ExprKind::PrimitiveCast` with
+    /// `PrimitiveCastOp::ToBool`: a full JS truthiness test, so an erased or
+    /// type-parameter operand answers `false` for `0`, `NaN`, `""`, `false` and
+    /// nullish. It exists because a boolean-position operand inside a callback
+    /// body has no other way to spell truthiness, and a tag check
+    /// (`UnknownIs { kind: Bool }`) is close to the inverse of it.
+    ValueTruthy {
+        /// Value whose truthiness is tested.
+        value: Box<CallbackExpr>,
+    },
     /// JavaScript truthiness of a possibly optional field access.
     FieldTruthy {
         /// Receiver being checked.

@@ -2386,54 +2386,7 @@ impl ModuleBuilder<'_> {
                 }))
             }
             Expression::AwaitExpression(await_expr) => {
-                if !self.current_async {
-                    return Err(SmeltError::unsupported(
-                        self.span(await_expr.span.start, await_expr.span.end),
-                        "await expressions are only lowered inside async functions",
-                    ));
-                }
-                // The context describes the resolved value; the operand must
-                // therefore produce a future of that value.
-                let awaited_hint =
-                    type_hint.map(|hint| self.ctx.krate.types.intern(Type::Future(hint)));
-                let awaited =
-                    self.expression_with_hint(&await_expr.argument, body, awaited_hint)?;
-                let awaited_ty = Self::expr_ty(body, awaited);
-                let Some(ty) = self.future_inner_type(awaited_ty) else {
-                    if let Some(resolved_ty) = type_hint
-                        && self.erased_or_union_surface(awaited_ty)
-                    {
-                        // An asserted await over an erased conditional call
-                        // still carries a runtime promise. Preserve the call and
-                        // make the checked future extraction explicit.
-                        let future_ty =
-                            self.ctx.krate.types.intern(Type::Future(resolved_ty));
-                        let future = body.push_expr(Expr {
-                            kind: ExprKind::TypeAssert { value: awaited },
-                            ty: future_ty,
-                            span: self.span(
-                                await_expr.argument.span().start,
-                                await_expr.argument.span().end,
-                            ),
-                        });
-                        return Ok(body.push_expr(Expr {
-                            kind: ExprKind::Await(future),
-                            ty: resolved_ty,
-                            span: self.span(await_expr.span.start, await_expr.span.end),
-                        }));
-                    }
-                    let ty = self.ctx.krate.types.intern(Type::Unknown);
-                    return Ok(body.push_expr(Expr {
-                        kind: ExprKind::Literal(Literal::None),
-                        ty,
-                        span: self.span(await_expr.span.start, await_expr.span.end),
-                    }));
-                };
-                Ok(body.push_expr(Expr {
-                    kind: ExprKind::Await(awaited),
-                    ty,
-                    span: self.span(await_expr.span.start, await_expr.span.end),
-                }))
+                self.await_expression(await_expr, type_hint, body)
             }
             Expression::UpdateExpression(update) => self.update_expression(update, body),
             Expression::StaticMemberExpression(member) => self.static_member(member, body),
@@ -2980,6 +2933,70 @@ impl ModuleBuilder<'_> {
         self.lowered_condition_expression(cond, self.expression_span(expression), body)
     }
 
+    /// Lower a JavaScript `await` operand into a HIR await, or into the operand
+    /// itself when it provably cannot be a thenable.
+    ///
+    /// Three cases, in order:
+    ///
+    /// 1. the operand's type is a future — await it and take the future's
+    ///    output type;
+    /// 2. the operand's type is erased or a union — it may still hold a runtime
+    ///    promise, so assert it to a future and await it through the checked
+    ///    extraction path, whose runtime helper drains promise chains and
+    ///    passes non-thenables through unchanged. The awaited value takes the
+    ///    contextual type when there is one and stays erased otherwise;
+    /// 3. the operand's type is concrete and not a future — `await v` is `v`.
+    ///
+    /// No case discards the operand: doing so silently deletes the awaited
+    /// computation, and its side effects, from the program.
+    ///
+    /// Shared by the ordinary expression path and the call-argument path so
+    /// both spellings of `await x` lower through one rule.
+    pub(in crate::lowering) fn await_expression(
+        &mut self,
+        await_expr: &oxc::ast::ast::AwaitExpression<'_>,
+        type_hint: Option<smelt_hir::TypeId>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if !self.current_async {
+            return Err(SmeltError::unsupported(
+                self.span(await_expr.span.start, await_expr.span.end),
+                "await expressions are only lowered inside async functions",
+            ));
+        }
+        // The context describes the resolved value; the operand must therefore
+        // produce a future of that value.
+        let awaited_hint = type_hint.map(|hint| self.ctx.krate.types.intern(Type::Future(hint)));
+        let awaited = self.expression_with_hint(&await_expr.argument, body, awaited_hint)?;
+        let awaited_ty = Self::expr_ty(body, awaited);
+        let Some(ty) = self.future_inner_type(awaited_ty) else {
+            if self.erased_or_union_surface(awaited_ty) {
+                let resolved_ty =
+                    type_hint.unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                let future_ty = self.ctx.krate.types.intern(Type::Future(resolved_ty));
+                let future = body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: awaited },
+                    ty: future_ty,
+                    span: self.span(
+                        await_expr.argument.span().start,
+                        await_expr.argument.span().end,
+                    ),
+                });
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::Await(future),
+                    ty: resolved_ty,
+                    span: self.span(await_expr.span.start, await_expr.span.end),
+                }));
+            }
+            return Ok(awaited);
+        };
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::Await(awaited),
+            ty,
+            span: self.span(await_expr.span.start, await_expr.span.end),
+        }))
+    }
+
     /// Coerce an already lowered JavaScript value into its boolean truthiness result.
     ///
     /// Assignment operators such as `||=` already lower their target as a
@@ -2995,10 +3012,17 @@ impl ModuleBuilder<'_> {
         if self.ctx.krate.types.get(cond_ty) == Some(&Type::Bool) {
             return Ok(cond);
         }
+        // A function or class value is always truthy in JavaScript, and so is a
+        // type parameter whose constraint pins it to an object surface. An
+        // unconstrained `T`, however, can hold `0`, `-0`, `NaN`, `""`, `false`,
+        // `null` or `undefined`, so it must be tested, not folded: it falls
+        // through to the `type_is_truthy_condition_surface` cast below.
         if matches!(
             self.ctx.krate.types.get(cond_ty),
-            Some(Type::Function(_) | Type::Class { .. } | Type::TypeParam { .. })
-        ) {
+            Some(Type::Function(_) | Type::Class { .. })
+        ) || (matches!(self.ctx.krate.types.get(cond_ty), Some(Type::TypeParam { .. }))
+            && self.type_is_always_truthy_object_surface(cond_ty))
+        {
             let ty = self.ctx.krate.types.intern(Type::Bool);
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::Bool(true)),

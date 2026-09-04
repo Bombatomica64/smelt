@@ -1235,28 +1235,11 @@ impl ModuleBuilder<'_> {
             }
             Argument::ComputedMemberExpression(member) => self.computed_member(member, body),
             Argument::StaticMemberExpression(member) => self.static_member(member, body),
+            // Delegated so an awaited call argument lowers through the same rule
+            // as an awaited expression; the argument spelling used to have its
+            // own copy that dropped the operand for a non-future type.
             Argument::AwaitExpression(await_expr) => {
-                if !self.current_async {
-                    return Err(SmeltError::unsupported(
-                        self.span(await_expr.span.start, await_expr.span.end),
-                        "await expressions are only lowered inside async functions",
-                    ));
-                }
-                let awaited = self.expression(&await_expr.argument, body)?;
-                let awaited_ty = Self::expr_ty(body, awaited);
-                let Some(ty) = self.future_inner_type(awaited_ty) else {
-                    let ty = self.ctx.krate.types.intern(Type::Unknown);
-                    return Ok(body.push_expr(Expr {
-                        kind: ExprKind::Literal(Literal::None),
-                        ty,
-                        span: self.span(await_expr.span.start, await_expr.span.end),
-                    }));
-                };
-                Ok(body.push_expr(Expr {
-                    kind: ExprKind::Await(awaited),
-                    ty,
-                    span: self.span(await_expr.span.start, await_expr.span.end),
-                }))
+                self.await_expression(await_expr, None, body)
             }
             Argument::ArrowFunctionExpression(arrow) => self.arrow_function_expression(arrow, body),
             Argument::FunctionExpression(function) => {
@@ -1339,6 +1322,16 @@ impl ModuleBuilder<'_> {
             }
             Argument::TSNonNullExpression(non_null) => {
                 let value = self.expression_with_hint(&non_null.expression, body, type_hint)?;
+                // A source-level `!` asserts nothing at runtime. When the sink
+                // itself accepts nullish values (its type still has a nullish
+                // arm to strip), the assertion has nothing to narrow and must
+                // stay a no-op: narrowing here would unwrap the value only for
+                // the argument coercion to re-wrap it, turning a legitimate
+                // absent value into a runtime panic. JS passes the value
+                // through unchanged.
+                if type_hint.is_some_and(|hint| self.type_admits_nullish(hint)) {
+                    return Ok(value);
+                }
                 Ok(self.non_null_assertion_value(
                     value,
                     self.span(non_null.span.start, non_null.span.end),
