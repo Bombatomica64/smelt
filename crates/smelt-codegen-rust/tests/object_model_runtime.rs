@@ -428,6 +428,8 @@ test("a numeric Object.hasOwn key is still an in-bounds element check", () => {
 });
 "#;
     run_fixture(source, "smelt_object_model_match_array");
+}
+
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn a_presence_test_answers_at_its_own_reach() {
