@@ -38,12 +38,16 @@ export function useFoo(): unknown {
 ",
     );
 
+    // The erased read renders through the `smelt_get_unknown_field` helper
+    // (the `Object.prototype` lookup fallback lives behind it), so the
+    // assertion names the KEY rather than the surrounding shape: what this
+    // test is about is which spelling the key carries.
     assert!(
-        source.contains("smelt_get_object_field(&map, \"foo\")"),
+        source.contains("smelt_get_unknown_field(&x.clone(), \"foo\")"),
         "an erased `.foo` read must key on the source spelling:\n{source}"
     );
     assert!(
-        !source.contains("smelt_get_object_field(&map, \"Foo\")"),
+        !source.contains(", \"Foo\")"),
         "a declaration named `Foo` must not rename the property `foo`:\n{source}"
     );
 }
