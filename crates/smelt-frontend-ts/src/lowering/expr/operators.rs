@@ -3953,6 +3953,27 @@ impl ModuleBuilder<'_> {
                     ),
                 }));
             }
+            // A computed key that names a STABLE SYMBOL (`[Symbol.toStringTag]`,
+            // `[Symbol.for('k')]`, a const aliasing either) names one fixed
+            // member, so the literal declares that member's storage key instead
+            // of taking the dynamic-key path — the same resolution the interface
+            // and class declaration sides use, so a declaration and a literal
+            // cannot disagree about which member a symbol key names. The symbol's
+            // VALUE spelling is a separate thing (see `symbol_static_member`); the
+            // shared well-known table relates the two.
+            if let Some((key_text, true)) =
+                self.resolve_static_computed_key_name(&object_property.key)
+            {
+                let ty = self.ctx.krate.types.intern(Type::String);
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::String(key_text)),
+                    ty,
+                    span: self.span(
+                        object_property.key.span().start,
+                        object_property.key.span().end,
+                    ),
+                }));
+            }
             return self.property_key_index_expression(&object_property.key, body);
         }
 

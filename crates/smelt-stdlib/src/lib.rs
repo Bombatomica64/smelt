@@ -14,6 +14,7 @@ pub mod host_object;
 pub mod recognition;
 pub mod rules;
 pub mod runtime_symbols;
+pub mod well_known_symbols;
 
 pub use category::DiagnosticCategory;
 pub use classes::{
@@ -39,3 +40,4 @@ pub use recognition::{
 pub use rules::{
     ApiNamespace, ApiShape, ArgShape, EffectKind, ReceiverKind, ReturnShape, RuleId, SourceLanguage,
 };
+

@@ -2540,17 +2540,11 @@ impl FunctionEmitter<'_> {
         {
             return Ok(check);
         }
-        if matches!(
-            class_name,
-            "Error"
-                | "EvalError"
-                | "RangeError"
-                | "ReferenceError"
-                | "SyntaxError"
-                | "TypeError"
-                | "URIError"
-                | "AggregateError"
-        ) && matches!(
+        // One list of builtin error classes, shared with the erasure that stamps
+        // `__smelt_error` for a user class whose base chain reaches one
+        // (`host_base_markers`), so the probe and the marker cannot disagree.
+        if smelt_stdlib::is_error_class_name(class_name)
+            && matches!(
             self.mir.types.get(value_ty),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
         ) {
@@ -2565,9 +2559,13 @@ impl FunctionEmitter<'_> {
             //
             // This models the one level of the built-in hierarchy that exists:
             // every built-in error derives directly from `Error`, so a subclass
-            // check is an equality test on the recorded name. A user class
-            // `extends Error` carries `__smelt_class` and resolves through the
-            // class path before reaching here.
+            // check is an equality test on the recorded name. A USER class
+            // `extends Error` resolves through the class path while it is still
+            // typed; once it has crossed an erasure seam into a `SmeltUnknown`
+            // (which is exactly what a predicate like `isError(value: unknown)`
+            // does) only the markers survive, so its erasure stamps
+            // `__smelt_error` with the nearest builtin error base's name — see
+            // `host_base_markers` — and answers these same probes.
             let marker_probe = if class_name == "Error" {
                 "value.contains_key(\"__smelt_error\")".to_owned()
             } else {

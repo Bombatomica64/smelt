@@ -21,14 +21,6 @@
 //! stable static spelling, so it deliberately does not fold here and stays on
 //! the runtime-keyed path.
 
-/// Synthetic member-name prefix for well-known ECMAScript symbols.
-///
-/// The historical `Symbol.iterator` key (`__smelt_symbol_iterator`) predates
-/// this table and keeps its exact spelling for source compatibility; every other
-/// well-known symbol derives its key from this prefix plus the snake-cased
-/// symbol name so the spellings never collide with ordinary string members.
-const WELL_KNOWN_SYMBOL_PREFIX: &str = "__smelt_symbol_";
-
 /// Synthetic member-name prefix for `Symbol.for(...)` registry symbols.
 ///
 /// The registry description string is sanitized into an identifier-safe suffix
@@ -39,41 +31,32 @@ const REGISTRY_SYMBOL_PREFIX: &str = "__smelt_symbol_for_";
 
 /// Return the stable synthetic member key for a well-known `Symbol.<name>`.
 ///
-/// Returns `None` for symbol names Smelt does not model as static members, which
-/// keeps genuinely unsupported symbol keys on the honest dynamic-key path.
-///
-/// `Symbol.iterator` retains its established `__smelt_symbol_iterator` spelling
-/// so previously-lowered iterator members keep matching; the remaining
-/// well-known symbols use the shared `__smelt_symbol_<name>` scheme.
+/// Delegates to [`smelt_stdlib::well_known_symbols`], the single table shared
+/// with the generated Rust prelude: a well-known symbol's *value* spelling and
+/// the property *key* it indexes must agree, so neither side owns its own copy
+/// of the mapping. Returns `None` for symbol names Smelt does not model as
+/// static members, which keeps genuinely unsupported symbol keys on the honest
+/// dynamic-key path.
 pub(in crate::lowering) fn well_known_symbol_key(name: &str) -> Option<String> {
-    let modeled = matches!(
-        name,
-        "iterator"
-            | "asyncIterator"
-            | "hasInstance"
-            | "isConcatSpreadable"
-            | "match"
-            | "matchAll"
-            | "replace"
-            | "search"
-            | "species"
-            | "split"
-            | "toPrimitive"
-            | "toStringTag"
-            | "unscopables"
-    );
-    if !modeled {
-        return None;
-    }
-    if name == "iterator" {
-        // Keep the pre-existing spelling that member access and the coercion
-        // emitter already read (`__smelt_symbol_iterator`).
-        return Some(format!("{WELL_KNOWN_SYMBOL_PREFIX}iterator"));
-    }
-    Some(format!(
-        "{WELL_KNOWN_SYMBOL_PREFIX}{}",
-        camel_to_snake_ascii(name)
-    ))
+    smelt_stdlib::well_known_symbols::storage_key(name)
+}
+
+/// Return the well-known property key a symbol *value* spelling indexes.
+///
+/// The inverse direction of [`well_known_symbol_key`]: a `const s =
+/// Symbol.iterator` alias holds the value spelling, and using it as a computed
+/// key (`{ [s]: 1 }`) must name the same member an inline `[Symbol.iterator]`
+/// key names.
+pub(in crate::lowering) fn well_known_key_of_symbol_literal(spelling: &str) -> Option<String> {
+    smelt_stdlib::well_known_symbols::storage_key_for_spelling(spelling)
+}
+
+/// Return the runtime *value* spelling of a well-known `Symbol.<name>`.
+///
+/// `Symbol.iterator` in value position is a symbol, not a string: this is the
+/// description `SmeltUnknown::Symbol(..)` carries for it.
+pub(in crate::lowering) fn well_known_symbol_value_spelling(name: &str) -> Option<String> {
+    smelt_stdlib::well_known_symbols::value_spelling(name)
 }
 
 /// Return the stable synthetic member key for a `Symbol.for(description)`.
@@ -124,27 +107,6 @@ fn registry_key_suffix(description: &str) -> String {
     } else {
         suffix
     }
-}
-
-/// Lower-case an ASCII `camelCase` symbol name into `snake_case`.
-///
-/// Well-known symbol names are fixed ASCII identifiers (`asyncIterator`,
-/// `toStringTag`, …), so this is a small dedicated converter rather than a reuse
-/// of the general source-name folding, keeping the synthetic spelling stable and
-/// independent of source-name interning rules.
-fn camel_to_snake_ascii(name: &str) -> String {
-    let mut output = String::with_capacity(name.len() + 4);
-    for (index, ch) in name.chars().enumerate() {
-        if ch.is_ascii_uppercase() {
-            if index != 0 {
-                output.push('_');
-            }
-            output.push(ch.to_ascii_lowercase());
-        } else {
-            output.push(ch);
-        }
-    }
-    output
 }
 
 #[cfg(test)]

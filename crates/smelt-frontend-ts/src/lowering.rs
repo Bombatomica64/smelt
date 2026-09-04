@@ -93,10 +93,7 @@ impl ConstLiteral {
             Literal::String(value) => Some(value.clone()),
             Literal::Int(value) => Some(value.to_string()),
             Literal::Float(value) => Some(ModuleBuilder::numeric_property_key_name(*value)),
-            Literal::Symbol(value) => {
-                ty::computed_key_symbols::registry_description_of_symbol_literal(value)
-                    .map(ty::computed_key_symbols::registry_symbol_key)
-            }
+            Literal::Symbol(value) => Self::symbol_literal_member_name(value),
             Literal::Bool(_) | Literal::Undefined | Literal::None => None,
         }
     }
@@ -110,12 +107,27 @@ impl ConstLiteral {
     /// every non-registry-symbol constant.
     fn symbol_registry_name(&self) -> Option<String> {
         match &self.literal {
-            Literal::Symbol(value) => {
-                ty::computed_key_symbols::registry_description_of_symbol_literal(value)
-                    .map(ty::computed_key_symbols::registry_symbol_key)
-            }
+            Literal::Symbol(value) => Self::symbol_literal_member_name(value),
             _ => None,
         }
+    }
+
+    /// Return the synthetic member key a symbol *value* spelling indexes.
+    ///
+    /// Two spellings fold, for the same reason: they name a globally fixed
+    /// symbol. A `Symbol.for(<description>)` registry symbol maps through
+    /// `registry_symbol_key`, and a well-known `Symbol.<name>` value maps
+    /// through the shared well-known table — so `const s = Symbol.iterator;
+    /// ({ [s]: 1 })` declares the very member an inline `[Symbol.iterator]` key
+    /// declares. A unique `Symbol('d')` carries a span-tagged spelling and has
+    /// fresh identity per evaluation, so it never folds.
+    fn symbol_literal_member_name(spelling: &str) -> Option<String> {
+        if let Some(description) =
+            ty::computed_key_symbols::registry_description_of_symbol_literal(spelling)
+        {
+            return Some(ty::computed_key_symbols::registry_symbol_key(description));
+        }
+        ty::computed_key_symbols::well_known_key_of_symbol_literal(spelling)
     }
 }
 
