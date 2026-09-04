@@ -173,13 +173,13 @@ const rebuilt = Object.fromEntries([["a", 1], ["b", 2]]);
     );
     assert!(
         source.contains(
-            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\" && key != \"__smelt_proto_object\").map(|(_, value)| value).collect::<Vec<_>>()"
+            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").map(|(_, value)| value).collect::<Vec<_>>()"
         ),
         "{source}"
     );
     assert!(
         source.contains(
-            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\" && key != \"__smelt_proto_object\").collect::<Vec<_>>()"
+            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").collect::<Vec<_>>()"
         ),
         "{source}"
     );
@@ -911,10 +911,12 @@ function shallowClone(obj: object): object {
     );
     // The prototype's IDENTITY is recorded too, so `Object.getPrototypeOf` of the
     // result answers with the very value that was passed in — but only when the
-    // result's own shape cannot already imply it.
+    // result's own shape cannot already imply it. It is keyed by the created
+    // object's id, never stored as an entry, so no view of the object's entries
+    // can see it.
     assert!(
         source.contains(
-            "if smelt_prototype_slot_is_observable(&prototype) { fields.push((\"__smelt_proto_object\".to_owned(), prototype)); }"
+            "let object = SmeltObject::new(fields); if smelt_prototype_slot_is_observable(&prototype) { smelt_register_object_prototype(object.id, prototype); }"
         ),
         "Object.create must record an observable prototype: {source}"
     );
@@ -923,6 +925,10 @@ function shallowClone(obj: object): object {
             "fn smelt_prototype_slot_is_observable(prototype: &SmeltUnknown) -> bool"
         ),
         "the observability test must be emitted alongside: {source}"
+    );
+    assert!(
+        source.contains("static SMELT_OBJECT_PROTOTYPES:"),
+        "the prototype registry must be emitted: {source}"
     );
 }
 

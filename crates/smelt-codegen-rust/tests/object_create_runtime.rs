@@ -313,6 +313,22 @@ test("cloning a plain object through its own prototype adds no marker", () => {
   expect(Object.keys(clone)).toEqual(["a", "b"]);
   expect(isPlainObject(clone)).toBe(true);
 });
+test("Object.assign returns its target, so the target's prototype survives", () => {
+  // The `withNullPrototype` idiom, and the reason the prototype is recorded by
+  // IDENTITY: this value round-trips through a typed `Record<string, number>`
+  // recovery, which maps every ENTRY through the value conversion. A prototype
+  // held as a hidden entry came back as `NaN` here — neither `null` nor
+  // `Object.prototype`, so remeda's `isDeepEqual` refused to compare it.
+  const withNullProto = (data: Record<string, number>): Record<string, number> =>
+    Object.assign(Object.create(null), data);
+  const bare: any = withNullProto({ a: 1 });
+  expect(Object.getPrototypeOf(bare)).toBe(null);
+  expect(Object.keys(bare)).toEqual(["a"]);
+  expect(bare.a).toBe(1);
+  expect("a" in bare).toBe(true);
+  expect(bare).toEqual({ a: 1 });
+  expect(isPlainObject(bare)).toBe(true);
+});
 "#;
     run_fixture(source, "smelt_object_create_prototype_identity");
 }
