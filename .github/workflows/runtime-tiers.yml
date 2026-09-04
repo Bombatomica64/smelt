@@ -61,7 +61,7 @@ jobs:
               js_value_semantics_runtime erased_element_read_runtime
               erased_to_list_arms_runtime erased_host_roundtrip_runtime
               array_index_undefined_runtime array_hole_allocation_runtime
-              optional_record_field_runtime
+              optional_record_field_runtime overload_shape_runtime
           - shard: references
             tests: >-
               list_reference_semantics_runtime map_reference_runtime
