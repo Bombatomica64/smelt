@@ -4614,6 +4614,8 @@ fn emit_source_with_free_function_router(
         // before there is a case to size it against.
         writer.line("thread_local! { static SMELT_REGEX_CACHE: ::std::cell::RefCell<::std::collections::HashMap<String, ::std::option::Option<::std::rc::Rc<fancy_regex::Regex>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }");
         writer.blank_line();
+        emit_regex_substitution(&mut writer);
+        writer.blank_line();
         writer.line("#[derive(Clone, Debug)]");
         writer.block("pub struct SmeltRegExp", |struct_writer| {
             struct_writer.line("id: usize,");
@@ -4634,8 +4636,14 @@ fn emit_source_with_free_function_router(
                 fn_writer.line("self.flags.chars().any(|value| value == flag)");
             });
             impl_writer.line("/// Compile the Rust regex equivalent for this JavaScript RegExp.");
+            impl_writer.line("///");
+            impl_writer.line("/// A pattern that does not compile is a hard error naming the original");
+            impl_writer.line("/// JavaScript spelling. Every RegExp operation goes through here for");
+            impl_writer.line("/// that reason: the alternative -- returning the haystack unchanged, as");
+            impl_writer.line("/// `replace`/`split`/`matchAll` used to -- turned an untranslated");
+            impl_writer.line("/// pattern into a silent no-op that looked like a passing program.");
             impl_writer.block("fn compiled(&self) -> ::std::rc::Rc<fancy_regex::Regex>", |fn_writer| {
-                fn_writer.line("self.try_compiled().expect(\"regex compile failed\")");
+                fn_writer.line("match self.try_compiled() { Some(regex) => regex, None => panic!(\"SyntaxError: invalid regular expression: /{}/{}\", self.source, self.flags) }");
             });
             impl_writer.line("/// Try to compile the Rust regex equivalent for this JavaScript RegExp.");
             impl_writer.line("///");
@@ -4659,7 +4667,7 @@ fn emit_source_with_free_function_router(
             });
             impl_writer.line("/// Match a string with JavaScript String.prototype.match semantics.");
             impl_writer.block("pub fn match_string(&self, haystack: &str) -> Option<Vec<String>>", |fn_writer| {
-                fn_writer.line("let regex = self.try_compiled()?;");
+                fn_writer.line("let regex = self.compiled();");
                 fn_writer.block("if self.has_flag('g')", |if_writer| {
                     if_writer.line("let matches = regex.find_iter(haystack).filter_map(Result::ok).map(|value| value.as_str().to_owned()).collect::<Vec<_>>();");
                     if_writer.line("if matches.is_empty() { None } else { Some(matches) }");
@@ -4671,29 +4679,31 @@ fn emit_source_with_free_function_router(
             });
             impl_writer.line("/// Split a string with JavaScript RegExp separator semantics.");
             impl_writer.block("pub fn split_string(&self, haystack: &str) -> Vec<String>", |fn_writer| {
-                fn_writer.line("let Some(regex) = self.try_compiled() else { return vec![haystack.to_owned()]; };");
+                fn_writer.line("let regex = self.compiled();");
                 fn_writer.line("regex.split(haystack).filter_map(Result::ok).map(str::to_owned).collect::<Vec<_>>()");
             });
             impl_writer.line("/// Replace matches with JavaScript RegExp-aware String.prototype.replace semantics.");
+            impl_writer.line("///");
+            impl_writer.line("/// The replacement string is a PATTERN, not literal text: `$&`, `` $` ``,");
+            impl_writer.line("/// `$'`, `$$`, `$n` and `$<name>` all stand for parts of the match (see");
+            impl_writer.line("/// `smelt_regex_substitution`). It is expanded per match, which is why");
+            impl_writer.line("/// this walks `captures_iter` rather than `find_iter`. The global and");
+            impl_writer.line("/// single-replacement cases are one loop that stops after the first");
+            impl_writer.line("/// match, so the two cannot disagree about the expansion.");
             impl_writer.block("pub fn replace_string(&self, haystack: &str, replacement: &str, force_all: bool) -> String", |fn_writer| {
-                fn_writer.line("let Some(regex) = self.try_compiled() else { return haystack.to_owned(); };");
+                fn_writer.line("let regex = self.compiled();");
                 fn_writer.line("let replace_all = force_all || self.has_flag('g');");
-                fn_writer.block("if replace_all", |if_writer| {
-                    if_writer.line("let mut output = String::new();");
-                    if_writer.line("let mut last_end = 0usize;");
-                    if_writer.block("for matched in regex.find_iter(haystack).filter_map(Result::ok)", |for_writer| {
-                        for_writer.line("output.push_str(&haystack[last_end..matched.start()]);");
-                        for_writer.line("output.push_str(replacement);");
-                        for_writer.line("last_end = matched.end();");
-                    });
-                    if_writer.line("output.push_str(&haystack[last_end..]);");
-                    if_writer.line("output");
+                fn_writer.line("let mut output = String::new();");
+                fn_writer.line("let mut last_end = 0usize;");
+                fn_writer.block("for captures in regex.captures_iter(haystack).filter_map(Result::ok)", |for_writer| {
+                    for_writer.line("let Some(matched) = captures.get(0) else { continue; };");
+                    for_writer.line("output.push_str(haystack.get(last_end..matched.start()).unwrap_or(\"\"));");
+                    for_writer.line("output.push_str(&smelt_regex_substitution(replacement, haystack, &captures));");
+                    for_writer.line("last_end = matched.end();");
+                    for_writer.line("if !replace_all { break; }");
                 });
-                fn_writer.line("else if let Ok(Some(matched)) = regex.find(haystack) {");
-                fn_writer.line("    format!(\"{}{}{}\", &haystack[..matched.start()], replacement, &haystack[matched.end()..])");
-                fn_writer.line("} else {");
-                fn_writer.line("    haystack.to_owned()");
-                fn_writer.line("}");
+                fn_writer.line("output.push_str(haystack.get(last_end..).unwrap_or(\"\"));");
+                fn_writer.line("output");
             });
             impl_writer.line("/// Execute this RegExp and return a concrete `SmeltMatch` result.");
             impl_writer.line("///");
@@ -4713,7 +4723,7 @@ fn emit_source_with_free_function_router(
             });
             impl_writer.line("/// Return concrete `SmeltMatch` results for String.prototype.matchAll.");
             impl_writer.block("pub fn match_all_indices(&self, haystack: &str) -> Vec<SmeltMatch>", |fn_writer| {
-                fn_writer.line("let Some(regex) = self.try_compiled() else { return Vec::new(); };");
+                fn_writer.line("let regex = self.compiled();");
                 fn_writer.block("regex.captures_iter(haystack).filter_map(Result::ok).filter_map(|captures|", |map_writer| {
                     map_writer.line("let matched = captures.get(0)?;");
                     map_writer.line("Some(SmeltMatch::from_captures(&regex, &captures, matched.start(), haystack))");
@@ -5314,6 +5324,62 @@ fn insert_after_crate_header(mut root: String, text: &str) -> String {
 /// frontend still assigns for `exec`/`matchAll` consumers), it is converted
 /// with the explicit [`IntoSmeltUnknown`] adapter — the single place where the
 /// concrete match is intentionally erased.
+/// Emits the JavaScript replacement-pattern expander used by `String.replace`.
+///
+/// The second argument of `String.prototype.replace` is not literal text: ECMA-262
+/// `GetSubstitution` gives `$$`, `$&`, `` $` ``, `$'`, `$n`/`$nn` and `$<name>`
+/// meanings relative to the current match, and any other `$x` stays literal.
+/// The runtime used to push the replacement verbatim, so `'\\$&'` — the whole
+/// point of a pattern like `escapeRegExp`'s — inserted the two characters `$&`
+/// instead of the matched text.
+fn emit_regex_substitution(writer: &mut CodeWriter) {
+    writer.line("/// Expand one JavaScript replacement pattern against a match (ECMA-262 `GetSubstitution`).");
+    writer.line("///");
+    writer.line("/// `$$` is a literal `$`, `$&` the match, `` $` `` and `$'` the text before");
+    writer.line("/// and after it, `$n`/`$nn` a numbered group (two digits preferred when that");
+    writer.line("/// group exists), `$<name>` a named group. Anything else, including a `$n`");
+    writer.line("/// past the last group, is left exactly as written.");
+    writer.line("fn smelt_regex_substitution(replacement: &str, haystack: &str, captures: &fancy_regex::Captures<'_>) -> String {");
+    writer.line("    let Some(whole) = captures.get(0) else { return replacement.to_owned(); };");
+    writer.line("    let chars: Vec<char> = replacement.chars().collect();");
+    writer.line("    let mut out = String::with_capacity(replacement.len());");
+    writer.line("    let mut index = 0usize;");
+    writer.line("    while let Some(&ch) = chars.get(index) {");
+    writer.line("        if ch != '$' { out.push(ch); index = index.saturating_add(1); continue; }");
+    writer.line("        match chars.get(index.saturating_add(1)) {");
+    writer.line("            Some('$') => { out.push('$'); index = index.saturating_add(2); }");
+    writer.line("            Some('&') => { out.push_str(whole.as_str()); index = index.saturating_add(2); }");
+    writer.line("            Some('`') => { out.push_str(haystack.get(..whole.start()).unwrap_or(\"\")); index = index.saturating_add(2); }");
+    writer.line("            Some('\\'') => { out.push_str(haystack.get(whole.end()..).unwrap_or(\"\")); index = index.saturating_add(2); }");
+    writer.line("            Some('<') => {");
+    writer.line("                let open = index.saturating_add(2);");
+    writer.line("                match (open..chars.len()).find(|position| chars.get(*position) == Some(&'>')) {");
+    writer.line("                    Some(close) => {");
+    writer.line("                        let name: String = chars.get(open..close).unwrap_or_default().iter().collect();");
+    writer.line("                        if let Some(group) = captures.name(&name) { out.push_str(group.as_str()); }");
+    writer.line("                        index = close.saturating_add(1);");
+    writer.line("                    }");
+    writer.line("                    None => { out.push('$'); index = index.saturating_add(1); }");
+    writer.line("                }");
+    writer.line("            }");
+    writer.line("            Some(digit) if digit.is_ascii_digit() => {");
+    writer.line("                let first = digit.to_digit(10).unwrap_or(0) as usize;");
+    writer.line("                let second = chars.get(index.saturating_add(2)).and_then(|next| next.to_digit(10));");
+    writer.line("                let two_digit = second.map(|value| first.saturating_mul(10).saturating_add(value as usize));");
+    writer.line("                let total = captures.len();");
+    writer.line("                let selected = match two_digit { Some(group) if group >= 1 && group < total => Some((group, 3usize)), _ => if first >= 1 && first < total { Some((first, 2usize)) } else { None } };");
+    writer.line("                match selected {");
+    writer.line("                    Some((group, width)) => { if let Some(matched) = captures.get(group) { out.push_str(matched.as_str()); } index = index.saturating_add(width); }");
+    writer.line("                    None => { out.push('$'); index = index.saturating_add(1); }");
+    writer.line("                }");
+    writer.line("            }");
+    writer.line("            _ => { out.push('$'); index = index.saturating_add(1); }");
+    writer.line("        }");
+    writer.line("    }");
+    writer.line("    out");
+    writer.line("}");
+}
+
 /// Emits the `Reflect.ownKeys` projection and the storage-key → symbol inverse.
 ///
 /// `Reflect.ownKeys(o)` answers *every* own key: the string keys in JavaScript's

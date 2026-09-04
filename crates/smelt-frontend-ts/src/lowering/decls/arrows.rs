@@ -830,13 +830,17 @@ return_ty: target_function.return_ty,
         Self::rust_regex_pattern_text(&literal.regex.pattern.text)
     }
 
-    /// Translate JavaScript regex syntax accepted by Smelt into Rust regex syntax.
+    /// Translate JavaScript regex syntax into Rust regex syntax.
+    ///
+    /// The translation itself lives in [`smelt_stdlib::js_regex`], which states
+    /// each rule as a difference between the two *grammars*; this wrapper only
+    /// decides what to do when a pattern cannot be translated. It keeps the
+    /// pattern text unchanged in that case so the failure surfaces where the
+    /// pattern is compiled, which reports the original JavaScript spelling --
+    /// rather than making every regex-lowering call site fallible for a
+    /// construct `tsc` itself would have rejected.
     pub(in crate::lowering) fn rust_regex_pattern_text(pattern: &str) -> String {
-        pattern
-            .replace("(?<", "(?P<")
-            .replace("\\.{0,4096}", "\\.*")
-            .replace(".{0,4096}?", ".*?")
-            .replace("[^.[\\]]", "[^.\\[\\]]")
+        smelt_stdlib::js_regex::to_rust_pattern(pattern).unwrap_or_else(|_| pattern.to_owned())
     }
 
     /// Return whether an exported const has known metadata value that is safe to skip.
