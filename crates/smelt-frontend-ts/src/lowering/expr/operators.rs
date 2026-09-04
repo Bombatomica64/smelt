@@ -2262,6 +2262,25 @@ impl ModuleBuilder<'_> {
         smelt_hir::type_normalize::non_nullish_type(&mut self.ctx.krate.types, ty)
     }
 
+    /// Return whether `ty` still admits a TypeScript nullish value.
+    ///
+    /// Used to decide whether a source-level `!` has anything to narrow at a
+    /// sink: an `Optional`, the bare `null` type, and a union carrying a `null`
+    /// arm all accept the nullish value, so the assertion is purely type-level
+    /// there. Checked structurally rather than by comparing
+    /// [`Self::non_nullish_type`] against the input, because that helper also
+    /// normalizes and so can report a difference for wholly non-nullish types.
+    pub(in crate::lowering) fn type_admits_nullish(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Optional(_) | Type::None) => true,
+            Some(Type::Union(items)) => items
+                .iter()
+                .copied()
+                .any(|item| self.type_admits_nullish(item)),
+            _ => false,
+        }
+    }
+
     /// Lower a TypeScript non-null assertion while preserving the narrowed type.
     pub(in crate::lowering) fn non_null_assertion_expression(
         &mut self,

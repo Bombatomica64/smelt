@@ -389,7 +389,8 @@ impl ModuleBuilder<'_> {
             CallbackExprKind::Index { receiver, .. }
             | CallbackExprKind::Field { receiver, .. }
             | CallbackExprKind::HasField { receiver, .. }
-            | CallbackExprKind::FieldTruthy { receiver, .. } => {
+            | CallbackExprKind::FieldTruthy { receiver, .. }
+            | CallbackExprKind::ValueTruthy { value: receiver } => {
                 self.collect_callback_captures(receiver, body, captures);
             }
             CallbackExprKind::DynamicIndex { receiver, index } => {
@@ -483,9 +484,13 @@ impl ModuleBuilder<'_> {
             {
                 return Ok(callback);
             }
-            if let Argument::CallExpression(_call) = argument {
-                return Ok(self.opaque_member_callback(expected_param_tys));
-            }
+            // A callback produced by a call (`xs.filter(negate(isEven))`) is
+            // deliberately NOT modeled here. The compact callback IR can only
+            // stand in a fabricated callee for it, which silently replaces the
+            // factory's real result with a null value. It has to be evaluated
+            // once, in the enclosing body, and then called — see the callable
+            // surface branch of `Self::callback_argument`, which owns the
+            // enclosing `Body` and can bind the result to a local.
             if let Argument::FunctionExpression(function) = argument {
                 return self.function_callback_from_params(function, expected_param_tys, body);
             }

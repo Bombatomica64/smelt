@@ -803,43 +803,6 @@ impl ModuleBuilder<'_> {
         })))
     }
 
-    /// Lower lodash/fp `negate(predicate)` as an opaque boolean predicate function.
-    pub(in crate::lowering) fn lodash_negate_call(
-        &mut self,
-        call: &oxc::ast::ast::CallExpression<'_>,
-        body: &mut Body,
-    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let Expression::Identifier(callee) = &call.callee else {
-            return Ok(None);
-        };
-        if callee.name != "negate" || !self.imports.is_value("negate") {
-            return Ok(None);
-        }
-        let [predicate] = call.arguments.as_slice() else {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                "negate requires exactly one predicate argument",
-            ));
-        };
-        let _ = self.argument(predicate, body)?;
-        let param_ty = self.ctx.krate.types.intern(Type::Unknown);
-        let return_ty = self.ctx.krate.types.intern(Type::Bool);
-        let ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
-            params: vec![param_ty],
-            rest: None,
-            required_params: None,
-                    mutable_params: Vec::new(),
-return_ty,
-            is_async: false,
-                            may_throw: false,
-        }));
-        Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::None),
-            ty,
-            span: self.span(call.span.start, call.span.end),
-        })))
-    }
-
     /// Lower lodash `_.has(object, path)` as an opaque boolean ownership check.
     pub(in crate::lowering) fn lodash_has_call(
         &mut self,

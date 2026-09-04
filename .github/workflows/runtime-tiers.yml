@@ -72,6 +72,7 @@ jobs:
             tests: >-
               promise_value_fidelity_runtime abort_signal_runtime
               timer_runtime loop_await_runtime generator_runtime
+              truthiness_and_await_runtime
           - shard: functions
             tests: >-
               this_receiver_runtime function_statics_runtime
