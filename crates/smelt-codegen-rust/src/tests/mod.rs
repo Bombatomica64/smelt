@@ -90,3 +90,4 @@ mod runtime_manifest_tests;
 mod tail_r3_tests;
 mod tail_r7_tests;
 mod tail_r8_tests;
+mod truthiness_lowering_tests;
