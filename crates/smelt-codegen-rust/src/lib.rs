@@ -3611,7 +3611,7 @@ fn emit_source_with_free_function_router(
         writer.line("    match key {");
         writer.line("        \"Object.prototype.toString\" | \"Object.prototype.toLocaleString\" => SmeltUnknown::String(smelt_object_to_string_tag(&receiver).into()),");
         writer.line("        \"Object.prototype.valueOf\" => smelt_unbox_primitive(receiver),");
-        writer.line("        \"Object.prototype.hasOwnProperty\" | \"Object.prototype.propertyIsEnumerable\" => { let key = smelt_property_key(args.next().unwrap_or(SmeltUnknown::Undefined)); SmeltUnknown::Bool(match receiver { SmeltUnknown::Object(map) => map.contains_key(&key), SmeltUnknown::Array(values) => values.own_keys().contains(&key), _ => false }) }");
+        writer.line("        \"Object.prototype.hasOwnProperty\" | \"Object.prototype.propertyIsEnumerable\" => { let key = smelt_property_key(args.next().unwrap_or(SmeltUnknown::Undefined)); SmeltUnknown::Bool(smelt_has_own_property(&receiver, &key)) }");
         // `isPrototypeOf` asks whether the receiver appears on the argument's
         // prototype CHAIN. Smelt represents a prototype as an opaque sentinel
         // (`smelt_prototype_sentinel`) rather than as a linked object, so there is
@@ -3685,6 +3685,56 @@ fn emit_source_with_free_function_router(
         writer.line("        SmeltUnknown::String(marker) if &**marker == \"__smelt_proto:object\" => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined),");
         writer.line("        SmeltUnknown::Function(function) => match smelt_function_value_property(function, field) { SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },");
         writer.line("        _ => SmeltUnknown::Undefined,");
+        writer.line("    }");
+        writer.line("}");
+        writer.blank_line();
+        // The two JavaScript property-PRESENCE tests, kept next to the
+        // property-read chain above so the three cannot drift apart.
+        //
+        // `Object.hasOwn(value, key)` (and `hasOwnProperty` /
+        // `propertyIsEnumerable`, which Smelt's object model cannot tell apart
+        // from it) answers only for the value's OWN properties, while
+        // `key in value` continues onto the prototype chain -- so
+        // `Object.hasOwn({}, 'toString')` is `false` and `'toString' in {}` is
+        // `true`. Which of the two a containment test wants is carried on
+        // `Rvalue::DictContainsKey` as `PropertyLookup`; emitting one fused
+        // disjunction for both spellings, as the erased containment path used to,
+        // is necessarily wrong for one of them.
+        //
+        // "Own" includes the properties Smelt SYNTHESIZES rather than stores as
+        // record entries -- an array's `length` and in-range indices, a boxed
+        // string wrapper's `length` and character indices, a byte view's decoded
+        // elements. Those are own properties in JavaScript too (storing them as
+        // entries is what Smelt avoids, because it would make them enumerable and
+        // would double them in a clone), so they belong here and not on the
+        // prototype half.
+        writer.line("/// Whether a boxed-`String` wrapper answers `key` as one of its OWN properties.");
+        writer.line(format!(
+            "fn smelt_boxed_string_own_property(map: &SmeltObject, key: &str) -> bool {{ let Some(SmeltUnknown::String(text)) = map.get({string_marker:?}).and(map.get(\"value\")) else {{ return false; }}; key == \"length\" || key.parse::<usize>().is_ok_and(|index| index < text.chars().count()) }}",
+            string_marker = smelt_stdlib::host_object_marker("String").unwrap_or("__smelt_string"),
+        ));
+        writer.line("/// Whether `value` has `key` as an own property (JS `Object.hasOwn`).");
+        writer.line("fn smelt_has_own_property(value: &SmeltUnknown, key: &str) -> bool {");
+        writer.line("    match value {");
+        writer.line("        SmeltUnknown::Object(map) => map.contains_key(key) || smelt_host_buffer_element(map, key).is_some() || smelt_boxed_string_own_property(map, key),");
+        writer.line("        SmeltUnknown::Array(values) => key == \"length\" || values.named_keys().contains(&key.to_owned()) || key.parse::<usize>().is_ok_and(|index| index < values.len()),");
+        writer.line("        SmeltUnknown::String(text) => key == \"length\" || key.parse::<usize>().is_ok_and(|index| index < text.chars().count()),");
+        writer.line("        _ => false,");
+        writer.line("    }");
+        writer.line("}");
+        writer.blank_line();
+        // The prototype half. An erased `Map`/`Set` marker record exposes `size`
+        // through its prototype (mirroring the virtual `.size` synthesized in
+        // `smelt_get_object_field`), `Symbol.iterator` is on `Array.prototype`
+        // and `String.prototype`, and every object -- array and string wrapper
+        // included -- inherits `Object.prototype`'s members.
+        writer.line("/// Whether `value` has `key` as an own OR inherited property (JS `key in value`).");
+        writer.line("fn smelt_has_property(value: &SmeltUnknown, key: &str) -> bool {");
+        writer.line("    if smelt_has_own_property(value, key) { return true; }");
+        writer.line("    match value {");
+        writer.line("        SmeltUnknown::Object(map) => ((map.contains_key(\"__smelt_map\") || map.contains_key(\"__smelt_set\")) && key == \"size\") || smelt_object_prototype_member(key).is_some(),");
+        writer.line("        SmeltUnknown::Array(_) | SmeltUnknown::String(_) => key == \"__smelt_symbol_iterator\" || smelt_object_prototype_member(key).is_some(),");
+        writer.line("        _ => false,");
         writer.line("    }");
         writer.line("}");
         writer.blank_line();
@@ -4839,6 +4889,24 @@ fn emit_source_with_free_function_router(
         // before there is a case to size it against.
         writer.line("thread_local! { static SMELT_REGEX_CACHE: ::std::cell::RefCell<::std::collections::HashMap<String, ::std::option::Option<::std::rc::Rc<fancy_regex::Regex>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }");
         writer.blank_line();
+        // Compiled-program budget for one pattern.
+        //
+        // JavaScript imposes no size limit on a `RegExp`, but the Rust `regex`
+        // crate defaults to a 10 MiB compiled program (and a 2 MiB lazy-DFA
+        // cache) because it is written to accept patterns from untrusted input.
+        // A pattern reached from generated code came out of the program's own
+        // source, so that defence buys nothing here while the limit is directly
+        // observable: a bounded repetition with a large upper bound -- `X{0,N}`,
+        // the idiomatic JavaScript way to write a repetition that cannot be made
+        // to backtrack forever -- expands to roughly `N` copies of `X` and blows
+        // the default budget, which surfaced as a pattern that "does not
+        // compile" even though it is perfectly well-formed JavaScript. The
+        // budget is raised rather than removed (`usize::MAX` would turn a
+        // genuinely pathological pattern into an OOM instead of an error) and it
+        // is stated once, as a property of the engine and not of any pattern.
+        writer.line("const SMELT_REGEX_SIZE_LIMIT: usize = 64 * 1024 * 1024;");
+        writer.line("const SMELT_REGEX_DFA_SIZE_LIMIT: usize = 16 * 1024 * 1024;");
+        writer.blank_line();
         emit_regex_substitution(&mut writer);
         writer.blank_line();
         writer.line("#[derive(Clone, Debug)]");
@@ -4886,7 +4954,7 @@ fn emit_source_with_free_function_router(
                 fn_writer.line("let translated_source = self.source.replace(\"[^]\", \"(?s:.)\");");
                 fn_writer.line("let pattern = if prefix.is_empty() { translated_source } else { format!(\"(?{prefix}){translated_source}\") };");
                 fn_writer.line("if let Some(cached) = SMELT_REGEX_CACHE.with(|cache| cache.borrow().get(&pattern).cloned()) { return cached; }");
-                fn_writer.line("let compiled = fancy_regex::Regex::new(&pattern).ok().map(::std::rc::Rc::new);");
+                fn_writer.line("let compiled = fancy_regex::RegexBuilder::new(&pattern).delegate_size_limit(SMELT_REGEX_SIZE_LIMIT).delegate_dfa_size_limit(SMELT_REGEX_DFA_SIZE_LIMIT).build().ok().map(::std::rc::Rc::new);");
                 fn_writer.line("SMELT_REGEX_CACHE.with(|cache| { cache.borrow_mut().insert(pattern, compiled.clone()); });");
                 fn_writer.line("compiled");
             });

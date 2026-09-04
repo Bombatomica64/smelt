@@ -5187,6 +5187,7 @@ pub(super) fn rvalue_uses_local(value: &Rvalue, local: LocalId) -> bool {
         | Rvalue::DictContainsKey {
             dict: lhs,
             key: rhs,
+            ..
         }
         | Rvalue::StringJoin {
             items: lhs,

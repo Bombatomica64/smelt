@@ -5,7 +5,7 @@
 
 use std::fmt::Write as _;
 
-use smelt_hir::{Type, TypeId};
+use smelt_hir::{PropertyLookup, Type, TypeId};
 
 use crate::{
     BuiltinFn, Callee, Constant, LocalId, LocalKind, Mir, Operand, Place, Rvalue, Statement,
@@ -1150,9 +1150,13 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
         Rvalue::TupleSlice { tuple, start, end } => {
             format!("tuple_slice {}, {}, {}", operand_text(tuple), start, end)
         }
-        Rvalue::DictContainsKey { dict, key } => {
+        Rvalue::DictContainsKey { dict, key, lookup } => {
+            let reach = match lookup {
+                PropertyLookup::Own => "own",
+                PropertyLookup::PrototypeChain => "chain",
+            };
             format!(
-                "dict_contains_key {}, {}",
+                "dict_contains_key {}, {}, {reach}",
                 operand_text(dict),
                 operand_text(key)
             )

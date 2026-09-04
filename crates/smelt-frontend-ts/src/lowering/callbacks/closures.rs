@@ -7,7 +7,7 @@ use crate::lowering::{
     FunctionType, HashMap, ListSearchOp, Literal, LocalCallbackDefault, LocalDecl, ModuleBuilder,
     Param, PrimitiveCastOp, SmeltError, Span, Stmt, StringAffixOp, StringCaseOp, Type,
 };
-use smelt_hir::StringTrimSide;
+use smelt_hir::{PropertyLookup, StringTrimSide};
 
 impl ModuleBuilder<'_> {
     /// Validate the inferred callback return type for an array method.
@@ -352,7 +352,11 @@ impl ModuleBuilder<'_> {
                     span,
                 });
                 Ok(body.push_expr(Expr {
-                    kind: ExprKind::DictContainsKey { dict, key },
+                    kind: ExprKind::DictContainsKey {
+                        dict,
+                        key,
+                        lookup: PropertyLookup::PrototypeChain,
+                    },
                     ty: callback.ty,
                     span,
                 }))
@@ -361,7 +365,11 @@ impl ModuleBuilder<'_> {
                 let dict = self.callback_expr_to_body_expr(receiver, args, body, span)?;
                 let key = self.callback_expr_to_body_expr(field, args, body, span)?;
                 Ok(body.push_expr(Expr {
-                    kind: ExprKind::DictContainsKey { dict, key },
+                    kind: ExprKind::DictContainsKey {
+                        dict,
+                        key,
+                        lookup: PropertyLookup::PrototypeChain,
+                    },
                     ty: callback.ty,
                     span,
                 }))
@@ -776,6 +784,7 @@ impl ModuleBuilder<'_> {
                     kind: ExprKind::DictContainsKey {
                         dict: receiver,
                         key,
+                        lookup: PropertyLookup::Own,
                     },
                     ty,
                     span,

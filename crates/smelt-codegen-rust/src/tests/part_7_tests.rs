@@ -12144,7 +12144,7 @@ export function wrap(fn: (value: string) => string): Wrapped {
 /// would fuse distinct source objects. What *is* shared is the pure half — the
 /// compiled `fancy_regex` automaton, a function of the pattern text alone — which
 /// the prelude memoizes in `SMELT_REGEX_CACHE`. The invariant this test pins is
-/// therefore: exactly ONE `fancy_regex::Regex::new` call site exists in the whole
+/// therefore: exactly ONE `fancy_regex` compile call site exists in the whole
 /// emitted crate (the memo), no matter how many times the const is inlined.
 #[test]
 fn module_level_regex_const_compiles_its_pattern_once() {
@@ -12167,7 +12167,7 @@ export function second(text: string): number {
         "the prelude must declare the compiled-automaton memo\n{source}"
     );
     assert_eq!(
-        source.matches("fancy_regex::Regex::new(").count(),
+        source.matches("fancy_regex::RegexBuilder::new(").count(),
         1,
         "the emitted crate must hold exactly one regex compile site (the memo), \
          so an inlined module-level const never recompiles its pattern\n{source}"

@@ -493,7 +493,7 @@ impl Rvalue {
             Self::TupleIndex { tuple, .. } | Self::TupleSlice { tuple, .. } => {
                 visit(tuple);
             }
-            Self::DictContainsKey { dict, key } => {
+            Self::DictContainsKey { dict, key, .. } => {
                 visit(dict);
                 visit(key);
             }
@@ -1297,7 +1297,7 @@ impl Rvalue {
             Self::TupleIndex { tuple, .. } | Self::TupleSlice { tuple, .. } => {
                 visit(tuple);
             }
-            Self::DictContainsKey { dict, key } => {
+            Self::DictContainsKey { dict, key, .. } => {
                 visit(dict);
                 visit(key);
             }

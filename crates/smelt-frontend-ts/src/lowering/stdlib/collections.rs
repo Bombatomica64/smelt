@@ -7,7 +7,9 @@ use crate::lowering::ModuleBuilder;
 use crate::SmeltError;
 use oxc::ast::ast::{Argument, Expression};
 use oxc::span::GetSpan;
-use smelt_hir::{Body, DictProjectionOp, Expr, ExprKind, SetProjectionOp, SetRemoveOp, Type};
+use smelt_hir::{
+    Body, DictProjectionOp, Expr, ExprKind, PropertyLookup, SetProjectionOp, SetRemoveOp, Type,
+};
 use smelt_stdlib::RuleId;
 
 /// `Map` and `Set` collection-method lowering for the TypeScript frontend.
@@ -351,7 +353,11 @@ impl ModuleBuilder<'_> {
         }
         let ty = self.ctx.krate.types.intern(Type::Bool);
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::DictContainsKey { dict, key },
+            kind: ExprKind::DictContainsKey {
+                dict,
+                key,
+                lookup: PropertyLookup::Own,
+            },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))

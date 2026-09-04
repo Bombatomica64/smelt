@@ -20,6 +20,26 @@ pub enum GeneratorResumeKind {
     Throw,
 }
 
+/// How far a property-presence test is allowed to look for the key.
+///
+/// JavaScript has two presence tests over one property name, and they answer
+/// differently for anything a value inherits: `key in value` walks the
+/// prototype chain, so `'toString' in {}` is `true`, while
+/// `Object.hasOwn(value, key)` (and `hasOwnProperty` / `propertyIsEnumerable`)
+/// stop at the value's own properties, so `Object.hasOwn({}, 'toString')` is
+/// `false`. Both lower to `DictContainsKey`, so the containment expression has
+/// to carry which of the two it is; without it the emitter had to pick one
+/// reach for both spellings and was wrong about the other.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PropertyLookup {
+    /// Own properties only — `Object.hasOwn`, `hasOwnProperty`, and every
+    /// typed-collection membership test (`Map.has`, a `Dict` key probe), whose
+    /// keys are all own by construction.
+    Own,
+    /// Own properties and everything inherited — the `in` operator.
+    PrototypeChain,
+}
+
 /// A replacement argument passed to array splice-style operations.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ListSpliceItem {
@@ -599,6 +619,7 @@ pub enum ExprKind {
     DictContainsKey {
         dict: ExprId,
         key: ExprId,
+        lookup: PropertyLookup,
     },
     DictSet {
         dict: ExprId,

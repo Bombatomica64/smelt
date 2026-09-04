@@ -8,6 +8,7 @@ impl FunctionEmitter<'_> {
         &self,
         dict: &Operand,
         key: &Operand,
+        lookup: PropertyLookup,
     ) -> Result<String, EmitError> {
         let dict_ty = self.operand_ty(dict)?;
         // A `"field" in value` test over a concrete union projects to a static
@@ -25,8 +26,9 @@ impl FunctionEmitter<'_> {
         let Some(Type::Dict(key_ty, _) | Type::JsMap(key_ty, _)) = self.mir.types.get(dict_ty)
         else {
             if self.dict_contains_key_uses_erased_object(dict_ty) {
-                // Read by borrow: the emitted `match` appends its own `.clone()`,
-                // so cloning here made it `x.clone().clone()`.
+                // Read by borrow: the emitted helper takes its receiver by
+                // reference, so cloning here copied the whole record for a
+                // membership test.
                 let dict_text = self.operand_borrow_text(dict)?;
                 let key_text = self.operand_text(key)?;
                 let key_value = match self.mir.types.get(self.operand_ty(key)?) {
@@ -37,27 +39,23 @@ impl FunctionEmitter<'_> {
                     }
                     _ => return Ok("false".to_owned()),
                 };
-                // An erased `Map` (`{ __smelt_map: [...] }`) or `Set`
-                // (`{ __smelt_set: [...] }`) exposes `size` through its prototype,
-                // so `"size" in value` is true even though the marker object has no
-                // own `size` field. Mirror the virtual `.size` synthesized in
-                // `smelt_get_object_field`.
-                return Ok(format!(
-                    // A byte-backed view's indexed elements are properties too, and
-                    // they are decoded from `bytes` rather than stored as record
-                    // keys, so `'0' in new Uint8Array(1)` needs the element probe.
-                    //
-                    // The view's `length`/`byteLength`/`byteOffset`/`buffer` stay
-                    // answerable here because this one emitter serves both `k in obj`
-                    // and `Object.hasOwn(obj, k)`, and the two differ in JavaScript:
-                    // `in` walks the prototype chain, so `'length' in view` is
-                    // `true` (remeda's `isEmptyish` reads exactly that), while
-                    // `Object.hasOwn` sees only the element indices. Splitting them
-                    // is a pre-existing conflation, not part of view identity;
-                    // `Object.keys`/`Object.values`/`Object.entries` already report
-                    // the correct own-key set for these records.
-                    "{{ let smelt_key = {key_value}; match {dict_text}.clone() {{ SmeltUnknown::Object(values) => values.contains_key(&smelt_key) || smelt_host_buffer_element(&values, &smelt_key).is_some() || ((values.contains_key(\"__smelt_map\") || values.contains_key(\"__smelt_set\")) && smelt_key == \"size\") || smelt_object_prototype_member(&smelt_key).is_some(), SmeltUnknown::Array(values) => smelt_key == \"length\" || smelt_key == \"__smelt_symbol_iterator\" || values.named_keys().contains(&smelt_key) || smelt_key.parse::<usize>().ok().is_some_and(|index| index < values.len()), SmeltUnknown::String(value) => smelt_key == \"length\" || smelt_key == \"__smelt_symbol_iterator\" || smelt_key.parse::<usize>().ok().is_some_and(|index| index < value.chars().count()), _ => false }} }}"
-                ));
+                // The two JavaScript presence tests over an erased value are two
+                // different helpers, not one: `Object.hasOwn` stops at the
+                // value's own properties while `in` continues onto the prototype
+                // chain, so `Object.hasOwn({}, 'toString')` is `false` where
+                // `'toString' in {}` is `true`. Emitting a single disjunction for
+                // both spellings made whichever reach it picked wrong for the
+                // other -- and before `Rvalue::DictContainsKey` carried `lookup`
+                // there was nothing here to pick with. Both helpers live in the
+                // prelude beside the property-READ chain they must agree with,
+                // which is what keeps a synthesized own property (a boxed
+                // string's `length` and character indices, a byte view's
+                // elements) visible to the presence tests and not only to reads.
+                let helper = match lookup {
+                    PropertyLookup::Own => "smelt_has_own_property",
+                    PropertyLookup::PrototypeChain => "smelt_has_property",
+                };
+                return Ok(format!("{helper}(&({dict_text}), &({key_value}))"));
             }
             return Ok("false".to_owned());
         };
