@@ -265,3 +265,58 @@ test("erased keys, values, get and has see the entries", () => {
 "#;
     run_map_fixture(source, "smelt_erased_map_prototype_methods");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn an_erased_map_receiver_still_mutates_the_map() {
+    // A `Map` does not always reach its mutation site at the typed
+    // `SmeltJsMap`: declaring it in a union erases the whole union, so
+    // `cache.set(key, value)` runs against a `SmeltUnknown` receiver. The
+    // erased Map used to synthesize only its READ members, so the write found
+    // `undefined`, the call collapsed to a null callback, and the mutation
+    // vanished with no diagnostic -- es-toolkit's `memoize` never memoized.
+    // Writes land in the marker array's shared storage, so a later read of the
+    // same erased handle sees them.
+    let source = r#"
+import { test, expect } from "vitest";
+
+interface Store {
+  get(key: string): string | undefined;
+  set(key: string, value: string): void;
+  has(key: string): boolean;
+  delete(key: string): boolean;
+  clear(): void;
+}
+
+function counter(store: Map<string, string> | Store): (key: string) => string {
+  return (key: string) => {
+    if (store.has(key)) {
+      return store.get(key)!;
+    }
+    const value = `v:${key}`;
+    store.set(key, value);
+    return value;
+  };
+}
+
+test("a write through an erased Map receiver is visible to later reads", () => {
+  const map = new Map<string, string>();
+  const next = counter(map);
+  expect(next("a")).toBe("v:a");
+  expect(next("a")).toBe("v:a");
+});
+test("delete and clear reach the same storage", () => {
+  const map = new Map<string, string>();
+  const erased: any = map;
+  erased.set("a", "1");
+  erased.set("b", "2");
+  expect(erased.size).toBe(2);
+  expect(erased.delete("a")).toBe(true);
+  expect(erased.delete("a")).toBe(false);
+  expect(erased.has("b")).toBe(true);
+  erased.clear();
+  expect(erased.size).toBe(0);
+});
+"#;
+    run_map_fixture(source, "smelt_erased_map_mutating_methods");
+}

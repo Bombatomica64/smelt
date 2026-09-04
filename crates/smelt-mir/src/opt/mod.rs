@@ -13,11 +13,13 @@ mod dict_entry_mutation;
 mod dict_entry_update;
 mod local_use;
 mod move_on_last_use;
+mod unobserved_receiver_bind;
 
 pub use dict_default_insert_elision::DictDefaultInsertElision;
 pub use dict_entry_mutation::DictEntryInPlaceMutation;
 pub use dict_entry_update::DictEntryUpdate;
 pub use move_on_last_use::MoveOnLastUse;
+pub use unobserved_receiver_bind::UnobservedReceiverBind;
 
 /// A MIR optimization pass that transforms the MIR.
 pub trait Pass {
@@ -54,6 +56,7 @@ pub fn default_passes() -> Vec<Box<dyn Pass>> {
         Box::<DictEntryInPlaceMutation>::default(),
         Box::<DictEntryUpdate>::default(),
         Box::<DictDefaultInsertElision>::default(),
+        Box::<UnobservedReceiverBind>::default(),
     ]
 }
 

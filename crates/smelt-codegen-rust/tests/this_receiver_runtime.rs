@@ -193,3 +193,42 @@ test('the binding is restored after the inner call returns', () => {
 ";
     run_fixture(source, "this_receiver_wrapper");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_method_call_supplies_the_object_it_was_read_from() {
+    // The METHOD-call spelling, which supplied no receiver at all until the
+    // bind moved onto the member read: a call site coerces a property read
+    // typed `unknown` to a function type synthesized from its arguments, so
+    // asking the coerced operand which ABI it uses always answered "a concrete
+    // function" and every ordinary `recv.m(args)` ran with the ambient
+    // `undefined` receiver. Two different objects share ONE callable, which is
+    // what makes the receiver a property of the CALL rather than of the value.
+    let source = r"
+import { test, expect } from 'vitest';
+
+const report = function (this: any, mark: string): unknown {
+  if (this === undefined) {
+    return `none${mark}`;
+  }
+  return `${(this as any).msg}${mark}`;
+};
+
+const first: any = { report: report, msg: 'first' };
+const second: any = { report: report, msg: 'second' };
+
+test('a method call installs the object the member was read from', () => {
+  expect(first.report('!')).toBe('first!');
+  expect(second.report('?')).toBe('second?');
+});
+test('the same callable called plainly still sees no receiver', () => {
+  expect(first.report('!')).toBe('first!');
+  expect(report('!')).toBe('none!');
+});
+test('an arrow-valued property is unaffected by the receiver', () => {
+  const holder: any = { arrow: (mark: string) => `arrow${mark}`, msg: 'holder' };
+  expect(holder.arrow('!')).toBe('arrow!');
+});
+";
+    run_fixture(source, "this_receiver_method_call");
+}

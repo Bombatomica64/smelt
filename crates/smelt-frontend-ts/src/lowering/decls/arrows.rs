@@ -287,7 +287,7 @@ impl ModuleBuilder<'_> {
             if let Err(error) = self.predeclare_local_function_declarations(statements, &mut body) {
                 errors.push(error);
             }
-            if let Err(error) = self.predeclare_local_arrow_callbacks(statements, &mut body) {
+            if let Err(error) = self.predeclare_forward_referenced_locals(statements, &mut body) {
                 errors.push(error);
             }
             for statement in statements {

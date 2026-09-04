@@ -1333,16 +1333,66 @@ impl<'builder> ModuleBuilder<'builder> {
         ]
     }
 
-    /// Return whether the module source declares a callable with this local name.
+    /// Return whether the module source declares a callable with this local name
+    /// AT MODULE LEVEL.
+    ///
+    /// The caller uses this to resolve a name that is not in scope yet as a
+    /// module global, which for `Type::Unknown` FABRICATES an empty object.
+    /// That is defensible for a module-level binding lowered later in the file
+    /// (`module_global_expression` recreates its value), and wrong for a
+    /// FUNCTION-LOCAL one: a local read before its declaration is a binding,
+    /// not a host global, and answering `{}` for it turned
+    /// `clearTimeout(timeoutId)` into a silent no-op. Such a local is
+    /// predeclared by `predeclare_forward_referenced_locals` and never reaches
+    /// here; if one still does, it must fail loudly as an unresolved name.
+    ///
+    /// Module level is read off the declaration's INDENTATION, which is what
+    /// distinguishes the two in source text: a top-level declaration starts a
+    /// line (optionally after `export `/`declare `), a function-local one is
+    /// indented inside a block.
     pub(in crate::lowering) fn source_contains_forward_callable(&self, name: &str) -> bool {
         let const_prefix = format!("const {name}");
         let function_prefix = format!("function {name}(");
-        self.source.contains(&function_prefix)
-            || self
+        self.source_declaration_is_module_level(&function_prefix, |_| true)
+            || self.source_declaration_is_module_level(&const_prefix, |suffix| {
+                suffix.starts_with(" =") || suffix.starts_with(':')
+            })
+    }
+
+    /// Return whether `prefix` occurs at the start of a line (module level).
+    ///
+    /// `suffix_is_declaration` inspects the text right after the prefix, so a
+    /// caller can require `=` or `:` and not match a longer name.
+    fn source_declaration_is_module_level(
+        &self,
+        prefix: &str,
+        suffix_is_declaration: impl Fn(&str) -> bool,
+    ) -> bool {
+        let mut searched = 0usize;
+        while let Some(offset) = self.source.get(searched..).and_then(|rest| {
+            rest.find(prefix)
+                .map(|relative| searched.saturating_add(relative))
+        }) {
+            searched = offset.saturating_add(prefix.len());
+            if !self
                 .source
-                .split(&const_prefix)
-                .skip(1)
-                .any(|suffix| suffix.starts_with(" =") || suffix.starts_with(':'))
+                .get(searched..)
+                .is_some_and(&suffix_is_declaration)
+            {
+                continue;
+            }
+            // Everything between the line start and the declaration keyword must
+            // be a modifier, not indentation: `export`/`declare` keep a
+            // declaration at module level, leading whitespace does not.
+            let line_start = self.source[..offset]
+                .rfind('\n')
+                .map_or(0, |newline| newline.saturating_add(1));
+            let lead = self.source[line_start..offset].trim_end();
+            if lead.is_empty() || matches!(lead, "export" | "declare" | "export declare") {
+                return true;
+            }
+        }
+        false
     }
 
     /// Return whether the module source declares a class with this local name.
@@ -1982,6 +2032,15 @@ impl<'builder> ModuleBuilder<'builder> {
             } else {
                 return Ok(None);
             };
+        // The receiver is bound onto the member READ, before the call's own
+        // coercion re-types it. A member read whose declared type is `unknown`
+        // is coerced to a synthesized `Type::Function` built from the argument
+        // types, so asking the coerced operand what ABI it uses always answered
+        // "a concrete function" and no ordinary method call ever carried a
+        // receiver. The bind keeps the read's own type, so the coercion below is
+        // unaffected by it.
+        let span = self.span(call.span.start, call.span.end);
+        let callee = self.bind_member_call_receiver(callee, member, body, span);
         let callable = if callee_ty == function_ty {
             callee
         } else {
@@ -2002,8 +2061,6 @@ impl<'builder> ModuleBuilder<'builder> {
                 "calls through function types with never parameters are not lowered",
             ));
         }
-        let span = self.span(call.span.start, call.span.end);
-        let callable = self.bind_member_call_receiver(callee, callable, member, body, span);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::ClosureCall {
                 callee: callable,
@@ -2028,13 +2085,13 @@ impl<'builder> ModuleBuilder<'builder> {
     /// receiver-first with `this` as a real bound parameter, so binding the
     /// dynamic channel as well would install the receiver twice.
     ///
-    /// `callee` is the lowered member read whose shape decides whether there is
-    /// a receiver at all; `callable` is the (possibly re-typed) value actually
-    /// being called.
+    /// `callee` is the lowered member read: its shape decides whether there is
+    /// a receiver at all, its type decides whether the callee can observe one,
+    /// and the bind is returned in its place so the call's own coercion applies
+    /// on top of the bound value rather than underneath it.
     fn bind_member_call_receiver(
         &mut self,
         callee: smelt_hir::ExprId,
-        callable: smelt_hir::ExprId,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &mut Body,
         span: Span,
@@ -2043,12 +2100,12 @@ impl<'builder> ModuleBuilder<'builder> {
             .ok()
             .and_then(|index| body.exprs.get(index))
         else {
-            return callable;
+            return callee;
         };
         let (ExprKind::Field { receiver, .. } | ExprKind::OptionalField { receiver, .. }) =
             expr.kind
         else {
-            return callable;
+            return callee;
         };
         // Only a callee that is invoked through the ERASED call ABI takes a
         // receiver here. A callee that kept a concrete `Type::Function` is
@@ -2060,8 +2117,19 @@ impl<'builder> ModuleBuilder<'builder> {
         // `.bind` are unaffected by this restriction: there the source names the
         // receiver explicitly, so honoring it is not optional and the wrapper is
         // built for that callee's own signature.
-        let callable_ty = Self::expr_ty(body, callable);
-        let callee_uses_erased_call_abi = match self.ctx.krate.types.get(callable_ty) {
+        let callee_ty = Self::expr_ty(body, callee);
+        // A dynamic call surface is asked about FIRST, on the read's own type: a
+        // member read typed `unknown` (or a type parameter, or a union) is the
+        // ordinary shape of a callable stored as a property, and it is invoked
+        // through the runtime call ABI whatever concrete signature the call site
+        // later coerces it to.
+        let dispatch_ty = match self.ctx.krate.types.get(callee_ty) {
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => callee_ty,
+            // A nullishable or callable-object read resolves to the function
+            // type it carries, which is what says how the callee is invoked.
+            _ => self.function_member_type(callee_ty).unwrap_or(callee_ty),
+        };
+        let callee_uses_erased_call_abi = match self.ctx.krate.types.get(dispatch_ty) {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => true,
             // The variadic `(...args: unknown[]) => unknown` spelling is the one
             // `Type::Function` that codegen renders as the erased
@@ -2086,18 +2154,22 @@ impl<'builder> ModuleBuilder<'builder> {
             _ => false,
         };
         if !callee_uses_erased_call_abi {
-            return callable;
+            return callee;
         }
-        // A receiver that itself erases to `SmeltUnknown` at codegen makes the
-        // member read a RUNTIME `SmeltUnknown` value regardless of the field's
-        // declared type, so there is no owned callable to hang the binding on
-        // and the bound value could not be typed as the field's declared
-        // function type either. The same erasure rule already governs how a
-        // spread call on such a receiver is dispatched, a few branches above.
-        if self.static_member_receiver_dispatches_dynamically(member, body) {
-            return callable;
+        // A read whose DECLARED type is a function but whose receiver erases to
+        // `SmeltUnknown` produces a runtime `SmeltUnknown` value, not the owned
+        // erased-function struct that hosts the typed bind, so there is nothing
+        // to hang the binding on. A read already typed as a dynamic call
+        // surface has no such mismatch: it erases either way and the runtime
+        // `smelt_bind_this` handles both a function and a callable object.
+        if !matches!(
+            self.ctx.krate.types.get(callee_ty),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) && self.static_member_receiver_dispatches_dynamically(member, body)
+        {
+            return callee;
         }
-        self.bind_this_receiver(callable, receiver, body, span)
+        self.bind_this_receiver(callee, receiver, body, span)
     }
 
     /// Return true when a member access names an actual lowered class method.

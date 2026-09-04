@@ -717,14 +717,17 @@ const entries = Object.entries(bag);
 ",
     );
 
+    // Recovering an erased object at its record type hands back a second
+    // handle on the object's OWN field store, which carries the key order (and
+    // the reference identity) rather than re-deriving either.
     assert!(
-        source.contains("fn with_id_from_entries<I: IntoIterator<Item = (K, V)>>"),
+        source.contains(
+            "fn smelt_shared_record(&self) -> SmeltRecord<String, SmeltUnknown> { SmeltRecord { id: self.id, store: ::std::rc::Rc::clone(&self.store) } }"
+        ),
         "{source}"
     );
     assert!(
-        source.contains(
-            "SmeltUnknown::Object(value) => SmeltRecord::with_id_from_entries(value.id, value.into_iter())"
-        ),
+        source.contains("SmeltUnknown::Object(value) => value.smelt_shared_record()"),
         "{source}"
     );
 }

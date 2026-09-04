@@ -863,6 +863,8 @@ pub struct SmeltObject {
 
 impl Clone for SmeltObject { fn clone(&self) -> Self { Self { id: self.id, store: self.store.clone() } } }
 impl SmeltObject {
+    /// A second handle on this object's own field store.
+    fn smelt_shared_record(&self) -> SmeltRecord<String, SmeltUnknown> { SmeltRecord { id: self.id, store: ::std::rc::Rc::clone(&self.store) } }
     /// Build an erased object from entries in source order.
     ///
     /// The entry sequence is ordered on purpose: JavaScript own-key order is a
@@ -1029,6 +1031,27 @@ fn smelt_host_buffer_write_through(map: &SmeltObject, offset: usize, encoded: &[
 /// over storage it re-*views* the bytes (eight bytes become two elements), over
 /// a view or an array it *converts* the elements one by one.
 fn smelt_host_buffer_is_storage(value: &SmeltUnknown) -> bool { let SmeltUnknown::Object(map) = value else { return false; }; ["__smelt_arraybuffer", "__smelt_sharedarraybuffer"].into_iter().any(|marker| map.contains_key(marker)) }
+/// The six-bit value of one base64 character (either alphabet), if it has one.
+fn smelt_host_buffer_base64_value(value: char) -> Option<u8> { match value { 'A'..='Z' => Some(value as u8 - b'A'), 'a'..='z' => Some(value as u8 - b'a' + 26), '0'..='9' => Some(value as u8 - b'0' + 52), '+' | '-' => Some(62), '/' | '_' => Some(63), _ => None } }
+/// Encode a JavaScript string into buffer bytes under a Node encoding name.
+///
+/// `Buffer.from(string[, encoding])` is the one byte-buffer constructor form
+/// whose source is *text*: a typed array built from a string has no elements,
+/// but a Buffer built from a string holds that string's encoded bytes. The
+/// frontend rejects encodings this helper does not implement, so an unknown
+/// name can only reach here as a dynamic value and falls back to the
+/// JavaScript default of UTF-8.
+fn smelt_host_buffer_encode_text(text: &str, encoding: Option<String>) -> Vec<SmeltUnknown> {
+    let encoding = encoding.unwrap_or_else(|| "utf8".to_owned()).to_ascii_lowercase();
+    let bytes: Vec<u8> = match encoding.as_str() {
+        "latin1" | "binary" => text.chars().map(|value| (value as u32 & 0xff) as u8).collect(),
+        "ascii" => text.chars().map(|value| (value as u32 & 0x7f) as u8).collect(),
+        "hex" => { let digits = text.chars().filter_map(|value| value.to_digit(16)).collect::<Vec<_>>(); digits.chunks_exact(2).map(|pair| (pair[0] * 16 + pair[1]) as u8).collect() }
+        "base64" | "base64url" => { let mut bytes = Vec::new(); let mut accumulator: u32 = 0; let mut bits = 0u32; for value in text.chars() { let Some(sextet) = smelt_host_buffer_base64_value(value) else { continue; }; accumulator = (accumulator << 6) | u32::from(sextet); bits += 6; if bits >= 8 { bits -= 8; bytes.push(((accumulator >> bits) & 0xff) as u8); } } bytes }
+        _ => text.as_bytes().to_vec(),
+    };
+    bytes.into_iter().map(|byte| SmeltUnknown::Number(f64::from(byte))).collect()
+}
 /// Read an optional non-negative numeric constructor argument.
 fn smelt_host_buffer_count_argument(argument: Option<&SmeltUnknown>) -> Option<usize> { match argument { Some(SmeltUnknown::Number(value)) if *value >= 0.0 => Some(*value as usize), _ => None } }
 /// Build a byte-backed host record of `marker` identity from `new X(...)` args.
@@ -1050,6 +1073,7 @@ fn smelt_host_buffer_construct(marker: &'static str, args: Vec<SmeltUnknown>) ->
     let stride = element.map_or(1, |(_, width)| width);
     let source = args.first();
     match source {
+        Some(SmeltUnknown::String(text)) if marker == "__smelt_buffer" => { let encoding = match args.get(1) { Some(SmeltUnknown::String(value)) => Some(value.to_string()), _ => None }; smelt_host_buffer_record(marker, smelt_host_buffer_encode_text(&text.to_string(), encoding)) }
         Some(value) if smelt_host_buffer_is_storage(value) => { let storage = smelt_host_buffer_raw_bytes(value).unwrap_or_default(); let offset = smelt_host_buffer_count_argument(args.get(1)).unwrap_or(0).min(storage.len()); let available = storage.len() - offset; let take = smelt_host_buffer_count_argument(args.get(2)).map_or(available, |count| (count * stride).min(available)); let window = storage.into_iter().skip(offset).take(take).collect::<Vec<_>>(); let buffer = smelt_host_buffer_is_view_marker(marker).then(|| value.clone()); smelt_host_buffer_view_record(marker, window, buffer, offset) }
         Some(value) => { let source_elements = match value { SmeltUnknown::Array(values) => Some(values.clone().into_vec()), _ => smelt_host_buffer_elements(value) }; match source_elements { Some(source_elements) => match element { Some((kind, _)) => smelt_host_buffer_record(marker, source_elements.iter().flat_map(|item| smelt_host_buffer_encode_element(kind, item)).collect()), None => smelt_host_buffer_record(marker, source_elements) }, None => match smelt_host_buffer_count_argument(Some(value)) { Some(count) => smelt_host_buffer_record(marker, vec![SmeltUnknown::Number(0.0); count * stride]), None => smelt_host_buffer_record(marker, Vec::new()) } } }
         None => smelt_host_buffer_record(marker, Vec::new()),
@@ -1086,21 +1110,6 @@ fn smelt_own_js_map_entries<V: Clone>(map: &SmeltJsMap<SmeltUnknown, V>) -> Vec<
 /// their prefix stripped -- the same order and the same prototype-chain rule as
 /// `smelt_for_in_record_keys`. Symbol keys are never enumerated by `for...in`.
 fn smelt_for_in_js_map_keys<V: Clone>(map: &SmeltJsMap<SmeltUnknown, V>) -> Vec<SmeltUnknown> { let mut keys = Vec::new(); let mut seen = ::std::collections::HashSet::new(); for (key, _) in smelt_own_js_map_entries(map) { if matches!(key, SmeltUnknown::Symbol(_)) { continue; } if let SmeltUnknown::String(text) = &key { if !seen.insert(text.to_string()) { continue; } } keys.push(key); } for key in map.keys() { let SmeltUnknown::String(text) = &key else { continue; }; if let Some(inherited) = text.strip_prefix("__smelt_proto:") { let inherited = inherited.to_owned(); if seen.insert(inherited.clone()) { keys.push(SmeltUnknown::String(inherited.as_str().into())); } } } keys }
-
-/// The symbol value a stored property key denotes, if it is a symbol key.
-fn smelt_key_symbol_value(key: &str) -> Option<SmeltUnknown> { if let Some(description) = key.strip_prefix("__smelt_symbol:") { return Some(SmeltUnknown::Symbol(description.into())); } match key { "__smelt_symbol_iterator" => Some(SmeltUnknown::Symbol("Symbol.iterator".into())), "__smelt_symbol_async_iterator" => Some(SmeltUnknown::Symbol("Symbol.asyncIterator".into())), "__smelt_symbol_has_instance" => Some(SmeltUnknown::Symbol("Symbol.hasInstance".into())), "__smelt_symbol_is_concat_spreadable" => Some(SmeltUnknown::Symbol("Symbol.isConcatSpreadable".into())), "__smelt_symbol_match" => Some(SmeltUnknown::Symbol("Symbol.match".into())), "__smelt_symbol_match_all" => Some(SmeltUnknown::Symbol("Symbol.matchAll".into())), "__smelt_symbol_replace" => Some(SmeltUnknown::Symbol("Symbol.replace".into())), "__smelt_symbol_search" => Some(SmeltUnknown::Symbol("Symbol.search".into())), "__smelt_symbol_species" => Some(SmeltUnknown::Symbol("Symbol.species".into())), "__smelt_symbol_split" => Some(SmeltUnknown::Symbol("Symbol.split".into())), "__smelt_symbol_to_primitive" => Some(SmeltUnknown::Symbol("Symbol.toPrimitive".into())), "__smelt_symbol_to_string_tag" => Some(SmeltUnknown::Symbol("Symbol.toStringTag".into())), "__smelt_symbol_unscopables" => Some(SmeltUnknown::Symbol("Symbol.unscopables".into())), _ => None } }
-
-/// `Reflect.ownKeys` over a string-keyed record: string keys, then symbol keys.
-///
-/// DYNAMIC BOUNDARY: a key is `string | symbol` in the source type of
-/// `Reflect.ownKeys`, and callers discriminate with `typeof`.
-fn smelt_own_keys<V>(record: &SmeltRecord<String, V>) -> Vec<SmeltUnknown> { let mut strings = Vec::new(); let mut symbols = Vec::new(); for key in record.keys() { if let Some(symbol) = smelt_key_symbol_value(&key) { symbols.push(symbol); } else if smelt_is_for_in_record_key(record, &key) && !key.starts_with("__smelt_proto:") { strings.push(SmeltUnknown::String(key.as_str().into())); } } strings.extend(symbols); strings }
-
-/// `Reflect.ownKeys` over an erased object: string keys, then symbol keys.
-fn smelt_own_object_keys(map: &SmeltObject) -> Vec<SmeltUnknown> { let mut strings = Vec::new(); let mut symbols = Vec::new(); for key in map.keys() { if let Some(symbol) = smelt_key_symbol_value(&key) { symbols.push(symbol); } else if smelt_is_for_in_object_key(map, &key) && !key.starts_with("__smelt_proto:") { strings.push(SmeltUnknown::String(key.as_str().into())); } } strings.extend(symbols); strings }
-
-/// `Reflect.ownKeys` over a `SmeltJsMap` backing: string keys, then symbol keys.
-fn smelt_own_js_map_keys<V: Clone>(map: &SmeltJsMap<SmeltUnknown, V>) -> Vec<SmeltUnknown> { let mut strings = Vec::new(); let mut symbols = Vec::new(); for (key, _) in smelt_own_js_map_entries(map) { if matches!(key, SmeltUnknown::Symbol(_)) { symbols.push(key); } else { strings.push(key); } } strings.extend(symbols); strings }
 
 /// Stringify a marker-bearing erased RegExp as JavaScript does: `/source/flags`.
 fn smelt_regexp_literal(map: &SmeltObject) -> String { let source = match map.get("source") { Some(SmeltUnknown::String(source)) => source.to_string(), _ => String::new() }; let flags = match map.get("flags") { Some(SmeltUnknown::String(flags)) => flags.to_string(), _ => String::new() }; format!("/{source}/{flags}") }
@@ -1407,7 +1416,7 @@ fn smelt_unknown_iterator_items(source: SmeltUnknown) -> Vec<SmeltUnknown> { mat
 fn smelt_array_sort_method(values: SmeltArray) -> SmeltUnknown { SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let mut sorted = values.clone().into_vec(); if let Some(SmeltUnknown::Function(compare)) = args.get(0).cloned() { sorted.sort_by(|left, right| { let result = compare(vec![left.clone(), right.clone()]).unwrap_or(SmeltUnknown::Number(0.0)); let ordering = match result { SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(0.0), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, _ => 0.0 }; if ordering < 0.0 { ::std::cmp::Ordering::Less } else if ordering > 0.0 { ::std::cmp::Ordering::Greater } else { ::std::cmp::Ordering::Equal } }); } else { sorted.sort_by(|left, right| left.to_string().cmp(&right.to_string())); } Ok(SmeltUnknown::Array(sorted.into())) })) }
 
 /// Bind `Function.prototype.apply`/`call` on an erased receiver, or read the field of an object receiver.
-fn smelt_function_method(receiver: SmeltUnknown, method: &str) -> SmeltUnknown { match receiver { SmeltUnknown::Function(function) => { let method = method.to_owned(); SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let forwarded: Vec<SmeltUnknown> = if method == "apply" { match args.get(1) { Some(SmeltUnknown::Array(values)) => values.clone().into_vec(), _ => Vec::new() } } else { args.into_iter().skip(1).collect() }; function(forwarded) })) } SmeltUnknown::Object(map) => match smelt_get_object_field(&map, method) { SmeltUnknown::Undefined => match map.get("__smelt_call") { Some(callable @ SmeltUnknown::Function(_)) => smelt_function_method(callable, method), _ => SmeltUnknown::Undefined }, value => value }, _ => SmeltUnknown::Undefined } }
+fn smelt_function_method(receiver: SmeltUnknown, method: &str) -> SmeltUnknown { match receiver { SmeltUnknown::Function(function) => { let method = method.to_owned(); SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let receiver_method = smelt_is_receiver_method(&function); let forwarded: Vec<SmeltUnknown> = if method == "apply" { let mut forwarded = if receiver_method { ::std::vec![args.first().map_or(SmeltUnknown::Undefined, Clone::clone)] } else { Vec::new() }; if let Some(SmeltUnknown::Array(values)) = args.get(1) { forwarded.extend(values.clone().into_vec()); } forwarded } else if receiver_method { args.into_iter().collect() } else { args.into_iter().skip(1).collect() }; function(forwarded) })) } SmeltUnknown::Object(map) => match smelt_get_object_field(&map, method) { SmeltUnknown::Undefined => match map.get("__smelt_call") { Some(callable @ SmeltUnknown::Function(_)) => smelt_function_method(callable, method), _ => SmeltUnknown::Undefined }, value => value }, _ => SmeltUnknown::Undefined } }
 
 /// Unwrap a boxed primitive wrapper (or a Date) to the primitive it holds.
 fn smelt_unbox_primitive(value: SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Object(map) => { if map.contains_key("__smelt_number") || map.contains_key("__smelt_boolean") || map.contains_key("__smelt_string") || map.contains_key("__smelt_symbol") { return map.get("value").unwrap_or(SmeltUnknown::Undefined); } if let Some(millis @ SmeltUnknown::Number(_)) = map.get("__smelt_date") { return millis; } SmeltUnknown::Object(map) }, other => other } }
@@ -1422,10 +1431,6 @@ fn smelt_abort_signal_object(object: &SmeltObject) -> Option<SmeltObject> { if o
 fn smelt_abort_signal_fire(signal: &SmeltObject) { if matches!(signal.get("aborted"), Some(SmeltUnknown::Bool(true))) { return; } signal.insert("aborted".to_owned(), SmeltUnknown::Bool(true)); let listeners = match signal.get("__smelt_abort_listeners") { Some(SmeltUnknown::Array(values)) => values.clone().into_vec(), _ => Vec::new() }; signal.insert("__smelt_abort_listeners".to_owned(), SmeltUnknown::Array(Vec::new().into())); for listener in listeners { if let SmeltUnknown::Function(callback) = listener { let event = SmeltObject::new(Vec::from([("type".to_owned(), SmeltUnknown::String("abort".into()))])); let _ = callback(vec![SmeltUnknown::Object(event)]); } } }
 /// Return an erased AbortController/AbortSignal method bound to its shared record.
 fn smelt_abort_method(object: SmeltObject, method: &str) -> SmeltUnknown { let method = method.to_owned(); SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let signal = smelt_abort_signal_object(&object); match method.as_str() { "abort" | "dispatchEvent" => { if let Some(signal) = signal { smelt_abort_signal_fire(&signal); } Ok(if method == "dispatchEvent" { SmeltUnknown::Bool(true) } else { SmeltUnknown::Undefined }) } "addEventListener" => { if let Some(signal) = signal { let event_type = match args.first() { Some(SmeltUnknown::String(value)) => value.to_string(), _ => String::new() }; if event_type == "abort" { if let Some(listener @ SmeltUnknown::Function(_)) = args.get(1).cloned() { let mut listeners = match signal.get("__smelt_abort_listeners") { Some(SmeltUnknown::Array(values)) => values.into_vec(), _ => Vec::new() }; listeners.push(listener); signal.insert("__smelt_abort_listeners".to_owned(), SmeltUnknown::Array(listeners.into())); } } } Ok(SmeltUnknown::Undefined) } "removeEventListener" => { if let Some(signal) = signal { if let Some(target @ SmeltUnknown::Function(_)) = args.get(1).cloned() { let listeners: Vec<SmeltUnknown> = match signal.get("__smelt_abort_listeners") { Some(SmeltUnknown::Array(values)) => values.into_vec(), _ => Vec::new() }.into_iter().filter(|listener| !listener.js_strict_eq(&target)).collect(); signal.insert("__smelt_abort_listeners".to_owned(), SmeltUnknown::Array(listeners.into())); } } Ok(SmeltUnknown::Undefined) } _ => Ok(SmeltUnknown::Undefined) } })) }
-
-/// The synthesized host method a member read resolves to, if the object
-/// carries a host marker and has no OWN member of that name.
-fn smelt_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if object.contains_key(name) { return None; } if (object.contains_key("__smelt_abortcontroller") || object.contains_key("__smelt_abortsignal")) && matches!(name, "abort" | "addEventListener" | "removeEventListener" | "dispatchEvent" | "throwIfAborted") { return Some(smelt_abort_method(object.clone(), name)); } None }
 
 pub enum SmeltUnknown {
     Null,
@@ -1510,15 +1515,25 @@ fn smelt_symbol_property_key(description: &str) -> String { match description { 
 
 fn smelt_property_key(value: SmeltUnknown) -> String { match value { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => smelt_symbol_property_key(&value), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Array(values) => values.into_vec().into_iter().map(smelt_property_key).collect::<Vec<_>>().join(","), SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() } }
 
+/// Whether an erased Map entry (a `[key, value]` pair) is keyed by `key`.
+fn smelt_map_entry_key_is(entry: &SmeltUnknown, key: &SmeltUnknown) -> bool {
+    let SmeltUnknown::Array(pair) = entry else { return false };
+    pair.get(0).is_some_and(|entry_key| entry_key.same_js_key(key))
+}
+
 fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {
     if field == "name" && !map.contains_key("name") && let Some(SmeltUnknown::String(class_name)) = map.get("__smelt_error") { return SmeltUnknown::String(class_name); }
     if field == "constructor" && !map.contains_key("constructor") && let Some(SmeltUnknown::String(class_name)) = map.get("__smelt_class") { return smelt_class_constructor(class_name.to_string()); }
     if let Some(element) = smelt_host_buffer_element(map, field) { return element; }
     if field == "constructor" && !map.contains_key("constructor") && let Some(class) = smelt_marker_constructor_class(map) { return smelt_builtin_namespace(class); }
     if map.contains_key("__smelt_global_object") && !map.contains_key(field) && smelt_builtin_construct_kind(field).is_some() { return smelt_builtin_namespace(field); }
+    if !map.contains_key(field) && let Some(SmeltUnknown::String(text)) = map.get("__smelt_string").and(map.get("value")) { if field == "length" { return SmeltUnknown::Number(text.chars().count() as f64); } if let Ok(index) = field.parse::<usize>() { return text.chars().nth(index).map_or(SmeltUnknown::Undefined, |character| SmeltUnknown::String(character.to_string().into())); } }
+    if !map.contains_key(field) && let Some(SmeltUnknown::String(class)) = map.get("__smelt_builtin_namespace").and(map.get("name")) { if field == "prototype" { return smelt_builtin_prototype_object(&class); } if let Some(member) = smelt_builtin_member_value(&class, "static", field) { return member; } }
+    if let Some(SmeltUnknown::String(class)) = map.get("__smelt_builtin_prototype") && let Some(member) = smelt_builtin_member_value(&class, "prototype", field) { return member; }
     if field == "size" && let Some(SmeltUnknown::Array(pairs)) = map.get("__smelt_map") { return SmeltUnknown::Number(pairs.len() as f64); }
     if field == "size" && let Some(SmeltUnknown::Array(members)) = map.get("__smelt_set") { return SmeltUnknown::Number(members.len() as f64); }
     if let Some(SmeltUnknown::Array(pairs)) = map.get("__smelt_map") {
+        let entry_store = pairs.clone();
         let pairs = pairs.into_vec();
         let entry_at = |pair: &SmeltUnknown| -> Option<(SmeltUnknown, SmeltUnknown)> { let SmeltUnknown::Array(entry) = pair else { return None }; let mut entry = entry.clone().into_vec().into_iter(); match (entry.next(), entry.next()) { (Some(key), Some(value)) => Some((key, value)), _ => None } };
         let entries = pairs.iter().filter_map(entry_at).collect::<Vec<_>>();
@@ -1529,6 +1544,9 @@ fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {
             "get" => { let entries = entries.clone(); return SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let needle = args.into_iter().next().unwrap_or(SmeltUnknown::Undefined); Ok(entries.iter().find(|(key, _)| key.same_js_key(&needle)).map_or(SmeltUnknown::Undefined, |(_, value)| value.clone())) })); }
             "has" => { let entries = entries.clone(); return SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let needle = args.into_iter().next().unwrap_or(SmeltUnknown::Undefined); Ok(SmeltUnknown::Bool(entries.iter().any(|(key, _)| key.same_js_key(&needle)))) })); }
             "forEach" => { let entries = entries.clone(); let receiver = SmeltUnknown::Object(map.clone()); return SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { if let Some(SmeltUnknown::Function(callback)) = args.into_iter().next() { for (key, value) in entries.clone() { callback(vec![value, key, receiver.clone()])?; } } Ok(SmeltUnknown::Undefined) })); }
+            "set" => { let store = entry_store.clone(); let receiver = SmeltUnknown::Object(map.clone()); return SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let mut args = args.into_iter(); let key = args.next().unwrap_or(SmeltUnknown::Undefined); let value = args.next().unwrap_or(SmeltUnknown::Undefined); let existing = store.iter().position(|pair| smelt_map_entry_key_is(&pair, &key)); let entry = SmeltUnknown::Array(vec![key, value].into()); match existing { Some(index) => store.set_index(index, entry), None => store.push(entry) } Ok(receiver.clone()) })); }
+            "delete" => { let store = entry_store.clone(); return SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let needle = args.into_iter().next().unwrap_or(SmeltUnknown::Undefined); let kept = store.iter().filter(|pair| !smelt_map_entry_key_is(pair, &needle)).collect::<Vec<_>>(); let removed = kept.len() != store.len(); store.replace_all(kept); Ok(SmeltUnknown::Bool(removed)) })); }
+            "clear" => { let store = entry_store.clone(); return SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| { store.replace_all(Vec::new()); Ok(SmeltUnknown::Undefined) })); }
             _ => {}
         }
     }
@@ -1583,6 +1601,77 @@ fn smelt_object_prototype_member(field: &str) -> Option<SmeltUnknown> {
         _ => return None,
     };
     Some(SMELT_OBJECT_PROTOTYPE_MEMBERS.with(|members| members.borrow_mut().entry(key).or_insert_with(|| { let function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| Ok(smelt_object_prototype_apply(key, args))); smelt_link_function_identity_key(&function, smelt_method_identity(key)); SmeltUnknown::Function(function) }).clone()))
+}
+
+/// Every modeled builtin member: `(class, kind, member, length, key)`.
+const SMELT_BUILTIN_MEMBERS: [(&str, &str, &str, f64, &'static str); 7] = [("Array", "prototype", "slice", 2.0, "Array.prototype.slice"), ("Array", "prototype", "concat", 1.0, "Array.prototype.concat"), ("Array", "prototype", "indexOf", 1.0, "Array.prototype.indexOf"), ("Array", "prototype", "lastIndexOf", 1.0, "Array.prototype.lastIndexOf"), ("Array", "prototype", "includes", 1.0, "Array.prototype.includes"), ("Array", "prototype", "join", 1.0, "Array.prototype.join"), ("Array", "static", "isArray", 1.0, "Array.isArray")];
+/// Look one modeled builtin member up, returning its `length` and dispatch key.
+fn smelt_builtin_member_entry(class: &str, kind: &str, member: &str) -> Option<(f64, &'static str)> { SMELT_BUILTIN_MEMBERS.into_iter().find(|(entry_class, entry_kind, entry_member, _, _)| *entry_class == class && *entry_kind == kind && *entry_member == member).map(|(_, _, _, length, key)| (length, key)) }
+
+/// The interned value of `<Builtin>.prototype`.
+///
+/// JavaScript has exactly one prototype object per builtin, so the record is
+/// cached by class name: `Array.prototype === Array.prototype` holds, and a
+/// member read off it resolves through the modeled-member registry. The record
+/// carries only the marker, so it never enumerates as data.
+thread_local! { static SMELT_BUILTIN_PROTOTYPES: ::std::cell::RefCell<::std::collections::HashMap<String, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
+fn smelt_builtin_prototype_object(class: &str) -> SmeltUnknown { SMELT_BUILTIN_PROTOTYPES.with(|cache| cache.borrow_mut().entry(class.to_owned()).or_insert_with(|| SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_builtin_prototype".to_owned(), SmeltUnknown::String(class.into()))])))).clone()) }
+
+/// Callables that consume their receiver as the leading argument.
+///
+/// A prototype method's `this` is its receiver, and Smelt passes it as the
+/// first argument. `Function.prototype.call`/`.apply` drop the receiver for an
+/// ordinary erased callable (which has no `this` channel), so they must not do
+/// that for these: membership here is the difference.
+thread_local! { static SMELT_RECEIVER_METHODS: ::std::cell::RefCell<::std::collections::HashSet<usize>> = ::std::cell::RefCell::new(::std::collections::HashSet::new()); }
+fn smelt_register_receiver_method<T: ?Sized + 'static>(function: &::std::rc::Rc<T>) { let key = smelt_retain_callable_key(function); SMELT_RECEIVER_METHODS.with(|methods| { methods.borrow_mut().insert(key); }); }
+fn smelt_is_receiver_method<T: ?Sized + 'static>(function: &::std::rc::Rc<T>) -> bool { let key = smelt_retain_callable_key(function); SMELT_RECEIVER_METHODS.with(|methods| methods.borrow().contains(&key)) }
+
+/// Read a modeled member off a builtin, or `None` when it is not modeled.
+///
+/// The callable is interned per member so two reads are the same function
+/// value, carries the member's JavaScript `length`, and gets the member's key
+/// as its identity — the same treatment `Object.prototype`'s members get.
+thread_local! { static SMELT_BUILTIN_MEMBER_VALUES: ::std::cell::RefCell<::std::collections::HashMap<&'static str, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
+fn smelt_builtin_member_value(class: &str, kind: &str, member: &str) -> Option<SmeltUnknown> {
+    let (length, key) = smelt_builtin_member_entry(class, kind, member)?;
+    let receiver_method = kind == "prototype";
+    Some(SMELT_BUILTIN_MEMBER_VALUES.with(|values| values.borrow_mut().entry(key).or_insert_with(|| { let function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| Ok(smelt_builtin_member_apply(key, args))); smelt_link_function_identity_key(&function, smelt_method_identity(key)); smelt_register_function_length(&function, length); if receiver_method { smelt_register_receiver_method(&function); } SmeltUnknown::Function(function) }).clone()))
+}
+
+/// The receiver of a `String.prototype` method as a Rust string.
+///
+/// A boxed `String` object unboxes first, so `new String('ab')` and `'ab'`
+/// behave the same through a prototype method, as they do in JavaScript.
+fn smelt_builtin_receiver_text(value: &SmeltUnknown) -> String { match smelt_unbox_primitive(value.clone()) { SmeltUnknown::String(text) => text.to_string(), other => other.to_string() } }
+/// The receiver of an `Array.prototype` method as its element vector.
+fn smelt_builtin_receiver_elements(value: &SmeltUnknown) -> Option<Vec<SmeltUnknown>> { match value { SmeltUnknown::Array(values) => Some(values.clone().into_vec()), _ => None } }
+/// Resolve a JavaScript relative index argument against a length.
+///
+/// `undefined` takes the caller's default, a negative counts from the end, and
+/// anything past either end clamps — the `slice` index rules, shared by the
+/// string and array arms so they cannot drift apart.
+fn smelt_builtin_relative_index(value: &SmeltUnknown, len: usize, default: usize) -> usize { match value { SmeltUnknown::Undefined => default, other => { let raw = match other { SmeltUnknown::Number(value) => *value, _ => 0.0 }; if raw.is_nan() { 0 } else if raw < 0.0 { let from_end = len as f64 + raw; if from_end < 0.0 { 0 } else { from_end as usize } } else { (raw as usize).min(len) } } } }
+
+/// Apply one modeled builtin member to its arguments.
+///
+/// For a prototype method the leading argument is the receiver; for a static
+/// function there is no receiver and the arguments start at index zero. Every
+/// arm is keyed by the registry's dispatch key, so adding a member is a table
+/// entry plus its arm and nothing else.
+fn smelt_builtin_member_apply(key: &str, args: Vec<SmeltUnknown>) -> SmeltUnknown {
+    let receiver = args.first().map_or(SmeltUnknown::Undefined, Clone::clone);
+    let first = args.get(1).map_or(SmeltUnknown::Undefined, Clone::clone);
+    let second = args.get(2).map_or(SmeltUnknown::Undefined, Clone::clone);
+    match key {
+        "Array.prototype.slice" => match smelt_builtin_receiver_elements(&receiver) { Some(values) => { let len = values.len(); let start = smelt_builtin_relative_index(&first, len, 0); let end = smelt_builtin_relative_index(&second, len, len); SmeltUnknown::Array(values.into_iter().skip(start).take(end.saturating_sub(start)).collect::<Vec<_>>().into()) } None => SmeltUnknown::Undefined }
+        "Array.prototype.concat" => match smelt_builtin_receiver_elements(&receiver) { Some(values) => { let mut result = values; for argument in args.into_iter().skip(1) { match argument { SmeltUnknown::Array(items) => result.extend(items.into_vec()), other => result.push(other) } } SmeltUnknown::Array(result.into()) } None => SmeltUnknown::Undefined }
+        "Array.prototype.indexOf" | "Array.prototype.lastIndexOf" => match smelt_builtin_receiver_elements(&receiver) { Some(values) => { let mut found: f64 = -1.0; for (index, item) in values.iter().enumerate() { if item.same_js_key(&first) { found = index as f64; if key == "Array.prototype.indexOf" { break; } } } SmeltUnknown::Number(found) } None => SmeltUnknown::Undefined }
+        "Array.prototype.includes" => match smelt_builtin_receiver_elements(&receiver) { Some(values) => SmeltUnknown::Bool(values.iter().any(|item| item.same_js_key(&first))), None => SmeltUnknown::Undefined }
+        "Array.prototype.join" => match smelt_builtin_receiver_elements(&receiver) { Some(values) => { let separator = match &first { SmeltUnknown::Undefined => ",".to_owned(), other => smelt_builtin_receiver_text(other) }; SmeltUnknown::String(values.into_iter().map(|item| match item { SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), other => smelt_builtin_receiver_text(&other) }).collect::<Vec<_>>().join(&separator).into()) } None => SmeltUnknown::Undefined }
+        "Array.isArray" => SmeltUnknown::Bool(matches!(receiver, SmeltUnknown::Array(_))),
+        _ => SmeltUnknown::Undefined,
+    }
 }
 
 /// Read a property off an erased JavaScript array (`arr.k` / `arr[k]`).
@@ -2129,52 +2218,6 @@ impl SmeltFromUnknown for Counter {
 
 thread_local! { static SMELT_REGEX_CACHE: ::std::cell::RefCell<::std::collections::HashMap<String, ::std::option::Option<::std::rc::Rc<fancy_regex::Regex>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 
-/// Expand one JavaScript replacement pattern against a match (ECMA-262 `GetSubstitution`).
-///
-/// `$$` is a literal `$`, `$&` the match, `` $` `` and `$'` the text before
-/// and after it, `$n`/`$nn` a numbered group (two digits preferred when that
-/// group exists), `$<name>` a named group. Anything else, including a `$n`
-/// past the last group, is left exactly as written.
-fn smelt_regex_substitution(replacement: &str, haystack: &str, captures: &fancy_regex::Captures<'_>) -> String {
-    let Some(whole) = captures.get(0) else { return replacement.to_owned(); };
-    let chars: Vec<char> = replacement.chars().collect();
-    let mut out = String::with_capacity(replacement.len());
-    let mut index = 0usize;
-    while let Some(&ch) = chars.get(index) {
-        if ch != '$' { out.push(ch); index = index.saturating_add(1); continue; }
-        match chars.get(index.saturating_add(1)) {
-            Some('$') => { out.push('$'); index = index.saturating_add(2); }
-            Some('&') => { out.push_str(whole.as_str()); index = index.saturating_add(2); }
-            Some('`') => { out.push_str(haystack.get(..whole.start()).unwrap_or("")); index = index.saturating_add(2); }
-            Some('\'') => { out.push_str(haystack.get(whole.end()..).unwrap_or("")); index = index.saturating_add(2); }
-            Some('<') => {
-                let open = index.saturating_add(2);
-                match (open..chars.len()).find(|position| chars.get(*position) == Some(&'>')) {
-                    Some(close) => {
-                        let name: String = chars.get(open..close).unwrap_or_default().iter().collect();
-                        if let Some(group) = captures.name(&name) { out.push_str(group.as_str()); }
-                        index = close.saturating_add(1);
-                    }
-                    None => { out.push('$'); index = index.saturating_add(1); }
-                }
-            }
-            Some(digit) if digit.is_ascii_digit() => {
-                let first = digit.to_digit(10).unwrap_or(0) as usize;
-                let second = chars.get(index.saturating_add(2)).and_then(|next| next.to_digit(10));
-                let two_digit = second.map(|value| first.saturating_mul(10).saturating_add(value as usize));
-                let total = captures.len();
-                let selected = match two_digit { Some(group) if group >= 1 && group < total => Some((group, 3usize)), _ => if first >= 1 && first < total { Some((first, 2usize)) } else { None } };
-                match selected {
-                    Some((group, width)) => { if let Some(matched) = captures.get(group) { out.push_str(matched.as_str()); } index = index.saturating_add(width); }
-                    None => { out.push('$'); index = index.saturating_add(1); }
-                }
-            }
-            _ => { out.push('$'); index = index.saturating_add(1); }
-        }
-    }
-    out
-}
-
 #[derive(Clone, Debug)]
 pub struct SmeltRegExp {
     id: usize,
@@ -2195,14 +2238,8 @@ impl SmeltRegExp {
         self.flags.chars().any(|value| value == flag)
     }
     /// Compile the Rust regex equivalent for this JavaScript RegExp.
-    ///
-    /// A pattern that does not compile is a hard error naming the original
-    /// JavaScript spelling. Every RegExp operation goes through here for
-    /// that reason: the alternative -- returning the haystack unchanged, as
-    /// `replace`/`split`/`matchAll` used to -- turned an untranslated
-    /// pattern into a silent no-op that looked like a passing program.
     fn compiled(&self) -> ::std::rc::Rc<fancy_regex::Regex> {
-        match self.try_compiled() { Some(regex) => regex, None => panic!("SyntaxError: invalid regular expression: /{}/{}", self.source, self.flags) }
+        self.try_compiled().expect("regex compile failed")
     }
     /// Try to compile the Rust regex equivalent for this JavaScript RegExp.
     ///
@@ -2226,7 +2263,7 @@ impl SmeltRegExp {
     }
     /// Match a string with JavaScript String.prototype.match semantics.
     pub fn match_string(&self, haystack: &str) -> Option<Vec<String>> {
-        let regex = self.compiled();
+        let regex = self.try_compiled()?;
         if self.has_flag('g') {
             let matches = regex.find_iter(haystack).filter_map(Result::ok).map(|value| value.as_str().to_owned()).collect::<Vec<_>>();
             if matches.is_empty() { None } else { Some(matches) }
@@ -2238,31 +2275,29 @@ impl SmeltRegExp {
     }
     /// Split a string with JavaScript RegExp separator semantics.
     pub fn split_string(&self, haystack: &str) -> Vec<String> {
-        let regex = self.compiled();
+        let Some(regex) = self.try_compiled() else { return vec![haystack.to_owned()]; };
         regex.split(haystack).filter_map(Result::ok).map(str::to_owned).collect::<Vec<_>>()
     }
     /// Replace matches with JavaScript RegExp-aware String.prototype.replace semantics.
-    ///
-    /// The replacement string is a PATTERN, not literal text: `$&`, `` $` ``,
-    /// `$'`, `$$`, `$n` and `$<name>` all stand for parts of the match (see
-    /// `smelt_regex_substitution`). It is expanded per match, which is why
-    /// this walks `captures_iter` rather than `find_iter`. The global and
-    /// single-replacement cases are one loop that stops after the first
-    /// match, so the two cannot disagree about the expansion.
     pub fn replace_string(&self, haystack: &str, replacement: &str, force_all: bool) -> String {
-        let regex = self.compiled();
+        let Some(regex) = self.try_compiled() else { return haystack.to_owned(); };
         let replace_all = force_all || self.has_flag('g');
-        let mut output = String::new();
-        let mut last_end = 0usize;
-        for captures in regex.captures_iter(haystack).filter_map(Result::ok) {
-            let Some(matched) = captures.get(0) else { continue; };
-            output.push_str(haystack.get(last_end..matched.start()).unwrap_or(""));
-            output.push_str(&smelt_regex_substitution(replacement, haystack, &captures));
-            last_end = matched.end();
-            if !replace_all { break; }
+        if replace_all {
+            let mut output = String::new();
+            let mut last_end = 0usize;
+            for matched in regex.find_iter(haystack).filter_map(Result::ok) {
+                output.push_str(&haystack[last_end..matched.start()]);
+                output.push_str(replacement);
+                last_end = matched.end();
+            }
+            output.push_str(&haystack[last_end..]);
+            output
         }
-        output.push_str(haystack.get(last_end..).unwrap_or(""));
-        output
+        else if let Ok(Some(matched)) = regex.find(haystack) {
+            format!("{}{}{}", &haystack[..matched.start()], replacement, &haystack[matched.end()..])
+        } else {
+            haystack.to_owned()
+        }
     }
     /// Execute this RegExp and return a concrete `SmeltMatch` result.
     ///
@@ -2282,7 +2317,7 @@ impl SmeltRegExp {
     }
     /// Return concrete `SmeltMatch` results for String.prototype.matchAll.
     pub fn match_all_indices(&self, haystack: &str) -> Vec<SmeltMatch> {
-        let regex = self.compiled();
+        let Some(regex) = self.try_compiled() else { return Vec::new(); };
         regex.captures_iter(haystack).filter_map(Result::ok).filter_map(|captures| {
             let matched = captures.get(0)?;
             Some(SmeltMatch::from_captures(&regex, &captures, matched.start(), haystack))

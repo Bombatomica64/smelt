@@ -334,6 +334,23 @@ impl ModuleBuilder<'_> {
                     .ok()
                     .and_then(|index| body.locals.get(index))
                 {
+                    // A capture is normally by reference: the value is already
+                    // in the local when the closure is built, so a clone of it
+                    // is the value the closure observes forever. A binding this
+                    // closure READS BEFORE ITS DECLARATION is the one shape
+                    // where that is wrong -- the slot is still empty at capture
+                    // time and the declaration fills it later -- so it is
+                    // captured through the shared cell instead, exactly as an
+                    // assigned capture is.
+                    let mode = if local_decl
+                        .name
+                        .and_then(|symbol| self.ctx.krate.symbols.get(symbol))
+                        .is_some_and(|name| self.forward_referenced_locals.contains(name))
+                    {
+                        CaptureMode::ByMut
+                    } else {
+                        CaptureMode::ByRef
+                    };
                     captures.entry(*local).or_insert_with(|| ClosureCapture {
                         source_local: *local,
                         body_local: None,
@@ -341,7 +358,7 @@ impl ModuleBuilder<'_> {
                             .name
                             .unwrap_or_else(|| self.ctx.krate.symbols.intern("__capture")),
                         ty: local_decl.ty,
-                        mode: CaptureMode::ByRef,
+                        mode,
                     });
                 }
             }

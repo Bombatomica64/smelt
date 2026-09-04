@@ -3004,23 +3004,37 @@ impl ModuleBuilder<'_> {
         captures.iter().any(|capture| capture == name)
     }
 
-    /// Predeclare function-local callable bindings before statement lowering.
+    /// Predeclare function-local bindings an earlier statement already reads.
     ///
-    /// JavaScript closures can reference `const` arrow callbacks declared later
-    /// in the same function body, and a callback passed into a callable factory
-    /// can reference the binding receiving that factory's result. Smelt still
-    /// lowers statements in source order, so this pass reserves required locals
-    /// first; declaration lowering later fills in the runtime value.
-    pub(in crate::lowering) fn predeclare_local_arrow_callbacks(
+    /// Smelt lowers statements in source order, but JavaScript execution order
+    /// is not source order: any function body runs when it is CALLED, so a
+    /// closure written before a `const`/`let` may legitimately read it. Three
+    /// shapes reach that:
+    ///
+    /// * a `const` arrow callback another closure in the same body calls;
+    /// * an initializer that mentions the binding receiving its own result
+    ///   (`const recursive = wrap(() => recursive())`);
+    /// * any `const`/`let` a closure in an EARLIER statement of this same list
+    ///   captures -- `const abort = () => clearTimeout(id); const id = setTimeout(..)`,
+    ///   the shape es-toolkit's `timeout` uses to disarm its own timer. Without
+    ///   the reservation the earlier read found no binding and fell through to
+    ///   the module-global fallback, which FABRICATED an empty object for an
+    ///   `unknown` type: `clearTimeout({})` cleared nothing, silently.
+    ///
+    /// This pass reserves the local; declaration lowering later fills in the
+    /// runtime value, and the earlier closure captures it through the ordinary
+    /// shared-cell capture path.
+    pub(in crate::lowering) fn predeclare_forward_referenced_locals(
         &mut self,
         statements: &[Statement<'_>],
         body: &mut Body,
     ) -> Result<(), SmeltError> {
-        for statement in statements {
+        for (index, statement) in statements.iter().enumerate() {
             let Statement::VariableDeclaration(decl) = statement else {
                 continue;
             };
-            if decl.kind != oxc::ast::ast::VariableDeclarationKind::Const {
+            let is_const = decl.kind == oxc::ast::ast::VariableDeclarationKind::Const;
+            if !is_const && decl.kind != oxc::ast::ast::VariableDeclarationKind::Let {
                 continue;
             }
             for declarator in &decl.declarations {
@@ -3030,14 +3044,26 @@ impl ModuleBuilder<'_> {
                 let Some(initializer) = &declarator.init else {
                     continue;
                 };
-                let is_deferred_self_binding = self
-                    .initializer_needs_deferred_self_binding(initializer, binding.name.as_str());
-                let direct_arrow = if let Expression::ArrowFunctionExpression(arrow) = initializer {
-                    Some(arrow)
-                } else {
-                    None
+                // The `const`-only shapes: an arrow value, and a self-mentioning
+                // initializer. A `let` is reserved only for a genuine forward
+                // read, where the reservation is what makes the program lower at
+                // all.
+                let is_deferred_self_binding = is_const
+                    && self.initializer_needs_deferred_self_binding(
+                        initializer,
+                        binding.name.as_str(),
+                    );
+                let direct_arrow = match initializer {
+                    Expression::ArrowFunctionExpression(arrow) if is_const => Some(arrow),
+                    _ => None,
                 };
-                if direct_arrow.is_none() && !is_deferred_self_binding {
+                let read_earlier = direct_arrow.is_none()
+                    && !is_deferred_self_binding
+                    && self.name_is_read_by_earlier_statement(
+                        binding.name.as_str(),
+                        &statements[..index],
+                    );
+                if direct_arrow.is_none() && !is_deferred_self_binding && !read_earlier {
                     continue;
                 }
                 if self.scope.is_bound(binding.name.as_str()) {
@@ -3072,13 +3098,52 @@ impl ModuleBuilder<'_> {
                 let local = body.push_local(LocalDecl {
                     name: Some(symbol),
                     ty,
-                    mutable: false,
+                    mutable: !is_const,
                     span: self.span(binding.span.start, binding.span.end),
                 });
                 self.scope.bind(binding.name.as_str().to_owned(), local);
+                if read_earlier {
+                    // The declaration must write into THIS slot: a second local
+                    // would leave the earlier capture reading a slot nothing
+                    // ever assigns. The arrow and self-binding shapes are
+                    // already routed there by their own declaration paths.
+                    self.forward_referenced_locals
+                        .insert(binding.name.as_str().to_owned());
+                }
             }
         }
         Ok(())
+    }
+
+    /// Return whether an earlier statement in this list already reads `name`.
+    ///
+    /// TypeScript rejects a plain use-before-declaration of a block-scoped
+    /// binding, so an earlier reference that compiles is necessarily inside a
+    /// function or arrow body -- deferred code that runs after the declaration
+    /// has executed. The existing capture walk answers it: it reports only
+    /// names that are BOUND, so the candidate is bound to a sentinel for the
+    /// walk and the binding is restored afterwards, exactly as
+    /// `initializer_needs_deferred_self_binding` does for the self-reference
+    /// shape.
+    fn name_is_read_by_earlier_statement(
+        &mut self,
+        name: &str,
+        earlier: &[Statement<'_>],
+    ) -> bool {
+        if earlier.is_empty() {
+            return false;
+        }
+        let previous = self.scope.bind(name.to_owned(), smelt_hir::LocalId(u32::MAX));
+        let mut captures = Vec::new();
+        for statement in earlier {
+            self.collect_statement_capture_names(statement, &HashSet::new(), &mut captures);
+        }
+        if let Some(previous) = previous {
+            self.scope.bind(name.to_owned(), previous);
+        } else {
+            self.scope.unbind(name);
+        }
+        captures.iter().any(|capture| capture == name)
     }
 
     /// Predeclare nested function declarations before source-order statement lowering.
@@ -3287,10 +3352,25 @@ impl ModuleBuilder<'_> {
                 .as_ref()
                 .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                 .transpose()?;
+            // Both shapes assign into a local reserved before this statement
+            // list was lowered: an initializer that mentions its own binding,
+            // and a binding a closure in an earlier statement already reads.
+            let reserved_forward_local = if let BindingPattern::BindingIdentifier(binding) =
+                &declarator.id
+            {
+                self.forward_referenced_locals.remove(binding.name.as_str())
+            } else {
+                false
+            };
             let deferred_self_local = if let BindingPattern::BindingIdentifier(binding) =
                 &declarator.id
-                && let Some(initializer) = &declarator.init
-                && self.initializer_needs_deferred_self_binding(initializer, binding.name.as_str())
+                && (reserved_forward_local
+                    || declarator.init.as_ref().is_some_and(|initializer| {
+                        self.initializer_needs_deferred_self_binding(
+                            initializer,
+                            binding.name.as_str(),
+                        )
+                    }))
             {
                 self.local_arrow_existing_body_local(binding.name.as_str(), body)
             } else {
