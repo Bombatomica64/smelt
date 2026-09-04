@@ -9109,6 +9109,42 @@ it("asserts calls", () => {
 }
 
 #[test]
+fn a_call_assertion_about_a_non_mock_actual_is_false() {
+    // The mock matchers used to answer `true` for an actual carrying no
+    // `__smelt_vitest_mock` marker, back when `vi.spyOn` lowered to a plain
+    // placeholder and failing it would have failed suites Smelt could not model.
+    // A spy is a real mock now, so the honest answer is the one JavaScript
+    // implies: a value that is not a mock has recorded no calls, so it was not
+    // called with anything and its last result resolved to nothing. Only
+    // `toHaveBeenCalledTimes(0)` still holds.
+    let source = source_for(
+        r#"
+import { expect, it, vi } from "vitest";
+
+it("asserts calls", () => {
+  const spy = vi.fn();
+  spy(1);
+  expect(spy).toHaveBeenCalledTimes(1);
+});
+"#,
+    );
+    assert!(
+        source.contains(
+            "fn smelt_vitest_mock_called_times(value: &SmeltUnknown, expected: f64) -> bool { match smelt_vitest_mock_state(value) { Some(state) => state.borrow().calls.len() as f64 == expected, None => expected == 0.0 } }"
+        ),
+        "a non-mock has zero recorded calls: {source}"
+    );
+    assert!(
+        !source.contains("state.calls.iter().any(call_matches) } }, None => true } }"),
+        "a non-mock must not satisfy toHaveBeenCalledWith: {source}"
+    );
+    assert!(
+        source.contains("state.calls.iter().any(call_matches) } }, None => false } }"),
+        "a non-mock must not satisfy toHaveBeenCalledWith: {source}"
+    );
+}
+
+#[test]
 fn vitest_last_called_with_lowers_to_last_call_check() {
     // `toHaveBeenLastCalledWith` compares only the most recent recorded call,
     // so it lowers to `smelt_vitest_mock_called_with(.., last=true)`.
