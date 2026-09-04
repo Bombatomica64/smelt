@@ -1684,7 +1684,7 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
-            ExprKind::DictContainsKey { dict, key } => {
+            ExprKind::DictContainsKey { dict, key, lookup } => {
                 let dict_operand = self.lower_expr(*dict)?;
                 let key_operand = self.lower_expr(*key)?;
                 self.assign_temp(
@@ -1693,6 +1693,7 @@ impl LoweringCtx<'_> {
                     Rvalue::DictContainsKey {
                         dict: dict_operand,
                         key: key_operand,
+                        lookup: *lookup,
                     },
                 )?
             }

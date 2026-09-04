@@ -16,7 +16,7 @@ pub use call::{
 };
 pub use control_flow::AsyncOp;
 pub use core::Expr;
-pub use kinds::{ExprKind, GeneratorResumeKind, ListSpliceItem};
+pub use kinds::{ExprKind, GeneratorResumeKind, ListSpliceItem, PropertyLookup};
 pub use literals::{Literal, UnknownKind};
 pub use ops::{
     BoolFoldOp, DatePart, DictProjectionOp, ListCallbackOp, ListProjectionOp, ListSearchOp,

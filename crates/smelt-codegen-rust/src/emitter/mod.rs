@@ -13,7 +13,7 @@ use crate::rust::RustType;
 use crate::type_substitution::{Resolved, TypeSubstitution};
 use crate::{EmitError, compact_index, id_index, sanitize_ident};
 use literals::{operand_local, operand_mutation_root};
-use smelt_hir::{FileId, Span, Symbol, Type, TypeId};
+use smelt_hir::{FileId, PropertyLookup, Span, Symbol, Type, TypeId};
 use smelt_mir::{
     BasicBlock, BuiltinFn, Callee, Constant, FuncId, HirOrigin, LocalDecl, LocalId, LocalKind, Mir,
     MirClass, MirClosure, MirDescriptor, MirField, MirFunction, MirListSpliceItem, NegativeIndex,

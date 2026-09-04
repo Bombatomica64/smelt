@@ -1667,7 +1667,7 @@ fn smelt_object_prototype_apply(key: &str, args: Vec<SmeltUnknown>) -> SmeltUnkn
     match key {
         "Object.prototype.toString" | "Object.prototype.toLocaleString" => SmeltUnknown::String(smelt_object_to_string_tag(&receiver).into()),
         "Object.prototype.valueOf" => smelt_unbox_primitive(receiver),
-        "Object.prototype.hasOwnProperty" | "Object.prototype.propertyIsEnumerable" => { let key = smelt_property_key(args.next().unwrap_or(SmeltUnknown::Undefined)); SmeltUnknown::Bool(match receiver { SmeltUnknown::Object(map) => map.contains_key(&key), SmeltUnknown::Array(values) => values.own_keys().contains(&key), _ => false }) }
+        "Object.prototype.hasOwnProperty" | "Object.prototype.propertyIsEnumerable" => { let key = smelt_property_key(args.next().unwrap_or(SmeltUnknown::Undefined)); SmeltUnknown::Bool(smelt_has_own_property(&receiver, &key)) }
         _ => SmeltUnknown::Bool(false),
     }
 }
@@ -1772,6 +1772,28 @@ fn smelt_get_unknown_field(value: &SmeltUnknown, field: &str) -> SmeltUnknown {
         SmeltUnknown::String(marker) if &**marker == "__smelt_proto:object" => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined),
         SmeltUnknown::Function(function) => match smelt_function_value_property(function, field) { SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },
         _ => SmeltUnknown::Undefined,
+    }
+}
+
+/// Whether a boxed-`String` wrapper answers `key` as one of its OWN properties.
+fn smelt_boxed_string_own_property(map: &SmeltObject, key: &str) -> bool { let Some(SmeltUnknown::String(text)) = map.get("__smelt_string").and(map.get("value")) else { return false; }; key == "length" || key.parse::<usize>().is_ok_and(|index| index < text.chars().count()) }
+/// Whether `value` has `key` as an own property (JS `Object.hasOwn`).
+fn smelt_has_own_property(value: &SmeltUnknown, key: &str) -> bool {
+    match value {
+        SmeltUnknown::Object(map) => map.contains_key(key) || smelt_host_buffer_element(map, key).is_some() || smelt_boxed_string_own_property(map, key),
+        SmeltUnknown::Array(values) => key == "length" || values.named_keys().contains(&key.to_owned()) || key.parse::<usize>().is_ok_and(|index| index < values.len()),
+        SmeltUnknown::String(text) => key == "length" || key.parse::<usize>().is_ok_and(|index| index < text.chars().count()),
+        _ => false,
+    }
+}
+
+/// Whether `value` has `key` as an own OR inherited property (JS `key in value`).
+fn smelt_has_property(value: &SmeltUnknown, key: &str) -> bool {
+    if smelt_has_own_property(value, key) { return true; }
+    match value {
+        SmeltUnknown::Object(map) => ((map.contains_key("__smelt_map") || map.contains_key("__smelt_set")) && key == "size") || smelt_object_prototype_member(key).is_some(),
+        SmeltUnknown::Array(_) | SmeltUnknown::String(_) => key == "__smelt_symbol_iterator" || smelt_object_prototype_member(key).is_some(),
+        _ => false,
     }
 }
 
@@ -2310,6 +2332,9 @@ impl SmeltFromUnknown for Counter {
 
 thread_local! { static SMELT_REGEX_CACHE: ::std::cell::RefCell<::std::collections::HashMap<String, ::std::option::Option<::std::rc::Rc<fancy_regex::Regex>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 
+const SMELT_REGEX_SIZE_LIMIT: usize = 64 * 1024 * 1024;
+const SMELT_REGEX_DFA_SIZE_LIMIT: usize = 16 * 1024 * 1024;
+
 /// Expand one JavaScript replacement pattern against a match (ECMA-262 `GetSubstitution`).
 ///
 /// `$$` is a literal `$`, `$&` the match, `` $` `` and `$'` the text before
@@ -2401,7 +2426,7 @@ impl SmeltRegExp {
         let translated_source = self.source.replace("[^]", "(?s:.)");
         let pattern = if prefix.is_empty() { translated_source } else { format!("(?{prefix}){translated_source}") };
         if let Some(cached) = SMELT_REGEX_CACHE.with(|cache| cache.borrow().get(&pattern).cloned()) { return cached; }
-        let compiled = fancy_regex::Regex::new(&pattern).ok().map(::std::rc::Rc::new);
+        let compiled = fancy_regex::RegexBuilder::new(&pattern).delegate_size_limit(SMELT_REGEX_SIZE_LIMIT).delegate_dfa_size_limit(SMELT_REGEX_DFA_SIZE_LIMIT).build().ok().map(::std::rc::Rc::new);
         SMELT_REGEX_CACHE.with(|cache| { cache.borrow_mut().insert(pattern, compiled.clone()); });
         compiled
     }

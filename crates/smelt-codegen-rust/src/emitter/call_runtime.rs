@@ -1772,7 +1772,9 @@ impl FunctionEmitter<'_> {
             Rvalue::TupleSlice { tuple, start, end } => {
                 self.tuple_slice_text(tuple, *start, *end, dest_ty)
             }
-            Rvalue::DictContainsKey { dict, key } => self.dict_contains_key_text(dict, key),
+            Rvalue::DictContainsKey { dict, key, lookup } => {
+                self.dict_contains_key_text(dict, key, *lookup)
+            }
             Rvalue::DictSet {
                 dict,
                 key,

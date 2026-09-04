@@ -2,7 +2,7 @@
 
 use std::fmt::Write as _;
 
-use crate::expr::{AsyncOp, Expr, ExprKind};
+use crate::expr::{AsyncOp, Expr, ExprKind, PropertyLookup};
 use crate::ids::ExprId;
 use crate::krate::Crate;
 
@@ -691,8 +691,16 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::TupleContains { tuple, item } => {
             format!("tuple_contains {}, {}", expr_ref(*tuple), expr_ref(*item))
         }
-        ExprKind::DictContainsKey { dict, key } => {
-            format!("dict_contains_key {}, {}", expr_ref(*dict), expr_ref(*key))
+        ExprKind::DictContainsKey { dict, key, lookup } => {
+            let reach = match lookup {
+                PropertyLookup::Own => "own",
+                PropertyLookup::PrototypeChain => "chain",
+            };
+            format!(
+                "dict_contains_key {}, {}, {reach}",
+                expr_ref(*dict),
+                expr_ref(*key)
+            )
         }
         ExprKind::DictSet { dict, key, value } => {
             format!(

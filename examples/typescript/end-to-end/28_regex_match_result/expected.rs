@@ -71,6 +71,9 @@ impl<T: Clone> From<SmeltList<T>> for Vec<T> { fn from(list: SmeltList<T>) -> Se
 
 thread_local! { static SMELT_REGEX_CACHE: ::std::cell::RefCell<::std::collections::HashMap<String, ::std::option::Option<::std::rc::Rc<fancy_regex::Regex>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 
+const SMELT_REGEX_SIZE_LIMIT: usize = 64 * 1024 * 1024;
+const SMELT_REGEX_DFA_SIZE_LIMIT: usize = 16 * 1024 * 1024;
+
 /// Expand one JavaScript replacement pattern against a match (ECMA-262 `GetSubstitution`).
 ///
 /// `$$` is a literal `$`, `$&` the match, `` $` `` and `$'` the text before
@@ -162,7 +165,7 @@ impl SmeltRegExp {
         let translated_source = self.source.replace("[^]", "(?s:.)");
         let pattern = if prefix.is_empty() { translated_source } else { format!("(?{prefix}){translated_source}") };
         if let Some(cached) = SMELT_REGEX_CACHE.with(|cache| cache.borrow().get(&pattern).cloned()) { return cached; }
-        let compiled = fancy_regex::Regex::new(&pattern).ok().map(::std::rc::Rc::new);
+        let compiled = fancy_regex::RegexBuilder::new(&pattern).delegate_size_limit(SMELT_REGEX_SIZE_LIMIT).delegate_dfa_size_limit(SMELT_REGEX_DFA_SIZE_LIMIT).build().ok().map(::std::rc::Rc::new);
         SMELT_REGEX_CACHE.with(|cache| { cache.borrow_mut().insert(pattern, compiled.clone()); });
         compiled
     }

@@ -566,9 +566,10 @@ impl ExprKind {
                 tuple: f(tuple)?,
                 item: f(item)?,
             },
-            Self::DictContainsKey { dict, key } => Self::DictContainsKey {
+            Self::DictContainsKey { dict, key, lookup } => Self::DictContainsKey {
                 dict: f(dict)?,
                 key: f(key)?,
+                lookup,
             },
             Self::DictSet { dict, key, value } => Self::DictSet {
                 dict: f(dict)?,

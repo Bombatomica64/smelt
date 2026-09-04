@@ -7,6 +7,7 @@
 //! emit the concrete HIR construction and projection kinds.
 
 use crate::RestParam;
+use smelt_hir::PropertyLookup;
 use crate::lowering::{
     Argument, ArrayExpressionElement, AsyncOp, BinOp, BinaryOperator, BindingPattern, Body,
     CaptureMode, ClosureCapture, DictProjectionOp, Expr, ExprKind, Expression, Field, FunctionType,
@@ -2460,6 +2461,7 @@ impl ModuleBuilder<'_> {
                 kind: ExprKind::DictContainsKey {
                     dict: receiver,
                     key,
+                    lookup: PropertyLookup::PrototypeChain,
                 },
                 ty: bool_ty,
                 span,
@@ -2497,6 +2499,7 @@ impl ModuleBuilder<'_> {
                     kind: ExprKind::DictContainsKey {
                         dict: receiver,
                         key,
+                        lookup: PropertyLookup::PrototypeChain,
                     },
                     ty: bool_ty,
                     span,
@@ -2527,6 +2530,7 @@ impl ModuleBuilder<'_> {
             kind: ExprKind::DictContainsKey {
                 dict: receiver,
                 key,
+                lookup: PropertyLookup::PrototypeChain,
             },
             ty: bool_ty,
             span,

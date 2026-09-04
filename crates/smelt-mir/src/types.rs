@@ -4,7 +4,7 @@
 //! including functions, basic blocks, locals, and various statements and expressions.
 
 use serde::{Deserialize, Serialize};
-use smelt_hir::{BodyId, Span, Symbol, TypeId, Visibility};
+use smelt_hir::{BodyId, PropertyLookup, Span, Symbol, TypeId, Visibility};
 
 /// Unique identifier for a function in MIR.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -1531,6 +1531,10 @@ pub enum Rvalue {
         dict: Operand,
         /// Key to search for.
         key: Operand,
+        /// How far the presence test may look: own properties only
+        /// (`Object.hasOwn`, a typed collection probe) or the whole prototype
+        /// chain (the `in` operator).
+        lookup: PropertyLookup,
     },
     /// Insert or replace a dictionary key-value pair.
     DictSet {

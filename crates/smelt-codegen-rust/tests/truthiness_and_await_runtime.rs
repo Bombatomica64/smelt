@@ -265,3 +265,63 @@ test("awaiting a concrete non-future value is the identity", async () => {
 "#;
     run_fixture(source, "smelt_await_non_future_value");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn an_async_closure_returning_a_promise_yields_its_resolved_value() {
+    // Three emitter rules meet in one shape, and all three only became
+    // reachable once `await` stopped discarding a non-future-typed operand --
+    // the computation it used to delete now reaches the emitter:
+    //
+    // * The closure's declared item type is erased (`unknown`) while the value
+    //   it returns is a `Promise<unknown[]>`, so the returned future has to be
+    //   ADAPTED -- awaited, its item coerced, re-wrapped -- rather than handed
+    //   over at the wrong item type.
+    // * A `SmeltFuture`'s output is a `Result`, so the wrapper awaiting that
+    //   returned future needs its own `?` on top of the fallible closure's.
+    // * The inner callback is adapted (it can throw where the parameter it fills
+    //   cannot), and because the adapter's body becomes a `'static` future its
+    //   by-reference parameter is rebound to an owned clone; the forwarding into
+    //   the wrapped callback has to re-borrow that rebinding.
+    //
+    // Each one produced generated Rust that did not compile, so a green run of
+    // this fixture is the whole assertion.
+    let source = r#"
+import { test, expect } from "vitest";
+
+async function parallel(
+  values: readonly unknown[],
+  worker: (item: unknown) => Promise<unknown>,
+): Promise<unknown[]> {
+  const results: unknown[] = [];
+  for (const value of values) {
+    results.push(await worker(value));
+  }
+  if (results.length > 1000) {
+    throw new Error("too many");
+  }
+  return results;
+}
+
+function tryit(func: () => Promise<unknown>): () => Promise<unknown> {
+  return func;
+}
+
+function list(): unknown[] {
+  return [1, 2, 3];
+}
+
+test("an async closure returning a promise resolves through it", async () => {
+  const run = tryit(async () => {
+    return parallel(list(), async (item: unknown) => {
+      if (item === 99) {
+        throw new Error("nope");
+      }
+      return `hi_${item}`;
+    });
+  });
+  expect(await run()).toEqual(["hi_1", "hi_2", "hi_3"]);
+});
+"#;
+    run_fixture(source, "smelt_async_closure_returns_promise");
+}

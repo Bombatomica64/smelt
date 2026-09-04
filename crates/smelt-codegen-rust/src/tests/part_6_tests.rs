@@ -679,8 +679,8 @@ function findKey<Value, Obj extends { [key in string | number]: Value }>(
     );
 
     assert!(
-        source.contains("values.contains_key(&smelt_key)"),
-        "{source}"
+        source.contains("smelt_has_own_property("),
+        "the own-key probe must ask the shared own-property authority:\n{source}"
     );
     assert!(!source.contains("_smelt_tmp_7 = false;"), "{source}");
 }

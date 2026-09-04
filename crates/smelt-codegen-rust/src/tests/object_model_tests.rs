@@ -163,3 +163,90 @@ export function erase(): unknown {
         "the user class identity must survive alongside it:\n{body}"
     );
 }
+
+#[test]
+fn a_presence_test_emits_the_helper_for_its_reach() {
+    // `Object.hasOwn(v, k)` and `k in v` lower to the same containment node, so
+    // the node carries the reach and the emitter picks the matching prelude
+    // helper. Pinning the two call sites is the cheap companion of the runtime
+    // tier: while one fused disjunction served both spellings, the prototype
+    // fallback that `in` needs also leaked into `Object.hasOwn`.
+    let source = source_for(
+        r"
+export function ownProbe(value: unknown, key: string): boolean {
+  return Object.hasOwn(value as object, key);
+}
+
+export function chainProbe(value: unknown, key: string): boolean {
+  return key in (value as object);
+}
+",
+    );
+
+    let own = emitted_function_body(&source, "fn own_probe");
+    assert!(
+        own.contains("smelt_has_own_property("),
+        "`Object.hasOwn` must ask only for own properties:\n{own}"
+    );
+    assert!(
+        !own.contains("smelt_has_property("),
+        "`Object.hasOwn` must not consult the prototype chain:\n{own}"
+    );
+
+    let chain = emitted_function_body(&source, "fn chain_probe");
+    assert!(
+        chain.contains("smelt_has_property("),
+        "`in` must walk the prototype chain:\n{chain}"
+    );
+
+    // The prototype half is defined in terms of the own half, so a synthesized
+    // own property (a boxed string's `length`, a byte view's elements) is
+    // visible to both without being written twice.
+    assert!(
+        source.contains("fn smelt_has_own_property(value: &SmeltUnknown, key: &str) -> bool {"),
+        "the prelude must define the own-property authority:\n{source}"
+    );
+    assert!(
+        source.contains("if smelt_has_own_property(value, key) { return true; }"),
+        "the prototype-chain test must be layered over the own-property one:\n{source}"
+    );
+    assert!(
+        source.contains("smelt_boxed_string_own_property(map, key)"),
+        "a boxed String's synthesized properties must count as own:\n{source}"
+    );
+    // The unbound `Object.prototype.hasOwnProperty` value routes through the
+    // same authority rather than carrying its own narrower check.
+    assert!(
+        source.contains("SmeltUnknown::Bool(smelt_has_own_property(&receiver, &key))"),
+        "the unbound own-key probe must share the own-property authority:\n{source}"
+    );
+}
+
+#[test]
+fn a_regex_is_compiled_with_a_raised_size_budget() {
+    // JavaScript imposes no size limit on a pattern; the `regex` crate defaults
+    // to a 10 MiB compiled program because it expects untrusted input. A bounded
+    // repetition with a large upper bound (`X{0,4096}`) expands past that
+    // default, and the engine reports the overflow as if the pattern were
+    // malformed -- so the budget is raised, once, at the single compile site.
+    let source = source_for(
+        r"
+const PATTERN = /a{0,4096}b/;
+
+export function matches(text: string): boolean {
+  return PATTERN.test(text);
+}
+",
+    );
+
+    assert!(
+        source.contains("const SMELT_REGEX_SIZE_LIMIT: usize = 64 * 1024 * 1024;"),
+        "the prelude must state the compiled-program budget:\n{source}"
+    );
+    assert!(
+        source.contains(
+            "fancy_regex::RegexBuilder::new(&pattern).delegate_size_limit(SMELT_REGEX_SIZE_LIMIT)"
+        ),
+        "the compile site must apply the raised budget:\n{source}"
+    );
+}

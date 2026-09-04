@@ -8,6 +8,7 @@ use oxc::span::GetSpan;
 use oxc::syntax::operator::{BinaryOperator, LogicalOperator};
 use smelt_hir::{
     BinOp, Body, DictProjectionOp, Expr, ExprKind, FunctionType, Literal, PrimitiveCastOp,
+    PropertyLookup,
     StringAffixOp, StringCaseOp, StringNormalizeForm, StringReplaceOp, StringSearchOp,
     Span, StringTrimSide, Type, UnknownKind,
 };
@@ -1251,7 +1252,11 @@ return_ty,
         }
         let ty = self.ctx.krate.types.intern(Type::Bool);
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::DictContainsKey { dict, key },
+            kind: ExprKind::DictContainsKey {
+                dict,
+                key,
+                lookup: PropertyLookup::Own,
+            },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))

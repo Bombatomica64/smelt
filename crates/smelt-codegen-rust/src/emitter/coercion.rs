@@ -84,6 +84,19 @@ impl FunctionEmitter<'_> {
         {
             return self.operand_text(operand);
         }
+        // `Future<A>` -> `Future<B>` is a coercion of the AWAITED value, so it
+        // needs the awaiting adapter the text-based entry point already builds
+        // (`smelt_source_future.await?`, then the item coercion). Falling through
+        // to the unchanged operand instead emitted a future of the wrong item
+        // type at its declared type -- an E0308 that only appears once the
+        // program actually keeps the future, which is why a `return` of a
+        // promise-returning call whose declared item is erased did not type-check
+        // (radash's `_.try(async () => _.parallel(..))`).
+        if matches!(self.mir.types.get(source_ty), Some(Type::Future(_)))
+            && matches!(self.mir.types.get(target), Some(Type::Future(_)))
+        {
+            return self.value_at_type_text(&operand_text, source_ty, target);
+        }
         if let Some(Type::TypeParam { name }) = self.mir.types.get(target)
             && self.current_function_has_type_param(*name)
         {

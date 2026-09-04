@@ -214,7 +214,7 @@ fn elision_at(function: &MirFunction, types: &TypeInterner, guard: usize) -> Opt
     let contains_local = operand_local(not_operand)?;
     let Some(Statement::Assign {
         dest: contains_dest,
-        value: Rvalue::DictContainsKey { dict, key },
+        value: Rvalue::DictContainsKey { dict, key, .. },
     }) = block.statements.get(contains_index)
     else {
         return None;

@@ -700,7 +700,7 @@ fn rewrite_rvalue(
         Rvalue::TupleIndex { tuple, .. } | Rvalue::TupleSlice { tuple, .. } => {
             rewrite_operand_except(tuple, aliases, dest)
         }
-        Rvalue::DictContainsKey { dict, key } => {
+        Rvalue::DictContainsKey { dict, key, .. } => {
             rewrite_operand_except(dict, aliases, dest) | rewrite_operand_except(key, aliases, dest)
         }
         Rvalue::DictSet {

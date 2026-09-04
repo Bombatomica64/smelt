@@ -8,7 +8,8 @@ use oxc::span::GetSpan;
 use oxc::syntax::operator::{BinaryOperator, LogicalOperator, UnaryOperator};
 use smelt_hir::{
     BinOp, Body, CallbackExpr, CallbackExprKind, CaptureMode, ClosureCapture, Expr, ExprKind,
-    FileId, FunctionType, Literal, LocalDecl, Param, Pattern, Span, Stmt, Type, UnaryOp,
+    FileId, FunctionType, Literal, LocalDecl, Param, Pattern, PropertyLookup, Span, Stmt, Type,
+    UnaryOp,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -1535,6 +1536,7 @@ impl ModuleBuilder<'_> {
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         Ok(body.push_expr(Expr {
             kind: ExprKind::DictContainsKey {
+                lookup: PropertyLookup::PrototypeChain,
                 dict: actual,
                 key: expected,
             },
