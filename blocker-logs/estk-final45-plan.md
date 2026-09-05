@@ -98,6 +98,26 @@ sibling specs. Final validation after all merges: full es-toolkit report with
 | Batch P (F15 construct semantics, measured on F) | 1052 / 7 | 38 cumulative | 0 |
 | Batch T (tail: RegExp match is an array, `Object.create` keeps prototype identity, `private` fields are properties, non-mock call assertions are false; measured on G) | 1049 / 10 | 36 cumulative | 0 |
 
+| Integration (T onto P, one identity-keyed prototype link) | 1055 / 4 | 41 cumulative | 0 |
+| Gate fixes (regex size budget; `Object.hasOwn` vs `in` reach; async closure adapters; second erased-field-read emitter routed through `smelt_get_unknown_field`) | 1055 / 4 | 41 | 0 |
+
+## Final state (head of `claude/estoolkit-test-failures-4fuf9e`)
+
+| gate | result |
+| --- | --- |
+| es-toolkit full suite (`blocker-logs/estk-final45-after.md`, baseline `1014 / 45`) | **1055 passed / 4 failed**, 41 resolved, 0 newly failing |
+| remeda (CI ref `3c80f28b`) | 1789 / 0 |
+| radash (CI ref `4cab1900`, with CI's vitest-import patch) | 84 / 0 |
+| SmeltUnknown es-toolkit ratchet | avoidable 34072 → 32912 (−1160), re-snapshotted; `smelt_get_unknown_field(` added to `BOUNDARY_MARKERS` (a by-name member read on an erased receiver is runtime narrowing), proven by `erased_property_read_is_a_boundary` |
+| SmeltUnknown examples invariant | avoidable 0, `--fail-on-regression` passes |
+| SmeltUnknown remeda (advisory) | avoidable 25336 → 25211 |
+| `cargo test` (workspace) | green |
+| `cargo clippy --all-targets` | the same pre-existing error set as `main` (`smelt-specialize` and `smelt-mir` test targets, files untouched on this branch); `--lib` clean for every crate changed |
+
+The four remaining rows: `isBrowser` (happy-dom, out of scope), `isPlainObject` cross-realm (`node:vm`, out of scope),
+`at` (unproven index reads need `Optional<T>` typing, L, deferred pending a decision), `mergeWith` (`null` vs
+`undefined` need a distinct `Type::Null`, L, deferred pending a decision).
+
 **Regression gates found red by Batch T on the E+G merge (`449a55e`):** remeda 1736 / 53 (`stringToPath` ×49,
 `hasProp` ×2, `isEmptyish`, `setPath`; main is 1789 / 0) and the radash generated crate no longer compiles
 (8 errors in `async_test.rs` / `typed_test.rs`; main is 84 / 84). A regression-gate agent is bisecting the

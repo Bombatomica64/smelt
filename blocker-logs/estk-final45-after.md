@@ -8,7 +8,7 @@
 ## Full Suite
 
 - Status: `failed`
-- Result: `test result: FAILED. 1055 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.80s`
+- Result: `test result: FAILED. 1055 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.39s`
 - Failing tests: `4`
 
 ### Largest Failing Groups
