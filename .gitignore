@@ -157,3 +157,4 @@ probe.json
 /target-rad-priv/
 !blocker-logs/estk-final45-after.md
 /target-gates/
+!blocker-logs/estk-final45-host-gaps.md
