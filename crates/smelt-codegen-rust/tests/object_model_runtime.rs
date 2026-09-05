@@ -432,6 +432,70 @@ test("a numeric Object.hasOwn key is still an in-bounds element check", () => {
 
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_match_result_reads_its_named_properties_through_every_receiver_path() {
+    // The named properties of a match array must be readable through BOTH
+    // spellings of the same receiver, because Smelt reaches an erased value by
+    // two different emitters:
+    //
+    // * a place expression (`emitter/place.rs`), which routes the read through
+    //   the one prelude chain `smelt_get_unknown_field`, and
+    // * a field read against an already-materialized receiver value
+    //   (`emitter/call_runtime.rs::field_access_text`), which is what an
+    //   optional receiver, a `?.` chain and a union-typed local go through.
+    //
+    // The second inlined an OBJECT-ONLY `match`, so once a match result became
+    // the array it is in JavaScript, `match.groups` on a `RegExpExecArray | null`
+    // local answered a constant `null` while the identical read on an `any`
+    // local answered correctly. remeda's `stringToPath`, which declares
+    // `let match: RegExpExecArray | null` and destructures `match.groups!` in a
+    // `while` loop, produced one path segment of `undefined` for every input.
+    let source = r#"
+import { test, expect } from "vitest";
+test("a typed RegExpExecArray local reads index, input and groups", () => {
+  const re = /(?<letter>[a-z])(?<digit>[0-9])/u;
+  const match: RegExpExecArray | null = re.exec("xa1y");
+  expect(match).not.toBeNull();
+  expect(match!.index).toBe(1);
+  expect(match!.input).toBe("xa1y");
+  expect(match!.groups!.letter).toBe("a");
+  expect(match!.groups!.digit).toBe("1");
+});
+test("destructuring the groups of a typed match binds every name", () => {
+  const re = /(?<letter>[a-z])(?<digit>[0-9])/u;
+  let match: RegExpExecArray | null;
+  const seen: string[] = [];
+  match = re.exec("a1");
+  while (match !== null) {
+    const { letter, digit } = match.groups!;
+    seen.push(letter!);
+    seen.push(digit!);
+    match = null;
+  }
+  expect(seen).toEqual(["a", "1"]);
+});
+test("an optional match receiver reads the same named properties", () => {
+  const re = /(?<letter>[a-z])/u;
+  const match = re.exec("q") ?? undefined;
+  expect(match?.index).toBe(0);
+  expect(match?.groups?.letter).toBe("q");
+});
+test("a sticky regexp walked with exec yields every segment", () => {
+  const re = /(?<segment>[a-z]+)\.?/uy;
+  const path = "foo.bar";
+  const parts: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(path)) !== null) {
+    const { segment } = match.groups!;
+    parts.push(segment!);
+  }
+  expect(parts).toEqual(["foo", "bar"]);
+});
+"#;
+    run_fixture(source, "smelt_object_model_typed_match_props");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn a_presence_test_answers_at_its_own_reach() {
     // JavaScript has two presence tests over one property name, and they differ
     // for everything a value inherits: `key in value` walks the prototype chain,

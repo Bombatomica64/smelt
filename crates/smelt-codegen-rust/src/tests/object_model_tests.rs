@@ -250,3 +250,76 @@ export function matches(text: string): boolean {
         "the compile site must apply the raised budget:\n{source}"
     );
 }
+
+#[test]
+fn a_field_read_on_a_materialized_receiver_goes_through_the_same_helper() {
+    // The other erased-read emitter: `field_access_text` serves an optional
+    // receiver, a `?.` chain and a union-typed local, and it used to inline an
+    // OBJECT-ONLY `match` of its own. That made the two spellings of one read
+    // disagree the moment the receiver was not a record — an erased ARRAY
+    // (which a regex match result is, carrying `index`, `input` and `groups` as
+    // named properties in the identity-keyed side table) answered a constant
+    // `null` here while the place-expression path answered correctly.
+    let source = source_for(
+        r"
+export function matchGroups(text: string): unknown {
+  const found: RegExpExecArray | null = /(?<letter>[a-z])/u.exec(text);
+  return found?.groups;
+}
+",
+    );
+
+    let body = emitted_function_body(&source, "fn match_groups");
+    assert!(
+        body.contains("smelt_get_unknown_field("),
+        "a field read on a materialized erased receiver must use the shared helper:\n{body}"
+    );
+    assert!(
+        !body.contains("SmeltUnknown::Object(map) => match map.get(\"groups\")"),
+        "the object-only inline read must be gone, or an array receiver answers null:\n{body}"
+    );
+}
+
+#[test]
+fn a_class_field_typed_as_its_own_class_stays_a_field() {
+    // A field whose type mentions the class it is declared in — directly, under
+    // an array, or under `?` — is an ORDINARY field. A hand-writing Rust team
+    // would hold `Vec<Tree>` / `Option<Tree>` through whatever handle the class
+    // representation already uses rather than drop the member, so the emitted
+    // storage must carry every one of them: dropping them left the constructor
+    // and every `this.parent = …` store assigning to a field that did not exist.
+    let source = source_for(
+        r"
+class Tree {
+  value: number;
+  children: Tree[] = [];
+  parent?: Tree;
+  constructor(value: number) {
+    this.value = value;
+  }
+}
+
+export function selfReferential(): number {
+  const node = new Tree(1);
+  node.parent = node;
+  node.children = [node, node];
+  return node.children.length;
+}
+",
+    );
+
+    // A recursive class is emitted through the shared-handle representation, so
+    // the fields live on its `…Inner` storage struct rather than on the newtype
+    // handle; the braced declaration is the one that carries them either way.
+    let storage = source
+        .split("struct Tree")
+        .find(|part| part.starts_with(" {") || part.starts_with("Inner {"))
+        .and_then(|part| part.split('}').next())
+        .unwrap_or_else(|| panic!("no braced `Tree` storage struct was emitted:\n{source}"));
+    for field in ["value", "children", "parent"] {
+        assert!(
+            storage.contains(field),
+            "the `Tree` storage must keep its `{field}` field:\n{storage}"
+        );
+    }
+}

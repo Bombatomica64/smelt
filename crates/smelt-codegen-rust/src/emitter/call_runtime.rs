@@ -2477,8 +2477,27 @@ impl FunctionEmitter<'_> {
                     "match {scrutinee} {{ SmeltUnknown::Object(map) if smelt_host_method(&map, {field_name:?}).is_some() => smelt_host_method(&map, {field_name:?}).unwrap_or(SmeltUnknown::Undefined), SmeltUnknown::Object(map) => match map.get({field_name:?}).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Object(mut getter) if getter.contains_key(\"__smelt_get\") => match getter.remove(\"__smelt_get\") {{ Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| panic!(\"{{}}\", error)), _ => SmeltUnknown::Null }}, value => value }}, _ => SmeltUnknown::Null }}"
                 ));
             }
+            // Every receiver shape through the ONE prelude read chain
+            // (`smelt_get_unknown_field`), exactly as the place-expression path
+            // in `place.rs` already does. Inlining an object-only `match` here
+            // made `v.k` and `v[k]` disagree the moment the erased receiver was
+            // not a record: an erased ARRAY carries `length`, its element
+            // indices and its identity-keyed named properties, and a regex match
+            // result IS such an array — so `match.groups` read as a constant
+            // `null` on this path while the same read through `place.rs`
+            // answered correctly. The `Object.prototype` sentinel, a function's
+            // own property bag and the marker records (`Map.size`, boxed
+            // primitives, builtin namespaces) come along for free, and a genuine
+            // miss is `undefined` — the JavaScript answer — rather than `null`.
+            //
+            // `receiver_text` may already be a borrow (an `.as_ref().map(…)`
+            // closure parameter) or an owned value, and the helper takes
+            // `&SmeltUnknown`. `Borrow::borrow` is the one spelling that accepts
+            // both — `impl Borrow<T> for T` and `impl Borrow<T> for &T` — with
+            // the target fixed by the helper's parameter type, so neither shape
+            // needs its own emission.
             return Ok(format!(
-                "match {scrutinee} {{ SmeltUnknown::Object(map) => match map.get({field_name:?}).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Object(mut getter) if getter.contains_key(\"__smelt_get\") => match getter.remove(\"__smelt_get\") {{ Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| panic!(\"{{}}\", error)), _ => SmeltUnknown::Null }}, value => value }}, _ => SmeltUnknown::Null }}"
+                "smelt_get_unknown_field(::std::borrow::Borrow::borrow(&{scrutinee}), {field_name:?})"
             ));
         }
         if matches!(self.mir.types.get(receiver_ty), Some(Type::String)) {
