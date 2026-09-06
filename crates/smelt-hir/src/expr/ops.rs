@@ -283,6 +283,37 @@ pub enum RegexMatchOp {
     FullMatch,
 }
 
+/// A directly lowered WHATWG `Response` operation.
+///
+/// One enum for the whole surface, like [`HeadersOp`], and for the same reason:
+/// the receiver is a concrete `Response` value, so which member was named is
+/// decided statically at the call site and the runtime never inspects a tag.
+///
+/// Data properties and methods share the enum because they share that property.
+/// `status` is a read and `text()` is a call in the *source*, but both are one
+/// operation on a concrete receiver here, and splitting them would only mean two
+/// dispatch paths that must agree about the same receiver type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResponseOp {
+    /// `status`: the HTTP status code.
+    Status,
+    /// `ok`: whether `status` is in the 200-299 range.
+    ///
+    /// Derived rather than stored, because the spec derives it: assigning a new
+    /// status has to move `ok` with it.
+    Ok,
+    /// `statusText`: the reason phrase.
+    StatusText,
+    /// `headers`: the response's `Headers` list.
+    Headers,
+    /// `bodyUsed`: whether a reader has consumed the body.
+    BodyUsed,
+    /// `text()`: the body decoded as UTF-8. Async, and consumes the body.
+    Text,
+    /// `clone()`: a copy whose body is independently readable.
+    Clone,
+}
+
 /// A directly lowered WHATWG `Headers` operation.
 ///
 /// One enum for the whole surface, in the shape of the other lowered-intrinsic

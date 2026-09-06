@@ -177,6 +177,20 @@ pub enum RuleId {
     TsUrlSearchParamsProjection,
     /// TypeScript `URLSearchParams.prototype.toString`.
     TsUrlSearchParamsToString,
+    /// TypeScript `Response` data-property read (`status`, `ok`, `statusText`,
+    /// `headers`, `bodyUsed`).
+    TsResponseRead,
+    /// TypeScript `Response` body reader (`text`).
+    ///
+    /// Separate from [`Self::TsResponseRead`] because a body reader is `async`
+    /// *and* single-use: it answers a `Promise` and consumes the body, so a
+    /// second call is the spec's `TypeError`. A data-property read does neither.
+    TsResponseBodyRead,
+    /// TypeScript `Response.prototype.clone`.
+    ///
+    /// Its own rule because the spec gives the clone an independent unread
+    /// body, which is not what any other `Response` member does.
+    TsResponseClone,
     /// Python `json.dumps(value)`.
     PyJsonDumps,
     /// Python `json.loads(text)`.
@@ -257,7 +271,14 @@ impl RuleId {
             | Self::TsHeadersGet
             | Self::TsHeadersHas
             | Self::TsHeadersMutation
-            | Self::TsHeadersProjection => None,
+            | Self::TsHeadersProjection
+            // `Response` is a generated concrete type: a status line, a
+            // `SmeltHeaders`, and a buffered `SmeltBody`. Nothing in that needs
+            // a crate, so it adds no backend dependency (`fetch` returning one
+            // is what pulls in reqwest, under its own rule).
+            | Self::TsResponseRead
+            | Self::TsResponseBodyRead
+            | Self::TsResponseClone => None,
         }
     }
 
@@ -300,6 +321,9 @@ impl RuleId {
             Self::TsUrlSearchParamsMutation => "URLSearchParams mutation method",
             Self::TsUrlSearchParamsProjection => "URLSearchParams projection method",
             Self::TsUrlSearchParamsToString => "URLSearchParams.toString",
+            Self::TsResponseRead => "Response property read",
+            Self::TsResponseBodyRead => "Response body reader",
+            Self::TsResponseClone => "Response.clone",
             Self::PyJsonDumps => "json.dumps",
             Self::PyJsonLoads => "json.loads",
             Self::PyReSearch => "re.search",

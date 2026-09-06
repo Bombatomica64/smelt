@@ -2704,6 +2704,13 @@ impl SmeltHeaders {
         }
         combined
     }
+    /// The stored pairs, in insertion order, uncombined.
+    ///
+    /// NOT the spec's iteration order (`entries_sorted`), which sorts by
+    /// name and comma-joins values. Copying a header list has to go
+    /// through this instead: rebuilding from the combined view would turn
+    /// two `Accept` headers into one, which a copy must not do.
+    pub fn entries_in_insertion_order(&self) -> Vec<(String, String)> { self.entries.borrow().clone() }
     /// `keys()`: header names in iteration order.
     pub fn keys(&self) -> Vec<String> { self.entries_sorted().into_iter().map(|(name, _)| name).collect() }
     /// `values()`: header values in iteration order.

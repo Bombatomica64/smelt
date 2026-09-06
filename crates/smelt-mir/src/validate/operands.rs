@@ -43,6 +43,22 @@ impl Rvalue {
                     visit(arg);
                 }
             }
+            Self::ResponseNew {
+                body,
+                status,
+                status_text,
+                headers,
+            } => {
+                for operand in [body, status, status_text, headers].into_iter().flatten() {
+                    visit(operand);
+                }
+            }
+            Self::ResponseOp { response, args, .. } => {
+                visit(response);
+                for arg in args {
+                    visit(arg);
+                }
+            }
             Self::UrlSearchParamsNew { init } => {
                 if let Some(init) = init {
                     visit(init);
@@ -868,6 +884,22 @@ impl Rvalue {
             }
             Self::HeadersOp { headers, args, .. } => {
                 visit(headers);
+                for arg in args.iter_mut() {
+                    visit(arg);
+                }
+            }
+            Self::ResponseNew {
+                body,
+                status,
+                status_text,
+                headers,
+            } => {
+                for operand in [body, status, status_text, headers].into_iter().flatten() {
+                    visit(operand);
+                }
+            }
+            Self::ResponseOp { response, args, .. } => {
+                visit(response);
                 for arg in args.iter_mut() {
                     visit(arg);
                 }

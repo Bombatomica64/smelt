@@ -1206,6 +1206,10 @@ impl FunctionEmitter<'_> {
                 {
                     return Ok(RustType::raw("SmeltUrlSearchParams"));
                 }
+                if self.stdlib_class_of_symbol(*name)? == Some(smelt_stdlib::StdlibClass::Response)
+                {
+                    return Ok(RustType::raw("SmeltResponse"));
+                }
                 if !self.mir.classes.iter().any(|class| class.name == *name)
                     && !self
                         .mir
@@ -1469,6 +1473,12 @@ impl FunctionEmitter<'_> {
                     == Some(smelt_stdlib::StdlibClass::UrlSearchParams) =>
             {
                 Ok("SmeltUrlSearchParams::new()".to_owned())
+            }
+            Type::Class { name, .. }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::Response) =>
+            {
+                Ok("SmeltResponse::new()".to_owned())
             }
             Type::Class { name, .. } if self.is_match_class_symbol(*name)? => {
                 Ok("SmeltMatch::default()".to_owned())

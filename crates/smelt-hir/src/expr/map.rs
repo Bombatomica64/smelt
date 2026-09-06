@@ -401,6 +401,41 @@ impl ExprKind {
                 right: f(right)?,
             },
             Self::SetProjection { op, set } => Self::SetProjection { op, set: f(set)? },
+            Self::ResponseNew {
+                body,
+                status,
+                status_text,
+                headers,
+            } => Self::ResponseNew {
+                body: match body {
+                    Some(body) => Some(f(body)?),
+                    None => None,
+                },
+                status: match status {
+                    Some(status) => Some(f(status)?),
+                    None => None,
+                },
+                status_text: match status_text {
+                    Some(status_text) => Some(f(status_text)?),
+                    None => None,
+                },
+                headers: match headers {
+                    Some(headers) => Some(f(headers)?),
+                    None => None,
+                },
+            },
+            Self::ResponseOp { op, response, args } => {
+                let response = f(response)?;
+                let mut mapped = Vec::with_capacity(args.len());
+                for arg in args {
+                    mapped.push(f(arg)?);
+                }
+                Self::ResponseOp {
+                    op,
+                    response,
+                    args: mapped,
+                }
+            }
             Self::UrlSearchParamsNew { init } => Self::UrlSearchParamsNew {
                 init: match init {
                     Some(init) => Some(f(init)?),

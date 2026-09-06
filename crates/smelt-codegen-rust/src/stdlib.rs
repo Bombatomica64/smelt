@@ -113,16 +113,47 @@ fn rvalue_needs_regex(rvalue: &Rvalue, _mir: &Mir) -> bool {
 /// the type table is consulted alongside the rvalues. Everything else pays
 /// nothing for the fetch types.
 pub(crate) fn needs_headers_runtime(mir: &Mir) -> bool {
+    // A `Response` HAS a header list, so carrying one carries `SmeltHeaders`
+    // whether or not the program names `Headers` itself.
+    needs_response_runtime(mir)
+        || any_rvalue_needs(mir, |rvalue| {
+            matches!(
+                rvalue,
+                Rvalue::HeadersNew { .. } | Rvalue::HeadersOp { .. }
+            )
+        })
+        || mir
+            .types
+            .all()
+            .iter()
+            .any(|ty| is_headers_type(mir, ty))
+}
+
+/// Returns true when generated Rust needs the `SmeltResponse` runtime type.
+///
+/// Same pay-for-use rule as [`needs_headers_runtime`]: either a `Response`
+/// operation or a mention of the type in the type table.
+pub(crate) fn needs_response_runtime(mir: &Mir) -> bool {
     any_rvalue_needs(mir, |rvalue| {
         matches!(
             rvalue,
-            Rvalue::HeadersNew { .. } | Rvalue::HeadersOp { .. }
+            Rvalue::ResponseNew { .. } | Rvalue::ResponseOp { .. }
         )
     }) || mir
         .types
         .all()
         .iter()
-        .any(|ty| is_headers_type(mir, ty))
+        .any(|ty| is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::Response))
+}
+
+/// Returns true when generated Rust needs the `SmeltBody` runtime type.
+///
+/// `SmeltBody` has no source spelling of its own — no program says `new
+/// Body()` — so its gate is exactly "some type that HAS a body is present".
+/// `Response` is the only such type today; `Request` and `IncomingMessage`
+/// join this list rather than growing their own copy of the body.
+pub(crate) fn needs_body_runtime(mir: &Mir) -> bool {
+    needs_response_runtime(mir)
 }
 
 /// Returns true when generated Rust needs the `SmeltUrlSearchParams` type.

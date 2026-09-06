@@ -1250,6 +1250,30 @@ pub enum Rvalue {
         set: Operand,
     },
     /// Construct a WHATWG `URLSearchParams` value.
+    /// Build a concrete `Response` value.
+    ///
+    /// The init literal's keys arrive as separate operands rather than as a
+    /// record, so the emitter builds the concrete runtime value without
+    /// re-deriving a shape at run time. See `ExprKind::ResponseNew`.
+    ResponseNew {
+        /// The body argument, when the source passed one.
+        body: Option<Operand>,
+        /// `init.status`, when the init literal set it.
+        status: Option<Operand>,
+        /// `init.statusText`, when the init literal set it.
+        status_text: Option<Operand>,
+        /// `init.headers`, when the init literal set it.
+        headers: Option<Operand>,
+    },
+    /// A `Response` member operation on a concrete `Response` receiver.
+    ResponseOp {
+        /// Which operation this member performs.
+        op: smelt_hir::ResponseOp,
+        /// The `Response` receiver.
+        response: Operand,
+        /// Operation arguments; every modeled member is nullary today.
+        args: Vec<Operand>,
+    },
     UrlSearchParamsNew {
         /// Optional initializer value.
         init: Option<Operand>,

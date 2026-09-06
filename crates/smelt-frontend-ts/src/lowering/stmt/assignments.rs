@@ -413,6 +413,12 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.url_field_expression(member, body)? {
             return Ok(expr);
         }
+        // A `Response` data property. Placed with the other modeled-receiver
+        // reads and gated on the receiver's lowered type, so `x.status` on
+        // anything else falls through to the ordinary field paths.
+        if let Some(expr) = self.response_property_read(member, body)? {
+            return Ok(expr);
+        }
         // The exemption an assignment target carries follows the whole target
         // chain: in `fn.prop.inner = value` the base `fn.prop` is read only to
         // locate the slot the (discarded) write targets, so rejecting it would

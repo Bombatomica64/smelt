@@ -27,7 +27,8 @@
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use oxc::ast::ast::Expression;
-use smelt_hir::{Body, Expr, ExprKind, HeadersOp, Type};
+use oxc::span::GetSpan;
+use smelt_hir::{Body, Expr, ExprKind, HeadersOp, ResponseOp, Type};
 use smelt_stdlib::RuleId;
 
 impl ModuleBuilder<'_> {
@@ -184,7 +185,20 @@ impl ModuleBuilder<'_> {
     /// Return whether a lowered type is the modeled `URLSearchParams` class.
     pub(in crate::lowering) fn is_url_search_params_type(&self, ty: smelt_hir::TypeId) -> bool {
         self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::UrlSearchParams)
-            && !self.classes.contains("URLSearchParams")
+            && !self.user_class_shadows("URLSearchParams")
+    }
+
+    /// Return whether a source class in this module shadows a host class name.
+    ///
+    /// `contains` alone is not enough. A class is only PENDING while its own
+    /// members are being lowered, so a `this.status` read inside a user
+    /// `class Response` saw no registered class and was claimed by the modeled
+    /// fetch type — the receiver's type genuinely *is* `Class { Response }`
+    /// there, and only the shadowing check separates the two meanings. Both
+    /// states are the same answer to "does the source own this name", so both
+    /// belong in one predicate that every modeled fetch type reads.
+    fn user_class_shadows(&self, name: &str) -> bool {
+        self.classes.contains(name) || self.classes.is_pending(name)
     }
 
     /// Map a recognized rule and member spelling to its parameter operation.
@@ -297,7 +311,7 @@ impl ModuleBuilder<'_> {
     /// Return whether a lowered type is the modeled `Headers` class.
     pub(in crate::lowering) fn is_headers_type(&self, ty: smelt_hir::TypeId) -> bool {
         self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::Headers)
-            && !self.classes.contains("Headers")
+            && !self.user_class_shadows("Headers")
     }
 
     /// Map a recognized rule and member spelling to its header operation.
@@ -365,4 +379,202 @@ impl ModuleBuilder<'_> {
             }
         }
     }
+    /// Lower `new Response(body?, init?)` into a concrete `Response` value.
+    ///
+    /// The init argument is read as an OBJECT LITERAL and its `status`,
+    /// `statusText` and `headers` keys become their own typed fields (see
+    /// [`ExprKind::ResponseNew`]). A non-literal init (a `ResponseInit`
+    /// variable) is a named blocker rather than an erased record: its keys have
+    /// exact source types, and recovering them from a tagged value at run time
+    /// would throw that away.
+    pub(in crate::lowering) fn response_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if new_expr.arguments.len() > 2 {
+            return Err(SmeltError::unsupported(
+                self.span(new_expr.span.start, new_expr.span.end),
+                "Response constructor takes at most a body and an init",
+            ));
+        }
+        let body_expr = match new_expr.arguments.first() {
+            Some(argument) => Some(self.argument(argument, body)?),
+            None => None,
+        };
+        let mut status = None;
+        let mut status_text = None;
+        let mut headers = None;
+        if let Some(init_argument) = new_expr.arguments.get(1) {
+            let Some(Expression::ObjectExpression(init)) = init_argument.as_expression() else {
+                return Err(SmeltError::unsupported(
+                    self.span(init_argument.span().start, init_argument.span().end),
+                    "Response init must be an object literal so its keys keep their types",
+                ));
+            };
+            for property in &init.properties {
+                let oxc::ast::ast::ObjectPropertyKind::ObjectProperty(property) = property else {
+                    return Err(SmeltError::unsupported(
+                        self.span(init.span.start, init.span.end),
+                        "Response init does not support spread properties yet",
+                    ));
+                };
+                let Some(key) = property.key.static_name() else {
+                    return Err(SmeltError::unsupported(
+                        self.span(init.span.start, init.span.end),
+                        "Response init requires statically named keys",
+                    ));
+                };
+                let value = self.expression(&property.value, body)?;
+                match key.as_ref() {
+                    "status" => status = Some(value),
+                    "statusText" => status_text = Some(value),
+                    "headers" => headers = Some(value),
+                    other => {
+                        return Err(SmeltError::unsupported(
+                            self.span(init.span.start, init.span.end),
+                            format!("Response init key `{other}` is not modeled yet"),
+                        ));
+                    }
+                }
+            }
+        }
+        let ty = self.response_type();
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::ResponseNew {
+                body: body_expr,
+                status,
+                status_text,
+                headers,
+            },
+            ty,
+            span: self.span(new_expr.span.start, new_expr.span.end),
+        }))
+    }
+
+    /// Dispatch a modeled `Response` method on a concrete `Response` receiver.
+    ///
+    /// Registered in the builtin call-handler chain beside the `Headers` and
+    /// `URLSearchParams` dispatches, and recognized the same way: the shared
+    /// registry names the receiver/member pairs and the receiver's lowered type
+    /// decides, so an unrelated `text()` or `clone()` falls through.
+    pub(in crate::lowering) fn dispatch_response_method(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let member_name = member.property.name.as_str();
+        let Some(rule) = smelt_stdlib::typescript_method_rule(
+            smelt_stdlib::TypeScriptReceiverKind::Response,
+            member_name,
+        ) else {
+            return Ok(None);
+        };
+        let Ok(receiver) = self.expression(&member.object, body) else {
+            return Ok(None);
+        };
+        let receiver_ty = Self::expr_ty(body, receiver);
+        if !self.is_response_type(receiver_ty) {
+            return Ok(None);
+        }
+        let op = match rule {
+            RuleId::TsResponseBodyRead => ResponseOp::Text,
+            RuleId::TsResponseClone => ResponseOp::Clone,
+            _ => return Ok(None),
+        };
+        if !call.arguments.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                format!("`Response.{member_name}` takes no arguments"),
+            ));
+        }
+        let ty = self.response_op_result_type(op);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::ResponseOp {
+                op,
+                response: receiver,
+                args: Vec::new(),
+            },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower a `Response` data-property read on a concrete receiver.
+    ///
+    /// `status`/`ok`/`statusText`/`headers`/`bodyUsed` are properties in the
+    /// source but operations on a concrete receiver here, which is why they
+    /// share [`ResponseOp`] with the methods rather than going through the
+    /// generic field-read path — there is no struct field to read; the value is
+    /// computed by the runtime type (`ok` is derived from `status`).
+    pub(in crate::lowering) fn response_property_read(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let op = match member.property.name.as_str() {
+            "status" => ResponseOp::Status,
+            "ok" => ResponseOp::Ok,
+            "statusText" => ResponseOp::StatusText,
+            "headers" => ResponseOp::Headers,
+            "bodyUsed" => ResponseOp::BodyUsed,
+            _ => return Ok(None),
+        };
+        let Ok(receiver) = self.expression(&member.object, body) else {
+            return Ok(None);
+        };
+        let receiver_ty = Self::expr_ty(body, receiver);
+        if !self.is_response_type(receiver_ty) {
+            return Ok(None);
+        }
+        let ty = self.response_op_result_type(op);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::ResponseOp {
+                op,
+                response: receiver,
+                args: Vec::new(),
+            },
+            ty,
+            span: self.span(member.span.start, member.span.end),
+        })))
+    }
+
+    /// Return the modeled `Response` class type.
+    pub(in crate::lowering) fn response_type(&mut self) -> smelt_hir::TypeId {
+        let name = self.intern_type_name("Response");
+        self.ctx.krate.types.intern(Type::Class {
+            name,
+            args: Vec::new(),
+        })
+    }
+
+    /// Return whether a lowered type is the modeled `Response` class.
+    pub(in crate::lowering) fn is_response_type(&self, ty: smelt_hir::TypeId) -> bool {
+        self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::Response)
+            && !self.user_class_shadows("Response")
+    }
+
+    /// The HIR type a `Response` operation answers.
+    ///
+    /// Each is the member's exact source type, so no caller has to re-narrow:
+    /// `status` is `number`, `ok`/`bodyUsed` are `boolean`, `statusText` is
+    /// `string`, `headers` is a `Headers`, `clone()` is a `Response`, and
+    /// `text()` is a `Promise<string>` — a future, because it is `async`.
+    fn response_op_result_type(&mut self, op: ResponseOp) -> smelt_hir::TypeId {
+        match op {
+            ResponseOp::Status => self.ctx.krate.types.intern(Type::Float),
+            ResponseOp::Ok | ResponseOp::BodyUsed => self.ctx.krate.types.intern(Type::Bool),
+            ResponseOp::StatusText => self.ctx.krate.types.intern(Type::String),
+            ResponseOp::Headers => self.headers_type(),
+            ResponseOp::Clone => self.response_type(),
+            ResponseOp::Text => {
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                self.ctx.krate.types.intern(Type::Future(string_ty))
+            }
+        }
+    }
+
 }

@@ -895,6 +895,48 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 operand_text(right)
             )
         }
+        Rvalue::ResponseNew {
+            body,
+            status,
+            status_text,
+            headers,
+        } => {
+            let mut parts = Vec::new();
+            if let Some(body) = body {
+                parts.push(format!("body={}", operand_text(body)));
+            }
+            if let Some(status) = status {
+                parts.push(format!("status={}", operand_text(status)));
+            }
+            if let Some(status_text) = status_text {
+                parts.push(format!("status_text={}", operand_text(status_text)));
+            }
+            if let Some(headers) = headers {
+                parts.push(format!("headers={}", operand_text(headers)));
+            }
+            if parts.is_empty() {
+                "response_new".to_owned()
+            } else {
+                format!("response_new {}", parts.join(" "))
+            }
+        }
+        Rvalue::ResponseOp { op, response, args } => {
+            let name = match op {
+                smelt_hir::ResponseOp::Status => "status",
+                smelt_hir::ResponseOp::Ok => "ok",
+                smelt_hir::ResponseOp::StatusText => "status_text",
+                smelt_hir::ResponseOp::Headers => "headers",
+                smelt_hir::ResponseOp::BodyUsed => "body_used",
+                smelt_hir::ResponseOp::Text => "text",
+                smelt_hir::ResponseOp::Clone => "clone",
+            };
+            let mut text = format!("response_{name} {}", operand_text(response));
+            for arg in args {
+                text.push(' ');
+                text.push_str(&operand_text(arg));
+            }
+            text
+        }
         Rvalue::UrlSearchParamsNew { init } => init.as_ref().map_or_else(
             || "url_search_params_new".to_owned(),
             |init| format!("url_search_params_new {}", operand_text(init)),

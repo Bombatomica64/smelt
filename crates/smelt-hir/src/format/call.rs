@@ -498,6 +498,40 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             };
             format!("set_{op_name} {}", expr_ref(*set))
         }
+        ExprKind::ResponseNew {
+            body,
+            status,
+            status_text,
+            headers,
+        } => {
+            let mut parts = Vec::new();
+            if let Some(body) = body {
+                parts.push(format!("body={}", expr_ref(*body)));
+            }
+            if let Some(status) = status {
+                parts.push(format!("status={}", expr_ref(*status)));
+            }
+            if let Some(status_text) = status_text {
+                parts.push(format!("status_text={}", expr_ref(*status_text)));
+            }
+            if let Some(headers) = headers {
+                parts.push(format!("headers={}", expr_ref(*headers)));
+            }
+            if parts.is_empty() {
+                "response_new".to_owned()
+            } else {
+                format!("response_new {}", parts.join(" "))
+            }
+        }
+        ExprKind::ResponseOp { op, response, args } => {
+            let name = response_op_name(*op);
+            let mut text = format!("response_{name} {}", expr_ref(*response));
+            for arg in args {
+                text.push(' ');
+                text.push_str(&expr_ref(*arg));
+            }
+            text
+        }
         ExprKind::UrlSearchParamsNew { init } => init.map_or_else(
             || "url_search_params_new".to_owned(),
             |init| format!("url_search_params_new {}", expr_ref(init)),
@@ -1101,6 +1135,19 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
 }
 
 /// Formats a runtime-backed async operation.
+/// The dump spelling of a `Response` operation.
+const fn response_op_name(op: crate::expr::ResponseOp) -> &'static str {
+    match op {
+        crate::expr::ResponseOp::Status => "status",
+        crate::expr::ResponseOp::Ok => "ok",
+        crate::expr::ResponseOp::StatusText => "status_text",
+        crate::expr::ResponseOp::Headers => "headers",
+        crate::expr::ResponseOp::BodyUsed => "body_used",
+        crate::expr::ResponseOp::Text => "text",
+        crate::expr::ResponseOp::Clone => "clone",
+    }
+}
+
 fn async_op_text(op: AsyncOp, args: &[ExprId]) -> String {
     let op_name = match op {
         AsyncOp::All => "async_all",

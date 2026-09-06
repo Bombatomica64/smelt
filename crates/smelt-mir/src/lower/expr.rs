@@ -1080,6 +1080,47 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
+            ExprKind::ResponseNew {
+                body,
+                status,
+                status_text,
+                headers,
+            } => {
+                let mut lower_optional = |expr: &Option<smelt_hir::ExprId>| {
+                    expr.as_ref()
+                        .map_or(Ok(None), |expr| self.lower_expr(*expr).map(Some))
+                };
+                let body_operand = lower_optional(body)?;
+                let status_operand = lower_optional(status)?;
+                let status_text_operand = lower_optional(status_text)?;
+                let headers_operand = lower_optional(headers)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ResponseNew {
+                        body: body_operand,
+                        status: status_operand,
+                        status_text: status_text_operand,
+                        headers: headers_operand,
+                    },
+                )?
+            }
+            ExprKind::ResponseOp { op, response, args } => {
+                let response_operand = self.lower_expr(*response)?;
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ResponseOp {
+                        op: *op,
+                        response: response_operand,
+                        args: arg_operands,
+                    },
+                )?
+            }
             ExprKind::UrlSearchParamsNew { init } => {
                 let init_operand = match init {
                     Some(init) => Some(self.lower_expr(*init)?),

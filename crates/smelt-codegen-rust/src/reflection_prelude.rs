@@ -136,7 +136,11 @@ pub fn reflected_construct_kind(class_name: &str) -> Option<&'static str> {
     // silently build one.
     if matches!(
         smelt_stdlib::typescript_stdlib_class(class_name),
-        Some(smelt_stdlib::StdlibClass::Headers | smelt_stdlib::StdlibClass::UrlSearchParams)
+        Some(
+            smelt_stdlib::StdlibClass::Headers
+                | smelt_stdlib::StdlibClass::UrlSearchParams
+                | smelt_stdlib::StdlibClass::Response
+        )
     ) {
         return None;
     }
