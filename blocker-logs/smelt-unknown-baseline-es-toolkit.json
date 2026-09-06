@@ -1,10 +1,10 @@
 {
   "files_scanned": 745,
-  "total": 74047,
+  "total": 74075,
   "category_totals": {
-    "avoidable-erasure": 32895,
+    "avoidable-erasure": 32891,
     "legitimate-boundary": 38601,
-    "runtime-prelude": 2551
+    "runtime-prelude": 2583
   },
   "shapes": [
     {
@@ -24,7 +24,7 @@
     {
       "category": "avoidable-erasure",
       "shape": "let _smelt_tmp_N: SmeltUnknown;",
-      "occurrences": 1743,
+      "occurrences": 1742,
       "files": 209,
       "example": "third_party/es-toolkit/dist-smelt/src/AbortError_spec.rs:49"
     },
@@ -94,7 +94,7 @@
     {
       "category": "avoidable-erasure",
       "shape": "let _smelt_tmp_N: SmeltRecord<String, SmeltUnknown>;",
-      "occurrences": 502,
+      "occurrences": 501,
       "files": 118,
       "example": "third_party/es-toolkit/dist-smelt/src/AbortError_spec.rs:48"
     },
@@ -402,7 +402,7 @@
     {
       "category": "avoidable-erasure",
       "shape": "_smelt_tmp_N = SmeltUnknown::Object(SmeltObject::from_unknown_record(_smelt_tmp_N.clone()));",
-      "occurrences": 197,
+      "occurrences": 196,
       "files": 58,
       "example": "third_party/es-toolkit/dist-smelt/src/AbortError_spec.rs:75"
     },
@@ -817,7 +817,7 @@
       "shape": "if matches!(value, SmeltUnknown::Number(_)) { return Self::MN(match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }); }",
       "occurrences": 96,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7698"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8009"
     },
     {
       "category": "legitimate-boundary",
@@ -862,6 +862,13 @@
       "example": "third_party/es-toolkit/dist-smelt/src/memoize_spec.rs:121"
     },
     {
+      "category": "runtime-prelude",
+      "shape": "fn into_smelt_unknown(self) -> SmeltUnknown {",
+      "occurrences": 92,
+      "files": 1,
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:4061"
+    },
+    {
       "category": "legitimate-boundary",
       "shape": "_smelt_tmp_N = !({ let smelt_l = _smelt_tmp_N; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| { let smelt_l = value; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| (value).into_smelt_unknown()).collect::<Vec<_>>())) }).collect::<Vec<_>>())) } == { let smelt_l = _smelt_tmp_N; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| { let smelt_l = value; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| (value).into_smelt_unknown()).collect::<Vec<_>>())) }).collect::<Vec<_>>())) });",
       "occurrences": 92,
@@ -874,13 +881,6 @@
       "occurrences": 92,
       "files": 4,
       "example": "third_party/es-toolkit/dist-smelt/src/forEach.rs:53"
-    },
-    {
-      "category": "runtime-prelude",
-      "shape": "fn into_smelt_unknown(self) -> SmeltUnknown {",
-      "occurrences": 90,
-      "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:4061"
     },
     {
       "category": "legitimate-boundary",
@@ -929,7 +929,7 @@
       "shape": "if matches!(value, SmeltUnknown::Array(_)) { return Self::MN({ let smelt_src = value.clone().into_smelt_unknown(); match smelt_src { SmeltUnknown::Null | SmeltUnknown::Undefined => SmeltList::new(Vec::new()), SmeltUnknown::Array(values) => SmeltList::with_id(values.id, values.into_iter().map(|value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }).collect::<Vec<_>>()), SmeltUnknown::String(value) => SmeltList::new(value.chars().map(|ch| match (SmeltUnknown::String(ch.to_string().into())).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }).collect::<Vec<_>>()), SmeltUnknown::Object(value) => if let Some(smelt_bytes) = smelt_host_buffer_elements(&SmeltUnknown::Object(value.clone())) { SmeltList::new(smelt_bytes.into_iter().map(|value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }).collect::<Vec<_>>()) } else if let Some(smelt_args) = smelt_arguments_elements(&value) { SmeltList::new(smelt_args.into_iter().map(|value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(pairs)) = value.get(\"S\") { SmeltList::new(pairs.into_vec().into_iter().map(|value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(members)) = value.get(\"S\") { SmeltList::new(members.into_vec().into_iter().map(|value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }).collect::<Vec<_>>()) } else { match value.get(\"S\") { Some(SmeltUnknown::Function(iterator)) => SmeltList::new(smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null)).into_iter().map(|value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }).collect::<Vec<_>>()), _ => panic!(\"S\") } }, _ => panic!(\"S\") } }); }",
       "occurrences": 89,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7956"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8267"
     },
     {
       "category": "legitimate-boundary",
@@ -943,7 +943,7 @@
       "shape": "Self::MN({ let smelt_src = value.clone().into_smelt_unknown(); match smelt_src { SmeltUnknown::Null | SmeltUnknown::Undefined => SmeltList::new(Vec::new()), SmeltUnknown::Array(values) => SmeltList::with_id(values.id, values.into_iter().map(|value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }).collect::<Vec<_>>()), SmeltUnknown::String(value) => SmeltList::new(value.chars().map(|ch| match (SmeltUnknown::String(ch.to_string().into())).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }).collect::<Vec<_>>()), SmeltUnknown::Object(value) => if let Some(smelt_bytes) = smelt_host_buffer_elements(&SmeltUnknown::Object(value.clone())) { SmeltList::new(smelt_bytes.into_iter().map(|value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }).collect::<Vec<_>>()) } else if let Some(smelt_args) = smelt_arguments_elements(&value) { SmeltList::new(smelt_args.into_iter().map(|value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(pairs)) = value.get(\"S\") { SmeltList::new(pairs.into_vec().into_iter().map(|value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(members)) = value.get(\"S\") { SmeltList::new(members.into_vec().into_iter().map(|value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }).collect::<Vec<_>>()) } else { match value.get(\"S\") { Some(SmeltUnknown::Function(iterator)) => SmeltList::new(smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null)).into_iter().map(|value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }).collect::<Vec<_>>()), _ => panic!(\"S\") } }, _ => panic!(\"S\") } })",
       "occurrences": 88,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7909"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8220"
     },
     {
       "category": "legitimate-boundary",
@@ -1289,6 +1289,13 @@
       "example": "third_party/es-toolkit/dist-smelt/src/attemptAsync.rs:8"
     },
     {
+      "category": "runtime-prelude",
+      "shape": "fn smelt_from_unknown(value: SmeltUnknown) -> Self {",
+      "occurrences": 67,
+      "files": 1,
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:5126"
+    },
+    {
       "category": "avoidable-erasure",
       "shape": "_smelt_tmp_N = SmeltUnknown::Number(N.N as fN);",
       "occurrences": 67,
@@ -1336,13 +1343,6 @@
       "occurrences": 66,
       "files": 13,
       "example": "third_party/es-toolkit/dist-smelt/src/cloneDeepWith_1.rs:232"
-    },
-    {
-      "category": "runtime-prelude",
-      "shape": "fn smelt_from_unknown(value: SmeltUnknown) -> Self {",
-      "occurrences": 65,
-      "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:5126"
     },
     {
       "category": "legitimate-boundary",
@@ -1552,7 +1552,7 @@
       "shape": "if matches!(value, SmeltUnknown::String(_)) { return Self::MN(match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() }); }",
       "occurrences": 55,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7656"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7967"
     },
     {
       "category": "legitimate-boundary",
@@ -1678,7 +1678,7 @@
       "shape": "}); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>({ let smelt_object_value = (smelt_callback)(if smelt_args.get(N).is_some() { { let smelt_optional_source = smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null); if smelt_unknown_is_nullish(&smelt_optional_source) { None } else { Some(match smelt_optional_source.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() }) } } } else { None::<String> }, if smelt_args.get(N).is_some() { { let smelt_optional_source = smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null); if smelt_unknown_is_nullish(&smelt_optional_source) { None } else { Some(match (smelt_optional_source).into_smelt_unknown() { SmeltUnknown::Object(values) => { let smelt_record_map = SmeltRecord::with_id_from_entries(values.id, values.into_iter()); { let smelt_record_map = smelt_record_map.clone(); TemplateOptions { escape: smelt_record_map.get(\"S\").or_else(|| smelt_record_map.get(\"S\")).or_else(|| smelt_record_map.get(\"S\")).cloned().map(|value| <SmeltRegExp as SmeltFromUnknown>::smelt_from_unknown(value.clone())), evaluate: smelt_record_map.get(\"S\").or_else(|| smelt_record_map.get(\"S\")).or_else(|| smelt_record_map.get(\"S\")).cloned().map(|value| <SmeltRegExp as SmeltFromUnknown>::smelt_from_unknown(value.clone())), interpolate: smelt_record_map.get(\"S\").or_else(|| smelt_record_map.get(\"S\")).or_else(|| smelt_record_map.get(\"S\")).cloned().map(|value| <SmeltRegExp as SmeltFromUnknown>::smelt_from_unknown(value.clone())), variable: smelt_record_map.get(\"S\").or_else(|| smelt_record_map.get(\"S\")).or_else(|| smelt_record_map.get(\"S\")).cloned().map(|value| match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() }), imports: smelt_record_map.get(\"S\").or_else(|| smelt_record_map.get(\"S\")).or_else(|| smelt_record_map.get(\"S\")).cloned().map(|value| match (value).into_smelt_unknown() { SmeltUnknown::Object(value) => value.smelt_shared_record(), SmeltUnknown::Array(values) => values.own_entries().into_iter().collect(), SmeltUnknown::String(value) => value.chars().enumerate().map(|(index, ch)| (index.to_string(), SmeltUnknown::String(ch.to_string().into()))).collect(), SmeltUnknown::Function(value) => SmeltRecord::from([(\"S\".to_owned(), SmeltUnknown::Function(value))]), _ => SmeltRecord::new() }), source_url: smelt_record_map.get(\"S\").or_else(|| smelt_record_map.get(\"S\")).or_else(|| smelt_record_map.get(\"S\")).or_else(|| smelt_record_map.get(\"S\")).cloned().map(|value| match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() }) } } }, _ => Default::default() }) } } } else { None::<TemplateOptions> }, if smelt_args.get(N).is_some() { Some(smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null)) } else { None::<SmeltUnknown> })?; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push((\"S\".to_owned(), SmeltUnknown::String(smelt_object_value.source.into()))); smelt_object_entries.push((\"S\".to_owned(), { let smelt_function_value = smelt_object_value.__smelt_call; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::String(((smelt_function_value)(if smelt_args.get(N).is_some() { Some(smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null)) } else { None::<SmeltUnknown> })).into()))); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); SmeltUnknown::Function(smelt_erased_function) } })); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) })); smelt_register_function_length(&smelt_erased_fn, N.N); smelt_erased_fn })).clone())",
       "occurrences": 51,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8324"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8635"
     },
     {
       "category": "avoidable-erasure",
@@ -2665,7 +2665,7 @@
       "shape": "Self::MN(match (value).into_smelt_unknown() { SmeltUnknown::Object(values) => SmeltRecord::with_id_from_entries(values.id, values.into_iter().map(|(key, value)| (key, match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() }))), SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(index, value)| (index.to_string(), match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() })).collect(), SmeltUnknown::String(value) => value.chars().enumerate().map(|(index, ch)| { let value = SmeltUnknown::String(ch.to_string().into()); (index.to_string(), match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() }) }).collect(), _ => SmeltRecord::new() })",
       "occurrences": 34,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8128"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8439"
     },
     {
       "category": "runtime-prelude",
@@ -2756,7 +2756,7 @@
       "shape": "Self::MN({ let smelt_src = value.clone().into_smelt_unknown(); match smelt_src { SmeltUnknown::Null | SmeltUnknown::Undefined => SmeltList::new(Vec::new()), SmeltUnknown::Array(values) => SmeltList::with_id(values.id, values.into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()), SmeltUnknown::String(value) => SmeltList::new(value.chars().map(|ch| ch.to_string()).collect::<Vec<_>>()), SmeltUnknown::Object(value) => if let Some(smelt_bytes) = smelt_host_buffer_elements(&SmeltUnknown::Object(value.clone())) { SmeltList::new(smelt_bytes.into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()) } else if let Some(smelt_args) = smelt_arguments_elements(&value) { SmeltList::new(smelt_args.into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(pairs)) = value.get(\"S\") { SmeltList::new(pairs.into_vec().into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(members)) = value.get(\"S\") { SmeltList::new(members.into_vec().into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()) } else { match value.get(\"S\") { Some(SmeltUnknown::Function(iterator)) => SmeltList::new(smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null)).into_iter().map(|value| if let SmeltUnknown::String(value) = value { value.to_string() } else { value.to_string() }).collect::<Vec<_>>()), _ => panic!(\"S\") } }, _ => panic!(\"S\") } })",
       "occurrences": 32,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7867"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8178"
     },
     {
       "category": "legitimate-boundary",
@@ -2875,7 +2875,7 @@
       "shape": "Self::MN(match (value).into_smelt_unknown() { SmeltUnknown::Object(values) => { let smelt_record_map = SmeltRecord::with_id_from_entries(values.id, values.into_iter()); { let smelt_record_map = smelt_record_map.clone(); RetryOptions { delay: smelt_record_map.get(\"S\").or_else(|| smelt_record_map.get(\"S\")).or_else(|| smelt_record_map.get(\"S\")).cloned().map(|value| SmeltUnionN::from_smelt_unknown(value)), retries: smelt_record_map.get(\"S\").or_else(|| smelt_record_map.get(\"S\")).or_else(|| smelt_record_map.get(\"S\")).cloned().map(|value| match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }), signal: smelt_record_map.get(\"S\").or_else(|| smelt_record_map.get(\"S\")).or_else(|| smelt_record_map.get(\"S\")).cloned().map(|value| value), should_retry: smelt_record_map.get(\"S\").or_else(|| smelt_record_map.get(\"S\")).or_else(|| smelt_record_map.get(\"S\")).or_else(|| smelt_record_map.get(\"S\")).cloned().map(|value| { let smelt_source_value = value.clone(); let smelt_function = match smelt_source_value.clone() { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_function { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function); let smelt_callback: ::std::rc::Rc<dyn Fn(&SmeltUnknown, fN) -> bool> = if let Some(smelt_original) = smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(&SmeltUnknown, fN) -> bool>>(&smelt_function) { smelt_original } else { ::std::rc::Rc::new(move |argN: &SmeltUnknown, argN: fN| -> bool { let smelt_result = (smelt_function)({ let mut smelt_call_args = Vec::new(); smelt_call_args.push(argN.clone()); smelt_call_args.push(SmeltUnknown::Number(argN as fN)); smelt_call_args }).unwrap_or_else(|error| panic!(\"S\", error)); match smelt_result.clone() { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != N.N && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true } }) }; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_link_function_identity_key(&smelt_callback, smelt_origin_identity); smelt_callback } else { { let smelt_default_callback: ::std::rc::Rc<dyn Fn(&SmeltUnknown, fN) -> bool> = ::std::rc::Rc::new(move |argN: &SmeltUnknown, argN: fN| -> bool { false }); smelt_default_callback } } }) } } }, _ => Default::default() })",
       "occurrences": 31,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8044"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8355"
     },
     {
       "category": "legitimate-boundary",
@@ -3190,7 +3190,7 @@
       "shape": "}); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Number((smelt_callback)(match smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() }, if smelt_args.get(N).is_some() { match smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN } } else { N.N }, if smelt_args.get(N).is_some() { Some(smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null)) } else { None::<SmeltUnknown> }) as fN))); smelt_register_function_length(&smelt_erased_fn, N.N); smelt_erased_fn })).clone())",
       "occurrences": 28,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8308"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8619"
     },
     {
       "category": "avoidable-erasure",
@@ -3323,7 +3323,7 @@
       "shape": "}); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Number((smelt_callback)(match smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }, match smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }) as fN))); smelt_register_function_length(&smelt_erased_fn, N.N); smelt_erased_fn })).clone())",
       "occurrences": 27,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8340"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8651"
     },
     {
       "category": "avoidable-erasure",
@@ -3540,7 +3540,7 @@
       "shape": "}); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::String(((smelt_callback)(match smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() }, if smelt_args.get(N).is_some() { { let smelt_optional_source = smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null); if smelt_unknown_is_nullish(&smelt_optional_source) { None } else { Some(match smelt_optional_source.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() }) } } } else { None::<String> })).into()))); smelt_register_function_length(&smelt_erased_fn, N.N); smelt_erased_fn })).clone())",
       "occurrences": 25,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8348"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8659"
     },
     {
       "category": "avoidable-erasure",
@@ -3911,7 +3911,7 @@
       "shape": "if matches!(value, SmeltUnknown::Bool(_)) { return Self::MN(match value.clone() { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != N.N && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true }); }",
       "occurrences": 22,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7782"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8093"
     },
     {
       "category": "legitimate-boundary",
@@ -4261,7 +4261,7 @@
       "shape": "Self::MN(match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() })",
       "occurrences": 20,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7699"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8010"
     },
     {
       "category": "runtime-prelude",
@@ -4475,13 +4475,6 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "_smelt_tmp_N = SmeltRecord::from([(\"S\".to_owned(), SmeltUnknown::Bool(true))]);",
-      "occurrences": 20,
-      "files": 7,
-      "example": "third_party/es-toolkit/dist-smelt/src/defaultsDeep.rs:32"
-    },
-    {
-      "category": "avoidable-erasure",
       "shape": "_smelt_tmp_N = SmeltRecord::from([(\"S\".to_owned(), SmeltUnknown::Number(N.N as fN)), (\"S\".to_owned(), SmeltUnknown::Bool(false))]);",
       "occurrences": 20,
       "files": 3,
@@ -4562,7 +4555,7 @@
       "shape": "Self::MN(value) => { let smelt_object_value = value; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); if let Some(value) = smelt_object_value.delay.clone() { smelt_object_entries.push((\"S\".to_owned(), value.into_smelt_unknown())); } if let Some(value) = smelt_object_value.retries.clone() { smelt_object_entries.push((\"S\".to_owned(), SmeltUnknown::Number(value as fN))); } if let Some(value) = smelt_object_value.signal.clone() { smelt_object_entries.push((\"S\".to_owned(), value)); } if let Some(value) = smelt_object_value.should_retry.clone() { smelt_object_entries.push((\"S\".to_owned(), { let smelt_function_value = value; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Bool((smelt_function_value)(&(smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null)), match smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN })))); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); SmeltUnknown::Function(smelt_erased_function) } })); } SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) },",
       "occurrences": 19,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8037"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8348"
     },
     {
       "category": "legitimate-boundary",
@@ -4591,6 +4584,13 @@
       "occurrences": 19,
       "files": 1,
       "example": "third_party/es-toolkit/dist-smelt/src/isEqualWith_spec.rs:585"
+    },
+    {
+      "category": "avoidable-erasure",
+      "shape": "_smelt_tmp_N = SmeltRecord::from([(\"S\".to_owned(), SmeltUnknown::Bool(true))]);",
+      "occurrences": 19,
+      "files": 7,
+      "example": "third_party/es-toolkit/dist-smelt/src/defaultsDeep.rs:32"
     },
     {
       "category": "avoidable-erasure",
@@ -4933,7 +4933,7 @@
       "shape": "Self::MN(value) => { let smelt_function_value = value; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Number((smelt_function_value)(match smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }) as fN))); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); SmeltUnknown::Function(smelt_erased_function) } },",
       "occurrences": 16,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8079"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8390"
     },
     {
       "category": "runtime-prelude",
@@ -5066,7 +5066,7 @@
       "shape": "let _smelt_tmp_N: bool = is_plain_object_N(SmeltUnknown::Function({ let smelt_source_fn = fn_with_proto.clone(); let smelt_callback = smelt_source_fn.clone(); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| { (smelt_callback)(match smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN }); Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined) }); smelt_link_function_identity(&smelt_erased_fn, &smelt_source_fn); smelt_register_function_length(&smelt_erased_fn, N.N); smelt_erased_fn }));",
       "occurrences": 16,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/isPlainObject_spec.rs:338"
+      "example": "third_party/es-toolkit/dist-smelt/src/isPlainObject_spec.rs:337"
     },
     {
       "category": "legitimate-boundary",
@@ -5304,7 +5304,7 @@
       "shape": "Self::MN({ let smelt_source_value = value.clone(); let smelt_function = match smelt_source_value.clone() { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_function { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function); let smelt_callback: ::std::rc::Rc<dyn Fn(fN) -> fN> = if let Some(smelt_original) = smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(fN) -> fN>>(&smelt_function) { smelt_original } else { ::std::rc::Rc::new(move |argN: fN| -> fN { let smelt_result = (smelt_function)({ let mut smelt_call_args = Vec::new(); smelt_call_args.push(SmeltUnknown::Number(argN as fN)); smelt_call_args }).unwrap_or_else(|error| panic!(\"S\", error)); match smelt_result.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN } }) }; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_link_function_identity_key(&smelt_callback, smelt_origin_identity); smelt_callback } else { { let smelt_default_callback: ::std::rc::Rc<dyn Fn(fN) -> fN> = ::std::rc::Rc::new(move |argN: fN| -> fN { N.N }); smelt_default_callback } } })",
       "occurrences": 15,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8086"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8397"
     },
     {
       "category": "runtime-prelude",
@@ -5752,7 +5752,7 @@
       "shape": "}); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::String(((smelt_callback)(if smelt_args.get(N).is_some() { { let smelt_optional_source = smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null); if smelt_unknown_is_nullish(&smelt_optional_source) { None } else { Some(match smelt_optional_source.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() }) } } } else { None::<String> })).into()))); smelt_register_function_length(&smelt_erased_fn, N.N); smelt_erased_fn })).clone())",
       "occurrences": 14,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8316"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8627"
     },
     {
       "category": "avoidable-erasure",
@@ -5934,14 +5934,14 @@
       "shape": "fn from_smelt_unknown(value: SmeltUnknown) -> Self {",
       "occurrences": 13,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7655"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7966"
     },
     {
       "category": "runtime-prelude",
       "shape": "fn smelt_from_unknown(value: SmeltUnknown) -> Self { Self::from_smelt_unknown(value) }",
       "occurrences": 13,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7666"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7977"
     },
     {
       "category": "runtime-prelude",
@@ -5952,7 +5952,7 @@
     },
     {
       "category": "runtime-prelude",
-      "shape": "fn smelt_object_to_string_tag(value: &SmeltUnknown) -> String { match value { SmeltUnknown::Null => \"S\".to_owned(), SmeltUnknown::Undefined => \"S\".to_owned(), SmeltUnknown::Bool(_) => \"S\".to_owned(), SmeltUnknown::Number(_) => \"S\".to_owned(), SmeltUnknown::String(_) => \"S\".to_owned(), SmeltUnknown::Symbol(_) => \"S\".to_owned(), SmeltUnknown::Array(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned(), SmeltUnknown::Object(map) => { if let Some(SmeltUnknown::String(tag)) = map.get(\"S\") { return format!(\"S\"); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { if let Some(SmeltUnknown::String(name)) = map.get(\"S\") { return format!(\"S\"); } } \"S\".to_owned() } } }",
+      "shape": "fn smelt_object_to_string_tag(value: &SmeltUnknown) -> String { match value { SmeltUnknown::Null => \"S\".to_owned(), SmeltUnknown::Undefined => \"S\".to_owned(), SmeltUnknown::Bool(_) => \"S\".to_owned(), SmeltUnknown::Number(_) => \"S\".to_owned(), SmeltUnknown::String(_) => \"S\".to_owned(), SmeltUnknown::Symbol(_) => \"S\".to_owned(), SmeltUnknown::Array(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned(), SmeltUnknown::Object(map) => { if let Some(SmeltUnknown::String(tag)) = map.get(\"S\") { return format!(\"S\"); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { if let Some(SmeltUnknown::String(name)) = map.get(\"S\") { return format!(\"S\"); } } \"S\".to_owned() } } }",
       "occurrences": 13,
       "files": 1,
       "example": "third_party/es-toolkit/dist-smelt/src/main.rs:3695"
@@ -5969,7 +5969,7 @@
       "shape": "impl IntoSmeltUnknown for SmeltUnionN {",
       "occurrences": 13,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7646"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7957"
     },
     {
       "category": "legitimate-boundary",
@@ -6032,7 +6032,7 @@
       "shape": "let _smelt_tmp_N: SmeltList<SmeltUnknown> = { let smelt_src = clone_N(SmeltUnknown::Array(_smelt_tmp_N.into())).clone().into_smelt_unknown(); match smelt_src { SmeltUnknown::Null | SmeltUnknown::Undefined => SmeltList::new(Vec::new()), SmeltUnknown::Array(values) => SmeltList::with_storage(values.id, values.storage()), SmeltUnknown::String(value) => SmeltList::new(value.chars().map(|ch| SmeltUnknown::String(ch.to_string().into())).collect::<Vec<_>>()), SmeltUnknown::Object(value) => if let Some(smelt_bytes) = smelt_host_buffer_elements(&SmeltUnknown::Object(value.clone())) { SmeltList::new(smelt_bytes) } else if let Some(smelt_args) = smelt_arguments_elements(&value) { SmeltList::new(smelt_args) } else if let Some(SmeltUnknown::Array(pairs)) = value.get(\"S\") { SmeltList::new(pairs.into_vec()) } else if let Some(SmeltUnknown::Array(members)) = value.get(\"S\") { SmeltList::new(members.into_vec()) } else { match value.get(\"S\") { Some(SmeltUnknown::Function(iterator)) => SmeltList::new(smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null))), _ => panic!(\"S\") } }, _ => panic!(\"S\") } };",
       "occurrences": 13,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8218"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8529"
     },
     {
       "category": "legitimate-boundary",
@@ -6193,7 +6193,7 @@
       "shape": "Self::MN(if let SmeltUnknown::Array(smelt_tuple_values) = value.clone() { (match smelt_tuple_values.get(N).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() },) } else { panic!(\"S\") })",
       "occurrences": 12,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7741"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8052"
     },
     {
       "category": "runtime-prelude",
@@ -6627,14 +6627,14 @@
       "shape": "smelt_proto_entries.push((\"S\".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.delete(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Undefined))); Ok(smelt_result.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Bool(value))) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity(\"S\")); SmeltUnknown::Function(smelt_method) }));",
       "occurrences": 12,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8524"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8835"
     },
     {
       "category": "legitimate-boundary",
       "shape": "smelt_proto_entries.push((\"S\".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.get(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Undefined))); Ok(smelt_result.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity(\"S\")); SmeltUnknown::Function(smelt_method) }));",
       "occurrences": 12,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8521"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8832"
     },
     {
       "category": "avoidable-erasure",
@@ -6823,7 +6823,7 @@
       "shape": "let _smelt_tmp_N: SmeltUnknown = mergeRecursively(closure_arg_N.clone(), closure_arg_N.clone(), String::new(), SmeltUnknown::Null, SmeltUnknown::Null);",
       "occurrences": 12,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8221"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8532"
     },
     {
       "category": "avoidable-erasure",
@@ -6956,14 +6956,14 @@
       "shape": "Self::MN(match (value).into_smelt_unknown() { SmeltUnknown::Object(values) => { let smelt_record_map = SmeltRecord::with_id_from_entries(values.id, values.into_iter()); { let smelt_record_map = smelt_record_map.clone(); File { name: smelt_record_map.get(\"S\").or_else(|| smelt_record_map.get(\"S\")).or_else(|| smelt_record_map.get(\"S\")).cloned().map_or(String::new(), |value| match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() }) } } }, _ => Default::default() })",
       "occurrences": 11,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8170"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8481"
     },
     {
       "category": "runtime-prelude",
       "shape": "Self::MN(match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => value.parse::<fN>().unwrap_or(fN::NAN), SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN })",
       "occurrences": 11,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7783"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8094"
     },
     {
       "category": "runtime-prelude",
@@ -7474,7 +7474,7 @@
       "shape": "fn __smelt_fn_value_N() -> SmeltUnknown {",
       "occurrences": 11,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8263"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8574"
     },
     {
       "category": "avoidable-erasure",
@@ -7621,7 +7621,7 @@
       "shape": "thread_local! { static SMELT_FN_VALUE: ::std::cell::OnceCell<SmeltUnknown> = ::std::cell::OnceCell::new(); }",
       "occurrences": 11,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8264"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8575"
     },
     {
       "category": "runtime-prelude",
@@ -8041,14 +8041,14 @@
       "shape": "smelt_proto_entries.push((\"S\".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.has(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Undefined))); Ok(SmeltUnknown::Bool(smelt_result)) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity(\"S\")); SmeltUnknown::Function(smelt_method) }));",
       "occurrences": 10,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8523"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8834"
     },
     {
       "category": "legitimate-boundary",
       "shape": "this.message = match smelt_get_unknown_field(&inner_error.clone(), \"S\").clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() };",
       "occurrences": 10,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8691"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:9002"
     },
     {
       "category": "legitimate-boundary",
@@ -8391,7 +8391,7 @@
       "shape": "Self::MN(value) => SmeltUnknown::Number(value as fN),",
       "occurrences": 9,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7691"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8002"
     },
     {
       "category": "runtime-prelude",
@@ -8433,7 +8433,7 @@
       "shape": "let _ = { println!(\"S\", { let smelt_object_value = self.clone(); let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push((\"S\".to_owned(), { let smelt_record = smelt_object_value.props.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, SmeltUnknown::String(value.into()))).collect())) })); smelt_object_entries.push((\"S\".to_owned(), SmeltUnknown::Number(smelt_object_value.c as fN))); smelt_object_entries.push((\"S\".to_owned(), { let smelt_function_value = smelt_object_value.d; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Number((smelt_function_value)() as fN))); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); SmeltUnknown::Function(smelt_erased_function) } })); smelt_object_entries.push((\"S\".to_owned(), SmeltUnknown::String(\"S\".into()))); smelt_object_entries.extend(smelt_struct_value.__smelt_proto_entries()); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) }); };",
       "occurrences": 9,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8656"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8967"
     },
     {
       "category": "legitimate-boundary",
@@ -8482,7 +8482,7 @@
       "shape": "return { let smelt_object_value = self.clone(); let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push((\"S\".to_owned(), { let smelt_record = smelt_object_value.props.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, SmeltUnknown::String(value.into()))).collect())) })); smelt_object_entries.push((\"S\".to_owned(), SmeltUnknown::Number(smelt_object_value.c as fN))); smelt_object_entries.push((\"S\".to_owned(), { let smelt_function_value = smelt_object_value.d; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Number((smelt_function_value)() as fN))); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); SmeltUnknown::Function(smelt_erased_function) } })); smelt_object_entries.push((\"S\".to_owned(), SmeltUnknown::String(\"S\".into()))); smelt_object_entries.extend(smelt_struct_value.__smelt_proto_entries()); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) };",
       "occurrences": 9,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8657"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8968"
     },
     {
       "category": "legitimate-boundary",
@@ -8860,7 +8860,7 @@
       "shape": "(\"S\".to_owned(), self.stack.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))),",
       "occurrences": 8,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7126"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7437"
     },
     {
       "category": "legitimate-boundary",
@@ -9126,7 +9126,7 @@
       "shape": "match &mut _smelt_tmp_N { SmeltUnknown::Object(map) => { map.insert(\"S\".to_owned(), SmeltUnknown::Number(closure_arg_N as fN)); }, SmeltUnknown::Array(values) => { values.set_named_property(\"S\".to_owned(), SmeltUnknown::Number(closure_arg_N as fN)); }, SmeltUnknown::Function(function) => { smelt_set_function_property(function, \"S\", SmeltUnknown::Number(closure_arg_N as fN)); }, other => { *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"S\".to_owned(), SmeltUnknown::Number(closure_arg_N as fN))]))); } }",
       "occurrences": 8,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/isPlainObject_spec.rs:247"
+      "example": "third_party/es-toolkit/dist-smelt/src/isPlainObject_spec.rs:246"
     },
     {
       "category": "legitimate-boundary",
@@ -9210,7 +9210,7 @@
       "shape": "smelt_proto_entries.push((\"S\".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.release(); Ok({ let () = smelt_result; SmeltUnknown::Undefined }) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity(\"S\")); SmeltUnknown::Function(smelt_method) }));",
       "occurrences": 8,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8413"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8724"
     },
     {
       "category": "avoidable-erasure",
@@ -9910,7 +9910,7 @@
       "shape": "}); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>((smelt_callback)(if smelt_args.get(N).is_some() { Some(smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null)) } else { None::<SmeltUnknown> }))); smelt_register_function_length(&smelt_erased_fn, N.N); smelt_erased_fn })).clone())",
       "occurrences": 8,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8276"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8587"
     },
     {
       "category": "avoidable-erasure",
@@ -9924,7 +9924,7 @@
       "shape": "Self::MN(value) => SmeltUnknown::String(value.into()),",
       "occurrences": 7,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7649"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7960"
     },
     {
       "category": "runtime-prelude",
@@ -10008,7 +10008,7 @@
       "shape": "fn __smelt_proto_entries(&self) -> Vec<(String, SmeltUnknown)> {",
       "occurrences": 7,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8411"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8722"
     },
     {
       "category": "legitimate-boundary",
@@ -10176,7 +10176,7 @@
       "shape": "let _smelt_tmp_N: SmeltUnknown = { let smelt_function_value = _smelt_tmp_N.clone(); let smelt_call_args: Vec<SmeltUnknown> = Into::into(vec![SmeltUnknown::String(\"S\".into())]); let smelt_callable = match smelt_function_value { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }, _ => None }; if let Some(smelt_function) = smelt_callable { (smelt_function)(smelt_call_args).unwrap_or_else(|error| panic!(\"S\", error)) } else { SmeltUnknown::Null } };",
       "occurrences": 7,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/isPlainObject_spec.rs:492"
+      "example": "third_party/es-toolkit/dist-smelt/src/isPlainObject_spec.rs:490"
     },
     {
       "category": "legitimate-boundary",
@@ -10204,7 +10204,7 @@
       "shape": "let mut smelt_proto_entries: Vec<(String, SmeltUnknown)> = Vec::new();",
       "occurrences": 7,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8412"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8723"
     },
     {
       "category": "legitimate-boundary",
@@ -10393,7 +10393,7 @@
       "shape": "let _smelt_tmp_N: SmeltUnknown = merge_with_N(SmeltUnknown::Array(_smelt_tmp_N.into()), SmeltUnknown::Array(_smelt_tmp_N.into()), &mut { let _smelt_adapted_callback = _smelt_tmp_N.clone(); move |argN: &SmeltUnknown, argN: &SmeltUnknown, argN: String, argN: &SmeltUnknown, argN: &SmeltUnknown| (_smelt_adapted_callback)(argN, argN) });",
       "occurrences": 7,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8224"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8535"
     },
     {
       "category": "avoidable-erasure",
@@ -10645,7 +10645,7 @@
       "shape": "(\"S\".to_owned(), SmeltUnknown::String(self.name.into())),",
       "occurrences": 6,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7124"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7435"
     },
     {
       "category": "runtime-prelude",
@@ -11100,7 +11100,7 @@
       "shape": "smelt_proto_entries.push((\"S\".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.set(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Undefined)), SmeltFromUnknown::smelt_from_unknown(smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Undefined))); Ok({ let () = smelt_result; SmeltUnknown::Undefined }) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity(\"S\")); SmeltUnknown::Function(smelt_method) }));",
       "occurrences": 6,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8522"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8833"
     },
     {
       "category": "avoidable-erasure",
@@ -11681,14 +11681,14 @@
       "shape": "let _smelt_tmp_N: SmeltUnknown = merge_with_N(SmeltUnknown::Object(SmeltObject::from_unknown_record(_smelt_tmp_N.clone())), source_value.clone(), &mut { let _smelt_adapted_callback = _smelt_tmp_N.clone(); move |argN: &SmeltUnknown, argN: &SmeltUnknown, argN: String, argN: &SmeltUnknown, argN: &SmeltUnknown| (_smelt_adapted_callback)(argN, argN) });",
       "occurrences": 6,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8254"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8565"
     },
     {
       "category": "avoidable-erasure",
       "shape": "let _smelt_tmp_N: SmeltUnknown = merge_with_N(_smelt_tmp_N, SmeltUnknown::Array(_smelt_tmp_N.into()), &mut { let _smelt_adapted_callback = _smelt_tmp_N.clone(); move |argN: &SmeltUnknown, argN: &SmeltUnknown, argN: String, argN: &SmeltUnknown, argN: &SmeltUnknown| (_smelt_adapted_callback)(argN, argN) });",
       "occurrences": 6,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8233"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8544"
     },
     {
       "category": "avoidable-erasure",
@@ -11730,7 +11730,7 @@
       "shape": "let _smelt_tmp_N: SmeltUnknown = toolkit_N(closure_arg_N.clone());",
       "occurrences": 6,
       "files": 2,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8298"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8609"
     },
     {
       "category": "avoidable-erasure",
@@ -11961,7 +11961,7 @@
       "shape": "}); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Array((smelt_callback)(&(smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null)), if smelt_args.get(N).is_some() { Some(smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null)) } else { None::<SmeltUnknown> })?.into()))); smelt_register_function_length(&smelt_erased_fn, N.N); smelt_erased_fn })).clone())",
       "occurrences": 6,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8284"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8595"
     },
     {
       "category": "runtime-prelude",
@@ -11993,10 +11993,17 @@
     },
     {
       "category": "runtime-prelude",
+      "shape": "SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([(\"S\".to_owned(), SmeltUnknown::Bool(true)), (\"S\".to_owned(), SmeltUnknown::String(self.url.into())), (\"S\".to_owned(), SmeltUnknown::String(self.method.into())), (\"S\".to_owned(), self.headers.into_smelt_unknown()), (\"S\".to_owned(), SmeltUnknown::String(body_text.into()))])))",
+      "occurrences": 5,
+      "files": 1,
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7352"
+    },
+    {
+      "category": "runtime-prelude",
       "shape": "cause: SmeltUnknown,",
       "occurrences": 5,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7119"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7430"
     },
     {
       "category": "runtime-prelude",
@@ -12088,6 +12095,13 @@
       "occurrences": 5,
       "files": 1,
       "example": "third_party/es-toolkit/dist-smelt/src/main.rs:4198"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "return Err(smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"S\".to_owned(), SmeltUnknown::String(\"S\".into())), (\"S\".to_owned(), SmeltUnknown::String(\"S\".into())), (\"S\".to_owned(), SmeltUnknown::Undefined), (\"S\".to_owned(), SmeltUnknown::Undefined)])))));",
+      "occurrences": 5,
+      "files": 1,
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7259"
     },
     {
       "category": "legitimate-boundary",
@@ -12283,7 +12297,7 @@
       "shape": "smelt_proto_entries.push((\"S\".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.set(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Undefined)), SmeltFromUnknown::smelt_from_unknown(smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Undefined))); Ok((smelt_result).into_smelt_unknown()) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity(\"S\")); SmeltUnknown::Function(smelt_method) }));",
       "occurrences": 5,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8572"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8883"
     },
     {
       "category": "legitimate-boundary",
@@ -12514,7 +12528,7 @@
       "shape": "fn mergeRecursively(target_value: SmeltUnknown, source_value: SmeltUnknown, __unusedN: String, __unusedN: SmeltUnknown, __unusedN: SmeltUnknown) -> SmeltUnknown {",
       "occurrences": 5,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8202"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8513"
     },
     {
       "category": "avoidable-erasure",
@@ -12703,7 +12717,7 @@
       "shape": "let _smelt_tmp_N: SmeltUnknown = merge_with_N(_smelt_tmp_N, source_value.clone(), &mut { let _smelt_adapted_callback = _smelt_tmp_N.clone(); move |argN: &SmeltUnknown, argN: &SmeltUnknown, argN: String, argN: &SmeltUnknown, argN: &SmeltUnknown| (_smelt_adapted_callback)(argN, argN) });",
       "occurrences": 5,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8246"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8557"
     },
     {
       "category": "avoidable-erasure",
@@ -12822,7 +12836,7 @@
       "shape": "let _smelt_tmp_N: bool = is_plain_object_N(match _smelt_tmp_N.clone() { SmeltUnknown::Object(value) if value.contains_key(\"S\") => SmeltUnknown::Object(value), SmeltUnknown::Number(value) => SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"S\".to_owned(), SmeltUnknown::Number(value))]))), value => value });",
       "occurrences": 5,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/isPlainObject_spec.rs:357"
+      "example": "third_party/es-toolkit/dist-smelt/src/isPlainObject_spec.rs:356"
     },
     {
       "category": "avoidable-erasure",
@@ -13172,7 +13186,7 @@
       "shape": "(\"S\".to_owned(), SmeltUnknown::String(self.message.into())),",
       "occurrences": 4,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7125"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7436"
     },
     {
       "category": "runtime-prelude",
@@ -13193,28 +13207,28 @@
       "shape": "Self::MN(value) => { let smelt_l = value; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| SmeltUnknown::Number(value as fN)).collect::<Vec<_>>())) },",
       "occurrences": 4,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7902"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8213"
     },
     {
       "category": "runtime-prelude",
       "shape": "Self::MN(value) => { let smelt_l = value; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>())) },",
       "occurrences": 4,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7860"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8171"
     },
     {
       "category": "runtime-prelude",
       "shape": "Self::MN(value) => { let smelt_object_value = value; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push((\"S\".to_owned(), SmeltUnknown::String(smelt_object_value.name.into()))); smelt_object_entries.push((\"S\".to_owned(), SmeltUnknown::Bool(true))); smelt_object_entries.push((\"S\".to_owned(), SmeltUnknown::String(\"S\".into()))); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) },",
       "occurrences": 4,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8163"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8474"
     },
     {
       "category": "runtime-prelude",
       "shape": "SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries))",
       "occurrences": 4,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7110"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7421"
     },
     {
       "category": "runtime-prelude",
@@ -13319,7 +13333,14 @@
       "shape": "let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([",
       "occurrences": 4,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7104"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7415"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "let pairs: Vec<SmeltUnknown> = self.entries_sorted().into_iter().map(|(name, value)| SmeltUnknown::Array(Vec::from([SmeltUnknown::String(name.into()), SmeltUnknown::String(value.into())]).into())).collect();",
+      "occurrences": 4,
+      "files": 1,
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7152"
     },
     {
       "category": "runtime-prelude",
@@ -13347,21 +13368,21 @@
       "shape": "SMELT_FN_VALUE.with(|cell| cell.get_or_init(|| SmeltUnknown::Function({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_N: &SmeltUnknown, closure_arg_N: Option<SmeltUnknown>| -> Result<SmeltList<SmeltUnknown>, Box<dyn std::error::Error>> {",
       "occurrences": 4,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8281"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8592"
     },
     {
       "category": "legitimate-boundary",
       "shape": "SMELT_FN_VALUE.with(|cell| cell.get_or_init(|| SmeltUnknown::Function({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_N: &SmeltUnknown| {",
       "occurrences": 4,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8265"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8576"
     },
     {
       "category": "legitimate-boundary",
       "shape": "SMELT_FN_VALUE.with(|cell| cell.get_or_init(|| SmeltUnknown::Function({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_N: Option<SmeltUnknown>| {",
       "occurrences": 4,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8273"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8584"
     },
     {
       "category": "legitimate-boundary",
@@ -13543,7 +13564,7 @@
       "shape": "let _smelt_tmp_N: SmeltFuture<()> = { let smelt_promise_result: ::std::rc::Rc<::std::cell::RefCell<Option<Result<(), Box<dyn std::error::Error>>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_resolve_result = smelt_promise_result.clone(); let smelt_reject_result = smelt_promise_result.clone(); let smelt_resolve: ::std::rc::Rc<dyn Fn(&SmeltUnknown) -> ()> = ::std::rc::Rc::new(move |value: &SmeltUnknown| { *smelt_resolve_result.borrow_mut() = Some(Ok({ let _ = value.clone(); () })); }); let smelt_reject: ::std::rc::Rc<dyn Fn(&SmeltUnknown) -> ()> = ::std::rc::Rc::new(move |error: &SmeltUnknown| { *smelt_reject_result.borrow_mut() = Some(Err(smelt_throw(error.clone()))); }); let _ = &smelt_resolve; let _ = &smelt_reject; (_smelt_tmp_N)(); SmeltFuture::from_future(Box::pin(async move { loop { if let Some(result) = smelt_promise_result.borrow_mut().take() { break result; } tokio::task::yield_now().await; smelt_sleep_ms(N.N).await; } })) };",
       "occurrences": 4,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/isPlainObject_spec.rs:391"
+      "example": "third_party/es-toolkit/dist-smelt/src/isPlainObject_spec.rs:389"
     },
     {
       "category": "legitimate-boundary",
@@ -13739,7 +13760,7 @@
       "shape": "let _smelt_tmp_N: bool = is_plain_object_N(SmeltUnknown::Function({ let smelt_source_fn = _smelt_tmp_N.clone(); let smelt_callback = smelt_source_fn.clone(); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::String(((smelt_callback)()).into()))); smelt_link_function_identity(&smelt_erased_fn, &smelt_source_fn); smelt_register_function_length(&smelt_erased_fn, N.N); smelt_erased_fn }));",
       "occurrences": 4,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/isPlainObject_spec.rs:314"
+      "example": "third_party/es-toolkit/dist-smelt/src/isPlainObject_spec.rs:313"
     },
     {
       "category": "legitimate-boundary",
@@ -13809,7 +13830,7 @@
       "shape": "smelt_proto_entries.push((\"S\".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.clear(); Ok({ let () = smelt_result; SmeltUnknown::Undefined }) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity(\"S\")); SmeltUnknown::Function(smelt_method) }));",
       "occurrences": 4,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8525"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8836"
     },
     {
       "category": "legitimate-boundary",
@@ -15920,6 +15941,13 @@
     },
     {
       "category": "runtime-prelude",
+      "shape": "SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([(\"S\".to_owned(), SmeltUnknown::Bool(true)), (\"S\".to_owned(), SmeltUnknown::Array(pairs.into()))])))",
+      "occurrences": 3,
+      "files": 1,
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7153"
+    },
+    {
+      "category": "runtime-prelude",
       "shape": "SmeltUnknown::Object(map) => match smelt_get_object_field(map, field) { SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },",
       "occurrences": 3,
       "files": 1,
@@ -16441,49 +16469,49 @@
       "shape": "smelt_proto_entries.push((\"S\".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.clear(); Ok((smelt_result).into_smelt_unknown()) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity(\"S\")); SmeltUnknown::Function(smelt_method) }));",
       "occurrences": 3,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8569"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8880"
     },
     {
       "category": "legitimate-boundary",
       "shape": "smelt_proto_entries.push((\"S\".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.get_a(); Ok((smelt_result).into_smelt_unknown()) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity(\"S\")); SmeltUnknown::Function(smelt_method) }));",
       "occurrences": 3,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8667"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8978"
     },
     {
       "category": "legitimate-boundary",
       "shape": "smelt_proto_entries.push((\"S\".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.get_b(); Ok((smelt_result).into_smelt_unknown()) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity(\"S\")); SmeltUnknown::Function(smelt_method) }));",
       "occurrences": 3,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8668"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8979"
     },
     {
       "category": "legitimate-boundary",
       "shape": "smelt_proto_entries.push((\"S\".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.get_this(); Ok((smelt_result).into_smelt_unknown()) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity(\"S\")); SmeltUnknown::Function(smelt_method) }));",
       "occurrences": 3,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8669"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8980"
     },
     {
       "category": "legitimate-boundary",
       "shape": "smelt_proto_entries.push((\"S\".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.get_value(); Ok((smelt_result).into_smelt_unknown()) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity(\"S\")); SmeltUnknown::Function(smelt_method) }));",
       "occurrences": 3,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8630"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8941"
     },
     {
       "category": "legitimate-boundary",
       "shape": "smelt_proto_entries.push((\"S\".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.greet(); Ok((smelt_result).into_smelt_unknown()) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity(\"S\")); SmeltUnknown::Function(smelt_method) }));",
       "occurrences": 3,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8597"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8908"
     },
     {
       "category": "legitimate-boundary",
       "shape": "}); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(((smelt_callback)(&((smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null)).into_smelt_unknown()))).into_smelt_unknown())); smelt_register_function_length(&smelt_erased_fn, N.N); smelt_erased_fn })).clone())",
       "occurrences": 3,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8268"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8579"
     },
     {
       "category": "avoidable-erasure",
@@ -17680,7 +17708,7 @@
       "shape": "let _smelt_tmp_N: bool = is_plain_object_N(SmeltUnknown::String(\"S\".into()));",
       "occurrences": 3,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/isPlainObject_spec.rs:251"
+      "example": "third_party/es-toolkit/dist-smelt/src/isPlainObject_spec.rs:250"
     },
     {
       "category": "avoidable-erasure",
@@ -18646,14 +18674,14 @@
       "shape": "}); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>((smelt_callback)(&(smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null))))); smelt_register_function_length(&smelt_erased_fn, N.N); smelt_erased_fn })).clone())",
       "occurrences": 3,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8300"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8611"
     },
     {
       "category": "avoidable-erasure",
       "shape": "}); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| { (smelt_callback)(); Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined) }); smelt_register_function_length(&smelt_erased_fn, N.N); smelt_erased_fn })).clone())",
       "occurrences": 3,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8292"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8603"
     },
     {
       "category": "runtime-prelude",
@@ -18723,7 +18751,7 @@
       "shape": "(\"S\".to_owned(), SmeltUnknown::Array(__smelt_inner.deferred_tasks.clone().into_iter().map(|value| SmeltUnknown::Null).collect())),",
       "occurrences": 2,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7107"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7418"
     },
     {
       "category": "runtime-prelude",
@@ -18737,7 +18765,7 @@
       "shape": "(\"S\".to_owned(), SmeltUnknown::Object(SmeltObject::new(self.props.into_iter().map(|(key, value)| (key, SmeltUnknown::String(value.into()))).collect()))),",
       "occurrences": 2,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7414"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7725"
     },
     {
       "category": "runtime-prelude",
@@ -18751,14 +18779,14 @@
       "shape": "(\"S\".to_owned(), __smelt_inner.custom.clone().map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))),",
       "occurrences": 2,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7359"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7670"
     },
     {
       "category": "runtime-prelude",
       "shape": "(\"S\".to_owned(), __smelt_inner.stack.clone().map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))),",
       "occurrences": 2,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7356"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7667"
     },
     {
       "category": "runtime-prelude",
@@ -18905,21 +18933,21 @@
       "shape": "Self::MN(value) => SmeltUnknown::Array(vec![SmeltUnknown::String((value.N.clone()).into())].into()),",
       "occurrences": 2,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7734"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8045"
     },
     {
       "category": "runtime-prelude",
       "shape": "Self::MN(value) => SmeltUnknown::Bool(value),",
       "occurrences": 2,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7775"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8086"
     },
     {
       "category": "runtime-prelude",
       "shape": "Self::MN(value) => { let smelt_record = value.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, SmeltUnknown::String(value.into()))).collect())) },",
       "occurrences": 2,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8121"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8432"
     },
     {
       "category": "runtime-prelude",
@@ -19010,7 +19038,7 @@
       "shape": "a: SmeltUnknown,",
       "occurrences": 2,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7543"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7854"
     },
     {
       "category": "runtime-prelude",
@@ -19560,6 +19588,13 @@
     },
     {
       "category": "runtime-prelude",
+      "shape": "let (Some(SmeltUnknown::String(name)), Some(SmeltUnknown::String(entry_value))) = (pair.first().cloned(), pair.get(N).cloned()) else { continue };",
+      "occurrences": 2,
+      "files": 1,
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7166"
+    },
+    {
+      "category": "runtime-prelude",
       "shape": "let callable: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>((callback)(args)));",
       "occurrences": 2,
       "files": 1,
@@ -19640,14 +19675,14 @@
       "shape": "SMELT_FN_VALUE.with(|cell| cell.get_or_init(|| SmeltUnknown::Function({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_N: Option<String>, closure_arg_N: Option<TemplateOptions>, closure_arg_N: Option<SmeltUnknown>| -> Result<TemplateExecutor, Box<dyn std::error::Error>> {",
       "occurrences": 2,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8321"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8632"
     },
     {
       "category": "legitimate-boundary",
       "shape": "SMELT_FN_VALUE.with(|cell| cell.get_or_init(|| SmeltUnknown::Function({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_N: String, closure_arg_N: fN, closure_arg_N: Option<SmeltUnknown>| {",
       "occurrences": 2,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8305"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8616"
     },
     {
       "category": "legitimate-boundary",
@@ -20102,14 +20137,14 @@
       "shape": "let _smelt_tmp_N: bool = is_plain_object_N({ let smelt_future = _smelt_tmp_N; SmeltUnknown::Promise(SmeltPromise::from_future(Box::pin(async move { let smelt_value = smelt_future.await?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Null) }))) });",
       "occurrences": 2,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/isPlainObject_spec.rs:392"
+      "example": "third_party/es-toolkit/dist-smelt/src/isPlainObject_spec.rs:390"
     },
     {
       "category": "legitimate-boundary",
       "shape": "let _smelt_tmp_N: bool = is_plain_object_N({ let smelt_future = _smelt_tmp_N; SmeltUnknown::Promise(SmeltPromise::from_future(Box::pin(async move { let smelt_value = smelt_future.await?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Object(SmeltObject::from_unknown_record(smelt_value.clone()))) }))) });",
       "occurrences": 2,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/isPlainObject_spec.rs:399"
+      "example": "third_party/es-toolkit/dist-smelt/src/isPlainObject_spec.rs:397"
     },
     {
       "category": "legitimate-boundary",
@@ -21138,7 +21173,7 @@
       "shape": "_smelt_tmp_N = smelt_construct(SmeltUnknown::Null, ::std::vec![]);",
       "occurrences": 2,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/isPlainObject_spec.rs:319"
+      "example": "third_party/es-toolkit/dist-smelt/src/isPlainObject_spec.rs:318"
     },
     {
       "category": "avoidable-erasure",
@@ -21299,7 +21334,7 @@
       "shape": "fn new(chunks: SmeltList<SmeltUnknown>, filename: String, options: Option<SmeltUnknown>) -> Self {",
       "occurrences": 2,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8698"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:9009"
     },
     {
       "category": "avoidable-erasure",
@@ -24778,7 +24813,7 @@
       "shape": "return SmeltUnknown::String(_smelt_tmp_N.into());",
       "occurrences": 2,
       "files": 2,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8587"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8898"
     },
     {
       "category": "avoidable-erasure",
@@ -24792,7 +24827,7 @@
       "shape": "return { let smelt_record = self.props.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, SmeltUnknown::String(value.into()))).collect())) };",
       "occurrences": 2,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8650"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8961"
     },
     {
       "category": "avoidable-erasure",
@@ -24820,7 +24855,7 @@
       "shape": "this.a = SmeltUnknown::Number(N.N as fN);",
       "occurrences": 2,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8708"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:9019"
     },
     {
       "category": "avoidable-erasure",
@@ -24995,14 +25030,14 @@
       "shape": "(\"S\".to_owned(), SmeltUnknown::Number(__smelt_inner.available.clone() as fN)),",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7106"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7417"
     },
     {
       "category": "runtime-prelude",
       "shape": "(\"S\".to_owned(), SmeltUnknown::Number(__smelt_inner.capacity.clone() as fN)),",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7105"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7416"
     },
     {
       "category": "runtime-prelude",
@@ -25023,21 +25058,21 @@
       "shape": "(\"S\".to_owned(), SmeltUnknown::Number(self.age as fN)),",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7300"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7611"
     },
     {
       "category": "runtime-prelude",
       "shape": "(\"S\".to_owned(), SmeltUnknown::Number(self.c as fN)),",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7415"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7726"
     },
     {
       "category": "runtime-prelude",
       "shape": "(\"S\".to_owned(), SmeltUnknown::Number(self.code as fN)),",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7450"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7761"
     },
     {
       "category": "runtime-prelude",
@@ -25058,21 +25093,21 @@
       "shape": "(\"S\".to_owned(), SmeltUnknown::Number(self.value as fN)),",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7372"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7683"
     },
     {
       "category": "runtime-prelude",
       "shape": "(\"S\".to_owned(), SmeltUnknown::String((__smelt_inner.message.clone()).into())),",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7355"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7666"
     },
     {
       "category": "runtime-prelude",
       "shape": "(\"S\".to_owned(), SmeltUnknown::String((__smelt_inner.name.clone()).into())),",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7358"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7669"
     },
     {
       "category": "runtime-prelude",
@@ -25737,7 +25772,7 @@
       "shape": "__data__: SmeltJsMap<SmeltUnknown, String>,",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7215"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7526"
     },
     {
       "category": "runtime-prelude",
@@ -26458,49 +26493,49 @@
       "shape": "impl IntoSmeltUnknown for A {",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7411"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7722"
     },
     {
       "category": "runtime-prelude",
       "shape": "impl IntoSmeltUnknown for AbortError {",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7121"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7432"
     },
     {
       "category": "runtime-prelude",
       "shape": "impl IntoSmeltUnknown for Bar {",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7568"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7879"
     },
     {
       "category": "runtime-prelude",
       "shape": "impl IntoSmeltUnknown for Cls {",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7608"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7919"
     },
     {
       "category": "runtime-prelude",
       "shape": "impl IntoSmeltUnknown for CustomCache {",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7237"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7548"
     },
     {
       "category": "runtime-prelude",
       "shape": "impl IntoSmeltUnknown for CustomClass {",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7369"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7680"
     },
     {
       "category": "runtime-prelude",
       "shape": "impl IntoSmeltUnknown for CustomError {",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7350"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7661"
     },
     {
       "category": "runtime-prelude",
@@ -26535,14 +26570,14 @@
       "shape": "impl IntoSmeltUnknown for FetcherError {",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7486"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7797"
     },
     {
       "category": "runtime-prelude",
       "shape": "impl IntoSmeltUnknown for File {",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7522"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7833"
     },
     {
       "category": "runtime-prelude",
@@ -26570,7 +26605,7 @@
       "shape": "impl IntoSmeltUnknown for Foo {",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7545"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7856"
     },
     {
       "category": "runtime-prelude",
@@ -26584,7 +26619,7 @@
       "shape": "impl IntoSmeltUnknown for HttpError {",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7443"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7754"
     },
     {
       "category": "runtime-prelude",
@@ -26619,21 +26654,21 @@
       "shape": "impl IntoSmeltUnknown for Mutex {",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7194"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7505"
     },
     {
       "category": "runtime-prelude",
       "shape": "impl IntoSmeltUnknown for ObjectConstructor {",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7590"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7901"
     },
     {
       "category": "runtime-prelude",
       "shape": "impl IntoSmeltUnknown for Person {",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7296"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7607"
     },
     {
       "category": "runtime-prelude",
@@ -26647,7 +26682,7 @@
       "shape": "impl IntoSmeltUnknown for Semaphore {",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7099"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7410"
     },
     {
       "category": "runtime-prelude",
@@ -26686,6 +26721,13 @@
     },
     {
       "category": "runtime-prelude",
+      "shape": "impl IntoSmeltUnknown for SmeltHeaders {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7150"
+    },
+    {
+      "category": "runtime-prelude",
       "shape": "impl IntoSmeltUnknown for SmeltMatch {",
       "occurrences": 1,
       "files": 1,
@@ -26697,6 +26739,13 @@
       "occurrences": 1,
       "files": 1,
       "example": "third_party/es-toolkit/dist-smelt/src/main.rs:6868"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl IntoSmeltUnknown for SmeltRequest {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7349"
     },
     {
       "category": "runtime-prelude",
@@ -26738,7 +26787,7 @@
       "shape": "impl IntoSmeltUnknown for TimeoutError {",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7159"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7470"
     },
     {
       "category": "runtime-prelude",
@@ -26773,7 +26822,7 @@
       "shape": "impl IntoSmeltUnknown for __smelt_anon_class_N {",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7626"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7937"
     },
     {
       "category": "runtime-prelude",
@@ -26927,7 +26976,7 @@
       "shape": "inner_error: SmeltUnknown,",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7484"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7795"
     },
     {
       "category": "runtime-prelude",
@@ -26938,10 +26987,31 @@
     },
     {
       "category": "runtime-prelude",
+      "shape": "let SmeltUnknown::Array(pair) = pair else { continue };",
+      "occurrences": 1,
+      "files": 1,
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7164"
+    },
+    {
+      "category": "runtime-prelude",
       "shape": "let SmeltUnknown::Number(id) = handle.into_smelt_unknown() else { return; };",
       "occurrences": 1,
       "files": 1,
       "example": "third_party/es-toolkit/dist-smelt/src/main.rs:4773"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "let SmeltUnknown::Object(map) = value else { return Self::from_parts(\"S\", \"S\".to_owned(), SmeltHeaders::new(), SmeltBody::empty()) };",
+      "occurrences": 1,
+      "files": 1,
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7359"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "let SmeltUnknown::Object(map) = value else { return Self::new() };",
+      "occurrences": 1,
+      "files": 1,
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7160"
     },
     {
       "category": "runtime-prelude",
@@ -26966,10 +27036,24 @@
     },
     {
       "category": "runtime-prelude",
+      "shape": "let Some(SmeltUnknown::Array(pairs)) = map.get(\"S\") else { return Self::new() };",
+      "occurrences": 1,
+      "files": 1,
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7161"
+    },
+    {
+      "category": "runtime-prelude",
       "shape": "let Some(function) = smelt_callable_of(&callee) else { return SmeltUnknown::Undefined; };",
       "occurrences": 1,
       "files": 1,
       "example": "third_party/es-toolkit/dist-smelt/src/main.rs:3645"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "let body = match map.get(\"S\") { Some(SmeltUnknown::String(text)) if !text.is_empty() => SmeltBody::from_text(&text.to_string()), _ => SmeltBody::empty() };",
+      "occurrences": 1,
+      "files": 1,
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7363"
     },
     {
       "category": "runtime-prelude",
@@ -27036,6 +27120,13 @@
     },
     {
       "category": "runtime-prelude",
+      "shape": "let method = match map.get(\"S\") { Some(SmeltUnknown::String(method)) => method.to_string(), _ => \"S\".to_owned() };",
+      "occurrences": 1,
+      "files": 1,
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7361"
+    },
+    {
+      "category": "runtime-prelude",
       "shape": "let mut values = self.into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<Vec<_>>();",
       "occurrences": 1,
       "files": 1,
@@ -27075,6 +27166,13 @@
       "occurrences": 1,
       "files": 1,
       "example": "third_party/es-toolkit/dist-smelt/src/main.rs:6891"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "let url = match map.get(\"S\") { Some(SmeltUnknown::String(url)) => url.to_string(), _ => \"S\".to_owned() };",
+      "occurrences": 1,
+      "files": 1,
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:7360"
     },
     {
       "category": "runtime-prelude",
@@ -27424,28 +27522,28 @@
       "shape": "SMELT_FN_VALUE.with(|cell| cell.get_or_init(|| SmeltUnknown::Function({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_N: Option<String>| {",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8313"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8624"
     },
     {
       "category": "legitimate-boundary",
       "shape": "SMELT_FN_VALUE.with(|cell| cell.get_or_init(|| SmeltUnknown::Function({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_N: String, closure_arg_N: Option<String>| {",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8345"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8656"
     },
     {
       "category": "legitimate-boundary",
       "shape": "SMELT_FN_VALUE.with(|cell| cell.get_or_init(|| SmeltUnknown::Function({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_N: fN, closure_arg_N: fN| {",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8337"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8648"
     },
     {
       "category": "legitimate-boundary",
       "shape": "SMELT_FN_VALUE.with(|cell| cell.get_or_init(|| SmeltUnknown::Function({ let smelt_callback = ::std::rc::Rc::new(|| {",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8289"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8600"
     },
     {
       "category": "legitimate-boundary",
@@ -27627,7 +27725,7 @@
       "shape": "impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'C'",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8530"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8841"
     },
     {
       "category": "legitimate-boundary",
@@ -27921,7 +28019,7 @@
       "shape": "let _smelt_tmp_N: SmeltUnknown = (clone_N(target_value.clone())).into_smelt_unknown();",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8241"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8552"
     },
     {
       "category": "legitimate-boundary",
@@ -29671,70 +29769,70 @@
       "shape": "fn delete(&self, key: SmeltUnknown) -> Option<bool> {",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8501"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8812"
     },
     {
       "category": "avoidable-erasure",
       "shape": "fn get(&self, key: SmeltUnknown) -> Option<String> {",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8489"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8800"
     },
     {
       "category": "avoidable-erasure",
       "shape": "fn get_a(&self) -> SmeltUnknown {",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8649"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8960"
     },
     {
       "category": "avoidable-erasure",
       "shape": "fn get_b(&self) -> SmeltUnknown {",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8652"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8963"
     },
     {
       "category": "avoidable-erasure",
       "shape": "fn get_this(&self) -> SmeltUnknown {",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8655"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8966"
     },
     {
       "category": "avoidable-erasure",
       "shape": "fn get_value(&self) -> SmeltUnknown {",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8619"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8930"
     },
     {
       "category": "avoidable-erasure",
       "shape": "fn greet(&self) -> SmeltUnknown {",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8585"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8896"
     },
     {
       "category": "avoidable-erasure",
       "shape": "fn has(&self, key: SmeltUnknown) -> bool {",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8497"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8808"
     },
     {
       "category": "avoidable-erasure",
       "shape": "fn new(inner_error: SmeltUnknown) -> Self {",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8687"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8998"
     },
     {
       "category": "avoidable-erasure",
       "shape": "fn set(&self, key: SmeltUnknown, value: String) -> () {",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8493"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8804"
     },
     {
       "category": "avoidable-erasure",
@@ -29937,7 +30035,7 @@
       "shape": "let _smelt_tmp_N: SmeltFuture<SmeltRecord<String, SmeltUnknown>> = SmeltFuture::from_future(Box::pin(async move { smelt_sleep_ms(N.N as fN).await; Ok::<_, Box<dyn std::error::Error>>(_smelt_tmp_N) }));",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/isPlainObject_spec.rs:398"
+      "example": "third_party/es-toolkit/dist-smelt/src/isPlainObject_spec.rs:396"
     },
     {
       "category": "avoidable-erasure",
@@ -29965,14 +30063,14 @@
       "shape": "let _smelt_tmp_N: SmeltJsMap<SmeltUnknown, String> = SmeltJsMap::from([]);",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8485"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8796"
     },
     {
       "category": "avoidable-erasure",
       "shape": "let _smelt_tmp_N: SmeltJsMap<SmeltUnknown, String> = { self.N.borrow_mut().__data__.insert(key.clone(), value.clone()); self.N.borrow_mut().__data__.clone() };",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8494"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8805"
     },
     {
       "category": "avoidable-erasure",
@@ -31715,42 +31813,42 @@
       "shape": "let _smelt_tmp_N: bool = is_plain_object_N(SmeltUnknown::Bool(false));",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/isPlainObject_spec.rs:256"
+      "example": "third_party/es-toolkit/dist-smelt/src/isPlainObject_spec.rs:255"
     },
     {
       "category": "avoidable-erasure",
       "shape": "let _smelt_tmp_N: bool = is_plain_object_N(SmeltUnknown::Null);",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/isPlainObject_spec.rs:266"
+      "example": "third_party/es-toolkit/dist-smelt/src/isPlainObject_spec.rs:265"
     },
     {
       "category": "avoidable-erasure",
       "shape": "let _smelt_tmp_N: bool = is_plain_object_N(SmeltUnknown::Number(N.N as fN));",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/isPlainObject_spec.rs:271"
+      "example": "third_party/es-toolkit/dist-smelt/src/isPlainObject_spec.rs:270"
     },
     {
       "category": "avoidable-erasure",
       "shape": "let _smelt_tmp_N: bool = is_plain_object_N(SmeltUnknown::Number(fN::NAN as fN));",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/isPlainObject_spec.rs:282"
+      "example": "third_party/es-toolkit/dist-smelt/src/isPlainObject_spec.rs:281"
     },
     {
       "category": "avoidable-erasure",
       "shape": "let _smelt_tmp_N: bool = is_plain_object_N(SmeltUnknown::Symbol(\"S\".to_owned().into()));",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/isPlainObject_spec.rs:343"
+      "example": "third_party/es-toolkit/dist-smelt/src/isPlainObject_spec.rs:342"
     },
     {
       "category": "avoidable-erasure",
       "shape": "let _smelt_tmp_N: bool = is_plain_object_N(SmeltUnknown::Undefined);",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/isPlainObject_spec.rs:261"
+      "example": "third_party/es-toolkit/dist-smelt/src/isPlainObject_spec.rs:260"
     },
     {
       "category": "avoidable-erasure",
@@ -32191,7 +32289,7 @@
       "shape": "let _smelt_tmp_N: bool = matches!(source_value.clone(), SmeltUnknown::Array(_));",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8213"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8524"
     },
     {
       "category": "avoidable-erasure",
@@ -32317,7 +32415,7 @@
       "shape": "let _smelt_tmp_N: fN = { let smelt_push_item = ::std::rc::Rc::new({ let _smelt_adapted_callback = closure_arg_N.clone(); move || { (_smelt_adapted_callback)(&(SmeltUnknown::Null)); () } }); _smelt_tmp_N.borrow_mut().push(smelt_push_item); _smelt_tmp_N.len() as fN };",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8374"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8685"
     },
     {
       "category": "avoidable-erasure",
@@ -32863,7 +32961,7 @@
       "shape": "let mut _smelt_tmp_N: ::std::rc::Rc<dyn Fn(::std::rc::Rc<dyn Fn(&SmeltUnknown) -> ()>) -> ()> = ::std::rc::Rc::new({",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8370"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8681"
     },
     {
       "category": "avoidable-erasure",
@@ -33465,49 +33563,49 @@
       "shape": "let mut this: Self = AbortError { name: String::new(), message: String::new(), stack: None::<String>, cause: SmeltUnknown::Null };",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8420"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8731"
     },
     {
       "category": "avoidable-erasure",
       "shape": "let mut this: Self = Bar { a: SmeltUnknown::Null };",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8715"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:9026"
     },
     {
       "category": "avoidable-erasure",
       "shape": "let mut this: Self = CustomError(::std::rc::Rc::new(::std::cell::RefCell::new(CustomErrorInner { message: String::new(), stack: None::<String>, cause: SmeltUnknown::Null, name: String::new(), custom: None::<String> })));",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8604"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8915"
     },
     {
       "category": "avoidable-erasure",
       "shape": "let mut this: Self = FetcherError { name: String::new(), message: String::new(), stack: None::<String>, cause: SmeltUnknown::Null, inner_error: Default::default() };",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8688"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8999"
     },
     {
       "category": "avoidable-erasure",
       "shape": "let mut this: Self = Foo { a: SmeltUnknown::Null };",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8707"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:9018"
     },
     {
       "category": "avoidable-erasure",
       "shape": "let mut this: Self = HttpError { name: String::new(), message: String::new(), stack: None::<String>, cause: SmeltUnknown::Null, code: N.N };",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8676"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8987"
     },
     {
       "category": "avoidable-erasure",
       "shape": "let mut this: Self = TimeoutError { name: String::new(), message: String::new(), stack: None::<String>, cause: SmeltUnknown::Null };",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8432"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8743"
     },
     {
       "category": "avoidable-erasure",
@@ -34130,7 +34228,7 @@
       "shape": "move |closure_arg_N: ::std::rc::Rc<dyn Fn(&SmeltUnknown) -> ()>| {",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8372"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8683"
     },
     {
       "category": "avoidable-erasure",
@@ -35152,14 +35250,14 @@
       "shape": "return SmeltUnknown::Number(self.b as fN);",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8653"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8964"
     },
     {
       "category": "avoidable-erasure",
       "shape": "return SmeltUnknown::Number(self.value as fN);",
       "occurrences": 1,
       "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8620"
+      "example": "third_party/es-toolkit/dist-smelt/src/main.rs:8931"
     },
     {
       "category": "avoidable-erasure",

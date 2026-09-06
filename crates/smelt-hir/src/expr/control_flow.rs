@@ -49,4 +49,14 @@ pub enum AsyncOp {
     WaitFor,
     /// Perform an HTTP GET request and return the response body as text.
     HttpGetText,
+    /// `fetch(url)`: an HTTP GET answering a whole `Response`.
+    ///
+    /// Distinct from [`Self::HttpGetText`], which answers just the body text.
+    /// `fetch` in TypeScript resolves to a `Response` — the status, the header
+    /// list and a body a caller reads separately — so collapsing it to the text
+    /// threw away everything but one field. `HttpGetText` remains because
+    /// Python's `requests.get(url).text` really is the fused operation, and
+    /// because a `Response` whose only use is `.text()` can still be lowered to
+    /// it later without changing this op's meaning.
+    HttpFetch,
 }

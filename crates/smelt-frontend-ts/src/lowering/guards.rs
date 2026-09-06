@@ -1688,6 +1688,7 @@ impl ModuleBuilder<'_> {
             | AsyncOp::CreateTask
             | AsyncOp::WaitFor
             | AsyncOp::HttpGetText
+            | AsyncOp::HttpFetch
             | AsyncOp::SetTimeout
             | AsyncOp::ClearTimeout
             | AsyncOp::SetInterval
@@ -2182,7 +2183,7 @@ impl ModuleBuilder<'_> {
         None
     }
 
-    /// Lower TypeScript `fetch(url[, options])` into an async HTTP GET text operation.
+    /// Lower TypeScript `fetch(url[, options])` into an async HTTP fetch.
     pub(super) fn fetch_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -2232,11 +2233,14 @@ impl ModuleBuilder<'_> {
                 ));
             }
         }
-        let string_ty = self.ctx.krate.types.intern(Type::String);
-        let ty = self.ctx.krate.types.intern(Type::Future(string_ty));
+        // `fetch` resolves to a `Response`, not to the body text: the caller
+        // reads `status`, `ok`, `headers` and the body separately, and a
+        // `Promise<string>` threw all but one of those away.
+        let response_ty = self.response_type();
+        let ty = self.ctx.krate.types.intern(Type::Future(response_ty));
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::AsyncOp {
-                op: AsyncOp::HttpGetText,
+                op: AsyncOp::HttpFetch,
                 args: vec![url],
             },
             ty,

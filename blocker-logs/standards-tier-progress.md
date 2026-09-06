@@ -14,10 +14,13 @@ Milestone 0: `blocker-logs/express-v1-baseline.md`.
 | 3 host-module registry | landed (`smelt_stdlib::host_modules`) |
 | 4 `Headers` | landed, concrete Rust, runtime tier green |
 | 4 `URLSearchParams` | landed, concrete Rust, runtime tier green |
-| 4 `Request` / `Response` / `fetch` upgrade | **not landed** — needs the body model in section 3 below |
+| 4 `Response` + `SmeltBody` | landed, concrete Rust, runtime tier green (section 3) |
+| 4 `Request` | landed, concrete Rust, runtime tier green (section 3) |
+| 4 `fetch` upgrade to return a `Response` | landed, runtime tier against a real socket (section 3) |
 | 4 `TextEncoder`/`TextDecoder`, `FormData`, `ReadableStream`, `AbortController`, `crypto` | not landed |
 | 4 `Blob`/`File` upgrade (`text()`, `arrayBuffer()`, `slice`) | not landed |
-| 5 `node:http` on hyper | **not landed** — declared as a blocker; the runtime-flavor and body-model questions are now decided (section 5) |
+| 5 `node:http` on hyper | **not landed** — declared as a blocker; runtime flavor and body model decided (section 5) |
+| `node:events` `EventEmitter` | **not landed** — declared as a blocker; semantics pinned against Node (section 7) |
 
 `smelt probe` on `examples/typescript/express_crud` reports **3 blockers** in 3
 of 6 files — two `unresolved package \`express\`` (`app.ts`, `todos/routes.ts`)
@@ -75,36 +78,187 @@ Two traps this pass hit, both worth knowing before the next type:
   (`SmeltUrlSearchParams` needs `url`) has to be added to that scan or the
   emitted crate references an unlinked crate.
 
-## 3. What `Request`/`Response` need next: the body model
+## 3. `SmeltBody`, `Response` and `Request`: landed
 
-`Headers` and `URLSearchParams` were reachable because they are **synchronous
-value types**. `Request`/`Response` are not: `text()`, `json()`,
-`arrayBuffer()`, `formData()` and `blob()` all return promises, and the body is
-**single-use** (`bodyUsed`). That is the one genuinely new piece, and it should
-land before either type:
+`Response` is a concrete generated Rust type, not a tagged record:
 
-- a `SmeltBody` in the fetch prelude: `enum { Empty, Bytes(Vec<u8>), Stream(..) }`
-  behind the same `Rc<RefCell<..>>` identity, with `used: Cell<bool>` so a
-  second read is the spec's `TypeError`;
-- the readers are `Future<T>` in HIR (`Type::Future(String)` for `text()`), which
-  the existing async lowering already carries — `AsyncOp` and `SmeltFuture` are
-  in place, so a body reader is an ordinary awaited call, not new machinery;
-- `json()` is `Future<Unknown>` and that erasure is genuine (a JSON boundary),
-  so it is the one place in these types where a tagged value is correct; it must
-  be spelled as such at the emit site with the comment `CLAUDE.md` requires.
+```rust
+struct SmeltResponse { id: usize, status: f64, status_text: String, headers: SmeltHeaders, body: SmeltBody }
+```
 
-With `SmeltBody` in place, `Request` and `Response` are the same nine-site
-recipe as above, with `status`/`ok`/`statusText`/`method`/`url` as data
-properties (the `URLSearchParams.size` field path shows how), `headers` as a
-`Headers`-typed field read, and the statics (`Response.json`,
-`Response.error`, `Response.redirect`) as namespace-call rules.
+The status line and headers are plain fields because the spec makes them
+immutable on a response — there is nothing for a shared cell to coordinate. The
+**body** is the mutable part, and `SmeltBody` owns that sharing
+(`Rc<RefCell<payload>>` beside an `Rc<Cell<bool>>` `bodyUsed`), so the response
+does not wrap itself in a second `Rc<RefCell<..>>`.
 
-`fetch()` is `AsyncOp::HttpGetText` today (a GET returning `string`, over
-`reqwest`). Upgrading it to return `Response` is a change of that op's result
-type plus a request builder that reads `RequestInit`; the existing GET-text
-tests must keep passing through the new type, so the upgrade should keep
-`HttpGetText` as a *derived* path (`fetch(url).then(r => r.text())`) rather than
-deleting it.
+What that buys, per the north star: `response.status` is an `f64`, `ok` a
+`bool`, `statusText` a `String`, `headers` a `SmeltHeaders`, `text()` a
+`SmeltFuture<String>`. No caller re-narrows anything, and no `SmeltUnknown`
+appears anywhere in the surface — the examples invariant stays at 0 avoidable
+erasure with this landing.
+
+### Members, against the Hono demand file
+
+`blocker-logs/hono-fetch-demand.md` §2 ranks the corpus's usage. Landed:
+`.headers` (161), `.status` (882), `.text()` (420), `.ok` (21), `.statusText`
+(8), `.clone()` (3), `.bodyUsed`, and the three constructor forms
+(`new Response()`, `new Response(body)`, `new Response(body, init)`). Not yet:
+`.json()` (311), `.arrayBuffer()` (7), `.body` (24), `.formData()` (1), and the
+statics `Response.json`/`Response.error` — each a named blocker meanwhile.
+`.json()` needs the JSON-parse plumbing and the erased carrier's gate, so it
+goes with `arrayBuffer` and the statics rather than doubling this commit.
+
+### Four decisions worth naming
+
+1. **The init literal's keys become their own typed fields**
+   (`ResponseNew { body, status, status_text, headers }`), not a record. Each
+   key has an exact source type; keeping them as one erased object would mean
+   codegen re-deriving `status`'s type from a tagged value at run time. A
+   non-literal init (`new Response(b, init)`) is therefore a named blocker:
+   honest, and it is not what the demand file shows Hono writing.
+
+2. **`ok` is derived, never stored.** The spec derives it from the status, so
+   storing it would let the two drift. No compile step would notice.
+
+3. **`clone()` is not Rust's `Clone`.** The spec's `clone()` gives the copy its
+   own unread body (`SmeltBody::tee`, a payload copy with a fresh flag), while
+   assigning a response to another variable shares one body and one used flag
+   (Rust's `Clone`, the handle copy). Both spellings exist in real code and they
+   are observably different; the runtime tier pins both.
+
+4. **A body reader takes a handle clone into its async block.** The first
+   emission moved the receiver into `async move`, so `response.bodyUsed` after
+   `response.text()` did not compile. A handle clone is also the semantically
+   right copy: it shares the payload and the flag, so consuming the body through
+   the future is observable on the original, which is what the spec says.
+
+### A shadowing bug this surfaced
+
+`!self.classes.contains(name)` was the guard that lets a *user* class named
+`Response`/`Headers`/`URLSearchParams` win over the modeled host class. It is
+not enough: while a class's own members are being lowered the class is only
+**pending**, so a `this.status` read inside a user `class Response` saw no
+registered class and was claimed by the modeled fetch type. Both states answer
+"does the source own this name" the same way, so they now sit in one predicate
+(`user_class_shadows`) that all three modeled fetch types read. `Headers` and
+`URLSearchParams` carried the same latent bug and are fixed by the same change;
+only `Response` had a property read to expose it.
+
+
+### `Request`, and what it shares
+
+`SmeltRequest` is the same shape with the spec's differences: a serialized url
+and a method where a response has a status line. It holds the **same**
+`SmeltBody`, so single-use reading, `tee()` on `clone()`, and the implied
+`Content-Type` all come from one place rather than being written twice.
+
+Landed members, against `blocker-logs/hono-fetch-demand.md` §3: `.headers`
+(21), `.text()` (4), `.method` (2), `.url` (1, plus demand item 6), `.clone()`
+(2), `.bodyUsed` (3), and `new Request(input, { method, headers, body })` —
+which is `method` (71), `headers` (68) and `body` (26) of the init keys Hono
+passes. Not yet: `.json()`, `.body`, `.signal` (3), and the `RequestInit` keys
+`cache`/`credentials`/`integrity`/`keepalive`/`mode`/`redirect`/`referrer`/
+`referrerPolicy` — each a named blocker, because accepting and ignoring one
+would change what the program does with no diagnostic.
+
+Two behaviours that only a runtime tier catches, both diffed against Node:
+
+* **`url` is the serialization, not the input.** `new Request('https://a.test')`
+  reads back `https://a.test/`. Storing the input verbatim gives a plausible url
+  missing its path, so the constructor parses through `url::Url` — which is why
+  `Request` declares the `url` backend dependency.
+* **`method` is normalized for exactly the spec's list**
+  (`DELETE GET HEAD OPTIONS POST PUT`) and left alone otherwise: `post` becomes
+  `POST` while **`patch` stays `patch`**. Upper-casing everything is the easy
+  wrong answer and Node keeps `patch` lower-case.
+
+Demand item 6 is closed: `request.url` is typed `String`, so
+`request.url.indexOf(':')` lowers — it was `string search methods require
+string receiver and argument` before, because the read had no type.
+
+### Host identity moved from construction to the boundary
+
+`Request` was a **marker-only** host object: `new Request('http://localhost')`
+built `{ __smelt_request: true }` because es-toolkit's `isPlainObject` spec
+constructs one only to probe identity. A concrete type cannot also be a marker
+record, so the marker moved to `IntoSmeltUnknown` — stamped when the value
+crosses into an `unknown` position, which is exactly where `isPlainObject`
+reads it. The guarantee is unchanged; the place that carries it moved, and the
+two es-toolkit gate tests moved with it (one asserts construction is typed, one
+asserts the adapter stamps the marker).
+
+`Response` gained the marker it never had, so `Object.prototype.toString.call`
+answers `[object Response]` and `instanceof Response` resolves. `Request` lost
+its entry in `smelt_builtin_construct_kind`, which is correct: a dynamic
+`new Request(..)` must not build a record when the type is real.
+
+**The es-toolkit ratchet fell by 4** (32912 → 32908 avoidable erasures), because
+the `isPlainObject` spec's `new Request(...)` is now a typed value rather than
+an erased record. Baseline re-snapshotted in the same commit, as the
+`SmeltUnknown` rule requires.
+
+Both types' erasure adapters are documented dynamic boundaries: the receiving
+position's type is `unknown`, so no concrete type, union, or generic can stand
+in for the record. The body crosses as its **text** rather than as a handle,
+because an erased record cannot hold a single-use cell — a body that
+round-tripped would otherwise share a used flag with a value that no longer
+exists. Erasing peeks rather than consumes, so a response can be logged and
+still read.
+
+### Runtime tier
+
+`crates/smelt-codegen-rust/tests/response_runtime.rs` (6 tests) and
+`tests/request_runtime.rs` (3 tests), every
+expectation diffed against Node 22 line by line — including the thrown
+`TypeError`'s exact message. It covers what compiles either way and is only
+wrong when it runs: the empty default reason phrase (**not** `"OK"`), `ok`
+derived across 200/299/300/404/500/599, single-use bodies and the second-read
+throw, tee-vs-share, and a `Headers` reached through `.headers` being the same
+list.
+
+**Known gap, recorded in the test module.** The spec requires the init status in
+200-599 and Node throws a `RangeError` outside it; Smelt accepts it, because a
+constructor is a stdlib *rvalue* and a fallible rvalue has no throwing edge in
+MIR to reach an enclosing `try`. That is the same shape as `JSON.parse` and the
+URI decoders (`blocker-logs/hono-h10-uri-and-base64-globals.md`), so it is one
+known gap rather than a new one.
+
+**Pre-existing gap found, not fixed:** a floating top-level promise is never
+driven. `run();` at module scope emits `smelt_spawn_promise_task(..)` and
+`main` returns without draining the queue, so an async top-level program prints
+nothing. Node runs the microtask queue at exit. Top-level `await` is separately
+not lowered (`await expressions are only lowered inside async functions`), which
+is why the runtime tier uses generated vitest tests, whose callbacks are `async`.
+
+### `fetch` answers a `Response`
+
+`fetch(url)` lowered to `AsyncOp::HttpGetText` and typed `Promise<string>` —
+the fused "GET and give me the body text". That is not what `fetch` returns in
+any runtime, and `tsc` rejects the signature the old tests used
+(`async function load(): Promise<string> { return await fetch(url); }`).
+Collapsing it threw away the status, the reason phrase and the header list, and
+no compile step could notice, because the program had no way to ask.
+
+`AsyncOp::HttpFetch` now answers `Future<Response>`, assembled from what the
+transport actually reports: the status, its canonical reason phrase, every
+response header in order, and the body as **raw bytes**. Bytes rather than
+text is deliberate — `SmeltBody::from_text` stamps an implied
+`text/plain;charset=UTF-8`, and a fetched response's content type belongs to
+the server.
+
+`HttpGetText` stays in the op set. Python's `requests.get(url).text` really is
+the fused operation, so it keeps it, and a codegen test now pins that the
+Python path builds no `Response`.
+
+`crates/smelt-codegen-rust/tests/fetch_response_runtime.rs` proves the round
+trip against a **real HTTP server** — a `TcpListener` on port 0 speaking
+enough HTTP/1.1 to answer one request — because the parts being asserted are
+exactly the ones that come from the transport. A mocked transport would only be
+asserting Smelt's own construction, which the `Response` tier already covers.
+The generated crate fetches it and reads `status` 201, `statusText` `Created`,
+`ok`, two headers, the body once through `text()`, and a clone that reads
+independently.
 
 ## 4. M0.1's second half, now on
 
@@ -194,6 +348,52 @@ There is no probe fixture for a framework-heavy corpus to show the flip's
 intended cost: `third_party/strapi` has no `Smelt.toml`, and `third_party/nest`
 is a checkout of Smelt itself rather than NestJS. `express_crud` is the only
 framework program with a fixture, and its count is the table above.
+
+## 7. `node:events`: semantics pinned against Node, not yet implemented
+
+Still a declared blocker (`the node:events EventEmitter surface is not
+implemented yet`). What is settled is the behaviour it has to reproduce, diffed
+against Node 22 rather than read from the docs, because three of these are
+observable and easy to get wrong:
+
+| behaviour | Node 22 |
+| --- | --- |
+| `on`/`once`/`off`/`removeAllListeners` return value | the emitter itself, so `e.on('a',f).on('b',g)` chains |
+| listener order | registration order (`first,second`) |
+| `emit` return value | `true` iff a listener was registered, else `false` |
+| arguments | positional pass-through: `emit('data','payload',42)` calls `(chunk, extra)` |
+| `once` | fires once; the second `emit` returns `false` |
+| `off(name, fn)` added twice | removes ONE instance (the most recently added), count goes 2 → 1 |
+| `off` for a listener never added | no error, returns the emitter |
+| a listener added DURING an emit | does **not** run in that emit; it runs in the next one |
+| a listener removed DURING an emit | **still runs** in that emit |
+
+The last two together say `emit` iterates a **snapshot** of the matching
+listeners rather than the live list. A naive implementation that iterates the
+live vector gets both wrong, and neither is visible to any compile step: the
+program just fires the wrong set of callbacks.
+
+### The listener store is a genuine dynamic boundary
+
+A listener's signature is not knowable from the event name — `on('data', cb)`
+takes a chunk, `on('end', cb)` takes nothing — and `emit(name, ...args)` passes
+an arbitrary positional list whose length and types depend on the emitting
+site, not on the emitter's type. One emitter holds listeners for many events at
+once, so the store is heterogeneous and keyed by a runtime string. No concrete
+type, generated union, or scoped generic can express that: the callback set is
+only known at run time, on the branch that registered it.
+
+So the store is the existing erased callable ABI
+(`Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, ..>>`) keyed by event
+name, in registration order, with a per-entry `once` flag and a function
+identity for `off`. That is a `legitimate-boundary` use in the report's terms,
+and it needs the code comment plus regression test the `SmeltUnknown` rule
+requires when it lands.
+
+`off` needs listener identity, which the runtime already has:
+`smelt_canonical_function_identity` / `smelt_link_function_identity_key` are
+what the erased-function equality path uses, so comparing listeners does not
+need a new mechanism.
 
 ## 5. `node:http`: still declared, but the two open questions are now closed
 

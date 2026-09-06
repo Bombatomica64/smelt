@@ -31,7 +31,10 @@ pub(crate) fn backend_dependencies(mir: &Mir) -> Vec<BackendDependency> {
     if any_rvalue_needs(mir, rvalue_needs_chrono_tz) || needs_unknown_type(mir) {
         deps.push(BackendDependency::ChronoTz);
     }
-    if any_rvalue_needs(mir, rvalue_needs_url) || needs_url_search_params_runtime(mir) {
+    if any_rvalue_needs(mir, rvalue_needs_url)
+        || needs_url_search_params_runtime(mir)
+        || needs_request_runtime(mir)
+    {
         deps.push(BackendDependency::Url);
     }
     if any_rvalue_needs(mir, rvalue_needs_unicode_normalization) {
@@ -113,16 +116,71 @@ fn rvalue_needs_regex(rvalue: &Rvalue, _mir: &Mir) -> bool {
 /// the type table is consulted alongside the rvalues. Everything else pays
 /// nothing for the fetch types.
 pub(crate) fn needs_headers_runtime(mir: &Mir) -> bool {
+    // A `Response`/`Request` HAS a header list, so carrying one carries
+    // `SmeltHeaders` whether or not the program names `Headers` itself.
+    needs_response_runtime(mir)
+        || needs_request_runtime(mir)
+        || any_rvalue_needs(mir, |rvalue| {
+            matches!(
+                rvalue,
+                Rvalue::HeadersNew { .. } | Rvalue::HeadersOp { .. }
+            )
+        })
+        || mir
+            .types
+            .all()
+            .iter()
+            .any(|ty| is_headers_type(mir, ty))
+}
+
+/// Returns true when generated Rust needs the `SmeltResponse` runtime type.
+///
+/// Same pay-for-use rule as [`needs_headers_runtime`]: either a `Response`
+/// operation or a mention of the type in the type table.
+pub(crate) fn needs_response_runtime(mir: &Mir) -> bool {
     any_rvalue_needs(mir, |rvalue| {
         matches!(
             rvalue,
-            Rvalue::HeadersNew { .. } | Rvalue::HeadersOp { .. }
+            Rvalue::ResponseNew { .. }
+                | Rvalue::ResponseOp { .. }
+                // `fetch` BUILDS a response, so a program that only calls it
+                // and never names the type still carries the runtime type.
+                | Rvalue::AsyncOp {
+                    op: AsyncOp::HttpFetch,
+                    ..
+                }
         )
     }) || mir
         .types
         .all()
         .iter()
-        .any(|ty| is_headers_type(mir, ty))
+        .any(|ty| is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::Response))
+}
+
+/// Returns true when generated Rust needs the `SmeltRequest` runtime type.
+///
+/// Same pay-for-use rule as [`needs_response_runtime`].
+pub(crate) fn needs_request_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| {
+        matches!(
+            rvalue,
+            Rvalue::RequestNew { .. } | Rvalue::RequestOp { .. }
+        )
+    }) || mir
+        .types
+        .all()
+        .iter()
+        .any(|ty| is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::Request))
+}
+
+/// Returns true when generated Rust needs the `SmeltBody` runtime type.
+///
+/// `SmeltBody` has no source spelling of its own — no program says `new
+/// Body()` — so its gate is exactly "some type that HAS a body is present".
+/// `Response` and `Request` are those types today; `IncomingMessage` joins this
+/// list rather than growing its own copy of the body.
+pub(crate) fn needs_body_runtime(mir: &Mir) -> bool {
+    needs_response_runtime(mir) || needs_request_runtime(mir)
 }
 
 /// Returns true when generated Rust needs the `SmeltUrlSearchParams` type.
@@ -324,11 +382,14 @@ fn rvalue_needs_url(rvalue: &Rvalue) -> bool {
     // `SmeltUrlSearchParams` parses and serializes through
     // `url::form_urlencoded`, so any params value needs the crate — including a
     // program that only constructs one and reads it back.
+    // A `Request` serializes its input through `url::Url`, which is what makes
+    // `new Request('https://a.test').url` read back `https://a.test/`.
     matches!(
         rvalue,
         Rvalue::UrlField { .. }
             | Rvalue::UrlSearchParamsNew { .. }
             | Rvalue::UrlSearchParamsOp { .. }
+            | Rvalue::RequestNew { .. }
     )
 }
 
@@ -402,7 +463,7 @@ fn rvalue_needs_reqwest(rvalue: &Rvalue) -> bool {
         rvalue,
         Rvalue::HttpGetText { .. }
             | Rvalue::AsyncOp {
-                op: AsyncOp::HttpGetText,
+                op: AsyncOp::HttpGetText | AsyncOp::HttpFetch,
                 ..
             }
     )

@@ -5,7 +5,9 @@ use super::{
     SetBinaryOp,
     SetProjectionOp, SetRelationOp, SetRemoveOp, StringAffixOp, StringCaseOp, StringNormalizeForm,
     StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, UnaryOp,
-    HeadersOp as HeadersOpKind, UnknownKind, UriTranscodeOp, UrlField,
+    HeadersOp as HeadersOpKind, RequestOp as RequestOpKind, ResponseOp as ResponseOpKind,
+    UnknownKind, UriTranscodeOp,
+    UrlField,
     UrlSearchParamsOp as UrlSearchParamsOpKind,
 };
 use crate::ids::{BlockId, BodyId, ExprId, ItemId, LocalId, Symbol, TypeId};
@@ -455,6 +457,57 @@ pub enum ExprKind {
         /// The `URLSearchParams` receiver.
         params: ExprId,
         /// Operation arguments (name, or name and value).
+        args: Vec<ExprId>,
+    },
+    /// `new Response(body?, init?)`.
+    ///
+    /// The init object's keys are lowered to their own fields rather than kept
+    /// as a record: `status`, `statusText` and `headers` have exact source types
+    /// (`number`, `string`, `HeadersInit`), and keeping them typed here is what
+    /// lets codegen build the concrete `SmeltResponse` without re-deriving a
+    /// shape from an erased record at run time. An init that is not an object
+    /// literal cannot be split this way and is a named blocker in the frontend.
+    ResponseNew {
+        /// The body argument, when the source passed one.
+        body: Option<ExprId>,
+        /// `init.status`, when the init literal set it.
+        status: Option<ExprId>,
+        /// `init.statusText`, when the init literal set it.
+        status_text: Option<ExprId>,
+        /// `init.headers`, when the init literal set it.
+        headers: Option<ExprId>,
+    },
+    /// `new Request(input, init?)`.
+    ///
+    /// `input` is the request URL; `method`, `headers` and `body` come from the
+    /// init literal's keys, split into typed fields for the same reason
+    /// [`Self::ResponseNew`] splits its own.
+    RequestNew {
+        /// The URL argument.
+        input: ExprId,
+        /// `init.method`, when the init literal set it.
+        method: Option<ExprId>,
+        /// `init.headers`, when the init literal set it.
+        headers: Option<ExprId>,
+        /// `init.body`, when the init literal set it.
+        body: Option<ExprId>,
+    },
+    /// A `Request` member operation on a concrete `Request` receiver.
+    RequestOp {
+        /// Which operation this member performs.
+        op: RequestOpKind,
+        /// The `Request` receiver.
+        request: ExprId,
+        /// Operation arguments; every modeled member is nullary today.
+        args: Vec<ExprId>,
+    },
+    /// A `Response` member operation on a concrete `Response` receiver.
+    ResponseOp {
+        /// Which operation this member performs.
+        op: ResponseOpKind,
+        /// The `Response` receiver.
+        response: ExprId,
+        /// Operation arguments; every modeled member is nullary today.
         args: Vec<ExprId>,
     },
     /// A WHATWG `Headers` method call on a concrete `Headers` receiver.

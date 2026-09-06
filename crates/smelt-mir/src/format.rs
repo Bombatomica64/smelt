@@ -896,6 +896,82 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 operand_text(right)
             )
         }
+        Rvalue::RequestNew {
+            input,
+            method,
+            headers,
+            body,
+        } => {
+            let mut parts = vec![format!("input={}", operand_text(input))];
+            if let Some(method) = method {
+                parts.push(format!("method={}", operand_text(method)));
+            }
+            if let Some(headers) = headers {
+                parts.push(format!("headers={}", operand_text(headers)));
+            }
+            if let Some(body) = body {
+                parts.push(format!("body={}", operand_text(body)));
+            }
+            format!("request_new {}", parts.join(" "))
+        }
+        Rvalue::RequestOp { op, request, args } => {
+            let name = match op {
+                smelt_hir::RequestOp::Url => "url",
+                smelt_hir::RequestOp::Method => "method",
+                smelt_hir::RequestOp::Headers => "headers",
+                smelt_hir::RequestOp::BodyUsed => "body_used",
+                smelt_hir::RequestOp::Text => "text",
+                smelt_hir::RequestOp::Clone => "clone",
+            };
+            let mut text = format!("request_{name} {}", operand_text(request));
+            for arg in args {
+                text.push(' ');
+                text.push_str(&operand_text(arg));
+            }
+            text
+        }
+        Rvalue::ResponseNew {
+            body,
+            status,
+            status_text,
+            headers,
+        } => {
+            let mut parts = Vec::new();
+            if let Some(body) = body {
+                parts.push(format!("body={}", operand_text(body)));
+            }
+            if let Some(status) = status {
+                parts.push(format!("status={}", operand_text(status)));
+            }
+            if let Some(status_text) = status_text {
+                parts.push(format!("status_text={}", operand_text(status_text)));
+            }
+            if let Some(headers) = headers {
+                parts.push(format!("headers={}", operand_text(headers)));
+            }
+            if parts.is_empty() {
+                "response_new".to_owned()
+            } else {
+                format!("response_new {}", parts.join(" "))
+            }
+        }
+        Rvalue::ResponseOp { op, response, args } => {
+            let name = match op {
+                smelt_hir::ResponseOp::Status => "status",
+                smelt_hir::ResponseOp::Ok => "ok",
+                smelt_hir::ResponseOp::StatusText => "status_text",
+                smelt_hir::ResponseOp::Headers => "headers",
+                smelt_hir::ResponseOp::BodyUsed => "body_used",
+                smelt_hir::ResponseOp::Text => "text",
+                smelt_hir::ResponseOp::Clone => "clone",
+            };
+            let mut text = format!("response_{name} {}", operand_text(response));
+            for arg in args {
+                text.push(' ');
+                text.push_str(&operand_text(arg));
+            }
+            text
+        }
         Rvalue::UrlSearchParamsNew { init } => init.as_ref().map_or_else(
             || "url_search_params_new".to_owned(),
             |init| format!("url_search_params_new {}", operand_text(init)),
@@ -1511,6 +1587,7 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 smelt_hir::AsyncOp::Resolve => "async_resolve",
                 smelt_hir::AsyncOp::Reject => "async_reject",
                 smelt_hir::AsyncOp::HttpGetText => "async_http_get_text",
+                smelt_hir::AsyncOp::HttpFetch => "async_http_fetch",
             };
             let arg_list = args.iter().map(operand_text).collect::<Vec<_>>().join(", ");
             format!("{op_text}({arg_list})")
