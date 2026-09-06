@@ -546,10 +546,12 @@ fn emit_source_with_free_function_router(
     let needs_vitest_mock = stdlib::needs_vitest_mock_runtime(mir);
     let needs_structured_clone = stdlib::rvalues(mir)
         .any(|rvalue| matches!(rvalue, Rvalue::StructuredClone { .. }));
-    // Only crates that ask for the `typeof` of an ERASED value need the shared
-    // tag-to-spelling helper. A `typeof` over a concrete union is decided per
-    // member at compile time and stays inline at its site, so a crate whose only
-    // `typeof` is that shape carries none of this.
+    // Only crates that lower a `typeof` at all carry the shared tag-to-spelling
+    // helper. A `typeof` over a concrete union is decided per member at compile
+    // time and stays inline at its site, so in a crate whose ONLY `typeof` is
+    // that shape the helper is emitted unused -- inert under the generated
+    // crate's `#![allow(dead_code)]`, and not worth a second walk over every
+    // operand's type to tell the two shapes apart here.
     let needs_typeof = stdlib::rvalues(mir).any(|rvalue| matches!(rvalue, Rvalue::TypeofValue { .. }));
     // Only crates that actually concatenate an erased argument need the
     // `IsConcatSpreadable` helper, so it stays out of every other prelude.

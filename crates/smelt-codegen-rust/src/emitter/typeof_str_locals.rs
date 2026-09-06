@@ -255,7 +255,7 @@ fn reads_local(operand: &Operand, local: LocalId) -> bool {
     match operand {
         Operand::Copy(place) | Operand::Move(place) => match place {
             Place::Local(candidate) | Place::Field { base: candidate, .. } => *candidate == local,
-            Place::Index { base, index } => *base == local || reads_local(index, local),
+            Place::Index { base, index, .. } => *base == local || reads_local(index, local),
         },
         Operand::Const(_) => false,
     }
@@ -266,7 +266,7 @@ fn count_place_reads(place: &Place, count: &mut impl FnMut(&Operand)) {
     match place {
         Place::Local(_) => {}
         Place::Field { base, .. } => count(&Operand::Copy(Place::Local(*base))),
-        Place::Index { base, index } => {
+        Place::Index { base, index, .. } => {
             count(&Operand::Copy(Place::Local(*base)));
             count(index);
         }
