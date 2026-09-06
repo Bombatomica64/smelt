@@ -21,6 +21,7 @@ Milestone 0: `blocker-logs/express-v1-baseline.md`.
 | `JSON.stringify` fidelity (host objects, numbers, key order, `undefined`) | landed (section 3) |
 | top-level `await` + floating-promise drain | landed, two fixtures (section 3) |
 | `instanceof` against an identity-only host object | landed |
+| utility/mapped types over the ambient inits (`Required`/`Omit`/`Partial`/`Pick`) | landed (section 3) |
 | 4 `fetch` upgrade to return a `Response` | landed, runtime tier against a real socket (section 3) |
 | 4 `TextEncoder`/`TextDecoder`, `FormData`, `ReadableStream`, `AbortController`, `crypto` | not landed |
 | 4 `Blob`/`File` upgrade (`text()`, `arrayBuffer()`, `slice`) | not landed |
@@ -416,6 +417,46 @@ after. The machinery exists (`SmeltFuture::from_future_primed`, already used
 for async method bodies) but the floating-call path does not use it.
 `36_floating_promise_drained` therefore uses a body that awaits, where the two
 agree exactly.
+
+### Utility and mapped types over the ambient inits
+
+Hono's `request.ts` declares
+
+```ts
+type RequiredRequestInit =
+  Required<Omit<RequestInit, 'window' | 'priority'>>
+  & { [Key in 'window' | 'priority']?: RequestInit[Key] }
+```
+
+and passes a value of it to `new Request(req.url, requestInit)`. Two things were
+missing, and both belonged in the **one** field-table path
+(`type_reference_fields`) rather than a second one beside it:
+
+* **the utilities themselves.** Only `Pick` was handled, so `Omit`, `Required`,
+  `Partial` and `Readonly` produced an empty table over *any* interface, not
+  just an ambient one. `Omit` retains, `Required`/`Partial` change only
+  optionality, `Readonly` changes neither — all transparent to a field table,
+  which is what a construction site reads;
+* **the ambient inits' fields.** `ResponseInit`/`RequestInit` are not in the
+  crate, so the interface and alias lookups both miss. Their fields were already
+  declared for the per-key lookup, so the table is now read from that same
+  registry — one source, two readers, rather than a table that can drift.
+
+The mapped-type half contributes nothing, which is correct: `window` and
+`priority` are init keys Smelt does not model, so the intersection adds no
+modeled key.
+
+That exposed a third thing, and generalizing it was the real fix. Whether an
+init's keys are read directly or through the checked cast had been keyed on
+*being one of the ambient names*. The right question is structural: **does the
+crate emit a struct for this type?** A source class or interface does, so its
+fields are real Rust fields; an ambient interface and a type **alias** do not,
+so a value of either arrives as an erased record and a typed read would claim a
+shape the runtime value does not have. `RequiredRequestInit` is an alias, and it
+was the case the name-based test could not see.
+
+Verified against Node 22: the cloned request's method, url and headers, plus
+`Omit`/`Required` over an ordinary source interface — six lines, byte-identical.
 
 ## 4. M0.1's second half, now on
 

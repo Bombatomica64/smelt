@@ -846,8 +846,15 @@ impl ModuleBuilder<'_> {
         // runtime representation, so the value arrives as an erased record and
         // each key is read through the checked cast below. A source-declared
         // interface is a real struct, so its keys are read directly.
+        // Whether the init's keys are read directly or through the checked cast
+        // depends on ONE thing: does the crate emit a struct for this type? A
+        // source class or interface does, so its fields are real Rust fields. An
+        // ambient interface (`ResponseInit`) and a type ALIAS
+        // (`RequiredRequestInit = Required<Omit<RequestInit, ..>>`) do not, so a
+        // value of either arrives as an erased record and a typed read of it
+        // would claim a shape the runtime value does not have.
         let ambient = matches!(self.ctx.krate.types.get(source_ty), Some(Type::Class { name, .. })
-            if self.ambient_fetch_init_name(*name));
+            if self.erased_init_receiver(*name));
         let mut read_any = false;
         for key in keys {
             let field = self.intern_source_name(key);
@@ -995,6 +1002,17 @@ impl ModuleBuilder<'_> {
             }
             _ => ty,
         }
+    }
+
+    /// Return whether an init receiver's type emits no struct.
+    ///
+    /// Such a value crosses as an erased record, so its keys are read through
+    /// the checked cast rather than as struct fields. The test is structural --
+    /// "is there a class or interface item for this name" -- rather than a list
+    /// of names, so an alias over a utility type is covered by the same rule
+    /// that covers the ambient interfaces.
+    fn erased_init_receiver(&self, name: smelt_hir::Symbol) -> bool {
+        self.class_by_symbol(name).is_none() && self.find_interface(name).is_none()
     }
 
 }

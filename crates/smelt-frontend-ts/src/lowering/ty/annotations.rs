@@ -744,7 +744,60 @@ return_ty: function.return_ty,
             return Ok(fields);
         }
 
+        // `Omit<T, K>`: the base's fields minus the named keys. A key set that
+        // is not statically known leaves the base untouched, which is the safe
+        // direction -- a field that should have been removed still resolves,
+        // where dropping the whole table makes every field vanish.
+        if name_text == "Omit" {
+            let [base, keys] = args.as_slice() else {
+                return Ok(Vec::new());
+            };
+            let mut fields = self.type_fields_from_ts(base)?;
+            if let Some(removed) = Self::static_pick_keys(keys) {
+                fields.retain(|field| {
+                    !self
+                        .ctx
+                        .krate
+                        .symbols
+                        .get(field.name)
+                        .is_some_and(|name| removed.iter().any(|key| key == name))
+                });
+            }
+            return Ok(fields);
+        }
+        // `Required<T>` / `Partial<T>` keep the base's fields and change only
+        // their optionality; `Readonly<T>` changes neither. All three are
+        // transparent to a field TABLE, which is what a construction site reads.
+        if matches!(name_text, "Required" | "Partial" | "Readonly") {
+            let [base] = args.as_slice() else {
+                return Ok(Vec::new());
+            };
+            let mut fields = self.type_fields_from_ts(base)?;
+            match name_text {
+                "Required" => {
+                    for field in &mut fields {
+                        field.optional = false;
+                    }
+                }
+                "Partial" => {
+                    for field in &mut fields {
+                        field.optional = true;
+                    }
+                }
+                _ => {}
+            }
+            return Ok(fields);
+        }
+
         let symbol = self.intern_type_name(name_text);
+        // An ambient fetch init is not in the crate, so neither lookup below
+        // can see it. Its fields are declared in the shared registry, and
+        // reading them here is what lets every utility above compose over one:
+        // `Required<Omit<RequestInit, ..>>` is `Omit`'s retain over this table,
+        // with `Required`'s optionality applied on top.
+        if let Some(fields) = self.ambient_fetch_init_fields(name_text) {
+            return Ok(fields);
+        }
         if let Some(interface) = self.find_interface(symbol).cloned() {
             let lowered_args = args
                 .iter()
@@ -2776,32 +2829,48 @@ return_ty: function.return_ty,
         })
     }
 
-    /// Return whether `class` names an ambient fetch init interface.
+    /// The declared field table for an ambient fetch init interface.
     ///
-    /// "Ambient" here means declared in lib.dom/undici and therefore absent
-    /// from the crate: the type has no runtime representation, so a value of it
-    /// crosses as an erased record. The construction site needs to know that to
-    /// choose between a typed field read and a checked cast.
-    pub(in crate::lowering) fn ambient_fetch_init_name(&self, class: smelt_hir::Symbol) -> bool {
-        let Some(name) = self
-            .ctx
-            .krate
-            .names
-            .get(class)
-            .or_else(|| self.ctx.krate.symbols.get(class))
-        else {
-            return false;
+    /// One table, read two ways: [`Self::fetch_init_field_type`] answers a
+    /// single key for a direct field read, and this answers the whole set so a
+    /// utility type (`Omit`, `Required`, ...) can compose over it. Keeping them
+    /// as one source is the point -- a second table would drift.
+    ///
+    /// Every key is optional, matching the interfaces themselves; `Required<..>`
+    /// is what flips that, and it does so through the shared utility path.
+    pub(in crate::lowering) fn ambient_fetch_init_fields(
+        &mut self,
+        name_text: &str,
+    ) -> Option<Vec<Field>> {
+        let bare = name_text.strip_prefix("globalThis.").unwrap_or(name_text);
+        let keys: &[&str] = match bare {
+            "ResponseInit" => &["status", "statusText", "headers"],
+            "RequestInit" => &["method", "headers", "body"],
+            _ => return None,
         };
-        matches!(
-            name.strip_prefix("globalThis.").unwrap_or(name),
-            "ResponseInit" | "RequestInit"
-        ) && self.class_by_symbol(class).is_none()
-            // A source INTERFACE of the same name is concrete too: it becomes a
-            // real struct, so its keys are read directly. Only a name the crate
-            // declares nothing for is genuinely ambient. Missing this treated
-            // Hono's own `interface ResponseInit<T>` as erased and emitted the
-            // dynamic-cast read against an `Option<f64>` struct field.
-            && self.find_interface(class).is_none()
+        let class = self.intern_type_name(bare);
+        let mut fields = Vec::new();
+        for key in keys {
+            let field = self.intern_source_name(key);
+            // The registry answers with the key's OPTIONAL type; a field table
+            // carries the bare type plus an `optional` flag, so unwrap the one
+            // to build the other.
+            let Some(ty) = self.fetch_init_field_type(class, field) else {
+                continue;
+            };
+            let inner = match self.ctx.krate.types.get(ty) {
+                Some(&Type::Optional(inner)) => inner,
+                _ => ty,
+            };
+            fields.push(Field {
+                name: field,
+                ty: inner,
+                optional: true,
+                visibility: smelt_hir::Visibility::Public,
+                span: self.span(0, 0),
+            });
+        }
+        Some(fields)
     }
 
     /// Resolve a field on one of the ambient fetch **init** interfaces.

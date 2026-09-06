@@ -1070,3 +1070,67 @@ export function kindOf(body: BodyInit): string {
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
+
+/// A utility type over the ambient init resolves to the same field table.
+///
+/// Hono's `request.ts` declares
+/// `Required<Omit<RequestInit, 'window' | 'priority'>> & { [K in ...]?: ... }`
+/// and passes a value of it to `new Request(url, init)`. Two things were
+/// missing and both belonged in the one field-table path: the utilities
+/// themselves (only `Pick` was handled), and the ambient inits' fields, which
+/// no interface or alias lookup can find because they are not in the crate.
+#[test]
+fn a_utility_type_over_an_ambient_init_declares_its_keys() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+type RequiredRequestInit = Required<Omit<RequestInit, "window" | "priority">> & {
+  [Key in "window" | "priority"]?: RequestInit[Key];
+};
+
+export function cloneRequest(req: Request): Request {
+  const requestInit: RequiredRequestInit = {
+    method: req.method,
+    headers: req.headers,
+    body: "payload",
+  };
+  return new Request(req.url, requestInit);
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(
+        any_body_has(&ctx, |kind| matches!(kind, ExprKind::RequestNew { .. })),
+        "a utility-typed init must still build a concrete request",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// `Omit` and `Required` work over an ordinary source interface too.
+///
+/// The utilities are handled in the shared field-table path, so nothing about
+/// them is specific to the fetch types.
+#[test]
+fn omit_and_required_resolve_over_a_source_interface() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+interface Base {
+  a?: string;
+  b?: number;
+}
+
+export function omitted(init: Omit<Base, "b">): string {
+  return init.a ?? "none";
+}
+
+export function required(init: Required<Base>): string {
+  return init.a;
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
