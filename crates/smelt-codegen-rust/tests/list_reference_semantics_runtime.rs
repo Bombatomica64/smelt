@@ -96,6 +96,16 @@ fn run_list_fixture(source: &str, crate_name: &str) {
     drop(std::fs::remove_dir_all(&root));
 }
 
+/// Generic list erasure must preserve aliases when T already uses the erased carrier.
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn erased_generic_callback_and_return_arrays_share_storage() {
+    run_list_fixture(
+        include_str!("fixtures/erased_generic_list.ts"),
+        "erased_generic_list_storage",
+    );
+}
+
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn a_local_alias_shares_the_array() {
