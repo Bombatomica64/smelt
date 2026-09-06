@@ -79,19 +79,12 @@ members) both declined too. The ladder then errored.
 JavaScript has exactly seven falsy values — `false`, `0`, `-0`, `NaN`, `''`,
 `null`, `undefined` (plus `0n`) — and **none of them is an object**. So the rule
 is compositional: a union has no falsy inhabitant exactly when none of its arms
-does. `type_is_always_truthy_object_surface` now recurses through
-`Type::Union`, requiring **every** arm to be always-truthy (`all`, not `any`: a
-`string | T[]` union really can be falsy).
-
-That alone would have routed the union into the existing "present object"
-branch, which emits `cond != none`. It works for a single tuple only because the
-emitter folds `tuple != none` to `false`; for a generated union it emits a real
-presence check, and a generated union enum cannot answer one —
-`matches!(v, SmeltUnknown::Null | SmeltUnknown::Undefined)` over a `SmeltUnion3`
-is an E0308. So a second rung was added ABOVE it:
+does. A new `type_is_constantly_truthy` recurses through `Type::Union`,
+requiring **every** arm to be always-truthy (`all`, not `any`: a
+`string | T[]` union really can be falsy), and a new rung uses it:
 
 ```rust
-if !self.is_nullishable_type(cond_ty) && self.type_is_always_truthy_object_surface(cond_ty) {
+if !self.is_nullishable_type(cond_ty) && self.type_is_constantly_truthy(cond_ty) {
     // the constant `true`
 }
 ```
@@ -101,6 +94,41 @@ is truthy for every value it can take, so the guard *is* `true`. That is both
 the precise answer and the one no runtime representation has to support. The
 optional form (`Slots | undefined`) still falls through to the presence test,
 which is what it should be.
+
+Two design points worth recording:
+
+* **Why a constant rather than the existing presence test.** Routing the union
+  into the existing "present object" rung would emit `cond != none`. That rung
+  works for a single tuple only because the emitter folds `tuple != none` to
+  `false`; for a generated union it emits a real presence check, and a generated
+  union enum cannot answer one — `matches!(v, SmeltUnknown::Null |
+  SmeltUnknown::Undefined)` over a `SmeltUnion3` is an E0308.
+
+* **Why a separate helper rather than teaching the existing one about unions.**
+  The first version taught `type_is_always_truthy_object_surface` — consulted by
+  the *presence-test* rung — to recurse through unions. That worked, but it also
+  changed es-toolkit: `memoize`'s `getCacheKey ? getCacheKey(arg) : arg`, whose
+  type is a union of function arms, moved from a full erased `ToBool` match to a
+  one-line presence test. The two are equivalent for a union of functions (a
+  function is truthy, `undefined` is not), and the short form is cheaper — total
+  `SmeltUnknown` occurrences in es-toolkit fell from 74202 to 74194 — but the
+  erasure classifier scores the long match as a *legitimate boundary* (it
+  mentions `SmeltUnknown::Function`) and the short presence test as *avoidable*,
+  so the ratchet read +2 on a strict improvement. Rather than widen the
+  classifier's boundary markers — which would exempt 118 further es-toolkit
+  occurrences and weaken the gate for every corpus — the union knowledge was
+  kept local to the rung that needs it. es-toolkit's emission is now
+  byte-identical to the baseline and the ratchet is untouched.
+
+  The missed optimisation is real and worth taking separately: a nullish
+  presence test on an already-erased value is the *minimal* inspection of a
+  value that was already erased, and classifying it as avoidable while the
+  longer `ToBool` match over the same value counts as legitimate is a defect in
+  the metric, not in the emission. Proposed follow-up, for whoever owns the
+  metric: add `", SmeltUnknown::Null | SmeltUnknown::Undefined)"` to
+  `BOUNDARY_MARKERS` in `crates/smelt-transpiler/src/unknown_report.rs` with a
+  proving test, re-snapshot all three baselines, and then let the presence-test
+  rung learn about unions.
 
 No erasure is added: nothing about the union's representation changes, and the
 guard becomes a constant rather than a tagged inspection.

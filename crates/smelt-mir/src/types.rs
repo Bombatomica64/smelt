@@ -65,10 +65,25 @@ pub struct Mir {
 pub struct MirGlobal {
     /// The binding's name symbol.
     pub name: Symbol,
-    /// The binding's primitive type (Float, Int, Bool, or String in V1).
+    /// The binding's type.
     pub ty: TypeId,
-    /// The binding's literal initializer.
-    pub init: Constant,
+    /// How the binding's initial value is produced.
+    pub init: MirGlobalInit,
+}
+
+/// How a mutable global's cell is initialized in generated Rust.
+///
+/// A `thread_local!` initializer is an arbitrary Rust expression evaluated once
+/// per thread on first access, so both forms below are legal there; the split
+/// only records whether the value is a constant or has to be computed.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum MirGlobalInit {
+    /// A constant, emitted inline (and inside a `const` block where the type
+    /// allows it).
+    Constant(Constant),
+    /// A call to the synthesized nullary initializer function the frontend
+    /// built from the binding's initializer expression.
+    Call(FuncId),
 }
 
 impl Mir {

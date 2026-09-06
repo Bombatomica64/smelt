@@ -3297,6 +3297,15 @@ impl ModuleBuilder<'_> {
             if let BindingPattern::BindingIdentifier(binding) = &declarator.id
                 && self.is_lifted_global_declarator(binding.name.as_str(), binding.span)
             {
+                // A NON-literal initializer could not be lowered by the
+                // classification pass (it runs before imports and function
+                // items resolve), so this is where it happens: the expression
+                // becomes a synthesized nullary initializer function the cell
+                // calls lazily. A literal initializer is already stored on the
+                // item and this is a no-op.
+                if let Some(init) = &declarator.init {
+                    self.lower_pending_mutable_global_init(binding.name.as_str(), init)?;
+                }
                 continue;
             }
             // A `const Foo = function () { … }` binding recognized as a

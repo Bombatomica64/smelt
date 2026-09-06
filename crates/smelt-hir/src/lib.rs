@@ -80,7 +80,8 @@ pub use ids::{
 };
 pub use item::{
     Class, ClassKind, ClassProtocol, ConstItem, Descriptor, DescriptorValueField, Field, Function,
-    FunctionOwner, Interface, InterfaceHeritage, Item, MethodSig, MutableGlobalItem, Param,
+    FunctionOwner, Interface, InterfaceHeritage, Item, MethodSig, MutableGlobalInit,
+    MutableGlobalItem, Param,
     ParamSig, StaticField, TypeAlias, TypeParamDef, Visibility,
 };
 pub use krate::{

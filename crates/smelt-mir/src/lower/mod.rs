@@ -169,7 +169,7 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
     let mut errors = Vec::new();
 
     let item_functions = assign_function_ids(krate)?;
-    let global_ids = lower_globals(krate, &mut mir);
+    let global_ids = lower_globals(krate, &mut mir, &item_functions, &mut errors);
     let languages = index_source_languages(krate);
     let tables = LoweringTables {
         item_functions: &item_functions,
@@ -262,6 +262,8 @@ fn index_source_languages(
 fn lower_globals(
     krate: &smelt_hir::Crate,
     mir: &mut Mir,
+    item_functions: &FunctionIds,
+    errors: &mut Vec<LowerError>,
 ) -> HashMap<smelt_hir::ItemId, u32> {
     let mut global_ids = HashMap::new();
     for (idx, item) in krate.items.iter().enumerate() {
@@ -275,10 +277,40 @@ fn lower_globals(
         else {
             continue;
         };
+        // A `Pending` initializer means the frontend registered the global but
+        // never reached its own declaration to lower the initializer
+        // expression. That is a compiler bug, not a source problem, so it is
+        // reported rather than defaulted to some value the source never wrote.
+        let init = match &global.init {
+            smelt_hir::MutableGlobalInit::Literal(literal) => {
+                crate::MirGlobalInit::Constant(lower_literal(literal))
+            }
+            smelt_hir::MutableGlobalInit::Initializer(init_item) => {
+                match item_functions.get(init_item) {
+                    Some(func_id) => crate::MirGlobalInit::Call(*func_id),
+                    None => {
+                        errors.push(LowerError {
+                            message:
+                                "mutable global initializer function has no MIR function id"
+                                    .to_owned(),
+                            span: Some(global.span),
+                        });
+                        continue;
+                    }
+                }
+            }
+            smelt_hir::MutableGlobalInit::Pending => {
+                errors.push(LowerError {
+                    message: "mutable global initializer expression was never lowered".to_owned(),
+                    span: Some(global.span),
+                });
+                continue;
+            }
+        };
         mir.globals.push(crate::MirGlobal {
             name: global.name,
             ty: global.ty,
-            init: lower_literal(&global.init),
+            init,
         });
         global_ids.insert(smelt_hir::ItemId(item_index), global_index);
     }

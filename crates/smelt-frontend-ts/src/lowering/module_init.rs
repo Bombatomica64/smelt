@@ -44,6 +44,50 @@ use smelt_hir::{
 struct MutatedNameCollector {
     /// Names observed as an assignment or update target.
     names: HashSet<String>,
+    /// Names observed as the BASE of a member or index assignment target —
+    /// `name[key] = …`, `name.field = …`, and their compound and logical forms.
+    ///
+    /// Tracked separately from [`Self::names`] because the two need opposite
+    /// treatments for a mutable global: reassigning the binding replaces the
+    /// cell's whole value, which a `GlobalSet` expresses, while writing
+    /// *through* it mutates the value the cell holds — and a `GlobalGet` yields
+    /// a copy, so such a write would be silently lost. See
+    /// `register_mutable_global_decl`.
+    mutated_through: HashSet<String>,
+}
+
+impl MutatedNameCollector {
+    /// Record the root identifier of a member/index assignment target's object,
+    /// unwrapping the type-level wrappers that never change the value.
+    fn record_write_through_base(&mut self, object: &oxc::ast::ast::Expression<'_>) {
+        match object {
+            Expression::Identifier(identifier) => {
+                self.mutated_through
+                    .insert(identifier.name.as_str().to_owned());
+            }
+            Expression::ParenthesizedExpression(parenthesized) => {
+                self.record_write_through_base(&parenthesized.expression);
+            }
+            Expression::TSAsExpression(as_expr) => {
+                self.record_write_through_base(&as_expr.expression);
+            }
+            Expression::TSSatisfiesExpression(satisfies) => {
+                self.record_write_through_base(&satisfies.expression);
+            }
+            Expression::TSNonNullExpression(non_null) => {
+                self.record_write_through_base(&non_null.expression);
+            }
+            // A nested base (`a[b][c] = …`, `a.b.c = …`) still bottoms out at a
+            // root identifier, and that root is the binding being mutated.
+            Expression::ComputedMemberExpression(member) => {
+                self.record_write_through_base(&member.object);
+            }
+            Expression::StaticMemberExpression(member) => {
+                self.record_write_through_base(&member.object);
+            }
+            _ => {}
+        }
+    }
 }
 
 impl<'a> oxc::ast_visit::Visit<'a> for MutatedNameCollector {
@@ -51,10 +95,17 @@ impl<'a> oxc::ast_visit::Visit<'a> for MutatedNameCollector {
         &mut self,
         target: &oxc::ast::ast::SimpleAssignmentTarget<'a>,
     ) {
-        if let oxc::ast::ast::SimpleAssignmentTarget::AssignmentTargetIdentifier(identifier) =
-            target
-        {
-            self.names.insert(identifier.name.as_str().to_owned());
+        match target {
+            oxc::ast::ast::SimpleAssignmentTarget::AssignmentTargetIdentifier(identifier) => {
+                self.names.insert(identifier.name.as_str().to_owned());
+            }
+            oxc::ast::ast::SimpleAssignmentTarget::ComputedMemberExpression(member) => {
+                self.record_write_through_base(&member.object);
+            }
+            oxc::ast::ast::SimpleAssignmentTarget::StaticMemberExpression(member) => {
+                self.record_write_through_base(&member.object);
+            }
+            _ => {}
         }
         oxc::ast_visit::walk::walk_simple_assignment_target(self, target);
     }
@@ -1015,7 +1066,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         module: &mut Module,
         errors: &mut Vec<SmeltError>,
     ) {
-        let mutated = Self::collect_mutated_names(program);
+        let (mutated, mutated_through) = Self::collect_mutated_names(program);
         if mutated.is_empty() {
             return;
         }
@@ -1025,6 +1076,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     self.register_mutable_global_decl(
                         variable,
                         &mutated,
+                        &mutated_through,
                         Visibility::Private,
                         module,
                         errors,
@@ -1035,6 +1087,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         self.register_mutable_global_decl(
                             variable,
                             &mutated,
+                            &mutated_through,
                             Visibility::Public,
                             module,
                             errors,
@@ -1051,6 +1104,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         &mut self,
         decl: &oxc::ast::ast::VariableDeclaration<'_>,
         mutated: &HashSet<String>,
+        mutated_through: &HashSet<String>,
         visibility: Visibility,
         module: &mut Module,
         errors: &mut Vec<SmeltError>,
@@ -1079,29 +1133,72 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }
             let span = self.span(binding.span.start, binding.span.end);
             let Some(init) = &declarator.init else {
+                // `let x;` with no initializer is `undefined`, which has no
+                // type to give the cell. Left as a blocker rather than guessed.
                 errors.push(SmeltError::unsupported(
                     span,
                     "module-level mutable binding initializer must be a literal for now",
                 ));
                 continue;
             };
-            let Some(literal) = self.mutable_global_literal_init(init) else {
-                errors.push(SmeltError::unsupported(
-                    span,
-                    "module-level mutable binding initializer must be a literal for now",
-                ));
-                continue;
+            // A literal initializer is stored inline. Anything else is an
+            // EXPRESSION that has to run, and it cannot be lowered here: this
+            // pass runs before imports and function items are resolvable (see
+            // `Self::program`), so `let cache: Record<string, RegExp> =
+            // createNullObject()` would resolve its callee to an erased import
+            // placeholder. The item is registered `Pending` — reads and writes
+            // of the binding need it now — and the initializer is lowered when
+            // the module body reaches this same declaration.
+            let (init_kind, literal_ty) = match self.mutable_global_literal_init(init) {
+                Some(literal) => (
+                    smelt_hir::MutableGlobalInit::Literal(literal.literal.clone()),
+                    Some(literal.ty),
+                ),
+                None => (smelt_hir::MutableGlobalInit::Pending, None),
             };
-            let ty = match &declarator.type_annotation {
-                Some(annotation) => self
+            let ty = match (&declarator.type_annotation, literal_ty) {
+                (Some(annotation), fallback) => self
                     .ts_type_to_hir(&annotation.type_annotation)
-                    .unwrap_or(literal.ty),
-                None => literal.ty,
+                    .ok()
+                    .or(fallback),
+                (None, fallback) => fallback,
             };
-            if !self.mutable_global_type_is_primitive(ty) {
+            let Some(ty) = ty else {
+                // No annotation and no literal to infer from: the cell's type
+                // is genuinely unknown at this point in the pass order. An
+                // honest blocker rather than an erased cell.
                 errors.push(SmeltError::unsupported(
                     span,
-                    "module-level mutable bindings support primitive types for now",
+                    "module-level mutable binding with a non-literal initializer needs an \
+                     explicit type annotation",
+                ));
+                continue;
+            };
+            // A write *through* the binding (`cache[key] = value`,
+            // `cache.field = value`) mutates the value the cell holds, and a
+            // `GlobalGet` yields a COPY of that value — so the write would
+            // apply to the copy and be silently lost. Reassigning the binding
+            // as a whole is fine (that is what `GlobalSet` does), and a `Copy`
+            // primitive cannot be written through at all, so the restriction is
+            // exactly: a non-`Copy` global that is written through.
+            //
+            // Reported rather than lowered, because a lost write is a wrong
+            // value with no diagnostic — the worst outcome available. The fix
+            // is a read-modify-write desugar (`tmp = GlobalGet(g); tmp[k] = v;
+            // GlobalSet(g, tmp)`), which is not implemented; see
+            // blocker-logs/hono-h6-module-mutable-globals.md.
+            let is_copy_primitive = matches!(
+                self.ctx.krate.types.get(ty),
+                Some(Type::Float | Type::Int | Type::Bool)
+            );
+            if !is_copy_primitive && mutated_through.contains(name) {
+                errors.push(SmeltError::unsupported(
+                    span,
+                    format!(
+                        "module-level mutable binding `{name}` is written through \
+                         (`{name}[key] = …` or `{name}.field = …`); only whole-value \
+                         reassignment of a non-primitive mutable global is lowered"
+                    ),
                 ));
                 continue;
             }
@@ -1109,7 +1206,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             let item = self.ctx.krate.push_item(Item::MutableGlobal(smelt_hir::MutableGlobalItem {
                 name: symbol,
                 ty,
-                init: literal.literal.clone(),
+                init: init_kind,
                 visibility,
                 span,
             }));
@@ -1117,6 +1214,84 @@ impl<'ctx> ModuleBuilder<'ctx> {
             self.items.insert(name.to_owned(), item);
             self.mutable_global_items.insert(name.to_owned(), item);
         }
+    }
+
+    /// Lower a mutable global's non-literal initializer, once the module body
+    /// reaches the binding's own declaration.
+    ///
+    /// The initializer becomes a synthesized nullary function item returning
+    /// the expression, and the global's `init` moves from
+    /// [`smelt_hir::MutableGlobalInit::Pending`] to `Initializer(item)`. Going
+    /// through a real function item means the expression reaches codegen by the
+    /// ordinary function path — MIR assigns it a `FuncId`, the emitter emits its
+    /// body — and the cell's lazy initializer only has to call it.
+    ///
+    /// Called from the declarator-skip site (see
+    /// [`Self::is_lifted_global_declarator`]), which is where the binding's own
+    /// declaration is recognized and otherwise dropped. Returns `Ok(())` for a
+    /// global whose initializer is already a literal, so the caller does not
+    /// have to know which kind it is.
+    pub(in crate::lowering) fn lower_pending_mutable_global_init(
+        &mut self,
+        name: &str,
+        init: &Expression<'_>,
+    ) -> Result<(), SmeltError> {
+        let Some(item) = self.mutable_global_items.get(name).copied() else {
+            return Ok(());
+        };
+        let (global_ty, span) = match self.item_ref(item) {
+            Item::MutableGlobal(global)
+                if matches!(global.init, smelt_hir::MutableGlobalInit::Pending) =>
+            {
+                (global.ty, global.span)
+            }
+            _ => return Ok(()),
+        };
+        let mut init_body = Body::new(None, span);
+        // The initializer becomes a SEPARATE function item, so the module
+        // body's locals are not in scope inside it — and its `LocalId`s do not
+        // even exist in this fresh body, so leaving them registered makes name
+        // resolution hand back an id that indexes nothing (it panicked in
+        // `local_ty`). Emptying the scope for the duration is both the fix and
+        // the correct rule: an initializer that references a module-body local
+        // now reports an unresolved name instead of mis-resolving one.
+        let saved_locals = self.scope.take_bindings();
+        let lowered = self.expression_with_hint(init, &mut init_body, Some(global_ty));
+        self.scope.restore_bindings(saved_locals);
+        let value = lowered?;
+        init_body.push_stmt(smelt_hir::Stmt::Return(Some(value)));
+        let body_id = self.ctx.krate.push_body(init_body);
+        // The synthesized name is derived from the binding and the module path
+        // so two modules' same-named globals get distinct initializers, and is
+        // interned exactly so no later name-keyed lookup can collide with a
+        // source function.
+        let init_name =
+            self.intern_source_name(&format!("smelt_global_init__{name}__module_{}", self.path));
+        let init_item = self
+            .ctx
+            .krate
+            .push_item(Item::Function(smelt_hir::Function {
+                name: init_name,
+                span,
+                type_params: Vec::new(),
+                params: Vec::new(),
+                rest: None,
+                required_params: Some(0),
+                return_ty: global_ty,
+                is_async: false,
+                is_test: false,
+                body: Some(body_id),
+                owner: smelt_hir::FunctionOwner::Module,
+            }));
+        if let Some(Item::MutableGlobal(global)) = self
+            .ctx
+            .krate
+            .items
+            .get_mut(usize::try_from(item.0).unwrap_or(usize::MAX))
+        {
+            global.init = smelt_hir::MutableGlobalInit::Initializer(init_item);
+        }
+        Ok(())
     }
 
     /// Accept only a direct number/string/bool literal initializer (through
@@ -1151,14 +1326,6 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
-    /// Return whether a lowered type is a primitive a mutable global supports.
-    fn mutable_global_type_is_primitive(&self, ty: smelt_hir::TypeId) -> bool {
-        matches!(
-            self.ctx.krate.types.get(ty),
-            Some(Type::Float | Type::Int | Type::Bool | Type::String)
-        )
-    }
-
     /// Collect the names of every binding reassigned or updated inside a
     /// hoisted item body: top-level function declarations, class declarations,
     /// and `const` arrow/function initializers (all of which lower to items
@@ -1172,10 +1339,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// over-approximation (it ignores inner shadowing scopes), which is
     /// sufficient to decide which module-level `let`/`var` bindings need the
     /// mutable-global lift.
-    fn collect_mutated_names(program: &Program<'_>) -> HashSet<String> {
+    fn collect_mutated_names(program: &Program<'_>) -> (HashSet<String>, HashSet<String>) {
         use oxc::ast_visit::Visit;
         let mut collector = MutatedNameCollector {
             names: HashSet::new(),
+            mutated_through: HashSet::new(),
         };
         for statement in &program.body {
             let declaration = match statement {
@@ -1208,7 +1376,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 _ => {}
             }
         }
-        collector.names
+        (collector.names, collector.mutated_through)
     }
 
     /// Scan `const name = <arrow/function>` initializers for mutation targets.

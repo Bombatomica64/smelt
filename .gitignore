@@ -180,3 +180,13 @@ third_party/hono/
 !blocker-logs/hono-h10-uri-and-base64-globals.md
 !blocker-logs/hono-h12-const-alias-callee.md
 !blocker-logs/hono-scope.md
+!blocker-logs/hono-h6-module-mutable-globals.md
+!blocker-logs/hono-h5-h8-h9-not-mine.md
+!blocker-logs/hono-current.md
+
+# private cargo target dir for generated-crate gates run locally
+/target-gen-priv/
+# saved smelt binary used while a target dir is cleaned
+/smelt-bin
+# Hono probe checkout is cloned by CI and locally, never tracked
+third_party/hono

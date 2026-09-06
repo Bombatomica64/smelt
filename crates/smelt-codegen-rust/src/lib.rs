@@ -79,7 +79,7 @@ use std::{
 
 use crate::{rust::erased_string, type_substitution::TypeSubstitution};
 use smelt_hir::{AsyncOp, BodyId, Type, TypeId};
-use smelt_mir::{HirOrigin, Mir, MirClassProtocol, MirFunction, Rvalue};
+use smelt_mir::{HirOrigin, Mir, MirClassProtocol, MirFunction, MirGlobalInit, Rvalue};
 
 mod asymmetric_matcher_prelude;
 mod builtin_member_prelude;
@@ -5356,7 +5356,7 @@ fn emit_source_with_free_function_router(
     // `RefCell` form because a `.to_owned()` initializer cannot be `const`.
     if !mir.globals.is_empty() {
         out.push('\n');
-        out.push_str(&emit_mutable_globals(mir)?);
+        out.push_str(&emit_mutable_globals(mir, &context)?);
     }
 
     let mut has_emitted_root_function = false;
@@ -6947,38 +6947,76 @@ pub(crate) fn sanitize_ident(name: &str) -> String {
 /// (`f64`/`i64`/`bool`) use a `const`-initialized [`std::cell::Cell`]; strings
 /// use a [`std::cell::RefCell`] with the non-const initializer form because a
 /// `.to_owned()` initializer cannot appear in a `const` block.
-fn emit_mutable_globals(mir: &Mir) -> Result<String, EmitError> {
+fn emit_mutable_globals(mir: &Mir, context: &EmitContext) -> Result<String, EmitError> {
     let mut writer = CodeWriter::new();
     writer.line("thread_local! {");
     for (index, global) in mir.globals.iter().enumerate() {
         let name = global_static_name(mir, compact_index(index, "global index")?);
-        let init = emitter::literals::constant_text(&global.init);
+        // The cell's initial value. A constant is emitted inline; an expression
+        // initializer is a CALL to the nullary function the frontend
+        // synthesized from it, which is emitted like any other function. A
+        // `thread_local!` initializer is an arbitrary expression evaluated once
+        // per thread on first access, so a call is as legal there as a literal
+        // — and that timing is exactly JavaScript's "module state is
+        // initialized before any consumer runs", per generated test thread.
+        let init = match &global.init {
+            MirGlobalInit::Constant(constant) => emitter::literals::constant_text(constant),
+            MirGlobalInit::Call(func_id) => {
+                let function = mir
+                    .functions
+                    .get(usize::try_from(func_id.0).unwrap_or(usize::MAX))
+                    .ok_or_else(|| {
+                        EmitError::new(
+                            "mutable global initializer references an unknown function",
+                        )
+                    })?;
+                let function_name = context
+                    .function_names
+                    .get(&function.id)
+                    .cloned()
+                    .map_or_else(
+                        || {
+                            Ok::<String, EmitError>(sanitize_ident(
+                                mir.symbols.get(function.name).ok_or_else(|| {
+                                    EmitError::new("mutable global initializer has no name")
+                                })?,
+                            ))
+                        },
+                        Ok,
+                    )?;
+                format!("{function_name}()")
+            }
+        };
+        // A Copy primitive uses `Cell`, which needs no borrow bookkeeping and
+        // can be `const`-initialized from a literal. Everything else — a
+        // `String`, a record, a list, a map — is not `Copy`, so its cell is a
+        // `RefCell`; an owned or computed initializer cannot be `const` either.
+        let is_constant_init = matches!(global.init, MirGlobalInit::Constant(_));
         match mir.types.get(global.ty) {
-            Some(Type::String) => {
-                // `init` is already the owned-string expression (`"…".to_owned()`),
-                // which cannot appear in a `const` block, hence the non-const form.
+            Some(Type::Float | Type::Int | Type::Bool) if is_constant_init => {
+                let rust_ty = match mir.types.get(global.ty) {
+                    Some(Type::Float) => "f64",
+                    Some(Type::Int) => "i64",
+                    _ => "bool",
+                };
                 writer.line(format!(
-                    "    static {name}: ::std::cell::RefCell<String> = ::std::cell::RefCell::new({init});"
+                    "    static {name}: ::std::cell::Cell<{rust_ty}> = const {{ ::std::cell::Cell::new({init}) }};"
                 ));
             }
-            Some(Type::Float) => {
+            Some(Type::Float | Type::Int | Type::Bool) => {
+                let rust_ty = match mir.types.get(global.ty) {
+                    Some(Type::Float) => "f64",
+                    Some(Type::Int) => "i64",
+                    _ => "bool",
+                };
                 writer.line(format!(
-                    "    static {name}: ::std::cell::Cell<f64> = const {{ ::std::cell::Cell::new({init}) }};"
-                ));
-            }
-            Some(Type::Int) => {
-                writer.line(format!(
-                    "    static {name}: ::std::cell::Cell<i64> = const {{ ::std::cell::Cell::new({init}) }};"
-                ));
-            }
-            Some(Type::Bool) => {
-                writer.line(format!(
-                    "    static {name}: ::std::cell::Cell<bool> = const {{ ::std::cell::Cell::new({init}) }};"
+                    "    static {name}: ::std::cell::Cell<{rust_ty}> = ::std::cell::Cell::new({init});"
                 ));
             }
             _ => {
-                return Err(EmitError::new(
-                    "mutable global has a non-primitive type; only Float/Int/Bool/String are supported",
+                let value_ty = FunctionEmitter::type_text_for_with_context(mir, context, global.ty)?;
+                writer.line(format!(
+                    "    static {name}: ::std::cell::RefCell<{value_ty}> = ::std::cell::RefCell::new({init});"
                 ));
             }
         }
