@@ -170,3 +170,75 @@ the standards stream models them.
 closures, so those files transpile today. Only the two helpers above actually
 block, which is the distinction the exclude list is meant to record.
 
+---
+
+## Round 5: `ResponseInit` as a modeled type — one demand entry, same root cause as the init blockers
+
+Recorded per the round-5 instruction ("if it is a fetch-type receiver whose
+property the standards stream has not modeled, record it in the demand file
+instead"). This is that case, and the diagnosis is that it is **not a new gap**.
+
+### The site
+
+`src/context.ts:651`, in `#newResponse`:
+
+```ts
+const status = typeof arg === 'number' ? arg : (arg?.status ?? this.#status)
+```
+
+with `arg?: StatusCode | ResponseOrInit` and, from `context.ts:277`:
+
+```ts
+type ResponseOrInit<T extends StatusCode = StatusCode> = ResponseInit<T> | Response
+```
+
+so `arg` is `StatusCode | ResponseInit | Response`. The blocker is
+
+```
+field access is only lowered for Record<string, T>, class, and interface values
+for now (receiver: Float, field: status)
+```
+
+### Why it is demand and not a narrowing bug
+
+I checked the narrowing machinery rather than assuming. It is all present and it
+works: `inverse_guard_narrowing` -> `typeof_inverse_guard` ->
+`typeof_excluded_type` / `remove_typeof_member` removes the members matching a
+`typeof` kind from a union in the else branch. The equivalent shape with a plain
+object type in the union does **not** produce this blocker:
+
+```ts
+type Init = { status?: number };
+function pick(arg?: number | Init): number {
+  return typeof arg === 'number' ? arg : (arg?.status ?? 7);
+}
+```
+
+(That fixture surfaces a *different* and unrelated emitter issue — `type table
+does not contain literal operand type Unknown` at
+`emitter/call_runtime.rs:2115` — which is worth its own look but is not this
+blocker.)
+
+`ResponseOp::Status` is modeled too, so `.status` on a concrete `Response`
+receiver lowers today.
+
+What is missing is **`ResponseInit` as a type**. The standards stream models
+`Response` *construction* from an object literal and deliberately blocks a
+non-literal init — that is the existing
+`Response init must be an object literal so its keys keep their types`
+blocker. Because `ResponseInit` is not a modeled type, the three-member union
+degenerates to the `StatusCode` half (`Float`), the `typeof` narrowing has no
+non-numeric member left to narrow to, and the `.status` read lands on a `Float`.
+
+### Ask
+
+`ResponseInit<T>` (and `RequestInit`) as modeled types with typed keys —
+`status?: number`, `statusText?: string`, `headers?: HeadersInit`. That is the
+same thing the two "init must be an object literal" blockers need, so this
+entry should fall out of the standards agent's round 4 rather than needing
+separate work. **Worth confirming after that lands**: if the union survives, this
+blocker goes with it and needs nothing from either stream.
+
+Counts, for scale: `.status` reads on a `ResponseOrInit`-typed value appear at
+this one site; `ResponseInit` appears in 5 signatures in `context.ts`.
+

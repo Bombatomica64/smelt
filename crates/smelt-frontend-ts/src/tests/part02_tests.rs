@@ -765,10 +765,53 @@ fn lowers_conditional_expression() -> Result<(), String> {
 }
 
 #[test]
-fn rejects_conditional_expression_with_mismatched_branches() -> Result<(), String> {
+fn lowers_conditional_expression_with_unrelated_branches_as_a_union() -> Result<(), String> {
+    // TypeScript types `c ? 1 : "no"` as `number | string`, and that union is
+    // the join -- the same rule `??` applies to two concrete unrelated arms.
+    // This used to be a blocker, which refused well-typed TypeScript.
+    // Inside a function body: an `export const` initializer has its own,
+    // unrelated restriction to primitive literals.
     let mut ctx = HirCtx::new();
-    let errors = lowering_errors(ts!("const value = true ? 1 : \"no\";"), &mut ctx)?;
-    assert_unsupported_ts(&errors, "branches must have the same lowered type")
+    let module_id = lower_ok(
+        ts!(r"
+export function pick(flag: boolean): number | string {
+  return flag ? 1 : 'no';
+}
+"),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_conditional_expression_with_optional_and_bare_numeric_branches()
+-> Result<(), String> {
+    // The Hono `utils/url.ts` shape: a nested ternary makes one branch
+    // `Optional<Float>` (`hashIndex === -1 ? undefined : hashIndex`) and the
+    // other `Float`. TypeScript types that `number | undefined`. The sibling
+    // conditional decision consulted the optional-merge helper all along and
+    // this one did not, so the same source blocked or lowered depending on
+    // which arm of the emitter it reached.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+export function endOf(queryIndex: number, hashIndex: number): number | undefined {
+  return queryIndex === -1
+    ? hashIndex === -1
+      ? undefined
+      : hashIndex
+    : hashIndex === -1
+      ? queryIndex
+      : Math.min(queryIndex, hashIndex);
+}
+"),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
 }
 
 #[test]

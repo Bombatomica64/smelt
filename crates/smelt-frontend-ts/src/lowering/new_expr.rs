@@ -2287,6 +2287,17 @@ impl ModuleBuilder<'_> {
                 } else if self.type_contains_unknown(then_ty) || self.type_contains_unknown(else_ty)
                 {
                     self.ctx.krate.types.intern(Type::Unknown)
+                } else if let Some(unified) =
+                    self.unify_optional_conditional_branches(then_ty, else_ty)
+                {
+                    // `queryIndex === -1 ? (hashIndex === -1 ? undefined :
+                    // hashIndex) : ...` (Hono's `utils/url.ts`) makes one branch
+                    // `Optional<Float>` and the other `Float`, which TypeScript
+                    // types `number | undefined`. The sibling conditional
+                    // decision below has consulted this helper all along; this
+                    // one had not, so the same source shape blocked or lowered
+                    // depending on which arm of the emitter it reached.
+                    unified
                 } else if let Some(hint) = type_hint
                     && !self.concrete_type_requires_never_value(hint)
                 {
@@ -2309,6 +2320,20 @@ impl ModuleBuilder<'_> {
                     // | Record<string, T>`): the merged value is a genuine
                     // dynamic boundary and widens to `unknown`.
                     self.ctx.krate.types.intern(Type::Unknown)
+                } else if !self.concrete_type_requires_never_value(then_ty)
+                    && !self.concrete_type_requires_never_value(else_ty)
+                {
+                    // Two concrete, unrelated arms. TypeScript types `c ? a : b`
+                    // as `typeof a | typeof b`, and that union is the join — the
+                    // same rule `??` applies (see
+                    // `nullish_coalescing_expression`'s concrete-arms branch).
+                    // Blocking here refused well-typed TypeScript; picking one
+                    // arm's type would emit that arm's type carrying the other
+                    // arm's value.
+                    self.ctx
+                        .krate
+                        .types
+                        .intern(Type::Union(vec![then_ty, else_ty]))
                 } else {
                     return Err(SmeltError::unsupported(
                         self.span(conditional.span.start, conditional.span.end),
@@ -2797,6 +2822,22 @@ impl ModuleBuilder<'_> {
             // boundary and widens to `unknown`.
             Ok(self.ctx.krate.types.intern(Type::Unknown))
         } else {
+            // NO union join here, deliberately. Despite the name, this is a
+            // shared *reconcilability query*, not the conditional expression's
+            // own type decision: `reduce`/`fold` (`callbacks/list_ops.rs`),
+            // `callbacks/transforms.rs` and the logical-operand merge in
+            // `expr/operators.rs` all call it and treat `Err` as "these two
+            // types have no common lowered shape". Answering a union here makes
+            // a `string` accumulator with a `boolean`-returning callback
+            // reconcile, which is what
+            // `reduce_named_callback_rejects_irreconcilable_return_type` exists
+            // to prevent — the fold would assign a `boolean` into a `String`.
+            //
+            // The ternary's own decision (the inline chain in
+            // `expression_with_hint`'s `ConditionalExpression` arm) DOES join to
+            // a union, because `c ? a : b` is `typeof a | typeof b` in
+            // TypeScript. The two are different questions and only one of them
+            // is about a conditional.
             Err(SmeltError::unsupported(
                 self.span(start, end),
                 format!(
