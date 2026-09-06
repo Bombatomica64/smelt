@@ -19,10 +19,24 @@ Milestone 0: `blocker-logs/express-v1-baseline.md`.
 | 4 `Blob`/`File` upgrade (`text()`, `arrayBuffer()`, `slice`) | not landed |
 | 5 `node:http` on hyper | **not landed** — declared as a blocker instead (honest today, section 5 below) |
 
-`smelt probe` on `examples/typescript/express_crud` now reports 3 blockers
-(2x unresolved `express`, 1x `node:sqlite` `DatabaseSync`) and emits all six
-modules with all seven free functions, where before it reported 0 blockers and
-emitted `main` only.
+`smelt probe` on `examples/typescript/express_crud` now reports **1 blocker**
+(`node:sqlite` `DatabaseSync` declared but not implemented) and aborts the crate
+build there, where before it reported 0 blockers and emitted a no-op crate whose
+only item was `main`.
+
+Two numbers to be precise about:
+
+- with M0.2 fixed, the probe scans and lowers all six modules and emits all
+  seven free functions (`createApp`, `openDatabase`, `rowToTodo`, `parseId`,
+  `createTodosRouter`, and the two validators) — measured by removing the
+  `node:sqlite` blocker temporarily; that was M0.3;
+- the `unresolved package express` blocker does **not** fire, because the
+  unmodeled-package half of M0.1 is gated off (section 4). The Milestone 0
+  commit message quotes "3 blockers (2x unresolved `express`, ...)"; that was
+  measured before the policy constant was added in the same commit, and 1 is
+  the number the committed tree produces. Acceptance criterion 1 of the plan is
+  therefore **half met**: the `node:sqlite` surface is reported, the `express`
+  package is not.
 
 ## 2. The mechanism, now proven twice
 

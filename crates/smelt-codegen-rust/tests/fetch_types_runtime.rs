@@ -415,6 +415,16 @@ test("an erased parameter list answers the size probe", () => {
   expect(sizeOf(empty)).toBe(0);
   expect(sizeOf(filled)).toBe(2);
 });
+test("an erased fetch value keeps its host identity", () => {
+  const headers: unknown = new Headers({ accept: "text/html" });
+  const params: unknown = new URLSearchParams("a=1");
+  expect(headers instanceof Headers).toBe(true);
+  expect(params instanceof URLSearchParams).toBe(true);
+  expect(headers instanceof URLSearchParams).toBe(false);
+  expect(params instanceof Headers).toBe(false);
+  expect(Object.prototype.toString.call(headers)).toBe("[object Headers]");
+  expect(Object.prototype.toString.call(params)).toBe("[object URLSearchParams]");
+});
 test("an erased fetch value enumerates no own keys", () => {
   const headers: unknown = new Headers({ accept: "text/html" });
   const params: unknown = new URLSearchParams("a=1");
