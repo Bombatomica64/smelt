@@ -656,3 +656,187 @@ const response = new Response("hello", { url: "https://example.test" });
     )?;
     assert_unsupported_ts(&errors, "`url` is not modeled yet")
 }
+
+/// `new Request(..)` lowers to a concrete `Request` value, not a record.
+#[test]
+fn request_constructor_lowers_to_a_concrete_class_value() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const request = new Request("https://a.test/p", { method: "POST", body: "hi" });
+"#),
+        &mut ctx,
+    )?;
+    let ty = last_expr_ty(&ctx, module_id, |kind| {
+        matches!(kind, ExprKind::RequestNew { .. })
+    })?;
+    ensure!(
+        matches!(ctx.krate.types.get(ty), Some(Type::Class { .. })),
+        "`new Request(..)` must be a class-typed value, got {}",
+        type_text(&ctx, ty),
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// Every modeled member keeps the exact source result type.
+///
+/// `url` being `String` is the point of demand item 6 in
+/// `blocker-logs/hono-fetch-demand.md`: an untyped read made
+/// `request.url.indexOf(':')` a "string search methods require a string
+/// receiver" error.
+#[test]
+fn request_members_keep_their_exact_source_types() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+async function read(): Promise<void> {
+  const request = new Request("https://a.test/p");
+  const url = request.url;
+  const method = request.method;
+  const used = request.bodyUsed;
+  const headers = request.headers;
+  const copy = request.clone();
+  const text = await request.text();
+}
+"#),
+        &mut ctx,
+    )?;
+    for (op, expected) in [
+        (smelt_hir::RequestOp::Url, "Some(String)"),
+        (smelt_hir::RequestOp::Method, "Some(String)"),
+        (smelt_hir::RequestOp::BodyUsed, "Some(Bool)"),
+    ] {
+        let ty = any_body_expr_ty(&ctx, |kind| {
+            matches!(kind, ExprKind::RequestOp { op: found, .. } if *found == op)
+        })?;
+        ensure_eq!(type_text(&ctx, ty), expected.to_owned());
+    }
+    for op in [smelt_hir::RequestOp::Headers, smelt_hir::RequestOp::Clone] {
+        let ty = any_body_expr_ty(&ctx, |kind| {
+            matches!(kind, ExprKind::RequestOp { op: found, .. } if *found == op)
+        })?;
+        ensure!(
+            matches!(ctx.krate.types.get(ty), Some(Type::Class { .. })),
+            "`Request` member {op:?} must be class-typed, got {}",
+            type_text(&ctx, ty),
+        );
+    }
+    let text_ty = any_body_expr_ty(&ctx, |kind| {
+        matches!(
+            kind,
+            ExprKind::RequestOp {
+                op: smelt_hir::RequestOp::Text,
+                ..
+            }
+        )
+    })?;
+    ensure!(
+        matches!(ctx.krate.types.get(text_ty), Some(Type::Future(inner))
+            if matches!(ctx.krate.types.get(*inner), Some(Type::String))),
+        "`request.text()` is a `Promise<string>`, got {}",
+        type_text(&ctx, text_ty),
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// A string method applies directly to `request.url`.
+#[test]
+fn request_url_is_a_string_receiver() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function schemeEnd(request: Request): number {
+  return request.url.indexOf(":");
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module_id;
+    ensure!(
+        any_body_has(&ctx, |kind| matches!(
+            kind,
+            ExprKind::RequestOp {
+                op: smelt_hir::RequestOp::Url,
+                ..
+            }
+        )),
+        "`request.url` must lower to the typed url read",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// A user class named `Request` shadows the modeled host class.
+#[test]
+fn a_user_class_named_request_wins() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+class Request {
+  constructor(readonly url: string) {}
+  describe(): string {
+    return this.url;
+  }
+}
+
+const request = new Request("mine");
+const described = request.describe();
+"#),
+        &mut ctx,
+    )?;
+    ensure!(
+        !any_body_has(&ctx, |kind| matches!(
+            kind,
+            ExprKind::RequestNew { .. } | ExprKind::RequestOp { .. }
+        )),
+        "a user class named `Request` must not lower to the modeled fetch type",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// A non-literal init is a named blocker, not an erased record.
+#[test]
+fn request_init_must_be_an_object_literal() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r#"
+const init = { method: "POST" };
+const request = new Request("https://a.test/p", init);
+"#),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&errors, "must be an object literal")
+}
+
+/// An init key Smelt does not model yet is named, not dropped.
+///
+/// `signal`, `redirect`, `credentials` and the rest of `RequestInit` are real
+/// keys with real behaviour; accepting and ignoring one would change what the
+/// program does with no diagnostic.
+#[test]
+fn request_unmodeled_init_key_is_named() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r#"
+const request = new Request("https://a.test/p", { redirect: "manual" });
+"#),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&errors, "`redirect` is not modeled yet")
+}
+
+/// A `Request` with no URL argument is a named blocker.
+#[test]
+fn request_requires_a_url_argument() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r#"
+const request = new Request();
+"#),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&errors, "requires a URL argument")
+}

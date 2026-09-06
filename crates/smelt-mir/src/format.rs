@@ -895,6 +895,40 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 operand_text(right)
             )
         }
+        Rvalue::RequestNew {
+            input,
+            method,
+            headers,
+            body,
+        } => {
+            let mut parts = vec![format!("input={}", operand_text(input))];
+            if let Some(method) = method {
+                parts.push(format!("method={}", operand_text(method)));
+            }
+            if let Some(headers) = headers {
+                parts.push(format!("headers={}", operand_text(headers)));
+            }
+            if let Some(body) = body {
+                parts.push(format!("body={}", operand_text(body)));
+            }
+            format!("request_new {}", parts.join(" "))
+        }
+        Rvalue::RequestOp { op, request, args } => {
+            let name = match op {
+                smelt_hir::RequestOp::Url => "url",
+                smelt_hir::RequestOp::Method => "method",
+                smelt_hir::RequestOp::Headers => "headers",
+                smelt_hir::RequestOp::BodyUsed => "body_used",
+                smelt_hir::RequestOp::Text => "text",
+                smelt_hir::RequestOp::Clone => "clone",
+            };
+            let mut text = format!("request_{name} {}", operand_text(request));
+            for arg in args {
+                text.push(' ');
+                text.push_str(&operand_text(arg));
+            }
+            text
+        }
         Rvalue::ResponseNew {
             body,
             status,

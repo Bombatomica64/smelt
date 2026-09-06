@@ -401,6 +401,38 @@ impl ExprKind {
                 right: f(right)?,
             },
             Self::SetProjection { op, set } => Self::SetProjection { op, set: f(set)? },
+            Self::RequestNew {
+                input,
+                method,
+                headers,
+                body,
+            } => Self::RequestNew {
+                input: f(input)?,
+                method: match method {
+                    Some(method) => Some(f(method)?),
+                    None => None,
+                },
+                headers: match headers {
+                    Some(headers) => Some(f(headers)?),
+                    None => None,
+                },
+                body: match body {
+                    Some(body) => Some(f(body)?),
+                    None => None,
+                },
+            },
+            Self::RequestOp { op, request, args } => {
+                let request = f(request)?;
+                let mut mapped = Vec::with_capacity(args.len());
+                for arg in args {
+                    mapped.push(f(arg)?);
+                }
+                Self::RequestOp {
+                    op,
+                    request,
+                    args: mapped,
+                }
+            }
             Self::ResponseNew {
                 body,
                 status,

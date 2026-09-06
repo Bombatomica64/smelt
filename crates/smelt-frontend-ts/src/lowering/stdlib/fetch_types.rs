@@ -28,7 +28,7 @@ use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use oxc::ast::ast::Expression;
 use oxc::span::GetSpan;
-use smelt_hir::{Body, Expr, ExprKind, HeadersOp, ResponseOp, Type};
+use smelt_hir::{Body, Expr, ExprKind, HeadersOp, RequestOp, ResponseOp, Type};
 use smelt_stdlib::RuleId;
 
 impl ModuleBuilder<'_> {
@@ -571,6 +571,190 @@ impl ModuleBuilder<'_> {
             ResponseOp::Headers => self.headers_type(),
             ResponseOp::Clone => self.response_type(),
             ResponseOp::Text => {
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                self.ctx.krate.types.intern(Type::Future(string_ty))
+            }
+        }
+    }
+
+    /// Lower `new Request(input, init?)` into a concrete `Request` value.
+    ///
+    /// Same init handling as [`Self::response_constructor_expression`]: the
+    /// literal's keys become typed fields, and a non-literal init is a named
+    /// blocker rather than an erased record.
+    pub(in crate::lowering) fn request_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if new_expr.arguments.len() > 2 {
+            return Err(SmeltError::unsupported(
+                self.span(new_expr.span.start, new_expr.span.end),
+                "Request constructor takes at most an input and an init",
+            ));
+        }
+        let Some(input_argument) = new_expr.arguments.first() else {
+            return Err(SmeltError::unsupported(
+                self.span(new_expr.span.start, new_expr.span.end),
+                "Request constructor requires a URL argument",
+            ));
+        };
+        let input = self.argument(input_argument, body)?;
+        let mut method = None;
+        let mut headers = None;
+        let mut body_expr = None;
+        if let Some(init_argument) = new_expr.arguments.get(1) {
+            let Some(Expression::ObjectExpression(init)) = init_argument.as_expression() else {
+                return Err(SmeltError::unsupported(
+                    self.span(init_argument.span().start, init_argument.span().end),
+                    "Request init must be an object literal so its keys keep their types",
+                ));
+            };
+            for property in &init.properties {
+                let oxc::ast::ast::ObjectPropertyKind::ObjectProperty(property) = property else {
+                    return Err(SmeltError::unsupported(
+                        self.span(init.span.start, init.span.end),
+                        "Request init does not support spread properties yet",
+                    ));
+                };
+                let Some(key) = property.key.static_name() else {
+                    return Err(SmeltError::unsupported(
+                        self.span(init.span.start, init.span.end),
+                        "Request init requires statically named keys",
+                    ));
+                };
+                let value = self.expression(&property.value, body)?;
+                match key.as_ref() {
+                    "method" => method = Some(value),
+                    "headers" => headers = Some(value),
+                    "body" => body_expr = Some(value),
+                    other => {
+                        return Err(SmeltError::unsupported(
+                            self.span(init.span.start, init.span.end),
+                            format!("Request init key `{other}` is not modeled yet"),
+                        ));
+                    }
+                }
+            }
+        }
+        let ty = self.request_type();
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::RequestNew {
+                input,
+                method,
+                headers,
+                body: body_expr,
+            },
+            ty,
+            span: self.span(new_expr.span.start, new_expr.span.end),
+        }))
+    }
+
+    /// Dispatch a modeled `Request` method on a concrete `Request` receiver.
+    pub(in crate::lowering) fn dispatch_request_method(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let member_name = member.property.name.as_str();
+        let Some(rule) = smelt_stdlib::typescript_method_rule(
+            smelt_stdlib::TypeScriptReceiverKind::Request,
+            member_name,
+        ) else {
+            return Ok(None);
+        };
+        let Ok(receiver) = self.expression(&member.object, body) else {
+            return Ok(None);
+        };
+        let receiver_ty = Self::expr_ty(body, receiver);
+        if !self.is_request_type(receiver_ty) {
+            return Ok(None);
+        }
+        let op = match rule {
+            RuleId::TsRequestBodyRead => RequestOp::Text,
+            RuleId::TsRequestClone => RequestOp::Clone,
+            _ => return Ok(None),
+        };
+        if !call.arguments.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                format!("`Request.{member_name}` takes no arguments"),
+            ));
+        }
+        let ty = self.request_op_result_type(op);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::RequestOp {
+                op,
+                request: receiver,
+                args: Vec::new(),
+            },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower a `Request` data-property read on a concrete receiver.
+    ///
+    /// `url` being typed `string` is what unblocks `request.url.indexOf(':')`
+    /// — an untyped read made that a "string search methods require a string
+    /// receiver" error (`blocker-logs/hono-fetch-demand.md` item 6).
+    pub(in crate::lowering) fn request_property_read(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let op = match member.property.name.as_str() {
+            "url" => RequestOp::Url,
+            "method" => RequestOp::Method,
+            "headers" => RequestOp::Headers,
+            "bodyUsed" => RequestOp::BodyUsed,
+            _ => return Ok(None),
+        };
+        let Ok(receiver) = self.expression(&member.object, body) else {
+            return Ok(None);
+        };
+        let receiver_ty = Self::expr_ty(body, receiver);
+        if !self.is_request_type(receiver_ty) {
+            return Ok(None);
+        }
+        let ty = self.request_op_result_type(op);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::RequestOp {
+                op,
+                request: receiver,
+                args: Vec::new(),
+            },
+            ty,
+            span: self.span(member.span.start, member.span.end),
+        })))
+    }
+
+    /// Return the modeled `Request` class type.
+    pub(in crate::lowering) fn request_type(&mut self) -> smelt_hir::TypeId {
+        let name = self.intern_type_name("Request");
+        self.ctx.krate.types.intern(Type::Class {
+            name,
+            args: Vec::new(),
+        })
+    }
+
+    /// Return whether a lowered type is the modeled `Request` class.
+    pub(in crate::lowering) fn is_request_type(&self, ty: smelt_hir::TypeId) -> bool {
+        self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::Request)
+            && !self.user_class_shadows("Request")
+    }
+
+    /// The HIR type a `Request` operation answers.
+    fn request_op_result_type(&mut self, op: RequestOp) -> smelt_hir::TypeId {
+        match op {
+            RequestOp::Url | RequestOp::Method => self.ctx.krate.types.intern(Type::String),
+            RequestOp::BodyUsed => self.ctx.krate.types.intern(Type::Bool),
+            RequestOp::Headers => self.headers_type(),
+            RequestOp::Clone => self.request_type(),
+            RequestOp::Text => {
                 let string_ty = self.ctx.krate.types.intern(Type::String);
                 self.ctx.krate.types.intern(Type::Future(string_ty))
             }

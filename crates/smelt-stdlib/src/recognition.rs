@@ -28,6 +28,8 @@ pub enum TypeScriptReceiverKind {
     UrlSearchParams,
     /// A WHATWG `Response` value.
     Response,
+    /// A WHATWG `Request` value.
+    Request,
 }
 
 /// Receiver-method call shape recognized after a frontend knows the receiver type.
@@ -246,6 +248,16 @@ pub const TYPESCRIPT_METHODS: &[MethodRecognition] = &[
         TypeScriptReceiverKind::Response,
         "clone",
         RuleId::TsResponseClone,
+    ),
+    method(
+        TypeScriptReceiverKind::Request,
+        "text",
+        RuleId::TsRequestBodyRead,
+    ),
+    method(
+        TypeScriptReceiverKind::Request,
+        "clone",
+        RuleId::TsRequestClone,
     ),
 ];
 

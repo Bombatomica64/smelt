@@ -503,7 +503,7 @@ fn emit_body_struct(writer: &mut CodeWriter) {
         struct_writer.line("/// header list when the caller did not set one. A string body implies");
         struct_writer.line("/// `text/plain;charset=UTF-8`; raw bytes and a stream imply nothing,");
         struct_writer.line("/// which is why this is an `Option` rather than a default string.");
-        struct_writer.line("content_type: Option<String>,")
+        struct_writer.line("content_type: Option<String>,");
     });
     writer.blank_line();
     // Structural equality over the bytes, matching how the other fetch types
@@ -625,9 +625,10 @@ fn emit_body_inherent_impl(writer: &mut CodeWriter, needs_unknown: bool) {
 /// Gated like the other fetch types, and it turns the `SmeltHeaders` and
 /// `SmeltBody` gates on with it: a response *has* a header list and a body, so
 /// a crate carrying `Response` carries all three.
-pub fn emit_response(writer: &mut CodeWriter) {
+pub fn emit_response(writer: &mut CodeWriter, needs_unknown: bool) {
     emit_response_struct(writer);
     emit_response_inherent_impl(writer);
+    emit_response_traits(writer, needs_unknown);
 }
 
 /// Emit the `SmeltResponse` struct and its comparisons.
@@ -729,6 +730,195 @@ fn emit_response_inherent_impl(writer: &mut CodeWriter) {
         impl_writer.line(
             "pub fn tee(&self) -> Self { Self::from_parts(self.status, self.status_text.clone(), SmeltHeaders::from_pairs(self.headers.entries_in_insertion_order()), self.body.tee()) }",
         );
+    });
+    writer.blank_line();
+}
+
+/// Emit the `SmeltRequest` runtime type.
+///
+/// Gated like `SmeltResponse`, and it turns the same two gates on with it: a
+/// request has a header list and a body.
+pub fn emit_request(writer: &mut CodeWriter, needs_unknown: bool) {
+    emit_request_struct(writer);
+    emit_request_inherent_impl(writer);
+    emit_request_traits(writer, needs_unknown);
+}
+
+/// Emit the `SmeltRequest` struct and its comparisons.
+fn emit_request_struct(writer: &mut CodeWriter) {
+    writer.line("/// A WHATWG `Request`: a serialized URL, a method, headers, and a body.");
+    writer.line("///");
+    writer.line("/// The same split as `SmeltResponse`: the URL and method are immutable on");
+    writer.line("/// a request, so they are plain fields, and `SmeltBody` owns the one");
+    writer.line("/// mutable thing — whether the body has been read.");
+    writer.line("#[derive(Clone)]");
+    writer.block("pub struct SmeltRequest", |struct_writer| {
+        struct_writer.line("id: usize,");
+        struct_writer.line("url: String,");
+        struct_writer.line("method: String,");
+        struct_writer.line("headers: SmeltHeaders,");
+        struct_writer.line("body: SmeltBody,");
+    });
+    writer.blank_line();
+    writer.line(
+        "impl PartialEq for SmeltRequest { fn eq(&self, other: &Self) -> bool { self.url == other.url && self.method == other.method && self.headers == other.headers && self.body == other.body } }",
+    );
+    writer.line(
+        "impl ::std::fmt::Debug for SmeltRequest { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_struct(\"SmeltRequest\").field(\"method\", &self.method).field(\"url\", &self.url).field(\"headers\", &self.headers).field(\"body\", &self.body).finish() } }",
+    );
+    writer.blank_line();
+}
+
+/// Emit the request's constructor and its member operations.
+fn emit_request_inherent_impl(writer: &mut CodeWriter) {
+    writer.line("#[allow(dead_code)]");
+    writer.block("impl SmeltRequest", |impl_writer| {
+        impl_writer.line("/// Assemble a request with a fresh JS reference identity.");
+        impl_writer.line("///");
+        impl_writer.line("/// `input` is SERIALIZED, not stored as written: the spec parses it");
+        impl_writer.line("/// into a URL record and `request.url` reads back the serialization,");
+        impl_writer.line("/// so `https://a.test` answers `https://a.test/`. A body that implies");
+        impl_writer.line("/// a `Content-Type` adds it unless the caller set one, exactly as on a");
+        impl_writer.line("/// response — the pairing belongs to the body, so both holders get it");
+        impl_writer.line("/// from the same place.");
+        impl_writer.block(
+            "pub fn from_parts(input: &str, method: String, headers: SmeltHeaders, body: SmeltBody) -> Self",
+            |fn_writer| {
+                fn_writer.line("let url = ::url::Url::parse(input).map_or_else(|_| input.to_owned(), |parsed| parsed.to_string());");
+                fn_writer.block(
+                    "if let Some(content_type) = body.content_type() && !headers.has(\"content-type\")",
+                    |arm_writer| {
+                        arm_writer.line("headers.append(\"content-type\", &content_type);");
+                    },
+                );
+                fn_writer.line("Self { id: smelt_next_object_id(), url, method: Self::normalize_method(&method), headers, body }");
+            },
+        );
+        impl_writer.line("/// The spec's method normalization.");
+        impl_writer.line("///");
+        impl_writer.line("/// Exactly the spec's list is upper-cased when a method is given in");
+        impl_writer.line("/// any case: `DELETE GET HEAD OPTIONS POST PUT`. Every other token is");
+        impl_writer.line("/// left as written — `patch` stays `patch`, which is observable and is");
+        impl_writer.line("/// what Node does, so upper-casing everything would be wrong.");
+        impl_writer.block(
+            "fn normalize_method(method: &str) -> String",
+            |fn_writer| {
+                fn_writer.line("let upper = method.to_ascii_uppercase();");
+                fn_writer.block(
+                    "if matches!(upper.as_str(), \"DELETE\" | \"GET\" | \"HEAD\" | \"OPTIONS\" | \"POST\" | \"PUT\")",
+                    |arm_writer| {
+                        arm_writer.line("upper");
+                    },
+                );
+                fn_writer.block("else", |arm_writer| {
+                    arm_writer.line("method.to_owned()");
+                });
+            },
+        );
+        impl_writer.line("/// JS reference identity of this request.");
+        impl_writer.line("pub fn id(&self) -> usize { self.id }");
+        impl_writer.line("/// `url`: the serialized request URL.");
+        impl_writer.line("pub fn url(&self) -> String { self.url.clone() }");
+        impl_writer.line("/// `method`.");
+        impl_writer.line("pub fn method(&self) -> String { self.method.clone() }");
+        impl_writer.line("/// `headers`: the same list, not a copy.");
+        impl_writer.line("pub fn headers(&self) -> SmeltHeaders { self.headers.clone() }");
+        impl_writer.line("/// `bodyUsed`.");
+        impl_writer.line("pub fn body_used(&self) -> bool { self.body.body_used() }");
+        impl_writer.line("/// The request's body handle.");
+        impl_writer.line("pub fn body(&self) -> SmeltBody { self.body.clone() }");
+        impl_writer.line("/// `text()`: the body decoded as UTF-8, consuming it.");
+        impl_writer.line(
+            "pub fn take_text(&self) -> Result<String, Box<dyn ::std::error::Error>> { self.body.take_text() }",
+        );
+        impl_writer.line("/// `clone()`: a request whose body is independently readable.");
+        impl_writer.line("///");
+        impl_writer.line("/// Same distinction as `SmeltResponse::tee`: the spec's `clone()` tees");
+        impl_writer.line("/// the body, while Rust's `Clone` copies the handle and shares it.");
+        impl_writer.line("///");
+        impl_writer.line("/// The url is already serialized, so it is passed through `from_parts`");
+        impl_writer.line("/// unchanged; re-parsing a serialization is a no-op.");
+        impl_writer.line(
+            "pub fn tee(&self) -> Self { Self::from_parts(&self.url, self.method.clone(), SmeltHeaders::from_pairs(self.headers.entries_in_insertion_order()), self.body.tee()) }",
+        );
+    });
+    writer.blank_line();
+}
+
+/// Emit the `Response`/`Request` dynamic-boundary adapters.
+///
+/// **Dynamic boundary.** A response or request that reaches an erased position
+/// (`console.log(response)`, an `unknown`-typed sink, `isPlainObject(value)`)
+/// has to become a tagged value, and the tag is what carries host identity:
+/// `isPlainObject(new Request('http://localhost'))` is `false` *because* of
+/// the `__smelt_request` marker, and `instanceof` resolves through it. No
+/// concrete type, union, or generic can stand in for the record, because the
+/// receiving position's type is `unknown` — the value's shape is only known on
+/// the run-time branch that produced it. The internal representation stays the
+/// concrete struct; this is the boundary, not the storage.
+///
+/// The es-toolkit gate tests
+/// (`estk_transpile_gate_tests::request_construction_stamps_marker_record`)
+/// pin the marker, which is exactly the `isPlainObject` probe es-toolkit's own
+/// spec performs.
+///
+/// The body is carried as its TEXT rather than as a handle, because an erased
+/// record cannot hold a single-use cell: a body that round-tripped through the
+/// boundary would otherwise share a used flag with a value that no longer
+/// exists. Erasing does not consume the body (it peeks), so a response can be
+/// logged and still read.
+fn emit_response_traits(writer: &mut CodeWriter, needs_unknown: bool) {
+    if !needs_unknown {
+        return;
+    }
+    writer.line("/// Erase a response for a dynamic boundary (identity marker + status line).");
+    writer.block("impl IntoSmeltUnknown for SmeltResponse", |impl_writer| {
+        impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
+            fn_writer.line("let body_text = String::from_utf8_lossy(&self.body.peek_bytes()).into_owned();");
+            fn_writer.line("SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([(\"__smelt_response\".to_owned(), SmeltUnknown::Bool(true)), (\"status\".to_owned(), SmeltUnknown::Number(self.status)), (\"statusText\".to_owned(), SmeltUnknown::String(self.status_text.into())), (\"ok\".to_owned(), SmeltUnknown::Bool(self.status >= 200.0 && self.status <= 299.0)), (\"headers\".to_owned(), self.headers.into_smelt_unknown()), (\"body\".to_owned(), SmeltUnknown::String(body_text.into()))])))");
+        });
+    });
+    writer.blank_line();
+    writer.line("/// Rebuild a response from an erased value.");
+    writer.block("impl SmeltFromUnknown for SmeltResponse", |impl_writer| {
+        impl_writer.block("fn smelt_from_unknown(value: SmeltUnknown) -> Self", |fn_writer| {
+            fn_writer.line("let SmeltUnknown::Object(map) = value else { return Self::new() };");
+            fn_writer.line("let status = match map.get(\"status\") { Some(SmeltUnknown::Number(status)) => status, _ => 200.0 };");
+            fn_writer.line("let status_text = match map.get(\"statusText\") { Some(SmeltUnknown::String(text)) => text.to_string(), _ => String::new() };");
+            fn_writer.line("let headers = map.get(\"headers\").map_or_else(SmeltHeaders::new, SmeltHeaders::smelt_from_unknown);");
+            fn_writer.line("let body = match map.get(\"body\") { Some(SmeltUnknown::String(text)) if !text.is_empty() => SmeltBody::from_text(&text.to_string()), _ => SmeltBody::empty() };");
+            fn_writer.line("Self::from_parts(status, status_text, headers, body)");
+        });
+    });
+    writer.blank_line();
+}
+
+/// Emit the `Request` dynamic-boundary adapters.
+///
+/// Same boundary and the same reasoning as [`emit_response_traits`]; the record
+/// carries a url and a method where a response's carries a status line.
+fn emit_request_traits(writer: &mut CodeWriter, needs_unknown: bool) {
+    if !needs_unknown {
+        return;
+    }
+    writer.line("/// Erase a request for a dynamic boundary (identity marker + url/method).");
+    writer.block("impl IntoSmeltUnknown for SmeltRequest", |impl_writer| {
+        impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
+            fn_writer.line("let body_text = String::from_utf8_lossy(&self.body.peek_bytes()).into_owned();");
+            fn_writer.line("SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([(\"__smelt_request\".to_owned(), SmeltUnknown::Bool(true)), (\"url\".to_owned(), SmeltUnknown::String(self.url.into())), (\"method\".to_owned(), SmeltUnknown::String(self.method.into())), (\"headers\".to_owned(), self.headers.into_smelt_unknown()), (\"body\".to_owned(), SmeltUnknown::String(body_text.into()))])))");
+        });
+    });
+    writer.blank_line();
+    writer.line("/// Rebuild a request from an erased value.");
+    writer.block("impl SmeltFromUnknown for SmeltRequest", |impl_writer| {
+        impl_writer.block("fn smelt_from_unknown(value: SmeltUnknown) -> Self", |fn_writer| {
+            fn_writer.line("let SmeltUnknown::Object(map) = value else { return Self::from_parts(\"about:blank\", \"GET\".to_owned(), SmeltHeaders::new(), SmeltBody::empty()) };");
+            fn_writer.line("let url = match map.get(\"url\") { Some(SmeltUnknown::String(url)) => url.to_string(), _ => \"about:blank\".to_owned() };");
+            fn_writer.line("let method = match map.get(\"method\") { Some(SmeltUnknown::String(method)) => method.to_string(), _ => \"GET\".to_owned() };");
+            fn_writer.line("let headers = map.get(\"headers\").map_or_else(SmeltHeaders::new, SmeltHeaders::smelt_from_unknown);");
+            fn_writer.line("let body = match map.get(\"body\") { Some(SmeltUnknown::String(text)) if !text.is_empty() => SmeltBody::from_text(&text.to_string()), _ => SmeltBody::empty() };");
+            fn_writer.line("Self::from_parts(&url, method, headers, body)");
+        });
     });
     writer.blank_line();
 }

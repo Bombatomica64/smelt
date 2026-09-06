@@ -1080,6 +1080,47 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
+            ExprKind::RequestNew {
+                input,
+                method,
+                headers,
+                body,
+            } => {
+                let input_operand = self.lower_expr(*input)?;
+                let mut lower_optional = |expr: &Option<smelt_hir::ExprId>| {
+                    expr.as_ref()
+                        .map_or(Ok(None), |expr| self.lower_expr(*expr).map(Some))
+                };
+                let method_operand = lower_optional(method)?;
+                let headers_operand = lower_optional(headers)?;
+                let body_operand = lower_optional(body)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::RequestNew {
+                        input: input_operand,
+                        method: method_operand,
+                        headers: headers_operand,
+                        body: body_operand,
+                    },
+                )?
+            }
+            ExprKind::RequestOp { op, request, args } => {
+                let request_operand = self.lower_expr(*request)?;
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::RequestOp {
+                        op: *op,
+                        request: request_operand,
+                        args: arg_operands,
+                    },
+                )?
+            }
             ExprKind::ResponseNew {
                 body,
                 status,

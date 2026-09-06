@@ -38,6 +38,10 @@ pub enum StdlibClass {
     /// runtime type (a status line, a `SmeltHeaders`, and a single-use
     /// `SmeltBody`).
     Response,
+    /// WHATWG `Request`, backed by the generated concrete `SmeltRequest`
+    /// runtime type (a serialized URL, a method, a `SmeltHeaders`, and the same
+    /// single-use `SmeltBody` a response holds).
+    Request,
 }
 
 /// Reserved synthetic class name for a `RegExp` match result value.
@@ -67,6 +71,7 @@ pub fn typescript_stdlib_class(name: &str) -> Option<StdlibClass> {
         "Set" => Some(StdlibClass::Set),
         "URLSearchParams" => Some(StdlibClass::UrlSearchParams),
         "Response" => Some(StdlibClass::Response),
+        "Request" => Some(StdlibClass::Request),
         _ => None,
     }
 }

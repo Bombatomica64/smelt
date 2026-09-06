@@ -1011,6 +1011,15 @@ impl FunctionEmitter<'_> {
             Rvalue::UrlSearchParamsOp { op, params, args } => {
                 self.url_search_params_op_text(*op, params, args, dest_ty)
             }
+            Rvalue::RequestNew {
+                input,
+                method,
+                headers,
+                body,
+            } => self.request_new_text(input, method.as_ref(), headers.as_ref(), body.as_ref()),
+            Rvalue::RequestOp { op, request, args } => {
+                self.request_op_text(*op, request, args)
+            }
             Rvalue::ResponseNew {
                 body,
                 status,

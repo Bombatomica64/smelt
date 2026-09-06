@@ -4883,6 +4883,7 @@ impl<'mir> FunctionEmitter<'mir> {
                                 // Likewise `Response`: a concrete
                                 // `SmeltResponse`, never an erased record.
                                 | smelt_stdlib::StdlibClass::Response
+                                | smelt_stdlib::StdlibClass::Request
                         )
                     )
                 }) {

@@ -515,6 +515,27 @@ fn rewrite_rvalue(
                 | rewrite_operand_except(right, aliases, dest)
         }
         Rvalue::SetProjection { set, .. } => rewrite_operand_except(set, aliases, dest),
+        Rvalue::RequestNew {
+            input,
+            method,
+            headers,
+            body,
+        } => {
+            let mut rewritten = rewrite_operand_except(input, aliases, dest);
+            for operand in [method, headers, body] {
+                if let Some(operand) = operand.as_mut() {
+                    rewritten |= rewrite_operand_except(operand, aliases, dest);
+                }
+            }
+            rewritten
+        }
+        Rvalue::RequestOp { request, args, .. } => {
+            let mut rewritten = rewrite_operand_except(request, aliases, dest);
+            for arg in args {
+                rewritten |= rewrite_operand_except(arg, aliases, dest);
+            }
+            rewritten
+        }
         Rvalue::ResponseNew {
             body,
             status,

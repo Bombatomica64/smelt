@@ -498,6 +498,33 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             };
             format!("set_{op_name} {}", expr_ref(*set))
         }
+        ExprKind::RequestNew {
+            input,
+            method,
+            headers,
+            body,
+        } => {
+            let mut parts = vec![format!("input={}", expr_ref(*input))];
+            if let Some(method) = method {
+                parts.push(format!("method={}", expr_ref(*method)));
+            }
+            if let Some(headers) = headers {
+                parts.push(format!("headers={}", expr_ref(*headers)));
+            }
+            if let Some(body) = body {
+                parts.push(format!("body={}", expr_ref(*body)));
+            }
+            format!("request_new {}", parts.join(" "))
+        }
+        ExprKind::RequestOp { op, request, args } => {
+            let name = request_op_name(*op);
+            let mut text = format!("request_{name} {}", expr_ref(*request));
+            for arg in args {
+                text.push(' ');
+                text.push_str(&expr_ref(*arg));
+            }
+            text
+        }
         ExprKind::ResponseNew {
             body,
             status,
@@ -1135,6 +1162,18 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
 }
 
 /// Formats a runtime-backed async operation.
+/// The dump spelling of a `Request` operation.
+const fn request_op_name(op: crate::expr::RequestOp) -> &'static str {
+    match op {
+        crate::expr::RequestOp::Url => "url",
+        crate::expr::RequestOp::Method => "method",
+        crate::expr::RequestOp::Headers => "headers",
+        crate::expr::RequestOp::BodyUsed => "body_used",
+        crate::expr::RequestOp::Text => "text",
+        crate::expr::RequestOp::Clone => "clone",
+    }
+}
+
 /// The dump spelling of a `Response` operation.
 const fn response_op_name(op: crate::expr::ResponseOp) -> &'static str {
     match op {

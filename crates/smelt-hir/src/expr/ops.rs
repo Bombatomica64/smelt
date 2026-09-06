@@ -283,6 +283,28 @@ pub enum RegexMatchOp {
     FullMatch,
 }
 
+/// A directly lowered WHATWG `Request` operation.
+///
+/// The same shape as [`ResponseOp`], and separate from it because the two types
+/// share only their body: a request has a url and a method where a response has
+/// a status line, so one enum covering both would have variants that are
+/// invalid for half its receivers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RequestOp {
+    /// `url`: the WHATWG-serialized request URL.
+    Url,
+    /// `method`: the normalized HTTP method.
+    Method,
+    /// `headers`: the request's `Headers` list.
+    Headers,
+    /// `bodyUsed`: whether a reader has consumed the body.
+    BodyUsed,
+    /// `text()`: the body decoded as UTF-8. Async, and consumes the body.
+    Text,
+    /// `clone()`: a copy whose body is independently readable.
+    Clone,
+}
+
 /// A directly lowered WHATWG `Response` operation.
 ///
 /// One enum for the whole surface, like [`HeadersOp`], and for the same reason:

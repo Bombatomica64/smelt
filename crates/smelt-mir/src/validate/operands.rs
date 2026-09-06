@@ -43,6 +43,23 @@ impl Rvalue {
                     visit(arg);
                 }
             }
+            Self::RequestNew {
+                input,
+                method,
+                headers,
+                body,
+            } => {
+                visit(input);
+                for operand in [method, headers, body].into_iter().flatten() {
+                    visit(operand);
+                }
+            }
+            Self::RequestOp { request, args, .. } => {
+                visit(request);
+                for arg in args {
+                    visit(arg);
+                }
+            }
             Self::ResponseNew {
                 body,
                 status,
@@ -884,6 +901,23 @@ impl Rvalue {
             }
             Self::HeadersOp { headers, args, .. } => {
                 visit(headers);
+                for arg in args.iter_mut() {
+                    visit(arg);
+                }
+            }
+            Self::RequestNew {
+                input,
+                method,
+                headers,
+                body,
+            } => {
+                visit(input);
+                for operand in [method, headers, body].into_iter().flatten() {
+                    visit(operand);
+                }
+            }
+            Self::RequestOp { request, args, .. } => {
+                visit(request);
                 for arg in args.iter_mut() {
                     visit(arg);
                 }

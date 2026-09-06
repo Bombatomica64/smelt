@@ -15,7 +15,8 @@ Milestone 0: `blocker-logs/express-v1-baseline.md`.
 | 4 `Headers` | landed, concrete Rust, runtime tier green |
 | 4 `URLSearchParams` | landed, concrete Rust, runtime tier green |
 | 4 `Response` + `SmeltBody` | landed, concrete Rust, runtime tier green (section 3) |
-| 4 `Request` / `fetch` upgrade | **not landed** — next, on the body model section 3 describes |
+| 4 `Request` | landed, concrete Rust, runtime tier green (section 3) |
+| 4 `fetch` upgrade to return a `Response` | **not landed** — next |
 | 4 `TextEncoder`/`TextDecoder`, `FormData`, `ReadableStream`, `AbortController`, `crypto` | not landed |
 | 4 `Blob`/`File` upgrade (`text()`, `arrayBuffer()`, `slice`) | not landed |
 | 5 `node:http` on hyper | **not landed** — declared as a blocker; the runtime-flavor and body-model questions are now decided (section 5) |
@@ -76,7 +77,7 @@ Two traps this pass hit, both worth knowing before the next type:
   (`SmeltUrlSearchParams` needs `url`) has to be added to that scan or the
   emitted crate references an unlinked crate.
 
-## 3. `SmeltBody` and `Response`: landed
+## 3. `SmeltBody`, `Response` and `Request`: landed
 
 `Response` is a concrete generated Rust type, not a tagged record:
 
@@ -143,9 +144,71 @@ registered class and was claimed by the modeled fetch type. Both states answer
 `URLSearchParams` carried the same latent bug and are fixed by the same change;
 only `Response` had a property read to expose it.
 
+
+### `Request`, and what it shares
+
+`SmeltRequest` is the same shape with the spec's differences: a serialized url
+and a method where a response has a status line. It holds the **same**
+`SmeltBody`, so single-use reading, `tee()` on `clone()`, and the implied
+`Content-Type` all come from one place rather than being written twice.
+
+Landed members, against `blocker-logs/hono-fetch-demand.md` §3: `.headers`
+(21), `.text()` (4), `.method` (2), `.url` (1, plus demand item 6), `.clone()`
+(2), `.bodyUsed` (3), and `new Request(input, { method, headers, body })` —
+which is `method` (71), `headers` (68) and `body` (26) of the init keys Hono
+passes. Not yet: `.json()`, `.body`, `.signal` (3), and the `RequestInit` keys
+`cache`/`credentials`/`integrity`/`keepalive`/`mode`/`redirect`/`referrer`/
+`referrerPolicy` — each a named blocker, because accepting and ignoring one
+would change what the program does with no diagnostic.
+
+Two behaviours that only a runtime tier catches, both diffed against Node:
+
+* **`url` is the serialization, not the input.** `new Request('https://a.test')`
+  reads back `https://a.test/`. Storing the input verbatim gives a plausible url
+  missing its path, so the constructor parses through `url::Url` — which is why
+  `Request` declares the `url` backend dependency.
+* **`method` is normalized for exactly the spec's list**
+  (`DELETE GET HEAD OPTIONS POST PUT`) and left alone otherwise: `post` becomes
+  `POST` while **`patch` stays `patch`**. Upper-casing everything is the easy
+  wrong answer and Node keeps `patch` lower-case.
+
+Demand item 6 is closed: `request.url` is typed `String`, so
+`request.url.indexOf(':')` lowers — it was `string search methods require
+string receiver and argument` before, because the read had no type.
+
+### Host identity moved from construction to the boundary
+
+`Request` was a **marker-only** host object: `new Request('http://localhost')`
+built `{ __smelt_request: true }` because es-toolkit's `isPlainObject` spec
+constructs one only to probe identity. A concrete type cannot also be a marker
+record, so the marker moved to `IntoSmeltUnknown` — stamped when the value
+crosses into an `unknown` position, which is exactly where `isPlainObject`
+reads it. The guarantee is unchanged; the place that carries it moved, and the
+two es-toolkit gate tests moved with it (one asserts construction is typed, one
+asserts the adapter stamps the marker).
+
+`Response` gained the marker it never had, so `Object.prototype.toString.call`
+answers `[object Response]` and `instanceof Response` resolves. `Request` lost
+its entry in `smelt_builtin_construct_kind`, which is correct: a dynamic
+`new Request(..)` must not build a record when the type is real.
+
+**The es-toolkit ratchet fell by 4** (32912 → 32908 avoidable erasures), because
+the `isPlainObject` spec's `new Request(...)` is now a typed value rather than
+an erased record. Baseline re-snapshotted in the same commit, as the
+`SmeltUnknown` rule requires.
+
+Both types' erasure adapters are documented dynamic boundaries: the receiving
+position's type is `unknown`, so no concrete type, union, or generic can stand
+in for the record. The body crosses as its **text** rather than as a handle,
+because an erased record cannot hold a single-use cell — a body that
+round-tripped would otherwise share a used flag with a value that no longer
+exists. Erasing peeks rather than consumes, so a response can be logged and
+still read.
+
 ### Runtime tier
 
-`crates/smelt-codegen-rust/tests/response_runtime.rs`, 4 tests, every
+`crates/smelt-codegen-rust/tests/response_runtime.rs` (6 tests) and
+`tests/request_runtime.rs` (3 tests), every
 expectation diffed against Node 22 line by line — including the thrown
 `TypeError`'s exact message. It covers what compiles either way and is only
 wrong when it runs: the empty default reason phrase (**not** `"OK"`), `ok`

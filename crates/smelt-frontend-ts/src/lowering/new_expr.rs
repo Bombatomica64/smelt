@@ -268,6 +268,9 @@ impl ModuleBuilder<'_> {
         if callee.name == "Response" && !self.classes.contains("Response") {
             return self.response_constructor_expression(new_expr, body);
         }
+        if callee.name == "Request" && !self.classes.contains("Request") {
+            return self.request_constructor_expression(new_expr, body);
+        }
         if let Some(marker) = Self::marker_only_builtin_marker(callee.name.as_str()) {
             if !self.classes.contains(callee.name.as_str()) {
                 return self.marker_only_builtin_constructor_expression(new_expr, body, marker);

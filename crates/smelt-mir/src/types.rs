@@ -1250,6 +1250,29 @@ pub enum Rvalue {
         set: Operand,
     },
     /// Construct a WHATWG `URLSearchParams` value.
+    /// Build a concrete `Request` value.
+    ///
+    /// The init literal's keys arrive as separate operands, like
+    /// [`Self::ResponseNew`].
+    RequestNew {
+        /// The URL argument.
+        input: Operand,
+        /// `init.method`, when the init literal set it.
+        method: Option<Operand>,
+        /// `init.headers`, when the init literal set it.
+        headers: Option<Operand>,
+        /// `init.body`, when the init literal set it.
+        body: Option<Operand>,
+    },
+    /// A `Request` member operation on a concrete `Request` receiver.
+    RequestOp {
+        /// Which operation this member performs.
+        op: smelt_hir::RequestOp,
+        /// The `Request` receiver.
+        request: Operand,
+        /// Operation arguments; every modeled member is nullary today.
+        args: Vec<Operand>,
+    },
     /// Build a concrete `Response` value.
     ///
     /// The init literal's keys arrive as separate operands rather than as a
