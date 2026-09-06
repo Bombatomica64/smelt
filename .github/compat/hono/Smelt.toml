@@ -1,0 +1,28 @@
+[project]
+name = "hono"
+version = "0.0.0"
+description = "Hono Smelt probe"
+
+[sources]
+roots = ["src"]
+entries = ["src/index.ts"]
+test-prefix = ["src/**/*.test.ts"]
+# Excludes are justified one line at a time: each entry names the host surface
+# or language feature Smelt's non-DOM Node profile deliberately does not model.
+# Remove an entry once Smelt models what it names — never to make a build pass.
+exclude = []
+
+[output]
+target = "./dist-smelt"
+crate-name = "hono_probe"
+build = false
+
+[rust]
+edition = "2024"
+
+[strict]
+typescript = true
+python = true
+
+[runtime]
+clone-strategy = "aggressive"

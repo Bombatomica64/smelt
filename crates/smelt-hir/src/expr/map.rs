@@ -310,11 +310,13 @@ impl ExprKind {
                 pattern,
                 haystack,
                 callback,
+                args,
             } => Self::RegexReplaceCallback {
                 op,
                 pattern: f(pattern)?,
                 haystack: f(haystack)?,
                 callback: f(callback)?,
+                args,
             },
             Self::RegexReplaceFirstMatchUppercase { pattern, haystack } => {
                 Self::RegexReplaceFirstMatchUppercase {

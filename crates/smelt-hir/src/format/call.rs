@@ -2,7 +2,7 @@
 
 use std::fmt::Write as _;
 
-use crate::expr::{AsyncOp, Expr, ExprKind, PropertyLookup};
+use crate::expr::{AsyncOp, Expr, ExprKind, PropertyLookup, RegexReplaceArg};
 use crate::ids::ExprId;
 use crate::krate::Crate;
 
@@ -10,6 +10,23 @@ use super::{
     collection_text, dict_lit_text, expr_list_text, expr_ref, item_ref, literal_text, local_ref,
     optional_expr_ref, type_ref,
 };
+
+/// Formats a regex replacer's resolved argument roles as `matched,p1,position`.
+///
+/// Printed inside the `regex_replace_*_callback` line so a golden shows WHICH
+/// spec arguments a callback was resolved to receive, not merely that it has
+/// some.
+fn regex_replace_args_text(args: &[RegexReplaceArg]) -> String {
+    args.iter()
+        .map(|arg| match arg {
+            RegexReplaceArg::Matched => "matched".to_owned(),
+            RegexReplaceArg::Capture(index) => format!("p{index}"),
+            RegexReplaceArg::Position => "position".to_owned(),
+            RegexReplaceArg::Source => "source".to_owned(),
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
 
 /// Formats an expression as text.
 pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
@@ -341,16 +358,18 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             pattern,
             haystack,
             callback,
+            args,
         } => {
             let op_name = match op {
                 crate::expr::StringReplaceOp::First => "replace_first_callback",
                 crate::expr::StringReplaceOp::All => "replace_all_callback",
             };
             format!(
-                "regex_{op_name} {}, {}, {}",
+                "regex_{op_name} {}, {}, {} [{}]",
                 expr_ref(*pattern),
                 expr_ref(*haystack),
-                expr_ref(*callback)
+                expr_ref(*callback),
+                regex_replace_args_text(args)
             )
         }
         ExprKind::RegexReplaceFirstMatchUppercase { pattern, haystack } => {

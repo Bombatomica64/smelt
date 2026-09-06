@@ -197,6 +197,27 @@ pub enum StringReplaceOp {
     All,
 }
 
+/// One argument a regex replacement CALLBACK receives, in source order.
+///
+/// ECMA-262 `RegExp.prototype[@@replace]` calls the replacer with a fixed
+/// argument list — `(matched, p1, …, pN, position, string)` where `N` is the
+/// pattern's capture-group count — and a callback simply declares a prefix of
+/// it. Recording the resolved *role* of each declared parameter keeps the
+/// spec's positional rule in the frontend, where the pattern's group count is
+/// known, instead of forcing the emitter to re-derive it from the pattern text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RegexReplaceArg {
+    /// The whole matched substring (`matched`, always argument 0).
+    Matched,
+    /// Capture group `n` (1-based), `undefined` when the group did not
+    /// participate in the match.
+    Capture(u32),
+    /// The offset of the match within the subject string (`position`).
+    Position,
+    /// The whole subject string the replacement is running over (`string`).
+    Source,
+}
+
 /// A directly lowered string padding operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StringPadOp {

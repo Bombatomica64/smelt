@@ -79,7 +79,7 @@ jobs:
               erased_call_dispatch_runtime
               named_function_expression_runtime arguments_arity_runtime
               throwing_callback_runtime union_receiver_runtime
-              construct_semantics_runtime
+              construct_semantics_runtime private_member_call_runtime
           - shard: throwing
             tests: >-
               thrown_payload_runtime try_finally_runtime
@@ -90,7 +90,8 @@ jobs:
             tests: >-
               host_representation_runtime boxed_primitive_runtime
               typed_array_runtime symbol_key_runtime object_create_runtime
-              regexp_compile_cache_runtime math_round_runtime
+              regexp_compile_cache_runtime regex_replacer_arguments_runtime
+              math_round_runtime
               define_properties_runtime proto_accessor_runtime
               ambient_declaration_runtime object_model_runtime
               stdlib_boundary_runtime

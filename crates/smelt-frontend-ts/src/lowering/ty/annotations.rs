@@ -1431,10 +1431,22 @@ return_ty: function.return_ty,
             TSTupleElement::TSNamedTupleMember(named) => {
                 self.tuple_element_type_to_hir(&named.element_type)
             }
-            _ => Err(SmeltError::unsupported(
-                self.span(item.span().start, item.span().end),
-                format!("tuple element type is not lowered yet: {item:?}"),
-            )),
+            // A tuple element that is not one of the tuple-only forms above
+            // (`TSOptionalType`, `TSRestType`, `TSNamedTupleMember`) IS an
+            // ordinary type: `TSTupleElement` inherits every `TSType` variant.
+            // The arms above are shortcuts, not the whole grammar, so anything
+            // they do not name is delegated to `ts_type_to_hir` rather than
+            // rejected. Before this, a tuple element written as an intersection
+            // (`[H<E2, P, I> & M1, H<E3, P, I2, R>]`) was refused even though
+            // `ts_type_to_hir` has lowered intersections for a long time — and
+            // so was every other `TSType` shape nobody had happened to add here.
+            element => match element.as_ts_type() {
+                Some(ts_type) => self.ts_type_to_hir(ts_type),
+                None => Err(SmeltError::unsupported(
+                    self.span(item.span().start, item.span().end),
+                    format!("tuple element type is not lowered yet: {item:?}"),
+                )),
+            },
         }
     }
 

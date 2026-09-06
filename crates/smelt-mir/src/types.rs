@@ -1044,6 +1044,11 @@ pub enum Rvalue {
         haystack: Operand,
         /// Callback receiving the matched text and returning replacement text.
         callback: Operand,
+        /// The ECMA-262 replacer arguments the callback declared, in order —
+        /// `(matched, p1, …, pN, position, string)` truncated to its arity.
+        /// Resolved in the frontend, where the pattern's capture-group count is
+        /// known, so the emitter only has to render each role.
+        args: Vec<smelt_hir::RegexReplaceArg>,
     },
     /// Replace the first regex match with its uppercase text.
     RegexReplaceFirstMatchUppercase {

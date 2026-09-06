@@ -352,12 +352,17 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a regex replacement callback operation to Rust text.
+    ///
+    /// `args` names the ECMA-262 replacer arguments the callback declared, in
+    /// order, as resolved by the frontend; each is rendered from the `regex`
+    /// crate's `Captures` and from the subject string.
     pub(super) fn regex_replace_callback_text(
         &self,
         op: smelt_hir::StringReplaceOp,
         pattern: &Operand,
         haystack: &Operand,
         callback: &Operand,
+        args: &[smelt_hir::RegexReplaceArg],
     ) -> Result<String, EmitError> {
         self.require_string_operands(&[pattern, haystack], "regex replace callback")?;
         let regex_text = format!(
@@ -368,6 +373,7 @@ impl FunctionEmitter<'_> {
         let callback_text = self
             .closure_operand_text(callback)
             .or_else(|_| self.operand_text(callback))?;
+        let arg_texts = self.regex_replacer_argument_texts(args, callback)?;
         // JavaScript `String.prototype.replace(re, fn)` converts the callback's
         // return value to a string (ToString) before substituting it. The Rust
         // `regex` `Replacer` closure must therefore yield a `String`
@@ -375,19 +381,86 @@ impl FunctionEmitter<'_> {
         // yields `SmeltUnknown`, which is not `AsRef<str>`. When the callback
         // does not already return `String`, route its result through the erase +
         // String-extract boundary so the closure hands `replace` a real string.
-        let call_expr = format!(
-            "({callback_text})(caps.get(0).expect(\"regex match missing\").as_str().to_string())"
-        );
+        let call_expr = format!("({callback_text})({})", arg_texts.join(", "));
         let replacement_expr = self.regex_replacement_as_string(call_expr, callback)?;
         let replacement = format!("|caps: &regex::Captures<'_>| {replacement_expr}");
-        Ok(match op {
-            smelt_hir::StringReplaceOp::First => {
-                format!("{regex_text}.replace(&{haystack_text}, {replacement}).to_string()")
-            }
-            smelt_hir::StringReplaceOp::All => {
-                format!("{regex_text}.replace_all(&{haystack_text}, {replacement}).to_string()")
-            }
-        })
+        // The subject string is bound once, before the replace call, because a
+        // `position`/`string` argument reads it from INSIDE the replacer closure
+        // and re-rendering the operand there would evaluate it a second time.
+        let method = match op {
+            smelt_hir::StringReplaceOp::First => "replace",
+            smelt_hir::StringReplaceOp::All => "replace_all",
+        };
+        Ok(format!(
+            "{{ let smelt_subject: String = {haystack_text}.to_string(); \
+             {regex_text}.{method}(&smelt_subject, {replacement}).to_string() }}"
+        ))
+    }
+
+    /// Renders each declared replacer argument as Rust text at the callback's
+    /// own parameter type.
+    ///
+    /// Every role has one natural Rust rendering and one natural Smelt type:
+    ///
+    /// | role | rendering | type |
+    /// | --- | --- | --- |
+    /// | `Matched` | capture group 0's text | `string` |
+    /// | `Capture(n)` | group `n`'s text, `None` when it did not participate | `string \| undefined` |
+    /// | `Position` | characters before the match in the subject | `number` |
+    /// | `Source` | the whole subject string | `string` |
+    ///
+    /// The callback may nonetheless have annotated a parameter differently (its
+    /// contextual type is only a *hint*), so each rendering is routed through
+    /// `value_at_type_text` to the declared parameter type. A callback whose
+    /// parameter types are not recoverable keeps the natural rendering, which is
+    /// what an erased-callback ABI expects anyway.
+    ///
+    /// `Position` counts CHARACTERS rather than bytes, matching the index
+    /// convention the string helpers in this module already use; JavaScript
+    /// counts UTF-16 code units, so the two agree outside astral planes.
+    fn regex_replacer_argument_texts(
+        &self,
+        args: &[smelt_hir::RegexReplaceArg],
+        callback: &Operand,
+    ) -> Result<Vec<String>, EmitError> {
+        let param_tys = match self.mir.types.get(self.operand_ty(callback)?) {
+            Some(Type::Function(function)) => function.params.clone(),
+            _ => Vec::new(),
+        };
+        let string_ty = self.existing_type_id(Type::String);
+        let float_ty = self.existing_type_id(Type::Float);
+        let optional_string_ty =
+            string_ty.and_then(|inner| self.existing_type_id(Type::Optional(inner)));
+        let mut texts = Vec::with_capacity(args.len());
+        for (index, arg) in args.iter().enumerate() {
+            let (natural_text, natural_ty) = match arg {
+                smelt_hir::RegexReplaceArg::Matched => (
+                    "caps.get(0).expect(\"regex match missing\").as_str().to_string()".to_owned(),
+                    string_ty,
+                ),
+                smelt_hir::RegexReplaceArg::Capture(group) => (
+                    format!("caps.get({group}).map(|smelt_group| smelt_group.as_str().to_string())"),
+                    optional_string_ty,
+                ),
+                smelt_hir::RegexReplaceArg::Position => (
+                    "smelt_subject[..caps.get(0).expect(\"regex match missing\").start()]\
+                     .chars().count() as f64"
+                        .to_owned(),
+                    float_ty,
+                ),
+                smelt_hir::RegexReplaceArg::Source => {
+                    ("smelt_subject.clone()".to_owned(), string_ty)
+                }
+            };
+            let text = match (natural_ty, param_tys.get(index)) {
+                (Some(source), Some(&target)) if source != target => {
+                    self.value_at_type_text(&natural_text, source, target)?
+                }
+                _ => natural_text,
+            };
+            texts.push(text);
+        }
+        Ok(texts)
     }
 
     /// Coerce a regex replacement callback's return value to a Rust `String`.

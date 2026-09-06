@@ -12,6 +12,126 @@ use smelt_hir::{
 use smelt_stdlib::RuleId;
 
 impl ModuleBuilder<'_> {
+    /// Resolve which ECMA-262 replacer arguments a `.replace(re, fn)` callback
+    /// declared.
+    ///
+    /// `RegExp.prototype[@@replace]` calls the replacer with a fixed positional
+    /// list — `(matched, p1, …, pN, position, string)` where `N` is the
+    /// pattern's capture-group count — and a callback declares a *prefix* of
+    /// it. So the meaning of the second parameter is a property of the PATTERN,
+    /// not of the callback: with no capture groups it is the match position (a
+    /// number), with one it is capture group 1 (a string that is `undefined`
+    /// when the group did not participate).
+    ///
+    /// `N` therefore has to be known here. It is, whenever the pattern lowered
+    /// to a string literal — which covers every regex literal, every
+    /// `new RegExp('…')` on a literal, and every module `const` bound to one,
+    /// because `regex_replacement_pattern` folds all three to `Literal::String`.
+    ///
+    /// # Errors
+    ///
+    /// * A callback declaring more parameters than the spec supplies is a
+    ///   source error, and reported as one rather than silently truncated.
+    /// * A callback with more than one parameter over a pattern whose text is
+    ///   not statically known cannot have its parameter ROLES resolved at all.
+    ///   Reporting that is the honest outcome: guessing "capture group" would
+    ///   hand a number-typed parameter a string (and the reverse) with no
+    ///   diagnostic.
+    fn regex_replacer_arg_plan(
+        pattern: smelt_hir::ExprId,
+        declared_arity: usize,
+        span: Span,
+        body: &Body,
+    ) -> Result<Vec<smelt_hir::RegexReplaceArg>, SmeltError> {
+        use smelt_hir::RegexReplaceArg;
+
+        // A single-parameter (or parameterless) callback needs no capture
+        // count: argument 0 is the matched substring for every pattern.
+        if declared_arity <= 1 {
+            return Ok(vec![RegexReplaceArg::Matched; declared_arity]);
+        }
+        let Some(pattern_text) = Self::string_literal_expr_text(body, pattern) else {
+            return Err(SmeltError::unsupported(
+                span,
+                format!(
+                    "regex replacement callback declares {declared_arity} parameters, but the \
+                     pattern text is not statically known, so it cannot be decided which are \
+                     capture groups and which are the match position and subject string"
+                ),
+            ));
+        };
+        let capture_count = smelt_stdlib::js_regex::capture_group_count(&pattern_text);
+        let mut roles = Vec::with_capacity(usize::try_from(capture_count).unwrap_or(0) + 3);
+        roles.push(RegexReplaceArg::Matched);
+        for group in 1..=capture_count {
+            roles.push(RegexReplaceArg::Capture(group));
+        }
+        roles.push(RegexReplaceArg::Position);
+        roles.push(RegexReplaceArg::Source);
+        if declared_arity > roles.len() {
+            return Err(SmeltError::unsupported(
+                span,
+                format!(
+                    "regex replacement callback declares {declared_arity} parameters, but the \
+                     pattern has {capture_count} capture group(s), so the replacer is called with \
+                     only {} arguments (matched, captures, position, subject)",
+                    roles.len()
+                ),
+            ));
+        }
+        roles.truncate(declared_arity);
+        Ok(roles)
+    }
+
+    /// The contextual function type a regex replacer callback is lowered
+    /// against, built from its resolved argument roles.
+    ///
+    /// Each role has exactly one type the spec fixes, so the callback's
+    /// parameters get concrete types rather than being erased: the matched text
+    /// and the subject string are `string`, the position is a `number`, and a
+    /// capture group is `string | undefined` because a group that did not
+    /// participate in the match is passed `undefined`.
+    fn regex_replacer_callback_type(
+        &mut self,
+        args: &[smelt_hir::RegexReplaceArg],
+    ) -> smelt_hir::TypeId {
+        use smelt_hir::RegexReplaceArg;
+
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let float_ty = self.ctx.krate.types.intern(Type::Float);
+        let optional_string_ty = self.ctx.krate.types.intern(Type::Optional(string_ty));
+        let params = args
+            .iter()
+            .map(|arg| match arg {
+                RegexReplaceArg::Matched | RegexReplaceArg::Source => string_ty,
+                RegexReplaceArg::Capture(_) => optional_string_ty,
+                RegexReplaceArg::Position => float_ty,
+            })
+            .collect();
+        self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params,
+            rest: None,
+            required_params: None,
+            mutable_params: Vec::new(),
+            return_ty: string_ty,
+            is_async: false,
+            may_throw: false,
+        }))
+    }
+
+    /// The text of a lowered string-literal expression, if it is one.
+    ///
+    /// The regex pattern argument is folded to a `Literal::String` by
+    /// `regex_replacement_pattern` for every statically known spelling, so this
+    /// is how the pattern's own text is recovered after lowering.
+    fn string_literal_expr_text(body: &Body, expr: smelt_hir::ExprId) -> Option<String> {
+        let index = usize::try_from(expr.0).ok()?;
+        match body.exprs.get(index).map(|held| &held.kind) {
+            Some(ExprKind::Literal(Literal::String(text))) => Some(text.clone()),
+            _ => None,
+        }
+    }
+
     /// Lower supported JavaScript regular-expression replacement calls.
     pub(in crate::lowering) fn regex_replace_call(
         &mut self,
@@ -60,27 +180,25 @@ impl ModuleBuilder<'_> {
             replacement_arg,
             Argument::ArrowFunctionExpression(_) | Argument::FunctionExpression(_)
         ) {
-            let string_ty = self.ctx.krate.types.intern(Type::String);
-            let callback_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
-                params: vec![string_ty],
-            rest: None,
-                required_params: None,
-                    mutable_params: Vec::new(),
-return_ty: string_ty,
-                is_async: false,
-                            may_throw: false,
-            }));
+            let declared_arity = match replacement_arg {
+                Argument::ArrowFunctionExpression(arrow) => arrow.params.items.len(),
+                Argument::FunctionExpression(function) => function.params.items.len(),
+                _ => 1,
+            };
+            let arg_span = self.span(replacement_arg.span().start, replacement_arg.span().end);
+            let args = Self::regex_replacer_arg_plan(pattern, declared_arity, arg_span, body)?;
+            let callback_ty = self.regex_replacer_callback_type(&args);
             let callback = self.argument_with_hint(replacement_arg, body, Some(callback_ty))?;
             let callback_ty_actual = Self::expr_ty(body, callback);
             let callback_ok = self
                 .function_member_type(callback_ty_actual)
                 .and_then(|ty| self.ctx.krate.types.get(ty).cloned())
                 .is_some_and(|ty| {
-                    matches!(ty, Type::Function(function) if function.params.len() == 1 && self.is_string_compatible_type(function.return_ty))
+                    matches!(ty, Type::Function(function) if function.params.len() == args.len() && self.is_string_compatible_type(function.return_ty))
                 });
             if !callback_ok {
                 return Err(SmeltError::unsupported(
-                    self.span(replacement_arg.span().start, replacement_arg.span().end),
+                    arg_span,
                     format!(
                         "regex replacement callback must accept a match string and return a string ({:?})",
                         self.ctx.krate.types.get(callback_ty_actual)
@@ -94,6 +212,7 @@ return_ty: string_ty,
                     pattern,
                     haystack,
                     callback,
+                    args,
                 },
                 ty,
                 span: self.span(call.span.start, call.span.end),
@@ -109,6 +228,13 @@ return_ty: string_ty,
             && !function.params.is_empty()
             && self.is_string_compatible_type(function.return_ty)
         {
+            // A named replacer is called with the same spec argument list as an
+            // inline one, and Rust has no optional parameters: the emitted
+            // closure must supply one argument per DECLARED parameter, not one
+            // per required parameter.
+            let arg_span = self.span(replacement_arg.span().start, replacement_arg.span().end);
+            let args =
+                Self::regex_replacer_arg_plan(pattern, function.params.len(), arg_span, body)?;
             let ty = self.ctx.krate.types.intern(Type::String);
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::RegexReplaceCallback {
@@ -116,6 +242,7 @@ return_ty: string_ty,
                     pattern,
                     haystack,
                     callback: replacement,
+                    args,
                 },
                 ty,
                 span: self.span(call.span.start, call.span.end),

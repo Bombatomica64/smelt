@@ -156,85 +156,35 @@ impl<'builder> ModuleBuilder<'builder> {
             return Ok(expr);
         }
         if let Expression::StaticMemberExpression(member) = &call.callee {
-            if member.property.name == "next" && call.arguments.is_empty() {
-                let receiver = self.expression(&member.object, body)?;
-                let receiver_ty = Self::expr_ty(body, receiver);
-                if let Some(Type::List(item_ty)) = self.ctx.krate.types.get(receiver_ty) {
-                    let ty = self.ctx.krate.types.intern(Type::Optional(*item_ty));
-                    return Ok(body.push_expr(Expr {
-                        kind: ExprKind::ListNext { list: receiver },
-                        ty,
-                        span: self.span(call.span.start, call.span.end),
-                    }));
-                }
-            }
-            let receiver = self.expression(&member.object, body)?;
-            let method = self.intern_source_name(member.property.name.as_str());
-            let receiver_ty = Self::expr_ty(body, receiver);
-            let optional_access = call.optional
-                || member.optional
-                || matches!(
-                    self.ctx.krate.types.get(receiver_ty),
-                    Some(Type::Optional(_))
-                );
-            let access_receiver_ty = self.optional_receiver_inner_type(receiver_ty);
-            let (return_ty, method_item) =
-                self.resolve_method(access_receiver_ty, method, member.span)?;
-            let mut args = Vec::new();
-            for arg in &call.arguments {
-                if (member.property.name == "test"
-                    || self.ctx.krate.types.get(return_ty) == Some(&Type::Unknown))
-                    && matches!(
-                        arg,
-                        Argument::ArrowFunctionExpression(_) | Argument::FunctionExpression(_)
-                    )
-                {
-                    let ty = self.ctx.krate.types.intern(Type::Unknown);
-                    args.push(body.push_expr(Expr {
-                        kind: ExprKind::Literal(Literal::None),
-                        ty,
-                        span: self.span(arg.span().start, arg.span().end),
-                    }));
-                } else {
-                    args.push(self.argument(arg, body)?);
-                }
-            }
-            if method_item.0 == u32::MAX
-                && self.ctx.krate.types.get(return_ty) == Some(&Type::Unknown)
-            {
-                let ty = self.ctx.krate.types.intern(Type::Unknown);
-                return Ok(body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::None),
-                    ty,
-                    span: self.span(call.span.start, call.span.end),
-                }));
-            }
-            if optional_access {
-                let receiver = if call.optional || member.optional {
-                    self.optionalize_index_receiver(receiver, body)
-                } else {
-                    receiver
-                };
-                let ty = self.optional_chain_result_type(return_ty);
-                return Ok(body.push_expr(Expr {
-                    kind: ExprKind::OptionalMethod {
-                        receiver,
-                        method,
-                        args,
-                    },
-                    ty,
-                    span: self.span(call.span.start, call.span.end),
-                }));
-            }
-            return Ok(body.push_expr(Expr {
-                kind: ExprKind::Method {
-                    receiver,
-                    method,
-                    args,
-                },
-                ty: return_ty,
-                span: self.span(call.span.start, call.span.end),
-            }));
+            return self.member_call(
+                call,
+                &member.object,
+                member.property.name.as_str(),
+                member.span,
+                member.optional,
+                body,
+            );
+        }
+        // `receiver.#method(args)` is the same member call as
+        // `receiver.method(args)`; the only difference is that ES private names
+        // live in a separate namespace, so the property is spelled by a
+        // `PrivateIdentifier` instead of an `IdentifierName`. Class lowering
+        // already registers a private method under its bare source name (see
+        // `PropertyKey::PrivateIdentifier` in `decls/functions.rs`), and
+        // `private_field_member` reads a private FIELD through that same name,
+        // so the call routes through the shared `member_call` path unchanged.
+        // A private name can never denote a builtin namespace or a static
+        // stdlib member, which is why this arm sits after the builtin/static
+        // pre-passes above without needing to consult them.
+        if let Expression::PrivateFieldExpression(member) = &call.callee {
+            return self.member_call(
+                call,
+                &member.object,
+                member.field.name.as_str(),
+                member.span,
+                member.optional,
+                body,
+            );
         }
         if let Some(expr) = self.local_callable_call(call, body)? {
             return Ok(expr);
@@ -998,6 +948,116 @@ impl<'builder> ModuleBuilder<'builder> {
             self.span(call.span.start, call.span.end),
             "call expression is not lowered yet",
         ))
+    }
+
+    /// Lower a member call `object.property(args)` once the builtin, static and
+    /// namespace pre-passes in [`Self::call_expression`] have all declined it.
+    ///
+    /// The callee's *spelling* is passed apart from its parts so that every
+    /// member-call syntax shares one lowering: a `StaticMemberExpression`
+    /// (`o.m()`) and a `PrivateFieldExpression` (`o.#m()`) differ only in which
+    /// AST node carries the property name, and an ES private method is
+    /// registered under its bare source name exactly like a public one.
+    ///
+    /// * `object` — the receiver expression, lowered first so its type is known.
+    /// * `property_name` — the method's source name, without any `#` sigil.
+    /// * `member_span` — the whole member expression, used for method resolution
+    ///   diagnostics.
+    /// * `member_optional` — whether the ACCESS was optional (`o?.m()`); the
+    ///   CALL's own optionality (`o.m?.()`) is read from `call.optional`.
+    ///
+    /// Three results are possible: `ExprKind::ListNext` for the iterator
+    /// protocol's `next()` on a list receiver, `ExprKind::OptionalMethod` when
+    /// either the access or the receiver type is optional, and
+    /// `ExprKind::Method` otherwise. A call that resolved to neither a concrete
+    /// method item nor a typed return is a dynamic boundary and yields
+    /// `undefined`, matching the surrounding erased-receiver behaviour.
+    fn member_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        object: &Expression<'_>,
+        property_name: &str,
+        member_span: oxc::span::Span,
+        member_optional: bool,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if property_name == "next" && call.arguments.is_empty() {
+            let receiver = self.expression(object, body)?;
+            let receiver_ty = Self::expr_ty(body, receiver);
+            if let Some(Type::List(item_ty)) = self.ctx.krate.types.get(receiver_ty) {
+                let ty = self.ctx.krate.types.intern(Type::Optional(*item_ty));
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::ListNext { list: receiver },
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                }));
+            }
+        }
+        let receiver = self.expression(object, body)?;
+        let method = self.intern_source_name(property_name);
+        let receiver_ty = Self::expr_ty(body, receiver);
+        let optional_access = call.optional
+            || member_optional
+            || matches!(
+                self.ctx.krate.types.get(receiver_ty),
+                Some(Type::Optional(_))
+            );
+        let access_receiver_ty = self.optional_receiver_inner_type(receiver_ty);
+        let (return_ty, method_item) =
+            self.resolve_method(access_receiver_ty, method, member_span)?;
+        let mut args = Vec::new();
+        for arg in &call.arguments {
+            if (property_name == "test"
+                || self.ctx.krate.types.get(return_ty) == Some(&Type::Unknown))
+                && matches!(
+                    arg,
+                    Argument::ArrowFunctionExpression(_) | Argument::FunctionExpression(_)
+                )
+            {
+                let ty = self.ctx.krate.types.intern(Type::Unknown);
+                args.push(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::None),
+                    ty,
+                    span: self.span(arg.span().start, arg.span().end),
+                }));
+            } else {
+                args.push(self.argument(arg, body)?);
+            }
+        }
+        if method_item.0 == u32::MAX && self.ctx.krate.types.get(return_ty) == Some(&Type::Unknown) {
+            let ty = self.ctx.krate.types.intern(Type::Unknown);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::None),
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            }));
+        }
+        if optional_access {
+            let receiver = if call.optional || member_optional {
+                self.optionalize_index_receiver(receiver, body)
+            } else {
+                receiver
+            };
+            let ty = self.optional_chain_result_type(return_ty);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::OptionalMethod {
+                    receiver,
+                    method,
+                    args,
+                },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            }));
+        }
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::Method {
+                receiver,
+                method,
+                args,
+            },
+            ty: return_ty,
+            span: self.span(call.span.start, call.span.end),
+        }))
     }
 
     /// Lower an immediately-invoked function expression (IIFE).

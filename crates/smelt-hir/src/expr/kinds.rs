@@ -1,7 +1,8 @@
 use super::{
     AsyncOp, BinOp, BoolFoldOp, ClosureExpr, DatePart, DictProjectionOp,
     ListCallbackOp, ListProjectionOp, ListSearchOp, Literal, NumericExtremaOp, NumericPredicateOp,
-    NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp, RegexMatchOp, SetBinaryOp,
+    NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp, RegexMatchOp, RegexReplaceArg,
+    SetBinaryOp,
     SetProjectionOp, SetRelationOp, SetRemoveOp, StringAffixOp, StringCaseOp, StringNormalizeForm,
     StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, UnaryOp,
     UnknownKind, UrlField,
@@ -337,6 +338,10 @@ pub enum ExprKind {
         pattern: ExprId,
         haystack: ExprId,
         callback: ExprId,
+        /// The ECMA-262 replacer arguments the callback declared, in order.
+        /// Resolved in the frontend from the pattern's capture-group count and
+        /// the callback's arity; see [`RegexReplaceArg`].
+        args: Vec<RegexReplaceArg>,
     },
     RegexReplaceFirstMatchUppercase {
         pattern: ExprId,

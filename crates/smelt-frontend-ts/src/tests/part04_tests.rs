@@ -5008,6 +5008,73 @@ type BigIntLiterals = 1n | 2n | 3n;
 }
 
 #[test]
+fn lowers_truthiness_guard_over_a_union_of_object_arms() -> Result<(), String> {
+    // Only seven values are falsy in JavaScript and none of them is an object,
+    // so a union whose every arm is an object has no falsy inhabitant. The
+    // truthiness lowering knew that for a single object type but not for a
+    // union of them, and rejected the guard: "condition expression must be
+    // boolean or optional (got Some(Union(..)))". Hono's router
+    // `Result<T> = [[T, ParamIndexMap][], ParamStash] | [[T, Params][]]` is the
+    // shape; a non-nullishable one now folds to the constant `true`, and the
+    // optional form keeps the presence test.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+type Slots = [string, string] | [string];
+
+export function reached(value: Slots): string {
+  if (value) {
+    return 'truthy';
+  }
+  return 'falsy';
+}
+
+export function reachedOptional(value: Slots | undefined): string {
+  if (value) {
+    return 'present';
+  }
+  return 'absent';
+}
+"),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_tuple_elements_that_are_ordinary_types() -> Result<(), String> {
+    // `TSTupleElement` inherits every `TSType` variant, so a tuple element that
+    // is not one of the tuple-only forms (optional, rest, named member) is an
+    // ordinary type. The tuple-element lowering used to enumerate its own
+    // subset of those variants and reject the rest — an INTERSECTION element
+    // was refused ("tuple element type is not lowered yet: TSIntersectionType")
+    // even though `ts_type_to_hir` had lowered intersections for a long time.
+    // The rest-parameter tuple below is the shape Hono's `types.ts` writes for
+    // its middleware-plus-handler overloads.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+interface Named { name: string }
+interface Tagged { tag: number }
+
+type Pair = [Named & Tagged, Named];
+
+export function first(pair: Pair): string {
+  return pair[0].name;
+}
+
+export function apply(...handlers: [Named & Tagged, Named]): number {
+  return handlers[0].tag;
+}
+"),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_top_level_arrow_const_used_by_later_function() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

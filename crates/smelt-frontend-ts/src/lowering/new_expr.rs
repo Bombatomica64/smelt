@@ -3102,6 +3102,22 @@ impl ModuleBuilder<'_> {
         if let Some(condition) = self.optional_known_date_presence_condition(cond, span, body) {
             return Ok(condition);
         }
+        // A type that cannot hold a nullish value AND whose every inhabitant is
+        // an object is truthy for every value it can take, so the guard is the
+        // constant `true` and needs no runtime test at all. Comparing against
+        // `none` instead only worked because the emitter folds `tuple != none`
+        // to `false`; for a union it emits a real presence check, which a
+        // generated union enum cannot answer (`matches!(v, SmeltUnknown::Null)`
+        // over a `SmeltUnion3`). Saying `true` is both the precise answer and
+        // the one no representation has to support.
+        if !self.is_nullishable_type(cond_ty) && self.type_is_always_truthy_object_surface(cond_ty) {
+            let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Bool(true)),
+                ty: bool_ty,
+                span,
+            }));
+        }
         if self
             .non_nullish_type(cond_ty)
             .is_some_and(|inner_ty| self.type_is_always_truthy_object_surface(inner_ty))
@@ -3178,12 +3194,26 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a present optional value is always truthy in JavaScript.
+    ///
+    /// Only seven values are falsy in JavaScript — `false`, `0`, `-0`, `NaN`,
+    /// `''`, `null`, `undefined` (and `0n`) — so every OBJECT is truthy. That
+    /// includes a union of objects: `A | B` where both arms are objects has no
+    /// falsy inhabitant either, which is why a union whose every arm is an
+    /// always-truthy surface is one too. Without that, `if (x)` over
+    /// `[T[], P] | [T[]]` (Hono's router `Result<T>`) was rejected outright
+    /// while the SAME guard over the single tuple `[T[], P]` lowered fine —
+    /// the union arms added no falsy value, only an unhandled type shape.
     pub(super) fn type_is_always_truthy_object_surface(&self, ty: smelt_hir::TypeId) -> bool {
+        let resolved = self.type_param_constraint_or_self(ty);
+        if let Some(Type::Union(items)) = self.ctx.krate.types.get(resolved) {
+            let items = items.clone();
+            return !items.is_empty()
+                && items
+                    .iter()
+                    .all(|item| self.type_is_always_truthy_object_surface(*item));
+        }
         matches!(
-            self.ctx
-                .krate
-                .types
-                .get(self.type_param_constraint_or_self(ty)),
+            self.ctx.krate.types.get(resolved),
             Some(
                 Type::Class { .. }
                     | Type::Function(_)

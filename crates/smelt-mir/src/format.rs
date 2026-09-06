@@ -730,13 +730,24 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
             pattern,
             haystack,
             callback,
+            args,
         } => {
             let op_text = match op {
                 smelt_hir::StringReplaceOp::First => "replace_callback",
                 smelt_hir::StringReplaceOp::All => "replace_all_callback",
             };
+            let args_text = args
+                .iter()
+                .map(|arg| match arg {
+                    smelt_hir::RegexReplaceArg::Matched => "matched".to_owned(),
+                    smelt_hir::RegexReplaceArg::Capture(index) => format!("p{index}"),
+                    smelt_hir::RegexReplaceArg::Position => "position".to_owned(),
+                    smelt_hir::RegexReplaceArg::Source => "source".to_owned(),
+                })
+                .collect::<Vec<_>>()
+                .join(",");
             format!(
-                "regex_{op_text} {}, {}, {}",
+                "regex_{op_text} {}, {}, {} [{args_text}]",
                 operand_text(pattern),
                 operand_text(haystack),
                 operand_text(callback)

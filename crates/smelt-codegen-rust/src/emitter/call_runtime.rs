@@ -1190,7 +1190,8 @@ impl FunctionEmitter<'_> {
                 pattern,
                 haystack,
                 callback,
-            } => self.regex_replace_callback_text(*op, pattern, haystack, callback),
+                args,
+            } => self.regex_replace_callback_text(*op, pattern, haystack, callback, args),
             Rvalue::RegexReplaceFirstMatchUppercase { pattern, haystack } => {
                 self.regex_replace_first_match_uppercase_text(pattern, haystack)
             }
@@ -2080,19 +2081,13 @@ impl FunctionEmitter<'_> {
         {
             return self.type_id(Type::Unknown);
         }
-        // A `String` receiver's builtin fields have concrete Rust types; keep
-        // this in sync with `string_field_text` so a caller coercing the field
-        // read does not treat the concrete result as an erased `SmeltUnknown`
-        // (e.g. `.length` is an `i64`, not a `SmeltUnknown::Number`).
+        // A `String` receiver's builtin fields have concrete Rust types. The
+        // text and the type are decided together by `string_field_read` so a
+        // caller coercing the read cannot treat an already concrete value as an
+        // erased `SmeltUnknown` (e.g. `.length` is an `i64`, not a
+        // `SmeltUnknown::Number`).
         if matches!(self.mir.types.get(receiver_ty), Some(Type::String)) {
-            return match self.symbol_name(field)? {
-                "source" => self.type_id(Type::String),
-                "global" | "ignoreCase" | "ignore_case" | "multiline" => {
-                    self.type_id(Type::Bool)
-                }
-                "length" => self.type_id(Type::Int),
-                _ => self.type_id(Type::Unknown),
-            };
+            return Ok(self.string_field_read("", field)?.1);
         }
         // Likewise for a concrete `RegExp` receiver (see `regexp_field_text`).
         if let Some(Type::Class { name, .. }) = self.mir.types.get(receiver_ty)
@@ -2668,12 +2663,56 @@ impl FunctionEmitter<'_> {
         receiver_text: &str,
         field: Symbol,
     ) -> Result<String, EmitError> {
+        Ok(self.string_field_read(receiver_text, field)?.0)
+    }
+
+    /// A `String` receiver's builtin field read, as Rust text PAIRED with the
+    /// static type of that text.
+    ///
+    /// The two must be decided together. When they were decided separately, the
+    /// text said `i64` and the type lookup said `Unknown`, so a caller coercing
+    /// the read ran the erased `SmeltUnknown` ToString match over an `i64`
+    /// expression — `` `${s.length}` `` inside a callback body did not compile.
+    /// Every reader of either half now goes through here: `string_field_text`,
+    /// [`Self::field_access_type`], `place_ty`, and the erasing coercion path.
+    ///
+    /// `.length` is a JavaScript Number, so its natural Rust spelling depends on
+    /// which numeric type the program actually interned: the type table is fixed
+    /// before emission and cannot be extended, and naming a type it does not
+    /// hold is what the divergence above was made of. `Int` is preferred when
+    /// present (it is what a character count is), then `Float`; a program that
+    /// interned neither — one that only ever stringifies the length — gets the
+    /// runtime-tagged number, which is a real boundary rather than a
+    /// convenience: there is no numeric type in that program to carry it.
+    pub(super) fn string_field_read(
+        &self,
+        receiver_text: &str,
+        field: Symbol,
+    ) -> Result<(String, TypeId), EmitError> {
+        let unknown_ty = self.type_id(Type::Unknown)?;
         Ok(match self.symbol_name(field)? {
-            "source" => format!("{receiver_text}.clone()"),
-            "global" | "ignoreCase" | "ignore_case" | "multiline" => "false".to_owned(),
-            "constructor" => "SmeltUnknown::Null".to_owned(),
-            "length" => format!("({receiver_text}.chars().count() as i64)"),
-            _ => "SmeltUnknown::Null".to_owned(),
+            "source" => (
+                format!("{receiver_text}.clone()"),
+                self.type_id(Type::String)?,
+            ),
+            "global" | "ignoreCase" | "ignore_case" | "multiline" => {
+                match self.existing_type_id(Type::Bool) {
+                    Some(bool_ty) => ("false".to_owned(), bool_ty),
+                    None => ("SmeltUnknown::Bool(false)".to_owned(), unknown_ty),
+                }
+            }
+            "constructor" => ("SmeltUnknown::Null".to_owned(), unknown_ty),
+            "length" => {
+                let count = format!("{receiver_text}.chars().count()");
+                if let Some(int_ty) = self.existing_type_id(Type::Int) {
+                    (format!("({count} as i64)"), int_ty)
+                } else if let Some(float_ty) = self.existing_type_id(Type::Float) {
+                    (format!("({count} as f64)"), float_ty)
+                } else {
+                    (format!("SmeltUnknown::Number({count} as f64)"), unknown_ty)
+                }
+            }
+            _ => ("SmeltUnknown::Null".to_owned(), unknown_ty),
         })
     }
 

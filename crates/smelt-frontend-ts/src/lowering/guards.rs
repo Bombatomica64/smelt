@@ -1333,6 +1333,16 @@ impl ModuleBuilder<'_> {
             }
             Argument::ComputedMemberExpression(member) => self.computed_member(member, body),
             Argument::StaticMemberExpression(member) => self.static_member(member, body),
+            // A private-name field read is a member read like any other; the
+            // `#` sigil only puts the property in a separate namespace. It is
+            // delegated to the same helper the expression position uses, so
+            // `f(this.#field)` and `const x = this.#field` cannot diverge.
+            Argument::PrivateFieldExpression(member) => self.private_field_member(
+                &member.object,
+                member.field.name.as_str(),
+                member.span,
+                body,
+            ),
             // Delegated so an awaited call argument lowers through the same rule
             // as an awaited expression; the argument spelling used to have its
             // own copy that dropped the operand for a non-future type.

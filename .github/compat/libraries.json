@@ -2,6 +2,7 @@
   "_comment": "Libraries probed by the daily library-probes workflow. Refs are pinned so the report tracks Smelt's progress, not upstream drift. Bump a ref deliberately to re-baseline against a newer library version. `roots` are the source roots scanned for blockers and must match the fixture Smelt.toml.",
   "libraries": [
     { "name": "es-toolkit",     "repo": "toss/es-toolkit",                 "ref": "e008a2818cd8d07469a5cc12ee0c02405d523e07", "lang": "ts", "roots": ["src"] },
+    { "name": "hono",           "repo": "honojs/hono",                     "ref": "eebdf7be39abf0a872671835ccce0c4f03ea497a", "lang": "ts", "roots": ["src"] },
     { "name": "radash",         "repo": "sodiray/radash",                  "ref": "4cab1900d08e0997abc4f17aec3cbfe18958d766", "lang": "ts", "roots": ["src"] },
     { "name": "ts-pattern",     "repo": "gvergnaud/ts-pattern",            "ref": "c92ca435c7e1827e0fd55c539080ef1bfd6fe3f0", "lang": "ts", "roots": ["src", "tests"] },
     { "name": "valibot",        "repo": "fabian-hiller/valibot",           "ref": "1f9b18338ad5530f1f6c63c2cf241962bd82d6f8", "lang": "ts", "roots": ["library/src"] },

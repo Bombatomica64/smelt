@@ -89,6 +89,14 @@ fn rvalue_needs_regex(rvalue: &Rvalue, _mir: &Mir) -> bool {
         rvalue,
         Rvalue::RegexIsMatch { .. }
             | Rvalue::RegexReplace { .. }
+            // `regex_replace_callback_text` emits both `regex::Regex::new` and a
+            // `|caps: &regex::Captures<'_>|` replacer, so it needs the crate as
+            // much as its siblings do. It was missing here and only compiled
+            // because a replacer callback used to be erased, which pulled the
+            // dependency in through `needs_unknown_type`; a callback with
+            // concrete parameter types does not, and the omission surfaced as
+            // `cannot find module or crate regex`.
+            | Rvalue::RegexReplaceCallback { .. }
             | Rvalue::RegexReplaceFirstMatchUppercase { .. }
             | Rvalue::RegexSplit { .. }
             | Rvalue::RegexFind { .. }
