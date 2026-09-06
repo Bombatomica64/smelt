@@ -627,21 +627,51 @@ const ok = job.ok;
     Ok(())
 }
 
-/// A non-literal init is a named blocker, not an erased record.
+/// A typed init variable is lowered by field, not rejected.
 ///
-/// `ResponseInit`'s keys have exact source types; recovering them from a tagged
-/// value at run time would throw that away, so the honest answer is to say so.
+/// The first version of this rule required an object literal. That was too
+/// strict: a value whose static type declares the keys has exactly as much
+/// type information as a literal, and reading a declared key is an ordinary
+/// typed field read. Only a genuinely erased init has nothing to read.
 #[test]
-fn response_init_must_be_an_object_literal() -> Result<(), String> {
+fn response_init_can_be_a_typed_value() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let errors = lowering_errors(
+    lower_ok(
         ts!(r#"
-const init = { status: 201 };
+interface PageInit {
+  status?: number;
+}
+
+const init: PageInit = { status: 201 };
 const response = new Response("hello", init);
 "#),
         &mut ctx,
     )?;
-    assert_unsupported_ts(&errors, "must be an object literal")
+    ensure!(
+        any_body_has(&ctx, |kind| matches!(kind, ExprKind::ResponseNew { .. })),
+        "a typed init must still build a concrete response",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// An init read off an *erased* value is still a blocker.
+///
+/// This is the case the literal-only rule was really protecting: an `unknown`
+/// value declares no keys, so nothing can be read with its type intact and
+/// inventing the keys at run time is the tagged-record path these types exist
+/// to avoid.
+#[test]
+fn response_init_from_an_erased_value_is_a_blocker() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r#"
+declare const init: unknown;
+const response = new Response("hello", init);
+"#),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&errors, "erased value")
 }
 
 /// An init key Smelt does not model yet is named, not dropped.
@@ -797,18 +827,54 @@ const described = request.describe();
     Ok(())
 }
 
-/// A non-literal init is a named blocker, not an erased record.
+/// A typed init variable is lowered by field for `Request` too.
 #[test]
-fn request_init_must_be_an_object_literal() -> Result<(), String> {
+fn request_init_can_be_a_typed_value() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let errors = lowering_errors(
+    lower_ok(
         ts!(r#"
-const init = { method: "POST" };
-const request = new Request("https://a.test/p", init);
+function send(init: RequestInit): Request {
+  return new Request("https://a.test/p", init);
+}
 "#),
         &mut ctx,
     )?;
-    assert_unsupported_ts(&errors, "must be an object literal")
+    ensure!(
+        any_body_has(&ctx, |kind| matches!(kind, ExprKind::RequestNew { .. })),
+        "a typed init must still build a concrete request",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// A spread init keeps the object literal's own evaluation order.
+///
+/// `{ ...init, status }` takes the later key, which is what the source says;
+/// reading the spread source first and letting named keys overwrite is how
+/// that order is preserved.
+#[test]
+fn a_spread_init_lets_the_later_key_win() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+interface PageInit {
+  status?: number;
+}
+
+function page(init: PageInit): Response {
+  return new Response("page", { ...init, status: 201 });
+}
+"#),
+        &mut ctx,
+    )?;
+    let ty = any_body_expr_ty(&ctx, |kind| matches!(kind, ExprKind::ResponseNew { .. }))?;
+    ensure!(
+        matches!(ctx.krate.types.get(ty), Some(Type::Class { .. })),
+        "a spread init must still build a concrete response, got {}",
+        type_text(&ctx, ty),
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
 }
 
 /// An init key Smelt does not model yet is named, not dropped.

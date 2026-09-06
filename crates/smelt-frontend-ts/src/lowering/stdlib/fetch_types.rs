@@ -31,6 +31,45 @@ use oxc::span::GetSpan;
 use smelt_hir::{Body, Expr, ExprKind, HeadersOp, RequestOp, ResponseOp, Type};
 use smelt_stdlib::RuleId;
 
+
+/// The `ResponseInit` keys Smelt models.
+const RESPONSE_INIT_KEYS: &[&str] = &["status", "statusText", "headers"];
+
+/// The `RequestInit` keys Smelt models.
+const REQUEST_INIT_KEYS: &[&str] = &["method", "headers", "body"];
+
+/// Per-key init operands collected from a literal, a spread, or a typed value.
+///
+/// A key set twice keeps the LAST value, which is what an object literal does
+/// (`{ ...init, status: 201 }` takes 201 even when `init` has a status).
+#[derive(Default)]
+struct InitFields {
+    entries: Vec<(String, smelt_hir::ExprId)>,
+}
+
+impl InitFields {
+    /// Record `key`'s operand, replacing an earlier one.
+    fn set(&mut self, key: &str, value: smelt_hir::ExprId) {
+        if let Some(entry) = self
+            .entries
+            .iter_mut()
+            .find(|(existing, _)| existing == key)
+        {
+            entry.1 = value;
+            return;
+        }
+        self.entries.push((key.to_owned(), value));
+    }
+
+    /// Take `key`'s operand, when the init supplied one.
+    fn take(&self, key: &str) -> Option<smelt_hir::ExprId> {
+        self.entries
+            .iter()
+            .find(|(existing, _)| existing == key)
+            .map(|(_, value)| *value)
+    }
+}
+
 impl ModuleBuilder<'_> {
     /// Lower `new Headers(init?)` into a concrete `Headers` value.
     ///
@@ -402,43 +441,15 @@ impl ModuleBuilder<'_> {
             Some(argument) => Some(self.argument(argument, body)?),
             None => None,
         };
-        let mut status = None;
-        let mut status_text = None;
-        let mut headers = None;
+        let mut fields = InitFields::default();
         if let Some(init_argument) = new_expr.arguments.get(1) {
-            let Some(Expression::ObjectExpression(init)) = init_argument.as_expression() else {
-                return Err(SmeltError::unsupported(
-                    self.span(init_argument.span().start, init_argument.span().end),
-                    "Response init must be an object literal so its keys keep their types",
-                ));
-            };
-            for property in &init.properties {
-                let oxc::ast::ast::ObjectPropertyKind::ObjectProperty(property) = property else {
-                    return Err(SmeltError::unsupported(
-                        self.span(init.span.start, init.span.end),
-                        "Response init does not support spread properties yet",
-                    ));
-                };
-                let Some(key) = property.key.static_name() else {
-                    return Err(SmeltError::unsupported(
-                        self.span(init.span.start, init.span.end),
-                        "Response init requires statically named keys",
-                    ));
-                };
-                let value = self.expression(&property.value, body)?;
-                match key.as_ref() {
-                    "status" => status = Some(value),
-                    "statusText" => status_text = Some(value),
-                    "headers" => headers = Some(value),
-                    other => {
-                        return Err(SmeltError::unsupported(
-                            self.span(init.span.start, init.span.end),
-                            format!("Response init key `{other}` is not modeled yet"),
-                        ));
-                    }
-                }
-            }
+            self.lower_fetch_init(init_argument, RESPONSE_INIT_KEYS, "Response", &mut fields, body)?;
         }
+        let (status, status_text, headers) = (
+            fields.take("status"),
+            fields.take("statusText"),
+            fields.take("headers"),
+        );
         let ty = self.response_type();
         Ok(body.push_expr(Expr {
             kind: ExprKind::ResponseNew {
@@ -600,43 +611,15 @@ impl ModuleBuilder<'_> {
             ));
         };
         let input = self.argument(input_argument, body)?;
-        let mut method = None;
-        let mut headers = None;
-        let mut body_expr = None;
+        let mut fields = InitFields::default();
         if let Some(init_argument) = new_expr.arguments.get(1) {
-            let Some(Expression::ObjectExpression(init)) = init_argument.as_expression() else {
-                return Err(SmeltError::unsupported(
-                    self.span(init_argument.span().start, init_argument.span().end),
-                    "Request init must be an object literal so its keys keep their types",
-                ));
-            };
-            for property in &init.properties {
-                let oxc::ast::ast::ObjectPropertyKind::ObjectProperty(property) = property else {
-                    return Err(SmeltError::unsupported(
-                        self.span(init.span.start, init.span.end),
-                        "Request init does not support spread properties yet",
-                    ));
-                };
-                let Some(key) = property.key.static_name() else {
-                    return Err(SmeltError::unsupported(
-                        self.span(init.span.start, init.span.end),
-                        "Request init requires statically named keys",
-                    ));
-                };
-                let value = self.expression(&property.value, body)?;
-                match key.as_ref() {
-                    "method" => method = Some(value),
-                    "headers" => headers = Some(value),
-                    "body" => body_expr = Some(value),
-                    other => {
-                        return Err(SmeltError::unsupported(
-                            self.span(init.span.start, init.span.end),
-                            format!("Request init key `{other}` is not modeled yet"),
-                        ));
-                    }
-                }
-            }
+            self.lower_fetch_init(init_argument, REQUEST_INIT_KEYS, "Request", &mut fields, body)?;
         }
+        let (method, headers, body_expr) = (
+            fields.take("method"),
+            fields.take("headers"),
+            fields.take("body"),
+        );
         let ty = self.request_type();
         Ok(body.push_expr(Expr {
             kind: ExprKind::RequestNew {
@@ -759,6 +742,171 @@ impl ModuleBuilder<'_> {
                 self.ctx.krate.types.intern(Type::Future(string_ty))
             }
         }
+    }
+
+    /// Lower a `Response`/`Request` init argument into per-key operands.
+    ///
+    /// Three sources, one result. What matters is whether the key's value can
+    /// be reached with its type intact, not how the source spelled it:
+    ///
+    /// * an **object literal** — each key's value is lowered directly;
+    /// * a **spread** inside a literal (`{ ...init, status: 201 }`) — the
+    ///   spread source is read by field, then later keys overwrite, which is
+    ///   the object-literal evaluation order the source has;
+    /// * a **typed value** (an `init: ResponseInit` parameter, a variable, a
+    ///   field) — each modeled key is an ordinary typed field read on it.
+    ///
+    /// Only a genuinely erased init is a blocker: an `unknown`/`any` value has
+    /// no declared keys to read, and inventing them at run time is exactly the
+    /// tagged-record path modeling these types exists to avoid.
+    ///
+    /// `keys` is the modeled key set, so an unmodeled key is named rather than
+    /// silently dropped — `redirect` and `signal` change what a request does.
+    fn lower_fetch_init(
+        &mut self,
+        init_argument: &oxc::ast::ast::Argument<'_>,
+        keys: &[&str],
+        type_name: &str,
+        fields: &mut InitFields,
+        body: &mut Body,
+    ) -> Result<(), SmeltError> {
+        let span = self.span(init_argument.span().start, init_argument.span().end);
+        let Some(init) = init_argument.as_expression() else {
+            return Err(SmeltError::unsupported(
+                span,
+                format!("{type_name} init must be a value, not a spread argument"),
+            ));
+        };
+        if let Expression::ObjectExpression(literal) = init {
+            for property in &literal.properties {
+                match property {
+                    oxc::ast::ast::ObjectPropertyKind::ObjectProperty(property) => {
+                        let Some(key) = property.key.static_name() else {
+                            return Err(SmeltError::unsupported(
+                                span,
+                                format!("{type_name} init requires statically named keys"),
+                            ));
+                        };
+                        if !keys.contains(&key.as_ref()) {
+                            return Err(SmeltError::unsupported(
+                                span,
+                                format!("{type_name} init key `{key}` is not modeled yet"),
+                            ));
+                        }
+                        let value = self.expression(&property.value, body)?;
+                        fields.set(&key, value);
+                    }
+                    oxc::ast::ast::ObjectPropertyKind::SpreadProperty(spread) => {
+                        // `{ ...init, status: 201 }`: read the spread source by
+                        // field, in place, so a later key overwrites it exactly
+                        // as the source's evaluation order says.
+                        let source = self.expression(&spread.argument, body)?;
+                        self.spread_init_fields(source, keys, type_name, span, fields, body)?;
+                    }
+                }
+            }
+            return Ok(());
+        }
+        let source = self.expression(init, body)?;
+        self.spread_init_fields(source, keys, type_name, span, fields, body)
+    }
+
+    /// Read every modeled key off a typed init value as a typed field read.
+    ///
+    /// A key the type does not declare is simply absent — an init interface's
+    /// keys are all optional, so a `RequestInit` without `body` is not an
+    /// error. A receiver with no declared keys at all is the erased case and is
+    /// a blocker, because then nothing could be read with its type intact.
+    fn spread_init_fields(
+        &mut self,
+        source: smelt_hir::ExprId,
+        keys: &[&str],
+        type_name: &str,
+        span: smelt_hir::Span,
+        fields: &mut InitFields,
+        body: &mut Body,
+    ) -> Result<(), SmeltError> {
+        let source_ty = Self::expr_ty(body, source);
+        if matches!(self.ctx.krate.types.get(source_ty), Some(Type::Unknown)) {
+            return Err(SmeltError::unsupported(
+                span,
+                format!(
+                    "{type_name} init is an erased value, so its keys cannot be read with their types"
+                ),
+            ));
+        }
+        // An ambient init interface (`ResponseInit`/`RequestInit`) has no
+        // runtime representation, so the value arrives as an erased record and
+        // each key is read through the checked cast below. A source-declared
+        // interface is a real struct, so its keys are read directly.
+        let ambient = matches!(self.ctx.krate.types.get(source_ty), Some(Type::Class { name, .. })
+            if self.ambient_fetch_init_name(*name));
+        let mut read_any = false;
+        for key in keys {
+            let field = self.intern_source_name(key);
+            let Ok(field_ty) = self.class_field_type(source_ty, field) else {
+                continue;
+            };
+            // A key the type does not declare resolves to an erased type
+            // rather than failing — bare `Unknown`, or `Optional<Unknown>` when
+            // the read went through the optional-field path. Reading it would
+            // put an erased value where a typed one belongs, so it is skipped
+            // and the key falls back to the spec's default, which is what an
+            // init that does not declare the key means.
+            let erased = match self.ctx.krate.types.get(field_ty) {
+                Some(Type::Unknown) => true,
+                Some(&Type::Optional(inner)) => {
+                    matches!(self.ctx.krate.types.get(inner), Some(Type::Unknown))
+                }
+                _ => false,
+            };
+            if erased {
+                continue;
+            }
+            read_any = true;
+            let read = if ambient {
+                // **Dynamic boundary.** The receiver is an erased record, so
+                // the key read yields an erased value and the cast is what
+                // recovers the key's declared type. A concrete type cannot
+                // stand in for the receiver: the interface is not in the crate,
+                // so there is no struct to read a field from — the shape is
+                // only present in the record the caller's literal became.
+                let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let erased = body.push_expr(Expr {
+                    kind: ExprKind::Field {
+                        receiver: source,
+                        field,
+                    },
+                    ty: unknown_ty,
+                    span,
+                });
+                body.push_expr(Expr {
+                    kind: ExprKind::UnknownCast {
+                        value: erased,
+                        target: field_ty,
+                    },
+                    ty: field_ty,
+                    span,
+                })
+            } else {
+                body.push_expr(Expr {
+                    kind: ExprKind::Field {
+                        receiver: source,
+                        field,
+                    },
+                    ty: field_ty,
+                    span,
+                })
+            };
+            fields.set(key, read);
+        }
+        if !read_any {
+            return Err(SmeltError::unsupported(
+                span,
+                format!("{type_name} init type declares none of its modeled keys"),
+            ));
+        }
+        Ok(())
     }
 
 }

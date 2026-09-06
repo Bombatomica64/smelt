@@ -27,6 +27,21 @@ impl FunctionEmitter<'_> {
         };
         let init_ty = self.operand_ty(init)?;
         let init_text = self.operand_text(init)?;
+        self.headers_conversion_text(&init_text, init_ty)
+    }
+
+    /// Convert a value of type `ty`, named by `init_text`, into a `SmeltHeaders`.
+    ///
+    /// The `HeadersInit` conversion, selected by the value's static type. Split
+    /// from [`Self::headers_new_text`] so a `headers` init key read off a typed
+    /// `ResponseInit` — where the value arrives already unwrapped from an
+    /// `Option` and so has no operand of its own — uses the same conversion
+    /// rather than a second copy of it.
+    pub(super) fn headers_conversion_text(
+        &self,
+        init_text: &str,
+        init_ty: TypeId,
+    ) -> Result<String, EmitError> {
         match self.mir.types.get(init_ty) {
             // Another `Headers`: copy its pairs into a fresh list.
             Some(Type::Class { .. }) if self.is_headers_class_type(init_ty)? => {
@@ -290,18 +305,9 @@ impl FunctionEmitter<'_> {
             ));
         }
         let input_text = self.operand_text(input)?;
-        let method_expr = match method {
-            Some(method) => self.operand_text(method)?,
-            None => "\"GET\".to_owned()".to_owned(),
-        };
-        let headers_expr = match headers {
-            Some(headers) => self.headers_new_text(Some(headers))?,
-            None => "SmeltHeaders::new()".to_owned(),
-        };
-        let body_expr = match body {
-            Some(body) => self.response_body_text(body)?,
-            None => "SmeltBody::empty()".to_owned(),
-        };
+        let method_expr = self.init_scalar_text(method, "\"GET\".to_owned()")?;
+        let headers_expr = self.init_headers_text(headers)?;
+        let body_expr = self.init_body_text(body)?;
         Ok(format!(
             "SmeltRequest::from_parts(&{input_text}, {method_expr}, {headers_expr}, {body_expr})"
         ))
@@ -344,22 +350,10 @@ impl FunctionEmitter<'_> {
         status_text: Option<&Operand>,
         headers: Option<&Operand>,
     ) -> Result<String, EmitError> {
-        let status_text_expr = match status {
-            Some(status) => self.operand_text(status)?,
-            None => "200.0".to_owned(),
-        };
-        let phrase_expr = match status_text {
-            Some(status_text) => self.operand_text(status_text)?,
-            None => "String::new()".to_owned(),
-        };
-        let headers_expr = match headers {
-            Some(headers) => self.headers_new_text(Some(headers))?,
-            None => "SmeltHeaders::new()".to_owned(),
-        };
-        let body_expr = match body {
-            Some(body) => self.response_body_text(body)?,
-            None => "SmeltBody::empty()".to_owned(),
-        };
+        let status_text_expr = self.init_scalar_text(status, "200.0")?;
+        let phrase_expr = self.init_scalar_text(status_text, "String::new()")?;
+        let headers_expr = self.init_headers_text(headers)?;
+        let body_expr = self.init_body_text(body)?;
         Ok(format!(
             "SmeltResponse::from_parts({status_text_expr}, {phrase_expr}, {headers_expr}, {body_expr})"
         ))
@@ -375,12 +369,26 @@ impl FunctionEmitter<'_> {
     pub(super) fn response_body_text(&self, body: &Operand) -> Result<String, EmitError> {
         let body_ty = self.operand_ty(body)?;
         let body_text = self.operand_text(body)?;
+        self.body_conversion_text(&body_text, body_ty)
+    }
+
+    /// Convert a value of type `ty`, named by `body_text`, into a `SmeltBody`.
+    ///
+    /// Split from [`Self::response_body_text`] for the same reason the headers
+    /// conversion is: a `body` init key read off a typed `RequestInit` arrives
+    /// already unwrapped and has no operand of its own.
+    pub(super) fn body_conversion_text(
+        &self,
+        body_text: &str,
+        body_ty: TypeId,
+    ) -> Result<String, EmitError> {
         match self.mir.types.get(body_ty) {
             Some(Type::String) => Ok(format!("SmeltBody::from_text(&{body_text})")),
             Some(Type::None) => Ok("SmeltBody::empty()".to_owned()),
-            _ => Err(EmitError::new(
-                "Response body must be a string or null; other BodyInit arms are not modeled yet",
-            )),
+            _ => Err(EmitError::new(format!(
+                "body must be a string or null; this `BodyInit` arm is not modeled yet: {}",
+                self.type_text_with_impl_trait(body_ty, false)?
+            ))),
         }
     }
 
@@ -455,4 +463,63 @@ impl FunctionEmitter<'_> {
     ) -> Result<Option<smelt_stdlib::StdlibClass>, EmitError> {
         Ok(smelt_stdlib::typescript_stdlib_class(self.symbol_name(name)?))
     }
+    /// Render a scalar init key, falling back to the spec's default.
+    ///
+    /// An absent key and a key whose value is `undefined` are the same thing to
+    /// the spec, so `Optional<T>` unwraps to the same default a missing operand
+    /// uses. `default_text` is that default, written once per key.
+    fn init_scalar_text(
+        &self,
+        operand: Option<&Operand>,
+        default_text: &str,
+    ) -> Result<String, EmitError> {
+        let Some(operand) = operand else {
+            return Ok(default_text.to_owned());
+        };
+        let text = self.operand_text(operand)?;
+        if matches!(
+            self.mir.types.get(self.operand_ty(operand)?),
+            Some(Type::Optional(_))
+        ) {
+            return Ok(format!("{text}.unwrap_or_else(|| {default_text})"));
+        }
+        Ok(text)
+    }
+
+    /// Render the `headers` init key as a `SmeltHeaders`.
+    ///
+    /// The conversion for a present value is the `Headers` constructor's own
+    /// (a `Headers`, a record, or an array of pairs — selected by the
+    /// operand's type), so the init and `new Headers(init)` cannot disagree.
+    fn init_headers_text(&self, operand: Option<&Operand>) -> Result<String, EmitError> {
+        let Some(operand) = operand else {
+            return Ok("SmeltHeaders::new()".to_owned());
+        };
+        let ty = self.operand_ty(operand)?;
+        if let Some(&Type::Optional(inner)) = self.mir.types.get(ty) {
+            let present = self.headers_conversion_text("smelt_init_headers", inner)?;
+            return Ok(format!(
+                "match {} {{ Some(smelt_init_headers) => {present}, None => SmeltHeaders::new() }}",
+                self.operand_text(operand)?
+            ));
+        }
+        self.headers_new_text(Some(operand))
+    }
+
+    /// Render the `body` init key as a `SmeltBody`.
+    fn init_body_text(&self, operand: Option<&Operand>) -> Result<String, EmitError> {
+        let Some(operand) = operand else {
+            return Ok("SmeltBody::empty()".to_owned());
+        };
+        let ty = self.operand_ty(operand)?;
+        if let Some(&Type::Optional(inner)) = self.mir.types.get(ty) {
+            let present = self.body_conversion_text("smelt_init_body", inner)?;
+            return Ok(format!(
+                "match {} {{ Some(smelt_init_body) => {present}, None => SmeltBody::empty() }}",
+                self.operand_text(operand)?
+            ));
+        }
+        self.response_body_text(operand)
+    }
+
 }

@@ -2749,6 +2749,84 @@ return_ty: function.return_ty,
         })
     }
 
+    /// Return whether `class` names an ambient fetch init interface.
+    ///
+    /// "Ambient" here means declared in lib.dom/undici and therefore absent
+    /// from the crate: the type has no runtime representation, so a value of it
+    /// crosses as an erased record. The construction site needs to know that to
+    /// choose between a typed field read and a checked cast.
+    pub(in crate::lowering) fn ambient_fetch_init_name(&self, class: smelt_hir::Symbol) -> bool {
+        let Some(name) = self
+            .ctx
+            .krate
+            .names
+            .get(class)
+            .or_else(|| self.ctx.krate.symbols.get(class))
+        else {
+            return false;
+        };
+        matches!(name, "ResponseInit" | "RequestInit")
+            && self.class_by_symbol(class).is_none()
+    }
+
+    /// Resolve a field on one of the ambient fetch **init** interfaces.
+    ///
+    /// `ResponseInit`, `RequestInit` and `HeadersInit` are declared in
+    /// lib.dom/undici, which Smelt does not import, so a value annotated with
+    /// one is an opaque class with no declared fields and `init.status`
+    /// resolved to `Unknown`. The field types are statically known all the
+    /// same, so they are declared here — the same reason `SmeltMatch`'s and
+    /// `URLSearchParams.size`'s entries exist in this function.
+    ///
+    /// Every key is **optional** (`status?: number`), so each resolves to an
+    /// `Optional<T>`; that is what makes the absent case fall back to the
+    /// spec's default at the construction site rather than to a wrong value.
+    ///
+    /// A key outside the modeled set resolves to `None` here, which leaves the
+    /// ordinary paths to reject the read — an unmodeled init key must not
+    /// silently read as an erased value.
+    fn fetch_init_field_type(
+        &mut self,
+        class: smelt_hir::Symbol,
+        field: smelt_hir::Symbol,
+    ) -> Option<smelt_hir::TypeId> {
+        let class_name = self
+            .ctx
+            .krate
+            .names
+            .get(class)
+            .or_else(|| self.ctx.krate.symbols.get(class))?
+            .to_owned();
+        // Source names are normalized to snake_case in the symbol table, with
+        // the original spelling kept in `names`, so both are accepted: a key
+        // written `statusText` interns as `status_text`, and which one arrives
+        // here depends on the table the caller's symbol came from.
+        let field_name = self
+            .ctx
+            .krate
+            .names
+            .get(field)
+            .or_else(|| self.ctx.krate.symbols.get(field))?
+            .to_owned();
+        let inner = match (class_name.as_str(), field_name.as_str()) {
+            ("ResponseInit", "status") => self.ctx.krate.types.intern(Type::Float),
+            ("ResponseInit", "statusText" | "status_text") | ("RequestInit", "method") => {
+                self.ctx.krate.types.intern(Type::String)
+            }
+            // `body` is a `BodyInit`, whose modeled arm is a string; the other
+            // arms are types Smelt does not model yet, and the construction
+            // site names them rather than guessing.
+            ("RequestInit", "body") => self.ctx.krate.types.intern(Type::String),
+            // `headers` is a `HeadersInit`: a `Headers`, a record, or an array
+            // of pairs. The modeled init type is the concrete `Headers`, which
+            // is what the construction site's conversion accepts directly; the
+            // other spellings reach it as literals, which keep their own types.
+            ("ResponseInit" | "RequestInit", "headers") => self.headers_type(),
+            _ => return None,
+        };
+        Some(self.ctx.krate.types.intern(Type::Optional(inner)))
+    }
+
     /// Return declared fields for built-in classes that Smelt does not import from lib.d.ts.
     pub(in crate::lowering) fn builtin_class_field_type(
         &mut self,
@@ -2766,6 +2844,9 @@ return_ty: function.return_ty,
             && self.ctx.krate.symbols.get(field) == Some("size")
         {
             return Some(self.ctx.krate.types.intern(Type::Float));
+        }
+        if let Some(field_ty) = self.fetch_init_field_type(class, field) {
+            return Some(field_ty);
         }
         match self.match_stdlib_class(class) {
             Some(smelt_stdlib::StdlibClass::Match) => {
