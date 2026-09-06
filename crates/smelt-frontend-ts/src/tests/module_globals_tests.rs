@@ -383,14 +383,14 @@ export function stash(value: unknown): void {
 }
 
 #[test]
-fn writing_through_a_non_primitive_global_is_a_named_blocker() -> Result<(), String> {
-    // `cache[key] = value` mutates the value the cell HOLDS, and a `GlobalGet`
-    // yields a copy of it, so the write would land on the copy and be lost — a
-    // wrong value with no diagnostic. Reported instead of lowered. This is the
-    // one remaining piece of Hono's `router/reg-exp-router/router.ts`, whose
-    // `wildcardRegExpCache[path] ??= new RegExp(..)` is exactly this shape.
+fn writing_through_a_non_primitive_global_lowers() -> Result<(), String> {
+    // Hono's `router/reg-exp-router/router.ts` shape. `cache[key] = value`
+    // mutates the value the cell HOLDS, which used to be a named blocker
+    // because a `GlobalGet` yields a copy and the write would land on it. It
+    // now lowers to `Place::Global`, which names the cell as the assignment
+    // root so no copy is made. See `blocker-logs/hono-h6-place-global.md`.
     let mut ctx = HirCtx::new();
-    let errors = lowering_errors(
+    let module_id = lower_ok(
         ts!(r"
 const seedCache = (): Record<string, string> => ({});
 
@@ -406,7 +406,65 @@ export function reset(): void {
 "),
         &mut ctx,
     )?;
-    assert_unsupported_ts(&errors, "is written through")
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn a_global_written_through_only_is_still_lifted() -> Result<(), String> {
+    // A binding whose ONLY mutation is a write through it is still module state
+    // that every function shares. The lift used to require a whole-binding
+    // reassignment, which would now leave the write on a module-local copy —
+    // the exact silent-loss defect `Place::Global` exists to prevent. There is
+    // no `cache = ...` anywhere in this fixture.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+let cache: Record<string, number> = {};
+
+export function put(key: string, value: number): void {
+  cache[key] = value;
+}
+
+export function get(key: string): number {
+  return cache[key];
+}
+"),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    let lifted = ctx.krate.items.iter().any(|item| {
+        matches!(item, Item::MutableGlobal(global)
+            if ctx.krate.symbols.get(global.name) == Some("cache"))
+    });
+    ensure!(
+        lifted,
+        "a global that is only written THROUGH must still be lifted to a cell",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn a_nested_write_through_a_non_primitive_global_is_a_named_blocker() -> Result<(), String> {
+    // `cache[a][b] = v` still blocks. The inner `cache[a]` has to produce a
+    // value, and whether that value shares storage with the cell is the
+    // handle-versus-value question `Place::Global` avoids asking — guessing it
+    // loses the write for one of the two container representations with no
+    // diagnostic. The blocker names the shape rather than the family.
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r"
+let buckets: Record<string, Record<string, string>> = {};
+
+export function put(outer: string, inner: string, value: string): void {
+  buckets[outer][inner] = value;
+}
+"),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&errors, "written through a nested projection")
 }
 
 #[test]

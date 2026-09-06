@@ -6,7 +6,7 @@
 //! also holds the "does this reference exist" checks for rvalues, operands,
 //! places, and callees used by structural validation.
 
-use crate::{Callee, MirFunction, Mir, Operand, Place, Rvalue};
+use crate::{Callee, GlobalProjection, Mir, MirFunction, Operand, Place, Rvalue};
 
 use super::structure::validate_local_exists;
 use super::{ValidationError, error, function_index, validate_type};
@@ -1714,6 +1714,14 @@ pub(super) fn validate_place_exists(
         Place::Index { base, index, .. } => {
             validate_local_exists(function, *base, errors);
             validate_operand_exists(function, index, errors);
+        }
+        // There is no base local to check for existence. The global index is
+        // validated against `Mir::globals` where the statement is checked, and
+        // the index operand is checked here like any other.
+        Place::Global { projection, .. } => {
+            if let GlobalProjection::Index { index, .. } = projection {
+                validate_operand_exists(function, index, errors);
+            }
         }
     }
 }

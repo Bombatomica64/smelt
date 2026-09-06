@@ -528,6 +528,46 @@ pub enum Place {
         /// What a negative index means at this site.
         negative: NegativeIndex,
     },
+    /// A field or index projection rooted at a module-level mutable global.
+    ///
+    /// Distinct from the local-rooted variants because the base is not a local
+    /// at all: it is a `thread_local!` cell, and the whole point of the variant
+    /// is to mutate the value INSIDE that cell rather than a copy read out of
+    /// it. A `GlobalGet` yields a clone, which shares the store for a handle
+    /// type (`SmeltRecord`) and deep-copies for a value type (`HashMap`), so a
+    /// write through a materialized copy is correct for one and silently lost
+    /// for the other. Naming the cell as the assignment root avoids having to
+    /// answer which case applies. See
+    /// `blocker-logs/hono-h6-place-global.md`.
+    ///
+    /// Whole-binding assignment is NOT this variant: `x = e` lowers to
+    /// `ExprKind::GlobalSet`, which replaces the cell's value and needs no
+    /// projection.
+    Global {
+        /// Index into [`Mir::globals`].
+        base: u32,
+        /// What is written inside the cell.
+        projection: GlobalProjection,
+    },
+}
+
+/// What a [`Place::Global`] writes inside a mutable global's cell.
+///
+/// One level only. A nested write (`cache[a][b] = v`) is not this shape: the
+/// inner `cache[a]` has to produce a value, and whether that value shares with
+/// the cell is the same handle-versus-value question `Place::Global` exists to
+/// avoid asking. Nested writes keep their frontend blocker.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum GlobalProjection {
+    /// `global.field = value`.
+    Field(Symbol),
+    /// `global[index] = value`.
+    Index {
+        /// The index expression.
+        index: Box<Operand>,
+        /// What a negative index means at this site.
+        negative: NegativeIndex,
+    },
 }
 
 /// How a source language spells a value that is absent.

@@ -10,7 +10,7 @@
 
 use smelt_hir::{ExprId, ExprKind};
 
-use crate::{Constant, Operand, Place};
+use crate::{Constant, GlobalProjection, Operand, Place};
 
 use super::LowerError;
 use super::context::LoweringCtx;
@@ -35,6 +35,19 @@ impl LoweringCtx<'_> {
                 Ok(Place::Local(local_id))
             }
             ExprKind::Field { receiver, field } => {
+                // A write THROUGH a module-level mutable global must name the
+                // cell, not a copy read out of it: `materialize_operand_local`
+                // below would lower the receiver to a `GlobalGet`, whose clone
+                // shares the store for a handle type and deep-copies for a
+                // value type, so the write would be correct for one and
+                // silently lost for the other. See
+                // `blocker-logs/hono-h6-place-global.md`.
+                if let Some(base) = self.mutable_global_receiver(*receiver) {
+                    return Ok(Place::Global {
+                        base,
+                        projection: GlobalProjection::Field(*field),
+                    });
+                }
                 let receiver_operand = self.lower_expr(*receiver)?;
                 let receiver_ty = self.hir_expr(*receiver)?.ty;
                 let base =
@@ -45,6 +58,19 @@ impl LoweringCtx<'_> {
                 })
             }
             ExprKind::Index { receiver, index } => {
+                if let Some(base) = self.mutable_global_receiver(*receiver) {
+                    // The index is lowered here, BEFORE the cell is borrowed at
+                    // emission time, which is what keeps `cache[cache_key()] =
+                    // v` from double-borrowing the `RefCell` at runtime.
+                    let index_operand = self.lower_expr(*index)?;
+                    return Ok(Place::Global {
+                        base,
+                        projection: GlobalProjection::Index {
+                            index: Box::new(index_operand),
+                            negative: self.negative_index_policy(expr.span),
+                        },
+                    });
+                }
                 let receiver_operand = self.lower_expr(*receiver)?;
                 let receiver_ty = self.hir_expr(*receiver)?.ty;
                 let base =
@@ -78,6 +104,23 @@ impl LoweringCtx<'_> {
             // place. The exhaustive listing that documents and enforces this at
             // compile time lives in `place_unsupported`, keeping this match short.
             _ => Err(self.place_unsupported(&expr)),
+        }
+    }
+
+    /// The MIR global index when `receiver` reads a module-level mutable global.
+    ///
+    /// Returns `None` for every other receiver, so the ordinary
+    /// materialize-a-local path runs unchanged. Only a DIRECT read of the
+    /// binding qualifies: a nested projection (`cache[a][b] = v`) has an inner
+    /// receiver that is itself an `Index`, which is not a `GlobalGet` and so
+    /// falls through to the existing path and its blocker. That is deliberate —
+    /// the inner read has to produce a value, and whether that value shares
+    /// with the cell is the question `Place::Global` exists to avoid asking.
+    fn mutable_global_receiver(&self, receiver: ExprId) -> Option<u32> {
+        let expr = self.hir_expr(receiver).ok()?;
+        match &expr.kind {
+            ExprKind::GlobalGet { item } => self.global_ids.get(item).copied(),
+            _ => None,
         }
     }
 

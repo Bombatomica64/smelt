@@ -469,6 +469,18 @@ impl FunctionEmitter<'_> {
         out: &mut String,
     ) -> Result<(), EmitError> {
         match place {
+            // A write through a module-level mutable global goes straight into
+            // the cell; see `global_place_assign_text` for why it must not go
+            // through a materialized copy.
+            Place::Global { base, projection } => {
+                let statement = self.global_place_assign_text(*base, projection, value)?;
+                out.push_str("    ");
+                out.push_str(&statement);
+                out.push_str(";\n");
+                // The whole statement is emitted; the shared tail below asks
+                // for `place_ty`, which a global place deliberately has not.
+                return Ok(());
+            }
             Place::Field { base, field } => {
                 let base_ty = self.local_decl(*base)?.ty;
                 // A JavaScript `RegExp.lastIndex` write stores into a

@@ -204,6 +204,68 @@ impl FunctionEmitter<'_> {
         }
     }
 
+    /// Emit a write *through* a mutable global into its `thread_local!` cell.
+    ///
+    /// The whole statement is one `with` closure so the `RefCell` borrow lives
+    /// exactly as long as the mutation and no copy of the contained value is
+    /// ever made. That is the point of `Place::Global`: a `GlobalGet` would
+    /// clone, which shares the store for a handle type (`SmeltRecord`) and
+    /// deep-copies for a value type (`HashMap`), so a write applied to the
+    /// clone is correct for one and silently lost for the other.
+    ///
+    /// # Both operands are evaluated before `borrow_mut()`
+    ///
+    /// If the index or the right-hand side themselves read the same global
+    /// (`cache[cache_key()] = v`), evaluating them inside the borrow is a
+    /// `RefCell` double-borrow **panic at runtime**, not a compile error. So
+    /// they are hoisted to `let` bindings above the borrow. This is the one
+    /// detail that cannot be left to the reader.
+    ///
+    /// A `Cell` global never reaches here: a `Cell` holds only `Copy`
+    /// primitives, and a primitive can be neither indexed nor have a field
+    /// written, so the path is `RefCell`-only by construction. That is checked
+    /// rather than assumed.
+    pub(super) fn global_place_assign_text(
+        &self,
+        global: u32,
+        projection: &smelt_mir::GlobalProjection,
+        value: &Rvalue,
+    ) -> Result<String, EmitError> {
+        use smelt_mir::GlobalProjection;
+
+        let name = crate::global_static_name(self.mir, global);
+        let ty = self.global_ty(global)?;
+        if Self::global_uses_copy_cell(self.mir.types.get(ty)) {
+            return Err(EmitError::new(
+                "internal: a write through a mutable global reached a Copy-primitive cell,                  which has no field or index to write",
+            ));
+        }
+        let Some(Type::Dict(key_ty, item_ty)) = self.mir.types.get(ty).cloned() else {
+            // Only the map-like shapes are lowered. Anything else (a list, a
+            // class instance, an erased value) would need its own write
+            // spelling, and guessing one is how a wrong value gets emitted with
+            // no diagnostic. The frontend keeps a blocker for these.
+            return Err(EmitError::new(format!(
+                "write through a mutable global is only lowered for Record/Map globals                  (global {global} is {:?})",
+                self.mir.types.get(ty)
+            )));
+        };
+        let rendered_value = self.rvalue_text_for_dest(value, item_ty)?;
+        let key_text = match projection {
+            GlobalProjection::Field(field) => self.dict_field_key_text(key_ty, *field)?,
+            GlobalProjection::Index { index, .. } => {
+                if self.mir.types.get(key_ty) == Some(&Type::String) {
+                    self.string_like_operand_text(index, "global index")?
+                } else {
+                    self.value_at_type(index, key_ty)?
+                }
+            }
+        };
+        Ok(format!(
+            "{name}.with(|smelt_global_cell| {{              let smelt_global_key = {key_text};              let smelt_global_value = {rendered_value};              smelt_global_cell.borrow_mut().insert(smelt_global_key, smelt_global_value); }})"
+        ))
+    }
+
     /// Look up the primitive type of a mutable global by index.
     fn global_ty(&self, global: u32) -> Result<TypeId, EmitError> {
         self.mir

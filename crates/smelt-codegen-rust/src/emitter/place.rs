@@ -35,6 +35,11 @@ impl FunctionEmitter<'_> {
     pub(super) fn place_text(&self, place: &Place) -> Result<String, EmitError> {
         match place {
             Place::Local(local) => self.local_value_text(*local),
+            // A read of a mutable global lowers to `ExprKind::GlobalGet`, not
+            // to a place, so `Place::Global` never appears in a read position.
+            Place::Global { .. } => Err(EmitError::new(
+                "internal: a mutable-global place was read as a value;                  reads lower to GlobalGet",
+            )),
             Place::Field { base, field } => {
                 let base_ty = self.local_decl(*base)?.ty;
                 if let Some(Type::Dict(key, value)) = self.mir.types.get(base_ty) {
@@ -718,6 +723,14 @@ impl FunctionEmitter<'_> {
     pub(super) fn assignment_place_text(&self, place: &Place) -> Result<String, EmitError> {
         match place {
             Place::Local(local) => self.local_mut_value_text(*local),
+            // A write through a mutable global is emitted as one whole
+            // statement (`global_place_assign_text`) because the cell borrow
+            // has to scope the mutation. There is no lvalue FRAGMENT that
+            // callers could compose, so this is an error rather than a
+            // best-effort spelling that would borrow twice.
+            Place::Global { .. } => Err(EmitError::new(
+                "write through a mutable global has no lvalue fragment;                  it is emitted as a whole statement",
+            )),
             Place::Index {
                 base,
                 index,

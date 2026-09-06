@@ -8,7 +8,8 @@ use std::fmt::Write as _;
 use smelt_hir::{PropertyLookup, Type, TypeId};
 
 use crate::{
-    BuiltinFn, Callee, Constant, LocalId, LocalKind, Mir, Operand, Place, Rvalue, Statement,
+    BuiltinFn, Callee, Constant, GlobalProjection, LocalId, LocalKind, Mir, Operand, Place,
+    Rvalue, Statement,
     Terminator,
 };
 
@@ -1636,6 +1637,12 @@ fn place_text(place: &Place) -> String {
         Place::Local(local) => local_ref(*local),
         Place::Field { base, field } => format!("{}.field{}", local_ref(*base), field.0),
         Place::Index { base, index, .. } => format!("{}[{}]", local_ref(*base), operand_text(index)),
+        Place::Global { base, projection } => match projection {
+            GlobalProjection::Field(field) => format!("global{base}.field{}", field.0),
+            GlobalProjection::Index { index, .. } => {
+                format!("global{base}[{}]", operand_text(index))
+            }
+        },
     }
 }
 

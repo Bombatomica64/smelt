@@ -45,46 +45,63 @@ use smelt_hir::{
 struct MutatedNameCollector {
     /// Names observed as an assignment or update target.
     names: HashSet<String>,
-    /// Names observed as the BASE of a member or index assignment target —
-    /// `name[key] = …`, `name.field = …`, and their compound and logical forms.
+    /// Names observed as the DIRECT base of a member or index assignment
+    /// target — `name[key] = …`, `name.field = …`, one projection deep.
     ///
-    /// Tracked separately from [`Self::names`] because the two need opposite
+    /// Tracked separately from [`Self::names`] because the two need different
     /// treatments for a mutable global: reassigning the binding replaces the
-    /// cell's whole value, which a `GlobalSet` expresses, while writing
-    /// *through* it mutates the value the cell holds — and a `GlobalGet` yields
-    /// a copy, so such a write would be silently lost. See
-    /// `register_mutable_global_decl`.
+    /// cell's whole value (`GlobalSet`), while writing *through* it mutates the
+    /// value the cell holds. `Place::Global` lowers exactly this one-deep shape
+    /// by naming the cell as the assignment root, so these no longer block.
     mutated_through: HashSet<String>,
+    /// Names reached as the base of a NESTED assignment target — `name[a][b] =
+    /// …`, `name.a.b = …`.
+    ///
+    /// Still blocks. The inner projection has to produce a value, and whether
+    /// that value shares storage with the cell is the handle-versus-value
+    /// question `Place::Global` exists to avoid asking; guessing it is how a
+    /// write gets silently lost. See `blocker-logs/hono-h6-place-global.md`.
+    mutated_through_nested: HashSet<String>,
 }
 
 impl MutatedNameCollector {
     /// Record the root identifier of a member/index assignment target's object,
     /// unwrapping the type-level wrappers that never change the value.
-    fn record_write_through_base(&mut self, object: &oxc::ast::ast::Expression<'_>) {
+    fn record_write_through_base(
+        &mut self,
+        object: &oxc::ast::ast::Expression<'_>,
+        direct: bool,
+    ) {
         match object {
             Expression::Identifier(identifier) => {
-                self.mutated_through
-                    .insert(identifier.name.as_str().to_owned());
+                let name = identifier.name.as_str().to_owned();
+                if direct {
+                    self.mutated_through.insert(name);
+                } else {
+                    self.mutated_through_nested.insert(name);
+                }
             }
+            // Type-level wrappers never change the value, so they do not make a
+            // direct write nested.
             Expression::ParenthesizedExpression(parenthesized) => {
-                self.record_write_through_base(&parenthesized.expression);
+                self.record_write_through_base(&parenthesized.expression, direct);
             }
             Expression::TSAsExpression(as_expr) => {
-                self.record_write_through_base(&as_expr.expression);
+                self.record_write_through_base(&as_expr.expression, direct);
             }
             Expression::TSSatisfiesExpression(satisfies) => {
-                self.record_write_through_base(&satisfies.expression);
+                self.record_write_through_base(&satisfies.expression, direct);
             }
             Expression::TSNonNullExpression(non_null) => {
-                self.record_write_through_base(&non_null.expression);
+                self.record_write_through_base(&non_null.expression, direct);
             }
             // A nested base (`a[b][c] = …`, `a.b.c = …`) still bottoms out at a
             // root identifier, and that root is the binding being mutated.
             Expression::ComputedMemberExpression(member) => {
-                self.record_write_through_base(&member.object);
+                self.record_write_through_base(&member.object, false);
             }
             Expression::StaticMemberExpression(member) => {
-                self.record_write_through_base(&member.object);
+                self.record_write_through_base(&member.object, false);
             }
             _ => {}
         }
@@ -101,10 +118,10 @@ impl<'a> oxc::ast_visit::Visit<'a> for MutatedNameCollector {
                 self.names.insert(identifier.name.as_str().to_owned());
             }
             oxc::ast::ast::SimpleAssignmentTarget::ComputedMemberExpression(member) => {
-                self.record_write_through_base(&member.object);
+                self.record_write_through_base(&member.object, true);
             }
             oxc::ast::ast::SimpleAssignmentTarget::StaticMemberExpression(member) => {
-                self.record_write_through_base(&member.object);
+                self.record_write_through_base(&member.object, true);
             }
             _ => {}
         }
@@ -1072,7 +1089,20 @@ impl<'ctx> ModuleBuilder<'ctx> {
         module: &mut Module,
         errors: &mut Vec<SmeltError>,
     ) {
-        let (mutated, mutated_through) = Self::collect_mutated_names(program);
+        let (reassigned, mutated_through, mutated_through_nested) =
+            Self::collect_mutated_names(program);
+        // A binding is module state if it is mutated AT ALL, and a write
+        // *through* it counts: `let cache: Record<string, number> = {}` that is
+        // only ever `cache[k] = v` is still state that every function shares.
+        // Before `Place::Global` such a binding could not be lowered anyway, so
+        // requiring a whole-binding reassignment to lift it was harmless; now
+        // it would silently leave the write on a module-local copy, which is
+        // exactly the class of defect this family exists to prevent.
+        let mutated: HashSet<String> = reassigned
+            .into_iter()
+            .chain(mutated_through.iter().cloned())
+            .chain(mutated_through_nested.iter().cloned())
+            .collect();
         if mutated.is_empty() {
             return;
         }
@@ -1082,7 +1112,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     self.register_mutable_global_decl(
                         variable,
                         &mutated,
-                        &mutated_through,
+                        &mutated_through_nested,
                         Visibility::Private,
                         module,
                         errors,
@@ -1093,7 +1123,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         self.register_mutable_global_decl(
                             variable,
                             &mutated,
-                            &mutated_through,
+                            &mutated_through_nested,
                             Visibility::Public,
                             module,
                             errors,
@@ -1110,7 +1140,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         &mut self,
         decl: &oxc::ast::ast::VariableDeclaration<'_>,
         mutated: &HashSet<String>,
-        mutated_through: &HashSet<String>,
+        mutated_through_nested: &HashSet<String>,
         visibility: Visibility,
         module: &mut Module,
         errors: &mut Vec<SmeltError>,
@@ -1180,30 +1210,32 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 ));
                 continue;
             };
-            // A write *through* the binding (`cache[key] = value`,
-            // `cache.field = value`) mutates the value the cell holds, and a
-            // `GlobalGet` yields a COPY of that value — so the write would
-            // apply to the copy and be silently lost. Reassigning the binding
-            // as a whole is fine (that is what `GlobalSet` does), and a `Copy`
-            // primitive cannot be written through at all, so the restriction is
-            // exactly: a non-`Copy` global that is written through.
+            // A ONE-DEEP write through the binding (`cache[key] = value`,
+            // `cache.field = value`) is lowered: `Place::Global` names the
+            // cell as the assignment root, so the mutation happens inside the
+            // cell and no copy is made. See
+            // `blocker-logs/hono-h6-place-global.md`.
             //
-            // Reported rather than lowered, because a lost write is a wrong
-            // value with no diagnostic — the worst outcome available. The fix
-            // is a read-modify-write desugar (`tmp = GlobalGet(g); tmp[k] = v;
-            // GlobalSet(g, tmp)`), which is not implemented; see
-            // blocker-logs/hono-h6-module-mutable-globals.md.
+            // A NESTED write (`cache[a][b] = value`) still blocks. Its inner
+            // projection has to produce a value, and whether that value shares
+            // storage with the cell is the handle-versus-value question
+            // `Place::Global` exists to avoid asking — a `SmeltRecord` clone
+            // shares the store while a `HashMap` clone deep-copies, so
+            // guessing loses the write for one of them with no diagnostic.
+            // A `Copy` primitive can be written through at neither depth, so
+            // the restriction is exactly: a non-`Copy` global written through a
+            // nested projection.
             let is_copy_primitive = matches!(
                 self.ctx.krate.types.get(ty),
                 Some(Type::Float | Type::Int | Type::Bool)
             );
-            if !is_copy_primitive && mutated_through.contains(name) {
+            if !is_copy_primitive && mutated_through_nested.contains(name) {
                 errors.push(SmeltError::unsupported(
                     span,
                     format!(
-                        "module-level mutable binding `{name}` is written through \
-                         (`{name}[key] = …` or `{name}.field = …`); only whole-value \
-                         reassignment of a non-primitive mutable global is lowered"
+                        "module-level mutable binding `{name}` is written through a nested \
+                         projection (`{name}[a][b] = …` or `{name}.a.b = …`); only a \
+                         one-deep write through a non-primitive mutable global is lowered"
                     ),
                 ));
                 continue;
@@ -1345,11 +1377,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// over-approximation (it ignores inner shadowing scopes), which is
     /// sufficient to decide which module-level `let`/`var` bindings need the
     /// mutable-global lift.
-    fn collect_mutated_names(program: &Program<'_>) -> (HashSet<String>, HashSet<String>) {
+    fn collect_mutated_names(
+        program: &Program<'_>,
+    ) -> (HashSet<String>, HashSet<String>, HashSet<String>) {
         use oxc::ast_visit::Visit;
         let mut collector = MutatedNameCollector {
             names: HashSet::new(),
             mutated_through: HashSet::new(),
+            mutated_through_nested: HashSet::new(),
         };
         for statement in &program.body {
             let declaration = match statement {
@@ -1382,7 +1417,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 _ => {}
             }
         }
-        (collector.names, collector.mutated_through)
+        (
+            collector.names,
+            collector.mutated_through,
+            collector.mutated_through_nested,
+        )
     }
 
     /// Scan `const name = <arrow/function>` initializers for mutation targets.

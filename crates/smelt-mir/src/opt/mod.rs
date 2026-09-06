@@ -5,7 +5,10 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::{Callee, LocalId, Mir, MirFunction, Operand, Place, Rvalue, Statement, Terminator};
+use crate::{
+    Callee, GlobalProjection, LocalId, Mir, MirFunction, Operand, Place, Rvalue, Statement,
+    Terminator,
+};
 use smelt_hir::Type;
 
 mod dict_default_insert_elision;
@@ -226,6 +229,9 @@ fn mutated_locals(function: &MirFunction) -> HashSet<LocalId> {
                     Place::Index { base, .. } => {
                         locals.insert(*base);
                     }
+                    // The write target is a `thread_local!` cell, so no local
+                    // is written through this place.
+                    Place::Global { .. } => {}
                 },
                 // The fused entry update writes through its container, so the
                 // container is mutated and must never become a copy-propagation
@@ -1017,6 +1023,12 @@ fn rewrite_place(place: &mut Place, aliases: &HashMap<LocalId, LocalId>) -> bool
             *local = resolved;
             changed
         }
+        // No base local to resolve, but the index operand can still name an
+        // aliased local and must be rewritten with everything else.
+        Place::Global { projection, .. } => match projection {
+            GlobalProjection::Field(_) => false,
+            GlobalProjection::Index { index, .. } => rewrite_operand(index, aliases),
+        },
         Place::Index { base, index, .. } => {
             let resolved = resolve_alias(aliases, *base);
             let changed = resolved != *base;

@@ -197,3 +197,6 @@ third_party/hono
 
 # Radash self-referential class regression found during the Hono campaign
 !blocker-logs/radash-self-referential-class.md
+
+# H6 Place::Global design (round 3)
+!blocker-logs/hono-h6-place-global.md

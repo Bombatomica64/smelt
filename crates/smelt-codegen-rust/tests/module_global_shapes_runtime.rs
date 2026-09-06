@@ -23,10 +23,13 @@
 //! interesting failures are compile failures; the value assertions then confirm
 //! the initializer actually ran and the writes actually landed.
 //!
-//! **Not covered, because it is not lowered:** a write *through* a non-`Copy`
-//! global (`cache[key] = value`). A `GlobalGet` yields a copy, so such a write
-//! would be silently lost; it is a named blocker instead. See
-//! `blocker-logs/hono-h6-module-mutable-globals.md`.
+//! A **one-deep write through** a non-`Copy` global (`cache[key] = value`) is
+//! now lowered too, via `Place::Global`: the assignment names the cell rather
+//! than a copy read out of it, so the mutation happens inside the cell. The
+//! fixture for it asserts the property a copy would break — a write from one
+//! function is visible to another — because a type-level test cannot see the
+//! difference. A **nested** write (`cache[a][b] = value`) is still a named
+//! blocker. See `blocker-logs/hono-h6-place-global.md`.
 //!
 //! The tier is `#[ignore]`d because it compiles and executes real crates:
 //!
@@ -230,4 +233,167 @@ test('an expression-initialized string ran its initializer', () => {
 });
 ";
     run_fixture(source, "module_global_primitives");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_write_through_a_record_global_is_shared_across_functions() {
+    // The exact Hono `wildcardRegExpCache[key] = value` shape. The property
+    // under test is SHARING: `store` writes into the cell from one function and
+    // `load` reads it from another. A write applied to a materialized copy
+    // would be lost for a value-semantics container, so the assertion is on an
+    // observed value rather than on emitted text -- a type-level test cannot
+    // see the difference.
+    //
+    // Every read is of a key that was written first. `cache[missing]` on a
+    // `Record<string, number>` is typed `number` by TypeScript, not
+    // `number | undefined`, so a `=== undefined` guard on it is a comparison
+    // the type system has already ruled out; leaning on it would be testing
+    // Smelt's handling of unsound source rather than this feature.
+    let source = r#"
+import { test, expect } from 'vitest';
+
+let cache: Record<string, number> = {};
+
+function store(key: string, value: number): void {
+  cache[key] = value;
+}
+
+function load(key: string): number {
+  return cache[key];
+}
+
+function size(): number {
+  return Object.keys(cache).length;
+}
+
+test('a write from one function is visible from another', () => {
+  expect(size()).toBe(0);
+  store('a', 1);
+  expect(load('a')).toBe(1);
+  expect(size()).toBe(1);
+  store('b', 2);
+  expect(load('a')).toBe(1);
+  expect(load('b')).toBe(2);
+  expect(size()).toBe(2);
+});
+"#;
+    run_fixture(source, "global_write_through_shared");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_repeated_write_through_a_global_replaces_the_earlier_value() {
+    // Accumulation across many writes, which is what a cache actually does: if
+    // each write landed on a fresh copy, `size()` would stay at 1 and the
+    // earlier keys would vanish.
+    let source = r#"
+import { test, expect } from 'vitest';
+
+let cache: Record<string, number> = {};
+
+function store(key: string, value: number): void {
+  cache[key] = value;
+}
+
+function load(key: string): number {
+  return cache[key];
+}
+
+function size(): number {
+  return Object.keys(cache).length;
+}
+
+test('a later write to the same key replaces the earlier value', () => {
+  store('k', 1);
+  expect(load('k')).toBe(1);
+  store('k', 9);
+  expect(load('k')).toBe(9);
+  expect(size()).toBe(1);
+});
+
+test('writes accumulate rather than replacing the container', () => {
+  store('x', 1);
+  store('y', 2);
+  store('z', 3);
+  expect(size()).toBe(3);
+  expect(load('x')).toBe(1);
+  expect(load('z')).toBe(3);
+});
+"#;
+    run_fixture(source, "global_write_through_repeated");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_write_through_a_global_evaluates_its_key_before_borrowing_the_cell() {
+    // `cache[keyFromCache()] = valueFromCache()` reads the SAME global while
+    // computing both operands. If the emitter evaluated them inside
+    // `borrow_mut()`, this would be a `RefCell` double-borrow panic at runtime
+    // -- not a compile error, which is why it needs an executing fixture. The
+    // emitter hoists both operands above the borrow; this is what proves it.
+    let source = r#"
+import { test, expect } from 'vitest';
+
+let cache: Record<string, number> = {};
+
+function keyFromCache(): string {
+  return 'k' + Object.keys(cache).length;
+}
+
+function valueFromCache(): number {
+  return Object.keys(cache).length + 100;
+}
+
+function grow(): void {
+  cache[keyFromCache()] = valueFromCache();
+}
+
+function load(key: string): number {
+  return cache[key];
+}
+
+test('the key and value may read the global being written', () => {
+  grow();
+  expect(load('k0')).toBe(100);
+  grow();
+  expect(load('k1')).toBe(101);
+  expect(load('k0')).toBe(100);
+});
+"#;
+    run_fixture(source, "global_write_through_self_reading_key");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_field_write_through_a_record_global_is_shared_across_functions() {
+    // The `.field =` spelling of the same shape, so the two projections do not
+    // drift apart: `GlobalProjection::Field` and `::Index` are separate arms in
+    // both the frontend and the emitter, and only a fixture per arm catches one
+    // of them regressing alone.
+    let source = r#"
+import { test, expect } from 'vitest';
+
+let flags: Record<string, boolean> = {};
+
+function enable(): void {
+  flags.ready = true;
+}
+
+function disable(): void {
+  flags.ready = false;
+}
+
+function isReady(): boolean {
+  return flags.ready;
+}
+
+test('a field write from one function is visible from another', () => {
+  enable();
+  expect(isReady()).toBe(true);
+  disable();
+  expect(isReady()).toBe(false);
+});
+"#;
+    run_fixture(source, "global_field_write_through_shared");
 }

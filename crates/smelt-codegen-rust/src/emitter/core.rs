@@ -5134,6 +5134,8 @@ fn place_reads_local(place: &Place, local: LocalId) -> bool {
             base: candidate, ..
         } => *candidate == local,
         Place::Index { base, index, .. } => *base == local || operand_uses_local(index, local),
+        // No base local, but the index operand still observes one.
+        Place::Global { projection, .. } => global_projection_reads_local(projection, local),
     }
 }
 
@@ -5143,6 +5145,23 @@ pub(super) fn assignment_place_reads_local(place: &Place, local: LocalId) -> boo
         Place::Local(_) => false,
         Place::Field { base, .. } => *base == local,
         Place::Index { base, index, .. } => *base == local || operand_uses_local(index, local),
+        Place::Global { projection, .. } => global_projection_reads_local(projection, local),
+    }
+}
+
+/// Return whether a mutable-global projection observes a specific local.
+///
+/// A field projection names a symbol and reads nothing; an index projection
+/// carries an operand that is evaluated before the cell is borrowed, and that
+/// operand can name a local. Answering `false` for it would let the emitter
+/// treat the local as dead at the write.
+fn global_projection_reads_local(
+    projection: &smelt_mir::GlobalProjection,
+    local: LocalId,
+) -> bool {
+    match projection {
+        smelt_mir::GlobalProjection::Field(_) => false,
+        smelt_mir::GlobalProjection::Index { index, .. } => operand_uses_local(index, local),
     }
 }
 

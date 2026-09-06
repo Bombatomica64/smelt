@@ -604,6 +604,13 @@ impl FunctionEmitter<'_> {
     pub(super) fn place_ty(&self, place: &Place) -> Result<TypeId, EmitError> {
         match place {
             Place::Local(local) => Ok(self.local_decl(*local)?.ty),
+            // `Place::Global` is only ever an assignment target, and the
+            // assignment path reads the global's declared type directly rather
+            // than asking for a place type. Reaching here means a global place
+            // was used as a value, which is a compiler bug.
+            Place::Global { .. } => Err(EmitError::new(
+                "internal: a mutable-global place has no read type",
+            )),
             Place::Field { base, field } => {
                 let base_ty = self.local_decl(*base)?.ty;
                 // A `.length` read on a CONCRETE collection (typed list or set)

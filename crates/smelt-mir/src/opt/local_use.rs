@@ -6,7 +6,10 @@
 //! a function, so the walk lives here once instead of being re-derived (and
 //! re-diverged) inside each pass.
 
-use crate::{LocalDecl, LocalId, LocalKind, MirFunction, Operand, Place, Rvalue, Statement, Terminator};
+use crate::{
+    GlobalProjection, LocalDecl, LocalId, LocalKind, MirFunction, Operand, Place, Rvalue,
+    Statement, Terminator,
+};
 
 /// The place an operand reads, if it reads one.
 pub(super) const fn operand_place(operand: &Operand) -> Option<&Place> {
@@ -20,7 +23,7 @@ pub(super) const fn operand_place(operand: &Operand) -> Option<&Place> {
 pub(super) const fn operand_local(operand: &Operand) -> Option<LocalId> {
     match operand_place(operand) {
         Some(Place::Local(local)) => Some(*local),
-        Some(Place::Field { .. } | Place::Index { .. }) | None => None,
+        Some(Place::Field { .. } | Place::Index { .. } | Place::Global { .. }) | None => None,
     }
 }
 
@@ -155,5 +158,12 @@ pub(super) fn place_reads_local(place: &Place, local: LocalId) -> bool {
     match place {
         Place::Local(candidate) | Place::Field { base: candidate, .. } => *candidate == local,
         Place::Index { base, index, .. } => *base == local || operand_reads_local(index, local),
+        // No base local (the base is a `thread_local!` cell), but the INDEX
+        // operand still reads one. Answering `false` here would let an
+        // optimisation retire a local that the global write depends on.
+        Place::Global { projection, .. } => match projection {
+            GlobalProjection::Field(_) => false,
+            GlobalProjection::Index { index, .. } => operand_reads_local(index, local),
+        },
     }
 }

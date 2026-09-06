@@ -143,7 +143,8 @@ fn collect_field_write_triggers(
             };
             let base = match place {
                 Place::Field { base, .. } | Place::Index { base, .. } => *base,
-                Place::Local(_) => continue,
+                // Neither names a base local whose class could be recorded.
+                Place::Local(_) | Place::Global { .. } => continue,
             };
             let Some(name) = class_name_of_local(mir, function, base) else {
                 continue;
@@ -213,7 +214,7 @@ fn operand_field_base(operand: &Operand) -> Option<LocalId> {
     };
     match place {
         Place::Field { base, .. } | Place::Index { base, .. } => Some(*base),
-        Place::Local(_) => None,
+        Place::Local(_) | Place::Global { .. } => None,
     }
 }
 
@@ -284,5 +285,8 @@ fn operand_base_local(operand: &Operand) -> Option<LocalId> {
     match place {
         Place::Local(local) => Some(*local),
         Place::Field { base, .. } | Place::Index { base, .. } => Some(*base),
+        // A global-rooted place is an assignment target, never an operand, so
+        // it names no local here.
+        Place::Global { .. } => None,
     }
 }

@@ -9559,3 +9559,56 @@ export const now = (): number => Date.now();
     Ok(())
 }
 
+/// A self-referential class keeps its whole field set and its constructor arity.
+///
+/// `children: Node2[]` and `parent?: Node2` both mention `Node2` inside
+/// `Node2`, so lowering the field types requires the class to already be
+/// resolvable while it is still being built. Nothing pinned this shape before,
+/// which is why a report of radash's `class Person { friends: Person[] = [];
+/// self?: Person }` emitting a field-less struct could not be checked against a
+/// test. (That report did not reproduce — see
+/// `blocker-logs/radash-self-referential-class.md` — and this fixture exists so
+/// the next such claim is answered by a run rather than by an argument.)
+#[test]
+fn self_referential_class_keeps_fields_and_constructor_arity() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+export class Node2 {
+  children: Node2[] = [];
+  parent?: Node2;
+  label: string;
+  constructor(label: string) {
+    this.label = label;
+  }
+}
+"),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+
+    let class = ctx
+        .krate
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Item::Class(class) if ctx.krate.symbols.get(class.name) == Some("Node2") => Some(class),
+            _ => None,
+        })
+        .ok_or_else(|| "class Node2 was not lowered".to_owned())?;
+
+    let field_names = class
+        .fields
+        .iter()
+        .filter_map(|field| ctx.krate.symbols.get(field.name))
+        .collect::<Vec<_>>();
+    for expected in ["children", "parent", "label"] {
+        ensure!(
+            field_names.contains(&expected),
+            "self-referential class lost field `{expected}`; got {field_names:?}",
+        );
+    }
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+

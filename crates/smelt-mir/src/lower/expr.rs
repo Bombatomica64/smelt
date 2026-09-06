@@ -2720,6 +2720,16 @@ impl LoweringCtx<'_> {
         match operand {
             Operand::Copy(place) | Operand::Move(place) => match place {
                 Place::Local(local) => Ok(local),
+                // A `Place::Global` is rooted at a `thread_local!` cell, not a
+                // local, so there is no `LocalId` to hand back. It is only ever
+                // an assignment TARGET (`Statement::AssignPlace`), never an
+                // operand being read, so reaching here is a compiler bug rather
+                // than a source problem -- reported as one instead of being
+                // folded into the local-receiver message.
+                Place::Global { .. } => Err(self.error(
+                    "internal: a mutable-global place was used as a read operand",
+                    Some(span),
+                )),
                 Place::Field { .. } | Place::Index { .. } => Err(self.error(
                     "field and index reads currently require a local receiver",
                     Some(span),

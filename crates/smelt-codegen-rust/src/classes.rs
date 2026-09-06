@@ -335,6 +335,11 @@ fn body_only_moves(
             Place::Local(local)
             | Place::Field { base: local, .. }
             | Place::Index { base: local, .. } => *local,
+            // A write into a mutable global's cell has no base local to
+            // attribute the mention to. The global's own type is fixed at its
+            // declaration and is not a lifting candidate, so this contributes
+            // no mention.
+            Place::Global { .. } => return false,
         };
         local_mentions(base)
     };
@@ -417,6 +422,8 @@ fn statement_destination_mentions(
             Place::Local(local)
             | Place::Field { base: local, .. }
             | Place::Index { base: local, .. } => *local,
+            // No destination LOCAL: the destination is a `thread_local!` cell.
+            Place::Global { .. } => return false,
         },
         // The container the entry update writes through is its destination.
         Statement::DictEntryUpdate { base, .. } => *base,

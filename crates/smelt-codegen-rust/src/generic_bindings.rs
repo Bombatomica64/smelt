@@ -539,8 +539,8 @@ pub(crate) fn operand_type(
             .get(usize::try_from(local.0).unwrap_or(usize::MAX))
             .map(|decl| decl.ty)
             .ok_or(BindingUnsupportedReason::ShapeMismatch),
-        Operand::Copy(Place::Field { .. } | Place::Index { .. })
-        | Operand::Move(Place::Field { .. } | Place::Index { .. }) => {
+        Operand::Copy(Place::Field { .. } | Place::Index { .. } | Place::Global { .. })
+        | Operand::Move(Place::Field { .. } | Place::Index { .. } | Place::Global { .. }) => {
             Err(BindingUnsupportedReason::ProjectedOperand)
         }
         Operand::Const(constant) => {

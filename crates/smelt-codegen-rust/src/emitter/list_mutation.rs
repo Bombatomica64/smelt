@@ -269,6 +269,10 @@ impl FunctionEmitter<'_> {
                         | Operand::Move(Place::Local(source_local)) => {
                             self.list_alias_origin_inner(*source_local, seen)
                         }
+                        // A global-rooted place is an assignment target, never
+                        // a source operand, so it is not an alias origin.
+                        Operand::Copy(Place::Global { .. })
+                        | Operand::Move(Place::Global { .. }) => None,
                         Operand::Const(_) => None,
                     };
                 }
