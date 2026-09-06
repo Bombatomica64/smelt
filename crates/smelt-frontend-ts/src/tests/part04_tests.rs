@@ -4,7 +4,7 @@ use super::*;
 fn lowers_imported_unknown_calls_inside_unannotated_block_arrow() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 declare const importDefault: (file: string) => unknown;
 
 const loadJsFile = (file: string) => {
@@ -15,7 +15,7 @@ const loadJsFile = (file: string) => {
     return {};
   }
 };
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -7927,11 +7927,11 @@ const keysDeep = (obj: object): string[] =>
 fn lowers_imported_static_array_concat_helper() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 declare const _: any;
 
 export const run = (left: string[], right: string[]) => _.concat(left, right);
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7942,12 +7942,12 @@ export const run = (left: string[], right: string[]) => _.concat(left, right);
 fn lowers_imported_static_array_concat_helper_with_erased_right() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 declare const _: any;
 
 declare const right: unknown;
 export const run = (left: string[]) => _.concat(left, right);
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7958,13 +7958,13 @@ export const run = (left: string[]) => _.concat(left, right);
 fn lowers_array_concat_with_erased_left_and_concrete_list_right() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 declare const _: any;
 
 declare const left: unknown[];
 declare const right: string[];
 export const run = () => _.concat(left, right);
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -8045,11 +8045,11 @@ export class StrapiIDSchema extends yup.MixedSchema {
 fn lowers_imported_static_member_as_array_callback() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 declare const _: any;
 
 export const run = (value: object) => Object.values(value).every(_.isFunction);
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -8075,11 +8075,11 @@ export const run = (values: string[]) => values.map(providers.condition.get);
 fn lowers_imported_prop_factory_as_array_callback() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 declare const _: any;
 
 export const run = (values: Array<{ result: unknown }>) => values.map(_.prop('result'));
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -8090,12 +8090,12 @@ export const run = (values: Array<{ result: unknown }>) => values.map(_.prop('re
 fn lowers_imported_functional_map_factory() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 declare const _: any;
 
 const pickResults = _.map(_.prop('result'));
 export const run = (values: Array<{ result: unknown }>) => pickResults(values).filter(_.isObject);
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
