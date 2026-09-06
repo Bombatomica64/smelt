@@ -1312,3 +1312,54 @@ const emitter = new EventEmitter({ captureRejections: true });
     );
     Ok(())
 }
+
+/// A `Response` is accepted at the `ResponseInit` position.
+///
+/// Hono's `hono-base.ts:417` writes `new Response(null, await dispatch(..))`.
+/// The spec's dictionary conversion reads the object's own `status`,
+/// `statusText` and `headers`, so the init lowers to those three modeled reads
+/// rather than reporting an erased init.
+#[test]
+fn a_response_can_be_a_response_init() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+export function reclothe(source: Response): Response {
+  return new Response(null, source);
+}
+"),
+        &mut ctx,
+    )?;
+    ensure!(
+        any_body_has(&ctx, |kind| matches!(
+            kind,
+            ExprKind::ResponseOp {
+                op: smelt_hir::ResponseOp::Status,
+                ..
+            }
+        )),
+        "the init's status must be read off the source response",
+    );
+    ensure!(
+        any_body_has(&ctx, |kind| matches!(
+            kind,
+            ExprKind::ResponseOp {
+                op: smelt_hir::ResponseOp::StatusText,
+                ..
+            }
+        )),
+        "the init's statusText must be read off the source response",
+    );
+    ensure!(
+        any_body_has(&ctx, |kind| matches!(
+            kind,
+            ExprKind::ResponseOp {
+                op: smelt_hir::ResponseOp::Headers,
+                ..
+            }
+        )),
+        "the init's headers must be read off the source response",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}

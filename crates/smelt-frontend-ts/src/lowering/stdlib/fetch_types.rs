@@ -834,6 +834,12 @@ impl ModuleBuilder<'_> {
         if self.is_request_type(source_ty) {
             return self.request_init_fields(source, keys, span, fields, body);
         }
+        // Symmetrically, a `Response` is allowed at the `ResponseInit` position:
+        // WebIDL converts the object to the dictionary by reading its own
+        // `status`, `statusText` and `headers` properties.
+        if self.is_response_type(source_ty) {
+            return self.response_init_fields(source, keys, span, fields, body);
+        }
         if matches!(self.ctx.krate.types.get(source_ty), Some(Type::Unknown)) {
             return Err(SmeltError::unsupported(
                 span,
@@ -927,6 +933,61 @@ impl ModuleBuilder<'_> {
                 span,
                 format!("{type_name} init type declares none of its modeled keys"),
             ));
+        }
+        Ok(())
+    }
+
+    /// Read the modeled init keys off a `Response` used as an init.
+    ///
+    /// `new Response(body, source)` where `source` is a `Response` copies the
+    /// source's status, statusText and headers. The dictionary conversion reads
+    /// exactly those three properties, so this is the same read the caller could
+    /// have written by hand as `{ status: src.status, statusText:
+    /// src.statusText, headers: src.headers }` — and it goes through the same
+    /// `ResponseOp` reads, so nothing about it is a special case.
+    ///
+    /// Nothing is SHARED with the source, which is the part worth stating
+    /// because the `Request` case above deliberately shares its body handle.
+    /// Two differences, both diffed against Node 22:
+    ///
+    /// * the init's BODY is not taken. `new Response(null, src)` reads as the
+    ///   empty string and leaves `src.bodyUsed` false, because `ResponseInit`
+    ///   has no body member at all — the body comes only from the first
+    ///   argument.
+    /// * the headers are COPIED, not aliased: after
+    ///   `const dst = new Response(null, src)`, a later `src.headers.set(..)`
+    ///   is invisible on `dst`. That falls out of passing the source's header
+    ///   list through the ordinary `headers` init key, which the constructor
+    ///   already fills by copying entries.
+    ///
+    /// `keys` is still consulted, so this cannot supply a key the caller's type
+    /// does not model.
+    fn response_init_fields(
+        &mut self,
+        source: smelt_hir::ExprId,
+        keys: &[&str],
+        span: smelt_hir::Span,
+        fields: &mut InitFields,
+        body: &mut Body,
+    ) -> Result<(), SmeltError> {
+        for key in keys {
+            let op = match *key {
+                "status" => ResponseOp::Status,
+                "statusText" => ResponseOp::StatusText,
+                "headers" => ResponseOp::Headers,
+                _ => continue,
+            };
+            let ty = self.response_op_result_type(op);
+            let read = body.push_expr(Expr {
+                kind: ExprKind::ResponseOp {
+                    op,
+                    response: source,
+                    args: Vec::new(),
+                },
+                ty,
+                span,
+            });
+            fields.set(key, read);
         }
         Ok(())
     }

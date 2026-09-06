@@ -101,7 +101,7 @@ fn run_fixture(source: &str, crate_name: &str) {
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn a_response_init_variable_is_read_by_field() {
-    let source = r#"
+    let source = r"
 import { test, expect } from 'vitest';
 
 function make(body: string, init: ResponseInit): Response {
@@ -137,14 +137,14 @@ test('headers given through a typed init are readable', () => {
 test('a typed init with no headers still has an empty list', () => {
   expect(make('hi', { status: 200 }).headers.get('x-a')).toBe(null);
 });
-"#;
+";
     run_fixture(source, "response_init_variable_runtime");
 }
 
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn a_spread_init_lets_later_keys_win() {
-    let source = r#"
+    let source = r"
 import { test, expect } from 'vitest';
 
 function withStatus(init: ResponseInit, status: number): Response {
@@ -163,14 +163,14 @@ test('the spread supplies keys the literal omits', () => {
   expect(response.status).toBe(202);
   expect(response.statusText).toBe('Kept');
 });
-"#;
+";
     run_fixture(source, "response_init_spread_runtime");
 }
 
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn a_request_init_variable_is_read_by_field() {
-    let source = r#"
+    let source = r"
 import { test, expect } from 'vitest';
 
 function send(url: string, init: RequestInit): Request {
@@ -195,14 +195,14 @@ test('a header record given through a typed init is readable', () => {
   const request = send('https://a.test/p', { headers: new Headers([['x-b', '2']]) });
   expect(request.headers.get('x-b')).toBe('2');
 });
-"#;
+";
     run_fixture(source, "request_init_variable_runtime");
 }
 
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn a_user_declared_init_interface_works_the_same_way() {
-    let source = r#"
+    let source = r"
 import { test, expect } from 'vitest';
 
 interface PageInit {
@@ -225,14 +225,14 @@ test('a source interface supplies a header list too', () => {
   expect(response.headers.get('x-c')).toBe('3');
   expect(response.status).toBe(200);
 });
-"#;
+";
     run_fixture(source, "user_init_interface_runtime");
 }
 
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn a_request_at_the_init_position_copies_the_source() {
-    let source = r#"
+    let source = r"
 import { test, expect } from 'vitest';
 
 test('method and headers are copied, the url is the new one', () => {
@@ -262,14 +262,14 @@ test('reading the copy disturbs the source, as the spec says', async () => {
   }
   expect(caught).toBe('threw');
 });
-"#;
+";
     run_fixture(source, "request_as_init_runtime");
 }
 
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn a_generic_or_qualified_init_is_read_by_field() {
-    let source = r#"
+    let source = r"
 import { test, expect } from 'vitest';
 
 type StatusCode = 200 | 201 | 404 | 500;
@@ -297,7 +297,7 @@ test('a qualified ambient init is read by field', () => {
   expect(platform('b', { status: 201 }).statusText).toBe('');
   expect(platform('b', {}).status).toBe(200);
 });
-"#;
+";
     run_fixture(source, "generic_qualified_init_runtime");
 }
 

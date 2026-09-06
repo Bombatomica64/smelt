@@ -240,3 +240,47 @@ test('mutating the reached list is visible on the response', () => {
 "#;
     run_fixture(source, "response_headers_runtime");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_response_used_as_an_init_copies_its_status_line_and_headers() {
+    let source = r#"
+import { test, expect } from 'vitest';
+
+test('the init response supplies status, statusText and headers', async () => {
+  const src = new Response('payload', {
+    status: 201,
+    statusText: 'Made',
+    headers: { 'x-a': '1' },
+  });
+  const dst = new Response(null, src);
+  expect(dst.status).toBe(201);
+  expect(dst.statusText).toBe('Made');
+  expect(dst.headers.get('x-a')).toBe('1');
+});
+
+test('the init response does NOT supply a body', async () => {
+  const src = new Response('payload', { status: 201 });
+  const dst = new Response(null, src);
+  expect(await dst.text()).toBe('');
+  expect(src.bodyUsed).toBe(false);
+  expect(await src.text()).toBe('payload');
+});
+
+test('the header list is copied, not shared', async () => {
+  const src = new Response('payload', { headers: { 'x-a': '1' } });
+  const dst = new Response(null, src);
+  src.headers.set('x-a', '2');
+  expect(dst.headers.get('x-a')).toBe('1');
+  expect(src.headers.get('x-a')).toBe('2');
+});
+
+test('a bare init response contributes the spec defaults', async () => {
+  const made = new Response('b', new Response('c'));
+  expect(made.status).toBe(200);
+  expect(made.statusText).toBe('');
+  expect(await made.text()).toBe('b');
+});
+"#;
+    run_fixture(source, "response_init_from_response_runtime");
+}
