@@ -2186,6 +2186,22 @@ impl ModuleBuilder<'_> {
             && !self.concrete_type_requires_never_value(hint)
         {
             hint
+        } else if !self.erased_or_union_surface(ty)
+            && !self.erased_or_union_surface(fallback_ty)
+            && !self.concrete_type_requires_never_value(ty)
+            && !self.concrete_type_requires_never_value(fallback_ty)
+        {
+            // TypeScript types `a ?? b` as `NonNullable<typeof a> | typeof b`.
+            // When both arms are concrete and unrelated — `process.env.PORT ??
+            // 3000` is `string | number` — the join is that union. Asserting the
+            // fallback into the left arm's type instead would emit
+            // `let port: String = 3000.0;`, which is the left arm's type carrying
+            // the right arm's value. Erased/`never` surfaces keep the existing
+            // boundary-adapter behaviour above and below this branch.
+            self.ctx
+                .krate
+                .types
+                .intern(Type::Union(vec![ty, fallback_ty]))
         } else if self.erased_or_union_surface(ty)
             || self.erased_or_union_surface(fallback_ty)
             || !self.concrete_type_requires_never_value(ty)

@@ -11,6 +11,7 @@ use super::state::class_registry::ClassRegistry;
 use super::state::interface_registry::InterfaceRegistry;
 use super::state::const_registry::ConstRegistry;
 use super::state::function_registry::FunctionRegistry;
+use super::PendingHostImport;
 use super::state::import_scope::ImportScope;
 use super::state::local_scope::LocalScope;
 use super::state::type_scope::TypeScope;
@@ -183,6 +184,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             ),
             functions: FunctionRegistry::new(function_overloads, function_rests),
             specialization,
+            pending_host_imports: Vec::new(),
         }
     }
 
@@ -289,6 +291,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 self.import_declaration(import, &mut module);
             }
         }
+        let test_module = self.is_test_tier_program(program);
+        self.classify_pending_host_imports(test_module);
         let implemented_functions = implemented_function_names(program);
         self.shadow_cross_module_overloads(&implemented_functions);
         self.predeclare_type_alias_items(program);
@@ -2314,7 +2318,16 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 self.imports.mark_type_only(local.clone());
             } else {
                 self.imports.mark_value(local.clone());
-                if source == "@date-fns/tz" && imported == "tz" {
+                // `tz` from `@date-fns/tz` is a MODELED host-module export (see
+                // `smelt_stdlib::host_modules`); the factory marker is driven by
+                // that registry rather than by a package-name test here, so a
+                // package spelling lives in exactly one place.
+                if matches!(
+                    smelt_stdlib::host_module_export(source, &imported),
+                    Some(export)
+                        if export.surface == smelt_stdlib::HostSurface::Modeled
+                            && imported == "tz"
+                ) {
                     self.imports.mark_date_fns_timezone_factory(local.clone());
                 }
                 // An imported binding that the source module resolved to the
@@ -2338,11 +2351,100 @@ impl<'ctx> ModuleBuilder<'ctx> {
             } else if imported != "*" {
                 self.alias_imported_item(source, &imported, &local);
                 if !self.imports.is_type_only(&local) && !self.import_alias_resolved(&local) {
-                    let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
-                    self.module_globals.insert(local.clone(), unknown_ty);
+                    self.pending_host_imports.push(PendingHostImport {
+                        module: source.to_owned(),
+                        imported: imported.clone(),
+                        local: local.clone(),
+                    });
                 }
             }
         }
+    }
+
+    /// Classify the value imports that resolved to no local source item.
+    ///
+    /// Runs once, after every import statement of the module has been seen, so
+    /// the decision can depend on the module as a whole (see the test-tier
+    /// carve-out below) rather than on statement order. Each pending binding
+    /// falls into one of three cases, decided by the host-module registry
+    /// (`smelt_stdlib::host_modules`) rather than by package-name tests:
+    ///
+    /// - the module models the export: the binding keeps the erased module
+    ///   global it has always had, because the rule that models the export
+    ///   recognizes the *use* site, not the binding;
+    /// - the module is modeled but the export is only declared: the binding
+    ///   records the blocker its first use must report, and deliberately gets
+    ///   NO module global. Inserting `Type::Unknown` here is what let
+    ///   `import { DatabaseSync } from "node:sqlite"` transpile into a crate of
+    ///   no-op dynamic lookups with zero blockers;
+    /// - the module is not modeled at all: same blocker, *except* in the test
+    ///   tier and for relative specifiers (both below).
+    ///
+    /// # Two deliberate carve-outs
+    ///
+    /// A **relative or absolute specifier** (`./falsey`, `/abs/x`) never blocks:
+    /// by construction it names a source file, which the manifest resolver owns.
+    /// A module lowered on its own (a unit test, or one file of a larger graph)
+    /// legitimately sees such an import unresolved, and that is not a host-module
+    /// gap.
+    ///
+    /// A **test module** never blocks either. Test code routinely reaches for
+    /// assertion and fixture libraries Smelt does not model (`chai`, `yup`,
+    /// `@date-fns/utc`), and those values only ever flow into matchers that are
+    /// already erased. `CLAUDE.md` sanctions exactly this exception ("everything
+    /// must lower through general rules, except test functions"). Program code
+    /// gets no such pass: a framework import that drives the program is the
+    /// false green this classification exists to stop.
+    fn classify_pending_host_imports(&mut self, test_module: bool) {
+        let pending = std::mem::take(&mut self.pending_host_imports);
+        for candidate in pending {
+            let bare_package = !candidate.module.starts_with('.')
+                && !candidate.module.starts_with('/');
+            let blocker = if bare_package {
+                smelt_stdlib::host_value_blocker(&candidate.module, &candidate.imported)
+            } else {
+                None
+            };
+            // A modeled host module with a declared-only export is a known gap
+            // in Smelt's own surface, so it blocks in the test tier too: no
+            // matcher erasure can stand in for `node:sqlite`.
+            let modeled_module = smelt_stdlib::is_host_module(&candidate.module);
+            let blocker = match blocker {
+                Some(blocker)
+                    if modeled_module
+                        || (!test_module
+                            && smelt_stdlib::unmodeled_package_use_blocks()) =>
+                {
+                    Some(blocker)
+                }
+                _ => None,
+            };
+            if let Some(blocker) = blocker {
+                self.imports
+                    .mark_unresolved_value_import(candidate.local, blocker);
+                continue;
+            }
+            let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+            self.module_globals.insert(candidate.local, unknown_ty);
+        }
+    }
+
+    /// Return whether a program belongs to the test tier.
+    ///
+    /// Either the source path is a test file, or the module imports a
+    /// Vitest-compatible framework. Both spellings appear in the corpora Smelt
+    /// tracks, and the answer is needed before any body is lowered.
+    fn is_test_tier_program(&self, program: &Program<'_>) -> bool {
+        if Self::is_declaration_type_test_path(&self.path)
+            || self.path.ends_with(".spec.ts")
+            || self.path.ends_with(".test-d.tsx")
+        {
+            return true;
+        }
+        program.body.iter().any(|statement| {
+            matches!(statement, Statement::ImportDeclaration(import)
+                if test_support::is_vitest_compatible_module(import.source.value.as_str()))
+        })
     }
 
     /// Return whether an imported local already resolves to concrete frontend metadata.

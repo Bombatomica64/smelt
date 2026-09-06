@@ -45,7 +45,9 @@ impl SourceLang {
             return Ok(Self::PythonDeclaration);
         }
         match Path::new(path).extension().and_then(|e| e.to_str()) {
-            Some("ts") => Ok(Self::TypeScript),
+            // `.mts`/`.cts` are the ESM/CommonJS-pinned TypeScript inputs a
+            // NodeNext project writes; they parse exactly like `.ts`.
+            Some("ts" | "mts" | "cts") => Ok(Self::TypeScript),
             Some("py") => Ok(Self::Python),
             _ => Err(format!("unsupported source extension: {path}").into()),
         }

@@ -6663,10 +6663,20 @@ function createFetch() {
     assert_unsupported_ts(&errors, "is not a modeled property of a function value")
 }
 
+/// A `node:http` server built through the erased import surface is a blocker.
+///
+/// This module (a Koa-style server factory) used to lower silently: `http` was
+/// an unresolved value import, so `http.createServer({}, listener)` became a
+/// dynamic lookup on a value nothing builds and the crate listened on no port.
+/// `node:http` is now a declared-but-unimplemented host module, so the *use* of
+/// `createServer` is reported instead. The qualified type surface
+/// (`interface Server extends http.Server`, `http.RequestListener` annotations)
+/// still resolves; only the runtime value blocks.
 #[test]
-fn lowers_function_expression_captures_and_qualified_interface_extends() -> Result<(), String> {
+fn qualified_node_http_server_factory_reports_the_unimplemented_surface()
+-> Result<(), String> {
     let mut ctx = HirCtx::new();
-    lower_ok(
+    let errors = lowering_errors(
         ts!(r"
 import http from 'http';
 
@@ -6694,7 +6704,11 @@ function create(koaApp: any) {
 "),
         &mut ctx,
     )?;
-    Ok(())
+    assert_category(
+        &errors,
+        "declared but not implemented",
+        smelt_stdlib::DiagnosticCategory::MissingStdlib,
+    )
 }
 
 #[test]

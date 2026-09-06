@@ -323,6 +323,7 @@ fn end_to_end_examples_match_expected_outputs() -> TestResult {
         "27_optional_chains",
         "28_regex_match_result",
         "29_callable_object",
+        "30_nullish_union_join",
     ] {
         verify_end_to_end_example(name)?;
     }

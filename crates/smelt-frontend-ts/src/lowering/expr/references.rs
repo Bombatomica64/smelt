@@ -338,6 +338,18 @@ impl ModuleBuilder<'_> {
                 let ty = self.ctx.krate.types.intern(Type::Unknown);
                 return self.module_global_expression(name, ty, start, end, body);
             }
+            // A value import with no modeled runtime surface is a blocker at its
+            // first USE, not at its import: the import statement alone is free
+            // (an unused or type-position-only binding must not fail), while
+            // reading it as a value is the point where Smelt would otherwise
+            // fabricate an erased no-op. `missing-stdlib` is the bucket, because
+            // the gap is a host surface Smelt should grow.
+            if let Some(blocker) = self.imports.unresolved_value_import(name) {
+                return Err(SmeltError::missing_stdlib(
+                    self.span(start, end),
+                    blocker.to_owned(),
+                ));
+            }
             if self.imports.is_value(name) {
                 let ty = self.ctx.krate.types.intern(Type::Unknown);
                 return self.module_global_expression(name, ty, start, end, body);

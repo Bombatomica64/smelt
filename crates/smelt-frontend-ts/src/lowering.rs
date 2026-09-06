@@ -682,6 +682,26 @@ struct ModuleBuilder<'ctx> {
     functions: state::function_registry::FunctionRegistry,
     /// Materialized final definitions for this source module.
     specialization: Option<SpecializationData>,
+    /// Value imports awaiting host-module classification.
+    ///
+    /// Filled while the import statements are read and drained once, right
+    /// after the last of them, by
+    /// `ModuleBuilder::classify_pending_host_imports`. The two-phase shape
+    /// exists because the decision depends on the module as a whole (a test
+    /// module keeps the erased binding), which is not known until every import
+    /// has been seen.
+    pending_host_imports: Vec<PendingHostImport>,
+}
+
+/// One value import whose module resolved to no source item.
+#[derive(Debug, Clone)]
+struct PendingHostImport {
+    /// Module specifier as written in source.
+    module: String,
+    /// Exported name (`"default"` for a default import).
+    imported: String,
+    /// Local binding the importer sees.
+    local: String,
 }
 
 /// Concrete types active while lowering a generator body.

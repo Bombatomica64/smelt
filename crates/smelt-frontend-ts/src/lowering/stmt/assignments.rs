@@ -1304,18 +1304,28 @@ impl ModuleBuilder<'_> {
             }));
         }
         if Self::is_process_env_member(member) {
-            let ty = self.ctx.krate.types.intern(Type::String);
-            let value = if Self::is_process_env_field(member, "TZ")
+            // `process.env.X` is `string | undefined` in TypeScript, and in the
+            // deterministic profile the answer is known: the profile defines the
+            // timezone and nothing else, so every other variable is *absent*.
+            // Modeling an absent variable as the empty string would make
+            // `process.env.PORT ?? 3000` statically dead and type the join as
+            // `string`; modeling it as `undefined` at `Optional(String)` keeps
+            // both the TypeScript type and the Node behaviour.
+            let string_ty = self.ctx.krate.types.intern(Type::String);
+            let span = self.span(member.span.start, member.span.end);
+            let optional_ty =
+                smelt_hir::type_normalize::optional_of(&mut self.ctx.krate.types, string_ty);
+            let literal = if Self::is_process_env_field(member, "TZ")
                 || Self::is_process_env_field(member, "tz")
             {
-                "America/Santiago".to_owned()
+                Literal::String("America/Santiago".to_owned())
             } else {
-                String::new()
+                Literal::Undefined
             };
             return Some(body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::String(value)),
-                ty,
-                span: self.span(member.span.start, member.span.end),
+                kind: ExprKind::Literal(literal),
+                ty: optional_ty,
+                span,
             }));
         }
         None

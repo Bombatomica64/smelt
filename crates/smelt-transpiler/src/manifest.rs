@@ -356,7 +356,14 @@ fn python_relative_base_dir(importer_dir: &Path, level: u32) -> PathBuf {
 /// Builds the resolver options used for TypeScript manifest dependency discovery.
 fn typescript_resolver() -> Resolver {
     Resolver::new(ResolveOptions {
-        extensions: vec![".ts".into(), ".d.ts".into(), ".py".into(), ".pyi".into()],
+        extensions: vec![
+            ".ts".into(),
+            ".mts".into(),
+            ".cts".into(),
+            ".d.ts".into(),
+            ".py".into(),
+            ".pyi".into(),
+        ],
         main_files: vec!["index".into(), "__init__".into()],
         ..ResolveOptions::default()
     })
@@ -429,19 +436,54 @@ fn visit_manifest_source(idx: usize, visit: &mut ManifestGraphVisit<'_>) -> Resu
     Ok(())
 }
 
+/// TypeScript inputs a JavaScript output extension can have come from.
+///
+/// Under `moduleResolution: NodeNext` an ESM import specifier names the file
+/// that will exist *after* compilation, so a TypeScript project spells its own
+/// modules `./app.js` even though the file on disk is `./app.ts`. `tsc` resolves
+/// such a specifier by substituting the input extension; this table is that
+/// substitution, keyed by the output extension the specifier carries. It is a
+/// property of the module system, not of any particular package, so it applies
+/// to every relative specifier Smelt collects.
+const NODE_NEXT_INPUT_EXTENSIONS: &[(&str, &[&str])] = &[
+    ("js", &["ts", "d.ts"]),
+    ("mjs", &["mts", "d.mts"]),
+    ("cjs", &["cts", "d.cts"]),
+];
+
+/// Return the TypeScript input extensions a specifier extension can resolve to.
+fn node_next_input_extensions(extension: &str) -> &'static [&'static str] {
+    NODE_NEXT_INPUT_EXTENSIONS
+        .iter()
+        .find(|(output, _)| *output == extension)
+        .map_or(&[], |(_, inputs)| *inputs)
+}
+
 /// Builds possible source paths for an import specifier.
+///
+/// An extensionless specifier gets the usual per-language extension and
+/// directory-index candidates. A specifier that already carries a JavaScript
+/// output extension additionally gets its NodeNext input candidates (see
+/// [`NODE_NEXT_INPUT_EXTENSIONS`]), so `./app.js` finds `./app.ts`.
 fn manifest_import_candidates(base: &Path) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
     candidates.push(base.to_path_buf());
-    if base.extension().is_none() {
-        candidates.push(base.with_extension("ts"));
-        candidates.push(base.with_extension("d.ts"));
-        candidates.push(base.with_extension("py"));
-        candidates.push(base.with_extension("pyi"));
-        candidates.push(base.join("index.ts"));
-        candidates.push(base.join("index.d.ts"));
-        candidates.push(base.join("__init__.py"));
-        candidates.push(base.join("__init__.pyi"));
+    match base.extension().and_then(|extension| extension.to_str()) {
+        None => {
+            candidates.push(base.with_extension("ts"));
+            candidates.push(base.with_extension("d.ts"));
+            candidates.push(base.with_extension("py"));
+            candidates.push(base.with_extension("pyi"));
+            candidates.push(base.join("index.ts"));
+            candidates.push(base.join("index.d.ts"));
+            candidates.push(base.join("__init__.py"));
+            candidates.push(base.join("__init__.pyi"));
+        }
+        Some(extension) => {
+            for input in node_next_input_extensions(extension) {
+                candidates.push(base.with_extension(input));
+            }
+        }
     }
     candidates
 }
@@ -813,6 +855,58 @@ mod tests {
                 < ordered_paths
                     .iter()
                     .position(|path| normalize_path_key(path) == normalize_path_key(&importer))
+        );
+
+        drop(fs::remove_dir_all(root));
+    }
+
+    /// NodeNext output extensions map to their TypeScript inputs.
+    #[test]
+    fn node_next_specifiers_map_to_typescript_inputs() {
+        assert_eq!(node_next_input_extensions("js"), &["ts", "d.ts"]);
+        assert_eq!(node_next_input_extensions("mjs"), &["mts", "d.mts"]);
+        assert_eq!(node_next_input_extensions("cjs"), &["cts", "d.cts"]);
+        assert!(node_next_input_extensions("ts").is_empty());
+        assert!(node_next_input_extensions("json").is_empty());
+    }
+
+    /// A `./x.js` specifier proposes `./x.ts` as a candidate source.
+    #[test]
+    fn candidates_include_node_next_inputs() {
+        let candidates = manifest_import_candidates(Path::new("/tmp/pkg/app.js"));
+        assert!(candidates.contains(&PathBuf::from("/tmp/pkg/app.ts")));
+        assert!(candidates.contains(&PathBuf::from("/tmp/pkg/app.d.ts")));
+    }
+
+    /// A NodeNext `./dep.js` import resolves to `dep.ts` in the dependency closure.
+    #[test]
+    fn collects_node_next_javascript_specifier_dependencies() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("smelt_manifest_nodenext_{unique}"));
+        let src_dir = root.join("src");
+        fs::create_dir_all(&src_dir).expect("create src test dir");
+        let importer = src_dir.join("main.ts");
+        let dependency = src_dir.join("app.ts");
+        fs::write(
+            &importer,
+            "import { createApp } from './app.js';\nexport const app = createApp();\n",
+        )
+        .expect("write importer");
+        fs::write(&dependency, "export const createApp = () => 1;\n").expect("write dependency");
+
+        let roots = vec![read_manifest_source(importer.clone()).expect("read importer")];
+        let sources = dependency_closure(roots).expect("collect closure");
+
+        assert!(
+            sources
+                .iter()
+                .any(|source| normalize_path_key(&source.path)
+                    == normalize_path_key(&dependency)),
+            "`./app.js` should resolve to app.ts, got {:?}",
+            sources.iter().map(|source| source.path.clone()).collect::<Vec<_>>()
         );
 
         drop(fs::remove_dir_all(root));
