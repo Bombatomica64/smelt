@@ -16,6 +16,7 @@ Milestone 0: `blocker-logs/express-v1-baseline.md`.
 | 4 `URLSearchParams` | landed, concrete Rust, runtime tier green |
 | 4 `Response` + `SmeltBody` | landed, concrete Rust, runtime tier green (section 3) |
 | 4 `Request` | landed, concrete Rust, runtime tier green (section 3) |
+| 4 typed non-literal `ResponseInit`/`RequestInit` | landed (section 3) |
 | 4 `fetch` upgrade to return a `Response` | landed, runtime tier against a real socket (section 3) |
 | 4 `TextEncoder`/`TextDecoder`, `FormData`, `ReadableStream`, `AbortController`, `crypto` | not landed |
 | 4 `Blob`/`File` upgrade (`text()`, `arrayBuffer()`, `slice`) | not landed |
@@ -259,6 +260,45 @@ asserting Smelt's own construction, which the `Response` tier already covers.
 The generated crate fetches it and reads `status` 201, `statusText` `Created`,
 `ok`, two headers, the body once through `text()`, and a clone that reads
 independently.
+
+### Typed, non-literal inits
+
+The first version of the init rule required an **object literal**, and Hono's
+probe found that in `hono-base.ts` and `context.ts`. It was too strict: a value
+whose static type declares the keys carries exactly as much type information as
+a literal. Four sources now produce the same per-key operands — a literal, a
+spread inside one, an interface-typed value, and a user-declared init interface
+— and only a genuinely erased (`unknown`) init is still a blocker, which is the
+case the literal-only rule was really protecting.
+
+Three things had to be true for that to work:
+
+1. **The ambient init interfaces needed declared field types.**
+   `ResponseInit`/`RequestInit` live in lib.dom, which Smelt does not import, so
+   a value of one was an opaque class with no fields and `init.status` resolved
+   to `Unknown`. The field types are statically known, so they join
+   `builtin_class_field_type` beside `SmeltMatch`'s and `URLSearchParams.size`'s
+   entries.
+2. **An ambient init arrives erased, so its keys are read through the cast.**
+   The type has no runtime representation: the caller's literal became a record
+   when it crossed into the opaque parameter. That read is a documented dynamic
+   boundary. A *source-declared* interface is a real struct, so its keys are read
+   directly with no cast — the two receiver kinds are told apart rather than
+   treated alike.
+3. **Every init key is optional, so the default lives at the construction
+   site.** A key read off a typed init is `Optional<T>` where the same key in a
+   literal is `T`; both mean "the init supplied this key" and only the second
+   guarantees a value. The spec's default is written once per key, and the
+   headers/body conversions are factored onto (text, type) so the operand path
+   and the unwrapped path cannot disagree about what a `HeadersInit` accepts.
+
+Spread precedence is the literal's own: `{ ...init, status }` reads the spread
+source by field first and lets later keys overwrite, so 201 wins over the
+spread's 500 while a key only the spread supplied is kept.
+
+`crates/smelt-codegen-rust/tests/fetch_init_runtime.rs` (4 tests) covers the
+defaulting, which is what only a runtime tier catches: picking the wrong default
+for an absent key compiles perfectly and serves a plausible wrong value.
 
 ## 4. M0.1's second half, now on
 
