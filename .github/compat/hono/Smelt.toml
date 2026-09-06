@@ -14,20 +14,35 @@ test-prefix = ["src/**/*.test.ts"]
 # The list is short on purpose. The campaign started from the whole of `src/`
 # and `smelt check --message-format json` was used to decide what actually
 # cannot be in the profile, rather than assuming the obvious candidates: with
-# host globals modeled as erased value closures, `src/adapter/**` (Deno, Bun,
-# awslambda, WebSocketPair), `src/jsx/**` and `src/helper/{html,css,ssg}` all
-# lower today and are NOT excluded. Only the entries below actually block.
-# NOTE on `src/client/**`: its RPC client is built on
-# `new Proxy(() => {}, { get })` for dynamic member dispatch (resolving
-# `client.posts.$get` by intercepting property reads), which is a Smelt
-# non-goal, and it also brings `ConstructorParameters<typeof WebSocket>` as a
-# rest-parameter type. It CANNOT be excluded here: `[sources] exclude` prunes
-# only ROOT paths (entries plus the `test-prefix` globs) before the dependency
-# closure is built, and `src/client/{index,client,types,utils}.ts` are reached
-# transitively — `src/index.ts` re-exports its types and
-# `src/helper/testing/index.ts` imports its `hc` value. Only its two leaf test
-# files can be dropped. See blocker-logs/hono-scope.md.
+# host globals modeled as erased value closures, `src/adapter/**`, `src/jsx/**`
+# and `src/helper/{html,css,ssg}` all lower today and are NOT excluded.
+#
+# `[sources] exclude` prunes the dependency CLOSURE, not only the root set, so
+# a module reached transitively is genuinely removed from the crate. Type-only
+# imports and `export type` re-exports from an excluded module stay free —
+# excluding a module removes its implementation, not its type surface — while
+# using an imported *value* reports the exclusion by name.
 exclude = [
+  # `new Proxy(() => {}, { get })` for dynamic member dispatch (resolving
+  # `client.posts.$get` by intercepting property reads) is a Smelt non-goal.
+  # `src/index.ts` keeps working: its `export type { InferRequestType, ... }
+  # from './client'` is type-only, so it costs nothing.
+  "src/client/**",
+  # Imports the `hc` VALUE from the excluded client above; it exists to build
+  # test clients over that RPC surface, so it cannot outlive it.
+  "src/helper/testing/**",
+  # `ReadableStream`/`WritableStream`/`TransformStream`: unbounded streaming is
+  # not in the standards stream's scope this round. Tracked as future standards
+  # work in blocker-logs/hono-fetch-demand.md.
+  "src/helper/streaming/**",
+  # `WebSocket` and `WebSocketPair`: no WHATWG WebSocket in the profile. Same
+  # tracking note as streaming above.
+  "src/helper/websocket/**",
+  # `crypto.subtle.importKey/sign/verify`, out of scope for the standards
+  # stream this round (blocker-logs/hono-fetch-demand.md lists the 19 call
+  # sites).
+  "src/utils/jwt/**",
+  "src/middleware/jwt/**",
   # `vi.stubGlobal` (a monkey-patching model Smelt does not have) plus the
   # `new Proxy` client under test; leaf test files, so droppable.
   "src/client/client.test.ts",

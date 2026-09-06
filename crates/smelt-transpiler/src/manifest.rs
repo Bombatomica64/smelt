@@ -26,6 +26,16 @@ pub(crate) struct ManifestSource {
     imports: Vec<ManifestImport>,
     /// Resolved local dependency paths used for dependency-first ordering.
     pub(crate) dependencies: Vec<PathBuf>,
+    /// Import specifiers in this file that resolve wholly to excluded modules.
+    ///
+    /// `[sources] exclude` prunes the dependency closure, not only the roots
+    /// (see [`DependencyCollector::excluded_target`]), so a specifier can name
+    /// a module that is deliberately out of scope. The frontend needs the
+    /// *specifier as written* to report a useful blocker at the import site,
+    /// and it cannot recompute the mapping itself without duplicating the
+    /// resolver — so the collector, which already resolved every edge, records
+    /// it here.
+    pub(crate) excluded_imports: Vec<String>,
 }
 
 /// Import metadata found while scanning source text.
@@ -86,14 +96,24 @@ pub(crate) fn read_manifest_source(
         lang,
         imports,
         dependencies: Vec::new(),
+        excluded_imports: Vec::new(),
     })
 }
 
 /// Expands root manifest entries with local imports discovered from each source.
+///
+/// `excludes` are the `[sources] exclude` globs, matched against each resolved
+/// dependency relative to `manifest_dir`. An excluded module is pruned from the
+/// closure rather than only from the root set: a module reached transitively is
+/// exactly the case root filtering cannot express, and it is the common one —
+/// a barrel re-export or one value import is enough to drag a whole
+/// out-of-scope surface into the crate.
 pub(crate) fn dependency_closure(
     roots: Vec<ManifestSource>,
+    excludes: &[String],
+    manifest_dir: &Path,
 ) -> Result<Vec<ManifestSource>, Box<dyn std::error::Error>> {
-    let mut collector = DependencyCollector::default();
+    let mut collector = DependencyCollector::new(excludes.to_vec(), manifest_dir.to_path_buf());
     for root in roots {
         collector.collect_source(root)?;
     }
@@ -153,23 +173,58 @@ struct DependencyCollector {
     barrel_exports: HashMap<PathBuf, HashMap<String, String>>,
     /// Bare package import targets discovered from workspace package metadata.
     workspace_packages: HashMap<String, Option<PathBuf>>,
+    /// `[sources] exclude` globs applied to every resolved dependency.
+    excludes: Vec<String>,
+    /// Manifest directory the exclude globs are relative to.
+    manifest_dir: PathBuf,
 }
 
-impl Default for DependencyCollector {
-    /// Creates an empty collector with shared resolver state.
-    fn default() -> Self {
+impl DependencyCollector {
+    /// Creates an empty collector that prunes `excludes` from the closure.
+    fn new(excludes: Vec<String>, manifest_dir: PathBuf) -> Self {
         Self {
             sources: Vec::new(),
             seen: HashSet::new(),
             ts_resolver: typescript_resolver(),
             barrel_exports: HashMap::new(),
             workspace_packages: HashMap::new(),
+            excludes,
+            manifest_dir,
         }
+    }
+
+    /// Returns whether a resolved dependency path is excluded by the manifest.
+    ///
+    /// Resolved paths are canonicalized, so the exclude globs — which are
+    /// written relative to the manifest directory — are matched against the
+    /// canonicalized manifest directory too. Without that, a manifest reached
+    /// through a symlink would silently match nothing.
+    fn excluded_target(&self, path: &Path) -> bool {
+        if self.excludes.is_empty() {
+            return false;
+        }
+        let manifest_dir = self
+            .manifest_dir
+            .canonicalize()
+            .unwrap_or_else(|_| self.manifest_dir.clone());
+        let relative = path.strip_prefix(&manifest_dir).unwrap_or(path);
+        self.excludes
+            .iter()
+            .any(|pattern| crate::lowering::path_matches_glob(relative, pattern))
     }
 }
 
 impl DependencyCollector {
     /// Adds one source and recursively adds local import targets that exist on disk.
+    ///
+    /// Each import edge is resolved and then filtered against the manifest's
+    /// `[sources] exclude` globs. A specifier whose targets are *all* excluded
+    /// is recorded in `excluded_imports` so the frontend can name the manifest
+    /// exclusion when a value imported from it is used; a specifier with a mix
+    /// of excluded and included targets keeps its included targets and is not
+    /// recorded, because at that point the exclusion is a property of
+    /// individual names rather than of the module, and a name that came from a
+    /// pruned file takes the ordinary unresolved-identifier path.
     fn collect_source(
         &mut self,
         mut source: ManifestSource,
@@ -182,14 +237,23 @@ impl DependencyCollector {
         let source_path = source.path.clone();
         let lang = source.lang;
         let mut dependencies = Vec::new();
+        let mut excluded_imports = Vec::new();
         for import in &imports {
-            dependencies.extend(self.resolve_import_to_existing_sources(
-                &source_path,
-                lang,
-                import,
-            )?);
+            let resolved =
+                self.resolve_import_to_existing_sources(&source_path, lang, import)?;
+            let (included, excluded): (Vec<PathBuf>, Vec<PathBuf>) = resolved
+                .into_iter()
+                .partition(|path| !self.excluded_target(path));
+            if !excluded.is_empty()
+                && included.is_empty()
+                && !excluded_imports.contains(&import.module)
+            {
+                excluded_imports.push(import.module.clone());
+            }
+            dependencies.extend(included);
         }
         source.dependencies.clone_from(&dependencies);
+        source.excluded_imports = excluded_imports;
         self.sources.push(source);
         for path in dependencies {
             if self.seen.contains(&normalize_path_key(&path)) {
@@ -841,7 +905,7 @@ mod tests {
         fs::write(&helper, "export const ALL_TYPES_DATA_PROVIDER = [];\n").expect("write helper");
 
         let roots = vec![read_manifest_source(importer.clone()).expect("read importer")];
-        let sources = dependency_closure(roots).expect("collect closure");
+        let sources = dependency_closure(roots, &[], Path::new(".")).expect("collect closure");
         let ordered = order_manifest_sources(&sources).expect("order sources");
         let ordered_paths = ordered
             .into_iter()
@@ -898,7 +962,7 @@ mod tests {
         fs::write(&dependency, "export const createApp = () => 1;\n").expect("write dependency");
 
         let roots = vec![read_manifest_source(importer.clone()).expect("read importer")];
-        let sources = dependency_closure(roots).expect("collect closure");
+        let sources = dependency_closure(roots, &[], Path::new(".")).expect("collect closure");
 
         assert!(
             sources
@@ -910,5 +974,68 @@ mod tests {
         );
 
         drop(fs::remove_dir_all(root));
+    }
+
+    /// An excluded module is dropped from the closure and its specifier recorded.
+    ///
+    /// The importer is a root, so root filtering would keep the dependency:
+    /// only closure pruning removes it. The recorded specifier is what lets the
+    /// frontend name the exclusion at the import site.
+    #[test]
+    fn excluded_dependency_is_pruned_and_recorded() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("src/client")).expect("create dirs");
+        let importer = root.join("src/main.ts");
+        std::fs::write(
+            &importer,
+            "import { hc } from './client';\nexport const c = hc();\n",
+        )
+        .expect("write importer");
+        std::fs::write(
+            root.join("src/client/index.ts"),
+            "export const hc = () => 1;\n",
+        )
+        .expect("write excluded");
+
+        let roots = vec![read_manifest_source(importer.clone()).expect("read importer")];
+        let excludes = vec!["src/client/**".to_owned()];
+        let sources = dependency_closure(roots, &excludes, root).expect("collect closure");
+
+        assert_eq!(sources.len(), 1, "excluded module should not be collected");
+        assert_eq!(
+            sources[0].excluded_imports,
+            vec!["./client".to_owned()],
+            "the excluded specifier should be recorded as written"
+        );
+    }
+
+    /// A specifier whose targets are all included records nothing.
+    #[test]
+    fn included_dependency_is_not_recorded_as_excluded() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("src/lib")).expect("create dirs");
+        let importer = root.join("src/main.ts");
+        std::fs::write(
+            &importer,
+            "import { one } from './lib/helper';\nexport const v = one();\n",
+        )
+        .expect("write importer");
+        std::fs::write(
+            root.join("src/lib/helper.ts"),
+            "export const one = () => 1;\n",
+        )
+        .expect("write helper");
+
+        let roots = vec![read_manifest_source(importer.clone()).expect("read importer")];
+        let excludes = vec!["src/client/**".to_owned()];
+        let sources = dependency_closure(roots, &excludes, root).expect("collect closure");
+
+        assert_eq!(sources.len(), 2, "included dependency should be collected");
+        assert!(
+            sources.iter().all(|source| source.excluded_imports.is_empty()),
+            "no specifier should be recorded as excluded"
+        );
     }
 }

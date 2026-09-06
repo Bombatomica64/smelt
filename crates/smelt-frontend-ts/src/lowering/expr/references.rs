@@ -366,6 +366,18 @@ impl ModuleBuilder<'_> {
                     span: self.span(start, end),
                 }));
             }
+            // A name the profile declares ABSENT is not an unresolved
+            // identifier: Smelt knows the global and knows the non-DOM host
+            // does not have it. JavaScript reading such a name throws
+            // `ReferenceError`, and so does calling it, so the faithful
+            // lowering is a throw — not a blocker (the program is correct, and
+            // Hono's `hono-base.ts` calls `addEventListener` under its own
+            // `@ts-ignore` in a position that tolerates the throw) and
+            // certainly not an erased no-op (that would silently skip the
+            // registration and report nothing).
+            if smelt_stdlib::global_is_absent(name) {
+                return self.absent_global_throw(name, start, end, body);
+            }
             return Err(SmeltError::for_unresolved_name(
                 self.span(start, end),
                 name,
@@ -1855,6 +1867,78 @@ impl ModuleBuilder<'_> {
     pub(in crate::lowering) fn expression_span(&self, expression: &Expression<'_>) -> Span {
         let span = expression.span();
         self.span(span.start, span.end)
+    }
+
+    /// Lower a reference to a global the non-DOM profile declares absent into a
+    /// thrown `ReferenceError`.
+    ///
+    /// JavaScript has one answer for a name that is not defined, and it is the
+    /// same whether the name is read or called: `ReferenceError: X is not
+    /// defined`. Node throws it for the DOM `EventTarget` surface
+    /// (`addEventListener` and friends) exactly as it does for a typo, so this
+    /// is not a Smelt gap to report — the *program* is what throws.
+    ///
+    /// # Why a closure rather than a statement
+    ///
+    /// A reference appears in expression position (`addEventListener(a, b)`
+    /// resolves the callee first; `const f = addEventListener` reads it as a
+    /// value), and [`Stmt::Throw`] is a statement. Wrapping the throw in a
+    /// nullary closure that is the expression's value gives one lowering that
+    /// works in every position, and it is the same shape
+    /// `new Function(...)` already uses for unsupported dynamic evaluation.
+    /// The closure's type is marked `may_throw`, so the throwing-function
+    /// propagation pass gives it an unwind edge and an enclosing `try` can
+    /// catch it — the whole point of throwing rather than aborting.
+    fn absent_global_throw(
+        &mut self,
+        name: &str,
+        start: u32,
+        end: u32,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(start, end);
+        // The body unconditionally throws, so the closure returns `never`, not
+        // `unknown`. The distinction is load-bearing: a lifted closure with an
+        // `unknown` return type needs a default value to return on the
+        // fall-through path, and there is no sensible default — while `never`
+        // says correctly that there is no such path. Getting this wrong turned
+        // the `addEventListener` blocker into a "module-level function return
+        // type needs a supported default value" blocker in the same file.
+        let never_ty = self.ctx.krate.types.intern(Type::Never);
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let mut closure_body = Body::new(None, span);
+        let message = closure_body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String(format!(
+                "ReferenceError: {name} is not defined"
+            ))),
+            ty: string_ty,
+            span,
+        });
+        closure_body.push_stmt(Stmt::Throw(message));
+        let body_id = self.ctx.krate.push_body(closure_body);
+        let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params: Vec::new(),
+            rest: None,
+            required_params: None,
+            mutable_params: Vec::new(),
+            return_ty: never_ty,
+            is_async: false,
+            may_throw: true,
+        }));
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::Closure(smelt_hir::ClosureExpr {
+                params: Vec::new(),
+                rest: None,
+                required_params: None,
+                return_ty: never_ty,
+                captures: Vec::new(),
+                body: body_id,
+                function_item: None,
+                span,
+            }),
+            ty: closure_ty,
+            span,
+        }))
     }
 
     // Continued in the next split builder file.

@@ -115,3 +115,62 @@ every one is either standards-stream demand or listed above:
 
 **Phase 1's metric cannot reach 0 from this stream alone.** Eight of the twelve
 remaining occurrences are names the campaign plan §6 forbids me to model.
+
+---
+
+## Round 2: option 1 landed, and it is a general rule
+
+The coordinator chose option 1 from §2 and made it general: **`[sources]
+exclude` prunes the dependency closure, not only the roots.** Implemented, with
+the import semantics reusing the host-module path rather than a parallel one.
+
+### What changed
+
+`DependencyCollector` (`crates/smelt-transpiler/src/manifest.rs`) now carries
+the exclude globs and the manifest directory. Every resolved import edge is
+partitioned:
+
+- targets that are excluded are **dropped from the closure**, so the module is
+  genuinely not part of the crate;
+- when *all* of a specifier's targets are excluded, the specifier is recorded on
+  the importing `ManifestSource` as `excluded_imports`.
+
+The frontend receives that list per file through
+`FrontendOptions::excluded_modules` and consults it in
+`classify_pending_host_imports` — the same function that already decides
+unresolved host imports — **before** the relative-specifier carve-out. That
+ordering is the whole trick: the carve-out exists because a relative specifier
+names a source file the manifest resolver owns, and an excluded module is
+exactly the case where the resolver deliberately produced no such file.
+
+### The semantics, precisely
+
+| shape | result | why |
+| --- | --- | --- |
+| `import type { X } from './excluded'` | free | never reaches `pending_host_imports` (the push site skips type-only imports), so nothing to classify |
+| `export type { X } from './excluded'` | free | same path; excluding a module removes its implementation, not its type surface |
+| `import { v } from './excluded'`, `v` unused | free | the blocker is recorded against the binding and fires at the first *use*, matching the existing host-import policy |
+| `import { v } from './excluded'`, `v` used as a value | **blocker**, naming the module | this is the point where Smelt would otherwise fabricate an erased no-op |
+
+### One deliberate imprecision
+
+A specifier with a *mix* of excluded and included targets (a barrel where some
+re-exported files are out of scope and some are not) keeps its included targets
+and is **not** recorded. At that point the exclusion is a property of individual
+names rather than of the module, and the frontend is keyed on specifiers. A name
+that came from a pruned file then takes the ordinary unresolved-identifier path
+— a less specific blocker, not a false green. Making it exact means resolving
+per-name, which `resolve_barrel_import_targets` could do (it already reads
+`import.names`) and which no corpus currently needs.
+
+### Applied to Hono
+
+`src/client/**` and `src/helper/testing/**` (it imports the `hc` *value*, so it
+cannot outlive the client), plus `src/helper/streaming/**`,
+`src/helper/websocket/**`, `src/utils/jwt/**` and `src/middleware/jwt/**` —
+each with its reason in the manifest. `src/index.ts` stays in scope and its
+`export type { InferRequestType, ... } from './client'` costs nothing, exactly
+as predicted.
+
+Effect: 286 files scanned -> 258, and 18 blocker occurrences -> 8.
+

@@ -144,3 +144,29 @@ behaviour is and re-probe. When a member above lands as a real typed surface,
 the corresponding entry in §1 stops blocking and any new mismatch appears at
 `cargo check` of the generated crate — which is where the next round of this
 file's counts will come from.
+
+---
+
+## Round 2: streaming and WebSocket are now excluded, and are future standards work
+
+Item 5 of the round-2 decisions. Now that `[sources] exclude` prunes the
+dependency closure (`hono-scope.md`), these surfaces are genuinely out of the
+crate rather than dragged in transitively, each with its reason in
+`.github/compat/hono/Smelt.toml`:
+
+| excluded | needs | Hono usage |
+| --- | --- | --- |
+| `src/helper/streaming/**` | `ReadableStream`, `WritableStream`, `TransformStream` | `stream.ts`, `sse.ts` — SSE and streaming responses |
+| `src/helper/websocket/**` | WHATWG `WebSocket`, and `WebSocketPair` on the Cloudflare adapter | the `upgradeWebSocket` helper |
+
+Neither is on the standards stream's list for this round, and neither was on it
+before: they surfaced from probing rather than from the plan, which is why they
+are recorded here rather than assumed. **These are demand, not blockers** — the
+excludes make the count honest, and the surfaces come back into scope the day
+the standards stream models them.
+
+`src/adapter/**` deliberately stays IN scope even though the adapters reference
+`WebSocketPair` and `Deno`/`Bun` globals: host globals lower as erased value
+closures, so those files transpile today. Only the two helpers above actually
+block, which is the distinction the exclude list is meant to record.
+

@@ -191,3 +191,9 @@ third_party/hono/
 /smelt-bin
 # Hono probe checkout is cloned by CI and locally, never tracked
 third_party/hono
+
+# Hono campaign: fallible stdlib ops and absent-global throw design
+!blocker-logs/hono-fallible-ops.md
+
+# Radash self-referential class regression found during the Hono campaign
+!blocker-logs/radash-self-referential-class.md

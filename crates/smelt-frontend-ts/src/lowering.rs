@@ -179,6 +179,16 @@ pub struct ConstCollection {
 pub struct FrontendOptions<'manifest> {
     /// Materialized definition-time structure for this source graph.
     pub specialization: Option<&'manifest smelt_specialize::SpecializationManifest>,
+    /// Import specifiers in this file that name modules the manifest excludes.
+    ///
+    /// `[sources] exclude` prunes the dependency closure, so a relative
+    /// specifier can name a module that was deliberately left out of the
+    /// crate. Such a specifier is not a missing file and not a host package:
+    /// it is a scope decision the manifest recorded, and using a *value* from
+    /// it has to say so rather than silently erasing the binding. The
+    /// transpiler resolves the mapping (it already resolved every import edge)
+    /// and passes the specifiers as written so the message can quote them.
+    pub excluded_modules: &'manifest [String],
 }
 
 /// Materialized specialization data owned by one source module builder.
@@ -398,6 +408,7 @@ pub fn to_hir_with_options(
         source.to_owned(),
         ctx,
         specialization,
+        options.excluded_modules.to_vec(),
     );
     builder.program(&parsed.program)
 }
@@ -442,12 +453,15 @@ pub fn predeclare_type_declarations_with_path(
             })
             .collect());
     }
+    // The predeclaration pass only records type and method surfaces; it never
+    // classifies value imports, so it needs no exclusion list.
     let mut builder = ModuleBuilder::new(
         file_id,
         path.to_owned(),
         source.to_owned(),
         ctx,
         None,
+        Vec::new(),
     );
     builder.predeclare_class_method_fields(&parsed.program);
     builder.predeclare_type_alias_items(&parsed.program);
@@ -691,6 +705,11 @@ struct ModuleBuilder<'ctx> {
     /// module keeps the erased binding), which is not known until every import
     /// has been seen.
     pending_host_imports: Vec<PendingHostImport>,
+    /// Import specifiers naming modules the manifest excluded from the crate.
+    ///
+    /// Consulted by `classify_pending_host_imports`; see
+    /// [`FrontendOptions::excluded_modules`].
+    excluded_modules: Vec<String>,
 }
 
 /// One value import whose module resolved to no source item.

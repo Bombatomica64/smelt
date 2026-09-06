@@ -5,6 +5,51 @@ Runs in parallel with `blocker-logs/standards-tier-plan.md` (the "standards stre
 
 ---
 
+## PROGRESS LOG — round 2
+
+Probe on the merged head: **286 files / 10 with blockers / 18 occurrences / 7
+shapes** -> **258 files / 6 with blockers / 8 occurrences / 6 shapes**.
+
+The file count drops because closure pruning genuinely removes the excluded
+modules from the crate (286 -> 258), which is the point of item 1.
+
+| item | status |
+| --- | --- |
+| 1. `exclude` prunes the closure | **landed.** The dependency collector filters every resolved edge, records the specifier when a module is wholly excluded, and the frontend reports `` `hc` is imported from `../../client`, which the manifest excludes `` at the first *value* use. Type-only imports and `export type` re-exports stay free. 2 integration tests + 2 collector unit tests. This alone took 18 -> 8 occurrences. |
+| 2. absent globals throw | **half landed.** A call to (or read of) a global the profile declares absent lowers to a thrown `ReferenceError`, catchable by the enclosing `try`. `NON_DOM_ABSENT_GLOBALS` gains the three `EventTarget` names. The fallible-rvalue rewire (`decodeURI`, `decodeURIComponent`, `atob`) is **designed, not landed** — `blocker-logs/hono-fallible-ops.md`. |
+| 3. H6 write-through | **not landed.** Probing the backend first changed the design; see `hono-h6-module-mutable-globals.md` §8. The blocker stays specific, so there is still no silent lost write. |
+| 4. ratchet classifier | left alone as instructed; es-toolkit stays byte-identical. |
+| 5. streams/websocket excludes | **landed**, each with its reason, now that item 1 makes closure pruning real. Recorded as future standards work in `hono-fetch-demand.md`. |
+
+### The one correction to carry forward
+
+Round 1 claimed `decodeURI`'s `.expect(...)` shared a root cause with
+`JSON.parse`. **That was wrong.** `JSON.parse` already lowers through
+`Terminator::Call { Callee::Builtin(BuiltinFn::JsonParse), unwind }` and is the
+*reference implementation* for fallible operations, not a fellow victim. The
+stale claim was also written into a code comment in
+`crates/smelt-codegen-rust/src/emitter/strings.rs`, which would have sent the
+next reader to fix something already correct; the correction is in
+`hono-fallible-ops.md` §1 and the comment is fixed.
+
+### Remaining 8 occurrences
+
+| # | shape | file | owner |
+| ---: | --- | --- | --- |
+| 2 | unresolved class | `context.ts` | standards |
+| 2 | `JSON.stringify` of `BodyInit` | `request.ts` | standards |
+| 1 | field access on `Float` receiver (`.status`) | `context.ts` | standards |
+| 1 | module-level function return default | `hono-base.ts` | newly revealed, unattributed |
+| 1 | H6 write-through | `router/reg-exp-router/router.ts` | item 3 |
+| 1 | string search needs string receiver | `utils/url.ts` | standards |
+
+6 of the 8 are standards-stream. The `hono-base.ts` one appeared when the
+`addEventListener` blocker in the same file stopped firing — it was masked
+behind it, and an isolated fixture of the absent-global shape lowers with zero
+diagnostics, so it is not caused by that change.
+
+---
+
 ## PROGRESS LOG — round 1
 
 Probe: **288 files / 14 with blockers / 32 occurrences / 13 shapes**

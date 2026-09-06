@@ -204,3 +204,73 @@ proof of safety.
 precise remaining gap, and two of the three demands in those three lines are
 now lowered. `src/router/reg-exp-router/router.ts` still blocks, on
 `wildcardRegExpCache[path] ??= …` alone.
+
+---
+
+## 8. Round 2: what the write-through desugar actually costs
+
+The coordinator approved item 3 as "a `GlobalGet` of the shared cell, the
+mutation through the existing place lowering, **no copy**". Probing the backend
+before implementing turned up a fact that changes the design, so it is recorded
+here rather than discovered halfway through.
+
+### Some mutable globals already share, and some cannot
+
+The generated Rust type for a `Dict` is not one thing:
+
+| MIR type | emitted Rust | clone semantics |
+| --- | --- | --- |
+| `Dict(String, V)` (`dict_uses_smelt_record`) | `SmeltRecord<String, V>` | **handle** — `Rc<RefCell<SmeltFieldStore>>`, clones share one store |
+| `Dict(K, V)` (`dict_uses_js_key_map`) | `SmeltJsMap<K, V>` | handle |
+| `Dict(K, V)` otherwise | `::std::collections::HashMap<K, V>` | **value** — a clone is a deep copy |
+
+`GlobalGet` emits `NAME.with(|value| value.borrow().clone())`. For the first
+two rows that clone copies a *handle*, so a subsequent `cache[key] = value`
+mutates the shared store and the write is **already visible** through the
+global. For the third row the clone is a deep copy and the write is lost —
+exactly the defect the round-1 guard was protecting against.
+
+So "no copy" is right for Hono's `wildcardRegExpCache: Record<string, RegExp>`
+(row 1) and wrong in general. A store-back (`GlobalSet(g, tmp)`) is correct for
+all three: redundant for the handle rows, load-bearing for the value row.
+
+### Why the guard cannot simply ask which row it is in
+
+The guard lives in the **frontend**, and the row is decided in the **backend**
+(`dict_uses_smelt_record` / `dict_uses_js_key_map` in
+`crates/smelt-codegen-rust/src/emitter/core.rs`). Having the frontend predict
+that decision is precisely the "the cell type, the read spelling and the write
+spelling were decided in three separate places" hazard §4 of this note was
+written to close — and a mismatch here is not a compile error, it is a lost
+write with no diagnostic.
+
+Two ways out, neither taken this round:
+
+1. **Unconditional store-back.** `tmp = GlobalGet(g); tmp[k] = v;
+   GlobalSet(g, tmp)`. Correct for every row without asking which one, at the
+   cost of one redundant handle assignment for the common case. Needs the
+   frontend to introduce a local binding mid-expression and reference it three
+   times, which `assignment_parts` has no shape for today: it returns a
+   `(target, value)` pair for a single `Stmt::Assign`, and the target's base is
+   an already-lowered `GlobalGet` expression rather than a re-referenceable
+   local.
+2. **`Place::Global`.** Let a MIR place be rooted at a global instead of a
+   local, and have codegen emit the whole write inside one
+   `NAME.with(|cell| { let mut g = cell.borrow_mut(); … })`. This is the "no
+   copy" version the coordinator described, it needs no store-back and no
+   per-type predicate, and it is the only one of the two that is also correct
+   for a *nested* write (`cache[a][b] = v`). It touches every site that matches
+   on `Place` — `validate/operands.rs`, `opt/mod.rs`, `format.rs`, and the
+   backend's place emission.
+
+Option 2 is the right end state and option 1 is a stepping stone that would
+have to be unwound. Recommend going straight to `Place::Global`.
+
+### Status
+
+Not landed this round. The blocker stays, and it stays *specific* — it names
+the binding and says only whole-value reassignment is lowered — so the
+generated crate has no silent lost write. Hono's one occurrence
+(`wildcardRegExpCache` in `src/router/reg-exp-router/router.ts`) is a row-1
+`Record`, so it is one of the cases that would need no store-back at all.
+
