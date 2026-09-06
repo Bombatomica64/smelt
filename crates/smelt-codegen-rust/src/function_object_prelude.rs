@@ -121,7 +121,7 @@ fn emit_construct(writer: &mut CodeWriter) {
     writer.line("    let Some(function) = smelt_callable_of(&callee) else { return SmeltUnknown::Undefined; };");
     writer.line("    let prototype = smelt_function_value_property(&function, \"prototype\");");
     writer.line("    let instance = smelt_object_from_prototype(prototype);");
-    writer.line("    let result = { let _smelt_this_guard = smelt_push_this(instance.clone()); (function)(args).unwrap_or_else(|error| panic!(\"{}\", error)) };");
+    writer.line("    let result = { let _smelt_this_guard = smelt_push_this(instance.clone()); (function)(args).unwrap_or_else(|error| smelt_panic_throw(error)) };");
     writer.line("    match result { SmeltUnknown::Object(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => result, _ => instance }");
     writer.line("}");
     writer.blank_line();

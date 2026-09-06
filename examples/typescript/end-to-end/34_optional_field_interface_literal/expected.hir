@@ -22,8 +22,8 @@ module examples/typescript/end-to-end/34_optional_field_interface_literal/input.
     #7: String = "inner"
     #8: String = "count"
     #9: Float = 7.0
-    #10: Dict<String, Float> = {#8: #9}
-    #11: Dict<String, Dict<String, Float>> = {#7: #10}
+    #10: Config = {#8: #9}
+    #11: Outer = {#7: #10}
     #12: Config = %0
     #13: fn(Config) -> String = @0(label_of)
     #14: String = call #13(#12)

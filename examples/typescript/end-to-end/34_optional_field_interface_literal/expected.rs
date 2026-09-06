@@ -6,6 +6,19 @@ mod __smelt_module_source_main;
 pub(crate) use __smelt_module_source_main::*;
 
 
+/// A Smelt `throw` crossing an unwind boundary, keeping its class.
+#[derive(Debug)]
+struct SmeltPanic { class: String, message: String }
+impl ::std::fmt::Display for SmeltPanic { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { write!(formatter, "{}: {}", self.class, self.message) } }
+static SMELT_PANIC_HOOK: ::std::sync::Once = ::std::sync::Once::new();
+/// Silence the panic report for Smelt-thrown payloads only.
+fn smelt_install_panic_hook() { SMELT_PANIC_HOOK.call_once(|| { let previous = ::std::panic::take_hook(); ::std::panic::set_hook(Box::new(move |info| { if info.payload().downcast_ref::<SmeltPanic>().is_some() { return; } previous(info); })); }); }
+/// Report a Smelt error through the panic channel, keeping its identity.
+fn smelt_panic_throw(error: Box<dyn ::std::error::Error>) -> ! { smelt_install_panic_hook(); ::std::panic::panic_any(smelt_panic_payload(&*error)) }
+/// Recover the message text a `catch` observes from a caught panic.
+fn smelt_panic_message(panic: &(dyn ::std::any::Any + Send)) -> String { if let Some(payload) = panic.downcast_ref::<SmeltPanic>() { return payload.message.clone(); } if let Some(message) = panic.downcast_ref::<String>() { return message.clone(); } if let Some(message) = panic.downcast_ref::<&'static str>() { return (*message).to_owned(); } "JavaScript exception".to_owned() }
+/// Recover the error class a `catch` observes from a caught panic.
+fn smelt_panic_class(panic: &(dyn ::std::any::Any + Send)) -> String { panic.downcast_ref::<SmeltPanic>().map_or_else(|| "Error".to_owned(), |payload| payload.class.clone()) }
 thread_local! {
     static SMELT_NEXT_OBJECT_ID: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
 }
@@ -1625,7 +1638,7 @@ fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {
     let smelt_field_value = match map.get(field) { Some(value) => Some(value), None => match map.get(&format!("__smelt_proto:{field}")) { Some(value) => Some(value), None => map.get(&format!("__smelt_method:{field}")) } };
     match smelt_field_value.unwrap_or(SmeltUnknown::Undefined) {
         SmeltUnknown::Object(getter) if getter.contains_key("__smelt_get") => match getter.get("__smelt_get") {
-            Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| panic!("{}", error)),
+            Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| smelt_panic_throw(error)),
             _ => SmeltUnknown::Null,
         },
         value => value,
@@ -1980,6 +1993,15 @@ fn smelt_throw(value: SmeltUnknown) -> Box<dyn ::std::error::Error> { Box::new(S
 /// record built from its `Display` text -- the shape a `catch` saw before the
 /// payload ABI existed.
 fn smelt_thrown_value(error: &(dyn ::std::error::Error + 'static)) -> SmeltUnknown { if let Some(thrown) = error.downcast_ref::<SmeltThrown>() { return thrown.value.clone(); } SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("Error".into())), ("message".to_owned(), SmeltUnknown::String(error.to_string().into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]))) }
+
+/// Project a channel error's class and message across an unwind.
+///
+/// The class brand is the one `new <ErrorClass>(message)` writes; a thrown
+/// class instance is read through its `name` property instead, which is what
+/// JavaScript reports for `error.name` on a user error class.
+fn smelt_panic_payload(error: &(dyn ::std::error::Error + 'static)) -> SmeltPanic { let value = smelt_thrown_value(error); let message = smelt_thrown_message(&value); let mut class = "Error".to_owned(); if let SmeltUnknown::Object(object) = &value { if let Some(SmeltUnknown::String(name)) = object.get("__smelt_error") { class = name.to_string(); } else if let Some(SmeltUnknown::String(name)) = object.get("name") { class = name.to_string(); } } SmeltPanic { class, message } }
+/// Present a caught panic as the erased error record a `catch` binds.
+fn smelt_panic_error_value(panic: &(dyn ::std::any::Any + Send)) -> SmeltUnknown { SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String(smelt_panic_class(panic).into())), ("message".to_owned(), SmeltUnknown::String(smelt_panic_message(panic).into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]))) }
 
 impl Eq for SmeltUnknown {}
 
@@ -2691,9 +2713,9 @@ fn main() {
     let partial: Config = _smelt_tmp_5;
     let _smelt_tmp_6: Config = Config { label: None::<String>, count: Some(41.0) };
     let counted: Config = _smelt_tmp_6;
-    let _smelt_tmp_7: SmeltRecord<String, f64> = SmeltRecord::from([("count".to_owned(), 7.0)]);
-    let _smelt_tmp_8: SmeltRecord<String, SmeltRecord<String, f64>> = SmeltRecord::from([("inner".to_owned(), _smelt_tmp_7)]);
-    let nested: Outer = { let smelt_record_map = _smelt_tmp_8.clone(); Outer { inner: smelt_record_map.get("inner").map(|value| { let smelt_record_map = value.clone(); Config { label: None, count: smelt_record_map.get("count").cloned().map(|value| value) } }) } };
+    let _smelt_tmp_7: Config = Config { label: None::<String>, count: Some(7.0) };
+    let _smelt_tmp_8: Outer = Outer { inner: Some(_smelt_tmp_7) };
+    let nested: Outer = _smelt_tmp_8;
     let _smelt_tmp_9: String = label_of(empty.clone());
     let _ = { println!("{}", _smelt_tmp_9); };
     let _smelt_tmp_11: f64 = count_plus_one(empty);

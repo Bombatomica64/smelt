@@ -203,3 +203,9 @@ third_party/hono
 
 # Round 3 item 4 investigation findings
 !blocker-logs/hono-round3-item4-findings.md
+# The three standards-stream repro notes the Hono stream works from. They were
+# written but never committed because the pattern above ignores blocker-logs/*.md
+# by default, so they did not reach the other worktree with the merge.
+!blocker-logs/interface-literal-camel-case.md
+!blocker-logs/find-callback-repro.md
+!blocker-logs/generated-union-generic-member.md

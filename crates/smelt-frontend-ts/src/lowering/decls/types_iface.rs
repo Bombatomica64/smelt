@@ -1939,6 +1939,20 @@ impl ModuleBuilder<'_> {
         if !self.module_globals.contains_key(target.name.as_str()) {
             return Ok(false);
         }
+        // `module_globals` records the declared TYPE of every annotated or
+        // literal-initialized module-level binding so a function body can look
+        // it up; membership does NOT mean the name has no storage. When the
+        // module body has a local for it -- which is the case for every
+        // module-scope `let`/`var` -- the write must be a real assignment to
+        // that local. Discarding it unconditionally made
+        // `let n: number | undefined; n = 5; console.log(n)` print `undefined`,
+        // and `let m: number = 0; m = 6` print `0`: the RHS was evaluated for
+        // its side effects and thrown away. Only a name with no local binding
+        // (an inlined const item, an ambient declaration) reaches the discard,
+        // which is what the path was for.
+        if self.scope.is_bound(target.name.as_str()) {
+            return Ok(false);
+        }
         let value = self.expression(&assign.right, body)?;
         body.push_stmt_to_block(block, Stmt::Expr(value));
         Ok(true)

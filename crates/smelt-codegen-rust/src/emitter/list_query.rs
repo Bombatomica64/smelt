@@ -172,7 +172,7 @@ impl FunctionEmitter<'_> {
         // value rather than a `Result`; a non-throwing callback is used directly.
         let raw_call_text = if function_ty.may_throw {
             format!(
-                "({callback_call_text}).unwrap_or_else(|error: Box<dyn std::error::Error>| panic!(\"{{}}\", error))"
+                "({callback_call_text}).unwrap_or_else(|error: Box<dyn std::error::Error>| smelt_panic_throw(error))"
             )
         } else {
             callback_call_text
@@ -278,7 +278,7 @@ impl FunctionEmitter<'_> {
             self.callback_invocation_text(function_ty, &call_args.join(", "));
         let call_text = if function_ty.may_throw {
             format!(
-                "({callback_call_text}).unwrap_or_else(|error: Box<dyn std::error::Error>| panic!(\"{{}}\", error))"
+                "({callback_call_text}).unwrap_or_else(|error: Box<dyn std::error::Error>| smelt_panic_throw(error))"
             )
         } else {
             callback_call_text
