@@ -5,6 +5,65 @@ Runs in parallel with `blocker-logs/standards-tier-plan.md` (the "standards stre
 
 ---
 
+## PROGRESS LOG — rounds 6 and 7
+
+Probe on this head: **258 files / 3 with blockers / 4 occurrences**, unchanged
+across both rounds. Two of the four things fixed in these rounds produced NO
+blocker at all — they were silent wrong values — which is why the probe count
+does not move and why the count alone is the wrong measure of this phase.
+
+### Landed
+
+* **Panic route keeps the throw's class** (round 6 item (a); `hono-fallible-ops.md` §10).
+* **Interface-literal keys match by source spelling.** `{ camelCase: "a" }`
+  against `interface Shape { camelCase?: string }` emitted
+  `Shape { camel_case: None }` — every camelCase field dropped, `undefined`
+  where Node prints the value.
+* **Nested optional-interface literals build directly**, which is what took the
+  examples invariant back to 0 by construction after the fixture above.
+* **Module-scope reassignments are kept.** `let n: number | undefined; n = 5`
+  at module scope discarded the write and still read `undefined`; so did
+  `let m: number = 0; m = 6`. Any type, no diagnostic.
+* **A contextual type reaches an IIFE's return position** (round 7 item 1).
+* **A computed method call over a known member set lowers as a choice**
+  (round 7 item 2). `return req[key]()` emitted `return String::new()`.
+
+### Open families, numbered
+
+| # | shape | state |
+| --- | --- | --- |
+| H13 | `dynamic computed method names are not lowered yet` — `request.ts:385`, `get [GET_MATCH_RESULT]()`, a computed class GETTER keyed by an imported `unique symbol` const. Minimal repro: `const KEY: unique symbol = Symbol(); class C { get [KEY](): number { return 1 } }`. | open, mine. This is the request.ts blocker; it is NOT `req[cacheKey]()`, which never produced a blocker and is now fixed. |
+| H14 | `type table does not contain literal operand type Unknown` (`emitter/types.rs:823`, reached from the index/field fallback `_ => self.type_id(Type::Unknown)`). The fallback asks for a type the crate may not have interned, because a crate with no erased value has no `Unknown` entry. | open, mine, not currently reachable from Hono. Not "small": the obvious fix — always interning `Unknown` — would flip `needs_unknown_type` for every crate and emit the whole erased prelude unconditionally. The fix has to degrade at the fallback site instead, and needs a reproduction to pin which degraded answer is right. |
+| H15 | Generated-union generic member: `enum SmeltUnionN<T>` declaring an unused `T` and substituting `ResponseInit<SmeltUnknown>` where MIR has `ResponseInit<Float>` (round 7 item 3). | **blocked on the repro note.** `blocker-logs/generated-union-generic-member.md` does not exist in the repository (see below). The described symptom does not reproduce on a plain generic interface in a union: `number \| Init<number> \| Holder` emits `enum SmeltUnion3 { M0(f64), M1(Init<f64>), M2(Holder) }` — instantiated, no unused parameter. |
+
+### The three repro notes never arrived
+
+`blocker-logs/interface-literal-camel-case.md`, `blocker-logs/find-callback-repro.md`
+and `blocker-logs/generated-union-generic-member.md` are not in the repository.
+`.gitignore` ignores `blocker-logs/*.md` by default and allowlists each readable
+note by name, so these three were never committed and reached neither merge.
+They are allowlisted now.
+
+Consequences: the camelCase defect was reproduced from the coordinator's
+one-line description and fixed; the `find` callback (item 2 of the round-6
+dispatch) could NOT be reproduced — a typed arrow parameter through `find`
+lowers correctly today in every shape tried (`(row: Row): boolean`,
+`(row: Row) => row.name` with truthiness, an `unknown[]` receiver with a typed
+parameter, and an `unknown`-typed field as the predicate result), so it needs
+the note's exact source; and H15 is blocked for the same reason.
+
+### Two site attributions corrected
+
+* `request.ts` — the `dynamic computed method names` blocker is the symbol-keyed
+  getter at line 385, not `await req[cacheKey]()` at 485. The latter emitted no
+  diagnostic; it emitted a wrong value.
+* `hono-base.ts` — the `Response init is an erased value` blocker is
+  `new Response(null, await this.#dispatch(..))` at line 417, a `Response`
+  passed as a `ResponseInit`. It is not the `replaceRequest` IIFE at 365-371,
+  which now lowers with a typed `SmeltRequest` parameter.
+
+---
+
 ## DEFERRED
 
 Work that is designed, justified and deliberately not landed. Each entry names
