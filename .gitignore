@@ -158,3 +158,9 @@ probe.json
 !blocker-logs/estk-final45-after.md
 /target-gates/
 !blocker-logs/estk-final45-host-gaps.md
+
+# examples/typescript/express_crud is a real npm project: its installed
+# dependencies and local SQLite file are never tracked (dist/ is covered above).
+node_modules/
+examples/typescript/express_crud/todos.db
+!blocker-logs/express-v1-baseline.md
