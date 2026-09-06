@@ -209,7 +209,8 @@ impl ExprKind {
                 form,
                 operand: f(operand)?,
             },
-            Self::UriEncode { operand } => Self::UriEncode {
+            Self::UriTranscode { op, operand } => Self::UriTranscode {
+                op,
                 operand: f(operand)?,
             },
             Self::ObjectToStringTag { operand } => Self::ObjectToStringTag {
@@ -310,11 +311,13 @@ impl ExprKind {
                 pattern,
                 haystack,
                 callback,
+                args,
             } => Self::RegexReplaceCallback {
                 op,
                 pattern: f(pattern)?,
                 haystack: f(haystack)?,
                 callback: f(callback)?,
+                args,
             },
             Self::RegexReplaceFirstMatchUppercase { pattern, haystack } => {
                 Self::RegexReplaceFirstMatchUppercase {

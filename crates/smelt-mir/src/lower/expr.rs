@@ -626,12 +626,13 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
-            ExprKind::UriEncode { operand } => {
+            ExprKind::UriTranscode { op, operand } => {
                 let lowered_operand = self.lower_expr(*operand)?;
                 self.assign_temp(
                     expr.ty,
                     expr.span,
-                    Rvalue::UriEncode {
+                    Rvalue::UriTranscode {
+                        op: *op,
                         operand: lowered_operand,
                     },
                 )?
@@ -827,6 +828,7 @@ impl LoweringCtx<'_> {
                 pattern,
                 haystack,
                 callback,
+                args,
             } => {
                 let pattern_operand = self.lower_expr(*pattern)?;
                 let haystack_operand = self.lower_expr(*haystack)?;
@@ -839,6 +841,7 @@ impl LoweringCtx<'_> {
                         pattern: pattern_operand,
                         haystack: haystack_operand,
                         callback: callback_operand,
+                        args: args.clone(),
                     },
                 )?
             }

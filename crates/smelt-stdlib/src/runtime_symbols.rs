@@ -95,12 +95,36 @@ pub mod json {
 /// These back JavaScript global string functions that need more than a direct
 /// Rust std method call.
 pub mod strings {
-    /// Percent-encodes a string; backs `encodeURI(value)` (`Rvalue::UriEncode`).
+    /// Percent-encodes a string; backs `encodeURI(value)`
+    /// (`Rvalue::UriTranscode` with `UriTranscodeOp::Encode`).
     ///
     /// The ECMA-262 `encodeURI` character set stays literal (ASCII
     /// alphanumerics, unreserved marks, URI reserved separators, and `#`);
     /// everything else becomes uppercase `%XX` UTF-8 triplets.
     pub const ENCODE_URI: &str = "smelt_encode_uri";
+
+    /// Percent-encodes one URI component; backs `encodeURIComponent(value)`
+    /// (`UriTranscodeOp::EncodeComponent`).
+    ///
+    /// Differs from [`ENCODE_URI`] by escaping the URI reserved separators
+    /// `; / ? : @ & = + $ , #` as well, so the result cannot be reparsed as
+    /// structure.
+    pub const ENCODE_URI_COMPONENT: &str = "smelt_encode_uri_component";
+
+    /// The shared percent-decoder both decoders call
+    /// (`smelt_decode_uri` / `smelt_decode_uri_component`).
+    ///
+    /// Parameterized by the character set to leave escaped, and returns `None`
+    /// for exactly the input ECMA-262 rejects with a `URIError`.
+    pub const DECODE_URI_OCTETS: &str = "smelt_decode_uri_octets";
+
+    /// Percent-decodes a full URI; backs `decodeURI(value)`
+    /// (`UriTranscodeOp::Decode`). Leaves the URI reserved separators escaped.
+    pub const DECODE_URI: &str = "smelt_decode_uri";
+
+    /// Percent-decodes one URI component; backs `decodeURIComponent(value)`
+    /// (`UriTranscodeOp::DecodeComponent`). Decodes every escape.
+    pub const DECODE_URI_COMPONENT: &str = "smelt_decode_uri_component";
 
     /// Collates two strings; backs `a.localeCompare(b)`
     /// (`Rvalue::StringLocaleCompare`).

@@ -97,6 +97,78 @@ pub fn to_rust_pattern(pattern: &str) -> Result<String, String> {
     Ok(out)
 }
 
+/// How many CAPTURE groups a JavaScript `RegExp` pattern declares.
+///
+/// This is the `N` in ECMA-262's replacer argument list
+/// `(matched, p1, …, pN, position, string)`, so it is what decides whether the
+/// second parameter of a `.replace(re, (a, b) => …)` callback is capture group
+/// 1 or the match position. Counting requires the same grammar knowledge as
+/// [`to_rust_pattern`] and therefore lives beside it: a `(` only opens a
+/// capture group when it is outside a character class, not escaped, and not
+/// followed by one of the non-capturing prefixes.
+///
+/// Capturing: `(…)` and the named form `(?<name>…)`.
+/// Non-capturing: `(?:…)`, lookahead `(?=…)` / `(?!…)`, lookbehind
+/// `(?<=…)` / `(?<!…)`, and inline flags `(?i)`.
+///
+/// A malformed pattern is not rejected here — an unterminated class simply
+/// stops counting groups, because a caller that needs validity calls
+/// [`to_rust_pattern`], which reports it.
+#[must_use]
+pub fn capture_group_count(pattern: &str) -> u32 {
+    let chars: Vec<char> = pattern.chars().collect();
+    let mut count = 0u32;
+    let mut index = 0usize;
+    let mut in_class = false;
+    while let Some(&ch) = chars.get(index) {
+        match ch {
+            // An escape spans two characters in both grammars, so `\(` is a
+            // literal parenthesis and `\[` is not class punctuation.
+            '\\' => index = index.saturating_add(2),
+            '[' if !in_class => {
+                // `[]` and `[^]` are the member-less classes; neither opens a
+                // class that a later `]` would close.
+                if chars.get(index.saturating_add(1)) == Some(&']') {
+                    index = index.saturating_add(2);
+                } else if chars.get(index.saturating_add(1)) == Some(&'^')
+                    && chars.get(index.saturating_add(2)) == Some(&']')
+                {
+                    index = index.saturating_add(3);
+                } else {
+                    in_class = true;
+                    index = index.saturating_add(1);
+                }
+            }
+            ']' if in_class => {
+                in_class = false;
+                index = index.saturating_add(1);
+            }
+            '(' if !in_class => {
+                if is_capturing_group_prefix(&chars, index) {
+                    count = count.saturating_add(1);
+                }
+                index = index.saturating_add(1);
+            }
+            _ => index = index.saturating_add(1),
+        }
+    }
+    count
+}
+
+/// Whether the `(` at `index` opens a capture group rather than a group
+/// modifier.
+///
+/// Every non-capturing form starts `(?`; the one exception is `(?<name>`, which
+/// captures. `(?<=` and `(?<!` are lookbehind and do not.
+fn is_capturing_group_prefix(chars: &[char], index: usize) -> bool {
+    if chars.get(index.saturating_add(1)) != Some(&'?') {
+        return true;
+    }
+    // `(?<…` is either a named capture group or a lookbehind assertion.
+    chars.get(index.saturating_add(2)) == Some(&'<')
+        && !matches!(chars.get(index.saturating_add(3)), Some(&'=' | &'!'))
+}
+
 /// Translate a `[` that opens a character class, returning whether one is open.
 ///
 /// `[]` and `[^]` are the two JavaScript classes with no members listed: the
@@ -218,5 +290,37 @@ mod tests {
         ] {
             assert_eq!(to_rust_pattern(pattern).as_deref(), Ok(pattern));
         }
+    }
+
+    /// Only real capture groups count: the number decides whether a replacer
+    /// callback's second parameter is `p1` or `position`.
+    #[test]
+    fn capture_groups_are_counted_and_group_modifiers_are_not() {
+        // No groups at all -- the shape whose `(a, b) => …` callback receives
+        // the match POSITION as `b`.
+        assert_eq!(capture_group_count(r"\{[^}]+\}"), 0);
+        assert_eq!(capture_group_count(r"(?:%[0-9A-Fa-f]{2})+"), 0);
+        assert_eq!(capture_group_count(r"(?=ab)(?!cd)"), 0);
+        assert_eq!(capture_group_count(r"(?<=ab)(?<!cd)"), 0);
+        // One group -- the shape whose `(a, b) => …` callback receives capture
+        // group 1 as `b`.
+        assert_eq!(capture_group_count(r###""##(.+?)##""###), 1);
+        assert_eq!(capture_group_count(r"(?<name>ab)"), 1);
+        // Several, nested and alternated.
+        assert_eq!(capture_group_count(r"((a)|(b))"), 3);
+        assert_eq!(capture_group_count(r"(a)(?:b)(c)"), 2);
+    }
+
+    /// A parenthesis that is not a group opener is not counted: escaped, or
+    /// inside a character class where it is an ordinary member.
+    #[test]
+    fn literal_parentheses_are_not_capture_groups() {
+        assert_eq!(capture_group_count(r"\(a\)"), 0);
+        assert_eq!(capture_group_count(r"[()]"), 0);
+        assert_eq!(capture_group_count(r"[\\^$.*+?()[\]{}|]"), 0);
+        // The member-less classes do not open a class, so a following `(` is
+        // still a group opener.
+        assert_eq!(capture_group_count(r"[](a)"), 1);
+        assert_eq!(capture_group_count(r"[^](a)"), 1);
     }
 }

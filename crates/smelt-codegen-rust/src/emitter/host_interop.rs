@@ -165,11 +165,23 @@ impl FunctionEmitter<'_> {
     pub(super) fn global_get_text(&self, global: u32) -> Result<String, EmitError> {
         let name = crate::global_static_name(self.mir, global);
         let ty = self.global_ty(global)?;
-        if matches!(self.mir.types.get(ty), Some(Type::String)) {
-            Ok(format!("{name}.with(|value| value.borrow().clone())"))
-        } else {
+        if Self::global_uses_copy_cell(self.mir.types.get(ty)) {
             Ok(format!("{name}.with(::std::cell::Cell::get)"))
+        } else {
+            Ok(format!("{name}.with(|value| value.borrow().clone())"))
         }
+    }
+
+    /// Whether a mutable global of this type is backed by a `Cell` rather than
+    /// a `RefCell`.
+    ///
+    /// Kept in sync with `emit_mutable_globals`, which decides the cell type:
+    /// only the `Copy` primitives get a `Cell`, because a `Cell` read moves the
+    /// value out and a non-`Copy` value cannot be read that way. Everything
+    /// else — a `String`, a record, a list, a map — uses a `RefCell` and is read
+    /// by cloning the borrow.
+    fn global_uses_copy_cell(ty: Option<&Type>) -> bool {
+        matches!(ty, Some(Type::Float | Type::Int | Type::Bool))
     }
 
     /// Emit a store into a mutable global's thread-local cell.
@@ -181,13 +193,13 @@ impl FunctionEmitter<'_> {
         let name = crate::global_static_name(self.mir, global);
         let ty = self.global_ty(global)?;
         let value_text = self.value_at_type(value, ty)?;
-        if matches!(self.mir.types.get(ty), Some(Type::String)) {
+        if Self::global_uses_copy_cell(self.mir.types.get(ty)) {
             Ok(format!(
-                "{{ let smelt_global_value = {value_text}; {name}.with(|value| *value.borrow_mut() = smelt_global_value.clone()); smelt_global_value }}"
+                "{{ let smelt_global_value = {value_text}; {name}.with(|value| value.set(smelt_global_value)); smelt_global_value }}"
             ))
         } else {
             Ok(format!(
-                "{{ let smelt_global_value = {value_text}; {name}.with(|value| value.set(smelt_global_value)); smelt_global_value }}"
+                "{{ let smelt_global_value = {value_text}; {name}.with(|value| *value.borrow_mut() = smelt_global_value.clone()); smelt_global_value }}"
             ))
         }
     }

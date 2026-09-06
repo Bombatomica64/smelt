@@ -197,6 +197,61 @@ pub enum StringReplaceOp {
     All,
 }
 
+/// One argument a regex replacement CALLBACK receives, in source order.
+///
+/// ECMA-262 `RegExp.prototype[@@replace]` calls the replacer with a fixed
+/// argument list — `(matched, p1, …, pN, position, string)` where `N` is the
+/// pattern's capture-group count — and a callback simply declares a prefix of
+/// it. Recording the resolved *role* of each declared parameter keeps the
+/// spec's positional rule in the frontend, where the pattern's group count is
+/// known, instead of forcing the emitter to re-derive it from the pattern text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RegexReplaceArg {
+    /// The whole matched substring (`matched`, always argument 0).
+    Matched,
+    /// Capture group `n` (1-based), `undefined` when the group did not
+    /// participate in the match.
+    Capture(u32),
+    /// The offset of the match within the subject string (`position`).
+    Position,
+    /// The whole subject string the replacement is running over (`string`).
+    Source,
+}
+
+/// Which of the four ECMA-262 URI transcoding globals an operation is.
+///
+/// ECMA-262 §19.2.6 defines all four from two algorithms (`Encode` / `Decode`)
+/// parameterized by a character set, and the four differ *only* in that set:
+/// the `*Component` pair treats the URI reserved separators
+/// `; / ? : @ & = + $ , #` as ordinary data, while the non-component pair
+/// leaves them alone so a full URI's structure survives a round trip. Carrying
+/// the variant in the IR keeps that one distinction in one place instead of
+/// four near-identical nodes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum UriTranscodeOp {
+    /// `encodeURI(value)` — escape everything outside the full-URI set.
+    Encode,
+    /// `encodeURIComponent(value)` — also escape the reserved separators.
+    EncodeComponent,
+    /// `decodeURI(value)` — unescape everything except the reserved separators.
+    Decode,
+    /// `decodeURIComponent(value)` — unescape everything.
+    DecodeComponent,
+}
+
+impl UriTranscodeOp {
+    /// Whether this operation can fail on malformed input.
+    ///
+    /// Both decoders throw a `URIError` for input that is not well-formed
+    /// percent-encoding; the encoders are total over Rust `&str`, because the
+    /// only ECMA-262 encoding failure is a lone surrogate and a `&str` cannot
+    /// hold one.
+    #[must_use]
+    pub const fn is_fallible(self) -> bool {
+        matches!(self, Self::Decode | Self::DecodeComponent)
+    }
+}
+
 /// A directly lowered string padding operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StringPadOp {

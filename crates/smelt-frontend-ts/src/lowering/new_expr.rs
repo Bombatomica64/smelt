@@ -3080,6 +3080,22 @@ impl ModuleBuilder<'_> {
         if let Some(condition) = self.optional_known_date_presence_condition(cond, span, body) {
             return Ok(condition);
         }
+        // A type that cannot hold a nullish value AND whose every inhabitant is
+        // an object is truthy for every value it can take, so the guard is the
+        // constant `true` and needs no runtime test at all. Comparing against
+        // `none` instead only worked because the emitter folds `tuple != none`
+        // to `false`; for a union it emits a real presence check, which a
+        // generated union enum cannot answer (`matches!(v, SmeltUnknown::Null)`
+        // over a `SmeltUnion3`). Saying `true` is both the precise answer and
+        // the one no representation has to support.
+        if !self.is_nullishable_type(cond_ty) && self.type_is_constantly_truthy(cond_ty) {
+            let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Bool(true)),
+                ty: bool_ty,
+                span,
+            }));
+        }
         if self
             .non_nullish_type(cond_ty)
             .is_some_and(|inner_ty| self.type_is_always_truthy_object_surface(inner_ty))
@@ -3172,6 +3188,33 @@ impl ModuleBuilder<'_> {
                     | Type::Future(_)
             )
         )
+    }
+
+    /// Return whether EVERY value of `ty` is truthy in JavaScript.
+    ///
+    /// Only seven values are falsy — `false`, `0`, `-0`, `NaN`, `''`, `null`,
+    /// `undefined` (and `0n`) — and none of them is an object, so a type whose
+    /// every inhabitant is an object has no falsy inhabitant. That composes
+    /// through a union: `A | B` with both arms objects adds no falsy value
+    /// either.
+    ///
+    /// Deliberately SEPARATE from [`Self::type_is_always_truthy_object_surface`],
+    /// which answers the narrower question "is a *present optional's* payload
+    /// always truthy" and is consulted by the presence-test rung. Teaching that
+    /// helper about unions would also change the presence-test rung for
+    /// optional unions of functions — turning es-toolkit's `getCacheKey ? …`
+    /// from a full erased `ToBool` match into a presence test. That is an
+    /// equivalent and cheaper emission, but it is a change to a corpus this
+    /// family does not need to touch, so the union knowledge stays local to the
+    /// constant-fold rung that needs it.
+    fn type_is_constantly_truthy(&self, ty: smelt_hir::TypeId) -> bool {
+        let resolved = self.type_param_constraint_or_self(ty);
+        if let Some(Type::Union(items)) = self.ctx.krate.types.get(resolved) {
+            let items = items.clone();
+            return !items.is_empty()
+                && items.iter().all(|item| self.type_is_constantly_truthy(*item));
+        }
+        self.type_is_always_truthy_object_surface(resolved)
     }
 
     /// Return whether a non-boolean type can appear in a JavaScript truthiness guard.

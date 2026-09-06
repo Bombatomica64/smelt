@@ -569,8 +569,14 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
             };
             format!("string_normalize_{form_text} {}", operand_text(operand))
         }
-        Rvalue::UriEncode { operand } => {
-            format!("uri_encode {}", operand_text(operand))
+        Rvalue::UriTranscode { op, operand } => {
+            let op_text = match op {
+                smelt_hir::UriTranscodeOp::Encode => "uri_encode",
+                smelt_hir::UriTranscodeOp::EncodeComponent => "uri_encode_component",
+                smelt_hir::UriTranscodeOp::Decode => "uri_decode",
+                smelt_hir::UriTranscodeOp::DecodeComponent => "uri_decode_component",
+            };
+            format!("{op_text} {}", operand_text(operand))
         }
         Rvalue::ObjectToStringTag { operand } => {
             format!("object_to_string_tag {}", operand_text(operand))
@@ -730,13 +736,24 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
             pattern,
             haystack,
             callback,
+            args,
         } => {
             let op_text = match op {
                 smelt_hir::StringReplaceOp::First => "replace_callback",
                 smelt_hir::StringReplaceOp::All => "replace_all_callback",
             };
+            let args_text = args
+                .iter()
+                .map(|arg| match arg {
+                    smelt_hir::RegexReplaceArg::Matched => "matched".to_owned(),
+                    smelt_hir::RegexReplaceArg::Capture(index) => format!("p{index}"),
+                    smelt_hir::RegexReplaceArg::Position => "position".to_owned(),
+                    smelt_hir::RegexReplaceArg::Source => "source".to_owned(),
+                })
+                .collect::<Vec<_>>()
+                .join(",");
             format!(
-                "regex_{op_text} {}, {}, {}",
+                "regex_{op_text} {}, {}, {} [{args_text}]",
                 operand_text(pattern),
                 operand_text(haystack),
                 operand_text(callback)

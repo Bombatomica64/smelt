@@ -1440,14 +1440,15 @@ let defaultOptions: DefaultOptions = {};
 #[test]
 fn lowers_module_mutable_default_options_accessors() -> Result<(), String> {
     // `defaultOptions` is a module-level `let` mutated inside a function, so it
-    // classifies as a mutable global; its object initializer is outside the V1
-    // literal constraint, producing the named frontend blocker. Before the
-    // mutable-global lift this shape HIR-lowered but the function-body write
-    // had no assignable place, so MIR lowering always aborted with the generic
-    // "only local, field, and index expressions can be assigned" — the named
-    // blocker surfaces the same gap earlier and more precisely.
+    // classifies as a mutable global; its object initializer is not a literal
+    // and its type is not a primitive, so it broke BOTH V1 constraints and was
+    // a named blocker. Both are lifted: the initializer becomes a synthesized
+    // nullary function the cell calls lazily, and the non-`Copy` value is held
+    // in a `RefCell`. Every write here is a whole-value reassignment, which is
+    // the shape that is lowered (a write THROUGH the binding is still a named
+    // blocker — see `module_globals_tests`).
     let mut ctx = HirCtx::new();
-    let errors = lowering_errors(
+    let module_id = lower_ok(
         ts!(r"
 interface LocalizedOptions {
   locale?: string;
@@ -1466,10 +1467,9 @@ function setDefaultOptions(newOptions: DefaultOptions): void {
 "),
         &mut ctx,
     )?;
-    assert_unsupported_ts(
-        &errors,
-        "module-level mutable binding initializer must be a literal for now",
-    )
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
 }
 
 #[test]

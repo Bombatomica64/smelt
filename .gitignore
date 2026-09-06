@@ -167,3 +167,27 @@ examples/typescript/express_crud/todos.db
 !blocker-logs/standards-tier-plan.md
 !blocker-logs/standards-tier-progress.md
 !blocker-logs/hono-campaign-plan.md
+
+# Hono probe checkout (see .github/compat/libraries.json for the pinned ref)
+third_party/hono/
+
+# Hono campaign per-family investigation reports
+!blocker-logs/hono-h1-private-method-calls.md
+!blocker-logs/hono-h2-regex-replacer-arguments.md
+!blocker-logs/hono-h3-tuple-element-types.md
+!blocker-logs/hono-h4-union-truthiness.md
+!blocker-logs/hono-h11-string-field-read.md
+!blocker-logs/hono-fetch-demand.md
+!blocker-logs/hono-h10-uri-and-base64-globals.md
+!blocker-logs/hono-h12-const-alias-callee.md
+!blocker-logs/hono-scope.md
+!blocker-logs/hono-h6-module-mutable-globals.md
+!blocker-logs/hono-h5-h8-h9-not-mine.md
+!blocker-logs/hono-current.md
+
+# private cargo target dir for generated-crate gates run locally
+/target-gen-priv/
+# saved smelt binary used while a target dir is cleaned
+/smelt-bin
+# Hono probe checkout is cloned by CI and locally, never tracked
+third_party/hono

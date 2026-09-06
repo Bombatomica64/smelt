@@ -150,7 +150,7 @@ pub(crate) struct EmitContext {
     /// Whether emitted native tests must isolate virtual timer runtime state.
     needs_timer_helpers: bool,
     /// Rust function names keyed by MIR function ID.
-    function_names: HashMap<FuncId, String>,
+    pub(crate) function_names: HashMap<FuncId, String>,
     /// Emitted parameter types keyed by Rust function name.
     function_param_types: HashMap<String, Vec<TypeId>>,
     /// Emitted return types keyed by Rust function name.

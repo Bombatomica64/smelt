@@ -619,6 +619,17 @@ impl FunctionEmitter<'_> {
                 {
                     return self.type_id(Type::Float);
                 }
+                // Likewise for a `String` base: `place::field_read_text` routes
+                // it to `string_field_text`, which renders `.length` as a
+                // character count and `.source` as a `String`. Reporting
+                // `Unknown` here made callers coerce an ALREADY concrete
+                // expression as if it were erased -- a `${s.length}`
+                // interpolation ran the `SmeltUnknown` ToString match over an
+                // `i64` and did not compile. `string_field_read` decides the
+                // text and the type together; ask it for the type.
+                if matches!(self.mir.types.get(base_ty), Some(Type::String)) {
+                    return Ok(self.string_field_read("", *field)?.1);
+                }
                 if let Some((_, descriptor)) = self.descriptor_for_field(base_ty, *field) {
                     return Ok(descriptor.read_ty);
                 }

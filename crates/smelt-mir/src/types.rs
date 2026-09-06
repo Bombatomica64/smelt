@@ -65,10 +65,25 @@ pub struct Mir {
 pub struct MirGlobal {
     /// The binding's name symbol.
     pub name: Symbol,
-    /// The binding's primitive type (Float, Int, Bool, or String in V1).
+    /// The binding's type.
     pub ty: TypeId,
-    /// The binding's literal initializer.
-    pub init: Constant,
+    /// How the binding's initial value is produced.
+    pub init: MirGlobalInit,
+}
+
+/// How a mutable global's cell is initialized in generated Rust.
+///
+/// A `thread_local!` initializer is an arbitrary Rust expression evaluated once
+/// per thread on first access, so both forms below are legal there; the split
+/// only records whether the value is a constant or has to be computed.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum MirGlobalInit {
+    /// A constant, emitted inline (and inside a `const` block where the type
+    /// allows it).
+    Constant(Constant),
+    /// A call to the synthesized nullary initializer function the frontend
+    /// built from the binding's initializer expression.
+    Call(FuncId),
 }
 
 impl Mir {
@@ -923,10 +938,14 @@ pub enum Rvalue {
         /// String compared against the receiver.
         right: Operand,
     },
-    /// Percent-encode a string per JavaScript `encodeURI` (the full-URI
-    /// character set; see the runtime `smelt_encode_uri` helper).
-    UriEncode {
-        /// String operand to encode.
+    /// One of the four ECMA-262 URI transcoding globals (`encodeURI`,
+    /// `encodeURIComponent`, `decodeURI`, `decodeURIComponent`); see
+    /// `smelt_hir::UriTranscodeOp` and the `smelt_encode_uri*` /
+    /// `smelt_decode_uri*` runtime helpers.
+    UriTranscode {
+        /// Which of the four globals this is.
+        op: smelt_hir::UriTranscodeOp,
+        /// String operand to transcode.
         operand: Operand,
     },
     /// Resolve the JavaScript `Object.prototype.toString.call(x)` tag
@@ -1044,6 +1063,11 @@ pub enum Rvalue {
         haystack: Operand,
         /// Callback receiving the matched text and returning replacement text.
         callback: Operand,
+        /// The ECMA-262 replacer arguments the callback declared, in order —
+        /// `(matched, p1, …, pN, position, string)` truncated to its arity.
+        /// Resolved in the frontend, where the pattern's capture-group count is
+        /// known, so the emitter only has to render each role.
+        args: Vec<smelt_hir::RegexReplaceArg>,
     },
     /// Replace the first regex match with its uppercase text.
     RegexReplaceFirstMatchUppercase {

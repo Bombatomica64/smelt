@@ -29,6 +29,71 @@ class Counter {
 }
 
 #[test]
+fn lowers_private_class_method_call() -> Result<(), String> {
+    // `this.#bump(by)` is a member CALL whose property is a private name. The
+    // call dispatch used to match only `StaticMemberExpression` callees, so a
+    // private method call fell through every arm and reported "call expression
+    // is not lowered yet" — even though the private FIELD read on the line
+    // above it lowered fine. Both spellings now share one member-call path.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+class Counter {
+  #count: number = 0;
+  #bump(by: number): number {
+    this.#count = this.#count + by;
+    return this.#count;
+  }
+  add(by: number): number {
+    return this.#bump(by);
+  }
+}
+
+export const run = (): number => new Counter().add(3);
+"),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_private_class_method_call_on_another_instance() -> Result<(), String> {
+    // ES private names are class-scoped, not instance-scoped: a method may call
+    // a private method on ANY instance of its own class, not only on `this`.
+    // Hono's trie router does exactly this (`nextNode.#children`), so the
+    // receiver of a private call must be an ordinary lowered expression rather
+    // than an implicit `this`.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+class Node {
+  #depth: number = 0;
+  #deeper(): number {
+    return this.#depth + 1;
+  }
+  compare(other: Node): number {
+    // `other.#depth` is also a private read in ARGUMENT position, which the
+    // argument lowering rejected separately from the call itself.
+    return other.#deeper() + this.#atLeast(other.#depth);
+  }
+
+  #atLeast(value: number): number {
+    return value < 0 ? 0 : value;
+  }
+}
+
+export const run = (): number => new Node().compare(new Node());
+"),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_this_parameter_function_type() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

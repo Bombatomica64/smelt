@@ -1,0 +1,50 @@
+[project]
+name = "hono"
+version = "0.0.0"
+description = "Hono Smelt probe"
+
+[sources]
+roots = ["src"]
+entries = ["src/index.ts"]
+test-prefix = ["src/**/*.test.ts"]
+# Excludes are justified one line at a time: each entry names the host surface
+# or language feature Smelt's non-DOM Node profile deliberately does not model.
+# Remove an entry once Smelt models what it names — never to make a build pass.
+#
+# The list is short on purpose. The campaign started from the whole of `src/`
+# and `smelt check --message-format json` was used to decide what actually
+# cannot be in the profile, rather than assuming the obvious candidates: with
+# host globals modeled as erased value closures, `src/adapter/**` (Deno, Bun,
+# awslambda, WebSocketPair), `src/jsx/**` and `src/helper/{html,css,ssg}` all
+# lower today and are NOT excluded. Only the entries below actually block.
+# NOTE on `src/client/**`: its RPC client is built on
+# `new Proxy(() => {}, { get })` for dynamic member dispatch (resolving
+# `client.posts.$get` by intercepting property reads), which is a Smelt
+# non-goal, and it also brings `ConstructorParameters<typeof WebSocket>` as a
+# rest-parameter type. It CANNOT be excluded here: `[sources] exclude` prunes
+# only ROOT paths (entries plus the `test-prefix` globs) before the dependency
+# closure is built, and `src/client/{index,client,types,utils}.ts` are reached
+# transitively — `src/index.ts` re-exports its types and
+# `src/helper/testing/index.ts` imports its `hc` value. Only its two leaf test
+# files can be dropped. See blocker-logs/hono-scope.md.
+exclude = [
+  # `vi.stubGlobal` (a monkey-patching model Smelt does not have) plus the
+  # `new Proxy` client under test; leaf test files, so droppable.
+  "src/client/client.test.ts",
+  "src/client/utils.test.ts",
+]
+
+[output]
+target = "./dist-smelt"
+crate-name = "hono_probe"
+build = false
+
+[rust]
+edition = "2024"
+
+[strict]
+typescript = true
+python = true
+
+[runtime]
+clone-strategy = "aggressive"

@@ -134,7 +134,7 @@ impl LoweringCtx<'_> {
             | ExprKind::PrimitiveCast { .. }
             | ExprKind::StringCase { .. }
             | ExprKind::StringNormalize { .. }
-            | ExprKind::UriEncode { .. }
+            | ExprKind::UriTranscode { .. }
             | ExprKind::ObjectToStringTag { .. }
             | ExprKind::StructuredClone { .. }
             | ExprKind::StringTrim { .. }

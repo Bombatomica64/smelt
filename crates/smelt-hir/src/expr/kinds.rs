@@ -1,10 +1,11 @@
 use super::{
     AsyncOp, BinOp, BoolFoldOp, ClosureExpr, DatePart, DictProjectionOp,
     ListCallbackOp, ListProjectionOp, ListSearchOp, Literal, NumericExtremaOp, NumericPredicateOp,
-    NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp, RegexMatchOp, SetBinaryOp,
+    NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp, RegexMatchOp, RegexReplaceArg,
+    SetBinaryOp,
     SetProjectionOp, SetRelationOp, SetRemoveOp, StringAffixOp, StringCaseOp, StringNormalizeForm,
     StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, UnaryOp,
-    HeadersOp as HeadersOpKind, UnknownKind, UrlField,
+    HeadersOp as HeadersOpKind, UnknownKind, UriTranscodeOp, UrlField,
     UrlSearchParamsOp as UrlSearchParamsOpKind,
 };
 use crate::ids::{BlockId, BodyId, ExprId, ItemId, LocalId, Symbol, TypeId};
@@ -256,10 +257,13 @@ pub enum ExprKind {
         form: StringNormalizeForm,
         operand: ExprId,
     },
-    /// JavaScript `encodeURI(operand)`: percent-encode the string, leaving the
-    /// URI-reserved and unreserved characters of the `encodeURI` character set
-    /// intact (see the runtime `smelt_encode_uri` helper for the exact set).
-    UriEncode {
+    /// One of the four ECMA-262 URI transcoding globals applied to `operand`:
+    /// `encodeURI`, `encodeURIComponent`, `decodeURI`, `decodeURIComponent`.
+    /// `op` carries which; see [`UriTranscodeOp`] for why one node covers all
+    /// four, and the `smelt_encode_uri*` / `smelt_decode_uri*` runtime helpers
+    /// for the exact character sets.
+    UriTranscode {
+        op: UriTranscodeOp,
         operand: ExprId,
     },
     /// JavaScript `Object.prototype.toString.call(operand)`: the classic
@@ -338,6 +342,10 @@ pub enum ExprKind {
         pattern: ExprId,
         haystack: ExprId,
         callback: ExprId,
+        /// The ECMA-262 replacer arguments the callback declared, in order.
+        /// Resolved in the frontend from the pattern's capture-group count and
+        /// the callback's arity; see [`RegexReplaceArg`].
+        args: Vec<RegexReplaceArg>,
     },
     RegexReplaceFirstMatchUppercase {
         pattern: ExprId,

@@ -964,7 +964,7 @@ fn rewrite_rvalue(
         | Rvalue::NumericUnaryFunc { operand, .. }
         | Rvalue::StringCase { operand, .. }
         | Rvalue::StringNormalize { operand, .. }
-        | Rvalue::UriEncode { operand }
+        | Rvalue::UriTranscode { operand, .. }
         | Rvalue::ObjectToStringTag { operand }
         | Rvalue::StructuredClone { operand }
         | Rvalue::StringTrim { operand, .. }

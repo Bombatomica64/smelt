@@ -622,18 +622,22 @@ impl ModuleBuilder<'_> {
             // the same transparent result, and `typeof Proxy === 'function'`
             // holds because the value is a real function.
             "Proxy" => self.transparent_proxy_value_closure_expression(span, outer_body),
-            // `encodeURI` used as a value (`values.map(encodeURI)`, a native-
-            // function table entry). The closure runs the same IR op as the
-            // direct-call lowering (`uri_encode_call`), with a concrete `string`
-            // parameter so the percent-encoding runs on the real string.
-            "encodeURI" => {
+            // A URI transcoding global used as a VALUE rather than called:
+            // `values.map(encodeURI)`, `tryDecode(str, decodeURI)` (Hono's
+            // `utils/url.ts`), a native-function table entry. The closure runs
+            // the same IR op as the direct-call lowering (`uri_encode_call`),
+            // with a concrete `string` parameter so the transcoding runs on the
+            // real string instead of an erased value.
+            "encodeURI" | "encodeURIComponent" | "decodeURI" | "decodeURIComponent" => {
+                let op = Self::uri_transcode_global(name)?;
                 let string_ty = self.ctx.krate.types.intern(Type::String);
                 self.builtin_unary_closure_expression(
                     string_ty,
                     string_ty,
                     span,
                     outer_body,
-                    |value_expr| ExprKind::UriEncode {
+                    |value_expr| ExprKind::UriTranscode {
+                        op,
                         operand: value_expr,
                     },
                 )
