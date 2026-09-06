@@ -17,7 +17,7 @@ Milestone 0: `blocker-logs/express-v1-baseline.md`.
 | 4 `Request` / `Response` / `fetch` upgrade | **not landed** — needs the body model in section 3 below |
 | 4 `TextEncoder`/`TextDecoder`, `FormData`, `ReadableStream`, `AbortController`, `crypto` | not landed |
 | 4 `Blob`/`File` upgrade (`text()`, `arrayBuffer()`, `slice`) | not landed |
-| 5 `node:http` on hyper | **not landed** — declared as a blocker instead (honest today, section 5 below) |
+| 5 `node:http` on hyper | **not landed** — declared as a blocker; the runtime-flavor and body-model questions are now decided (section 5) |
 
 `smelt probe` on `examples/typescript/express_crud` reports **3 blockers** in 3
 of 6 files — two `unresolved package \`express\`` (`app.ts`, `todos/routes.ts`)
@@ -195,37 +195,60 @@ intended cost: `third_party/strapi` has no `Smelt.toml`, and `third_party/nest`
 is a checkout of Smelt itself rather than NestJS. `express_crud` is the only
 framework program with a fixture, and its count is the table above.
 
-## 5. Why `node:http` is a declared blocker rather than hyper
+## 5. `node:http`: still declared, but the two open questions are now closed
 
-
-Section 5 needs three things that do not exist yet:
-
-1. **The body model** (section 3) — `IncomingMessage` shares it with `Request`,
-   and the plan is explicit that they must be one model.
-2. **`node:events`** — `IncomingMessage.on('data')` / `on('end')` is an
-   `EventEmitter`, which is declared in the registry and unimplemented. Async
-   iteration over the request body is the modern spelling and needs the stream
-   half of the body model.
-3. **A server lifetime in the emitted `main`** — `createServer(handler)` is
-   `service_fn` and `listen(port)` is an awaited server future inside the
-   already-emitted `#[tokio::main]`; the handler closure has to become a
-   `'static` service, which is a new shape for closure emission (today closures
-   are `Rc<dyn Fn>` in a single-threaded runtime, and hyper's `service_fn` wants
-   a future per call).
-
-Item 3 is the real unknown and deserves its own investigation before code: the
-generated runtime is deliberately single-threaded `Rc`-based, so the server must
-run on a current-thread runtime (`#[tokio::main(flavor = "current_thread")]`)
-for a handler closure to be usable at all. That is a decision about the emitted
-runtime, not a detail of `node:http`.
-
-Until then the surface is declared in the registry and using it is a named
-blocker, which is the honest state: `blocker-logs/express-v1-baseline.md`
+The surface is still a named blocker (`blocker-logs/express-v1-baseline.md`
 recorded a Koa-style `http.createServer` module that lowered silently to
-nothing, and that module is now a reported diagnostic (see
-`qualified_node_http_server_factory_reports_the_unimplemented_surface`).
+nothing; it is now a reported diagnostic — see
+`qualified_node_http_server_factory_reports_the_unimplemented_surface`). What
+changed is that the two things that had to be decided before code are decided.
+
+### Decided: the server runs on a current-thread runtime
+
+The generated runtime is deliberately single-threaded and `Rc`-based, and Node
+is single-threaded too, so a program that uses `node:http` emits
+`#[tokio::main(flavor = "current_thread")]`, runs the accept loop inside a
+`tokio::task::LocalSet`, and `spawn_local`s each connection's
+`hyper::server::conn::http1::Builder::serve_connection(io, service_fn(..))`.
+Handler closures stay `Rc<dyn Fn>`; the service closure clones the `Rc` per call
+and returns a `Pin<Box<dyn Future<Output = Result<Response<..>, Infallible>>>>`,
+so no `Send` bound is needed under `spawn_local`. A program with no server keeps
+today's `#[tokio::main]`. This belongs in a comment at the emit site.
+
+### Decided: the body model, and one thing it forces
+
+`SmeltBody` is the piece `Request`, `Response` and `IncomingMessage` share:
+
+```
+enum SmeltBodyPayload { Empty, Bytes(Vec<u8>), Stream(Vec<Vec<u8>>) }
+struct SmeltBody { id: usize, payload: Rc<RefCell<SmeltBodyPayload>>, used: Rc<Cell<bool>> }
+```
+
+`Rc<Cell<bool>>` beside the payload rather than a moved-out value, because the
+spec's `bodyUsed` is observable through *every* handle: two variables holding
+the same response see one another's consumption. `take_bytes` sets it and a
+second call is the spec's `TypeError`; `peek_bytes` is the non-reader path for
+equality, `Debug` and `Response.clone()` (which the spec gives its own unread
+body, so it is `tee()` — a payload copy with a fresh flag — not Rust's `Clone`,
+which is the handle copy). Readers are `Future<T>` in HIR, which the existing
+`AsyncOp`/`SmeltFuture` machinery already carries, so a body reader is an
+ordinary awaited call rather than new machinery. `json()` is `Future<Unknown>`
+and that erasure is genuine (a JSON boundary) — the one place in these types
+where a tagged value is correct, to be spelled as such at the emit site.
+
+The thing it forces, found while drafting the prelude: **the double-read
+`TypeError` cannot be unconditionally branded.** The error channel is
+`Box<dyn std::error::Error>` and a branded JS error is
+`smelt_throw(error_payload_record_expr("TypeError", ..))`, which is a
+`SmeltUnknown::Object` — but `SmeltUnknown` is gated on `needs_unknown`, and a
+crate doing `new Response("hi").text()` need not carry the erased carrier at
+all. So the body emitter takes `needs_unknown`: with the carrier, the throw is
+the branded record and a source `catch` sees `error.name === "TypeError"`;
+without it, the same failure is a message-only error on the same channel, which
+is consistent because such a crate has no erased values to inspect.
 
 ## 6. `console.log` of an optional: fixed, and what it cost
+
 
 `console.log` of an `Optional<T>` printed Rust's `Some("ada")` / `None`. Node
 prints `ada` / `undefined`. Two committed end-to-end fixtures had that Rust
