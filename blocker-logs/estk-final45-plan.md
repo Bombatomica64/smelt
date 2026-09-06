@@ -21,6 +21,51 @@ no longer true of the emitter.
 | --- | --- |
 | `at should return undefined for non-integer indices` | `at<T>(arr: readonly T[], indices): T[]` — an out-of-range `arr[i]` read yields `Default::default()` for a concrete `T` (`String::new()`), `Undefined` only for erased `T`. Honest fix is `noUncheckedIndexedAccess`-style typing of unproven index reads as `Optional<T>` (L, cross-cutting). Not started in this pass. |
 
+## Deferred, needs a decision (2 type-system families + 1 evaluation family)
+
+### D1 `Type::Null` — `null` and `undefined` are two values with one type (`mergeWith`)
+`null | undefined | void` all lower to `Type::None`, so a callback returning `null` in one branch
+and `undefined` in another has a unit return type and the adapter materializes `Undefined`.
+Fix: a distinct `Type::Null` (or `NormalizeOptions::preserve_observable_absence` on the canonical
+form), `StaticType` split to match, `last_return_type` seeing two `TypeId`s. Also retires three
+interim shapes this campaign shipped: the `String::new()` absence default in erased→`String`
+extraction (zip), the void-adapter shortcut in `core.rs`, and the `Optional`-widening Batch C
+declined. Size L. Rows: `mergeWith should respect null returned from customizer`.
+
+### D2 Unchecked index reads are `Optional<T>` (`at`)
+`arr[i]` on `List<T>` with an unproven index is typed `T` and a miss substitutes
+`Default::default()` for a concrete `T` (`String::new()`), `Undefined` only for an erased `T`; the
+answer is decided by how the caller spelled its array. Fix: TypeScript's
+`noUncheckedIndexedAccess` rule in HIR/MIR (`Place::Index` read is `Optional(T)` unless the index
+is provably in range; flow narrowing recovers `T`; a stored possibly-absent read widens the
+destination element type). Size L, touches every list read. Rows: `at should return undefined for
+non-integer indices`.
+
+### D3 Constant-source evaluation in a tagged realm (`isPlainObject` cross-realm)
+`runInNewContext('({})')` is not concurrency (it runs synchronously on the caller's thread and
+heap; a fork or green thread would isolate the wrong thing) but a second set of intrinsics plus
+evaluation of a source string. Two general rules, both without an interpreter:
+1. **A constant source string handed to an evaluator is a compile-time program.** When the
+   argument to `vm.runInNewContext` / `vm.runInThisContext` / `new vm.Script` / `new Function` /
+   `eval` is a string literal (or folds to one), transpile the literal as a nested expression at
+   compile time — Smelt already is the compiler for it. A runtime string stays a named blocker
+   (`SmeltError` at the call site), never a fabricated `null`.
+2. **A realm is a tag on the intrinsics.** `Object.prototype` is the sentinel `__smelt_proto:object`;
+   a value minted inside a new context carries `__smelt_proto:object@r<N>` (same for the array,
+   function and promise sentinels), so `proto === Object.prototype` is false for a foreign object
+   while `Object.getPrototypeOf(proto)` still answers `null` and `smelt_object_to_string_tag`
+   (which looks at shape, not realm) keeps answering `[object Object]`. The prototype-chain
+   helpers Batches P and T consolidated (`smelt_prototype_sentinel`, `smelt_proto_accessor`,
+   `smelt_instance_of_value`) compare the tagged sentinel, so cross-realm `instanceof` is false as
+   in JavaScript.
+   Regression tests: `isPlainObject(runInNewContext('({})'))`, `runInNewContext('[]') instanceof
+   Array === false`, `Object.getPrototypeOf(runInNewContext('({})')) !== Object.prototype`, and a
+   runtime-string call producing the named blocker. Size M. Rows: `isPlainObject should return
+   true for cross-realm plain objects`.
+
+`isBrowser` stays out of scope (see `estk-final45-host-gaps.md`): it asks whether a DOM exists, and
+the profile is non-DOM by construction.
+
 ## Root families → implementation batches
 
 Two builders run at a time (CLAUDE.md cargo cap). Each batch is one Opus agent in its own

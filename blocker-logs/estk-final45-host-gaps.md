@@ -91,7 +91,11 @@ object's prototype is a foreign `Object.prototype`, so the test is checking that
 walks one more level and finds `null`.
 
 In generated Rust there is exactly one `Object.prototype` (the `__smelt_proto:object` sentinel)
-and no interpreter. Passing this row would require embedding a JS engine with realm isolation.
+and no interpreter. This is NOT a concurrency question: `vm` contexts run synchronously on the
+caller's thread and heap, so a fork or green thread would isolate the wrong thing. It is now
+scoped as deferred family D3 in `estk-final45-plan.md`: a constant source string handed to an
+evaluator is a compile-time program, and a realm is a tag on the intrinsic sentinels. Only a
+runtime source string genuinely needs an embedded engine.
 The other eleven `isPlainObject` cases pass, including the same-realm `Object.create({})` chain
 walk that Batch T fixed, so the predicate itself is fully modeled.
 
