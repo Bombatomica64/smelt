@@ -5,6 +5,33 @@ Runs in parallel with `blocker-logs/standards-tier-plan.md` (the "standards stre
 
 ---
 
+## PROGRESS LOG — round 3
+
+Probe: **258 files / 6 with blockers / 8 occurrences / 6 shapes**
+    -> **258 files / 5 with blockers / 7 occurrences / 4 shapes**,
+and **every one of the 7 is standards-stream**. Nothing in Hono is left for
+this stream until `Request`/`Response` land.
+
+| item | status |
+| --- | --- |
+| 1. H6 via `Place::Global` | **landed.** One new `Place` variant naming the cell as the assignment root, so a write through a module-level mutable global mutates inside the cell with no copy. The compiler enumerated 17 sites in `smelt-mir` and 15 in `smelt-codegen-rust`; each got a decision, not a `_` arm. 7 runtime fixtures including the `RefCell` double-borrow shape. `blocker-logs/hono-h6-place-global.md`. |
+| 2. fallible decoders | **not started.** Design still stands in `hono-fallible-ops.md`. |
+| 3. masked `hono-base.ts` blockers | **landed**, and it was two, not one: a stub default for a `never`/union/`Set`/tuple return type (with the fallthrough now naming the type), and `let x;` inside an inlined callback defaulting to `undefined` as JavaScript and MIR's own `HirStmt::Let` lowering already say. `hono-base.ts` is clean. |
+| 4. two pre-existing bugs | **(b) reproduced exactly, not fixed; (a) does not reproduce as described.** `blocker-logs/hono-round3-item4-findings.md` carries the source I ran and the emitted Rust for both. (a) needs the original repro before anything is changed. |
+| 5. re-probe per merge | done above. |
+
+### Method note carried from the round-2 correction
+
+The radash "regression" I reported in round 2 did not reproduce; it came from a
+gate run observed while the disk was full and the generated crate was stale. The
+rule adopted for this round, and followed: **regenerate from clean and rebuild
+before attributing a gate failure to anyone, or say "unverified" and stop.**
+Item 4(a) above is that rule being applied — the reproduction attempt is
+recorded, the conclusion is "not reproduced with this source", and no fix was
+made on the strength of a description.
+
+---
+
 ## PROGRESS LOG — round 2
 
 Probe on the merged head: **286 files / 10 with blockers / 18 occurrences / 7
