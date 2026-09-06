@@ -83,6 +83,14 @@ pub struct Module {
     pub items: Vec<ItemId>,
     /// Optional module-level body.
     pub body: Option<BodyId>,
+    /// Whether the module body needs the async runtime.
+    ///
+    /// True when top-level code awaits, or when it starts work the event loop
+    /// has to finish before the program exits (a floating promise, a timer).
+    /// The module body becomes the emitted `main`, so this is what makes that
+    /// `main` an `async fn` with a drain at the end rather than a synchronous
+    /// function that returns while work is still queued.
+    pub is_async: bool,
 }
 
 impl Module {
@@ -93,6 +101,7 @@ impl Module {
             id: ModuleId(u32::MAX),
             name: name.into(),
             source,
+            is_async: false,
             imports: Vec::new(),
             items: Vec::new(),
             body: None,

@@ -30,6 +30,19 @@ pub fn validate(krate: &Crate) -> Vec<ValidationError> {
             *slot = function.is_async;
         }
     }
+    // A MODULE body can be async too: top-level code is the program's entry
+    // point, and ES modules have had top-level `await` since ES2022. Only
+    // function items were considered here, so an awaiting module body was
+    // reported as "await outside an async function" -- which was also the
+    // reason top-level await could not lower at all.
+    for module in &krate.modules {
+        if module.is_async
+            && let Some(body) = module.body
+            && let Some(slot) = async_bodies.get_mut(body.0 as usize)
+        {
+            *slot = true;
+        }
+    }
     for (item_idx, item) in krate.items.iter().enumerate() {
         let crate::Item::Class(class) = item else {
             continue;

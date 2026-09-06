@@ -1,0 +1,40 @@
+async fn greet (FuncId(0)) -> String
+  locals
+    %0 param name: String
+    %1 temp: String
+  bb0:
+    %1 = "hello " + copy %0
+    return move %1
+
+async fn later (FuncId(1)) -> None
+  locals
+    %0 user message: String
+    %1 temp: Future<String>
+    %2 temp: String
+    %3 temp: None
+  bb0:
+    %1 = call fn0("queued") -> bb1
+  bb1:
+    %2 = await move %1
+    %0 = move %2
+    %3 = call @console_log(move %0) -> bb2
+  bb2:
+    return none
+
+async fn main (FuncId(2)) -> None throws
+  locals
+    %0 temp: Future<None>
+    %1 temp: None
+    %2 temp: None
+    %3 temp: Future<None>
+    %4 temp: None
+  bb0:
+    %0 = call fn1() -> bb1
+  bb1:
+    %1 = async_spawn_local(move %0)
+    %2 = call @console_log("sync tail") -> bb2
+  bb2:
+    %3 = async_sleep(0.0)
+    %4 = await move %3
+    return none
+

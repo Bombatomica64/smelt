@@ -19,6 +19,8 @@ Milestone 0: `blocker-logs/express-v1-baseline.md`.
 | 4 typed non-literal `ResponseInit`/`RequestInit` | landed (section 3) |
 | 4 `Request` as an init, generic + qualified inits, `BodyInit` union | landed (section 3) |
 | `JSON.stringify` fidelity (host objects, numbers, key order, `undefined`) | landed (section 3) |
+| top-level `await` + floating-promise drain | landed, two fixtures (section 3) |
+| `instanceof` against an identity-only host object | landed |
 | 4 `fetch` upgrade to return a `Response` | landed, runtime tier against a real socket (section 3) |
 | 4 `TextEncoder`/`TextDecoder`, `FormData`, `ReadableStream`, `AbortController`, `crypto` | not landed |
 | 4 `Blob`/`File` upgrade (`text()`, `arrayBuffer()`, `slice`) | not landed |
@@ -365,6 +367,55 @@ counts as JSON-serializable at all, which is what let the `BodyInit` union
 through. Numbers use the JavaScript number-to-string algorithm (integral values
 without a fraction, `-0` as `0`, non-finite as `null`), and an `undefined`
 property is omitted while `undefined` inside an *array* stays `null`.
+
+### Top-level program lifetime
+
+Two gaps recorded in earlier rounds, both fixed, and they turn out to be the
+same missing fact: **the module body is the program's entry point, so it may
+need the event loop.**
+
+* **Top-level `await` did not lower** ("await expressions are only lowered
+  inside async functions"). ES modules have had it since ES2022 and Node runs
+  it; the module body was simply never treated as async.
+* **A floating top-level promise was never driven.** `later();` on an async
+  function emitted a spawn onto the promise queue and `main` returned, so the
+  work was silently discarded — the program printed only its synchronous lines.
+  JavaScript does not exit while work is queued.
+
+`Module` carries an `is_async` flag, set when the lowered body awaits, performs
+an async op, or produces a value of future type — the last being what catches a
+floating promise, since nothing awaits it. That flag makes the emitted `main` a
+`#[tokio::main] async fn`.
+
+**The exit drain is lowered as the body's last statement, not wrapped around the
+emitted `main`.** Running the loop to idle before exiting is part of what the
+program does, so it belongs in the program. Two things fall out of that, and the
+first attempt (a codegen wrapper) got both wrong:
+
+* it composes with the body's own `return`, instead of a wrapper having to hide
+  that return inside a block so the drain is not skipped;
+* it is an ordinary awaited op, so the throwing analysis sees it like any other.
+
+The throwing analysis needed one narrow addition. A statement-form `await`
+emits `future.await?`, but only the *terminator* form was counted as throwing —
+so an async `main` emitted `?` and `return Ok(())` in a body whose signature
+said it could not throw. Widening the analysis to every statement-form await
+fixed that and **raised es-toolkit's avoidable erasure by 23**: 23 async bodies
+became throwing, and their result bindings changed from `SmeltUnknown` to
+`Result<SmeltUnknown, _>`. The narrow fix is right instead — the entry point is
+the one function whose signature is decided at that lowering site, so it is
+marked there, and the ratchet stayed at +0.
+
+Fixtures `35_top_level_await` and `36_floating_promise_drained`, both diffed
+against Node 22.
+
+**Known gap.** An async function's *synchronous prefix* runs at the call in
+JavaScript, so a floating `shout()` whose body has no `await` prints before the
+caller's next line; Smelt defers the whole body to the drain and prints it
+after. The machinery exists (`SmeltFuture::from_future_primed`, already used
+for async method bodies) but the floating-call path does not use it.
+`36_floating_promise_drained` therefore uses a body that awaits, where the two
+agree exactly.
 
 ## 4. M0.1's second half, now on
 

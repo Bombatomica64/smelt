@@ -1,0 +1,77 @@
+async fn greet (FuncId(0)) -> String
+  locals
+    %0 param name: String
+    %1 temp: String
+  bb0:
+    %1 = "hello " + copy %0
+    return move %1
+
+async fn sum (FuncId(1)) -> Float
+  locals
+    %0 param values: List<Float>
+    %1 user total: Float
+    %2 user value: Float
+    %3 temp: Float
+    %4 temp: Float
+    %5 temp: Bool
+    %6 temp: Float
+  bb0:
+    %1 = 0.0
+    %3 = 0.0
+    goto bb1
+  bb1:
+    %4 = len copy %0
+    %5 = copy %3 < move %4
+    switch move %5 ? bb2 : bb4
+  bb2:
+    %2 = copy %0[copy %3]
+    %6 = move %1 + move %2
+    %1 = move %6
+    goto bb3
+  bb3:
+    %3 = copy %3 + 1.0
+    goto bb1
+  bb4:
+    return move %1
+
+async fn main (FuncId(2)) -> None throws
+  locals
+    %0 user first: String
+    %1 user total: Float
+    %2 temp: Future<String>
+    %3 temp: String
+    %4 temp: None
+    %5 temp: List<Float>
+    %6 temp: Future<Float>
+    %7 temp: Float
+    %8 temp: None
+    %9 temp: Future<String>
+    %10 temp: String
+    %11 temp: Float
+    %12 temp: None
+    %13 temp: Future<None>
+    %14 temp: None
+  bb0:
+    %2 = call fn0("ada") -> bb1
+  bb1:
+    %3 = await move %2
+    %0 = move %3
+    %4 = call @console_log(move %0) -> bb2
+  bb2:
+    %5 = [1.0, 2.0, 3.0]
+    %6 = call fn1(move %5) -> bb3
+  bb3:
+    %7 = await move %6
+    %1 = move %7
+    %8 = call @console_log(move %1) -> bb4
+  bb4:
+    %9 = call fn0("grace") -> bb5
+  bb5:
+    %10 = await move %9
+    %11 = len move %10
+    %12 = call @console_log(move %11) -> bb6
+  bb6:
+    %13 = async_sleep(0.0)
+    %14 = await move %13
+    return none
+

@@ -566,12 +566,26 @@ fn lower_module_bodies(
             function_id,
             body_id,
             name,
+            // An async module body still RETURNS nothing: it is driven by the
+            // emitted `#[tokio::main]`, not awaited by a caller, so the return
+            // type stays `none` rather than being wrapped in a future. That
+            // also keeps the emitter's `main` recognition (which tests for a
+            // `none` return) working for both shapes.
             return_ty: helpers.none,
             owner: smelt_hir::FunctionOwner::Module,
-            is_async: false,
+            is_async: module.is_async,
         };
         match LoweringCtx::new(shared, spec, body).and_then(LoweringCtx::lower) {
-            Ok((function, closures)) => {
+            Ok((mut function, closures)) => {
+                // An async module body awaits, and a statement-form await is
+                // emitted as `future.await?` -- so the entry point's signature
+                // has to carry the error channel its own body uses. The
+                // throwing pass counts only the TERMINATOR form of await, which
+                // is right for ordinary functions (widening every awaiting
+                // function would change signatures across the crate for no
+                // gain) but leaves the one function whose signature is decided
+                // here unmarked.
+                function.can_throw = function.can_throw || function.is_async;
                 mir.closures.extend(closures);
                 mir.push_function(function);
             }

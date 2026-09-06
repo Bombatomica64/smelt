@@ -342,6 +342,17 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let span = self.span(program.span.start, program.span.end);
         let mut body = Body::new(None, span);
         let mut errors = Vec::new();
+        // Top-level code is the program's ENTRY POINT, so it may await: the
+        // module body becomes the emitted `main`, which is a
+        // `#[tokio::main] async fn` whenever it needs to be. Awaiting here was
+        // rejected outright ("await expressions are only lowered inside async
+        // functions"), which is not a rule any runtime has -- ES modules have
+        // had top-level await since ES2022 and Node runs it.
+        //
+        // Restored after the body so a nested non-async function still rejects
+        // `await` in its own body.
+        let previous_async = self.current_async;
+        self.current_async = true;
 
         let mut module = Module::new(
             "main",
@@ -685,9 +696,97 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
         self.record_module_exports(&module, &previous_export_aliases);
 
+        self.current_async = previous_async;
+        // The body needs the async runtime when it awaits, or when it starts
+        // work the event loop must finish before the program exits: a floating
+        // promise (`run();` on an async function, whose result nobody awaits)
+        // or a timer. Without this the emitted `main` returned while the work
+        // sat queued, and an async top-level program printed nothing at all.
+        module.is_async = self.body_needs_async_runtime(&body);
+        if module.is_async {
+            self.append_module_exit_drain(&mut body, span);
+            // Every async body carries its await-point metadata; the module
+            // body is no exception, and MIR rejects an async body without it.
+            body.build_async_state_machine();
+        }
         let body_id = self.ctx.krate.push_body(body);
         module.body = Some(body_id);
         Ok(self.ctx.krate.push_module(module))
+    }
+
+    /// Append the event-loop drain that runs before the program exits.
+    ///
+    /// JavaScript does not exit while work is queued: Node drains its microtask
+    /// queue and runs due timers, which is why a floating promise
+    /// (`run();` on an async function) still prints there. Smelt returned from
+    /// `main` immediately, so such a program printed NOTHING.
+    ///
+    /// The drain is `await sleep(0)` — the runtime's own run-until-idle entry,
+    /// which polls queued promise tasks and fires due timers until neither has
+    /// anything left. Lowering it as the body's last statement rather than
+    /// wrapping the emitted `main` keeps it part of what the program does: it
+    /// composes with the body's own return, and it is an ordinary awaited op,
+    /// so the throwing analysis treats it like any other and `main`'s signature
+    /// stays consistent with its body.
+    ///
+    /// A module body has no early `return` to skip it — `return` at module
+    /// scope is not legal TypeScript — so appending once at the end is enough.
+    fn append_module_exit_drain(&mut self, body: &mut Body, span: smelt_hir::Span) {
+        let float_ty = self.ctx.krate.types.intern(Type::Float);
+        let zero = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Float(0.0)),
+            ty: float_ty,
+            span,
+        });
+        let none_ty = self.ctx.krate.types.intern(Type::None);
+        let future_ty = self.ctx.krate.types.intern(Type::Future(none_ty));
+        let sleep = body.push_expr(Expr {
+            kind: ExprKind::AsyncOp {
+                op: smelt_hir::AsyncOp::Sleep,
+                args: vec![zero],
+            },
+            ty: future_ty,
+            span,
+        });
+        let awaited = body.push_expr(Expr {
+            kind: ExprKind::Await(sleep),
+            ty: none_ty,
+            span,
+        });
+        // `push_stmt` adds to the root block, which is the module body itself.
+        body.push_stmt(smelt_hir::Stmt::Expr(awaited));
+    }
+
+    /// Return whether a module body needs the async runtime.
+    ///
+    /// Three things put work on the event loop, and each means the entry point
+    /// cannot be a plain synchronous `fn main`:
+    ///
+    /// * an `await` -- the body suspends;
+    /// * a value of future type produced anywhere in it. A floating promise
+    ///   (`run();` where `run` is `async`) is exactly this: nothing awaits the
+    ///   future, so only a drain at exit can run it. Node drains its microtask
+    ///   queue before exiting, which is why the same program prints there;
+    /// * a timer, whose callback likewise runs on the loop.
+    ///
+    /// Deliberately a scan of the lowered body rather than a flag threaded
+    /// through every lowering path: the question is "did anything in here reach
+    /// the event loop", and a body that did cannot be missed by a scan of what
+    /// it actually produced.
+    fn body_needs_async_runtime(&self, body: &Body) -> bool {
+        body.exprs.iter().any(|expr| {
+            // An `AsyncOp` covers the timers (`Sleep`, `SetTimeout`) as well as
+            // the HTTP operations, so one arm answers for every op that reaches
+            // the loop directly.
+            if matches!(expr.kind, ExprKind::Await(_) | ExprKind::AsyncOp { .. }) {
+                return true;
+            }
+            // A value of FUTURE type anywhere in the body is a promise that
+            // something has to drive. The floating case is the one that was
+            // silently dropped: `run();` on an async function produces a future
+            // nobody awaits, and only a drain at exit runs it.
+            matches!(self.ctx.krate.types.get(expr.ty), Some(Type::Future(_)))
+        })
     }
 
     /// Record item exports lowered from the current source path.

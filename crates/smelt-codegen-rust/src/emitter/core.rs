@@ -155,6 +155,11 @@ impl<'mir> FunctionEmitter<'mir> {
             }
         }
         if !self.function.is_test && name == "main" && self.function.return_ty == self.none_ty {
+            // An async module body ends by running the event loop to idle, and
+            // that drain is lowered as the body's last statement rather than
+            // wrapped around it here -- see `module_init`'s
+            // `append_module_exit_drain`. So this emission stays the plain
+            // shape and the two cases differ only in the attribute.
             if self.function.can_throw {
                 if self.function.is_async {
                     out.push_str(

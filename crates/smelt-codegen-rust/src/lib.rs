@@ -468,6 +468,17 @@ fn needs_math_round(mir: &Mir) -> bool {
 /// synthesized closure body (e.g. the first-class `setTimeout` value form),
 /// and the prelude must still define the timer queue for it.
 fn needs_timer_helpers(mir: &Mir) -> bool {
+    // An async module body ends by running the event loop to idle, which is the
+    // timer helpers' own run-until-idle entry, so a program whose top level is
+    // async needs them even when it arms no timer of its own -- for instance a
+    // top-level `await fetch(..)`, whose op is not in the list below.
+    if mir.functions.iter().any(|function| {
+        function.is_async
+            && !function.is_test
+            && mir.symbols.get(function.name) == Some("main")
+    }) {
+        return true;
+    }
     stdlib::rvalues(mir).any(|value| {
         matches!(
             value,

@@ -1,0 +1,63 @@
+module examples/typescript/end-to-end/35_top_level_await/input.ts (ModuleId(0))
+  body BodyId(2)
+  items
+    fn greet owner Module
+    fn sum owner Module
+  locals
+    %0 const first: String
+    %1 const total: Float
+  exprs
+    #0: String = "ada"
+    #1: async fn(String) -> Future<String> = @0(greet)
+    #2: Future<String> = call #1(#0)
+    #3: String = await #2
+    #4: String = %0
+    #5: None = @2(console_log)
+    #6: None = call #5(#4)
+    #7: Float = 1.0
+    #8: Float = 2.0
+    #9: Float = 3.0
+    #10: List<Float> = [#7, #8, #9]
+    #11: async fn(List<Float>) -> Future<Float> = @1(sum)
+    #12: Future<Float> = call #11(#10)
+    #13: Float = await #12
+    #14: Float = %1
+    #15: None = @3(console_log)
+    #16: None = call #15(#14)
+    #17: String = "grace"
+    #18: async fn(String) -> Future<String> = @0(greet)
+    #19: Future<String> = call #18(#17)
+    #20: String = await #19
+    #21: Float = len #20
+    #22: None = @4(console_log)
+    #23: None = call #22(#21)
+    #24: Float = 0.0
+    #25: Future<None> = async_sleep(#24)
+    #26: None = await #25
+  stmts
+    s0: let %0: String = #3
+    s1: #6
+    s2: let %1: Float = #13
+    s3: #16
+    s4: #23
+    s5: #26
+  async state machine
+    states [state0, state1, state2, state3, state4]
+    suspend #3 on #2 -> state4
+    suspend #13 on #12 -> state14
+    suspend #20 on #19 -> state21
+    suspend #26 on #25 -> state27
+
+interned types
+  t0 = Unknown
+  t1 = String
+  t2 = Future<String>
+  t3 = async fn(String) -> Future<String>
+  t4 = Float
+  t5 = List<Float>
+  t6 = Future<Float>
+  t7 = async fn(List<Float>) -> Future<Float>
+  t8 = async fn(String) -> Future<String>
+  t9 = None
+  t10 = async fn(List<Float>) -> Future<Float>
+  t11 = Future<None>
