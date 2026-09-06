@@ -1,0 +1,96 @@
+class Holder fields [] constructor Some(FuncId(6)) methods [FuncId(0), FuncId(1), FuncId(2), FuncId(3), FuncId(4), FuncId(5)]
+
+fn __smelt_get___smelt_symbol_unique_symbol_813 (FuncId(0)) -> Float
+  locals
+    %0 param this: Holder
+  bb0:
+    return 41.0
+
+fn __smelt_symbol_unique_symbol_described_841 (FuncId(1)) -> Float
+  locals
+    %0 param this: Holder
+    %1 param offset: Float
+    %2 temp: Float
+  bb0:
+    %2 = 1.0 + copy %1
+    return move %2
+
+fn __smelt_symbol_for_shared (FuncId(2)) -> String
+  locals
+    %0 param this: Holder
+  bb0:
+    return "registry"
+
+fn __smelt_symbol_unique_symbol_same_914 (FuncId(3)) -> String
+  locals
+    %0 param this: Holder
+  bb0:
+    return "a"
+
+fn __smelt_symbol_unique_symbol_same_945 (FuncId(4)) -> String
+  locals
+    %0 param this: Holder
+  bb0:
+    return "b"
+
+fn plain (FuncId(5)) -> String
+  locals
+    %0 param this: Holder
+  bb0:
+    return "plain"
+
+fn new (FuncId(6)) -> Holder
+  locals
+    %0 user this: Holder
+  bb0:
+    %0 = struct0 {}
+    return move %0
+
+fn main (FuncId(7)) -> None throws
+  locals
+    %0 user match_result: Unknown
+    %1 user described: Unknown
+    %2 user shared: Unknown
+    %3 user same_a: Unknown
+    %4 user same_b: Unknown
+    %5 user holder: Holder
+    %6 temp: Holder
+    %7 temp: None
+    %8 temp: Float
+    %9 temp: None
+    %10 temp: String
+    %11 temp: None
+    %12 temp: String
+    %13 temp: String
+    %14 temp: String
+    %15 temp: None
+    %16 temp: String
+    %17 temp: None
+  bb0:
+    %0 = symbol("Symbol()@813")
+    %1 = symbol("Symbol(described)@841")
+    %2 = symbol("Symbol.for(shared)")
+    %3 = symbol("Symbol(same)@914")
+    %4 = symbol("Symbol(same)@945")
+    %6 = call fn6() -> bb1
+  bb1:
+    %5 = move %6
+    %7 = call @console_log(copy %5.field7) -> bb2
+  bb2:
+    %8 = closure_call copy %5.field2(1.0)
+    %9 = call @console_log(move %8) -> bb3
+  bb3:
+    %10 = closure_call copy %5.field3()
+    %11 = call @console_log(move %10) -> bb4
+  bb4:
+    %12 = closure_call copy %5.field4()
+    %13 = closure_call copy %5.field5()
+    %14 = move %12 + move %13
+    %15 = call @console_log(move %14) -> bb5
+  bb5:
+    %16 = call fn5(move %5) -> bb6
+  bb6:
+    %17 = call @console_log(move %16) -> bb7
+  bb7:
+    return none
+

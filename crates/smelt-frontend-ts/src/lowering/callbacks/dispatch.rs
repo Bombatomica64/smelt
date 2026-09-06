@@ -1432,6 +1432,21 @@ impl ModuleBuilder<'_> {
                     let return_ty = match member.property.name.as_str() {
                         "toString" => self.ctx.krate.types.intern(Type::String),
                         "match" => self.ctx.krate.types.intern(Type::Bool),
+                        // `String.prototype.startsWith`/`endsWith` and both
+                        // `includes` overloads (string and array) answer a
+                        // boolean in every JavaScript spelling, so the callback
+                        // expression is typed `Bool` here rather than falling to
+                        // `Unknown`. Without it the predicate's result slot was
+                        // erased while the expression that filled it stayed a
+                        // Rust `bool` -- the generated crate did not compile
+                        // (E0308) -- and once that was repaired at the boundary
+                        // the value still made an erase-then-truthiness round
+                        // trip for something statically boolean. This is the
+                        // upstream half; `callback_method_call_to_body_expr`
+                        // types the nodes themselves.
+                        "startsWith" | "endsWith" | "includes" => {
+                            self.ctx.krate.types.intern(Type::Bool)
+                        }
                         "has"
                             if matches!(
                                 self.ctx.krate.types.get(receiver.ty),

@@ -1,0 +1,119 @@
+class Cell fields [Public value: Float] constructor Some(FuncId(3)) methods []
+
+fn pick (FuncId(0)) -> Cell | Future<Cell>
+  locals
+    %0 param sync: Bool
+    %1 temp: Cell | Future<Cell>
+    %2 temp: Cell
+    %3 temp: Cell
+    %4 temp: Future<Cell>
+  bb0:
+    switch copy %0 ? bb1 : bb2
+  bb1:
+    %2 = call fn3(1.0) -> bb3
+  bb2:
+    %3 = call fn3(2.0) -> bb4
+  bb3:
+    %1 = move %2
+    goto bb5
+  bb4:
+    %4 = async_resolve(0.0, move %3)
+    %1 = move %4
+    goto bb5
+  bb5:
+    return move %1
+
+fn pick_number (FuncId(1)) -> Float | Future<Float>
+  locals
+    %0 param sync: Bool
+    %1 temp: Float | Future<Float>
+    %2 temp: Future<Float>
+  bb0:
+    switch copy %0 ? bb1 : bb2
+  bb1:
+    %1 = 10.0
+    goto bb3
+  bb2:
+    %2 = async_resolve(0.0, 20.0)
+    %1 = move %2
+    goto bb3
+  bb3:
+    return move %1
+
+async fn run (FuncId(2)) -> String
+  locals
+    %0 user direct: Cell
+    %1 user deferred: Cell
+    %2 user direct_number: Float
+    %3 user deferred_number: Float
+    %4 temp: Cell | Future<Cell>
+    %5 temp: Future<Cell>
+    %6 temp: Cell
+    %7 temp: Cell | Future<Cell>
+    %8 temp: Future<Cell>
+    %9 temp: Cell
+    %10 temp: Float | Future<Float>
+    %11 temp: Future<Float>
+    %12 temp: Float
+    %13 temp: Float | Future<Float>
+    %14 temp: Future<Float>
+    %15 temp: Float
+    %16 temp: Float
+    %17 temp: String
+    %18 temp: String
+    %19 temp: Float
+    %20 temp: String
+  bb0:
+    %4 = call fn0(true) -> bb1
+  bb1:
+    %5 = move %4
+    %6 = await move %5
+    %0 = move %6
+    %7 = call fn0(false) -> bb2
+  bb2:
+    %8 = move %7
+    %9 = await move %8
+    %1 = move %9
+    %10 = call fn1(true) -> bb3
+  bb3:
+    %11 = move %10
+    %12 = await move %11
+    %2 = move %12
+    %13 = call fn1(false) -> bb4
+  bb4:
+    %14 = move %13
+    %15 = await move %14
+    %3 = move %15
+    %16 = copy %0.field5 + copy %1.field5
+    %17 = "" + move %16
+    %18 = move %17 + "/"
+    %19 = move %2 + move %3
+    %20 = move %18 + move %19
+    return move %20
+
+fn new (FuncId(3)) -> Cell
+  locals
+    %0 user this: Cell
+    %1 param value: Float
+  bb0:
+    %0 = struct1 {}
+    %0.field5 = copy %1
+    return move %0
+
+async fn main (FuncId(4)) -> None throws
+  locals
+    %0 temp: Future<String>
+    %1 temp: String
+    %2 temp: None
+    %3 temp: Future<None>
+    %4 temp: None
+  bb0:
+    %0 = call fn2() -> bb1
+  bb1:
+    %1 = await move %0
+    %2 = call @console_log(move %1) -> bb2
+  bb2:
+    %3 = async_sleep(0.0)
+    %4 = await move %3
+    return none
+

@@ -594,9 +594,21 @@ fn classify_line(line: &str, in_prelude_helper: bool) -> Category {
 ///
 /// See [`classify_line`] rule 2 for the rationale behind each marker.
 fn is_legitimate_boundary_line(line: &str) -> bool {
-    const BOUNDARY_MARKERS: [&str; 19] = [
+    const BOUNDARY_MARKERS: [&str; 20] = [
         "SmeltUnknown::Function",
         "SmeltUnknown::Promise",
+        // A JavaScript SYMBOL value. `Symbol()` mints a value whose whole
+        // meaning is a unique runtime identity with no static counterpart:
+        // there is no struct, no generated union arm and no scoped generic that
+        // can carry "a fresh identity, distinct from every other", because the
+        // distinctness is a run-time property of the evaluation, not of a type.
+        // The symbol's use as a member KEY is a different thing and is static --
+        // a module-level `const K = Symbol()` folds to a synthetic member name
+        // and the read resolves to that member, with no erasure at all (see
+        // `computed_key_symbols::unique_symbol_key`). What stays erased is only
+        // the symbol as a first-class VALUE. Proven in
+        // `symbol_value_is_a_boundary` below.
+        "SmeltUnknown::Symbol",
         "IntoSmeltUnknown",
         "into_smelt_unknown",
         "to_smelt_unknown",
@@ -1050,6 +1062,29 @@ mod tests {
             classify_line(program_error, false),
             Category::AvoidableErasure,
             "an Error record built from program values keeps its classification"
+        );
+    }
+
+    /// A JavaScript symbol VALUE has no static counterpart; its use as a member
+    /// KEY has one and must stay unaffected.
+    #[test]
+    fn symbol_value_is_a_boundary() {
+        let symbol_value =
+            "    let key: SmeltUnknown = SmeltUnknown::Symbol(\"Symbol()@21\".to_owned().into());";
+        assert_eq!(
+            classify_line(symbol_value, false),
+            Category::LegitimateBoundary,
+            "a symbol's identity is a run-time property with no static carrier"
+        );
+        // The KEY side is static and carries no erasure at all: a module-level
+        // `const K = Symbol()` folds to a synthetic member name and the read is
+        // an ordinary field access. Nothing here should reclassify a line that
+        // merely mentions the folded name.
+        let member_read = "    let value: f64 = holder.__smelt_get___smelt_symbol_unique_symbol_21();";
+        assert_eq!(
+            count_occurrences(member_read, "SmeltUnknown"),
+            0,
+            "a symbol-keyed member read is not an erasure site at all"
         );
     }
 

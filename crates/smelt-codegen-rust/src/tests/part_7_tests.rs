@@ -1341,6 +1341,126 @@ export function run(): string {
 }
 
 #[test]
+fn types_a_string_predicate_callback_result_as_a_bool() {
+    // `StringAffix` yields a concrete `bool`. Typing the node with the
+    // surrounding expectation instead declared the temporary `SmeltUnknown`
+    // while the expression that filled it stayed a Rust `bool`, so the emitted
+    // crate did not compile (E0308) -- and repairing that at the boundary would
+    // still have left an erase-then-truthiness round trip for a value that was
+    // statically boolean.
+    let source = source_for(
+        r#"
+export function firstA(names: string[]): string | undefined {
+  return names.find((name: string) => name.startsWith("a"));
+}
+"#,
+    );
+
+    assert!(
+        source.contains("let _smelt_tmp_3: bool = closure_arg_0.clone().starts_with("),
+        "{source}"
+    );
+    // Scoped to the emitted function: the runtime prelude legitimately spells
+    // both `SmeltUnknown::Bool(..)` and the truthiness match.
+    let body = source
+        .split_once("fn first_a(")
+        .map_or("", |(_, tail)| tail);
+    assert!(
+        !body.contains("SmeltUnknown"),
+        "the predicate must not erase: {source}"
+    );
+}
+
+#[test]
+fn lowers_a_unique_symbol_keyed_class_member_and_its_read() {
+    // A module-level `const` bound to a unique `Symbol()` is evaluated once, so
+    // it is a stable static key: the member is ordinary, and so is the read.
+    // Both halves were missing -- the declaration was rejected outright, and
+    // once it lowered the read still answered `undefined`.
+    let source = source_for(
+        r"
+const KEY = Symbol();
+
+class Holder {
+  get [KEY](): number {
+    return 41;
+  }
+}
+
+export function read(holder: Holder): number {
+  return holder[KEY];
+}
+",
+    );
+
+    assert!(source.contains("__smelt_symbol_unique_"), "{source}");
+    assert!(!source.contains("SmeltUnknown::Undefined;"), "{source}");
+}
+
+#[test]
+fn keeps_lifting_a_module_arrow_over_scalars() {
+    // The counter-case to the lift refusal. A scalar has no identity, so
+    // re-materializing one inside a lifted function is indistinguishable from
+    // reading it, and such an arrow is still free to lift. The refusal is about
+    // reference identity, not about module-level arrows in general.
+    let source = source_for(
+        r#"
+const label = "scale";
+
+const scaled = (value: number): string => `${label}:${value * 2}`;
+
+const useScaled = (value: number): string => apply(scaled, value);
+
+function apply(f: (value: number) => string, value: number): string {
+  return f(value);
+}
+
+export function run(): string {
+  return useScaled(3);
+}
+"#,
+    );
+
+    assert!(source.contains("fn scaled__module_"), "{source}");
+}
+
+#[test]
+fn awaits_a_value_or_promise_union_to_its_joined_type() {
+    // `await` unwraps the promise arms and passes the others through. The value
+    // arm has to survive: asserting the whole union to be a future selected the
+    // promise arm and `unreachable!`-ed the half that needs no waiting.
+    let source = source_for(
+        r"
+class Cell {
+  value: number;
+  constructor(value: number) {
+    this.value = value;
+  }
+}
+
+function pick(sync: boolean): Cell | Promise<Cell> {
+  return sync ? new Cell(1) : Promise.resolve(new Cell(2));
+}
+
+export async function run(): Promise<number> {
+  const cell = await pick(true);
+  return cell.value;
+}
+",
+    );
+
+    assert!(source.contains("let cell: Cell"), "{source}");
+    assert!(
+        source.contains("SmeltFuture::<Cell>::resolved(value)"),
+        "the value arm must become an already-resolved handle: {source}"
+    );
+    assert!(
+        !source.contains("let cell: SmeltUnknown"),
+        "the awaited union must not erase: {source}"
+    );
+}
+
+#[test]
 fn lowers_a_computed_method_call_over_known_members() {
     // `receiver[key]()` on a receiver whose member set is known is a choice
     // among known methods and lowers as one. Before this, the computed read

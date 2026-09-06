@@ -922,14 +922,21 @@ export interface Override {
     Ok(())
 }
 
-/// A *unique* `Symbol("desc")` (no `.for`) aliased to a const has fresh identity
-/// each evaluation and is not a stable static key, so using it as a computed
-/// property name still reports the dynamic-key diagnostic (issue #115 folds only
-/// globally-interned registry symbols, not unique brands).
+/// A *unique* `Symbol("desc")` bound to a MODULE-LEVEL const is a stable static
+/// key, so it names an ordinary member.
+///
+/// This test asserted the opposite until round 8. The old reasoning -- "a unique
+/// symbol has fresh identity each evaluation" -- is true of a `Symbol()`
+/// evaluated per call, and it is exactly why the *general* fold still refuses
+/// one. It is not true of a module-level `const`: that initializer runs once, so
+/// the symbol it binds is one symbol for the program's lifetime and its
+/// span-tagged spelling is a stable, collision-free name for it. Refusing it
+/// made Hono's `get [GET_MATCH_RESULT]()` a blocker for a member whose identity
+/// is fully static.
 #[test]
-fn rejects_unique_symbol_const_computed_property_name() -> Result<(), String> {
+fn lowers_unique_symbol_const_computed_property_name() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let errors = lowering_errors(
+    let module_id = lower_ok(
         ts!(r"
 const brand = Symbol('brand');
 
@@ -939,10 +946,18 @@ class Branded {
 "),
         &mut ctx,
     )?;
-    assert_unsupported_ts(
-        &errors,
-        "dynamic computed property names are not lowered yet",
-    )?;
+    let module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    let branded = class_named(&ctx, module, "Branded")?;
+    ensure!(
+        branded.fields.iter().any(|field| ctx
+            .krate
+            .symbols
+            .get(field.name)
+            .is_some_and(|name| name.starts_with("__smelt_symbol_unique_"))),
+        "expected a unique-symbol-keyed field, got {:?}",
+        branded.fields
+    );
     Ok(())
 }
 

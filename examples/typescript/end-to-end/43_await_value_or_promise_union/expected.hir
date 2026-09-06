@@ -1,0 +1,42 @@
+module examples/typescript/end-to-end/43_await_value_or_promise_union/input.ts (ModuleId(0))
+  body BodyId(4)
+  items
+    class Cell fields [Public value: Float] constructor Some(ItemId(3)) methods [] implements []
+    fn pick owner Module
+    fn pick_number owner Module
+    fn run owner Module
+  exprs
+    #0: async fn() -> Future<String> = @2(run)
+    #1: Future<String> = call #0()
+    #2: String = await #1
+    #3: None = @5(console_log)
+    #4: None = call #3(#2)
+    #5: Float = 0.0
+    #6: Future<None> = async_sleep(#5)
+    #7: None = await #6
+  stmts
+    s0: #4
+    s1: #7
+  async state machine
+    states [state0, state1, state2]
+    suspend #2 on #1 -> state3
+    suspend #7 on #6 -> state8
+
+interned types
+  t0 = Bool
+  t1 = Cell
+  t2 = Future<Cell>
+  t3 = Cell | Future<Cell>
+  t4 = fn(Bool) -> Cell | Future<Cell>
+  t5 = Float
+  t6 = Future<Float>
+  t7 = Float | Future<Float>
+  t8 = fn(Bool) -> Float | Future<Float>
+  t9 = String
+  t10 = Future<String>
+  t11 = async fn() -> Future<String>
+  t12 = None
+  t13 = fn(Bool) -> Cell | Future<Cell>
+  t14 = fn(Bool) -> Float | Future<Float>
+  t15 = async fn() -> Future<String>
+  t16 = Future<None>

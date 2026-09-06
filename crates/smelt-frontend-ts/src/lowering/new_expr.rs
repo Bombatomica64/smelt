@@ -3029,9 +3029,26 @@ impl ModuleBuilder<'_> {
         let awaited = self.expression_with_hint(&await_expr.argument, body, awaited_hint)?;
         let awaited_ty = Self::expr_ty(body, awaited);
         let Some(ty) = self.future_inner_type(awaited_ty) else {
-            if self.erased_or_union_surface(awaited_ty) {
-                let resolved_ty =
-                    type_hint.unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+            // A union with a promise arm needs the await even when the union
+            // itself is not an erased surface: `number | Promise<number>` is a
+            // concrete tagged enum, and the old shape dropped the `await`
+            // outright and handed the union straight on, so the next read of it
+            // matched only the value arm and `unreachable!`-ed the other.
+            let awaited_union_ty = self.awaited_union_type(awaited_ty);
+            if self.erased_or_union_surface(awaited_ty) || awaited_union_ty.is_some() {
+                // A union operand awaits to the join of its arms: `await`
+                // unwraps the promise arms and passes the others through. The
+                // operand is still asserted to be a future of that join, and the
+                // emitter's union-to-future projection turns each value arm into
+                // an already-resolved handle -- see
+                // `project_union_value_text`. Without the join the awaited value
+                // erased to `SmeltUnknown`, so Hono's
+                // `new Response(null, await this.#dispatch(..))` reported an
+                // erased init for an operand whose awaited type is one class.
+                let resolved_ty = type_hint
+                    .or(awaited_union_ty)
+                    .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+
                 let future_ty = self.ctx.krate.types.intern(Type::Future(resolved_ty));
                 let future = body.push_expr(Expr {
                     kind: ExprKind::TypeAssert { value: awaited },
@@ -3054,6 +3071,49 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(await_expr.span.start, await_expr.span.end),
         }))
+    }
+
+    /// Return the type `await` produces for a union operand.
+    ///
+    /// `await` unwraps each promise arm and passes every other arm through
+    /// unchanged, then joins: `Response | Promise<Response>` awaits to
+    /// `Response`, and `A | Promise<B>` awaits to `A | B`. Hono's
+    /// `new Response(null, await this.#dispatch(..))` is the first shape, and
+    /// without this it erased to `SmeltUnknown` -- so the value was reported as
+    /// erased for an operand whose awaited type is one named class.
+    ///
+    /// `None` when the operand is not a union, when no arm is a promise (there
+    /// is nothing to unwrap, and `await` on a plain value answers it unchanged),
+    /// or when any arm is itself erased: joining an erased arm answers `Unknown`
+    /// anyway, and the existing fallback already says so.
+    fn awaited_union_type(&mut self, ty: smelt_hir::TypeId) -> Option<smelt_hir::TypeId> {
+        let Some(Type::Union(members)) = self.ctx.krate.types.get(ty).cloned() else {
+            return None;
+        };
+        if !members
+            .iter()
+            .any(|member| self.future_inner_type(*member).is_some())
+        {
+            return None;
+        }
+        let mut resolved: Vec<smelt_hir::TypeId> = Vec::new();
+        for member in members {
+            let inner = self.future_inner_type(member).unwrap_or(member);
+            if matches!(
+                self.ctx.krate.types.get(inner),
+                Some(Type::Unknown | Type::TypeParam { .. })
+            ) {
+                return None;
+            }
+            if !resolved.contains(&inner) {
+                resolved.push(inner);
+            }
+        }
+        match resolved.as_slice() {
+            [] => None,
+            [single] => Some(*single),
+            _ => Some(self.ctx.krate.types.intern(Type::Union(resolved))),
+        }
     }
 
     /// Coerce an already lowered JavaScript value into its boolean truthiness result.

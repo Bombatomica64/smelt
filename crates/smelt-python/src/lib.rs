@@ -81,17 +81,17 @@ mod tests {
     }
 
     impl PyInit<(i64, i64)> for Point {
-        fn py_init(&mut self, (x, y): (i64, i64)) {
-            self.x = x;
-            self.y = y;
+        fn py_init(&mut self, (across, down): (i64, i64)) {
+            self.x = across;
+            self.y = down;
         }
     }
 
-    impl std::ops::Add<Point> for Point {
-        type Output = Point;
+    impl std::ops::Add<Self> for Point {
+        type Output = Self;
 
-        fn add(self, rhs: Point) -> Self::Output {
-            Point {
+        fn add(self, rhs: Self) -> Self::Output {
+            Self {
                 x: self.x + rhs.x,
                 y: self.y + rhs.y,
             }

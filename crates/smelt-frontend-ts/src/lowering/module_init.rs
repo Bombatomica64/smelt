@@ -406,6 +406,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         self.collect_function_static_properties(program, &mut errors);
         let mut forward_arrow_consts = self.forward_arrow_const_names(program);
         forward_arrow_consts.extend(Self::object_namespace_arrow_const_names(program));
+        // An arrow that reads a module binding with REFERENCE IDENTITY cannot be
+        // lifted: see `identity_bearing_module_binding_names`.
+        self.retain_capturable_arrow_consts(program, &mut forward_arrow_consts);
         let mut pending_arrows = program
             .body
             .iter()
@@ -3447,6 +3450,120 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 referenced.then_some(name)
             })
             .collect()
+    }
+
+    /// Drop from `candidates` every arrow whose body reads a module-level
+    /// binding that has reference identity.
+    ///
+    /// Lifting a module-level `const` arrow turns it into a named MIR function,
+    /// which has no capture environment: a module binding it reads is resolved
+    /// by re-materializing that binding's initializer inside the function. For a
+    /// scalar that is the same value either way. For an array, `Set`, `Map` or
+    /// object it is a SECOND, PRIVATE value, so every write through the lifted
+    /// function lands somewhere the module never sees:
+    ///
+    /// ```ts
+    /// const rem: string[] = [];
+    /// const second = () => { rem.push("second"); };
+    /// const outer = () => { rem.push("first"); take(second); };
+    /// ```
+    ///
+    /// printed `first` where Node prints `first,second`. Nothing failed to
+    /// compile and nothing reported a blocker; the program simply answered a
+    /// different value. `outer` was never lifted and captured `rem` correctly,
+    /// which is the shape the refusal restores for `second` too.
+    ///
+    /// Refusing the lift is the conservative half of the choice
+    /// `blocker-logs/module-arrow-lifted-capture.md` states: keep the capture,
+    /// or do not lift. A genuine forward reference that also captures such a
+    /// binding now fails to resolve instead of diverging silently, which is the
+    /// honest failure.
+    ///
+    /// Source-text containment matches the surrounding heuristics in this pass
+    /// (`forward_arrow_const_names`, `arrow_const_dependencies_are_lowered`)
+    /// deliberately: over-refusing costs a closure, and a closure is always
+    /// correct here.
+    fn retain_capturable_arrow_consts(
+        &self,
+        program: &Program<'_>,
+        candidates: &mut HashSet<String>,
+    ) {
+        let identity_bindings = Self::identity_bearing_module_binding_names(program);
+        if identity_bindings.is_empty() {
+            return;
+        }
+        let mut refused = HashSet::new();
+        for statement in &program.body {
+            let variable = match statement {
+                Statement::VariableDeclaration(variable) => variable,
+                Statement::ExportDeclaration(export) => {
+                    let Declaration::VariableDeclaration(variable) = &export.declaration else {
+                        continue;
+                    };
+                    variable
+                }
+                _ => continue,
+            };
+            for declarator in &variable.declarations {
+                let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
+                    continue;
+                };
+                let Some(Expression::ArrowFunctionExpression(arrow)) = &declarator.init else {
+                    continue;
+                };
+                if !candidates.contains(binding.name.as_str()) {
+                    continue;
+                }
+                let text = self
+                    .source
+                    .get(
+                        usize::try_from(arrow.span.start).unwrap_or(usize::MAX)
+                            ..usize::try_from(arrow.span.end).unwrap_or(usize::MAX),
+                    )
+                    .unwrap_or_default();
+                if identity_bindings.iter().any(|name| text.contains(name)) {
+                    refused.insert(binding.name.as_str().to_owned());
+                }
+            }
+        }
+        candidates.retain(|name| !refused.contains(name));
+    }
+
+    /// Module-level binding names whose value has reference identity.
+    ///
+    /// An array, `Set`, `Map`, typed array or object literal is one value that
+    /// every reader shares; a re-materialized copy is a different value with the
+    /// same contents, and the difference is only observable through mutation --
+    /// which is exactly the case that goes silently wrong. Scalars are excluded
+    /// because re-materializing one is indistinguishable from reading it.
+    fn identity_bearing_module_binding_names(program: &Program<'_>) -> HashSet<String> {
+        let mut names = HashSet::new();
+        for statement in &program.body {
+            let variable = match statement {
+                Statement::VariableDeclaration(variable) => variable,
+                Statement::ExportDeclaration(export) => {
+                    let Declaration::VariableDeclaration(variable) = &export.declaration else {
+                        continue;
+                    };
+                    variable
+                }
+                _ => continue,
+            };
+            for declarator in &variable.declarations {
+                let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
+                    continue;
+                };
+                let Some(init) = &declarator.init else {
+                    continue;
+                };
+                if Self::is_module_global_array_initializer(init)
+                    || Self::object_const_initializer(init).is_some()
+                {
+                    names.insert(binding.name.as_str().to_owned());
+                }
+            }
+        }
+        names
     }
 
     /// Find arrow consts used as values in exported object function tables.

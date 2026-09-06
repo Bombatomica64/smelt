@@ -826,15 +826,38 @@ impl ModuleBuilder<'_> {
                     )
                 })?;
                 let needle = Self::callback_coerce_to_string(needle, string_ty, body, span);
-                Ok(body.push_expr(Expr {
+                // `StringAffix` always yields a concrete `bool`, so the node must
+                // be typed `Bool`, exactly as the `String.includes` arm below
+                // types `StringContains`. Typing it with the surrounding
+                // expectation instead is a real wrong type, not a cosmetic one:
+                // `names.find((name: string) => name.startsWith("a"))` declared
+                // the temporary `SmeltUnknown` while the expression that filled
+                // it stayed a Rust `bool`, so the emitted crate did not compile
+                // (E0308, four of them for two source calls -- the callback is
+                // emitted twice per call site). It also inserted an
+                // erase-then-JavaScript-truthiness round trip for a value that
+                // was statically boolean. When the surrounding callback body
+                // really does expect an erased type, `TypeAssert` boxes it back
+                // up at the boundary, which is where the erasure belongs.
+                let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+                let value = body.push_expr(Expr {
                     kind: ExprKind::StringAffix {
                         op,
                         haystack,
                         needle,
                     },
-                    ty,
+                    ty: bool_ty,
                     span,
-                }))
+                });
+                if ty == bool_ty {
+                    Ok(value)
+                } else {
+                    Ok(body.push_expr(Expr {
+                        kind: ExprKind::TypeAssert { value },
+                        ty,
+                        span,
+                    }))
+                }
             }
             "trim" if args.is_empty()
                 && matches!(
@@ -873,14 +896,27 @@ impl ModuleBuilder<'_> {
                 let item = *args.first().ok_or_else(|| {
                     SmeltError::unsupported(span, "callback Array.includes call requires one argument")
                 })?;
-                Ok(body.push_expr(Expr {
+                // Same rule as `StringAffix` above and `StringContains` below:
+                // `ListContains` yields a concrete `bool`, so the node carries
+                // `Bool` and the boundary -- not the node -- does any erasure.
+                let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+                let value = body.push_expr(Expr {
                     kind: ExprKind::ListContains {
                         list,
                         item,
                     },
-                    ty,
+                    ty: bool_ty,
                     span,
-                }))
+                });
+                if ty == bool_ty {
+                    Ok(value)
+                } else {
+                    Ok(body.push_expr(Expr {
+                        kind: ExprKind::TypeAssert { value },
+                        ty,
+                        span,
+                    }))
+                }
             }
             "includes" if (1..=2).contains(&args.len())
                 && matches!(

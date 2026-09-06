@@ -1,0 +1,52 @@
+fn take (FuncId(0)) -> None
+  locals
+    %0 param f: fn() -> None
+    %1 temp: None
+  bb0:
+    %1 = closure_call copy %0()
+    return none
+
+fn main (FuncId(1)) -> None
+  locals
+    %0 user rem: List<String>
+    %1 user second: fn() -> None
+    %2 user outer: fn() -> None
+    %3 temp: List<String>
+    %4 temp: fn() -> None
+    %5 temp: fn() -> None
+    %6 temp: None
+    %7 temp: String
+    %8 temp: None
+  bb0:
+    %3 = []
+    %0 = move %3
+    %4 = closure ClosureId(0) [copy %0]
+    %1 = move %4
+    %5 = closure ClosureId(1) [copy %0, copy %1]
+    %2 = move %5
+    %6 = closure_call move %2()
+    %7 = string_join copy %0, ","
+    %8 = call @console_log(move %7) -> bb1
+  bb1:
+    return none
+
+closure ClosureId(0) -> None
+  locals
+    %0 user rem: List<String>
+    %1 temp: Float
+  bb0:
+    %1 = list_push copy %0, "second"
+    return none
+
+closure ClosureId(1) -> None
+  locals
+    %0 user rem: List<String>
+    %1 user second: fn() -> None
+    %2 temp: Float
+    %3 temp: None
+  bb0:
+    %2 = list_push copy %0, "first"
+    %3 = call fn0(copy %1) -> bb1
+  bb1:
+    return none
+

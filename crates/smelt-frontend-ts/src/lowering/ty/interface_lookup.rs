@@ -105,10 +105,7 @@ impl ModuleBuilder<'_> {
             // a `Symbol.for(...)`-aliased const yields a synthetic symbol key.
             PropertyKey::Identifier(identifier) => self
                 .resolve_const_literal_by_name(identifier.name.as_str())
-                .and_then(|literal| {
-                    let is_symbol = literal.symbol_registry_name().is_some();
-                    literal.computed_member_name().map(|name| (name, is_symbol))
-                }),
+                .and_then(|literal| Self::const_computed_key_name(&literal)),
             // Erased type-level wrappers around any of the above still name the
             // inner static key (`[K as const]`, `[(K)]`, `[K!]`).
             PropertyKey::ParenthesizedExpression(inner) => {
@@ -130,7 +127,7 @@ impl ModuleBuilder<'_> {
     /// Resolve a computed-key expression (after unwrapping erased assertions) to
     /// its static string member name, mirroring
     /// [`Self::resolve_static_computed_key_name`] for bare `Expression`s.
-    fn resolve_static_computed_key_name_expr(
+    pub(in crate::lowering) fn resolve_static_computed_key_name_expr(
         &mut self,
         expression: &Expression<'_>,
     ) -> Option<(String, bool)> {
@@ -147,10 +144,7 @@ impl ModuleBuilder<'_> {
             }
             Expression::Identifier(identifier) => self
                 .resolve_const_literal_by_name(identifier.name.as_str())
-                .and_then(|literal| {
-                    let is_symbol = literal.symbol_registry_name().is_some();
-                    literal.computed_member_name().map(|name| (name, is_symbol))
-                }),
+                .and_then(|literal| Self::const_computed_key_name(&literal)),
             Expression::StringLiteral(literal) => Some((literal.value.to_string(), false)),
             Expression::ParenthesizedExpression(inner) => {
                 self.resolve_static_computed_key_name_expr(&inner.expression)
@@ -229,6 +223,28 @@ impl ModuleBuilder<'_> {
     pub(in crate::lowering) fn is_resolvable_property_key(&mut self, key: &PropertyKey<'_>) -> bool {
         crate::lowering::support::is_static_property_key(key)
             || self.resolve_static_computed_key_name(key).is_some()
+    }
+
+    /// Resolve a const binding's folded literal to the member key it names.
+    ///
+    /// Shared by the two identifier arms of
+    /// [`Self::resolve_static_computed_key_name`] and its expression twin so a
+    /// const used as a class-member key and the same const used as a computed
+    /// READ (`c[KEY]`) always answer the same name.
+    ///
+    /// The unique-symbol fallback lives here rather than in
+    /// `computed_member_name` because it is only sound for a binding that is
+    /// evaluated once: `resolve_const_literal_by_name` answers from the module
+    /// const tables, so reaching this point already means the initializer ran
+    /// once. A `Symbol()` evaluated per call keeps the runtime-keyed path.
+    fn const_computed_key_name(literal: &crate::lowering::ConstLiteral) -> Option<(String, bool)> {
+        if let Some(name) = literal.symbol_registry_name() {
+            return Some((name, true));
+        }
+        if let Some(name) = literal.unique_symbol_member_name() {
+            return Some((name, true));
+        }
+        literal.computed_member_name().map(|name| (name, false))
     }
 
     /// Render a numeric property-key value as the string member name JavaScript

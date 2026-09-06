@@ -1,0 +1,36 @@
+module examples/typescript/end-to-end/42_module_arrow_shared_capture/input.ts (ModuleId(0))
+  body BodyId(3)
+  items
+    fn take owner Module
+  locals
+    %0 const rem: List<String>
+    %1 const second: fn() -> None
+    %2 const outer: fn() -> None
+  exprs
+    #0: List<String> = []
+    #1: fn() -> None = closure BodyId(1) captures 1 -> None
+    #2: fn() -> None = closure BodyId(2) captures 2 -> None
+    #3: fn() -> None = %2
+    #4: None = closure_call #3()
+    #5: List<String> = %0
+    #6: String = ","
+    #7: String = string_join #5, #6
+    #8: None = @1(console_log)
+    #9: None = call #8(#7)
+  stmts
+    s0: let %0: List<String> = #0
+    s1: let %1: fn() -> None = #1
+    s2: let %2: fn() -> None = #2
+    s3: #4
+    s4: #9
+
+interned types
+  t0 = String
+  t1 = List<String>
+  t2 = None
+  t3 = fn() -> None
+  t4 = fn(fn() -> None) -> None
+  t5 = Float
+  t6 = fn() -> None
+  t7 = Unknown
+  t8 = fn(fn() -> None) -> None

@@ -59,6 +59,44 @@ pub(in crate::lowering) fn well_known_symbol_value_spelling(name: &str) -> Optio
     smelt_stdlib::well_known_symbols::value_spelling(name)
 }
 
+/// Synthetic member-name prefix for a unique `Symbol(...)` bound to a const.
+const UNIQUE_SYMBOL_PREFIX: &str = "__smelt_symbol_unique_";
+
+/// Return the stable synthetic member key for a unique `Symbol(...)` VALUE that
+/// a module-level `const` binds.
+///
+/// A unique symbol has fresh identity per evaluation, which is why its value
+/// spelling is span-tagged (`Symbol(desc)@<offset>`) and why it does not fold to
+/// a member key in general: a `Symbol()` inside a function body denotes a
+/// different symbol on every call, so two reads through it are not the same
+/// member.
+///
+/// A module-level `const` initializer is evaluated exactly once, so the symbol
+/// it binds is one symbol for the program's lifetime and the span tag is a
+/// stable, collision-free name for it. `const A = Symbol()` and
+/// `const B = Symbol()` sit at different offsets and get different keys, while
+/// every read of the same const folds to the same key. That is what makes
+/// `class C { get [A]() { .. } }` an ordinary member with a symbol name and
+/// `c[A]` an ordinary static read of it.
+///
+/// Returns `None` for any spelling that is not a unique symbol, so registry and
+/// well-known symbols keep their own globally interned keys.
+pub(in crate::lowering) fn unique_symbol_key(spelling: &str) -> Option<String> {
+    if registry_description_of_symbol_literal(spelling).is_some()
+        || well_known_key_of_symbol_literal(spelling).is_some()
+    {
+        return None;
+    }
+    let (_, offset) = spelling.rsplit_once('@')?;
+    if !spelling.starts_with("Symbol(") || offset.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "{UNIQUE_SYMBOL_PREFIX}{}",
+        registry_key_suffix(spelling)
+    ))
+}
+
 /// Return the stable synthetic member key for a `Symbol.for(description)`.
 ///
 /// The description string is sanitized so the resulting key is a valid,

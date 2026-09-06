@@ -333,6 +333,9 @@ fn end_to_end_examples_match_expected_outputs() -> TestResult {
         "38_interface_literal_key_spellings",
         "39_module_scope_reassignment",
         "40_computed_method_over_known_members",
+        "41_symbol_keyed_class_members",
+        "42_module_arrow_shared_capture",
+        "43_await_value_or_promise_union",
     ] {
         verify_end_to_end_example(name)?;
     }

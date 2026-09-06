@@ -121,6 +121,19 @@ impl ConstLiteral {
     /// ({ [s]: 1 })` declares the very member an inline `[Symbol.iterator]` key
     /// declares. A unique `Symbol('d')` carries a span-tagged spelling and has
     /// fresh identity per evaluation, so it never folds.
+    /// Return the member key a unique `Symbol(...)` bound to a const names.
+    ///
+    /// Separate from [`Self::symbol_literal_member_name`] because it is only
+    /// sound where the binding is evaluated once; see
+    /// `ty::computed_key_symbols::unique_symbol_key`. Only the two
+    /// const-resolving computed-key arms consult it.
+    fn unique_symbol_member_name(&self) -> Option<String> {
+        match &self.literal {
+            Literal::Symbol(value) => ty::computed_key_symbols::unique_symbol_key(value),
+            _ => None,
+        }
+    }
+
     fn symbol_literal_member_name(spelling: &str) -> Option<String> {
         if let Some(description) =
             ty::computed_key_symbols::registry_description_of_symbol_literal(spelling)
