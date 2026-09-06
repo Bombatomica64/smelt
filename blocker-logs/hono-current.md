@@ -14,8 +14,8 @@
 | Occurrences | Files | Category | Blocker class | Example |
 | ---: | ---: | --- | --- | --- |
 | 1 | 1 | non-working Rust (unlowered) | Response init is an erased value, so its keys cannot be read with their types | `/home/user/smelt/third_party/hono/src/hono-base.ts` |
-| 1 | 1 | non-working Rust (unlowered) | dynamic computed method names are not lowered yet | `/home/user/smelt/third_party/hono/src/request.ts` |
 | 1 | 1 | non-working Rust (unlowered) | field access is only lowered for Record<string, T>, class, and interface values for now (…) | `/home/user/smelt/third_party/hono/src/context.ts` |
+| 1 | 1 | non-working Rust (unlowered) | nested callback parameter destructuring needs closure-body lowering | `/home/user/smelt/third_party/hono/src/request.ts` |
 
 <details>
 <summary>Full messages for 1 elided blocker class(es)</summary>
