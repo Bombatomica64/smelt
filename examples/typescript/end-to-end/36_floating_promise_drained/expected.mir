@@ -34,7 +34,7 @@ async fn main (FuncId(2)) -> None throws
     %1 = async_spawn_local(move %0)
     %2 = call @console_log("sync tail") -> bb2
   bb2:
-    %3 = async_sleep(0.0)
+    %3 = async_exit_drain()
     %4 = await move %3
     return none
 

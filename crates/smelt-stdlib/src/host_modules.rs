@@ -133,8 +133,16 @@ const fn declared_class(name: &'static str, reason: &'static str) -> HostExport 
     }
 }
 
-/// Reason text shared by the `node:http` server surface.
-const HTTP_REASON: &str = "the node:http server surface is not implemented yet";
+/// Reason text for the `node:http` CLIENT surface.
+///
+/// The server half (`createServer`, `Server`, `IncomingMessage`,
+/// `ServerResponse`) is modeled on hyper. `http.request`/`http.get` are the
+/// client half and are a different program: they answer an `IncomingMessage`
+/// driven by callbacks and events rather than taking one, and `fetch` already
+/// covers what generated code needs to make a request. They stay declared, so
+/// using one is a named blocker rather than a surface that half works.
+const HTTP_CLIENT_REASON: &str =
+    "the node:http client surface (request/get) is not implemented yet; use fetch";
 
 /// Reason text shared by the `node:sqlite` surface.
 const SQLITE_REASON: &str = "the node:sqlite database surface is not implemented yet";
@@ -195,15 +203,21 @@ pub const HOST_MODULES: &[HostModule] = &[
     HostModule {
         specifiers: &["node:http", "http"],
         exports: &[
-            declared_value("createServer", HTTP_REASON),
-            declared_class("Server", HTTP_REASON),
-            declared_class("IncomingMessage", HTTP_REASON),
-            declared_class("ServerResponse", HTTP_REASON),
-            declared_value("request", HTTP_REASON),
-            declared_value("get", HTTP_REASON),
-            declared_value("default", HTTP_REASON),
+            modeled_value("createServer"),
+            modeled_class("Server"),
+            modeled_class("IncomingMessage"),
+            modeled_class("ServerResponse"),
+            declared_value("request", HTTP_CLIENT_REASON),
+            declared_value("get", HTTP_CLIENT_REASON),
+            // `import http from 'node:http'` then `http.createServer(..)` is a
+            // namespace read, which the modeled path does not resolve; the
+            // named import is the shape that works and the reason says so.
+            declared_value(
+                "default",
+                "import { createServer } from 'node:http' rather than the default export",
+            ),
         ],
-        dependencies: &[],
+        dependencies: &[BackendDependency::Hyper],
     },
     HostModule {
         specifiers: &["node:path", "path"],
@@ -350,8 +364,11 @@ mod tests {
     /// A declared-but-unimplemented export blocks with its module's reason.
     #[test]
     fn declared_export_blocks_with_reason() {
-        let blocker = host_value_blocker("node:http", "createServer")
-            .expect("a declared export must block");
+        // `node:http`'s CLIENT half. Its server half is modeled, so a module
+        // can be half implemented and this asserts the declared half still
+        // reports rather than quietly erasing.
+        let blocker =
+            host_value_blocker("node:http", "request").expect("a declared export must block");
         assert!(blocker.contains("node:http"), "{blocker}");
         assert!(blocker.contains("not implemented"), "{blocker}");
     }
@@ -361,6 +378,9 @@ mod tests {
     fn modeled_export_does_not_block() {
         assert!(host_value_blocker("@date-fns/tz", "tz").is_none());
         assert!(host_value_blocker("node:url", "URL").is_none());
+        // The `node:http` server surface, modeled on hyper.
+        assert!(host_value_blocker("node:http", "createServer").is_none());
+        assert!(host_value_blocker("node:http", "ServerResponse").is_none());
     }
 
     /// A name a modeled module does not export blocks naming the export.

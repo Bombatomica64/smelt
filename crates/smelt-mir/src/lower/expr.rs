@@ -1124,6 +1124,59 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
+            ExprKind::HttpCreateServer { handler } => {
+                let handler_operand = self.lower_expr(*handler)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::HttpCreateServer {
+                        handler: handler_operand,
+                    },
+                )?
+            }
+            ExprKind::HttpServerOp { op, server, args } => {
+                let server_operand = self.lower_expr(*server)?;
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::HttpServerOp {
+                        op: *op,
+                        server: server_operand,
+                        args: arg_operands,
+                    },
+                )?
+            }
+            ExprKind::IncomingMessageOp { op, message } => {
+                let message_operand = self.lower_expr(*message)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::IncomingMessageOp {
+                        op: *op,
+                        message: message_operand,
+                    },
+                )?
+            }
+            ExprKind::ServerResponseOp { op, response, args } => {
+                let response_operand = self.lower_expr(*response)?;
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ServerResponseOp {
+                        op: *op,
+                        response: response_operand,
+                        args: arg_operands,
+                    },
+                )?
+            }
             ExprKind::RequestNew {
                 input,
                 method,

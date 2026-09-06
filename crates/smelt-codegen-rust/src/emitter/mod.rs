@@ -110,6 +110,7 @@ mod core;
 mod dict_entry_update;
 mod fetch_types;
 mod host_interop;
+mod http_server;
 mod list;
 mod list_mutation;
 mod list_ordering;

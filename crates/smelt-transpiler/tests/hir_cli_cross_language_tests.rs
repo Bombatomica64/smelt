@@ -333,6 +333,7 @@ fn end_to_end_examples_match_expected_outputs() -> TestResult {
         "38_interface_literal_key_spellings",
         "39_module_scope_reassignment",
         "40_computed_method_over_known_members",
+        "41_node_http_echo",
     ] {
         verify_end_to_end_example(name)?;
     }

@@ -1691,6 +1691,7 @@ impl ModuleBuilder<'_> {
                     })
             }
             AsyncOp::Sleep
+            | AsyncOp::ExitDrain
             | AsyncOp::Resolve
             | AsyncOp::Reject
             | AsyncOp::CreateTask
@@ -2219,10 +2220,44 @@ impl ModuleBuilder<'_> {
             ));
         };
         let mut url = self.argument(url_argument, body)?;
-        if let Some(options_argument) = call.arguments.get(1) {
-            let _ = self.argument(options_argument, body)?;
+        // `fetch(url, init)` IS `fetch(new Request(url, init))` — that is the
+        // spec's own definition, not a convenience — so the init goes through
+        // the very same reader the `Request` constructor uses and the operand
+        // becomes a request.
+        //
+        // Until now the init was lowered and then DISCARDED, which made
+        // `fetch(url, { method: "POST", body })` silently issue a GET with no
+        // body: a false green of exactly the kind that survives every compile
+        // step and only shows up against a real server.
+        if let Some(init_argument) = call.arguments.get(1) {
+            let request = self.fetch_request_from_init(url, init_argument, body)?;
+            let response_ty = self.response_type();
+            let ty = self.ctx.krate.types.intern(Type::Future(response_ty));
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::AsyncOp {
+                    op: AsyncOp::HttpFetch,
+                    args: vec![request],
+                },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
         }
         let url_ty = Self::expr_ty(body, url);
+        // `fetch(request)`: the spec's other input form, and now that the
+        // transport can carry a method, headers and a body it is the same
+        // operand the two-argument form builds.
+        if self.is_request_type(url_ty) {
+            let response_ty = self.response_type();
+            let ty = self.ctx.krate.types.intern(Type::Future(response_ty));
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::AsyncOp {
+                    op: AsyncOp::HttpFetch,
+                    args: vec![url],
+                },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
         if self.ctx.krate.types.get(url_ty) != Some(&Type::String) {
             let string_ty = self.ctx.krate.types.intern(Type::String);
             if self.is_string_compatible_type(url_ty) || self.type_contains_unknown(url_ty) {

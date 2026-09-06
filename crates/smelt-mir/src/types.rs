@@ -1301,6 +1301,36 @@ pub enum Rvalue {
         /// The event name, followed by the operation's own arguments.
         args: Vec<Operand>,
     },
+    /// `createServer(handler)`: build a `node:http` server.
+    HttpCreateServer {
+        /// The request handler, called once per accepted request.
+        handler: Operand,
+    },
+    /// A `node:http` `Server` member operation.
+    HttpServerOp {
+        /// Which operation this member performs.
+        op: smelt_hir::HttpServerOp,
+        /// The server receiver.
+        server: Operand,
+        /// The operation's arguments.
+        args: Vec<Operand>,
+    },
+    /// A `node:http` `IncomingMessage` property read.
+    IncomingMessageOp {
+        /// Which property this reads.
+        op: smelt_hir::IncomingMessageOp,
+        /// The request receiver.
+        message: Operand,
+    },
+    /// A `node:http` `ServerResponse` member operation.
+    ServerResponseOp {
+        /// Which operation this member performs.
+        op: smelt_hir::ServerResponseOp,
+        /// The response receiver.
+        response: Operand,
+        /// The operation's arguments, in source order.
+        args: Vec<Operand>,
+    },
     /// Build a concrete `Request` value.
     ///
     /// The init literal's keys arrive as separate operands, like

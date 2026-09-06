@@ -11,7 +11,7 @@ use smelt_stdlib::BackendDependency;
 ///
 /// Keeping the order centralized avoids Cargo.toml churn as new MIR rvalues
 /// start reporting existing backend dependencies.
-const STDLIB_DEPENDENCIES: [BackendDependency; 8] = [
+const STDLIB_DEPENDENCIES: [BackendDependency; 9] = [
     BackendDependency::Reqwest,
     BackendDependency::SerdeJson,
     BackendDependency::Regex,
@@ -20,6 +20,7 @@ const STDLIB_DEPENDENCIES: [BackendDependency; 8] = [
     BackendDependency::ChronoTz,
     BackendDependency::Url,
     BackendDependency::UnicodeNormalization,
+    BackendDependency::Hyper,
 ];
 
 /// Dependency required by a generated Rust crate.
@@ -49,8 +50,16 @@ pub(crate) fn cargo_toml(
         deps.push_str("mimalloc = { version = \"0.1\", default-features = false }\n");
     }
     if deps_needed.contains(&GeneratedDep::Tokio) {
+        // `rt`, not `rt-multi-thread`: a generated async `main` builds a
+        // CURRENT-THREAD runtime under a `LocalSet` (see
+        // `FunctionEmitter::async_main_runtime_prologue`), because every value
+        // Smelt generates is `Rc`-based and so cannot cross a work-stealing
+        // runtime's threads. `net` and `sync` come with it rather than with
+        // `hyper` because the accept loop's listener and its shutdown channel
+        // are tokio's, and a feature a dependency needs belongs on the
+        // dependency that is actually being configured.
         deps.push_str(
-            "tokio = { version = \"1\", features = [\"macros\", \"rt-multi-thread\", \"time\"] }\n",
+            "tokio = { version = \"1\", features = [\"macros\", \"rt\", \"time\", \"net\", \"sync\"] }\n",
         );
     }
     if deps_needed.contains(&GeneratedDep::Genawaiter) {

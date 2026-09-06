@@ -10,16 +10,15 @@ module examples/typescript/end-to-end/36_floating_promise_drained/input.ts (Modu
     #3: String = "sync tail"
     #4: None = @3(console_log)
     #5: None = call #4(#3)
-    #6: Float = 0.0
-    #7: Future<None> = async_sleep(#6)
-    #8: None = await #7
+    #6: Future<None> = async_exit_drain()
+    #7: None = await #6
   stmts
     s0: #2
     s1: #5
-    s2: #8
+    s2: #7
   async state machine
     states [state0, state1]
-    suspend #8 on #7 -> state9
+    suspend #7 on #6 -> state8
 
 interned types
   t0 = String
@@ -30,4 +29,3 @@ interned types
   t5 = async fn() -> Future<None>
   t6 = async fn(String) -> Future<String>
   t7 = async fn() -> Future<None>
-  t8 = Float

@@ -721,29 +721,32 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// (`run();` on an async function) still prints there. Smelt returned from
     /// `main` immediately, so such a program printed NOTHING.
     ///
-    /// The drain is `await sleep(0)` — the runtime's own run-until-idle entry,
-    /// which polls queued promise tasks and fires due timers until neither has
-    /// anything left. Lowering it as the body's last statement rather than
-    /// wrapping the emitted `main` keeps it part of what the program does: it
-    /// composes with the body's own return, and it is an ordinary awaited op,
-    /// so the throwing analysis treats it like any other and `main`'s signature
-    /// stays consistent with its body.
+    /// The drain is [`smelt_hir::AsyncOp::ExitDrain`] — the runtime's
+    /// run-until-idle entry, which polls queued promise tasks and fires due
+    /// timers until neither has anything left, AND THEN stays alive while a
+    /// referenced handle is open. Lowering it as the body's last statement
+    /// rather than wrapping the emitted `main` keeps it part of what the
+    /// program does: it composes with the body's own return, and it is an
+    /// ordinary awaited op, so the throwing analysis treats it like any other
+    /// and `main`'s signature stays consistent with its body.
+    ///
+    /// It used to be `await sleep(0)`, which is only the first half. Node also
+    /// keeps the process alive while a handle is open — a listening
+    /// `http.Server` is one — and with the drain spelled as a sleep,
+    /// `createServer(..).listen(3000)` returned from `main` immediately instead
+    /// of serving. A mid-program `await sleep(0)` must NOT wait on handles, so
+    /// the exit drain needed an operation of its own rather than a flag on
+    /// `Sleep`.
     ///
     /// A module body has no early `return` to skip it — `return` at module
     /// scope is not legal TypeScript — so appending once at the end is enough.
     fn append_module_exit_drain(&mut self, body: &mut Body, span: smelt_hir::Span) {
-        let float_ty = self.ctx.krate.types.intern(Type::Float);
-        let zero = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::Float(0.0)),
-            ty: float_ty,
-            span,
-        });
         let none_ty = self.ctx.krate.types.intern(Type::None);
         let future_ty = self.ctx.krate.types.intern(Type::Future(none_ty));
         let sleep = body.push_expr(Expr {
             kind: ExprKind::AsyncOp {
-                op: smelt_hir::AsyncOp::Sleep,
-                args: vec![zero],
+                op: smelt_hir::AsyncOp::ExitDrain,
+                args: Vec::new(),
             },
             ty: future_ty,
             span,
@@ -779,6 +782,18 @@ impl<'ctx> ModuleBuilder<'ctx> {
             // the HTTP operations, so one arm answers for every op that reaches
             // the loop directly.
             if matches!(expr.kind, ExprKind::Await(_) | ExprKind::AsyncOp { .. }) {
+                return true;
+            }
+            // A `node:http` server is event-loop work with no `await` in sight:
+            // `createServer(handler).listen(3000)` is a complete Node program
+            // that runs forever, and its accept loop is a spawned task. Without
+            // this arm such a program emitted a SYNCHRONOUS `main` — no runtime
+            // for `spawn_local` to attach to, and no exit drain to keep the
+            // process alive — so it bound a socket and returned immediately.
+            if matches!(
+                expr.kind,
+                ExprKind::HttpCreateServer { .. } | ExprKind::HttpServerOp { .. }
+            ) {
                 return true;
             }
             // A value of FUTURE type anywhere in the body is a promise that

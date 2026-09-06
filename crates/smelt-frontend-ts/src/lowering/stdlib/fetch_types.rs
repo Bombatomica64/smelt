@@ -236,7 +236,10 @@ impl ModuleBuilder<'_> {
     /// there, and only the shadowing check separates the two meanings. Both
     /// states are the same answer to "does the source own this name", so both
     /// belong in one predicate that every modeled fetch type reads.
-    fn user_class_shadows(&self, name: &str) -> bool {
+    ///
+    /// Shared with the `node:http` classes, which are shadowed by the same
+    /// rule: a program with its own `Server` keeps it.
+    pub(in crate::lowering) fn user_class_shadows(&self, name: &str) -> bool {
         self.classes.contains(name) || self.classes.is_pending(name)
     }
 
@@ -630,6 +633,39 @@ impl ModuleBuilder<'_> {
             },
             ty,
             span: self.span(new_expr.span.start, new_expr.span.end),
+        }))
+    }
+
+    /// Build the `Request` that `fetch(url, init)` is defined to fetch.
+    ///
+    /// The spec defines `fetch(input, init)` as fetching `new Request(input,
+    /// init)`, so this is that constructor with the same init reader and the
+    /// same key set rather than a second, parallel one — an init key that the
+    /// `Request` constructor blocks is blocked here too, by construction.
+    pub(in crate::lowering) fn fetch_request_from_init(
+        &mut self,
+        input: smelt_hir::ExprId,
+        init_argument: &oxc::ast::ast::Argument<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(init_argument.span().start, init_argument.span().end);
+        let mut fields = InitFields::default();
+        self.lower_fetch_init(init_argument, REQUEST_INIT_KEYS, "fetch", &mut fields, body)?;
+        let (method, headers, body_expr) = (
+            fields.take("method"),
+            fields.take("headers"),
+            fields.take("body"),
+        );
+        let ty = self.request_type();
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::RequestNew {
+                input,
+                method,
+                headers,
+                body: body_expr,
+            },
+            ty,
+            span,
         }))
     }
 
@@ -1155,13 +1191,26 @@ impl ModuleBuilder<'_> {
         } else {
             required
         };
+        // A modeled receiver publishes a schema for its own events, so the
+        // listener can be lowered at a REAL signature instead of an erased one.
+        // `req.on('data', (chunk) => ..)` types `chunk` as a string, which is
+        // what `node:http` says it carries; only the registration adapter still
+        // erases, and that adapter is the emitter's documented boundary either
+        // way. Without this the source's own closure took a `SmeltUnknown` and
+        // coerced it by hand at every use — avoidable erasure inside program
+        // code, which is precisely what the metric exists to remove.
+        let listener_hint = self.modeled_listener_hint(op, receiver_ty, call);
         let args = call
             .arguments
             .iter()
             .take(taken)
-            .map(|argument| self.argument(argument, body))
+            .enumerate()
+            .map(|(index, argument)| match listener_hint {
+                Some(hint) if index == 1 => self.argument_with_hint(argument, body, Some(hint)),
+                _ => self.argument(argument, body),
+            })
             .collect::<Result<Vec<_>, _>>()?;
-        let ty = self.event_emitter_op_result_type(op);
+        let ty = self.event_emitter_op_result_type(op, receiver_ty);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::EventEmitterOp {
                 op,
@@ -1173,6 +1222,52 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// The listener signature a modeled receiver's event schema publishes.
+    ///
+    /// Answers `None` — leaving the listener erased, as it has always been —
+    /// unless all three of these hold: the operation registers or removes a
+    /// listener, the receiver is a modeled class rather than a plain
+    /// `EventEmitter`, and the event name is a literal the class publishes a
+    /// schema for. Anything else is the open case the emitter's erased store
+    /// exists for: a name computed at run time cannot select a signature.
+    fn modeled_listener_hint(
+        &mut self,
+        op: EventEmitterOp,
+        receiver_ty: smelt_hir::TypeId,
+        call: &oxc::ast::ast::CallExpression<'_>,
+    ) -> Option<smelt_hir::TypeId> {
+        if !matches!(
+            op,
+            EventEmitterOp::On | EventEmitterOp::Once | EventEmitterOp::Off
+        ) {
+            return None;
+        }
+        let class = self.stdlib_class_of_type(receiver_ty)?;
+        let Some(oxc::ast::ast::Argument::StringLiteral(event)) = call.arguments.first() else {
+            return None;
+        };
+        let params = class.event_listener_string_params(event.value.as_str())?;
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let none_ty = self.ctx.krate.types.intern(Type::None);
+        Some(
+            self.ctx
+                .krate
+                .types
+                .intern(Type::Function(smelt_hir::FunctionType {
+                    params: vec![string_ty; params],
+                    rest: None,
+                    required_params: Some(params),
+                    mutable_params: Vec::new(),
+                    return_ty: none_ty,
+                    is_async: false,
+                    // A listener that throws leaves through the emitting call,
+                    // which is what `statement_can_throw` already reports for
+                    // `emit`; the signature has to agree with that.
+                    may_throw: true,
+                })),
+        )
+    }
+
     /// Return the modeled `EventEmitter` class type.
     pub(in crate::lowering) fn event_emitter_type(&mut self) -> smelt_hir::TypeId {
         let name = self.intern_type_name("EventEmitter");
@@ -1182,23 +1277,55 @@ impl ModuleBuilder<'_> {
         })
     }
 
-    /// Return whether a lowered type is the modeled `EventEmitter` class.
+    /// Return whether a lowered type HAS a `node:events` listener list.
+    ///
+    /// Not "is the `EventEmitter` class". Node's `IncomingMessage` extends
+    /// `EventEmitter`, and `req.on('data', ..)` is how a request body is read,
+    /// so the test that gates the emitter operations has to admit every class
+    /// that carries a listener list. The registry answers which those are
+    /// (`StdlibClass::has_event_emitter`), and the generated types make the
+    /// answer true by COMPOSITION — a `SmeltIncomingMessage` holds a
+    /// `SmeltEventEmitter` and forwards the same five methods to it — so one
+    /// listener-list implementation serves both receivers and they cannot drift
+    /// apart on ordering or on `once` removal.
+    ///
+    /// The shadow test follows the class the type actually names, so a user
+    /// class called `EventEmitter` still shadows the emitter without affecting
+    /// `IncomingMessage`, and vice versa.
     pub(in crate::lowering) fn is_event_emitter_type(&self, ty: smelt_hir::TypeId) -> bool {
-        self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::EventEmitter)
-            && !self.user_class_shadows("EventEmitter")
+        let Some(class) = self.stdlib_class_of_type(ty) else {
+            return false;
+        };
+        if !class.has_event_emitter() {
+            return false;
+        }
+        match class {
+            smelt_stdlib::StdlibClass::EventEmitter => !self.user_class_shadows("EventEmitter"),
+            smelt_stdlib::StdlibClass::IncomingMessage => {
+                !self.user_class_shadows("IncomingMessage")
+            }
+            _ => false,
+        }
     }
 
     /// The HIR type an `EventEmitter` operation answers.
     ///
-    /// Every registration and removal answers the EMITTER, which is what makes
-    /// `e.on(..).on(..)` chain as it does in Node; `emit` answers whether a
-    /// listener ran, and `listenerCount` a number.
-    fn event_emitter_op_result_type(&mut self, op: EventEmitterOp) -> smelt_hir::TypeId {
+    /// Every registration and removal answers the RECEIVER, which is what makes
+    /// `e.on(..).on(..)` chain as it does in Node. The receiver, not the
+    /// emitter class: `req.on('data', ..)` answers the request in Node, so a
+    /// chained `req.on(..).on(..)` must keep the `IncomingMessage` type or the
+    /// second call would look for `on` on an emitter that has no `url`.
+    /// `emit` answers whether a listener ran, and `listenerCount` a number.
+    fn event_emitter_op_result_type(
+        &mut self,
+        op: EventEmitterOp,
+        receiver_ty: smelt_hir::TypeId,
+    ) -> smelt_hir::TypeId {
         match op {
             EventEmitterOp::On
             | EventEmitterOp::Once
             | EventEmitterOp::Off
-            | EventEmitterOp::RemoveAll => self.event_emitter_type(),
+            | EventEmitterOp::RemoveAll => receiver_ty,
             EventEmitterOp::Emit => self.ctx.krate.types.intern(Type::Bool),
             EventEmitterOp::ListenerCount => self.ctx.krate.types.intern(Type::Float),
         }

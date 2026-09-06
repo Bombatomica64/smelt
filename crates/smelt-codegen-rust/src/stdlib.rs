@@ -40,6 +40,9 @@ pub(crate) fn backend_dependencies(mir: &Mir) -> Vec<BackendDependency> {
     if any_rvalue_needs(mir, rvalue_needs_unicode_normalization) {
         deps.push(BackendDependency::UnicodeNormalization);
     }
+    if needs_http_server_runtime(mir) {
+        deps.push(BackendDependency::Hyper);
+    }
     deps
 }
 
@@ -117,9 +120,13 @@ fn rvalue_needs_regex(rvalue: &Rvalue, _mir: &Mir) -> bool {
 /// nothing for the fetch types.
 pub(crate) fn needs_headers_runtime(mir: &Mir) -> bool {
     // A `Response`/`Request` HAS a header list, so carrying one carries
-    // `SmeltHeaders` whether or not the program names `Headers` itself.
+    // `SmeltHeaders` whether or not the program names `Headers` itself. So does
+    // a `node:http` server: `res.writeHead(status, init)` runs its second
+    // argument through the same `HeadersInit` conversion `new Headers(init)`
+    // uses, rather than through a second reader that could drift from it.
     needs_response_runtime(mir)
         || needs_request_runtime(mir)
+        || needs_http_server_runtime(mir)
         || any_rvalue_needs(mir, |rvalue| {
             matches!(
                 rvalue,
@@ -175,7 +182,10 @@ pub(crate) fn needs_request_runtime(mir: &Mir) -> bool {
 
 /// Returns true when generated Rust needs the `SmeltEventEmitter` type.
 ///
-/// Same pay-for-use rule as the fetch types.
+/// Same pay-for-use rule as the fetch types, plus the `node:http` server: a
+/// `SmeltIncomingMessage` COMPOSES an emitter (Node's `IncomingMessage` extends
+/// `EventEmitter`), so a program that serves needs the emitter even when it
+/// never writes `new EventEmitter()`.
 pub(crate) fn needs_event_emitter_runtime(mir: &Mir) -> bool {
     any_rvalue_needs(mir, |rvalue| {
         matches!(
@@ -187,6 +197,30 @@ pub(crate) fn needs_event_emitter_runtime(mir: &Mir) -> bool {
         .all()
         .iter()
         .any(|ty| is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::EventEmitter))
+        || needs_http_server_runtime(mir)
+}
+
+/// Returns true when generated Rust needs the `node:http` server runtime.
+///
+/// The gate for the whole prelude AND for the `hyper` dependency, so a crate
+/// cannot end up with the types but not the crates that back them. Any of the
+/// four server rvalues, or a value of any of the three modeled classes, is
+/// enough: a program can receive a `ServerResponse` from a helper without
+/// calling `createServer` in the same function.
+pub(crate) fn needs_http_server_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| {
+        matches!(
+            rvalue,
+            Rvalue::HttpCreateServer { .. }
+                | Rvalue::HttpServerOp { .. }
+                | Rvalue::IncomingMessageOp { .. }
+                | Rvalue::ServerResponseOp { .. }
+        )
+    }) || mir.types.all().iter().any(|ty| {
+        is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::HttpServer)
+            || is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::IncomingMessage)
+            || is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::ServerResponse)
+    })
 }
 
 /// Returns true when generated Rust needs the `SmeltBody` runtime type.

@@ -1363,3 +1363,275 @@ export function reclothe(source: Response): Response {
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
+
+/// `createServer(handler)` lowers to a concrete `Server` value.
+///
+/// The registry entry for `node:http`'s server half is `Modeled`, so the import
+/// resolves instead of blocking, and the call answers `Type::Class { Server }`
+/// rather than an erased host value.
+#[test]
+fn create_server_lowers_to_a_concrete_class_value() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+import { createServer } from 'node:http';
+const server = createServer((req, res) => { res.end('ok'); });
+"),
+        &mut ctx,
+    )?;
+    let ty = last_expr_ty(&ctx, module_id, |kind| {
+        matches!(kind, ExprKind::HttpCreateServer { .. })
+    })?;
+    ensure!(
+        matches!(ctx.krate.types.get(ty), Some(Type::Class { .. })),
+        "a created server must keep its class type, got {}",
+        type_text(&ctx, ty),
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// The handler's parameters are TYPED from the module, not left erased.
+///
+/// A source handler is written `(req, res) => ..` with no annotations, so
+/// nothing in the arrow says what `req` is. Typing them from `node:http` is what
+/// makes `req.url` a modeled read instead of an erased property lookup — and a
+/// regression here would still compile and still run, it would just erase
+/// everything the handler touches.
+#[test]
+fn the_request_handler_parameters_are_typed_from_the_module() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+import { createServer } from 'node:http';
+const server = createServer((req, res) => {
+  res.statusCode = 204;
+  res.end(req.method + req.url);
+});
+"),
+        &mut ctx,
+    )?;
+    for op in [
+        smelt_hir::IncomingMessageOp::Method,
+        smelt_hir::IncomingMessageOp::Url,
+    ] {
+        ensure!(
+            any_body_has(
+                &ctx,
+                |kind| matches!(kind, ExprKind::IncomingMessageOp { op: found, .. } if *found == op)
+            ),
+            "the handler's request parameter must read as a modeled message: {op:?}",
+        );
+    }
+    ensure!(
+        any_body_has(&ctx, |kind| matches!(
+            kind,
+            ExprKind::ServerResponseOp {
+                op: smelt_hir::ServerResponseOp::SetStatusCode,
+                ..
+            }
+        )),
+        "`res.statusCode = ..` must lower to the status-line write",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// `listen` answers the SERVER and `address` an optional port.
+///
+/// `listen` answering the server is what makes `createServer(h).listen(0)` a
+/// server-valued expression as it is in Node; `address` answering an optional is
+/// what forces the source to narrow before using the port, the same shape as
+/// Node's `AddressInfo | null`.
+#[test]
+fn http_server_members_keep_their_source_result_types() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+import { createServer } from 'node:http';
+const server = createServer((req, res) => { res.end('ok'); });
+const listening = server.listen(0);
+const port = server.address();
+"),
+        &mut ctx,
+    )?;
+    let listened = last_expr_ty(&ctx, module_id, |kind| {
+        matches!(
+            kind,
+            ExprKind::HttpServerOp {
+                op: smelt_hir::HttpServerOp::Listen,
+                ..
+            }
+        )
+    })?;
+    ensure!(
+        matches!(ctx.krate.types.get(listened), Some(Type::Class { .. })),
+        "`listen` answers the server, got {}",
+        type_text(&ctx, listened),
+    );
+    let address = last_expr_ty(&ctx, module_id, |kind| {
+        matches!(
+            kind,
+            ExprKind::HttpServerOp {
+                op: smelt_hir::HttpServerOp::Address,
+                ..
+            }
+        )
+    })?;
+    ensure!(
+        matches!(ctx.krate.types.get(address), Some(Type::Optional(_))),
+        "`address` answers an optional port, got {}",
+        type_text(&ctx, address),
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// `req.on(..)` reaches the EMITTER operations, and answers the REQUEST.
+///
+/// The coupling that made `node:http` one commit with `node:events`: Node's
+/// `IncomingMessage` extends `EventEmitter`, and a request body is read through
+/// that inheritance. The dispatch tests whether the receiver's class HAS an
+/// emitter rather than whether it IS one, so one operation serves both — and
+/// the result stays the REQUEST, so a chained `req.on(..).url` still finds
+/// `url`.
+#[test]
+fn an_incoming_message_registers_listeners_as_an_emitter() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+import { createServer } from 'node:http';
+const server = createServer((req, res) => {
+  let body = '';
+  req.on('data', (chunk) => { body += chunk; });
+  req.on('end', () => { res.end(body); });
+});
+"),
+        &mut ctx,
+    )?;
+    ensure!(
+        any_body_has(&ctx, |kind| matches!(
+            kind,
+            ExprKind::EventEmitterOp {
+                op: smelt_hir::EventEmitterOp::On,
+                ..
+            }
+        )),
+        "`req.on(..)` must lower to the shared emitter operation",
+    );
+    let registered = any_body_expr_ty(&ctx, |kind| {
+        matches!(
+            kind,
+            ExprKind::EventEmitterOp {
+                op: smelt_hir::EventEmitterOp::On,
+                ..
+            }
+        )
+    })?;
+    ensure!(
+        matches!(ctx.krate.types.get(registered), Some(Type::Class { .. })),
+        "`req.on(..)` answers the request itself, got {}",
+        type_text(&ctx, registered),
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// A modeled receiver's listener keeps a REAL parameter type.
+///
+/// A plain emitter's events are open — any name, any listener signature — which
+/// is the boundary its erased listener store exists for. `IncomingMessage` is
+/// not open: `node:http` says `data` carries one chunk and `end` carries
+/// nothing, so the source's own closure is typed from that schema instead of
+/// taking an erased value and coercing it by hand. Pinned here because the
+/// erased spelling compiles and runs identically; it just puts a `SmeltUnknown`
+/// inside program code for a signature the module already publishes.
+#[test]
+fn a_modeled_receivers_listener_is_typed_from_its_event() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+import { createServer } from 'node:http';
+const server = createServer((req, res) => {
+  req.on('data', (chunk) => { res.write(chunk); });
+});
+"),
+        &mut ctx,
+    )?;
+    // The chunk flows into `res.write`, whose argument is a string. Had the
+    // listener parameter stayed erased, the closure's own parameter local would
+    // be `Unknown` and the write would carry a cast.
+    ensure!(
+        any_body_has(&ctx, |kind| matches!(
+            kind,
+            ExprKind::ServerResponseOp {
+                op: smelt_hir::ServerResponseOp::Write,
+                ..
+            }
+        )),
+        "the listener's chunk must flow into the modeled write",
+    );
+    let erased_listener_param = ctx.krate.bodies.iter().any(|body| {
+        body.params.iter().any(|param| {
+            body.locals
+                .get(param.0 as usize)
+                .is_some_and(|local| ctx.krate.types.get(local.ty) == Some(&Type::Unknown))
+        })
+    });
+    ensure!(
+        !erased_listener_param,
+        "a `data` listener's chunk must lower as a string, not an erased value",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// A user class named `Server` shadows the modeled one.
+///
+/// The rule every other modeled class follows: a program that defines its own
+/// `Server` keeps it, and the `node:http` entry does not steal the name.
+#[test]
+fn a_user_server_class_shadows_the_modeled_one() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+class Server {
+  ready: boolean = false;
+  address(): number { return 0; }
+}
+const server = new Server();
+const port = server.address();
+"),
+        &mut ctx,
+    )?;
+    ensure!(
+        !any_body_has(&ctx, |kind| matches!(kind, ExprKind::HttpServerOp { .. })),
+        "a user `Server` must not reach the modeled server operations",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// `http.request`/`http.get` stay a named blocker.
+///
+/// The server half of `node:http` is modeled and the client half is not, so a
+/// half-modeled module must still REPORT the half it does not serve rather than
+/// erasing it into a dynamic lookup that quietly does nothing.
+#[test]
+fn the_node_http_client_surface_is_a_named_blocker() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r"
+import { request } from 'node:http';
+const pending = request('http://example.test');
+"),
+        &mut ctx,
+    )?;
+    ensure!(
+        errors
+            .iter()
+            .any(|error| format!("{error:?}").contains("node:http")),
+        "the unmodeled client surface must be named in the diagnostic, got {errors:?}",
+    );
+    Ok(())
+}

@@ -422,6 +422,11 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.request_property_read(member, body)? {
             return Ok(expr);
         }
+        // `req.method`/`req.url`/`req.headers` and `res.statusCode`, gated the
+        // same way on the receiver's lowered type.
+        if let Some(expr) = self.http_property_read(member, body)? {
+            return Ok(expr);
+        }
         // The exemption an assignment target carries follows the whole target
         // chain: in `fn.prop.inner = value` the base `fn.prop` is read only to
         // locate the slot the (discarded) write targets, so rejecting it would
@@ -1913,6 +1918,12 @@ impl ModuleBuilder<'_> {
         // desugars to a `HostGlobalWrite` slot store; it must intercept before
         // the lifted-mutable-global path and the ordinary member-assignment path.
         if let Some(write) = self.try_host_global_write_expression(assign, body)? {
+            return Ok(Some(write));
+        }
+        // `res.statusCode = 200` is a status-line WRITE on a modeled receiver,
+        // not a field store, so it intercepts here alongside the other
+        // desugared member assignments.
+        if let Some(write) = self.try_server_response_assignment_expression(assign, body)? {
             return Ok(Some(write));
         }
         let Some(item) = self.assignment_target_mutable_global(&assign.left) else {

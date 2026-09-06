@@ -1,0 +1,171 @@
+async fn main (FuncId(0)) -> None throws
+  locals
+    %0 user server: Server
+    %1 user port: Float
+    %2 user base: String
+    %3 user posted: Response
+    %4 user plain: Response
+    %5 temp: fn(IncomingMessage, ServerResponse) -> None
+    %6 temp: Server
+    %7 temp: fn() -> None
+    %8 temp: Server
+    %9 temp: Optional<Float>
+    %10 temp: Float
+    %11 temp: String
+    %12 temp: String
+    %13 temp: String
+    %14 temp: Request
+    %15 temp: Future<Response>
+    %16 temp: Response
+    %17 temp: Float
+    %18 temp: None
+    %19 temp: Future<String>
+    %20 temp: String
+    %21 temp: None
+    %22 temp: String
+    %23 temp: String
+    %24 temp: Future<Response>
+    %25 temp: Response
+    %26 temp: Float
+    %27 temp: None
+    %28 temp: Future<String>
+    %29 temp: String
+    %30 temp: None
+    %31 temp: Server
+    %32 temp: Optional<Float>
+    %33 temp: Float
+    %34 temp: Float
+    %35 temp: None
+    %36 temp: Future<None>
+    %37 temp: None
+  bb0:
+    %5 = closure ClosureId(0) []
+    %6 = http_create_server move %5
+    %0 = move %6
+    %7 = closure ClosureId(3) []
+    %8 = http_server_listen copy %0 0.0 "127.0.0.1" move %7
+    %9 = http_server_address copy %0
+    %10 = move %9 ?? 0.0
+    %1 = move %10
+    %11 = "http://127.0.0.1:" + move %1
+    %2 = move %11
+    %12 = "" + copy %2
+    %13 = move %12 + "/echo?q=1"
+    %14 = request_new input=move %13 method="POST" body="hello body"
+    %15 = async_http_fetch(move %14)
+    %16 = await move %15
+    %3 = move %16
+    %17 = response_status copy %3
+    %18 = call @console_log(move %17) -> bb1
+  bb1:
+    %19 = response_text move %3
+    %20 = await move %19
+    %21 = call @console_log(move %20) -> bb2
+  bb2:
+    %22 = "" + move %2
+    %23 = move %22 + "/again"
+    %24 = async_http_fetch(move %23)
+    %25 = await move %24
+    %4 = move %25
+    %26 = response_status copy %4
+    %27 = call @console_log(move %26) -> bb3
+  bb3:
+    %28 = response_text move %4
+    %29 = await move %28
+    %30 = call @console_log(move %29) -> bb4
+  bb4:
+    %31 = http_server_close copy %0
+    %32 = http_server_address move %0
+    %33 = -1.0
+    %34 = move %32 ?? move %33
+    %35 = call @console_log(move %34) -> bb5
+  bb5:
+    %36 = async_exit_drain()
+    %37 = await move %36
+    return none
+
+closure ClosureId(0) -> None
+  locals
+    %0 param req: IncomingMessage
+    %1 param res: ServerResponse
+    %2 user received: String
+    %3 temp: fn(String) -> None
+    %4 temp: IncomingMessage
+    %5 temp: fn() -> None
+    %6 temp: IncomingMessage
+  bb0:
+    %2 = ""
+    %3 = closure ClosureId(1) [copy %2]
+    %4 = emitter_on copy %0 "data" copy %3
+    %5 = closure ClosureId(2) [copy %2, copy %0, copy %1]
+    %6 = emitter_on copy %0 "end" copy %5
+    return none
+
+closure ClosureId(1) -> None
+  locals
+    %0 param chunk: String
+    %1 user received: String
+    %2 temp: String
+  bb0:
+    %2 = copy %1 + copy %0
+    %1 = copy %2
+    return none
+
+closure ClosureId(2) -> None
+  locals
+    %0 user received: String
+    %1 user req: IncomingMessage
+    %2 user res: ServerResponse
+    %3 temp: String
+    %4 temp: Bool
+    %5 temp: Float
+    %6 temp: ServerResponse
+    %7 temp: ServerResponse
+    %8 temp: Dict<String, String>
+    %9 temp: ServerResponse
+    %10 temp: String
+    %11 temp: String
+    %12 temp: Float
+    %13 temp: String
+    %14 temp: Optional<String>
+    %15 temp: String
+    %16 temp: Optional<String>
+    %17 temp: String
+    %18 temp: Dict<String, String>
+    %19 temp: String
+    %20 temp: ServerResponse
+  bb0:
+    %3 = incoming_message_method copy %1
+    %4 = copy %3 == "POST"
+    switch copy %4 ? bb1 : bb2
+  bb1:
+    %5 = server_response_set_status_code copy %2 201.0
+    %6 = server_response_set_header copy %2 "content-type" "application/json"
+    goto bb3
+  bb2:
+    %7 = server_response_set_header copy %2 "x-set-first" "kept"
+    %8 = {"content-type": "application/json"}
+    %9 = server_response_write_head copy %2 200.0 copy %8
+    goto bb3
+  bb3:
+    %10 = incoming_message_method copy %1
+    %11 = incoming_message_url copy %1
+    %12 = server_response_status_code copy %2
+    %13 = "" + copy %12
+    %14 = server_response_get_header copy %2 "content-type"
+    %15 = copy %14 ?? ""
+    %16 = server_response_get_header copy %2 "x-set-first"
+    %17 = copy %16 ?? ""
+    %18 = {"method": copy %10, "url": copy %11, "body": copy %0, "status": copy %13, "sentType": copy %15, "kept": copy %17}
+    %19 = json_stringify copy %18
+    %20 = server_response_end copy %2 copy %19
+    return none
+
+closure ClosureId(3) -> None
+  locals
+    %0 temp: None
+  bb0:
+    %0 = call @console_log("listening") -> bb1
+  bb1:
+    return none
+

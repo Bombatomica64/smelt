@@ -310,6 +310,76 @@ pub enum EventEmitterOp {
     ListenerCount,
 }
 
+/// A directly lowered `node:http` `Server` operation.
+///
+/// Three operations and no more, because that is the whole of what a server
+/// object does once it exists: start, stop, and say where it is bound.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HttpServerOp {
+    /// `listen(port[, host][, callback])`: bind, start accepting, answer the
+    /// server.
+    ///
+    /// Synchronous, exactly as in Node: the bind happens before `listen`
+    /// returns — which is what makes `server.listen(0); server.address()` a
+    /// legal pair — and only the accept loop is deferred. The callback runs
+    /// after the bind, in the same turn.
+    Listen,
+    /// `close()`: stop accepting and release the process.
+    Close,
+    /// `address()`: the bound address, or null when not listening.
+    ///
+    /// Answers the PORT rather than Node's `{ address, family, port }` record,
+    /// because a record would need a generated struct for a shape whose other
+    /// two fields nothing here can vary: the modeled `listen` binds IPv4
+    /// loopback or the given host, and the family follows from the host.
+    Address,
+}
+
+/// A directly lowered `node:http` `IncomingMessage` property read.
+///
+/// Only reads: everything else an `IncomingMessage` does is an
+/// [`EventEmitterOp`], because Node's `IncomingMessage` extends `EventEmitter`
+/// and Smelt models that by composition — the same listener list, reached
+/// through the same operations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum IncomingMessageOp {
+    /// `method`: the request method, uppercased as it arrived.
+    Method,
+    /// `url`: the request target — path and query only, as Node reports it.
+    Url,
+    /// `headers`: the lower-cased header map.
+    ///
+    /// A plain record, NOT a `Headers`. Node's `IncomingMessage.headers` is an
+    /// object with lower-cased keys and no methods; modeling it as the fetch
+    /// `Headers` type would hand the source a `get`/`has` surface the runtime
+    /// it is imitating does not have.
+    Headers,
+}
+
+/// A directly lowered `node:http` `ServerResponse` operation.
+///
+/// The only modeled surface with a WRITE (`res.statusCode = 200`). It is here
+/// rather than in a general member-assignment path because the assignment has
+/// a real operation behind it — the status line of a response that has not been
+/// sent yet — and not a struct field to store into.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ServerResponseOp {
+    /// `statusCode`: read the pending status code.
+    StatusCode,
+    /// `statusCode = n`: set the pending status code.
+    SetStatusCode,
+    /// `setHeader(name, value)`.
+    SetHeader,
+    /// `getHeader(name)`: the pending value, or null.
+    GetHeader,
+    /// `writeHead(status[, headers])`: set the status and merge headers.
+    WriteHead,
+    /// `write(chunk)`: append to the body.
+    Write,
+    /// `end([chunk])`: append and send.
+    End,
+}
+
 /// A directly lowered WHATWG `Request` operation.
 ///
 /// The same shape as [`ResponseOp`], and separate from it because the two types

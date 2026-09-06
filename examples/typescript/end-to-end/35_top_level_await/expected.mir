@@ -71,7 +71,7 @@ async fn main (FuncId(2)) -> None throws
     %11 = len move %10
     %12 = call @console_log(move %11) -> bb6
   bb6:
-    %13 = async_sleep(0.0)
+    %13 = async_exit_drain()
     %14 = await move %13
     return none
 

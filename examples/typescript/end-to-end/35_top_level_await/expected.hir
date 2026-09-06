@@ -31,22 +31,21 @@ module examples/typescript/end-to-end/35_top_level_await/input.ts (ModuleId(0))
     #21: Float = len #20
     #22: None = @4(console_log)
     #23: None = call #22(#21)
-    #24: Float = 0.0
-    #25: Future<None> = async_sleep(#24)
-    #26: None = await #25
+    #24: Future<None> = async_exit_drain()
+    #25: None = await #24
   stmts
     s0: let %0: String = #3
     s1: #6
     s2: let %1: Float = #13
     s3: #16
     s4: #23
-    s5: #26
+    s5: #25
   async state machine
     states [state0, state1, state2, state3, state4]
     suspend #3 on #2 -> state4
     suspend #13 on #12 -> state14
     suspend #20 on #19 -> state21
-    suspend #26 on #25 -> state27
+    suspend #25 on #24 -> state26
 
 interned types
   t0 = Unknown

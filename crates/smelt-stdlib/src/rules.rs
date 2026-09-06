@@ -208,6 +208,23 @@ pub enum RuleId {
     TsEventEmitterEmit,
     /// TypeScript `EventEmitter` read (`listenerCount`).
     TsEventEmitterRead,
+    /// TypeScript `node:http` `createServer(handler)`.
+    TsHttpCreateServer,
+    /// TypeScript `node:http` `Server.prototype.listen`.
+    TsHttpServerListen,
+    /// TypeScript `node:http` `Server.prototype.close`.
+    TsHttpServerClose,
+    /// TypeScript `node:http` `Server.prototype.address`.
+    TsHttpServerAddress,
+    /// TypeScript `node:http` `ServerResponse` header access (`setHeader`,
+    /// `getHeader`).
+    TsServerResponseHeader,
+    /// TypeScript `node:http` `ServerResponse.prototype.writeHead`.
+    TsServerResponseWriteHead,
+    /// TypeScript `node:http` `ServerResponse.prototype.write`.
+    TsServerResponseWrite,
+    /// TypeScript `node:http` `ServerResponse.prototype.end`.
+    TsServerResponseEnd,
     /// Python `json.dumps(value)`.
     PyJsonDumps,
     /// Python `json.loads(text)`.
@@ -235,9 +252,46 @@ pub enum RuleId {
 }
 
 impl RuleId {
+    /// Return the `node:http` source spelling this rule models, when any.
+    ///
+    /// One place for the whole module, read by both
+    /// [`Self::backend_dependency`] and [`Self::source_api`]: every
+    /// `node:http` rule reaches the same generated hyper server, so "is this
+    /// one of them" and "what is it called" are the same question asked twice.
+    /// Keeping them together is also what stops a new server rule from being
+    /// added to one list and forgotten in the other.
+    #[must_use]
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "the question is membership of one module, so everything outside it is one answer"
+    )]
+    pub const fn node_http_source_api(self) -> Option<&'static str> {
+        match self {
+            Self::TsHttpCreateServer => Some("http.createServer"),
+            Self::TsHttpServerListen => Some("http.Server.listen"),
+            Self::TsHttpServerClose => Some("http.Server.close"),
+            Self::TsHttpServerAddress => Some("http.Server.address"),
+            Self::TsServerResponseHeader => Some("ServerResponse header access"),
+            Self::TsServerResponseWriteHead => Some("ServerResponse.writeHead"),
+            Self::TsServerResponseWrite => Some("ServerResponse.write"),
+            Self::TsServerResponseEnd => Some("ServerResponse.end"),
+            _ => None,
+        }
+    }
+
     /// Return the backend dependency required by this rule, when any.
     #[must_use]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "a one-arm-per-rule registry: splitting it would put half the table somewhere else"
+    )]
     pub const fn backend_dependency(self) -> Option<BackendDependency> {
+        // Reported from every server rule rather than from `createServer`
+        // alone, so a crate that receives a server from elsewhere and only
+        // calls `listen` on it still gets the manifest entry.
+        if self.node_http_source_api().is_some() {
+            return Some(BackendDependency::Hyper);
+        }
         match self {
             Self::TsJsonStringify | Self::TsJsonParse | Self::PyJsonDumps | Self::PyJsonLoads => {
                 Some(BackendDependency::SerdeJson)
@@ -307,13 +361,30 @@ impl RuleId {
             | Self::TsEventEmitterRegister
             | Self::TsEventEmitterRemove
             | Self::TsEventEmitterEmit
-            | Self::TsEventEmitterRead => None,
+            | Self::TsEventEmitterRead
+            // Answered above, before the match; repeated here only because the
+            // match must stay exhaustive.
+            | Self::TsHttpCreateServer
+            | Self::TsHttpServerListen
+            | Self::TsHttpServerClose
+            | Self::TsHttpServerAddress
+            | Self::TsServerResponseHeader
+            | Self::TsServerResponseWriteHead
+            | Self::TsServerResponseWrite
+            | Self::TsServerResponseEnd => None,
         }
     }
 
     /// Return a concise source API name for diagnostics.
     #[must_use]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "a one-arm-per-rule registry: splitting it would put half the table somewhere else"
+    )]
     pub const fn source_api(self) -> &'static str {
+        if let Some(name) = self.node_http_source_api() {
+            return name;
+        }
         match self {
             Self::TsJsonStringify => "JSON.stringify",
             Self::TsJsonParse => "JSON.parse",
@@ -372,6 +443,16 @@ impl RuleId {
             Self::PyDateTimeNow => "datetime.datetime.now",
             Self::PyDateTimeFromTimestamp => "datetime.datetime.fromtimestamp",
             Self::PyUrlparseField => "urllib.parse.urlparse field access",
+            // Answered above, before the match, by `node_http_source_api`;
+            // repeated here only because the match must stay exhaustive.
+            Self::TsHttpCreateServer
+            | Self::TsHttpServerListen
+            | Self::TsHttpServerClose
+            | Self::TsHttpServerAddress
+            | Self::TsServerResponseHeader
+            | Self::TsServerResponseWriteHead
+            | Self::TsServerResponseWrite
+            | Self::TsServerResponseEnd => "node:http server",
         }
     }
 }

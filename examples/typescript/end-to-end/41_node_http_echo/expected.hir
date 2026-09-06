@@ -1,0 +1,115 @@
+module examples/typescript/end-to-end/41_node_http_echo/input.ts (ModuleId(0))
+  body BodyId(7)
+  locals
+    %0 const server: Server
+    %1 const port: Float
+    %2 const base: String
+    %3 const posted: Response
+    %4 const plain: Response
+  exprs
+    #0: fn(IncomingMessage, ServerResponse) -> None = closure BodyId(5) captures 0 -> None
+    #1: Server = http_create_server #0
+    #2: Server = %0
+    #3: Float = 0.0
+    #4: fn() -> None = closure BodyId(6) captures 0 -> None
+    #5: String = "127.0.0.1"
+    #6: Server = http_server_listen #2 #3 #5 #4
+    #7: Server = %0
+    #8: Optional<Float> = http_server_address #7
+    #9: Float = 0.0
+    #10: Float = #8 ?? #9
+    #11: String = "http://127.0.0.1:"
+    #12: Float = %1
+    #13: String = Add #11, #12
+    #14: String = ""
+    #15: String = %2
+    #16: String = Add #14, #15
+    #17: String = "/echo?q=1"
+    #18: String = Add #16, #17
+    #19: String = "POST"
+    #20: String = "hello body"
+    #21: Request = request_new input=#18 method=#19 body=#20
+    #22: Future<Response> = async_http_fetch(#21)
+    #23: Response = await #22
+    #24: Response = %3
+    #25: Float = response_status #24
+    #26: None = @1(console_log)
+    #27: None = call #26(#25)
+    #28: Response = %3
+    #29: Future<String> = response_text #28
+    #30: String = await #29
+    #31: None = @2(console_log)
+    #32: None = call #31(#30)
+    #33: String = ""
+    #34: String = %2
+    #35: String = Add #33, #34
+    #36: String = "/again"
+    #37: String = Add #35, #36
+    #38: Future<Response> = async_http_fetch(#37)
+    #39: Response = await #38
+    #40: Response = %4
+    #41: Float = response_status #40
+    #42: None = @3(console_log)
+    #43: None = call #42(#41)
+    #44: Response = %4
+    #45: Future<String> = response_text #44
+    #46: String = await #45
+    #47: None = @4(console_log)
+    #48: None = call #47(#46)
+    #49: Server = %0
+    #50: Server = http_server_close #49
+    #51: Server = %0
+    #52: Optional<Float> = http_server_address #51
+    #53: Float = 1.0
+    #54: Float = Neg #53
+    #55: Float = #52 ?? #54
+    #56: None = @5(console_log)
+    #57: None = call #56(#55)
+    #58: Future<None> = async_exit_drain()
+    #59: None = await #58
+  stmts
+    s0: let %0: Server = #1
+    s1: #6
+    s2: let %1: Float = #10
+    s3: let %2: String = #13
+    s4: let %3: Response = #23
+    s5: #27
+    s6: #32
+    s7: let %4: Response = #39
+    s8: #43
+    s9: #48
+    s10: #50
+    s11: #57
+    s12: #59
+  async state machine
+    states [state0, state1, state2, state3, state4, state5]
+    suspend #23 on #22 -> state24
+    suspend #30 on #29 -> state31
+    suspend #39 on #38 -> state40
+    suspend #46 on #45 -> state47
+    suspend #59 on #58 -> state60
+
+interned types
+  t0 = Unknown
+  t1 = IncomingMessage
+  t2 = ServerResponse
+  t3 = None
+  t4 = fn(IncomingMessage, ServerResponse) -> None
+  t5 = String
+  t6 = fn(String) -> None
+  t7 = fn(String) -> None
+  t8 = fn() -> None
+  t9 = Bool
+  t10 = Float
+  t11 = Dict<String, String>
+  t12 = Optional<String>
+  t13 = fn() -> None
+  t14 = fn(IncomingMessage, ServerResponse) -> None
+  t15 = Server
+  t16 = Dict<String, Unknown>
+  t17 = Optional<Float>
+  t18 = Request
+  t19 = Response
+  t20 = Future<Response>
+  t21 = Future<String>
+  t22 = Future<None>
