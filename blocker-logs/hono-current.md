@@ -7,13 +7,12 @@
 
 | Category | Occurrences |
 | --- | ---: |
-| unsupported-lowering | 4 |
+| unsupported-lowering | 3 |
 
 ## Distinct blocker classes
 
 | Occurrences | Files | Category | Blocker class | Example |
 | ---: | ---: | --- | --- | --- |
-| 1 | 1 | non-working Rust (unlowered) | Request init type declares none of its modeled keys | `/home/user/smelt/third_party/hono/src/request.ts` |
 | 1 | 1 | non-working Rust (unlowered) | Response init is an erased value, so its keys cannot be read with their types | `/home/user/smelt/third_party/hono/src/hono-base.ts` |
 | 1 | 1 | non-working Rust (unlowered) | dynamic computed method names are not lowered yet | `/home/user/smelt/third_party/hono/src/request.ts` |
 | 1 | 1 | non-working Rust (unlowered) | field access is only lowered for Record<string, T>, class, and interface values for now (…) | `/home/user/smelt/third_party/hono/src/context.ts` |
