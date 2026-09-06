@@ -236,3 +236,155 @@ const headers = new Headers({ accept: "text/html" }, { extra: "no" });
     )?;
     assert_unsupported_ts(&errors, "at most one initializer")
 }
+
+/// `new URLSearchParams(init)` lowers to a concrete parameter list.
+///
+/// It used to fabricate an erased record carrying only a `size` field, so every
+/// read answered `undefined`; the value existed but held no parameters.
+#[test]
+fn url_search_params_constructor_lowers_to_a_concrete_class_value() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const params = new URLSearchParams("a=1&b=2");
+"#),
+        &mut ctx,
+    )?;
+    let ty = last_expr_ty(&ctx, module_id, |kind| {
+        matches!(kind, ExprKind::UrlSearchParamsNew { .. })
+    })?;
+    ensure!(
+        matches!(ctx.krate.types.get(ty), Some(Type::Class { .. })),
+        "`new URLSearchParams(..)` must be a class-typed value, got {}",
+        type_text(&ctx, ty),
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// Every modeled parameter method keeps the exact source result type.
+#[test]
+fn url_search_params_methods_keep_their_exact_source_types() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const params = new URLSearchParams("a=1");
+const first = params.get("a");
+const all = params.getAll("a");
+const present = params.has("a");
+const text = params.toString();
+const count = params.size;
+"#),
+        &mut ctx,
+    )?;
+    let op_ty = |op: smelt_hir::UrlSearchParamsOp| {
+        last_expr_ty(&ctx, module_id, move |kind| {
+            matches!(kind, ExprKind::UrlSearchParamsOp { op: found, .. } if *found == op)
+        })
+    };
+    let get_ty = op_ty(smelt_hir::UrlSearchParamsOp::Get)?;
+    ensure!(
+        matches!(ctx.krate.types.get(get_ty), Some(Type::Optional(inner))
+            if matches!(ctx.krate.types.get(*inner), Some(Type::String))),
+        "`URLSearchParams.get` is `string | null`, got {}",
+        type_text(&ctx, get_ty),
+    );
+    let all_ty = op_ty(smelt_hir::UrlSearchParamsOp::GetAll)?;
+    ensure!(
+        matches!(ctx.krate.types.get(all_ty), Some(Type::List(item))
+            if matches!(ctx.krate.types.get(*item), Some(Type::String))),
+        "`URLSearchParams.getAll` is a string list, got {}",
+        type_text(&ctx, all_ty),
+    );
+    let has_ty = op_ty(smelt_hir::UrlSearchParamsOp::Has)?;
+    ensure!(
+        matches!(ctx.krate.types.get(has_ty), Some(Type::Bool)),
+        "`URLSearchParams.has` is a boolean, got {}",
+        type_text(&ctx, has_ty),
+    );
+    let text_ty = op_ty(smelt_hir::UrlSearchParamsOp::ToText)?;
+    ensure!(
+        matches!(ctx.krate.types.get(text_ty), Some(Type::String)),
+        "`URLSearchParams.toString` is a string, got {}",
+        type_text(&ctx, text_ty),
+    );
+    let size_ty = last_expr_ty(&ctx, module_id, |kind| {
+        matches!(kind, ExprKind::Field { .. })
+    })?;
+    ensure!(
+        matches!(ctx.krate.types.get(size_ty), Some(Type::Float)),
+        "`URLSearchParams.size` is a number, got {}",
+        type_text(&ctx, size_ty),
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// `toString()` on a parameter list is the urlencoded serialization.
+///
+/// The generic `.toString()` handler accepts any class-typed receiver, so a
+/// modeled fetch type has to get first refusal or the call collapses into a
+/// `"[object Object]"` string cast.
+#[test]
+fn url_search_params_to_string_is_not_a_generic_cast() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const params = new URLSearchParams("a=1");
+const text = params.toString();
+"#),
+        &mut ctx,
+    )?;
+    let lowered_module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, lowered_module)?;
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            expr.kind,
+            ExprKind::UrlSearchParamsOp {
+                op: smelt_hir::UrlSearchParamsOp::ToText,
+                ..
+            }
+        )),
+        "`URLSearchParams.toString` must lower as the modeled serialization",
+    );
+    ensure!(
+        !body
+            .exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::PrimitiveCast { .. })),
+        "`URLSearchParams.toString` must not lower as a generic string cast",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// A user class named `URLSearchParams` shadows the modeled host class.
+#[test]
+fn a_user_class_named_url_search_params_wins() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+class URLSearchParams {
+  constructor(readonly query: string) {}
+  get(name: string): string {
+    return `${this.query}:${name}`;
+  }
+}
+
+const params = new URLSearchParams("a=1");
+const value = params.get("a");
+"#),
+        &mut ctx,
+    )?;
+    let lowered_module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, lowered_module)?;
+    ensure!(
+        !body.exprs.iter().any(|expr| matches!(
+            expr.kind,
+            ExprKind::UrlSearchParamsNew { .. } | ExprKind::UrlSearchParamsOp { .. }
+        )),
+        "a user class named `URLSearchParams` must not lower to the modeled type",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}

@@ -1077,6 +1077,33 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
+            ExprKind::UrlSearchParamsNew { init } => {
+                let init_operand = match init {
+                    Some(init) => Some(self.lower_expr(*init)?),
+                    None => None,
+                };
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::UrlSearchParamsNew { init: init_operand },
+                )?
+            }
+            ExprKind::UrlSearchParamsOp { op, params, args } => {
+                let params_operand = self.lower_expr(*params)?;
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::UrlSearchParamsOp {
+                        op: *op,
+                        params: params_operand,
+                        args: arg_operands,
+                    },
+                )?
+            }
             ExprKind::HeadersNew { init } => {
                 let init_operand = match init {
                     Some(init) => Some(self.lower_expr(*init)?),

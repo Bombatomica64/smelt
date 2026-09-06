@@ -29,6 +29,11 @@ pub enum StdlibClass {
     RegExp,
     /// JavaScript `Set`, represented by set HIR values.
     Set,
+    /// WHATWG `URLSearchParams`, backed by the generated concrete
+    /// `SmeltUrlSearchParams` runtime type (an ordered, case-sensitive
+    /// name/value pair list with `application/x-www-form-urlencoded`
+    /// serialization).
+    UrlSearchParams,
 }
 
 /// Reserved synthetic class name for a `RegExp` match result value.
@@ -56,6 +61,7 @@ pub fn typescript_stdlib_class(name: &str) -> Option<StdlibClass> {
         "MatchFnResult" => Some(StdlibClass::MatchFnResult),
         "RegExp" => Some(StdlibClass::RegExp),
         "Set" => Some(StdlibClass::Set),
+        "URLSearchParams" => Some(StdlibClass::UrlSearchParams),
         _ => None,
     }
 }
@@ -126,6 +132,10 @@ mod tests {
         );
         assert_eq!(typescript_stdlib_class("RegExp"), Some(StdlibClass::RegExp));
         assert_eq!(typescript_stdlib_class("Set"), Some(StdlibClass::Set));
+        assert_eq!(
+            typescript_stdlib_class("URLSearchParams"),
+            Some(StdlibClass::UrlSearchParams)
+        );
     }
 
     /// User class names never resolve to a stdlib identity.

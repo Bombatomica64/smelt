@@ -207,6 +207,10 @@ impl FunctionEmitter<'_> {
                 {
                     return self.regexp_field_text(&self.local_value_text(*base)?, *field);
                 }
+                if self.is_url_search_params_class_type(base_ty)? {
+                    return self
+                        .url_search_params_field_text(&self.local_value_text(*base)?, *field);
+                }
                 if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
                     && let Some(kind) = self.match_class_kind(*name)?
                 {

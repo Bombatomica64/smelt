@@ -24,6 +24,12 @@
 //!    observe each other's mutations, and `new Headers(other)` is a copy that
 //!    does not.
 //!
+//! `URLSearchParams` is the second, and its differences from `Headers` are
+//! exactly what the tests below check: names are case-SENSITIVE, `get` answers
+//! the FIRST value while `getAll` answers all of them, iteration is insertion
+//! order until `sort()`, and the value serializes to
+//! `application/x-www-form-urlencoded` (so a space is `+` and `sort` is stable).
+//!
 //! Each case is a TypeScript Vitest test; lowering emits a `#[test]`, and this
 //! tier emits the crate and runs `cargo test` on it, so a green run means the
 //! generated `expect(...)` calls held at runtime. The tier is `#[ignore]`d
@@ -237,4 +243,124 @@ test("an empty constructor starts with no headers", () => {
 });
 "#;
     run_fetch_fixture(source, "headers_reference");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn url_search_params_reads_follow_the_whatwg_semantics() {
+    let source = r#"
+import { test, expect } from "vitest";
+test("get answers the first value and getAll answers every value", () => {
+  const params = new URLSearchParams("a=1&b=two&a=3");
+  expect(params.get("a")).toBe("1");
+  expect(params.getAll("a").join("|")).toBe("1|3");
+  expect(params.get("b")).toBe("two");
+});
+test("names are case-sensitive, unlike header names", () => {
+  const params = new URLSearchParams("a=1");
+  expect(params.get("A")).toBe(null);
+  expect(params.has("A")).toBe(false);
+  expect(params.has("a")).toBe(true);
+});
+test("get of an absent name is null", () => {
+  const params = new URLSearchParams("a=1");
+  expect(params.get("missing")).toBe(null);
+});
+test("a query string may carry a leading question mark", () => {
+  const params = new URLSearchParams("?a=1");
+  expect(params.get("a")).toBe("1");
+});
+test("percent and plus escapes decode on parse", () => {
+  const params = new URLSearchParams("greeting=hello+world&path=%2Fa%2Fb");
+  expect(params.get("greeting")).toBe("hello world");
+  expect(params.get("path")).toBe("/a/b");
+});
+test("a parameter with no value is the empty string", () => {
+  const params = new URLSearchParams("flag");
+  expect(params.get("flag")).toBe("");
+  expect(params.has("flag")).toBe(true);
+});
+"#;
+    run_fetch_fixture(source, "params_reads");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn url_search_params_mutations_and_serialization() {
+    let source = r#"
+import { test, expect } from "vitest";
+test("set replaces the first value and drops the rest", () => {
+  const params = new URLSearchParams("a=1&b=2&a=3");
+  params.set("a", "9");
+  expect(params.getAll("a").join("|")).toBe("9");
+  expect(params.toString()).toBe("a=9&b=2");
+});
+test("append keeps existing values and delete removes all of them", () => {
+  const params = new URLSearchParams();
+  params.append("a", "1");
+  params.append("a", "2");
+  expect(params.getAll("a").join("|")).toBe("1|2");
+  params.delete("a");
+  expect(params.has("a")).toBe(false);
+  expect(params.toString()).toBe("");
+});
+test("toString encodes spaces as plus and escapes reserved characters", () => {
+  const params = new URLSearchParams();
+  params.append("greeting", "hello world");
+  params.append("path", "/a/b");
+  expect(params.toString()).toBe("greeting=hello+world&path=%2Fa%2Fb");
+});
+test("sort is stable and by name only", () => {
+  const params = new URLSearchParams("b=1&a=2&b=0");
+  params.sort();
+  expect(params.toString()).toBe("a=2&b=1&b=0");
+});
+test("size counts pairs, not names", () => {
+  const params = new URLSearchParams("a=1&a=2&b=3");
+  expect(params.size).toBe(3);
+});
+test("iteration is insertion order", () => {
+  const params = new URLSearchParams("b=1&a=2");
+  const names: string[] = [];
+  for (const [name, value] of params.entries()) {
+    names.push(name + "=" + value);
+  }
+  expect(names.join("&")).toBe("b=1&a=2");
+});
+"#;
+    run_fetch_fixture(source, "params_mutations");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn url_search_params_is_a_reference_value_and_the_constructor_copies() {
+    let source = r#"
+import { test, expect } from "vitest";
+test("two bindings to one parameter list share its mutations", () => {
+  const params = new URLSearchParams("a=1");
+  const alias = params;
+  alias.set("a", "2");
+  expect(params.get("a")).toBe("2");
+});
+test("new URLSearchParams(other) copies", () => {
+  const source = new URLSearchParams("a=1");
+  const copy = new URLSearchParams(source);
+  copy.set("a", "2");
+  expect(source.get("a")).toBe("1");
+  expect(copy.get("a")).toBe("2");
+});
+test("a record initializer keeps one pair per key", () => {
+  const params = new URLSearchParams({ a: "1", b: "2" });
+  expect(params.size).toBe(2);
+  expect(params.get("a")).toBe("1");
+});
+test("a sequence-of-pairs initializer keeps duplicates", () => {
+  const params = new URLSearchParams([
+    ["a", "1"],
+    ["a", "2"],
+  ]);
+  expect(params.getAll("a").join("|")).toBe("1|2");
+});
+"#;
+    run_fetch_fixture(source, "params_reference");
 }

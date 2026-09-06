@@ -867,6 +867,14 @@ return_ty: string_ty,
             return Ok(None);
         }
         let operand = self.expression(&member.object, body)?;
+        // A modeled host class defines its own `toString`: a
+        // `URLSearchParams` serializes to `application/x-www-form-urlencoded`,
+        // not to `"[object Object]"`. The generic cast below accepts ANY
+        // class-typed receiver, so it has to decline those and leave them to
+        // the concern that models them (`stdlib::fetch_types`).
+        if self.type_defines_its_own_to_string(Self::expr_ty(body, operand)) {
+            return Ok(None);
+        }
         if call.arguments.is_empty() && self.expression_is_known_date_value(operand, body) {
             let ty = self.ctx.krate.types.intern(Type::String);
             return Ok(Some(body.push_expr(Expr {

@@ -465,6 +465,38 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             };
             format!("set_{op_name} {}", expr_ref(*set))
         }
+        ExprKind::UrlSearchParamsNew { init } => init.map_or_else(
+            || "url_search_params_new".to_owned(),
+            |init| format!("url_search_params_new {}", expr_ref(init)),
+        ),
+        ExprKind::UrlSearchParamsOp { op, params, args } => {
+            let op_name = match op {
+                crate::expr::UrlSearchParamsOp::Get => "get",
+                crate::expr::UrlSearchParamsOp::GetAll => "get_all",
+                crate::expr::UrlSearchParamsOp::Has => "has",
+                crate::expr::UrlSearchParamsOp::Set => "set",
+                crate::expr::UrlSearchParamsOp::Append => "append",
+                crate::expr::UrlSearchParamsOp::Delete => "delete",
+                crate::expr::UrlSearchParamsOp::Sort => "sort",
+                crate::expr::UrlSearchParamsOp::ToText => "to_text",
+                crate::expr::UrlSearchParamsOp::Keys => "keys",
+                crate::expr::UrlSearchParamsOp::Values => "values",
+                crate::expr::UrlSearchParamsOp::Entries => "entries",
+            };
+            let args_text = args
+                .iter()
+                .map(|arg| expr_ref(*arg))
+                .collect::<Vec<_>>()
+                .join(", ");
+            if args_text.is_empty() {
+                format!("url_search_params_{op_name} {}", expr_ref(*params))
+            } else {
+                format!(
+                    "url_search_params_{op_name} {}, {args_text}",
+                    expr_ref(*params)
+                )
+            }
+        }
         ExprKind::HeadersNew { init } => init.map_or_else(
             || "headers_new".to_owned(),
             |init| format!("headers_new {}", expr_ref(init)),

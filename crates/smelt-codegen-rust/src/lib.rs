@@ -543,6 +543,7 @@ fn emit_source_with_free_function_router(
     // The fetch types are pay-for-use: a crate that never mentions `Headers`
     // carries none of `SmeltHeaders`.
     let needs_headers = stdlib::needs_headers_runtime(mir);
+    let needs_url_search_params = stdlib::needs_url_search_params_runtime(mir);
     let needs_smelt_list = stdlib::needs_smelt_list(mir);
     let needs_erased_function = needs_erased_function_runtime(mir);
     let needs_date_now = stdlib::needs_date_now_runtime(mir);
@@ -743,7 +744,7 @@ fn emit_source_with_free_function_router(
     // identity when later erased to `SmeltUnknown`). Emit it standalone only in
     // that regex-without-list case so list-using programs keep byte-identical
     // output. `needs_smelt_list` already subsumes `needs_unknown`.
-    if (needs_regex || needs_headers) && !needs_smelt_list {
+    if (needs_regex || needs_headers || needs_url_search_params) && !needs_smelt_list {
         emit_runtime_gate(&mut writer, PreludeGate::ObjectIdentity)?;
     }
     if needs_smelt_list {
@@ -5178,6 +5179,9 @@ fn emit_source_with_free_function_router(
     }
     if needs_headers {
         fetch_types_prelude::emit(&mut writer, needs_unknown);
+    }
+    if needs_url_search_params {
+        fetch_types_prelude::emit_url_search_params(&mut writer, needs_unknown);
     }
     for class in &mir.classes {
         let name = class_name_text(mir, class)?;

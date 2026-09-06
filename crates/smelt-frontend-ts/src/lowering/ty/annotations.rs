@@ -2747,6 +2747,14 @@ return_ty: function.return_ty,
         // A `.groups` read yields the named-group accessor class; `.index`,
         // `.input`, and `.length` map to their primitive accessor types; and any
         // named-group read on the accessor class yields an optional string.
+        // `URLSearchParams.size` is the one data property the spec defines on a
+        // params value, and it is a number. Resolving it here keeps the HIR type
+        // honest instead of leaving the read `Unknown` for emission to recover.
+        if self.stdlib_class_of_symbol(class) == Some(smelt_stdlib::StdlibClass::UrlSearchParams)
+            && self.ctx.krate.symbols.get(field) == Some("size")
+        {
+            return Some(self.ctx.krate.types.intern(Type::Float));
+        }
         match self.match_stdlib_class(class) {
             Some(smelt_stdlib::StdlibClass::Match) => {
                 let field_name = self.ctx.krate.symbols.get(field)?;
@@ -3286,6 +3294,20 @@ return_ty: function.return_ty,
     /// Both `__SmeltMatch` (the match value) and `__SmeltMatchGroups` (its
     /// named-group accessor) answer `true`; callers that need to distinguish the
     /// two inspect the resolved [`smelt_stdlib::StdlibClass`] directly.
+    /// Resolve a class symbol to its shared stdlib class identity, if any.
+    pub(in crate::lowering) fn stdlib_class_of_symbol(
+        &self,
+        name: smelt_hir::Symbol,
+    ) -> Option<smelt_stdlib::StdlibClass> {
+        let class_name = self
+            .ctx
+            .krate
+            .names
+            .get(name)
+            .or_else(|| self.ctx.krate.symbols.get(name))?;
+        smelt_stdlib::typescript_stdlib_class(class_name)
+    }
+
     pub(in crate::lowering) fn match_stdlib_class(
         &self,
         name: smelt_hir::Symbol,

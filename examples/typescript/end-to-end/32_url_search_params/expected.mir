@@ -1,0 +1,99 @@
+fn main (FuncId(0)) -> None
+  locals
+    %0 user query: URLSearchParams
+    %1 user __smelt_for_item: (String, String)
+    %2 user name: String
+    %3 user value: String
+    %4 temp: URLSearchParams
+    %5 temp: None
+    %6 temp: None
+    %7 temp: Optional<String>
+    %8 temp: String
+    %9 temp: None
+    %10 temp: List<String>
+    %11 temp: String
+    %12 temp: None
+    %13 temp: Optional<String>
+    %14 temp: String
+    %15 temp: None
+    %16 temp: Bool
+    %17 temp: Bool
+    %18 temp: None
+    %19 temp: None
+    %20 temp: String
+    %21 temp: None
+    %22 temp: None
+    %23 temp: None
+    %24 temp: String
+    %25 temp: None
+    %26 temp: List<String>
+    %27 temp: List<String>
+    %28 temp: List<String>
+    %29 temp: String
+    %30 temp: None
+    %31 temp: List<(String, String)>
+    %32 temp: Float
+    %33 temp: Float
+    %34 temp: Bool
+    %35 temp: String
+    %36 temp: String
+    %37 temp: None
+  bb0:
+    %4 = url_search_params_new "?a=1&b=two&a=3"
+    %0 = move %4
+    %5 = url_search_params_append copy %0, "greeting", "hello world"
+    %6 = url_search_params_set copy %0, "b", "TWO"
+    %7 = url_search_params_get copy %0, "a"
+    %8 = move %7 ?? "null"
+    %9 = call @console_log(move %8) -> bb1
+  bb1:
+    %10 = url_search_params_get_all copy %0, "a"
+    %11 = string_join move %10, "|"
+    %12 = call @console_log(move %11) -> bb2
+  bb2:
+    %13 = url_search_params_get copy %0, "A"
+    %14 = move %13 ?? "null"
+    %15 = call @console_log(move %14) -> bb3
+  bb3:
+    %16 = url_search_params_has copy %0, "greeting"
+    %17 = url_search_params_has copy %0, "missing"
+    %18 = call @console_log(move %16, move %17) -> bb4
+  bb4:
+    %19 = call @console_log(copy %0.field3) -> bb5
+  bb5:
+    %20 = url_search_params_to_text copy %0
+    %21 = call @console_log(move %20) -> bb6
+  bb6:
+    %22 = url_search_params_delete copy %0, "a"
+    %23 = url_search_params_sort copy %0
+    %24 = url_search_params_to_text copy %0
+    %25 = call @console_log(move %24) -> bb7
+  bb7:
+    %26 = url_search_params_keys copy %0
+    %27 = []
+    %28 = list_concat move %26, move %27
+    %29 = string_join move %28, ","
+    %30 = call @console_log(move %29) -> bb8
+  bb8:
+    %31 = url_search_params_entries move %0
+    %32 = 0.0
+    goto bb9
+  bb9:
+    %33 = len copy %31
+    %34 = copy %32 < move %33
+    switch move %34 ? bb10 : bb12
+  bb10:
+    %1 = copy %31[copy %32]
+    %35 = tuple_index copy %1, 0
+    %2 = move %35
+    %36 = tuple_index move %1, 1
+    %3 = move %36
+    %37 = call @console_log(move %2, move %3) -> bb13
+  bb11:
+    %32 = copy %32 + 1.0
+    goto bb9
+  bb12:
+    return none
+  bb13:
+    goto bb11
+

@@ -69,6 +69,7 @@ pub use expr::{
     ListProjectionOp, ListSearchOp, ListSpliceItem, Literal, NumericExtremaOp, NumericPredicateOp,
     NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp, PropertyLookup, RegexMatchOp, SetBinaryOp,
     HeadersOp, SetProjectionOp, SetRelationOp, SetRemoveOp, StringAffixOp, StringCaseOp,
+    UrlSearchParamsOp,
     StringNormalizeForm,
     StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, UnaryOp,
     UnknownKind, UrlField, bin_op_text,

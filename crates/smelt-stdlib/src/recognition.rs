@@ -24,6 +24,8 @@ pub enum TypeScriptReceiverKind {
     Set,
     /// A WHATWG `Headers` value.
     Headers,
+    /// A WHATWG `URLSearchParams` value.
+    UrlSearchParams,
 }
 
 /// Receiver-method call shape recognized after a frontend knows the receiver type.
@@ -177,6 +179,61 @@ pub const TYPESCRIPT_METHODS: &[MethodRecognition] = &[
         TypeScriptReceiverKind::Headers,
         "getSetCookie",
         RuleId::TsHeadersProjection,
+    ),
+    method(
+        TypeScriptReceiverKind::UrlSearchParams,
+        "get",
+        RuleId::TsUrlSearchParamsRead,
+    ),
+    method(
+        TypeScriptReceiverKind::UrlSearchParams,
+        "getAll",
+        RuleId::TsUrlSearchParamsRead,
+    ),
+    method(
+        TypeScriptReceiverKind::UrlSearchParams,
+        "has",
+        RuleId::TsUrlSearchParamsRead,
+    ),
+    method(
+        TypeScriptReceiverKind::UrlSearchParams,
+        "set",
+        RuleId::TsUrlSearchParamsMutation,
+    ),
+    method(
+        TypeScriptReceiverKind::UrlSearchParams,
+        "append",
+        RuleId::TsUrlSearchParamsMutation,
+    ),
+    method(
+        TypeScriptReceiverKind::UrlSearchParams,
+        "delete",
+        RuleId::TsUrlSearchParamsMutation,
+    ),
+    method(
+        TypeScriptReceiverKind::UrlSearchParams,
+        "sort",
+        RuleId::TsUrlSearchParamsMutation,
+    ),
+    method(
+        TypeScriptReceiverKind::UrlSearchParams,
+        "keys",
+        RuleId::TsUrlSearchParamsProjection,
+    ),
+    method(
+        TypeScriptReceiverKind::UrlSearchParams,
+        "values",
+        RuleId::TsUrlSearchParamsProjection,
+    ),
+    method(
+        TypeScriptReceiverKind::UrlSearchParams,
+        "entries",
+        RuleId::TsUrlSearchParamsProjection,
+    ),
+    method(
+        TypeScriptReceiverKind::UrlSearchParams,
+        "toString",
+        RuleId::TsUrlSearchParamsToString,
     ),
 ];
 

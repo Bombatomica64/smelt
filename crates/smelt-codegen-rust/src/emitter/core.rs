@@ -4879,6 +4879,7 @@ impl<'mir> FunctionEmitter<'mir> {
                                 // erases: that is the whole point of modeling
                                 // the fetch types as real Rust values.
                                 | smelt_stdlib::StdlibClass::Headers
+                                | smelt_stdlib::StdlibClass::UrlSearchParams
                         )
                     )
                 }) {

@@ -1005,6 +1005,12 @@ impl FunctionEmitter<'_> {
                 method,
                 args,
             } => self.union_method_text(receiver, *method, args, dest_ty),
+            Rvalue::UrlSearchParamsNew { init } => {
+                self.url_search_params_new_text(init.as_ref())
+            }
+            Rvalue::UrlSearchParamsOp { op, params, args } => {
+                self.url_search_params_op_text(*op, params, args, dest_ty)
+            }
             Rvalue::HeadersNew { init } => self.headers_new_text(init.as_ref()),
             Rvalue::HeadersOp { op, headers, args } => {
                 self.headers_op_text(*op, headers, args, dest_ty)
@@ -2511,6 +2517,9 @@ impl FunctionEmitter<'_> {
             && self.is_regexp_class_symbol(*name)?
         {
             return self.regexp_field_text(receiver_text, field);
+        }
+        if self.is_url_search_params_class_type(receiver_ty)? {
+            return self.url_search_params_field_text(receiver_text, field);
         }
         // A `SmeltMatch`/`MatchGroups` receiver reached through an optional chain
         // (e.g. `withoutSeparator?.groups.result`) must keep its typed match

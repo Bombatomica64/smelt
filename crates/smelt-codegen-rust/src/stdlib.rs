@@ -31,7 +31,7 @@ pub(crate) fn backend_dependencies(mir: &Mir) -> Vec<BackendDependency> {
     if any_rvalue_needs(mir, rvalue_needs_chrono_tz) || needs_unknown_type(mir) {
         deps.push(BackendDependency::ChronoTz);
     }
-    if any_rvalue_needs(mir, rvalue_needs_url) {
+    if any_rvalue_needs(mir, rvalue_needs_url) || needs_url_search_params_runtime(mir) {
         deps.push(BackendDependency::Url);
     }
     if any_rvalue_needs(mir, rvalue_needs_unicode_normalization) {
@@ -117,12 +117,34 @@ pub(crate) fn needs_headers_runtime(mir: &Mir) -> bool {
         .any(|ty| is_headers_type(mir, ty))
 }
 
+/// Returns true when generated Rust needs the `SmeltUrlSearchParams` type.
+///
+/// Same pay-for-use rule as [`needs_headers_runtime`]: either an operation or a
+/// mention of the type in the type table.
+pub(crate) fn needs_url_search_params_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| {
+        matches!(
+            rvalue,
+            Rvalue::UrlSearchParamsNew { .. } | Rvalue::UrlSearchParamsOp { .. }
+        )
+    }) || mir
+        .types
+        .all()
+        .iter()
+        .any(|ty| is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::UrlSearchParams))
+}
+
 /// Returns true when a type names the WHATWG `Headers` class.
 ///
 /// The class identity comes from the shared stdlib registry
 /// (`smelt_stdlib::typescript_stdlib_class`), never from a name comparison
 /// spelled here, so the frontend, this gate and the emitter all agree.
 fn is_headers_type(mir: &Mir, ty: &Type) -> bool {
+    is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::Headers)
+}
+
+/// Returns true when a type names a given shared stdlib class.
+fn is_stdlib_class(mir: &Mir, ty: &Type, class: smelt_stdlib::StdlibClass) -> bool {
     let Type::Class { name, .. } = ty else {
         return false;
     };
@@ -130,7 +152,7 @@ fn is_headers_type(mir: &Mir, ty: &Type) -> bool {
         .get(*name)
         .or_else(|| mir.symbols.get(*name))
         .and_then(smelt_stdlib::typescript_stdlib_class)
-        == Some(smelt_stdlib::StdlibClass::Headers)
+        == Some(class)
 }
 
 /// Returns true when a MIR rvalue uses Unicode normalization APIs.
@@ -278,7 +300,15 @@ pub(crate) fn host_override_slot_suffix(name: &str) -> String {
 
 /// Returns true when a MIR rvalue uses Url APIs.
 fn rvalue_needs_url(rvalue: &Rvalue) -> bool {
-    matches!(rvalue, Rvalue::UrlField { .. })
+    // `SmeltUrlSearchParams` parses and serializes through
+    // `url::form_urlencoded`, so any params value needs the crate — including a
+    // program that only constructs one and reads it back.
+    matches!(
+        rvalue,
+        Rvalue::UrlField { .. }
+            | Rvalue::UrlSearchParamsNew { .. }
+            | Rvalue::UrlSearchParamsOp { .. }
+    )
 }
 
 /// Returns true when a MIR rvalue uses Rand APIs.

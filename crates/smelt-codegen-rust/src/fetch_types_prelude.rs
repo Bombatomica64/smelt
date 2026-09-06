@@ -42,6 +42,22 @@
 //! from `http::HeaderMap` belongs at that boundary — one `From` impl over
 //! `entries()` — not in the value model.
 //!
+//! ## `SmeltUrlSearchParams`
+//!
+//! The same pair-list shape as `SmeltHeaders`, with the spec's differences
+//! carried honestly rather than shared away:
+//!
+//! * names are **case-sensitive** (`a` and `A` are different parameters);
+//! * `get(name)` answers the **first** value, not a joined one, and `getAll`
+//!   answers every value — the two reads a query string actually needs;
+//! * iteration is **insertion order**, not sorted, until `sort()` is called
+//!   (which is a stable sort by name, so equal names keep their relative order);
+//! * the value serializes to `application/x-www-form-urlencoded`, and parses
+//!   from it. That is delegated to `url::form_urlencoded`, which the `url`
+//!   crate the `URL` rules already pull in provides: percent-decoding, `+` as
+//!   space, and the serializer's own encode set are exactly the spec's, and
+//!   re-deriving them here would be a worse copy of a well-tested one.
+//!
 //! ## Identity
 //!
 //! `Headers` is a JavaScript reference object: two variables holding the same
@@ -60,6 +76,184 @@ pub fn emit(writer: &mut CodeWriter, needs_unknown: bool) {
     emit_struct(writer);
     emit_inherent_impl(writer);
     emit_traits(writer, needs_unknown);
+}
+
+/// Emit the `SmeltUrlSearchParams` runtime type.
+///
+/// Gated exactly like [`emit`], and separately from it: a program that uses a
+/// query string but no headers carries only this type.
+pub fn emit_url_search_params(writer: &mut CodeWriter, needs_unknown: bool) {
+    emit_params_struct(writer);
+    emit_params_inherent_impl(writer);
+    emit_params_traits(writer, needs_unknown);
+}
+
+/// Emit the `SmeltUrlSearchParams` struct and its comparisons.
+fn emit_params_struct(writer: &mut CodeWriter) {
+    writer.line("/// A WHATWG `URLSearchParams` list: ordered, case-sensitive");
+    writer.line("/// name/value pairs with urlencoded serialization.");
+    writer.line("#[derive(Clone)]");
+    writer.block("pub struct SmeltUrlSearchParams", |struct_writer| {
+        struct_writer.line("id: usize,");
+        struct_writer.line("/// Name/value pairs in insertion order.");
+        struct_writer.line("entries: ::std::rc::Rc<::std::cell::RefCell<Vec<(String, String)>>>,");
+    });
+    writer.blank_line();
+    // Structural equality over the ordered pairs: two query strings are the
+    // same parameters when they carry the same pairs in the same order, which
+    // is what the spec's serialization observes.
+    writer.line(
+        "impl PartialEq for SmeltUrlSearchParams { fn eq(&self, other: &Self) -> bool { *self.entries.borrow() == *other.entries.borrow() } }",
+    );
+    writer.line(
+        "impl ::std::fmt::Debug for SmeltUrlSearchParams { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.write_str(&self.to_text()) } }",
+    );
+    writer.line(
+        "impl Default for SmeltUrlSearchParams { fn default() -> Self { Self::new() } }",
+    );
+    writer.blank_line();
+}
+
+/// Emit the WHATWG `URLSearchParams` operations as inherent methods.
+fn emit_params_inherent_impl(writer: &mut CodeWriter) {
+    writer.line("#[allow(dead_code)]");
+    writer.block("impl SmeltUrlSearchParams", |impl_writer| {
+        impl_writer.line("/// An empty parameter list with a fresh JS reference identity.");
+        impl_writer.line(
+            "pub fn new() -> Self { Self { id: smelt_next_object_id(), entries: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())) } }",
+        );
+        impl_writer.line("/// JS reference identity of this parameter list.");
+        impl_writer.line("pub fn id(&self) -> usize { self.id }");
+        impl_writer.line("/// Build a parameter list from name/value pairs, in order.");
+        impl_writer.line(
+            "pub fn from_pairs(pairs: Vec<(String, String)>) -> Self { let params = Self::new(); params.entries.borrow_mut().extend(pairs); params }",
+        );
+        impl_writer.line("/// Parse a query string (with or without a leading `?`).");
+        impl_writer.line("///");
+        impl_writer.line("/// `url::form_urlencoded` owns the decoding: `+` is a space, `%XX` is");
+        impl_writer.line("/// a byte, and a pair with no `=` has the empty string as its value.");
+        impl_writer.block("pub fn from_query(query: &str) -> Self", |fn_writer| {
+            fn_writer.line("let trimmed = query.strip_prefix('?').unwrap_or(query);");
+            fn_writer.line(
+                "let pairs = url::form_urlencoded::parse(trimmed.as_bytes()).map(|(name, value): (::std::borrow::Cow<'_, str>, ::std::borrow::Cow<'_, str>)| (name.into_owned(), value.into_owned())).collect::<Vec<(String, String)>>();",
+            );
+            fn_writer.line("Self::from_pairs(pairs)");
+        });
+        impl_writer.line("/// `get(name)`: the FIRST value for a name, or `null`.");
+        impl_writer.line(
+            "pub fn get(&self, name: &str) -> Option<String> { self.entries.borrow().iter().find(|(entry_name, _)| entry_name == name).map(|(_, value)| value.clone()) }",
+        );
+        impl_writer.line("/// `getAll(name)`: every value for a name, in order.");
+        impl_writer.line(
+            "pub fn get_all(&self, name: &str) -> Vec<String> { self.entries.borrow().iter().filter(|(entry_name, _)| entry_name == name).map(|(_, value)| value.clone()).collect() }",
+        );
+        impl_writer.line("/// `has(name)`.");
+        impl_writer.line(
+            "pub fn has(&self, name: &str) -> bool { self.entries.borrow().iter().any(|(entry_name, _)| entry_name == name) }",
+        );
+        impl_writer.line("/// `append(name, value)`.");
+        impl_writer.line(
+            "pub fn append(&self, name: &str, value: &str) { self.entries.borrow_mut().push((name.to_owned(), value.to_owned())); }",
+        );
+        impl_writer.line("/// `set(name, value)`: replace the first value, drop the rest.");
+        impl_writer.block("pub fn set(&self, name: &str, value: &str)", |fn_writer| {
+            fn_writer.line("let mut entries = self.entries.borrow_mut();");
+            fn_writer.line(
+                "let position = entries.iter().position(|(entry_name, _)| entry_name == name);",
+            );
+            fn_writer.line(
+                "let Some(index) = position else { entries.push((name.to_owned(), value.to_owned())); return; };",
+            );
+            fn_writer.line("entries[index] = (name.to_owned(), value.to_owned());");
+            fn_writer.line("let mut kept = false;");
+            fn_writer.line(
+                "entries.retain(|(entry_name, _)| { if entry_name != name { return true; } let first = !kept; kept = true; first });",
+            );
+        });
+        impl_writer.line("/// `delete(name)`: remove every pair with the name.");
+        impl_writer.line(
+            "pub fn delete(&self, name: &str) { self.entries.borrow_mut().retain(|(entry_name, _)| entry_name != name); }",
+        );
+        impl_writer.line("/// `sort()`: stable sort by name, keeping equal names in order.");
+        impl_writer.line(
+            "pub fn sort(&self) { self.entries.borrow_mut().sort_by(|left, right| left.0.cmp(&right.0)); }",
+        );
+        impl_writer.line("/// `toString()`: the urlencoded serialization.");
+        impl_writer.block("pub fn to_text(&self) -> String", |fn_writer| {
+            fn_writer.line("let mut serializer = url::form_urlencoded::Serializer::new(String::new());");
+            fn_writer.line(
+                "for (name, value) in self.entries.borrow().iter() { serializer.append_pair(name, value); }",
+            );
+            fn_writer.line("serializer.finish()");
+        });
+        impl_writer.line("/// `entries()`: the pairs in insertion order.");
+        impl_writer.line(
+            "pub fn entries_in_order(&self) -> Vec<(String, String)> { self.entries.borrow().clone() }",
+        );
+        impl_writer.line("/// `keys()`: parameter names in insertion order.");
+        impl_writer.line(
+            "pub fn keys(&self) -> Vec<String> { self.entries.borrow().iter().map(|(name, _)| name.clone()).collect() }",
+        );
+        impl_writer.line("/// `values()`: parameter values in insertion order.");
+        impl_writer.line(
+            "pub fn values(&self) -> Vec<String> { self.entries.borrow().iter().map(|(_, value)| value.clone()).collect() }",
+        );
+        impl_writer.line("/// `size`: the number of pairs.");
+        impl_writer.line("pub fn size(&self) -> f64 { self.entries.borrow().len() as f64 }");
+    });
+    writer.blank_line();
+}
+
+/// Emit the `URLSearchParams` dynamic-boundary adapters.
+///
+/// Same boundary shape as `SmeltHeaders`: an erased value is the marker record
+/// `{ "__smelt_urlsearchparams": true, "entries": [[name, value], ..] }`. A
+/// DYNAMIC BOUNDARY adapter only — the internal representation stays concrete.
+fn emit_params_traits(writer: &mut CodeWriter, needs_unknown: bool) {
+    if !needs_unknown {
+        return;
+    }
+    writer.line("/// Erase a parameter list for a dynamic boundary.");
+    writer.block(
+        "impl IntoSmeltUnknown for SmeltUrlSearchParams",
+        |impl_writer| {
+            impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
+                fn_writer.line(
+                    "let pairs: Vec<SmeltUnknown> = self.entries_in_order().into_iter().map(|(name, value)| SmeltUnknown::Array(Vec::from([SmeltUnknown::String(name.into()), SmeltUnknown::String(value.into())]).into())).collect();",
+                );
+                fn_writer.line(
+                    "SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([(\"__smelt_urlsearchparams\".to_owned(), SmeltUnknown::Bool(true)), (\"entries\".to_owned(), SmeltUnknown::Array(pairs.into()))])))",
+                );
+            });
+        },
+    );
+    writer.blank_line();
+    writer.line("/// Rebuild a parameter list from an erased value.");
+    writer.block(
+        "impl SmeltFromUnknown for SmeltUrlSearchParams",
+        |impl_writer| {
+            impl_writer.block("fn smelt_from_unknown(value: SmeltUnknown) -> Self", |fn_writer| {
+                fn_writer.line(
+                    "if let SmeltUnknown::String(query) = &value { return Self::from_query(query); }",
+                );
+                fn_writer.line("let SmeltUnknown::Object(map) = value else { return Self::new() };");
+                fn_writer.line(
+                    "let Some(SmeltUnknown::Array(pairs)) = map.get(\"entries\") else { return Self::new() };",
+                );
+                fn_writer.line("let params = Self::new();");
+                fn_writer.block("for pair in pairs.into_vec()", |loop_writer| {
+                    loop_writer.line("let SmeltUnknown::Array(pair) = pair else { continue };");
+                    loop_writer.line("let pair = pair.into_vec();");
+                    loop_writer.line(
+                        "let (Some(SmeltUnknown::String(name)), Some(SmeltUnknown::String(entry_value))) = (pair.first().cloned(), pair.get(1).cloned()) else { continue };",
+                    );
+                    loop_writer.line("params.append(&name, &entry_value);");
+                });
+                fn_writer.line("params");
+            });
+        },
+    );
+    writer.blank_line();
 }
 
 /// Emit the struct definition and its identity-based equality.

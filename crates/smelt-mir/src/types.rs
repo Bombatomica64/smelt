@@ -1194,6 +1194,20 @@ pub enum Rvalue {
         /// Set value to project.
         set: Operand,
     },
+    /// Construct a WHATWG `URLSearchParams` value.
+    UrlSearchParamsNew {
+        /// Optional initializer value.
+        init: Option<Operand>,
+    },
+    /// Apply a `URLSearchParams` operation to a concrete receiver.
+    UrlSearchParamsOp {
+        /// Operation to apply.
+        op: smelt_hir::UrlSearchParamsOp,
+        /// `URLSearchParams` receiver.
+        params: Operand,
+        /// Operation arguments (name, or name and value).
+        args: Vec<Operand>,
+    },
     /// Construct a WHATWG `Headers` value.
     ///
     /// The initializer's static type selects the conversion at emit time (a

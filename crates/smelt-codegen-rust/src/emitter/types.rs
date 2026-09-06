@@ -635,6 +635,13 @@ impl FunctionEmitter<'_> {
                 // (which only knows user classes/interfaces) would erase the
                 // read to `Unknown` and make callers re-coerce an already
                 // concrete value.
+                // `URLSearchParams.size` is the one data property the spec
+                // defines on a concrete params value; it is a number.
+                if self.is_url_search_params_class_type(base_ty)?
+                    && self.symbol_name(*field)? == "size"
+                {
+                    return self.type_id(Type::Float);
+                }
                 if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
                     && self.is_regexp_class_symbol(*name)?
                 {
@@ -1183,6 +1190,11 @@ impl FunctionEmitter<'_> {
                 {
                     return Ok(RustType::raw("SmeltHeaders"));
                 }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::UrlSearchParams)
+                {
+                    return Ok(RustType::raw("SmeltUrlSearchParams"));
+                }
                 if !self.mir.classes.iter().any(|class| class.name == *name)
                     && !self
                         .mir
@@ -1440,6 +1452,12 @@ impl FunctionEmitter<'_> {
                     == Some(smelt_stdlib::StdlibClass::Headers) =>
             {
                 Ok("SmeltHeaders::new()".to_owned())
+            }
+            Type::Class { name, .. }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::UrlSearchParams) =>
+            {
+                Ok("SmeltUrlSearchParams::new()".to_owned())
             }
             Type::Class { name, .. } if self.is_match_class_symbol(*name)? => {
                 Ok("SmeltMatch::default()".to_owned())

@@ -262,7 +262,7 @@ impl ModuleBuilder<'_> {
         if callee.name == "Headers" && !self.classes.contains("Headers") {
             return self.headers_constructor_expression(new_expr, body);
         }
-        if callee.name == "URLSearchParams" {
+        if callee.name == "URLSearchParams" && !self.classes.contains("URLSearchParams") {
             return self.url_search_params_constructor_expression(new_expr, body);
         }
         if let Some(marker) = Self::marker_only_builtin_marker(callee.name.as_str()) {
@@ -852,7 +852,14 @@ impl ModuleBuilder<'_> {
         smelt_stdlib::is_typed_array_class_name(name)
     }
 
-    /// Lower `new URLSearchParams(init)` to an object carrying observable `size`.
+    /// Lower `new URLSearchParams(init?)` into a concrete parameter list.
+    ///
+    /// This used to fabricate an erased record carrying only a `size` field, so
+    /// `params.get("a")` answered `undefined` and `toString()` was unavailable:
+    /// the value existed but held no parameters. It is now the modeled
+    /// `URLSearchParams` class, and the initializer's own lowered type selects
+    /// the conversion in codegen (a query string, a record, a pair list, or
+    /// another parameter list).
     pub(super) fn url_search_params_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
@@ -864,58 +871,14 @@ impl ModuleBuilder<'_> {
                 "URLSearchParams constructor supports at most one initializer",
             ));
         }
-        let size = match new_expr.arguments.first() {
-            None => 0.0_f64,
-            Some(Argument::StringLiteral(literal)) => {
-                if literal.value.trim_start_matches('?').is_empty() {
-                    0.0_f64
-                } else {
-                    1.0_f64
-                }
-            }
-            Some(Argument::ObjectExpression(object)) => {
-                let count = object
-                    .properties
-                    .iter()
-                    .filter(|property| matches!(property, ObjectPropertyKind::ObjectProperty(_)))
-                    .count();
-                f64::from(u32::try_from(count).map_err(|error| {
-                    SmeltError::unsupported(
-                        self.span(new_expr.span.start, new_expr.span.end),
-                        format!("URLSearchParams initializer is too large: {error}"),
-                    )
-                })?)
-            }
-            Some(argument) => {
-                let _ = self.argument(argument, body)?;
-                1.0_f64
-            }
+        let init = match new_expr.arguments.first() {
+            Some(argument) => Some(self.argument(argument, body)?),
+            None => None,
         };
-        let key_ty = self.ctx.krate.types.intern(Type::String);
-        let value_ty = self.ctx.krate.types.intern(Type::Unknown);
-        let dict_ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
-        let key = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::String("size".to_owned())),
-            ty: key_ty,
-            span: self.span(new_expr.span.start, new_expr.span.end),
-        });
-        let value = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::Float(size)),
-            ty: self.ctx.krate.types.intern(Type::Float),
-            span: self.span(new_expr.span.start, new_expr.span.end),
-        });
-        let object = body.push_expr(Expr {
-            kind: ExprKind::DictLit(vec![(key, value)]),
-            ty: dict_ty,
-            span: self.span(new_expr.span.start, new_expr.span.end),
-        });
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let ty = self.url_search_params_type();
         Ok(body.push_expr(Expr {
-            kind: ExprKind::UnknownCast {
-                value: object,
-                target: unknown_ty,
-            },
-            ty: unknown_ty,
+            kind: ExprKind::UrlSearchParamsNew { init },
+            ty,
             span: self.span(new_expr.span.start, new_expr.span.end),
         }))
     }

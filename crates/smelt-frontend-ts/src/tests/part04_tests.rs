@@ -863,6 +863,15 @@ const sameOrigin = new URL(adminAbsoluteUrl).origin === new URL(adminAbsoluteUrl
     Ok(())
 }
 
+/// Every `URLSearchParams` constructor spelling lowers to the modeled type.
+///
+/// This test used to assert the opposite: that each constructor produced an
+/// erased record whose only field was `size`. That record held no parameters, so
+/// `params.get(..)` answered `undefined` and `toString()` was unavailable. The
+/// constructor is now the concrete modeled class (see
+/// `tests/fetch_types_tests.rs` for its types and
+/// `smelt-codegen-rust/tests/fetch_types_runtime.rs` for its semantics), and
+/// what this test keeps is the coverage of the four initializer spellings.
 #[test]
 fn lowers_url_search_params_constructor_size() -> Result<(), String> {
     let mut ctx = HirCtx::new();
@@ -876,21 +885,16 @@ const object = new URLSearchParams({ hello: "world" });
 "#),
         &mut ctx,
     )?;
-    let size_keys = ctx
+    let constructed = ctx
         .krate
         .bodies
         .iter()
         .flat_map(|body| body.exprs.iter())
-        .filter(|expr| {
-            matches!(
-                &expr.kind,
-                ExprKind::Literal(Literal::String(value)) if value == "size"
-            )
-        })
+        .filter(|expr| matches!(&expr.kind, ExprKind::UrlSearchParamsNew { .. }))
         .count();
     ensure!(
-        size_keys == 5,
-        "expected URLSearchParams constructors to carry size"
+        constructed == 5,
+        "expected every URLSearchParams constructor to lower to the modeled type, got {constructed}"
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())

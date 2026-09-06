@@ -325,6 +325,7 @@ fn end_to_end_examples_match_expected_outputs() -> TestResult {
         "29_callable_object",
         "30_nullish_union_join",
         "31_headers_fetch_type",
+        "32_url_search_params",
     ] {
         verify_end_to_end_example(name)?;
     }

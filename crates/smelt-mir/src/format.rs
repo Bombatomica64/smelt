@@ -878,6 +878,38 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 operand_text(right)
             )
         }
+        Rvalue::UrlSearchParamsNew { init } => init.as_ref().map_or_else(
+            || "url_search_params_new".to_owned(),
+            |init| format!("url_search_params_new {}", operand_text(init)),
+        ),
+        Rvalue::UrlSearchParamsOp { op, params, args } => {
+            let op_text = match op {
+                smelt_hir::UrlSearchParamsOp::Get => "get",
+                smelt_hir::UrlSearchParamsOp::GetAll => "get_all",
+                smelt_hir::UrlSearchParamsOp::Has => "has",
+                smelt_hir::UrlSearchParamsOp::Set => "set",
+                smelt_hir::UrlSearchParamsOp::Append => "append",
+                smelt_hir::UrlSearchParamsOp::Delete => "delete",
+                smelt_hir::UrlSearchParamsOp::Sort => "sort",
+                smelt_hir::UrlSearchParamsOp::ToText => "to_text",
+                smelt_hir::UrlSearchParamsOp::Keys => "keys",
+                smelt_hir::UrlSearchParamsOp::Values => "values",
+                smelt_hir::UrlSearchParamsOp::Entries => "entries",
+            };
+            let args_text = args
+                .iter()
+                .map(operand_text)
+                .collect::<Vec<_>>()
+                .join(", ");
+            if args_text.is_empty() {
+                format!("url_search_params_{op_text} {}", operand_text(params))
+            } else {
+                format!(
+                    "url_search_params_{op_text} {}, {args_text}",
+                    operand_text(params)
+                )
+            }
+        }
         Rvalue::HeadersNew { init } => init.as_ref().map_or_else(
             || "headers_new".to_owned(),
             |init| format!("headers_new {}", operand_text(init)),

@@ -1,0 +1,131 @@
+module examples/typescript/end-to-end/32_url_search_params/input.ts (ModuleId(0))
+  body BodyId(0)
+  locals
+    %0 const query: URLSearchParams
+    %1 let __smelt_for_item: (String, String)
+    %2 const name: String
+    %3 const value: String
+  exprs
+    #0: String = "?a=1&b=two&a=3"
+    #1: URLSearchParams = url_search_params_new #0
+    #2: URLSearchParams = %0
+    #3: URLSearchParams = %0
+    #4: String = "greeting"
+    #5: String = "hello world"
+    #6: None = url_search_params_append #3, #4, #5
+    #7: URLSearchParams = %0
+    #8: URLSearchParams = %0
+    #9: URLSearchParams = %0
+    #10: String = "b"
+    #11: String = "TWO"
+    #12: None = url_search_params_set #9, #10, #11
+    #13: URLSearchParams = %0
+    #14: URLSearchParams = %0
+    #15: URLSearchParams = %0
+    #16: String = "a"
+    #17: Optional<String> = url_search_params_get #15, #16
+    #18: String = "null"
+    #19: String = #17 ?? #18
+    #20: None = @0(console_log)
+    #21: None = call #20(#19)
+    #22: URLSearchParams = %0
+    #23: String = "a"
+    #24: List<String> = url_search_params_get_all #22, #23
+    #25: String = "|"
+    #26: String = string_join #24, #25
+    #27: None = @1(console_log)
+    #28: None = call #27(#26)
+    #29: URLSearchParams = %0
+    #30: URLSearchParams = %0
+    #31: URLSearchParams = %0
+    #32: String = "A"
+    #33: Optional<String> = url_search_params_get #31, #32
+    #34: String = "null"
+    #35: String = #33 ?? #34
+    #36: None = @2(console_log)
+    #37: None = call #36(#35)
+    #38: URLSearchParams = %0
+    #39: URLSearchParams = %0
+    #40: URLSearchParams = %0
+    #41: String = "greeting"
+    #42: Bool = url_search_params_has #40, #41
+    #43: URLSearchParams = %0
+    #44: URLSearchParams = %0
+    #45: URLSearchParams = %0
+    #46: String = "missing"
+    #47: Bool = url_search_params_has #45, #46
+    #48: None = @3(console_log)
+    #49: None = call #48(#42, #47)
+    #50: URLSearchParams = %0
+    #51: Float = #50.size
+    #52: None = @4(console_log)
+    #53: None = call #52(#51)
+    #54: URLSearchParams = %0
+    #55: URLSearchParams = %0
+    #56: String = url_search_params_to_text #55
+    #57: None = @5(console_log)
+    #58: None = call #57(#56)
+    #59: URLSearchParams = %0
+    #60: URLSearchParams = %0
+    #61: URLSearchParams = %0
+    #62: String = "a"
+    #63: None = url_search_params_delete #61, #62
+    #64: URLSearchParams = %0
+    #65: None = url_search_params_sort #64
+    #66: URLSearchParams = %0
+    #67: URLSearchParams = %0
+    #68: String = url_search_params_to_text #67
+    #69: None = @6(console_log)
+    #70: None = call #69(#68)
+    #71: URLSearchParams = %0
+    #72: URLSearchParams = %0
+    #73: URLSearchParams = %0
+    #74: List<String> = url_search_params_keys #73
+    #75: List<String> = []
+    #76: List<String> = list_concat #74, #75
+    #77: String = ","
+    #78: String = string_join #76, #77
+    #79: None = @7(console_log)
+    #80: None = call #79(#78)
+    #81: URLSearchParams = %0
+    #82: URLSearchParams = %0
+    #83: URLSearchParams = %0
+    #84: List<(String, String)> = url_search_params_entries #83
+    #85: (String, String) = %1
+    #86: Float = 0.0
+    #87: String = tuple_index #85, 0
+    #88: Float = 1.0
+    #89: String = tuple_index #85, 1
+    #90: String = %2
+    #91: String = %3
+    #92: None = @8(console_log)
+    #93: None = call #92(#90, #91)
+  stmts
+    s0: let %0: URLSearchParams = #1
+    s1: #6
+    s2: #12
+    s3: #21
+    s4: #28
+    s5: #37
+    s6: #49
+    s7: #53
+    s8: #58
+    s9: #63
+    s10: #65
+    s11: #70
+    s12: #80
+    s13: let %2: String = #87
+    s14: let %3: String = #89
+    s15: #93
+    s16: for %1 in #84 BlockId(1)
+
+interned types
+  t0 = String
+  t1 = URLSearchParams
+  t2 = None
+  t3 = Optional<String>
+  t4 = List<String>
+  t5 = Bool
+  t6 = Float
+  t7 = (String, String)
+  t8 = List<(String, String)>

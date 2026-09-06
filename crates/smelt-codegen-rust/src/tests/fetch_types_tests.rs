@@ -122,3 +122,58 @@ export function trace(headers: Headers): string | null {
         "the parameter must be the concrete runtime type:\n{body}"
     );
 }
+
+/// A parameter read emits a typed method call on the concrete runtime value.
+#[test]
+fn url_search_params_read_emits_a_concrete_method_call() {
+    let source = source_for(
+        r#"
+const params = new URLSearchParams("a=1");
+const first = params.get("a");
+const all = params.getAll("a");
+const text = params.toString();
+const count = params.size;
+"#,
+    );
+    assert!(
+        source.contains("pub struct SmeltUrlSearchParams"),
+        "the params runtime type must be emitted:\n{source}"
+    );
+    assert!(
+        source.contains("SmeltUrlSearchParams::from_query("),
+        "a string initializer parses a query:\n{source}"
+    );
+    assert!(
+        source.contains("let first: Option<String>"),
+        "`get` must keep its `string | null` type:\n{source}"
+    );
+    assert!(
+        source.contains(".to_text()"),
+        "`toString` must be the urlencoded serialization:\n{source}"
+    );
+    assert!(
+        source.contains(".size()"),
+        "`size` must read the pair count:\n{source}"
+    );
+}
+
+/// The params runtime is emitted only when a program uses it, and pulls in `url`.
+#[test]
+fn url_search_params_runtime_is_pay_for_use_and_declares_its_dependency() {
+    let plain = source_for(r"const total = 1 + 1;");
+    assert!(
+        !plain.contains("SmeltUrlSearchParams"),
+        "a crate with no params value must not carry the runtime:\n{plain}"
+    );
+    let mut ctx = HirCtx::new();
+    assert!(
+        to_hir(r#"const params = new URLSearchParams("a=1");"#, FileId(0), &mut ctx).is_ok(),
+        "HIR"
+    );
+    let mut mir = smelt_mir::lower_hir(&ctx.krate).expect("MIR lowering");
+    smelt_mir::opt::optimize(&mut mir);
+    assert!(
+        crate::stdlib::backend_dependencies(&mir).contains(&BackendDependency::Url),
+        "a params value serializes through `url::form_urlencoded`, so the crate needs `url`"
+    );
+}

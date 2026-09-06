@@ -168,6 +168,15 @@ pub enum RuleId {
     /// TypeScript `Headers` projection method (`keys`, `values`, `entries`,
     /// `getSetCookie`).
     TsHeadersProjection,
+    /// TypeScript `URLSearchParams` read (`get`, `getAll`, `has`).
+    TsUrlSearchParamsRead,
+    /// TypeScript `URLSearchParams` mutating method (`set`, `append`,
+    /// `delete`, `sort`).
+    TsUrlSearchParamsMutation,
+    /// TypeScript `URLSearchParams` projection (`keys`, `values`, `entries`).
+    TsUrlSearchParamsProjection,
+    /// TypeScript `URLSearchParams.prototype.toString`.
+    TsUrlSearchParamsToString,
     /// Python `json.dumps(value)`.
     PyJsonDumps,
     /// Python `json.loads(text)`.
@@ -214,7 +223,14 @@ impl RuleId {
             | Self::TsDateToIsoString
             | Self::PyDateTimeNow
             | Self::PyDateTimeFromTimestamp => Some(BackendDependency::Chrono),
-            Self::TsUrlField | Self::PyUrlparseField => Some(BackendDependency::Url),
+            // `URLSearchParams` serializes and parses through
+            // `url::form_urlencoded`, which the `url` crate already carries.
+            Self::TsUrlField
+            | Self::PyUrlparseField
+            | Self::TsUrlSearchParamsRead
+            | Self::TsUrlSearchParamsMutation
+            | Self::TsUrlSearchParamsProjection
+            | Self::TsUrlSearchParamsToString => Some(BackendDependency::Url),
             Self::TsStructuredClone
             | Self::TsObjectBox
             | Self::TsPromiseStatic
@@ -280,6 +296,10 @@ impl RuleId {
             Self::TsHeadersHas => "Headers.has",
             Self::TsHeadersMutation => "Headers mutation method",
             Self::TsHeadersProjection => "Headers projection method",
+            Self::TsUrlSearchParamsRead => "URLSearchParams read method",
+            Self::TsUrlSearchParamsMutation => "URLSearchParams mutation method",
+            Self::TsUrlSearchParamsProjection => "URLSearchParams projection method",
+            Self::TsUrlSearchParamsToString => "URLSearchParams.toString",
             Self::PyJsonDumps => "json.dumps",
             Self::PyJsonLoads => "json.loads",
             Self::PyReSearch => "re.search",

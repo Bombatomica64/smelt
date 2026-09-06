@@ -398,6 +398,24 @@ impl ExprKind {
                 right: f(right)?,
             },
             Self::SetProjection { op, set } => Self::SetProjection { op, set: f(set)? },
+            Self::UrlSearchParamsNew { init } => Self::UrlSearchParamsNew {
+                init: match init {
+                    Some(init) => Some(f(init)?),
+                    None => None,
+                },
+            },
+            Self::UrlSearchParamsOp { op, params, args } => {
+                let params = f(params)?;
+                let mut mapped = Vec::with_capacity(args.len());
+                for arg in args {
+                    mapped.push(f(arg)?);
+                }
+                Self::UrlSearchParamsOp {
+                    op,
+                    params,
+                    args: mapped,
+                }
+            }
             Self::HeadersNew { init } => Self::HeadersNew {
                 init: match init {
                     Some(init) => Some(f(init)?),

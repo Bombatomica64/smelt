@@ -43,6 +43,17 @@ impl Rvalue {
                     visit(arg);
                 }
             }
+            Self::UrlSearchParamsNew { init } => {
+                if let Some(init) = init {
+                    visit(init);
+                }
+            }
+            Self::UrlSearchParamsOp { params, args, .. } => {
+                visit(params);
+                for arg in args {
+                    visit(arg);
+                }
+            }
             Self::List(items) | Self::Set(items) | Self::Tuple(items) => {
                 for item in items {
                     visit(item);
@@ -857,6 +868,17 @@ impl Rvalue {
             }
             Self::HeadersOp { headers, args, .. } => {
                 visit(headers);
+                for arg in args.iter_mut() {
+                    visit(arg);
+                }
+            }
+            Self::UrlSearchParamsNew { init } => {
+                if let Some(init) = init {
+                    visit(init);
+                }
+            }
+            Self::UrlSearchParamsOp { params, args, .. } => {
+                visit(params);
                 for arg in args.iter_mut() {
                     visit(arg);
                 }

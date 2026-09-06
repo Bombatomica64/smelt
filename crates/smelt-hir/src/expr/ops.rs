@@ -258,6 +258,40 @@ pub enum HeadersOp {
     GetSetCookie,
 }
 
+/// A directly lowered WHATWG `URLSearchParams` operation.
+///
+/// Same shape as [`HeadersOp`] and for the same reason: the receiver is a
+/// concrete value, so the operation is selected statically. The semantics differ
+/// from `Headers` in ways the runtime type carries — names are case-SENSITIVE,
+/// `get` answers the FIRST value rather than a comma-joined one, iteration is
+/// insertion-ordered rather than sorted, and the value has a
+/// `application/x-www-form-urlencoded` serialization.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum UrlSearchParamsOp {
+    /// `get(name)`: the first value for a name, or `null`.
+    Get,
+    /// `getAll(name)`: every value for a name, in order.
+    GetAll,
+    /// `has(name)`.
+    Has,
+    /// `set(name, value)`: replace the first value and drop the rest.
+    Set,
+    /// `append(name, value)`.
+    Append,
+    /// `delete(name)`.
+    Delete,
+    /// `sort()`: stable sort by name.
+    Sort,
+    /// `toString()`: the urlencoded serialization.
+    ToText,
+    /// `keys()`: names in insertion order.
+    Keys,
+    /// `values()`: values in insertion order.
+    Values,
+    /// `entries()`: name/value pairs in insertion order.
+    Entries,
+}
+
 /// A directly lowered local-time `Date` component.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DatePart {

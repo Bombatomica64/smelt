@@ -5,6 +5,7 @@ use super::{
     SetProjectionOp, SetRelationOp, SetRemoveOp, StringAffixOp, StringCaseOp, StringNormalizeForm,
     StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, UnaryOp,
     HeadersOp as HeadersOpKind, UnknownKind, UrlField,
+    UrlSearchParamsOp as UrlSearchParamsOpKind,
 };
 use crate::ids::{BlockId, BodyId, ExprId, ItemId, LocalId, Symbol, TypeId};
 use serde::{Deserialize, Serialize};
@@ -429,6 +430,24 @@ pub enum ExprKind {
     HeadersNew {
         /// Optional initializer expression.
         init: Option<ExprId>,
+    },
+    /// `new URLSearchParams(init?)`.
+    ///
+    /// `init` is a query string, a record, a list of name/value pairs, or
+    /// another `URLSearchParams`; the initializer's static type selects the
+    /// conversion.
+    UrlSearchParamsNew {
+        /// Optional initializer expression.
+        init: Option<ExprId>,
+    },
+    /// A `URLSearchParams` method call on a concrete receiver.
+    UrlSearchParamsOp {
+        /// Which operation this call performs.
+        op: UrlSearchParamsOpKind,
+        /// The `URLSearchParams` receiver.
+        params: ExprId,
+        /// Operation arguments (name, or name and value).
+        args: Vec<ExprId>,
     },
     /// A WHATWG `Headers` method call on a concrete `Headers` receiver.
     HeadersOp {
