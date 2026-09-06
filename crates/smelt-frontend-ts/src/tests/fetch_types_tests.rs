@@ -1037,3 +1037,36 @@ export function serialize(headers: Headers): string {
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
+
+/// `instanceof` lowers against an identity-only host object.
+///
+/// `FormData` and `ReadableStream` joined the host registry for identity, and
+/// `instanceof` is exactly the operation identity exists for — so it must
+/// resolve through the marker even though neither has a modeled surface.
+/// Before this, `body instanceof FormData` aborted as "not a lowered class"
+/// (`request.ts:490`), which is worse than answering: adding identity had made
+/// the one operation that identity provides stop working.
+#[test]
+fn instanceof_lowers_against_an_identity_only_host_object() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+export function kindOf(body: BodyInit): string {
+  if (body instanceof FormData) {
+    return "form";
+  }
+  if (body instanceof ReadableStream) {
+    return "stream";
+  }
+  return "text";
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(
+        any_body_has(&ctx, |kind| matches!(kind, ExprKind::InstanceOf { .. })),
+        "an identity-only host target must lower to the marker probe",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}

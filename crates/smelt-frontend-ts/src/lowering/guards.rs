@@ -217,7 +217,15 @@ impl ModuleBuilder<'_> {
 
     /// Return true when an expression is a built-in constructor target.
     pub(super) fn instanceof_builtin_target(target: &str) -> bool {
-        smelt_stdlib::typescript_stdlib_class(target).is_some()
+        // ANY class with a host-object registry marker is a valid target: the
+        // marker exists precisely so `instanceof` can be answered, and an
+        // identity-only entry (one with no modeled surface, such as `FormData`
+        // or `ReadableStream`) is no different in that respect from one with a
+        // full surface. Naming individual host classes below was how this list
+        // grew, and it is why `body instanceof FormData` aborted as "not a
+        // lowered class" the moment those two joined the registry for identity.
+        smelt_stdlib::host_object_marker(target).is_some()
+            || smelt_stdlib::typescript_stdlib_class(target).is_some()
             // Typed-array views (`x instanceof Uint8Array`) are byte-backed host
             // objects, so they are already covered by the `byte_buffer_role`
             // clause below; naming them here too keeps the recognizer readable.
