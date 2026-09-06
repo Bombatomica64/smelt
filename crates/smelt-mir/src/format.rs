@@ -1614,6 +1614,13 @@ fn callee_text(callee: &Callee) -> String {
         Callee::Builtin(BuiltinFn::ConsoleWrite) => "@console_write".to_owned(),
         Callee::Builtin(BuiltinFn::ConsoleErrorWrite) => "@console_error_write".to_owned(),
         Callee::Builtin(BuiltinFn::JsonParse) => "@json_parse".to_owned(),
+        Callee::Builtin(BuiltinFn::UriDecode(op)) => match op {
+            smelt_hir::UriTranscodeOp::Decode => "@decode_uri".to_owned(),
+            smelt_hir::UriTranscodeOp::DecodeComponent => "@decode_uri_component".to_owned(),
+            // The encoding direction is infallible and never becomes a callee.
+            smelt_hir::UriTranscodeOp::Encode
+            | smelt_hir::UriTranscodeOp::EncodeComponent => "@encode_uri".to_owned(),
+        },
     }
 }
 

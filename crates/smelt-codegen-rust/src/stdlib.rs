@@ -176,7 +176,15 @@ fn rvalue_needs_unicode_normalization(rvalue: &Rvalue) -> bool {
 /// per-variant gate would multiply the prelude bookkeeping without shrinking
 /// any realistic program (a project that percent-encodes usually decodes too).
 pub(crate) fn needs_uri_encode_runtime(mir: &Mir) -> bool {
+    // The DECODERS are no longer rvalues -- they lower to a
+    // `Terminator::Call { Callee::Builtin(BuiltinFn::UriDecode(op)) }` so their
+    // `URIError` is catchable -- so an rvalue-only scan misses them, and the
+    // throwing adapters this group backs would call helpers that were never
+    // emitted (E0425 in the generated crate). A decode-only program is the
+    // common case in a router, so this is not a corner: it is what a fixture
+    // with no `encodeURI` in it does.
     any_rvalue_needs(mir, |rvalue| matches!(rvalue, Rvalue::UriTranscode { .. }))
+        || needs_uri_decode_runtime(mir)
 }
 
 /// Returns true when generated Rust needs the `smelt_locale_compare` runtime
@@ -351,6 +359,26 @@ pub(crate) fn needs_json_parse_runtime(mir: &Mir) -> bool {
     })
 }
 
+/// Whether the program calls a fallible URI decoder.
+///
+/// `decodeURI`/`decodeURIComponent` are `Terminator::Call`s to
+/// [`BuiltinFn::UriDecode`] rather than rvalues (they need an unwind edge), so
+/// the rvalue-based dependency scan cannot see them; the throwing adapters in
+/// the prelude are gated on this instead. The ENCODING direction stays an
+/// rvalue and is still found by that scan.
+#[must_use]
+pub(crate) fn needs_uri_decode_runtime(mir: &Mir) -> bool {
+    terminators(mir).any(|terminator| {
+        matches!(
+            terminator,
+            Terminator::Call {
+                callee: Callee::Builtin(BuiltinFn::UriDecode(_)),
+                ..
+            }
+        )
+    })
+}
+
 /// Iterates over every block terminator in the program, functions and closures.
 fn terminators(mir: &Mir) -> impl Iterator<Item = &Terminator> {
     mir.functions
@@ -431,6 +459,14 @@ pub(crate) fn needs_unknown_type(mir: &Mir) -> bool {
             .all()
             .iter()
             .any(|ty| matches!(ty, Type::Unknown | Type::Never | Type::Union(_)))
+        // A THROWN value is a JavaScript error object, which is carried as a
+        // `SmeltUnknown` — so a program that can throw needs the carrier and
+        // the payload ABI, both of which live in the `needs_unknown` prelude
+        // block. `JSON.parse` gets there for free because its own return type
+        // IS `Type::Unknown`; a URI decoder returns a `String`, so without this
+        // clause its throwing adapter would be emitted into a block the program
+        // never enters and the generated crate would not compile (E0425).
+        || needs_uri_decode_runtime(mir)
         // A `Set` whose element type is not a value-equality primitive is
         // emitted as the `SmeltJsSet` runtime container, whose SameValueZero
         // membership projects elements through `IntoSmeltUnknown`. That carrier

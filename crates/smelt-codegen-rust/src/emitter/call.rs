@@ -759,6 +759,33 @@ impl FunctionEmitter<'_> {
                     self.operand_text(text)?
                 ))
             }
+            Callee::Builtin(BuiltinFn::UriDecode(op)) => {
+                let value = args.first().ok_or_else(|| {
+                    EmitError::new("a URI decoder takes one string argument")
+                })?;
+                let adapter = match op {
+                    smelt_hir::UriTranscodeOp::Decode => crate::thrown::DECODE_URI_FN,
+                    smelt_hir::UriTranscodeOp::DecodeComponent => {
+                        crate::thrown::DECODE_URI_COMPONENT_FN
+                    }
+                    // Only the decoders are fallible, so only they become a
+                    // callee; `is_fallible` in the frontend is what guarantees
+                    // it, and this arm exists so a change there is a compile
+                    // error here rather than a wrong adapter.
+                    smelt_hir::UriTranscodeOp::Encode
+                    | smelt_hir::UriTranscodeOp::EncodeComponent => {
+                        return Err(EmitError::new(
+                            "internal: an infallible URI encoder reached the fallible call path",
+                        ));
+                    }
+                };
+                // The trailing `?` is what marks the call fallible to
+                // `emit_throwing_call_terminator`, which renders the
+                // `Ok(Ok(v)) / Ok(Err(e))` shape binding the caught `URIError`
+                // and jumping to the handler's catch block.
+                let value_text = self.string_like_operand_text(value, "URI decoder input")?;
+                Ok(format!("{adapter}({value_text}.as_str())?"))
+            }
             Callee::Static(func) => {
                 let function = self
                     .mir
@@ -2491,6 +2518,9 @@ impl FunctionEmitter<'_> {
             // `JSON.parse` yields a dynamic JavaScript value; the destination's
             // own type drives the ordinary coercion from the erased carrier.
             Callee::Builtin(BuiltinFn::JsonParse) => return self.type_id(Type::Unknown),
+            // A decoder answers a `String`, not an erased value -- the whole
+            // point of keeping the typed runtime helper behind the adapter.
+            Callee::Builtin(BuiltinFn::UriDecode(_)) => return self.type_id(Type::String),
             Callee::Static(func) => {
                 let function = self
                     .mir

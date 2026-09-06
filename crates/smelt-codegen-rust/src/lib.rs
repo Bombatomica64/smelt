@@ -4393,6 +4393,12 @@ fn emit_source_with_free_function_router(
         if needs_serde_json && stdlib::needs_json_parse_runtime(mir) {
             thrown::emit_json_parse_support(&mut writer);
         }
+        // The URI decoders report through the same channel, so they follow the
+        // same ABI dependency. They need no Serde, only the payload support
+        // emitted just above.
+        if stdlib::needs_uri_decode_runtime(mir) {
+            thrown::emit_uri_decode_support(&mut writer);
+        }
         writer.blank_line();
         writer.line("impl Eq for SmeltUnknown {}");
         writer.blank_line();

@@ -628,14 +628,39 @@ impl LoweringCtx<'_> {
             }
             ExprKind::UriTranscode { op, operand } => {
                 let lowered_operand = self.lower_expr(*operand)?;
-                self.assign_temp(
-                    expr.ty,
-                    expr.span,
-                    Rvalue::UriTranscode {
-                        op: *op,
-                        operand: lowered_operand,
-                    },
-                )?
+                if op.is_fallible() {
+                    // `decodeURI`/`decodeURIComponent` throw a catchable
+                    // `URIError` on malformed input, so they need the call
+                    // terminator's unwind edge for the same reason
+                    // `JSON.parse` does (see the `JsonParse` arm below): a
+                    // `Statement::Assign` has none, the catch block would end
+                    // up with no predecessor, and MIR would drop the handler
+                    // the source wrote.
+                    //
+                    // The ENCODING direction is infallible and deliberately
+                    // keeps the rvalue form, so it gets no unwind edge at all.
+                    // `is_fallible` is the one place that split is recorded.
+                    let dest = self.push_temp(expr.ty, expr.span);
+                    let target = self.function.push_block(expr.span);
+                    self.set_terminator(Terminator::Call {
+                        callee: Callee::Builtin(BuiltinFn::UriDecode(*op)),
+                        args: vec![lowered_operand],
+                        dest,
+                        target,
+                        unwind: self.current_exception_handler(),
+                    })?;
+                    self.current_block = target;
+                    Operand::Copy(Place::Local(dest))
+                } else {
+                    self.assign_temp(
+                        expr.ty,
+                        expr.span,
+                        Rvalue::UriTranscode {
+                            op: *op,
+                            operand: lowered_operand,
+                        },
+                    )?
+                }
             }
             ExprKind::ObjectToStringTag { operand } => {
                 let lowered_operand = self.lower_expr(*operand)?;

@@ -2218,4 +2218,19 @@ pub enum BuiltinFn {
     /// and `Terminator::Await` carry an `unwind` edge, so a fallible operation
     /// has to be a call to reach an enclosing `try`.
     JsonParse,
+    /// `decodeURI` / `decodeURIComponent`, which throw a catchable `URIError`
+    /// on malformed percent-encoding.
+    ///
+    /// A builtin for exactly the reason [`Self::JsonParse`] is. The encoding
+    /// direction stays [`Rvalue::UriTranscode`] and gets no unwind edge:
+    /// `UriTranscodeOp::is_fallible` is the single place that distinction is
+    /// recorded, and it has always said only the two decoders can throw.
+    ///
+    /// Before this existed, a decoder emitted
+    /// `smelt_decode_uri(..).expect("URIError: URI malformed")` — so source
+    /// that catches a `URIError` did not merely fail to catch it: the handler
+    /// block had no predecessor, MIR dropped it, and the fallback the source
+    /// wrote was absent from the generated crate. Hono's `tryDecode` is that
+    /// shape.
+    UriDecode(smelt_hir::UriTranscodeOp),
 }

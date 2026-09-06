@@ -643,6 +643,18 @@ impl ModuleBuilder<'_> {
             "encodeURI" | "encodeURIComponent" | "decodeURI" | "decodeURIComponent" => {
                 let op = Self::uri_transcode_global(name)?;
                 let string_ty = self.ctx.krate.types.intern(Type::String);
+                // NOTE: the closure is deliberately NOT marked `may_throw`,
+                // even though a decoder can throw `URIError`. Marking it makes
+                // the value incompatible with the declared callback parameter
+                // type it is passed to — TypeScript has no way to spell "this
+                // callback throws", so `(value: string) => string` wins and the
+                // coercion adapter inserts an unwrap against a non-throwing
+                // Rust closure (E0599). A decoder called DIRECTLY inside a
+                // `try` is catchable (that is the `BuiltinFn::UriDecode`
+                // terminator); reached through a callback value it still
+                // aborts. Closing that needs `may_throw` inference through
+                // callback parameter types — see
+                // `blocker-logs/hono-fallible-ops.md` §8.
                 self.builtin_unary_closure_expression(
                     string_ty,
                     string_ty,
@@ -1259,6 +1271,29 @@ impl ModuleBuilder<'_> {
         outer_body: &mut Body,
         make_body: impl FnOnce(smelt_hir::ExprId) -> ExprKind,
     ) -> smelt_hir::ExprId {
+        self.builtin_unary_closure_expression_with_throw(
+            param_ty, return_ty, span, outer_body, false, make_body,
+        )
+    }
+
+    /// [`Self::builtin_unary_closure_expression`], with the throwing flag.
+    ///
+    /// A builtin that can throw needs `may_throw: true` on the closure's
+    /// function type, or the propagation pass gives the indirect call no unwind
+    /// edge and the backend renders the fallible call as a panicking unwrap —
+    /// so `tryDecode(str, decodeURIComponent)` would abort where the source
+    /// wrote a `catch`. Separate from the plain constructor because five of its
+    /// six callers are infallible and threading a `false` through each of them
+    /// reads as noise.
+    pub(in crate::lowering) fn builtin_unary_closure_expression_with_throw(
+        &mut self,
+        param_ty: smelt_hir::TypeId,
+        return_ty: smelt_hir::TypeId,
+        span: Span,
+        outer_body: &mut Body,
+        may_throw: bool,
+        make_body: impl FnOnce(smelt_hir::ExprId) -> ExprKind,
+    ) -> smelt_hir::ExprId {
         let value_name = self.intern_source_name("value");
         let mut closure_body = Body::new(None, span);
         let value_local = closure_body.push_local(LocalDecl {
@@ -1287,7 +1322,7 @@ impl ModuleBuilder<'_> {
             mutable_params: Vec::new(),
             return_ty,
             is_async: false,
-            may_throw: false,
+            may_throw,
         }));
         outer_body.push_expr(Expr {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {

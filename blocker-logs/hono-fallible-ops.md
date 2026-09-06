@@ -168,3 +168,115 @@ correct but touches `format.rs` snapshot output and `validate/operands.rs`,
 which is unrelated churn in a commit about throwing edges. Recorded as a
 follow-up rather than bundled: the risk is that a future reader adds a fifth
 handler for it and believes the rvalue form is live.
+
+---
+
+## 7. Round 4 implementation plan, narrowed to what is actually landing
+
+The ruling is the two URI decoders only: `atob`/`btoa` are no longer
+Hono-demanded (they sat inside the now-excluded jwt and client surfaces, per
+`hono-scope.md`), so adding the `base64` dependency has no caller to justify it
+this round. §3's `Base64Decode` and `AbsentGlobal` variants are deferred; the
+absent-global half already landed in round 2 as a throwing closure rather than
+a builtin, which is a different and simpler shape than §3 sketched.
+
+So exactly one variant is added:
+
+```rust
+/// `decodeURI` / `decodeURIComponent`: throw `URIError` on malformed input.
+///
+/// A builtin rather than an rvalue for the same reason as `JsonParse`: only
+/// `Terminator::Call` and `Terminator::Await` carry an `unwind` edge.
+UriDecode(smelt_hir::UriTranscodeOp),
+```
+
+`UriTranscodeOp::is_fallible()` already answers which ops belong here
+(`Decode` / `DecodeComponent`), so the split is not a new judgement — the
+frontend has recorded it all along and only the MIR lowering ignored it.
+`encodeURI` / `encodeURIComponent` keep `Rvalue::UriTranscode` and get **no**
+unwind edge; that is asserted by a negative test so a later change cannot
+quietly make every transcode fallible.
+
+### The four edits
+
+1. `BuiltinFn::UriDecode(op)` in `smelt-mir/src/types.rs`.
+2. `lower/expr.rs`'s `ExprKind::UriTranscode` arm branches on
+   `op.is_fallible()`: fallible ops build `Terminator::Call { callee:
+   Callee::Builtin(BuiltinFn::UriDecode(op)), unwind:
+   self.current_exception_handler(), .. }` — a copy of the `JsonParse` arm
+   directly above it — and infallible ops keep `assign_temp`.
+3. `intern_fallible_builtin_return_types` stops being hard-coded to
+   `JsonParse`. A decoder returns `String`, not `Unknown`, so the function
+   becomes a scan over the fallible builtins actually called, interning each
+   one's own return type.
+4. The backend emits the call: `emitter/call*.rs` gains the `UriDecode` callee,
+   producing `smelt_decode_uri(..)?`-shaped code at the terminator instead of
+   `strings.rs`'s `.expect("URIError: URI malformed")`. The `.expect` emission
+   is deleted, and with it the stale-comment correction from round 2.
+
+### Acceptance, restated concretely
+
+`tryDecode`'s catch is the point of the exercise:
+
+```ts
+const tryDecode = (str: string, decoder: (s: string) => string): string => {
+  try { return decoder(str) } catch { return str }
+}
+```
+
+Today the `catch` block has no predecessor and MIR drops it, so Hono's
+deliberate fallback is *absent from the generated crate*. The fixture asserts
+the fallback is taken for malformed input — a runtime assertion, because a
+type-level one cannot tell a dropped handler from a live one.
+
+---
+
+## 8. What landed, and the one shape that still aborts
+
+Landed: `decodeURI` / `decodeURIComponent` lower to
+`Terminator::Call { Callee::Builtin(BuiltinFn::UriDecode(op)), unwind }`, two
+generated adapters convert the runtime decoders' `Option<String>` into a thrown
+`URIError` through the same payload ABI a source-level `throw` uses, and the
+`.expect("URIError: URI malformed")` emission is gone — the rvalue path now
+*reports* a fallible op reaching it rather than re-emitting the abort.
+
+Verified by running a generated crate: a malformed input takes the `catch`
+fallback instead of aborting. That is the acceptance criterion, and it holds for
+a decoder **called directly inside the `try`**.
+
+Two things running it taught that reading the code did not:
+
+**The adapters have to force the `needs_unknown` prelude region on.** A thrown
+value is a JavaScript error object, carried as a `SmeltUnknown`, and the payload
+ABI lives inside that region. `JSON.parse` gets there for free because its own
+return type *is* `Type::Unknown`; a decoder returns `String`, so its adapter was
+emitted into a block the program never entered and the generated crate failed
+with E0425. `needs_unknown_type` now names throwing decoders explicitly — which
+is a true statement about any throwing program, not a patch for this one.
+
+**A decoder reached through a callback VALUE still aborts, and marking it
+throwing makes things worse.** Hono's actual shape is
+
+```ts
+tryDecode(str, decodeURIComponent)   // decoder passed as a value
+```
+
+The value form lowers to a closure. Marking that closure `may_throw: true` is
+the obvious fix and is **wrong**: `may_throw` is part of the function *type*,
+TypeScript has no way to spell "this callback throws", so the declared parameter
+type `(value: string) => string` wins, and the coercion adapter inserts an
+unwrap against a Rust closure that is not throwing — E0599, a compile break
+instead of a runtime abort. That change was made, run, and reverted; the
+reverted site carries the reason so the next reader does not repeat it.
+
+Closing it needs `may_throw` **inference through callback parameter types**: a
+parameter whose argument can throw has to widen, and every caller of that
+parameter has to see the widened type. That is a type-system change, not an
+emission change, and it is the same machinery a `throws` annotation would need.
+Recorded here rather than attempted, because the half-measure is a compile
+error.
+
+So Hono's `tryDecode` is **not** yet fixed, while `try { decodeURI(x) } catch`
+is. The remaining gap is one named, tested-around design issue rather than an
+unexplained abort.
+

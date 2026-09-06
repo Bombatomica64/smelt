@@ -143,6 +143,47 @@ pub(crate) fn emit_json_parse_support(writer: &mut CodeWriter) {
     ));
 }
 
+/// Name of the generated fallible `decodeURI` adapter.
+pub(crate) const DECODE_URI_FN: &str = "smelt_decode_uri_throwing";
+
+/// Name of the generated fallible `decodeURIComponent` adapter.
+pub(crate) const DECODE_URI_COMPONENT_FN: &str = "smelt_decode_uri_component_throwing";
+
+/// Emits the fallible URI-decoder adapters into the generated prelude.
+///
+/// The runtime decoders answer `Option<String>` — `None` for malformed
+/// percent-encoding — and JavaScript answers that same input with a *catchable*
+/// `URIError`. These adapters convert one into the other through the ABI a
+/// source-level `throw` uses, so a `catch` binding cannot tell a
+/// runtime-raised `URIError` from a hand-written one, exactly as
+/// [`emit_json_parse_support`] arranges for `SyntaxError`.
+///
+/// Before this existed the emitter wrote
+/// `smelt_decode_uri(..).expect("URIError: URI malformed")`, which does not
+/// merely fail to be catchable: the handler block ends up with no predecessor,
+/// MIR drops it, and a `try`/`catch` the source wrote is *absent* from the
+/// generated crate. Hono's `tryDecode` is that shape.
+pub(crate) fn emit_uri_decode_support(writer: &mut CodeWriter) {
+    use smelt_stdlib::runtime_symbols::strings;
+
+    for (adapter, inner) in [
+        (DECODE_URI_FN, strings::DECODE_URI),
+        (DECODE_URI_COMPONENT_FN, strings::DECODE_URI_COMPONENT),
+    ] {
+        writer.blank_line();
+        writer.line(format!(
+            "/// `{inner}`: decode percent-encoding, throwing a catchable `URIError`."
+        ));
+        writer.line(format!(
+            "fn {adapter}(value: &str) -> Result<String, Box<dyn ::std::error::Error>> {{ \
+             match {inner}(value) {{ \
+             Some(decoded) => Ok(decoded), \
+             None => Err({THROW_FN}({})) }} }}",
+            error_payload_record_expr("URIError", "\"URI malformed\".to_owned()")
+        ));
+    }
+}
+
 /// Emits the exception-payload ABI into the generated runtime prelude.
 ///
 /// Only called from inside the prelude's `needs_unknown` region: the payload is

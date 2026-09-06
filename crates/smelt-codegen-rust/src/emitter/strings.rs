@@ -57,19 +57,14 @@ impl FunctionEmitter<'_> {
     /// rejects with a `URIError`, and that failure is currently rendered as an
     /// `.expect(...)` — a PANIC, not a catchable throw. That is deliberate and
     /// matches the existing `JSON.parse` emission
-    /// A fallible stdlib *rvalue* has no throwing edge in MIR, because only
-    /// `Terminator::Call` and `Terminator::Await` carry an
-    /// `unwind: Option<ExceptionHandler>`. Source that catches a `URIError`
-    /// therefore aborts instead of taking its fallback — and worse, the handler
-    /// block ends up with no predecessor and is dropped, so the fallback is
-    /// gone from the generated crate entirely.
-    ///
-    /// `JSON.parse` is NOT a fellow victim: it already lowers through
-    /// `Terminator::Call { Callee::Builtin(BuiltinFn::JsonParse), unwind }` and
-    /// is the reference implementation to copy. (An earlier version of this
-    /// comment claimed they shared one gap; they do not.) The fix is to give
-    /// the two fallible decoders the same builtin-callee shape — designed in
-    /// `blocker-logs/hono-fallible-ops.md`, not yet implemented.
+    /// Only the INFALLIBLE direction reaches this rvalue path.
+    /// `decodeURI`/`decodeURIComponent` lower to
+    /// `Terminator::Call { Callee::Builtin(BuiltinFn::UriDecode(op)), unwind }`
+    /// so their `URIError` is catchable — a fallible rvalue has no unwind edge,
+    /// which used to leave a `try`/`catch` around a decode with no predecessor
+    /// for its handler, so MIR dropped the fallback the source wrote. Encoding
+    /// cannot fail for well-formed UTF-16 input, so it needs no such edge and
+    /// keeps the cheaper form.
     pub(super) fn uri_transcode_text(
         &self,
         op: smelt_hir::UriTranscodeOp,
@@ -91,12 +86,18 @@ impl FunctionEmitter<'_> {
             UriTranscodeOp::Decode => strings::DECODE_URI,
             UriTranscodeOp::DecodeComponent => strings::DECODE_URI_COMPONENT,
         };
-        let call = format!("{helper}({receiver_text}.as_str())");
-        Ok(if op.is_fallible() {
-            format!("{call}.expect(\"URIError: URI malformed\")")
-        } else {
-            call
-        })
+        if op.is_fallible() {
+            // A fallible op must have been routed to the call terminator by
+            // `lower/expr.rs`. Arriving here means the two decisions have
+            // drifted apart, and the old behaviour -- an `.expect(...)` that
+            // aborts where JavaScript would let a `catch` run -- is exactly
+            // what this reports instead of re-emitting.
+            return Err(EmitError::new(format!(
+                "internal: fallible `{name}` reached the infallible rvalue path; \
+                 it must lower to BuiltinFn::UriDecode"
+            )));
+        }
+        Ok(format!("{helper}({receiver_text}.as_str())"))
     }
 
     /// Converts JavaScript `left.localeCompare(right)` to a call to the runtime

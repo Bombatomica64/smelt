@@ -603,27 +603,38 @@ fn run_finalization_passes(mir: &mut Mir) {
 /// A `Terminator::Call` records the destination's type, not the callee's, so a
 /// builtin whose own return type appears nowhere else in the program would
 /// leave that type absent from the table — and the backend, which asks for the
-/// callee's return type to coerce the call result, would find nothing. The one
-/// such builtin today is `JSON.parse`, whose result is a dynamic JavaScript
-/// value (`Type::Unknown`) regardless of the destination it is asserted into.
+/// callee's return type to coerce the call result, would find nothing.
+///
+/// There are two such builtins: `JSON.parse`, whose result is a dynamic
+/// JavaScript value (`Type::Unknown`) regardless of the destination it is
+/// asserted into, and the URI decoders, which answer a `String`. Collecting the
+/// types first and interning afterwards keeps this a scan rather than a
+/// hard-coded pair, so a third fallible builtin needs only its own arm.
 fn intern_fallible_builtin_return_types(mir: &mut Mir) {
-    let calls_json_parse = mir
+    let mut needed = Vec::new();
+    for terminator in mir
         .functions
         .iter()
         .flat_map(|function| function.blocks.iter())
         .chain(mir.closures.iter().flat_map(|closure| closure.blocks.iter()))
         .filter_map(|block| block.terminator.as_ref())
-        .any(|terminator| {
-            matches!(
-                terminator,
-                Terminator::Call {
-                    callee: Callee::Builtin(BuiltinFn::JsonParse),
-                    ..
-                }
-            )
-        });
-    if calls_json_parse {
-        mir.types.intern(Type::Unknown);
+    {
+        if let Terminator::Call {
+            callee: Callee::Builtin(builtin),
+            ..
+        } = terminator
+        {
+            match builtin {
+                BuiltinFn::JsonParse => needed.push(Type::Unknown),
+                BuiltinFn::UriDecode(_) => needed.push(Type::String),
+                BuiltinFn::ConsoleLog { .. }
+                | BuiltinFn::ConsoleWrite
+                | BuiltinFn::ConsoleErrorWrite => {}
+            }
+        }
+    }
+    for ty in needed {
+        mir.types.intern(ty);
     }
 }
 
