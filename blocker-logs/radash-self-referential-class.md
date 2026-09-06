@@ -98,3 +98,13 @@ class Node2 {
 The assertion is that the emitted struct has all three fields and a
 one-argument constructor. There is no such test today, which is why a
 self-referential class could regress silently.
+
+## Resolution (orchestrator, 2026-09-06)
+
+Does not reproduce. The radash gate was re-run from a clean `dist-smelt` at both the
+merged head `d92843f` and the Hono round-2 head `041fe87`, each with a freshly built
+`smelt`: the generated crate compiles, `Person` carries `name`, `friends` and `self_`, and
+`cargo test` reports 84 passed / 0 failed both times. The failure recorded above came from a
+local artifact of the run that observed it (the disk reached 100% during that round, and the
+generated crate was not regenerated from clean). The `??` type-join hypothesis is withdrawn.
+The minimal repro above is still worth a fixture, since no test pins this shape today.
