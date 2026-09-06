@@ -1294,7 +1294,7 @@ const number = +value;
 fn emits_no_arg_external_constructor_with_valid_empty_arg_tuple() {
     let source = source_for(
         r#"
-import { UTCDate } from "@date-fns/utc";
+import { UTCDate } from "./utc-date";
 const date = new UTCDate();
 "#,
     );

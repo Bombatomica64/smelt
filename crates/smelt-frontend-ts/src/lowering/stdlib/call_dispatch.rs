@@ -63,6 +63,46 @@ enum StrippedGlobalCallee<'a> {
 }
 
 impl<'builder> ModuleBuilder<'builder> {
+    /// Report the blocker of an import used as a member-call receiver.
+    ///
+    /// Returns `Err` with the import's own blocker message when the callee is a
+    /// member expression whose receiver chain roots in an identifier that
+    /// [`ImportScope::unresolved_value_import`] has marked — `path.join(..)`,
+    /// `errors.ValidationError.of(..)`, `_.map(..)`. The `Ok(None)` case is
+    /// every other callee shape, so the ordinary dispatch chain continues.
+    ///
+    /// The return type is `Option<ExprId>` only so this reads like the other
+    /// handlers in the chain; it never produces an expression.
+    fn blocked_import_member_call(
+        &self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let mut receiver = match &call.callee {
+            Expression::StaticMemberExpression(member) => &member.object,
+            Expression::ComputedMemberExpression(member) => &member.object,
+            _ => return Ok(None),
+        };
+        // Walk to the root of the receiver chain: the blocked binding may sit
+        // any number of member reads below the call.
+        loop {
+            match receiver {
+                Expression::StaticMemberExpression(member) => receiver = &member.object,
+                Expression::ComputedMemberExpression(member) => receiver = &member.object,
+                Expression::Identifier(object) => {
+                    let Some(blocker) = self.imports.unresolved_value_import(object.name.as_str())
+                    else {
+                        return Ok(None);
+                    };
+                    return Err(SmeltError::missing_stdlib(
+                        self.span(object.span.start, object.span.end),
+                        blocker.to_owned(),
+                    ));
+                }
+                _ => return Ok(None),
+            }
+        }
+    }
+
     /// Lower call expressions, including stdlib shims and direct function/method invokes.
     pub(in crate::lowering) fn call_expression(
         &mut self,
@@ -74,6 +114,19 @@ impl<'builder> ModuleBuilder<'builder> {
         // `expect` used as a receiver rather than as a callee would otherwise
         // fall through to the generic erased-object path and become an empty
         // record. See `ModuleBuilder::vitest_asymmetric_matcher_call`.
+        // A member call whose receiver chain roots in a BLOCKED import is that
+        // import's blocker, reported before any stdlib member rule can claim
+        // it. Without this, the first rule that recognizes the *member* name
+        // wins and reports its own reason: `path.join('/tmp', 'x.json')` was
+        // matched by the static array-join helper form (`_.join(items, sep)`),
+        // which reads the first ARGUMENT as its receiver and rejected the
+        // string with "array join requires an array receiver". That diagnostic
+        // is true of nothing the source wrote. The check belongs here rather
+        // than in each rule: it is one place, and it keeps the blocker's
+        // wording tied to the import that caused it.
+        if let Some(expr) = self.blocked_import_member_call(call)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.vitest_asymmetric_matcher_call(call, body)? {
             return Ok(expr);
         }
@@ -1324,7 +1377,6 @@ impl<'builder> ModuleBuilder<'builder> {
         Self::string_repeat_call,
         Self::string_pad_call,
         Self::string_char_at_call,
-        Self::node_path_static_call,
         Self::string_join_call,
         Self::list_concat_call,
         Self::list_contains_call,

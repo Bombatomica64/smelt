@@ -7,7 +7,7 @@ Milestone 0: `blocker-logs/express-v1-baseline.md`.
 
 | plan item | state |
 | --- | --- |
-| M0.1 unresolved package used as a value is a blocker | **partly landed** — mechanism in place, policy for *unmodeled* packages deliberately off (section 4) |
+| M0.1 unresolved package used as a value is a blocker | landed, both halves (section 4) |
 | M0.2 NodeNext `.js`/`.mjs`/`.cjs` specifiers | landed |
 | M0.3 dropped free functions | landed (it was a symptom of M0.2; invariant now has a regression test) |
 | M0.4 `??` type join | landed |
@@ -19,24 +19,12 @@ Milestone 0: `blocker-logs/express-v1-baseline.md`.
 | 4 `Blob`/`File` upgrade (`text()`, `arrayBuffer()`, `slice`) | not landed |
 | 5 `node:http` on hyper | **not landed** — declared as a blocker instead (honest today, section 5 below) |
 
-`smelt probe` on `examples/typescript/express_crud` now reports **1 blocker**
-(`node:sqlite` `DatabaseSync` declared but not implemented) and aborts the crate
-build there, where before it reported 0 blockers and emitted a no-op crate whose
-only item was `main`.
-
-Two numbers to be precise about:
-
-- with M0.2 fixed, the probe scans and lowers all six modules and emits all
-  seven free functions (`createApp`, `openDatabase`, `rowToTodo`, `parseId`,
-  `createTodosRouter`, and the two validators) — measured by removing the
-  `node:sqlite` blocker temporarily; that was M0.3;
-- the `unresolved package express` blocker does **not** fire, because the
-  unmodeled-package half of M0.1 is gated off (section 4). The Milestone 0
-  commit message quotes "3 blockers (2x unresolved `express`, ...)"; that was
-  measured before the policy constant was added in the same commit, and 1 is
-  the number the committed tree produces. Acceptance criterion 1 of the plan is
-  therefore **half met**: the `node:sqlite` surface is reported, the `express`
-  package is not.
+`smelt probe` on `examples/typescript/express_crud` reports **3 blockers** in 3
+of 6 files — two `unresolved package \`express\`` (`app.ts`, `todos/routes.ts`)
+and one declared `node:sqlite` `DatabaseSync` — where before this stream it
+reported 0 blockers and emitted a no-op crate whose only item was `main`. With
+the `node:sqlite` blocker removed by hand it lowers all six modules and all
+seven free functions, which is what M0.3 was.
 
 ## 2. The mechanism, now proven twice
 
@@ -118,39 +106,97 @@ tests must keep passing through the new type, so the upgrade should keep
 `HttpGetText` as a *derived* path (`fetch(url).then(r => r.text())`) rather than
 deleting it.
 
-## 4. Why the unmodeled-package half of M0.1 is off
+## 4. M0.1's second half, now on
 
-The blocker fires today for a **modeled** host module whose export is declared
-but unimplemented (`node:http`, `node:sqlite`, `node:crypto`, `node:events`).
-For an **unmodeled** bare package (`express`, `lodash`, `yup`) it is gated off
-behind one documented constant,
-`smelt_stdlib::host_modules::unmodeled_package_use_blocks()`, currently `false`.
+The blocker fires for a **modeled** host module whose export is declared but
+unimplemented (`node:http`, `node:sqlite`, `node:crypto`, `node:events`,
+`node:path`) *and* for an **unmodeled** bare package (`express`, `lodash`,
+`yup`). `smelt_stdlib::host_modules::unmodeled_package_use_blocks()` is `true`.
 
-The reason is measured, not a preference. Erased-library interop is a
-deliberate, tested capability that program code depends on today:
+`express_crud` is the acceptance case:
 
-- 13 tests in `crates/smelt-frontend-ts/src/tests/part04_tests.rs` lower real
-  Strapi / lodash / yup / zod / cuid2 **program** modules (not test modules)
-  through erased imported values;
-- the radash compatibility gate lowers `import { assert } from 'chai'`.
+| | before the flip | after |
+| --- | ---: | ---: |
+| files with blockers | 1 | 3 |
+| `unresolved package \`express\`` | 0 | 2 (`app.ts`, `todos/routes.ts`) |
+| `node:sqlite` `DatabaseSync` declared | 1 | 1 |
 
-Turning it on therefore needs one of two decisions, which belong to the
-architect rather than to this stream:
+The two carve-outs are what make the flip safe, and they are load-bearing
+rather than incidental:
 
-1. **Model the packages.** `chai`'s `assert` is an assertion surface like
-   `vitest`'s `expect`, and would fit the host-module registry as a test-tier
-   entry; `lodash`/`yup`/`zod` are much larger and would each be their own
-   campaign.
-2. **Re-baseline the corpora.** Accept the blockers, exclude the affected files
-   from those corpora, and record the new numbers. This makes every probe honest
-   immediately at the cost of coverage the campaigns rely on.
+- a **relative specifier** never blocks — it names a source file the manifest
+  resolver owns, and a module lowered on its own legitimately sees it
+  unresolved;
+- a **test module** never blocks — `CLAUDE.md`'s test-function exception. The
+  radash gate lowers `import { assert } from 'chai'` and still runs 84/84.
 
-The carve-outs already in the classification are independent of that decision
-and stay either way: a relative specifier never blocks (it names a source file
-the manifest owns), and the test tier keeps erased interop with unmodeled
-assertion/fixture libraries (`CLAUDE.md`'s test-function exception).
+### What the flip cost, and what it bought
+
+The 13 `part04_tests.rs` tests that had been the argument against the flip were
+not, on reading them, tests *of* erased-library interop. Each one covers a real
+lowering rule — array `concat` with mixed erased/concrete arms, `new` from a
+destructured namespace member, a curried `_.map(_.prop(..))` factory, aliasing
+an imported value as a const, top-level destructuring of a module global — and
+used a library import only as a convenient source of an erased value. Rewriting
+them to assert the blocker instead would have deleted coverage of eleven rules
+to gain one repeated assertion.
+
+So each was re-pointed at the erasure it actually needs, and the blocker got
+its own focused tests:
+
+- where the subject is a rule over an **erased value**, the value now comes
+  from `declare const x: any` — a source-level dynamic boundary, no import;
+- where the subject is a rule over an **erased namespace** whose members
+  dispatch as static helpers (`_.join(items, sep)`, `_.forEach`, `_.has`,
+  `async.map`), the import became **relative** (`'./lodash-compat'`). That is
+  also the honest shape: this is how the compat corpora import their own
+  helpers, and a relative specifier is exactly the carve-out above;
+- six new tests in `host_module_tests.rs` pin the policy itself: default import
+  blocks, named import blocks the same way, type-only import stays free, and
+  `node:path` blocks in both spellings.
+
+Two things the flip exposed that were not in the plan:
+
+1. **`node:path` was faking it.** `path.join`/`path.resolve` had a lowering rule
+   that returned an **empty string literal**, so `resolve(__dirname,
+   '../key.pub')` became `""` and the program went on to open it. That is worse
+   than erasure — a wrong value with no diagnostic. The rule is deleted,
+   `node:path` is a registry entry with its surface `Declared`, and the test
+   that asserted those calls "lower" now asserts they block. Implementing it for
+   real is `std::path` plus the semantics to get right (`..` collapsing,
+   absolute-segment reset, separators), so it is declared rather than rushed.
+
+2. **A member rule could outrank the blocker.** `path.join('/tmp', 'x.json')`
+   was claimed by the static array-join helper form, which reads its *first
+   argument* as the receiver, and reported "array join requires an array
+   receiver" — a diagnostic true of nothing the source wrote. The receiver's
+   import was never lowered, so the named blocker never fired. Fixed with one
+   general check at the head of `call_expression`
+   (`blocked_import_member_call`): if a member call's receiver chain roots in a
+   binding marked unresolved, that import's blocker is the diagnostic. It is one
+   place rather than a guard in each rule, and it made four more tests honest.
+
+### Corpus effect
+
+No corpus regressed, because the compat corpora lower their **own** source
+through relative specifiers:
+
+| corpus | measure | result |
+| --- | --- | --- |
+| es-toolkit | files with blockers | 0 (baseline high-water 9) |
+| es-toolkit | avoidable erasure | 32912, +0 |
+| remeda | runtime tier | 1789 passed / 0 failed |
+| remeda | avoidable erasure | 25191, +0 |
+| radash | runtime tier | 84 passed / 0 failed (the `chai` carve-out) |
+| examples | avoidable erasure | 0, +0 (hard invariant) |
+
+There is no probe fixture for a framework-heavy corpus to show the flip's
+intended cost: `third_party/strapi` has no `Smelt.toml`, and `third_party/nest`
+is a checkout of Smelt itself rather than NestJS. `express_crud` is the only
+framework program with a fixture, and its count is the table above.
 
 ## 5. Why `node:http` is a declared blocker rather than hyper
+
 
 Section 5 needs three things that do not exist yet:
 
