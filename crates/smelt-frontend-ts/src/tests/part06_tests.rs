@@ -1106,11 +1106,19 @@ test.prop([fc.array(fc.anything()), fc.func(fc.string()).map((fn) => fn)])(
     Ok(())
 }
 
+/// `fetch(url)` resolves to a `Response`, not to the body text.
+///
+/// This test used to declare `Promise<string>` and assert `HttpGetText`, which
+/// is not what `fetch` returns in any runtime — `tsc` rejects that signature.
+/// A caller reads `status`, `ok`, `headers` and the body separately, so the
+/// fused text operation threw away everything but one field. `HttpGetText`
+/// stays in the op set for Python's `requests.get(url).text`, which really is
+/// the fused operation.
 #[test]
-fn lowers_fetch_to_async_http_get_text() -> Result<(), String> {
+fn lowers_fetch_to_an_async_response() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!("async function load(): Promise<string> {
+        ts!("async function load(): Promise<Response> {
   return await fetch(\"https://example.com\");
 }
 "),
@@ -1120,15 +1128,59 @@ fn lowers_fetch_to_async_http_get_text() -> Result<(), String> {
     let load = function_item(&ctx, module, 0)?;
     let body = function_body(&ctx, load)?;
 
-    ensure!(body.exprs.iter().any(|expr| {
+    let fetch_ty = body
+        .exprs
+        .iter()
+        .find_map(|expr| {
+            matches!(
+                expr.kind,
+                ExprKind::AsyncOp {
+                    op: smelt_hir::AsyncOp::HttpFetch,
+                    ..
+                }
+            )
+            .then_some(expr.ty)
+        })
+        .ok_or_else(|| "no fetch op lowered".to_owned())?;
+    let Some(smelt_hir::Type::Future(inner)) = ctx.krate.types.get(fetch_ty) else {
+        return Err("fetch must answer a future".to_owned());
+    };
+    ensure!(
         matches!(
+            ctx.krate.types.get(*inner),
+            Some(smelt_hir::Type::Class { .. })
+        ),
+        "fetch must resolve to the concrete `Response` class",
+    );
+    Ok(())
+}
+
+/// The body of a fetched response is read through `text()`, and it is a string.
+#[test]
+fn a_fetched_response_body_is_read_through_text() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!("async function load(): Promise<string> {
+  const response = await fetch(\"https://example.com\");
+  return await response.text();
+}
+"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let load = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, load)?;
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
             expr.kind,
-            ExprKind::AsyncOp {
-                op: smelt_hir::AsyncOp::HttpGetText,
+            ExprKind::ResponseOp {
+                op: smelt_hir::ResponseOp::Text,
                 ..
             }
-        )
-    }));
+        )),
+        "reading a fetched body must go through the modeled `text()`",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
 

@@ -1217,18 +1217,69 @@ fail();
     assert!(source.contains("return Ok(());"));
 }
 
+/// `fetch` emits a future that assembles a whole `Response`.
+///
+/// It used to emit the fused `reqwest::get(..).text()` and answer a
+/// `Promise<string>`, which is not what `fetch` returns anywhere. Every part
+/// now comes from the transport: the status, its canonical reason phrase, the
+/// response headers, and the body as RAW BYTES — bytes because
+/// `SmeltBody::from_text` would stamp an implied `text/plain;charset=UTF-8`,
+/// and a fetched response's content type belongs to the server.
+///
+/// `tests/fetch_response_runtime.rs` proves the round trip against a real
+/// socket; this is the cheap half that pins the emitted shape.
 #[test]
-fn emits_fetch_as_reqwest_get_text_future() {
+fn emits_fetch_as_a_response_assembling_future() {
     let source = source_for(
-        "async function load(): Promise<string> {
+        "async function load(): Promise<Response> {
   return await fetch(\"https://example.com\");
 }
 ",
     );
 
-    assert!(source.contains(
-            "reqwest::get(\"https://example.com\".to_owned()).await.expect(\"HTTP GET failed\").text().await.expect(\"HTTP response body read failed\")"
-        ));
+    assert!(
+        source.contains("reqwest::get(\"https://example.com\".to_owned())"),
+        "{source}"
+    );
+    assert!(source.contains("SmeltResponse::from_parts"), "{source}");
+    assert!(
+        source.contains("canonical_reason()"),
+        "the reason phrase must come from the response: {source}"
+    );
+    assert!(
+        source.contains("smelt_http.headers().iter()"),
+        "the header list must come from the response: {source}"
+    );
+    assert!(
+        source.contains("SmeltBody::from_bytes"),
+        "a fetched body must not carry an invented content type: {source}"
+    );
+}
+
+/// Python's `requests.get(url)` keeps the fused text operation.
+///
+/// `requests.get(url).text` really is "GET and give me the body", so
+/// `HttpGetText` stays for it; only the TypeScript `fetch` spelling moved.
+#[test]
+fn python_requests_get_keeps_the_fused_text_operation() {
+    let mut ctx = py_frontend::HirCtx::new();
+    assert!(
+        py_frontend::to_hir(
+            "import requests\n\ndef load() -> str:\n    return requests.get(\"https://example.com\")\n",
+            FileId(0),
+            &mut ctx,
+        )
+        .is_ok(),
+        "HIR"
+    );
+    let mut mir = smelt_mir::lower_hir(&ctx.krate).expect("MIR");
+    smelt_mir::opt::optimize(&mut mir);
+    let source = emit_source(&mir).expect("Rust source");
+    assert!(source.contains(".text()"), "{source}");
+    assert!(
+        !source.contains("SmeltResponse"),
+        "the Python fused path must not build a Response: {source}"
+    );
 }
 
 #[test]

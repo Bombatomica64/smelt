@@ -347,11 +347,6 @@ pub const HOST_OBJECTS: &[HostObject] = &[
     host("File", "__smelt_file"),
     host("Blob", "__smelt_blob"),
     // Fetch API `Request` host object. Source code (es-toolkit's `isPlainObject`
-    // spec) constructs it only to probe host identity
-    // (`isPlainObject(new Request('...')) === false`); none of its structural
-    // surface is read, so it is a marker-only host object like `WeakMap` /
-    // `DataView`. `instanceof Request` resolves through this marker.
-    host("Request", "__smelt_request"),
     // The concrete fetch types. Unlike the marker-only entries above, these have
     // real generated runtime types (`SmeltHeaders`, `SmeltUrlSearchParams`) and
     // their structural surface IS read — through typed methods, not through the
@@ -361,6 +356,15 @@ pub const HOST_OBJECTS: &[HostObject] = &[
     // resolves through. Their construction never takes the marker-only path.
     host("Headers", "__smelt_headers"),
     host("URLSearchParams", "__smelt_urlsearchparams"),
+    // `Request` and `Response` moved up from the marker-only group when they
+    // gained real runtime types (`SmeltRequest`/`SmeltResponse`). The marker
+    // still does the same two jobs — `instanceof` resolves through it and
+    // `isPlainObject(new Request('...'))` is `false` because of it — but it is
+    // now stamped by the type's own erasure adapter rather than by a
+    // marker-record constructor, so the concrete value is what the program
+    // holds and the record exists only at the boundary.
+    host("Request", "__smelt_request"),
+    host("Response", "__smelt_response"),
     host("DOMException", "__smelt_domexception"),
     // ECMA-402 `Intl` namespace constructors. Source code constructs these only
     // to probe host identity (`isPlainObject(new Intl.Locale('en')) === false`);

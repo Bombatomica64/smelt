@@ -266,8 +266,160 @@ impl FunctionEmitter<'_> {
         };
         Ok(matches!(
             self.stdlib_class_of_symbol(*name)?,
-            Some(smelt_stdlib::StdlibClass::Headers | smelt_stdlib::StdlibClass::UrlSearchParams)
+            Some(
+                smelt_stdlib::StdlibClass::Headers
+                    | smelt_stdlib::StdlibClass::UrlSearchParams
+                    | smelt_stdlib::StdlibClass::Response
+                    | smelt_stdlib::StdlibClass::Request
+            )
         ))
+    }
+
+    /// Emit `new Request(input, init?)` as a concrete `SmeltRequest`.
+    pub(super) fn request_new_text(
+        &self,
+        input: &Operand,
+        method: Option<&Operand>,
+        headers: Option<&Operand>,
+        body: Option<&Operand>,
+    ) -> Result<String, EmitError> {
+        let input_ty = self.operand_ty(input)?;
+        if !matches!(self.mir.types.get(input_ty), Some(Type::String)) {
+            return Err(EmitError::new(
+                "Request input must be a URL string; a Request input is not modeled yet",
+            ));
+        }
+        let input_text = self.operand_text(input)?;
+        let method_expr = match method {
+            Some(method) => self.operand_text(method)?,
+            None => "\"GET\".to_owned()".to_owned(),
+        };
+        let headers_expr = match headers {
+            Some(headers) => self.headers_new_text(Some(headers))?,
+            None => "SmeltHeaders::new()".to_owned(),
+        };
+        let body_expr = match body {
+            Some(body) => self.response_body_text(body)?,
+            None => "SmeltBody::empty()".to_owned(),
+        };
+        Ok(format!(
+            "SmeltRequest::from_parts(&{input_text}, {method_expr}, {headers_expr}, {body_expr})"
+        ))
+    }
+
+    /// Emit a `Request` member operation on a concrete receiver.
+    pub(super) fn request_op_text(
+        &self,
+        op: smelt_hir::RequestOp,
+        request: &Operand,
+        args: &[Operand],
+    ) -> Result<String, EmitError> {
+        if !args.is_empty() {
+            return Err(EmitError::new("no modeled Request member takes arguments"));
+        }
+        let receiver = self.operand_text(request)?;
+        Ok(match op {
+            smelt_hir::RequestOp::Url => format!("{receiver}.url()"),
+            smelt_hir::RequestOp::Method => format!("{receiver}.method()"),
+            smelt_hir::RequestOp::Headers => format!("{receiver}.headers()"),
+            smelt_hir::RequestOp::BodyUsed => format!("{receiver}.body_used()"),
+            smelt_hir::RequestOp::Clone => format!("{receiver}.tee()"),
+            // Same handle-clone-into-the-block shape as `Response::text`; see
+            // the comment there for why the receiver is not moved.
+            smelt_hir::RequestOp::Text => format!(
+                "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(smelt_request.take_text()?) }})) }}"
+            ),
+        })
+    }
+
+    /// Emit `new Response(body?, init?)` as a concrete `SmeltResponse`.
+    ///
+    /// Each init key is its own operand (see `Rvalue::ResponseNew`), so the
+    /// value is assembled from typed parts. An absent key takes the spec's
+    /// default: 200, an empty reason phrase, an empty header list.
+    pub(super) fn response_new_text(
+        &self,
+        body: Option<&Operand>,
+        status: Option<&Operand>,
+        status_text: Option<&Operand>,
+        headers: Option<&Operand>,
+    ) -> Result<String, EmitError> {
+        let status_text_expr = match status {
+            Some(status) => self.operand_text(status)?,
+            None => "200.0".to_owned(),
+        };
+        let phrase_expr = match status_text {
+            Some(status_text) => self.operand_text(status_text)?,
+            None => "String::new()".to_owned(),
+        };
+        let headers_expr = match headers {
+            Some(headers) => self.headers_new_text(Some(headers))?,
+            None => "SmeltHeaders::new()".to_owned(),
+        };
+        let body_expr = match body {
+            Some(body) => self.response_body_text(body)?,
+            None => "SmeltBody::empty()".to_owned(),
+        };
+        Ok(format!(
+            "SmeltResponse::from_parts({status_text_expr}, {phrase_expr}, {headers_expr}, {body_expr})"
+        ))
+    }
+
+    /// Build a `SmeltBody` from a `Response`/`Request` body argument.
+    ///
+    /// The argument's static type selects the conversion, exactly as the
+    /// `Headers` initializer does. Only a string body is modeled so far —
+    /// `BodyInit`'s other arms (`Blob`, `FormData`, `URLSearchParams`,
+    /// `ReadableStream`, `BufferSource`) are types Smelt does not model yet, and
+    /// silently treating one as text would put wrong bytes in the body.
+    pub(super) fn response_body_text(&self, body: &Operand) -> Result<String, EmitError> {
+        let body_ty = self.operand_ty(body)?;
+        let body_text = self.operand_text(body)?;
+        match self.mir.types.get(body_ty) {
+            Some(Type::String) => Ok(format!("SmeltBody::from_text(&{body_text})")),
+            Some(Type::None) => Ok("SmeltBody::empty()".to_owned()),
+            _ => Err(EmitError::new(
+                "Response body must be a string or null; other BodyInit arms are not modeled yet",
+            )),
+        }
+    }
+
+    /// Emit a `Response` member operation on a concrete receiver.
+    pub(super) fn response_op_text(
+        &self,
+        op: smelt_hir::ResponseOp,
+        response: &Operand,
+        args: &[Operand],
+    ) -> Result<String, EmitError> {
+        if !args.is_empty() {
+            return Err(EmitError::new(
+                "no modeled Response member takes arguments",
+            ));
+        }
+        let receiver = self.operand_text(response)?;
+        Ok(match op {
+            smelt_hir::ResponseOp::Status => format!("{receiver}.status()"),
+            smelt_hir::ResponseOp::Ok => format!("{receiver}.ok()"),
+            smelt_hir::ResponseOp::StatusText => format!("{receiver}.status_text()"),
+            smelt_hir::ResponseOp::Headers => format!("{receiver}.headers()"),
+            smelt_hir::ResponseOp::BodyUsed => format!("{receiver}.body_used()"),
+            smelt_hir::ResponseOp::Clone => format!("{receiver}.tee()"),
+            // `text()` answers a promise, so it is a future here, and the
+            // future is fallible because a second read is the spec's
+            // `TypeError`. The `?` inside the async block puts that on the same
+            // error channel every other throw uses.
+            //
+            // The receiver is moved into the block through a HANDLE clone taken
+            // outside it. Moving the receiver itself would end its lifetime at
+            // the call, so `response.bodyUsed` after `response.text()` would
+            // not compile; and a handle clone is the semantically right copy
+            // anyway — it shares the payload and the used flag, so consuming
+            // the body through the future is observable on the original, which
+            // is exactly what the spec says happens.
+            smelt_hir::ResponseOp::Text => format!(
+                "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(smelt_response.take_text()?) }})) }}"
+            ),
+        })
     }
 
     /// Return whether a type names the generated `SmeltUrlSearchParams` type.

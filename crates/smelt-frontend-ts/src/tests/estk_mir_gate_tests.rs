@@ -195,11 +195,19 @@ test("rejects", () => {
     Ok(())
 }
 
-/// `new Request(...)` lowers to a marker-bearing host record carrying the
-/// `__smelt_request` identity key (the marker-only host-object model), so
-/// `isPlainObject(new Request(...))` folds to `false` via the marker.
+/// `new Request(...)` lowers to a CONCRETE request, not a marker record.
+///
+/// It used to lower to a marker-bearing host record, because es-toolkit's
+/// `isPlainObject` spec constructs one only to probe host identity and nothing
+/// read its structural surface. `Request` now has a real runtime type
+/// (`SmeltRequest`), so the value the program holds is concrete and the
+/// `__smelt_request` marker moved to the type's erasure adapter — it is
+/// stamped when the value reaches an erased position, which is exactly where
+/// `isPlainObject` reads it. `estk_transpile_gate_tests`'s sibling test pins
+/// the marker itself; this one pins that the program no longer carries a
+/// record where a typed value belongs.
 #[test]
-fn new_request_lowers_to_marker_record() -> Result<(), String> {
+fn new_request_lowers_to_a_concrete_request() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
         ts!(r#"const r = new Request("http://localhost");"#),
@@ -208,11 +216,17 @@ fn new_request_lowers_to_marker_record() -> Result<(), String> {
     let module = module(&ctx, module_id)?;
     let body = module_body(&ctx, module)?;
     ensure!(
-        body.exprs.iter().any(|expr| matches!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(&expr.kind, ExprKind::RequestNew { .. })),
+        "expected `new Request(...)` to lower to a concrete request",
+    );
+    ensure!(
+        !body.exprs.iter().any(|expr| matches!(
             &expr.kind,
             ExprKind::Literal(Literal::String(text)) if text == "__smelt_request"
         )),
-        "expected `new Request(...)` to carry the `__smelt_request` marker key",
+        "the identity marker belongs to the erasure adapter, not to construction",
     );
     Ok(())
 }

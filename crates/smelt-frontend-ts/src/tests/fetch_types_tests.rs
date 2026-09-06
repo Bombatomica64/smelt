@@ -388,3 +388,455 @@ const value = params.get("a");
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
+
+/// Return the HIR type of the last expression in ANY body matching `pred`.
+///
+/// The module-scoped [`last_expr_ty`] cannot see inside a function body, and a
+/// `Response` read most often sits in one (`await response.text()` needs an
+/// `async` function), so these tests scan the whole lowered crate.
+fn any_body_expr_ty(
+    ctx: &HirCtx,
+    pred: impl Fn(&ExprKind) -> bool,
+) -> Result<smelt_hir::TypeId, String> {
+    ctx.krate
+        .bodies
+        .iter()
+        .flat_map(|body| body.exprs.iter())
+        .rfind(|expr| pred(&expr.kind))
+        .map(|expr| expr.ty)
+        .ok_or_else(|| "no expression in any body matched the predicate".to_owned())
+}
+
+/// Return whether ANY body holds an expression matching `pred`.
+fn any_body_has(ctx: &HirCtx, pred: impl Fn(&ExprKind) -> bool) -> bool {
+    ctx.krate
+        .bodies
+        .iter()
+        .flat_map(|body| body.exprs.iter())
+        .any(|expr| pred(&expr.kind))
+}
+
+/// `new Response(..)` lowers to a concrete `Response` value, not a record.
+#[test]
+fn response_constructor_lowers_to_a_concrete_class_value() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const response = new Response("hello", { status: 201 });
+"#),
+        &mut ctx,
+    )?;
+    let ty = last_expr_ty(&ctx, module_id, |kind| {
+        matches!(kind, ExprKind::ResponseNew { .. })
+    })?;
+    ensure!(
+        matches!(ctx.krate.types.get(ty), Some(Type::Class { .. })),
+        "`new Response(..)` must be a class-typed value, got {}",
+        type_text(&ctx, ty),
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// The init literal's keys lower to their own typed fields.
+///
+/// Keeping the init as a record would mean codegen re-deriving `status`'s type
+/// from a tagged value at run time; the whole point of the split is that it
+/// never has to.
+#[test]
+fn response_init_keys_lower_to_separate_fields() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const response = new Response("hello", { status: 201, statusText: "Created" });
+"#),
+        &mut ctx,
+    )?;
+    let lowered_module = module(&ctx, module_id)?;
+    let lowered_body = module_body(&ctx, lowered_module)?;
+    let found = lowered_body
+        .exprs
+        .iter()
+        .find_map(|expr| match &expr.kind {
+            ExprKind::ResponseNew {
+                body,
+                status,
+                status_text,
+                headers,
+            } => Some((
+                body.is_some(),
+                status.is_some(),
+                status_text.is_some(),
+                headers.is_some(),
+            )),
+            _ => None,
+        })
+        .ok_or_else(|| "no ResponseNew lowered".to_owned())?;
+    ensure_eq!(found, (true, true, true, false));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// Every modeled member keeps the exact source result type.
+#[test]
+fn response_members_keep_their_exact_source_types() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+async function read(): Promise<void> {
+  const response = new Response("hello");
+  const status = response.status;
+  const ok = response.ok;
+  const phrase = response.statusText;
+  const used = response.bodyUsed;
+  const headers = response.headers;
+  const copy = response.clone();
+  const text = await response.text();
+}
+"#),
+        &mut ctx,
+    )?;
+    for (op, expected) in [
+        (smelt_hir::ResponseOp::Status, "Some(Float)"),
+        (smelt_hir::ResponseOp::Ok, "Some(Bool)"),
+        (smelt_hir::ResponseOp::StatusText, "Some(String)"),
+        (smelt_hir::ResponseOp::BodyUsed, "Some(Bool)"),
+    ] {
+        let ty = any_body_expr_ty(&ctx, |kind| {
+            matches!(kind, ExprKind::ResponseOp { op: found, .. } if *found == op)
+        })?;
+        ensure_eq!(type_text(&ctx, ty), expected.to_owned());
+    }
+    for op in [
+        smelt_hir::ResponseOp::Headers,
+        smelt_hir::ResponseOp::Clone,
+    ] {
+        let ty = any_body_expr_ty(&ctx, |kind| {
+            matches!(kind, ExprKind::ResponseOp { op: found, .. } if *found == op)
+        })?;
+        ensure!(
+            matches!(ctx.krate.types.get(ty), Some(Type::Class { .. })),
+            "`Response` member {op:?} must be class-typed, got {}",
+            type_text(&ctx, ty),
+        );
+    }
+    // `text()` is a future because the source method is `async`: the caller
+    // awaits it, so the type has to say so.
+    let text_ty = any_body_expr_ty(&ctx, |kind| {
+        matches!(
+            kind,
+            ExprKind::ResponseOp {
+                op: smelt_hir::ResponseOp::Text,
+                ..
+            }
+        )
+    })?;
+    ensure!(
+        matches!(ctx.krate.types.get(text_ty), Some(Type::Future(inner))
+            if matches!(ctx.krate.types.get(*inner), Some(Type::String))),
+        "`response.text()` is a `Promise<string>`, got {}",
+        type_text(&ctx, text_ty),
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// A `Response` parameter annotation resolves to the modeled class.
+#[test]
+fn response_annotation_resolves_to_the_modeled_class() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function statusOf(response: Response): number {
+  return response.status;
+}
+"#),
+        &mut ctx,
+    )?;
+    let ty = any_body_expr_ty(&ctx, |kind| {
+        matches!(
+            kind,
+            ExprKind::ResponseOp {
+                op: smelt_hir::ResponseOp::Status,
+                ..
+            }
+        )
+    })?;
+    ensure_eq!(type_text(&ctx, ty), "Some(Float)".to_owned());
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// A user class named `Response` shadows the modeled host class.
+///
+/// The registry models the host *name*; it must not claim a source class that
+/// happens to share the spelling.
+#[test]
+fn a_user_class_named_response_wins() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+class Response {
+  constructor(readonly status: number) {}
+  describe(): number {
+    return this.status;
+  }
+}
+
+const response = new Response(204);
+const described = response.describe();
+"#),
+        &mut ctx,
+    )?;
+    ensure!(
+        !any_body_has(&ctx, |kind| matches!(
+            kind,
+            ExprKind::ResponseNew { .. } | ExprKind::ResponseOp { .. }
+        )),
+        "a user class named `Response` must not lower to the modeled fetch type",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// A `status`/`ok` field on an unrelated value keeps the ordinary field read.
+///
+/// The property names are common, so recognition cannot key on the member
+/// alone; it keys on the receiver's lowered type being the modeled class.
+#[test]
+fn an_unrelated_status_read_is_not_a_response_read() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+interface Job {
+  status: number;
+  ok: boolean;
+}
+
+const job: Job = { status: 3, ok: true };
+const status = job.status;
+const ok = job.ok;
+"#),
+        &mut ctx,
+    )?;
+    ensure!(
+        !any_body_has(&ctx, |kind| matches!(kind, ExprKind::ResponseOp { .. })),
+        "an interface field named `status` must keep the ordinary field read",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// A non-literal init is a named blocker, not an erased record.
+///
+/// `ResponseInit`'s keys have exact source types; recovering them from a tagged
+/// value at run time would throw that away, so the honest answer is to say so.
+#[test]
+fn response_init_must_be_an_object_literal() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r#"
+const init = { status: 201 };
+const response = new Response("hello", init);
+"#),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&errors, "must be an object literal")
+}
+
+/// An init key Smelt does not model yet is named, not dropped.
+#[test]
+fn response_unmodeled_init_key_is_named() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r#"
+const response = new Response("hello", { url: "https://example.test" });
+"#),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&errors, "`url` is not modeled yet")
+}
+
+/// `new Request(..)` lowers to a concrete `Request` value, not a record.
+#[test]
+fn request_constructor_lowers_to_a_concrete_class_value() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const request = new Request("https://a.test/p", { method: "POST", body: "hi" });
+"#),
+        &mut ctx,
+    )?;
+    let ty = last_expr_ty(&ctx, module_id, |kind| {
+        matches!(kind, ExprKind::RequestNew { .. })
+    })?;
+    ensure!(
+        matches!(ctx.krate.types.get(ty), Some(Type::Class { .. })),
+        "`new Request(..)` must be a class-typed value, got {}",
+        type_text(&ctx, ty),
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// Every modeled member keeps the exact source result type.
+///
+/// `url` being `String` is the point of demand item 6 in
+/// `blocker-logs/hono-fetch-demand.md`: an untyped read made
+/// `request.url.indexOf(':')` a "string search methods require a string
+/// receiver" error.
+#[test]
+fn request_members_keep_their_exact_source_types() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+async function read(): Promise<void> {
+  const request = new Request("https://a.test/p");
+  const url = request.url;
+  const method = request.method;
+  const used = request.bodyUsed;
+  const headers = request.headers;
+  const copy = request.clone();
+  const text = await request.text();
+}
+"#),
+        &mut ctx,
+    )?;
+    for (op, expected) in [
+        (smelt_hir::RequestOp::Url, "Some(String)"),
+        (smelt_hir::RequestOp::Method, "Some(String)"),
+        (smelt_hir::RequestOp::BodyUsed, "Some(Bool)"),
+    ] {
+        let ty = any_body_expr_ty(&ctx, |kind| {
+            matches!(kind, ExprKind::RequestOp { op: found, .. } if *found == op)
+        })?;
+        ensure_eq!(type_text(&ctx, ty), expected.to_owned());
+    }
+    for op in [smelt_hir::RequestOp::Headers, smelt_hir::RequestOp::Clone] {
+        let ty = any_body_expr_ty(&ctx, |kind| {
+            matches!(kind, ExprKind::RequestOp { op: found, .. } if *found == op)
+        })?;
+        ensure!(
+            matches!(ctx.krate.types.get(ty), Some(Type::Class { .. })),
+            "`Request` member {op:?} must be class-typed, got {}",
+            type_text(&ctx, ty),
+        );
+    }
+    let text_ty = any_body_expr_ty(&ctx, |kind| {
+        matches!(
+            kind,
+            ExprKind::RequestOp {
+                op: smelt_hir::RequestOp::Text,
+                ..
+            }
+        )
+    })?;
+    ensure!(
+        matches!(ctx.krate.types.get(text_ty), Some(Type::Future(inner))
+            if matches!(ctx.krate.types.get(*inner), Some(Type::String))),
+        "`request.text()` is a `Promise<string>`, got {}",
+        type_text(&ctx, text_ty),
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// A string method applies directly to `request.url`.
+#[test]
+fn request_url_is_a_string_receiver() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function schemeEnd(request: Request): number {
+  return request.url.indexOf(":");
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module_id;
+    ensure!(
+        any_body_has(&ctx, |kind| matches!(
+            kind,
+            ExprKind::RequestOp {
+                op: smelt_hir::RequestOp::Url,
+                ..
+            }
+        )),
+        "`request.url` must lower to the typed url read",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// A user class named `Request` shadows the modeled host class.
+#[test]
+fn a_user_class_named_request_wins() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+class Request {
+  constructor(readonly url: string) {}
+  describe(): string {
+    return this.url;
+  }
+}
+
+const request = new Request("mine");
+const described = request.describe();
+"#),
+        &mut ctx,
+    )?;
+    ensure!(
+        !any_body_has(&ctx, |kind| matches!(
+            kind,
+            ExprKind::RequestNew { .. } | ExprKind::RequestOp { .. }
+        )),
+        "a user class named `Request` must not lower to the modeled fetch type",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// A non-literal init is a named blocker, not an erased record.
+#[test]
+fn request_init_must_be_an_object_literal() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r#"
+const init = { method: "POST" };
+const request = new Request("https://a.test/p", init);
+"#),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&errors, "must be an object literal")
+}
+
+/// An init key Smelt does not model yet is named, not dropped.
+///
+/// `signal`, `redirect`, `credentials` and the rest of `RequestInit` are real
+/// keys with real behaviour; accepting and ignoring one would change what the
+/// program does with no diagnostic.
+#[test]
+fn request_unmodeled_init_key_is_named() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r#"
+const request = new Request("https://a.test/p", { redirect: "manual" });
+"#),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&errors, "`redirect` is not modeled yet")
+}
+
+/// A `Request` with no URL argument is a named blocker.
+#[test]
+fn request_requires_a_url_argument() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r#"
+const request = new Request();
+"#),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&errors, "requires a URL argument")
+}
