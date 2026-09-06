@@ -4297,7 +4297,6 @@ impl ModuleBuilder<'_> {
         if fields.is_empty() || fields.iter().any(|field| !field.optional) {
             return None;
         }
-        let mut needs_structural_adapter = false;
         for (key, value) in entries {
             let key_expr = body
                 .exprs
@@ -4311,10 +4310,23 @@ impl ModuleBuilder<'_> {
             if !self.contextual_record_field_assignable(actual, expected) {
                 return None;
             }
-            needs_structural_adapter |=
-                !self.contextual_record_field_directly_assignable(actual, expected);
         }
-        needs_structural_adapter.then_some(candidate)
+        // Every entry is assignable, so the literal IS the struct and takes the
+        // struct's type.
+        //
+        // This used to be gated on at least one field needing the backend's
+        // structural adapter (`needs_structural_adapter.then_some(candidate)`),
+        // which had it backwards: a literal needing no adaptation is the easiest
+        // one to build directly, and declining it sent the literal down the
+        // erased path instead. `const c: Config = {}` for
+        // `interface Config { label?: string }` built a
+        // `SmeltRecord<String, SmeltUnknown>` and then reconstructed `Config`
+        // out of it — reading three keys per field and funnelling every
+        // `SmeltUnknown` tag through `to_string()`, which is harmless for
+        // `label?: string` and turns a `count?: number` into its decimal text.
+        // Pure avoidable erasure plus a latent wrong-value coercion, for the
+        // shape a hand-writing Rust team would spell `Config { label: None }`.
+        Some(candidate)
     }
 
     /// Return whether a contextual field can be assigned without record adaptation.

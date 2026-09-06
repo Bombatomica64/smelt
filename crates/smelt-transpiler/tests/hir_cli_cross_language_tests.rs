@@ -327,6 +327,7 @@ fn end_to_end_examples_match_expected_outputs() -> TestResult {
         "31_headers_fetch_type",
         "32_url_search_params",
         "33_console_optional_value",
+        "34_optional_field_interface_literal",
     ] {
         verify_end_to_end_example(name)?;
     }

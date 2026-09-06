@@ -1310,7 +1310,7 @@ const date = new UTCDate();
 }
 
 #[test]
-fn emits_object_literal_as_destination_interface_record() {
+fn emits_object_literal_as_destination_interface_struct() {
     let source = source_for(
         r#"
 interface Options {
@@ -1327,12 +1327,13 @@ export function run(): string {
 "#,
     );
 
-    assert!(
-        source.contains(
-            "Options { width: smelt_record_map.get(\"width\").cloned().map(|value| value) }"
-        ),
-        "{source}"
-    );
+    // The literal IS the struct: `Options { width: Some(..) }`, with no
+    // `SmeltRecord<String, SmeltUnknown>` materialized and reconstructed. The
+    // reconstruction this used to assert read three keys per field and
+    // funnelled every tag through `to_string()`, which is a wrong value for any
+    // non-string optional field.
+    assert!(source.contains("Options { width: Some("), "{source}");
+    assert!(!source.contains("smelt_record_map"), "{source}");
     assert!(
         !source.contains("format(::std::collections::HashMap::from"),
         "{source}"
@@ -1370,7 +1371,7 @@ export function run(formatLong: FormatLong): string {
 }
 
 #[test]
-fn emits_empty_object_literal_as_optional_interface_record_defaults() {
+fn emits_empty_object_literal_as_optional_interface_struct_defaults() {
     let source = source_for(
         r"
 interface Duration {
@@ -1384,20 +1385,18 @@ export function make(): Duration {
 ",
     );
 
-    // The erased projection consults the prototype slots after the own key
-    // misses, matching `smelt_get_object_field`; see `crate::class_proto`.
+    // An empty literal for an all-optional interface is the struct with every
+    // field absent -- what a hand-writing Rust team would spell. It used to
+    // build an erased record and then project each field back out of it,
+    // consulting `__smelt_proto:`/`__smelt_method:` slots for keys the
+    // interface declares and the literal simply does not set.
+    // `None::<f64>` rather than a bare `None`: the field's own type annotation
+    // is what makes the absent arm inferable at the construction site.
     assert!(
-        source.contains(
-            "Duration { years: smelt_record_map.get(\"years\").or_else(|| smelt_record_map.get(\"__smelt_proto:years\")).or_else(|| smelt_record_map.get(\"__smelt_method:years\")).cloned().map(|value|"
-        ),
+        source.contains("Duration { years: None::<f64>, months: None::<f64> }"),
         "{source}"
     );
-    assert!(
-        source.contains(
-            "months: smelt_record_map.get(\"months\").or_else(|| smelt_record_map.get(\"__smelt_proto:months\")).or_else(|| smelt_record_map.get(\"__smelt_method:months\")).cloned().map(|value|"
-        ),
-        "{source}"
-    );
+    assert!(!source.contains("smelt_record_map"), "{source}");
 }
 
 #[test]

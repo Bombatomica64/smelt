@@ -1,0 +1,87 @@
+module examples/typescript/end-to-end/34_optional_field_interface_literal/input.ts (ModuleId(0))
+  body BodyId(3)
+  items
+    interface Config fields [Public label?: Optional<String>, Public count?: Optional<Float>] methods []
+    interface Outer fields [Public inner?: Optional<Config>] methods []
+    fn label_of owner Module
+    fn count_plus_one owner Module
+    fn inner_count owner Module
+  locals
+    %0 const empty: Config
+    %1 const partial: Config
+    %2 const counted: Config
+    %3 const nested: Outer
+  exprs
+    #0: Config = {}
+    #1: String = "label"
+    #2: String = "x"
+    #3: Config = {#1: #2}
+    #4: String = "count"
+    #5: Float = 41.0
+    #6: Config = {#4: #5}
+    #7: String = "inner"
+    #8: String = "count"
+    #9: Float = 7.0
+    #10: Dict<String, Float> = {#8: #9}
+    #11: Dict<String, Dict<String, Float>> = {#7: #10}
+    #12: Config = %0
+    #13: fn(Config) -> String = @0(label_of)
+    #14: String = call #13(#12)
+    #15: None = @5(console_log)
+    #16: None = call #15(#14)
+    #17: Config = %0
+    #18: fn(Config) -> Float = @1(count_plus_one)
+    #19: Float = call #18(#17)
+    #20: None = @6(console_log)
+    #21: None = call #20(#19)
+    #22: Config = %1
+    #23: fn(Config) -> String = @0(label_of)
+    #24: String = call #23(#22)
+    #25: None = @7(console_log)
+    #26: None = call #25(#24)
+    #27: Config = %2
+    #28: fn(Config) -> Float = @1(count_plus_one)
+    #29: Float = call #28(#27)
+    #30: None = @8(console_log)
+    #31: None = call #30(#29)
+    #32: Outer = %3
+    #33: fn(Outer) -> Float = @2(inner_count)
+    #34: Float = call #33(#32)
+    #35: None = @9(console_log)
+    #36: None = call #35(#34)
+  stmts
+    s0: let %0: Config = #0
+    s1: let %1: Config = #3
+    s2: let %2: Config = #6
+    s3: let %3: Outer = #11
+    s4: #16
+    s5: #21
+    s6: #26
+    s7: #31
+    s8: #36
+
+interned types
+  t0 = String
+  t1 = Unknown
+  t2 = Dict<String, Unknown>
+  t3 = List<Unknown>
+  t4 = Config
+  t5 = Dict<String, String>
+  t6 = List<String>
+  t7 = Float
+  t8 = Dict<String, Float>
+  t9 = List<Float>
+  t10 = Dict<String, Dict<String, Float>>
+  t11 = List<Dict<String, Float>>
+  t12 = Outer
+  t13 = fn(Config) -> String
+  t14 = fn(Config) -> Float
+  t15 = fn(Outer) -> Float
+  t16 = Optional<String>
+  t17 = Optional<Float>
+  t18 = Optional<Config>
+  t19 = Bool
+  t20 = None
+  t21 = fn(Config) -> Float
+  t22 = fn(Config) -> String
+  t23 = fn(Outer) -> Float
