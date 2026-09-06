@@ -19,7 +19,8 @@ Milestone 0: `blocker-logs/express-v1-baseline.md`.
 | 4 `fetch` upgrade to return a `Response` | landed, runtime tier against a real socket (section 3) |
 | 4 `TextEncoder`/`TextDecoder`, `FormData`, `ReadableStream`, `AbortController`, `crypto` | not landed |
 | 4 `Blob`/`File` upgrade (`text()`, `arrayBuffer()`, `slice`) | not landed |
-| 5 `node:http` on hyper | **not landed** — declared as a blocker; the runtime-flavor and body-model questions are now decided (section 5) |
+| 5 `node:http` on hyper | **not landed** — declared as a blocker; runtime flavor and body model decided (section 5) |
+| `node:events` `EventEmitter` | **not landed** — declared as a blocker; semantics pinned against Node (section 7) |
 
 `smelt probe` on `examples/typescript/express_crud` reports **3 blockers** in 3
 of 6 files — two `unresolved package \`express\`` (`app.ts`, `todos/routes.ts`)
@@ -347,6 +348,52 @@ There is no probe fixture for a framework-heavy corpus to show the flip's
 intended cost: `third_party/strapi` has no `Smelt.toml`, and `third_party/nest`
 is a checkout of Smelt itself rather than NestJS. `express_crud` is the only
 framework program with a fixture, and its count is the table above.
+
+## 7. `node:events`: semantics pinned against Node, not yet implemented
+
+Still a declared blocker (`the node:events EventEmitter surface is not
+implemented yet`). What is settled is the behaviour it has to reproduce, diffed
+against Node 22 rather than read from the docs, because three of these are
+observable and easy to get wrong:
+
+| behaviour | Node 22 |
+| --- | --- |
+| `on`/`once`/`off`/`removeAllListeners` return value | the emitter itself, so `e.on('a',f).on('b',g)` chains |
+| listener order | registration order (`first,second`) |
+| `emit` return value | `true` iff a listener was registered, else `false` |
+| arguments | positional pass-through: `emit('data','payload',42)` calls `(chunk, extra)` |
+| `once` | fires once; the second `emit` returns `false` |
+| `off(name, fn)` added twice | removes ONE instance (the most recently added), count goes 2 → 1 |
+| `off` for a listener never added | no error, returns the emitter |
+| a listener added DURING an emit | does **not** run in that emit; it runs in the next one |
+| a listener removed DURING an emit | **still runs** in that emit |
+
+The last two together say `emit` iterates a **snapshot** of the matching
+listeners rather than the live list. A naive implementation that iterates the
+live vector gets both wrong, and neither is visible to any compile step: the
+program just fires the wrong set of callbacks.
+
+### The listener store is a genuine dynamic boundary
+
+A listener's signature is not knowable from the event name — `on('data', cb)`
+takes a chunk, `on('end', cb)` takes nothing — and `emit(name, ...args)` passes
+an arbitrary positional list whose length and types depend on the emitting
+site, not on the emitter's type. One emitter holds listeners for many events at
+once, so the store is heterogeneous and keyed by a runtime string. No concrete
+type, generated union, or scoped generic can express that: the callback set is
+only known at run time, on the branch that registered it.
+
+So the store is the existing erased callable ABI
+(`Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, ..>>`) keyed by event
+name, in registration order, with a per-entry `once` flag and a function
+identity for `off`. That is a `legitimate-boundary` use in the report's terms,
+and it needs the code comment plus regression test the `SmeltUnknown` rule
+requires when it lands.
+
+`off` needs listener identity, which the runtime already has:
+`smelt_canonical_function_identity` / `smelt_link_function_identity_key` are
+what the erased-function equality path uses, so comparing listeners does not
+need a new mechanism.
 
 ## 5. `node:http`: still declared, but the two open questions are now closed
 
