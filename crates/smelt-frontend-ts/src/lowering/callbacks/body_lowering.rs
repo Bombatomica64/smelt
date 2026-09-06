@@ -64,13 +64,21 @@ impl ModuleBuilder<'_> {
                         "callback block declarations require simple bindings",
                     ));
                 };
-                let Some(init) = &declarator.init else {
-                    return Err(SmeltError::unsupported(
-                        self.span(declarator.span.start, declarator.span.end),
-                        "callback block declarations require initializers",
-                    ));
+                // `let x;` holds `undefined` in JavaScript — it is not a
+                // missing initializer, it is an initializer spelled by
+                // omission. MIR's `HirStmt::Let` lowering already encodes
+                // exactly this rule for module and function bodies
+                // (`Operand::Const(Constant::Undefined)`); this path simply
+                // never applied it, so an ordinary `let res: T | undefined`
+                // inside an inlined callback blocked. Answering `undefined`
+                // here makes the two paths agree rather than adding a rule.
+                let value = match &declarator.init {
+                    Some(init) => self.callback_expression(init, params, body)?,
+                    None => CallbackExpr {
+                        kind: CallbackExprKind::Literal(Literal::None),
+                        ty: self.ctx.krate.types.intern(Type::None),
+                    },
                 };
-                let value = self.callback_expression(init, params, body)?;
                 let prior = params.insert(binding.name.as_str(), value);
                 let result = self.callback_block_expression(rest, params, body);
                 if let Some(prior) = prior {

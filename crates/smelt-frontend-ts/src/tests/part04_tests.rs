@@ -9612,3 +9612,83 @@ export class Node2 {
     Ok(())
 }
 
+/// `let x;` inside an inlined callback block holds `undefined`, as in JavaScript.
+///
+/// A declaration with no initializer is not a *missing* initializer — it is one
+/// spelled by omission, and MIR's `HirStmt::Let` lowering already encodes that
+/// rule for module and function bodies. The callback-inlining path never
+/// applied it, so an ordinary `let res: T | undefined` inside a callback
+/// blocked with "callback block declarations require initializers". This
+/// fixture pins the two paths agreeing.
+#[test]
+fn a_callback_block_declaration_without_an_initializer_defaults_to_undefined()
+-> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+export const pick = (values: number[]): number => {
+  return values.reduce((accumulator: number, item: number): number => {
+    let chosen: number | undefined;
+    chosen = item > accumulator ? item : accumulator;
+    return chosen;
+  }, 0);
+};
+"),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// A forward-referenced module callable returning `never` stubs to a THROW.
+///
+/// The stub builder answers a default value of the declared return type, and
+/// `never` has no value to answer: a function declared `never` cannot return.
+/// Emitting a throw is the only honest body. Before this, `never` fell through
+/// to "return type needs a supported default value" — a blocker on a shape the
+/// absent-global lowering itself produces.
+#[test]
+fn a_forward_referenced_never_returning_callable_stubs_to_a_throw() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+export const boom = (): never => {
+  throw new Error('unreachable');
+};
+
+export const callBoom = (): void => {
+  boom();
+};
+"),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// A union return type stubs to `undefined` when the union admits it.
+///
+/// `T | undefined` is the common shape, and JavaScript would answer
+/// `undefined`, so the stub does too rather than picking an arbitrary arm.
+#[test]
+fn a_forward_referenced_union_returning_callable_stubs_to_undefined() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+export const maybe = (flag: boolean): string | undefined => {
+  return flag ? 'yes' : undefined;
+};
+
+export const callMaybe = (): void => {
+  maybe(true);
+};
+"),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+

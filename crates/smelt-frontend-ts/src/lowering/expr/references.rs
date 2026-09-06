@@ -1743,10 +1743,74 @@ impl ModuleBuilder<'_> {
                     span,
                 }));
             }
-            _ => {
+            // A function declared to return `never` cannot return a value at
+            // all, so a stub for it must not try: the honest body is a throw.
+            // This is the same shape an absent global lowers to, and it is
+            // reached whenever such a closure is forward-referenced.
+            Some(Type::Never) => {
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                let message = body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::String(
+                        "TypeError: a function declared `never` was called".to_owned(),
+                    )),
+                    ty: string_ty,
+                    span,
+                });
+                body.push_stmt(Stmt::Throw(message));
+                // The throw is the body's terminator, but the caller appends a
+                // `return`, so an expression of the declared type is still
+                // needed as the (unreachable) operand. `None` is the smallest
+                // one that type-checks and can never be observed.
+                let none_ty = self.ctx.krate.types.intern(Type::None);
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::None),
+                    ty: none_ty,
+                    span,
+                }));
+            }
+            // A union's default is the default of the arm that has one. `None`
+            // wins when the union admits it (`T | undefined` defaults to
+            // `undefined`, which is what JavaScript would answer); otherwise
+            // the first arm with a representable default is used, so a
+            // `string | number` stub answers `""` rather than blocking.
+            Some(Type::Union(arms)) => {
+                let none_ty = self.ctx.krate.types.intern(Type::None);
+                if arms.contains(&none_ty) {
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::None),
+                        ty: none_ty,
+                        span,
+                    }));
+                }
+                for arm in arms {
+                    if let Ok(value) = self.default_module_global_value(arm, span, body) {
+                        return Ok(value);
+                    }
+                }
                 return Err(SmeltError::unsupported(
                     span,
-                    "module-level function return type needs a supported default value",
+                    "module-level function returns a union with no representable default value",
+                ));
+            }
+            Some(Type::Set(_)) => ExprKind::SetLit(Vec::new()),
+            // Each element gets its own default, recursively.
+            Some(Type::Tuple(element_tys)) => {
+                let mut elements = Vec::with_capacity(element_tys.len());
+                for element_ty in element_tys {
+                    elements.push(self.default_module_global_value(element_ty, span, body)?);
+                }
+                ExprKind::TupleLit(elements)
+            }
+            // Naming the type is the difference between a blocker someone can
+            // act on and one that needs a debugger to reproduce; the round-1
+            // `JSON.stringify` diagnostic taught the same lesson.
+            other => {
+                return Err(SmeltError::unsupported(
+                    span,
+                    format!(
+                        "module-level function return type needs a supported default value \
+                         (got {other:?})"
+                    ),
                 ));
             }
         };
