@@ -5,6 +5,40 @@ Runs in parallel with `blocker-logs/standards-tier-plan.md` (the "standards stre
 
 ---
 
+## PROGRESS LOG — round 8
+
+Probe: **258 files / 4 with blockers / 4 occurrences** -> **258 / 3 / 3**.
+Four of the five defects fixed this round produced no blocker at all; the probe
+count is still not the measure of this phase.
+
+### Landed
+
+| item | what it was |
+| --- | --- |
+| `find` typed predicate | `StringAffix`/`ListContains` typed with the surrounding expectation, so a `bool` expression filled a `SmeltUnknown` slot -- four E0308s per two source calls, plus an erase-then-truthiness round trip. Fixed at the callback EXPRESSION (return-type table) and at the NODES. |
+| H13 | a unique `Symbol()` bound to a MODULE-LEVEL const is evaluated once, so it is a stable static key. The declaration was rejected; once it lowered the READ still answered `undefined`. Symbol keys only -- an index signature answers `class_field_type` for every string name. |
+| H15 | generated-union members rendered in the first function's lexical environment, so a member mentioning the enum's own parameter erased it while the declaration declared it anyway (E0392 + `ResponseInit<SmeltUnknown>`). Closes the "known gap" on `FunctionEmitter::rust_type`. |
+| module-arrow lift | a lifted arrow has no capture environment, so a module binding it read was re-materialized: a second private list, and every write lost. An arrow reading a binding with REFERENCE IDENTITY no longer lifts; scalars still do. |
+| `await` over `T \| Promise<T>` | the awaited value erased. Joins the arms now, and the emitter lifts each value arm into an already-resolved handle rather than `unreachable!`-ing the half that needs no waiting. |
+
+### Open families
+
+| # | shape | state |
+| --- | --- | --- |
+| H14 | `type table does not contain literal operand type Unknown` (`emitter/types.rs:823`). | open, mine, not reachable from Hono. Needs a reproduction to pin which degraded answer the fallback should give; always interning `Unknown` would emit the erased prelude for every crate. |
+| H16 | `nested callback parameter destructuring needs closure-body lowering` (`callbacks/body_lowering.rs:885` and `:925`), `request.ts`. | NEW, mine. Unmasked by H13: it was behind the computed-getter blocker in the same file. |
+| — | `hono-base.ts` "Response init is an erased value" and `context.ts` "field access ... (receiver: Float, field: status)". | still reported. `await` over a union types correctly in isolation now, so the `hono-base.ts` site needs its own diagnosis rather than an assumption that the round-8 item covered it. |
+
+### SmeltUnknown
+
+`SmeltUnknown::Symbol` is reclassified as a legitimate boundary: a symbol value's
+whole meaning is a unique run-time identity, which no concrete type, generated
+union arm or scoped generic can carry. The symbol's use as a member KEY is
+static and carries no erasure at all -- `symbol_value_is_a_boundary` pins both
+halves. es-toolkit avoidable 32889 -> 32488.
+
+---
+
 ## PROGRESS LOG — rounds 6 and 7
 
 Probe on this head: **258 files / 3 with blockers / 4 occurrences**, unchanged
