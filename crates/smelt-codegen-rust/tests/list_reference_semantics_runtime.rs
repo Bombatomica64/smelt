@@ -364,3 +364,43 @@ test("an in-place push through an erased-element parameter is observed", () => {
 "#;
     run_list_fixture(source, "list_identity_coercion_aliases");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_local_alias_of_an_erased_object_field_stays_one_array_across_pushes() {
+    // The write-back in `emitter::list_mutation`'s erased-object-field arm.
+    //
+    // `const items = holder.items; items.push(x)` on an object the emitter
+    // erased extracts the field as an ALIAS of the stored array (see
+    // `erased_to_list_text`'s array arm), so the push has already landed in the
+    // buffer the field points at; the write-back re-stores that same handle.
+    //
+    // It used to re-store a REBUILT element vector instead, which detached the
+    // field from the local's buffer once per push. A single push does not catch
+    // that — the rebuilt snapshot happens to hold the right contents — so this
+    // fixture pushes THROUGH BOTH NAMES, alternating, which only agrees while
+    // the two names keep denoting one array: a later push through the local must
+    // be visible through the field, and a push through the field must be visible
+    // through the local. With the rebuild the two sequences diverged.
+    let source = r#"
+import { test, expect } from "vitest";
+type Holder = { index: number; items: unknown[] };
+test("a local alias of an erased object field stays one array across pushes", () => {
+  const holder: Holder = { index: 0, items: [] };
+  const items = holder.items;
+  items.push("a");
+  items.push("b");
+  expect(holder.items.length).toBe(2);
+  expect(holder.items[0]).toBe("a");
+  expect(holder.items[1]).toBe("b");
+  holder.items.push("c");
+  expect(items.length).toBe(3);
+  expect(items[2]).toBe("c");
+  items.push("d");
+  expect(holder.items.length).toBe(4);
+  expect(holder.items[3]).toBe("d");
+  expect(items.length).toBe(4);
+});
+"#;
+    run_list_fixture(source, "list_erased_field_alias_writeback");
+}

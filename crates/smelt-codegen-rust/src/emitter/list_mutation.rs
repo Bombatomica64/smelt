@@ -121,12 +121,36 @@ impl FunctionEmitter<'_> {
             let field_name = self.symbol_source_name(*field)?;
             let item_text = self.value_at_type(item, *item_ty)?;
             let result = if returns_length {
-                "smelt_list.len() as f64"
+                "smelt_array.len() as f64"
             } else {
                 "()"
             };
+            // Push THROUGH the stored array's handle, never through a snapshot
+            // of its elements.
+            //
+            // `SmeltArray` is an `id` plus a shared
+            // `Rc<RefCell<Vec<SmeltUnknown>>>`, and `smelt_get_object_field`
+            // hands back a clone of that handle, which shares the buffer. So
+            // `smelt_array.push(..)` is the JavaScript semantics exactly: the
+            // append is observable through every other name for the array, and
+            // the array keeps its identity across the push.
+            //
+            // This used to read `values.into_vec()` into a fresh `Vec`, push
+            // there, and store `SmeltUnknown::Array(smelt_list.into())`. That
+            // was wrong twice over. It copied the WHOLE array on every push, so
+            // a loop appending n items to one field cost O(n^2) memcpy plus n^2
+            // `SmeltUnknown` clones and drops; and `From<Vec<SmeltUnknown>>`
+            // mints a fresh `SmeltArray::new` identity, so the field silently
+            // became a DIFFERENT array after each push and any other live
+            // handle on the old one was orphaned.
+            //
+            // The write-back below is kept: the `_ =>` arms mint an array that
+            // was not stored anywhere yet (absent field, non-array field,
+            // non-object base), and the `other =>` arm has to create the object.
+            // Storing an already-stored handle back over itself is a pointer
+            // write, so there is nothing to gain from making it conditional.
             return Ok(format!(
-                "{{ let mut smelt_list = match {base_text}.clone() {{ SmeltUnknown::Object(map) => match smelt_get_object_field(&map, \"{field_name}\") {{ SmeltUnknown::Array(values) => values.into_vec(), _ => Vec::new() }}, _ => Vec::new() }}; smelt_list.push(({item_text}).into_smelt_unknown()); let smelt_result = {result}; let smelt_value = SmeltUnknown::Array(smelt_list.into()); match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert(\"{field_name}\".to_owned(), smelt_value); }}, other => {{ let map = SmeltObject::new(Vec::from([(\"{field_name}\".to_owned(), smelt_value)])); *other = SmeltUnknown::Object(map); }} }} smelt_result }}"
+                "{{ let smelt_array = match {base_text}.clone() {{ SmeltUnknown::Object(map) => match smelt_get_object_field(&map, \"{field_name}\") {{ SmeltUnknown::Array(values) => values, _ => SmeltArray::new(Vec::new()) }}, _ => SmeltArray::new(Vec::new()) }}; let smelt_push_item = ({item_text}).into_smelt_unknown(); smelt_array.push(smelt_push_item); let smelt_result = {result}; let smelt_value = SmeltUnknown::Array(smelt_array); match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert(\"{field_name}\".to_owned(), smelt_value); }}, other => {{ let map = SmeltObject::new(Vec::from([(\"{field_name}\".to_owned(), smelt_value)])); *other = SmeltUnknown::Object(map); }} }} smelt_result }}"
             ));
         }
         if let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) = list
@@ -153,8 +177,9 @@ impl FunctionEmitter<'_> {
             // is a runtime property. One `let` removes the whole class.
             let push_expr =
                 format!("let smelt_push_item = {item_text}; {list_mut}.push(smelt_push_item);");
+            let smelt_value_text = self.erased_array_writeback_value_text(&list_text, list_ty);
             return Ok(format!(
-                "{{ {push_expr} let smelt_result = {result}; let smelt_value = SmeltUnknown::Array({list_text}.clone().into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect()); match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert(\"{field_name}\".to_owned(), smelt_value); }}, other => {{ let map = SmeltObject::new(Vec::from([(\"{field_name}\".to_owned(), smelt_value)])); *other = SmeltUnknown::Object(map); }} }} smelt_result }}"
+                "{{ {push_expr} let smelt_result = {result}; let smelt_value = {smelt_value_text}; match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert(\"{field_name}\".to_owned(), smelt_value); }}, other => {{ let map = SmeltObject::new(Vec::from([(\"{field_name}\".to_owned(), smelt_value)])); *other = SmeltUnknown::Object(map); }} }} smelt_result }}"
             ));
         }
         if let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) = list
@@ -219,6 +244,55 @@ impl FunctionEmitter<'_> {
             Ok(format!("{{ {push_expr} {list_text}.len() as f64 }}"))
         } else {
             Ok(format!("{{ {push_expr} () }}"))
+        }
+    }
+
+    /// Renders the `SmeltUnknown::Array(..)` value stored back into an erased
+    /// object's field after a typed `SmeltList` alias of that field was mutated.
+    ///
+    /// # Why the aliasing re-wrap is the correct value, not merely the fast one
+    ///
+    /// A JavaScript array is a reference value, and `SmeltList<SmeltUnknown>`
+    /// and `SmeltArray` model that with the identical representation: an `id`
+    /// plus a shared `Rc<RefCell<Vec<SmeltUnknown>>>`. When the list's elements
+    /// already render as `SmeltUnknown`, extracting the field into the typed
+    /// local was a re-wrap of the SAME array (`erased_to_list_text`'s array arm
+    /// calls `SmeltList::with_storage(values.id, values.storage())`), so the
+    /// push has ALREADY landed in the buffer the object's field points at. The
+    /// value written back must therefore be another handle on that one array —
+    /// `From<SmeltList<SmeltUnknown>> for SmeltArray`, an `Rc` refcount bump
+    /// that carries both halves of the array's reference semantics, the stable
+    /// `id` and the shared buffer.
+    ///
+    /// Rebuilding the element vector instead
+    /// (`list.clone().into_iter().map(into_smelt_unknown).collect()`) DETACHED
+    /// the field from the buffer the local still holds: the object got a fresh
+    /// snapshot under a fresh identity, so every later write through the typed
+    /// handle was invisible through the object, and the two names for one
+    /// JavaScript array stopped being one array. It re-broke, once per push, the
+    /// exact invariant the aliasing extraction established.
+    ///
+    /// It is also where the time went. The rebuild is an O(n) memcpy plus n
+    /// `SmeltUnknown` clones and n drops on EVERY push, so appending n items to
+    /// one field costs O(n^2); callgrind on remeda's `uniqueBy` benchmark
+    /// attributed ~44% of all instructions to the `SmeltUnknown` clone and drop
+    /// pairs this loop generated.
+    ///
+    /// When the elements genuinely need converting — a list of concrete `T` that
+    /// is not `SmeltUnknown` — there is no shared representation to alias and the
+    /// per-element conversion is unavoidable, so that case still rebuilds. The
+    /// question of which case applies is asked with the same scope-aware
+    /// predicate the type renderer answers it with,
+    /// [`Self::list_items_render_as_unknown`]: an in-scope type parameter is a
+    /// real Rust generic whose elements must be converted, while an out-of-scope
+    /// one is erased to `SmeltUnknown` and aliases.
+    fn erased_array_writeback_value_text(&self, list_text: &str, list_ty: TypeId) -> String {
+        if self.list_items_render_as_unknown(list_ty) {
+            format!("SmeltUnknown::Array({list_text}.clone().into())")
+        } else {
+            format!(
+                "SmeltUnknown::Array({list_text}.clone().into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect())"
+            )
         }
     }
 

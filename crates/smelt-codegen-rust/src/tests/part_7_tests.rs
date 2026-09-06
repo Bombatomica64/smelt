@@ -12731,3 +12731,58 @@ export function countBy<T, K extends PropertyKey>(
         "the read probe is gone: {body}"
     );
 }
+
+#[test]
+fn erased_object_field_list_alias_push_writes_back_an_aliasing_array() {
+    // `pipe`'s hot loop in remeda: destructure an array field off an erased
+    // object, push into the local, and the object must observe the push.
+    //
+    // Extracting the field already ALIASES the stored array (see
+    // `erased_to_list_text`'s array arm, `SmeltList::with_storage`), so the
+    // write-back has to hand back another handle on that same buffer. Rebuilding
+    // the element vector detached the field from the local's buffer, re-breaking
+    // the aliasing once per push, and cost an O(n) copy every time.
+    let source = source_for(
+        r"
+type Holder = { index: number; items: unknown[] };
+function record(holder: Holder, value: unknown): void {
+  const { items } = holder;
+  items.push(value);
+}
+",
+    );
+
+    assert!(
+        source.contains("let smelt_value = SmeltUnknown::Array(items.clone().into());"),
+        "{source}"
+    );
+    assert!(
+        !source.contains("map(IntoSmeltUnknown::into_smelt_unknown).collect());"),
+        "the per-element rebuild must not appear for SmeltUnknown elements: {source}"
+    );
+}
+
+#[test]
+fn erased_object_field_list_alias_push_still_converts_concrete_elements() {
+    // The other half of the same general rule: a `string[]` field extracts into
+    // `SmeltList<String>`, which shares no representation with `SmeltArray`, so
+    // there is nothing to alias and the elements genuinely have to be converted.
+    // The aliasing re-wrap is keyed on the element type rendering as
+    // `SmeltUnknown`, never on a library or a spelling.
+    let source = source_for(
+        r"
+type Holder = { items: string[]; other: unknown };
+function record(holder: Holder, value: string): void {
+  const items = holder.items;
+  items.push(value);
+}
+",
+    );
+
+    assert!(
+        source.contains(
+            "let smelt_value = SmeltUnknown::Array(items.clone().into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect());"
+        ),
+        "{source}"
+    );
+}
