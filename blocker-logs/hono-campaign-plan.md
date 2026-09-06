@@ -3,6 +3,39 @@
 Owner: Hono implementer (Opus). Architecture: Fable. Date: 2026-09-06.
 Runs in parallel with `blocker-logs/standards-tier-plan.md` (the "standards stream").
 
+---
+
+## PROGRESS LOG — round 1
+
+Probe: **288 files / 14 with blockers / 32 occurrences / 13 shapes**
+    -> **286 files / 10 with blockers / 18 occurrences / 7 shapes**
+(current state in `blocker-logs/hono-current.md`).
+
+| family | status | note |
+| --- | --- | --- |
+| H1 call expression not lowered | **done**, 4 -> 0 | ES private-name method calls, plus private reads in argument position. `hono-h1-private-method-calls.md` |
+| H2 regex replacement callback | **done**, 4 -> 0 | the full ECMA-262 replacer argument list. `hono-h2-regex-replacer-arguments.md` |
+| H3 tuple element intersection | **done**, 2 -> 0 | every `TSType` in tuple position, not just intersections. `hono-h3-tuple-element-types.md` |
+| H4 condition over a union | **done**, 1 -> 0 | a union of objects is constantly truthy. `hono-h4-union-truthiness.md` |
+| H5 `JSON.stringify` | **not this stream** | `BodyInit`, an unresolved fetch alias. `hono-h5-h8-h9-not-mine.md` |
+| H6 module-level mutable global | **partial**, 1 -> 1 | non-literal initializers and non-primitive types landed; a write THROUGH the binding is a new named blocker rather than a silent data loss. `hono-h6-module-mutable-globals.md` |
+| H7 exported const unresolved | **done**, 1 -> 0 | folded into H10; an exported const may alias a global. |
+| H8 rest parameter type | **not fixable as designed** | `src/client/**` cannot be excluded by the current mechanism. `hono-scope.md` §2 |
+| H9 string receiver | **not this stream** | `Request.url` must be `string`; the other site is `client/**`. |
+| H10 unresolved identifier/class | **mostly done**, 9 -> 5 | the URI transcoding globals landed; `btoa`/`atob` and `addEventListener` remain, both needing a throwing mechanism. `hono-h10-uri-and-base64-globals.md` |
+| H11 (new) `String` field reads | **done** | text and type were decided separately, so `${s.length}` in a callback did not compile. `hono-h11-string-field-read.md` |
+| H12 (new) const alias callee | **done** | `const alias = fn; alias(x)` compiled and answered a default. `hono-h12-const-alias-callee.md` |
+
+Phases: **1 not reachable from this stream** (8 of the 18 remaining occurrences
+are standards-stream names), **2 blocked** on phase 1 (the whole-crate build
+aborts at the first file needing one), **3 not started** (waits for the
+standards stream), **4 blocked** on phase 2 (no generated crate to measure),
+**5 done** (advisory `hono-advisory` job in `ci.yml`).
+
+Scope: `hono-scope.md`. Demand on the standards stream: `hono-fetch-demand.md`.
+
+---
+
 ## 1. Why Hono
 
 Express is JavaScript and can only ever be a mapped host library. Hono is pure TypeScript with

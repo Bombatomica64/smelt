@@ -286,18 +286,15 @@ fn lower_globals(
                 crate::MirGlobalInit::Constant(lower_literal(literal))
             }
             smelt_hir::MutableGlobalInit::Initializer(init_item) => {
-                match item_functions.get(init_item) {
-                    Some(func_id) => crate::MirGlobalInit::Call(*func_id),
-                    None => {
-                        errors.push(LowerError {
-                            message:
-                                "mutable global initializer function has no MIR function id"
-                                    .to_owned(),
-                            span: Some(global.span),
-                        });
-                        continue;
-                    }
-                }
+                let Some(func_id) = item_functions.get(init_item) else {
+                    errors.push(LowerError {
+                        message: "mutable global initializer function has no MIR function id"
+                            .to_owned(),
+                        span: Some(global.span),
+                    });
+                    continue;
+                };
+                crate::MirGlobalInit::Call(*func_id)
             }
             smelt_hir::MutableGlobalInit::Pending => {
                 errors.push(LowerError {
