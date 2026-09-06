@@ -62,7 +62,7 @@ fn exact_console_write_uses_debug_format_for_lists() {
     for function in &mut mir.functions {
         for block in &mut function.blocks {
             if let Some(Terminator::Call { callee, .. }) = &mut block.terminator
-                && matches!(callee, Callee::Builtin(BuiltinFn::ConsoleLog))
+                && matches!(callee, Callee::Builtin(BuiltinFn::ConsoleLog { .. }))
             {
                 *callee = Callee::Builtin(BuiltinFn::ConsoleWrite);
             }

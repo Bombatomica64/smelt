@@ -17,7 +17,7 @@ use smelt_hir::{
 
 use crate::{
     BasicBlock, BlockId, ExceptionHandler, FuncId, HirOrigin, LocalDecl, LocalId, LocalKind,
-    MirClosure, MirFunction, NegativeIndex, Operand, Terminator,
+    AbsentSpelling, MirClosure, MirFunction, NegativeIndex, Operand, Terminator,
 };
 
 use super::{LowerError, function_item_for_body, u32_from_usize, usize_from_u32};
@@ -277,6 +277,19 @@ impl<'hir> LoweringCtx<'hir> {
             finally_scopes: Vec::new(),
             loop_index_ty: shared.loop_index_ty,
             loop_bool_ty: shared.loop_bool_ty,
+        }
+    }
+
+    /// How the language at `span` spells an absent value.
+    ///
+    /// Same mechanism, and same default, as [`Self::negative_index_policy`]: the
+    /// span names the file and the file names the frontend. A synthesized span
+    /// with no source module comes from the TypeScript-shaped paths, so
+    /// `Undefined` is the fallback.
+    pub(super) fn absent_spelling(&self, span: Span) -> AbsentSpelling {
+        match self.languages.get(&span.file) {
+            Some(smelt_hir::Language::Python) => AbsentSpelling::None,
+            Some(smelt_hir::Language::TypeScript) | None => AbsentSpelling::Undefined,
         }
     }
 

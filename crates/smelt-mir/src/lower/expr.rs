@@ -2537,7 +2537,9 @@ impl LoweringCtx<'_> {
             return Err(self.error("callee has an unknown symbol", Some(expr.span)));
         };
         if name == smelt_hir::CONSOLE_LOG_SYMBOL {
-            Ok(Callee::Builtin(BuiltinFn::ConsoleLog))
+            Ok(Callee::Builtin(BuiltinFn::ConsoleLog {
+                absent: self.absent_spelling(expr.span),
+            }))
         } else if name == smelt_hir::CONSOLE_WRITE_SYMBOL {
             Ok(Callee::Builtin(BuiltinFn::ConsoleWrite))
         } else if name == smelt_hir::CONSOLE_ERROR_WRITE_SYMBOL {

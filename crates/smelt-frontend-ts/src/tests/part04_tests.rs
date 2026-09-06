@@ -5,7 +5,7 @@ fn lowers_imported_unknown_calls_inside_unannotated_block_arrow() -> Result<(), 
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
         ts!(r#"
-import { importDefault } from "@strapi/utils";
+declare const importDefault: (file: string) => unknown;
 
 const loadJsFile = (file: string) => {
   try {
@@ -79,7 +79,7 @@ fn lowers_lodash_predicate_factories_as_array_callbacks() -> Result<(), String> 
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
         ts!(r#"
-import _ from "lodash";
+declare const _: any;
 import { has } from "lodash/fp";
 
 type Item = { id?: string | null };
@@ -705,13 +705,11 @@ fn lowers_node_process_env_cwd_and_require_surface() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
         ts!(r#"
-import path from "path";
-
 const envPath = process.env.ENV_PATH;
 const mode = process.env.NODE_ENV || "development";
-const configDir = path.resolve(process.cwd(), "config");
+const configDir = process.cwd();
 const interactive = process.stdout.isTTY;
-const pkg = require(path.resolve(configDir, "package.json"));
+const pkg = require("./package.json");
 const resolved = require.resolve("pkg");
 "#),
         &mut ctx,
@@ -5464,18 +5462,28 @@ const init = () => {
     Ok(())
 }
 
+/// `node:path` is a declared surface, so `path.join`/`path.resolve` block.
+///
+/// This test used to assert that these calls *lowered*. They did, to an empty
+/// string literal — a wrong value with no diagnostic. The stub is gone and the
+/// reason now names the module; `host_module_tests.rs` carries the rest of the
+/// coverage for this surface.
 #[test]
-fn lowers_node_path_join_and_resolve_static_calls() -> Result<(), String> {
+fn node_path_join_and_resolve_static_calls_block() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    lower_ok(
+    let errors = lowering_errors(
         ts!(r"
 import path from 'path';
 
 const configPath = path.join('/tmp', '.strapi-updater.json');
-const resourcePath = path.resolve(__dirname, '../resources/key.pub');
+const resourcePath = path.resolve('/srv', '../resources/key.pub');
 "),
         &mut ctx,
     )?;
+    ensure!(
+        errors.iter().any(|error| error.message.contains("node:path")),
+        "path.join/path.resolve must block on the declared node:path surface: {errors:?}",
+    );
     Ok(())
 }
 
@@ -5626,7 +5634,7 @@ fn does_not_route_validation_test_methods_as_regexp() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r"
-import { yup } from '@strapi/utils';
+declare const yup: any;
 
 const schema = yup
   .string()
@@ -6381,7 +6389,7 @@ fn lowers_lodash_for_each_collection_callback() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r"
-import _ from 'lodash';
+import _ from './lodash-compat';
 
 function register(routes: any) {
   _.forEach(routes, (router) => {
@@ -6400,7 +6408,7 @@ fn lowers_strapi_register_routes_lodash_for_each_shape() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r"
-import _ from 'lodash';
+import _ from './lodash-compat';
 
 const createRouteScopeGenerator = (namespace: string) => (route: any) => {
   const prefix = namespace.endsWith('::') ? namespace : `${namespace}.`;
@@ -6439,7 +6447,7 @@ fn lowers_yup_test_and_await_opaque_async_surfaces() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r"
-import { yup } from '@strapi/utils';
+declare const yup: any;
 
 const schema = yup.mixed().test(() => false);
 const arraySchema = yup.array().of(
@@ -6504,7 +6512,7 @@ fn lowers_top_level_destructured_module_globals_in_functions() -> Result<(), Str
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r"
-import { contentTypes as contentTypesUtils } from '@strapi/utils';
+declare const contentTypesUtils: any;
 
 const {
   CREATED_AT_ATTRIBUTE,
@@ -6529,7 +6537,7 @@ fn lowers_lodash_has_path_predicates() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r"
-import _ from 'lodash';
+import _ from './lodash-compat';
 
 function addOptions(schema: any) {
   if (!_.has(schema, 'options.draftAndPublish')) {
@@ -6566,7 +6574,7 @@ fn lowers_external_static_member_new_expressions() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r"
-import { errors } from '@strapi/utils';
+declare const errors: any;
 
 function fail(): never {
   throw new errors.ValidationError('invalid');
@@ -6600,9 +6608,6 @@ fn lowers_node_dirname_buffer_and_error_call_surface() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r"
-import { resolve } from 'path';
-
-const keyPath = resolve(__dirname, '../key.pub');
 const [signature, content] = Buffer.from('encoded', 'base64').toString().split('\n');
 const empty = Buffer.alloc(0);
 const payload = Buffer.alloc(3);
@@ -6716,7 +6721,7 @@ fn lowers_imported_value_alias_const_references() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r"
-import { createId } from '@paralleldrive/cuid2';
+declare const createId: any;
 
 export const createDocumentId = createId;
 
@@ -7350,7 +7355,7 @@ fn lowers_strapi_async_map_with_options() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r"
-import { async } from '@strapi/utils';
+import { async } from './async-utils';
 
 async function run(batch: Array<{ documentId: string; locale: string }>) {
   const discardDraft = async (entry: { documentId: string; locale: string }) => entry.documentId;
@@ -7404,7 +7409,7 @@ fn lowers_new_from_destructured_import_object_member() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r"
-import { errors } from '@strapi/utils';
+declare const errors: any;
 
 const { ValidationError } = errors;
 
@@ -7863,7 +7868,7 @@ fn lowers_imported_static_string_split_helper() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r#"
-import _ from "lodash";
+import _ from "./lodash-compat";
 
 export const run = (value: string) => _.split(value, '/');
 "#),
@@ -7878,7 +7883,7 @@ fn lowers_imported_static_array_join_helper() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r#"
-import _ from "lodash";
+import _ from "./lodash-compat";
 
 export const run = (values: string[]) => _.join(values, '/');
 "#),
@@ -7923,7 +7928,7 @@ fn lowers_imported_static_array_concat_helper() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r#"
-import _ from "lodash";
+declare const _: any;
 
 export const run = (left: string[], right: string[]) => _.concat(left, right);
 "#),
@@ -7938,7 +7943,7 @@ fn lowers_imported_static_array_concat_helper_with_erased_right() -> Result<(), 
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r#"
-import _ from "lodash";
+declare const _: any;
 
 declare const right: unknown;
 export const run = (left: string[]) => _.concat(left, right);
@@ -7954,7 +7959,7 @@ fn lowers_array_concat_with_erased_left_and_concrete_list_right() -> Result<(), 
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r#"
-import _ from "lodash";
+declare const _: any;
 
 declare const left: unknown[];
 declare const right: string[];
@@ -8041,7 +8046,7 @@ fn lowers_imported_static_member_as_array_callback() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r#"
-import _ from "lodash";
+declare const _: any;
 
 export const run = (value: object) => Object.values(value).every(_.isFunction);
 "#),
@@ -8071,7 +8076,7 @@ fn lowers_imported_prop_factory_as_array_callback() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r#"
-import _ from "lodash/fp";
+declare const _: any;
 
 export const run = (values: Array<{ result: unknown }>) => values.map(_.prop('result'));
 "#),
@@ -8086,7 +8091,7 @@ fn lowers_imported_functional_map_factory() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r#"
-import _ from "lodash/fp";
+declare const _: any;
 
 const pickResults = _.map(_.prop('result'));
 export const run = (values: Array<{ result: unknown }>) => pickResults(values).filter(_.isObject);

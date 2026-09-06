@@ -148,3 +148,130 @@ export function healthy(value: number): number {
     );
     Ok(())
 }
+
+/// Using a value imported from an unmodeled bare package is a named blocker.
+///
+/// This is the second half of the policy documented on
+/// `smelt_stdlib::host_modules::unmodeled_package_use_blocks`, enabled after
+/// one pass with it off. The framework that drives a program is exactly the
+/// surface whose erasure produced the express false green, so a program module
+/// that calls into an unmodeled package now fails by name rather than emitting
+/// a crate with the framework silently missing.
+#[test]
+fn unmodeled_package_value_blocks_at_first_use() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r#"
+import express from "express";
+
+export const app = express();
+"#),
+        &mut ctx,
+    )?;
+    ensure!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("unresolved package `express`")),
+        "an unmodeled package used as a value must block by name: {errors:?}",
+    );
+    assert_category(
+        &errors,
+        "express",
+        smelt_stdlib::DiagnosticCategory::MissingStdlib,
+    )
+}
+
+/// A named import from an unmodeled package blocks the same way a default does.
+///
+/// The policy is per *module*, not per import spelling: `import _ from
+/// "lodash"` and `import { map } from "lodash"` are the same erasure, and a
+/// rule that fired for only one of them would be the special case `CLAUDE.md`
+/// forbids.
+#[test]
+fn unmodeled_package_named_import_blocks_at_first_use() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r#"
+import { map } from "lodash";
+
+export const run = (values: number[]) => map(values, (value: number) => value + 1);
+"#),
+        &mut ctx,
+    )?;
+    ensure!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("unresolved package `lodash`")),
+        "a named import from an unmodeled package must block by name: {errors:?}",
+    );
+    Ok(())
+}
+
+/// Importing an unmodeled package without using its value stays free.
+///
+/// The blocker is at the use, so a type-only import — the shape a program uses
+/// to annotate against a framework whose values it never constructs — must keep
+/// lowering.
+#[test]
+fn unmodeled_package_type_only_import_is_free() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+import type { Request } from "express";
+
+export function methodOf(request: Request): string {
+  return typeof request;
+}
+"#),
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
+/// `node:path` is declared, not modeled, and blocks by name.
+///
+/// `path.join`/`path.resolve` previously had a lowering rule that returned an
+/// empty string literal, so `resolve(__dirname, '../key.pub')` became `""` and
+/// the program went on to use it as a filename. That is a worse false green
+/// than erasure — a wrong value with no diagnostic — so the rule is gone and
+/// the surface is declared until it is implemented against `std::path`.
+#[test]
+fn node_path_surface_is_declared_not_faked() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r"
+import path from 'path';
+
+export const configPath = path.join('/tmp', 'updater.json');
+"),
+        &mut ctx,
+    )?;
+    let blocker = errors
+        .iter()
+        .find(|error| error.message.contains("node:path"))
+        .ok_or_else(|| format!("node:path must block by name: {errors:?}"))?;
+    ensure_eq!(
+        blocker.category,
+        smelt_stdlib::DiagnosticCategory::MissingStdlib
+    );
+    Ok(())
+}
+
+/// The named-import spelling of `node:path` blocks with the same reason.
+#[test]
+fn node_path_named_import_blocks() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r"
+import { resolve } from 'path';
+
+export const keyPath = resolve('/etc', '../key.pub');
+"),
+        &mut ctx,
+    )?;
+    ensure!(
+        errors.iter().any(|error| error.message.contains("node:path")),
+        "node:path must block by name: {errors:?}",
+    );
+    Ok(())
+}

@@ -326,6 +326,7 @@ fn end_to_end_examples_match_expected_outputs() -> TestResult {
         "30_nullish_union_join",
         "31_headers_fetch_type",
         "32_url_search_params",
+        "33_console_optional_value",
     ] {
         verify_end_to_end_example(name)?;
     }

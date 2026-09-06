@@ -354,12 +354,11 @@ print(value)
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
     smelt(&["--manifest-path", &manifest_arg, "build"])?;
 
+    // CPython prints `a`: `obj.id or None` is the truthy string. This asserted
+    // `Some("a")` -- Rust's `Option` Debug leaking into program output through
+    // `console.log`/`print`, which no source language produces.
     let actual_stdout = common::cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
-    ensure_eq(
-        &actual_stdout,
-        &"Some(\"a\")\n".to_owned(),
-        "unexpected stdout",
-    )?;
+    ensure_eq(&actual_stdout, &"a\n".to_owned(), "unexpected stdout")?;
 
     Ok(())
 }

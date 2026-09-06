@@ -145,6 +145,16 @@ const EVENTS_REASON: &str = "the node:events EventEmitter surface is not impleme
 /// Reason text shared by the `WebCrypto` surface.
 const CRYPTO_REASON: &str = "the node:crypto surface is not implemented yet";
 
+/// Reason text shared by the `node:path` surface.
+///
+/// `path.join`/`path.resolve` had a lowering rule that returned an empty string
+/// literal. That is a worse false green than erasure: `resolve(__dirname,
+/// '../key.pub')` became `""` and the program went on to open it. Real path
+/// joining is cheap to implement (`std::path::PathBuf`) but it is a surface
+/// with semantics to get right (`..` collapsing, absolute-segment reset,
+/// platform separators), so it is declared here and the stub is gone.
+const PATH_REASON: &str = "the node:path surface is not implemented yet";
+
 /// The modeled host modules, in specifier order.
 pub const HOST_MODULES: &[HostModule] = &[
     // `@date-fns/tz` is modeled because Smelt already lowers `tz(zone)` to a
@@ -195,6 +205,23 @@ pub const HOST_MODULES: &[HostModule] = &[
             declared_value("request", HTTP_REASON),
             declared_value("get", HTTP_REASON),
             declared_value("default", HTTP_REASON),
+        ],
+        dependencies: &[],
+    },
+    HostModule {
+        specifiers: &["node:path", "path"],
+        exports: &[
+            declared_value("join", PATH_REASON),
+            declared_value("resolve", PATH_REASON),
+            declared_value("dirname", PATH_REASON),
+            declared_value("basename", PATH_REASON),
+            declared_value("extname", PATH_REASON),
+            declared_value("relative", PATH_REASON),
+            declared_value("normalize", PATH_REASON),
+            declared_value("isAbsolute", PATH_REASON),
+            declared_value("parse", PATH_REASON),
+            declared_value("sep", PATH_REASON),
+            declared_value("default", PATH_REASON),
         ],
         dependencies: &[],
     },
@@ -268,27 +295,33 @@ pub fn host_value_blocker(specifier: &str, name: &str) -> Option<String> {
 
 /// Whether *using* a value imported from an unmodeled bare package blocks.
 ///
-/// The two halves of the unresolved-import policy are separable, and only one
-/// of them is currently enabled:
+/// Both halves of the unresolved-import policy are enabled:
 ///
-/// - a **modeled** host module whose export is [`HostSurface::Declared`] always
-///   blocks. Smelt knows the module and knows it has no implementation, so
-///   erasing the binding would be a false green with no upside;
-/// - an **unmodeled** bare package (`express`, `lodash`, `yup`) returns `false`
-///   here, so its imported values keep the erased `Type::Unknown` binding.
+/// - a **modeled** host module whose export is [`HostSurface::Declared`] blocks.
+///   Smelt knows the module and knows it has no implementation, so erasing the
+///   binding would be a false green with no upside;
+/// - an **unmodeled** bare package (`express`, `lodash`, `yup`) blocks too, at
+///   the point its imported value is *used* as a value.
 ///
-/// The second half is off because Smelt's erased-library-interop lowering is a
-/// deliberate, tested capability that real program code depends on today: 13
-/// frontend tests in `part04_tests.rs` lower Strapi/lodash/yup/zod/cuid2
-/// program modules (not test modules) through erased imported values, and the
-/// radash compatibility gate lowers `import { assert } from 'chai'`. Turning
-/// this on is a policy change that must land together with either host-module
-/// entries for those packages or a decision to re-baseline those corpora; it is
-/// one constant precisely so that decision is a one-line flip with a test run,
-/// not a rewrite.
+/// The second half returned `false` for one pass, because erased-library
+/// interop is a real capability and turning it on had to be a deliberate
+/// decision rather than a side effect. It is now `true`: a framework import
+/// that drives a program is precisely the false green this classification
+/// exists to stop, and a program that lowers to a crate with the framework
+/// silently erased is not a program a hand-writing Rust team would ship.
+///
+/// Two carve-outs keep the honest cases honest, and they are what make the flip
+/// safe (see `classify_pending_host_imports`): a **relative specifier** never
+/// blocks, because it names a source file the manifest resolver owns; and a
+/// **test module** never blocks, because assertion and fixture libraries
+/// (`chai`, `yup`) only ever flow into already-erased matchers, which
+/// `CLAUDE.md` sanctions explicitly.
+///
+/// This stays a named constant rather than being inlined: it is the one place
+/// the policy is stated, and the doc above is the argument for it.
 #[must_use]
 pub const fn unmodeled_package_use_blocks() -> bool {
-    false
+    true
 }
 
 /// Return the Cargo dependencies a host module's generated code needs.

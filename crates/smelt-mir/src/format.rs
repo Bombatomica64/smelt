@@ -1605,7 +1605,11 @@ fn callee_text(callee: &Callee) -> String {
     match callee {
         Callee::Static(func) => format!("fn{}", func.0),
         Callee::Indirect(operand) => operand_text(operand),
-        Callee::Builtin(BuiltinFn::ConsoleLog) => "@console_log".to_owned(),
+        // The absent spelling is part of the callee but not part of the MIR
+        // dump: it is a property of the site's language, and printing it would
+        // churn every fixture that logs an optional without telling a reader
+        // anything the file path does not already say.
+        Callee::Builtin(BuiltinFn::ConsoleLog { .. }) => "@console_log".to_owned(),
         Callee::Builtin(BuiltinFn::ConsoleWrite) => "@console_write".to_owned(),
         Callee::Builtin(BuiltinFn::ConsoleErrorWrite) => "@console_error_write".to_owned(),
         Callee::Builtin(BuiltinFn::JsonParse) => "@json_parse".to_owned(),
