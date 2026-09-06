@@ -1407,7 +1407,7 @@ export function firstBad(values: unknown[]): number {
 
     assert!(source.contains("find_map("), "{source}");
     assert!(
-        source.contains(".unwrap_or_else(|error: Box<dyn std::error::Error>| panic!"),
+        source.contains(".unwrap_or_else(|error: Box<dyn std::error::Error>| smelt_panic_throw"),
         "fallible predicate result was not unwrapped before boolean use: {source}"
     );
 }

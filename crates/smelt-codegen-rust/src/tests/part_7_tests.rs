@@ -1254,7 +1254,7 @@ const locale: Locale = { formatDistance: localizeDistance };
     );
 
     assert!(
-        source.contains("unwrap_or_else(|error| panic!(\"{}\", error))"),
+        source.contains("unwrap_or_else(|error| smelt_panic_throw(error))"),
         "{source}"
     );
     assert!(
@@ -1622,7 +1622,7 @@ function run(values: string[]): string[] {
     assert!(
         source.contains(".map(|(index, item)| { ((smelt_callback)(")
             && source.contains(
-                ")).unwrap_or_else(|error: Box<dyn std::error::Error>| panic!(\"{}\", error))"
+                ")).unwrap_or_else(|error: Box<dyn std::error::Error>| smelt_panic_throw(error))"
             ),
         "{source}"
     );
@@ -4118,7 +4118,7 @@ const firstValue = first.value;
     assert!(source.contains("self_owned.value"), "{source}");
     assert!(source.contains("value.__smelt_symbol_iterator()"), "{source}");
     assert!(
-        source.contains("value.unwrap_or_else(|error| panic!(\"{}\", error))"),
+        source.contains("value.unwrap_or_else(|error| smelt_panic_throw(error))"),
         "{source}"
     );
     assert!(
@@ -10928,7 +10928,7 @@ console.log(attempt(5));
 /// `unwind: _` — throwing the exception handler away. The call then went through
 /// `closure_call_text_for_dest`, whose single difference from the function-level
 /// path is that it rewrites a trailing `?` into
-/// `unwrap_or_else(|error| panic!(..))`. So a nested function whose body wrapped
+/// `unwrap_or_else(|error| smelt_panic_throw(error))`. So a nested function whose body wrapped
 /// a throwing call in `try`/`catch` did not run its `catch` at all: it aborted
 /// the process on the first throw.
 ///
@@ -10972,7 +10972,7 @@ console.log(outer(5));
         "the `catch` handler must be emitted inside the closure body:\n{body}"
     );
     assert!(
-        !body.contains("unwrap_or_else(|error| panic!"),
+        !body.contains("unwrap_or_else(|error| smelt_panic_throw"),
         "a caught throwing call must not be emitted as a panicking unwrap, which \
          is the handler being discarded:\n{body}"
     );
@@ -11056,7 +11056,7 @@ export function guard(cb: (x: number) => string, v: number): string {
 /// Adapting a throwing function into a callback slot wraps it in a closure whose
 /// Rust signature is `-> Result<T, Box<dyn std::error::Error>>`. The call inside
 /// that body was still rewritten from `?` to
-/// `unwrap_or_else(|error| panic!(..))`, which turned a recoverable JavaScript
+/// `unwrap_or_else(|error| smelt_panic_throw(error))`, which turned a recoverable JavaScript
 /// exception into an abort even though the enclosing signature could carry it.
 /// The `panic!` belongs only where the surrounding Rust signature genuinely
 /// cannot carry an error.

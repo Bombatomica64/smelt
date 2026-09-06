@@ -601,6 +601,14 @@ fn emit_source_with_free_function_router(
         writer.line("static SMELT_GLOBAL_ALLOCATOR: ::mimalloc::MiMalloc = ::mimalloc::MiMalloc;");
         writer.blank_line();
     }
+    // The panic route is the error channel for every generated body that cannot
+    // propagate a `Result`, and both of its ends -- the throw adapter and the
+    // `catch_unwind` recovery helpers -- are needed wherever a `try` or a
+    // non-propagating fallible call is emitted. One predicate covers both; see
+    // `stdlib::needs_panic_route`.
+    if stdlib::needs_panic_route(mir) {
+        thrown::emit_panic_route_support(&mut writer, needs_unknown);
+    }
     if needs_date_now {
         emit_runtime_gate(&mut writer, PreludeGate::DateNow)?;
     }
@@ -3643,7 +3651,7 @@ fn emit_source_with_free_function_router(
         writer.line("    let smelt_field_value = match map.get(field) { Some(value) => Some(value), None => match map.get(&format!(\"__smelt_proto:{field}\")) { Some(value) => Some(value), None => map.get(&format!(\"__smelt_method:{field}\")) } };");
         writer.line("    match smelt_field_value.unwrap_or(SmeltUnknown::Undefined) {");
         writer.line("        SmeltUnknown::Object(getter) if getter.contains_key(\"__smelt_get\") => match getter.get(\"__smelt_get\") {");
-        writer.line("            Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| panic!(\"{}\", error)),");
+        writer.line("            Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| smelt_panic_throw(error)),");
         writer.line("            _ => SmeltUnknown::Null,");
         writer.line("        },");
         writer.line("        value => value,");
@@ -4116,7 +4124,7 @@ fn emit_source_with_free_function_router(
             writer.line("        });");
             writer.line("        if due.is_empty() { break; }");
             writer.line("        for timer in due {");
-            writer.line("            (&mut *timer.callback.borrow_mut())().unwrap_or_else(|error| panic!(\"{}\", error));");
+            writer.line("            (&mut *timer.callback.borrow_mut())().unwrap_or_else(|error| smelt_panic_throw(error));");
             writer.line("            // Re-arm repeating `setInterval` timers for their next period. The");
             writer.line("            // next fire is scheduled `period` ms from the current virtual time, so");
             writer.line("            // it is strictly in the future and cannot re-fire within this drain pass.");
@@ -4390,7 +4398,7 @@ fn emit_source_with_free_function_router(
         // The exception-payload ABI sits right after `Display for SmeltUnknown`
         // because `SmeltThrown`'s own `Display` falls back to it for non-error
         // payloads.
-        thrown::emit_thrown_payload_support(&mut writer);
+        thrown::emit_thrown_payload_support(&mut writer, stdlib::needs_panic_route(mir));
         // The fallible `JSON.parse` adapter reports through that same channel,
         // so it follows the ABI it depends on.
         if needs_serde_json && stdlib::needs_json_parse_runtime(mir) {

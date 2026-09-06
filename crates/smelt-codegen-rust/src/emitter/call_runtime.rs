@@ -58,7 +58,7 @@ impl FunctionEmitter<'_> {
                     if self.body_can_propagate_error() {
                         format!("{call}?")
                     } else {
-                        format!("{call}.unwrap_or_else(|error| panic!(\"{{}}\", error))")
+                        format!("{call}.unwrap_or_else(|error| smelt_panic_throw(error))")
                     }
                 } else {
                     call
@@ -108,7 +108,7 @@ impl FunctionEmitter<'_> {
         // deep-copying it a second time.
         let callee_text = &cloned_value_text(callee_text);
         format!(
-            "{{ let smelt_function_value = {callee_text}; let smelt_call_args: Vec<SmeltUnknown> = Into::into({args_expr}); let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (smelt_function)(smelt_call_args).unwrap_or_else(|error| panic!(\"{{}}\", error)) }} else {{ SmeltUnknown::Null }} }}"
+            "{{ let smelt_function_value = {callee_text}; let smelt_call_args: Vec<SmeltUnknown> = Into::into({args_expr}); let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (smelt_function)(smelt_call_args).unwrap_or_else(|error| smelt_panic_throw(error)) }} else {{ SmeltUnknown::Null }} }}"
         )
     }
 
@@ -360,9 +360,9 @@ impl FunctionEmitter<'_> {
                     self.restore_declared_locals(declared);
                     format!("{{ {catch_text} }}")
                 } else if cleanup.is_some() {
-                    format!("{{ {cleanup_text} panic!(\"{{}}\", error) }}")
+                    format!("{{ {cleanup_text} smelt_panic_throw(error) }}")
                 } else {
-                    "panic!(\"{}\", error)".to_owned()
+                    "smelt_panic_throw(error)".to_owned()
                 };
                 // A generator whose declared return type is erased (`unknown`)
                 // pins every protocol channel to `SmeltUnknown` (see the
@@ -448,7 +448,7 @@ impl FunctionEmitter<'_> {
                     "return value"
                 };
                 let consume_outer_sent = format!(
-                    "{{ let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command {{ SmeltGeneratorCommand::Next(_) => {{}}, SmeltGeneratorCommand::Return(value) => {return_command}, SmeltGeneratorCommand::Throw(error) => panic!(\"{{}}\", error) }} }}"
+                    "{{ let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command {{ SmeltGeneratorCommand::Next(_) => {{}}, SmeltGeneratorCommand::Return(value) => {return_command}, SmeltGeneratorCommand::Throw(error) => smelt_panic_throw(error) }} }}"
                 );
                 match self.mir.types.get(generator_ty) {
                     Some(Type::Generator {
@@ -1399,7 +1399,7 @@ impl FunctionEmitter<'_> {
                     let rendered_args = self.indirect_call_args_text(&function, args)?;
                     let raw_call = if function.may_throw {
                         format!(
-                            "(smelt_function)({rendered_args}).unwrap_or_else(|error| panic!(\"{{}}\", error))"
+                            "(smelt_function)({rendered_args}).unwrap_or_else(|error| smelt_panic_throw(error))"
                         )
                     } else {
                         format!("(smelt_function)({rendered_args})")
@@ -1591,7 +1591,7 @@ impl FunctionEmitter<'_> {
                                 format!("{call_text}?")
                             } else {
                                 format!(
-                                    "{call_text}.unwrap_or_else(|error| panic!(\"{{}}\", error))"
+                                    "{call_text}.unwrap_or_else(|error| smelt_panic_throw(error))"
                                 )
                             }
                         } else {
@@ -2502,7 +2502,7 @@ impl FunctionEmitter<'_> {
                     | "throwIfAborted"
             ) {
                 return Ok(format!(
-                    "match {scrutinee} {{ SmeltUnknown::Object(map) if smelt_host_method(&map, {field_name:?}).is_some() => smelt_host_method(&map, {field_name:?}).unwrap_or(SmeltUnknown::Undefined), SmeltUnknown::Object(map) => match map.get({field_name:?}).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Object(mut getter) if getter.contains_key(\"__smelt_get\") => match getter.remove(\"__smelt_get\") {{ Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| panic!(\"{{}}\", error)), _ => SmeltUnknown::Null }}, value => value }}, _ => SmeltUnknown::Null }}"
+                    "match {scrutinee} {{ SmeltUnknown::Object(map) if smelt_host_method(&map, {field_name:?}).is_some() => smelt_host_method(&map, {field_name:?}).unwrap_or(SmeltUnknown::Undefined), SmeltUnknown::Object(map) => match map.get({field_name:?}).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Object(mut getter) if getter.contains_key(\"__smelt_get\") => match getter.remove(\"__smelt_get\") {{ Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| smelt_panic_throw(error)), _ => SmeltUnknown::Null }}, value => value }}, _ => SmeltUnknown::Null }}"
                 ));
             }
             // Every receiver shape through the ONE prelude read chain

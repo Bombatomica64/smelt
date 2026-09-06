@@ -412,3 +412,120 @@ argument type-compatible with its parameter, so the argument need not panic.
 * acceptance as ruled, plus **`error.name === 'URIError'` through the callback
   route**, which is the assertion that actually fails today and the one that
   proves the panic route is gone rather than merely working.
+
+## 10. Round 6: (a) landed — the panic route keeps the throw's class
+
+Ruling: do (a) now, defer (b). This is what (a) is.
+
+### 10.1 The shape of the fix
+
+The panic route had two ends and both were lossy at once.
+
+**The throw end.** Twenty-six emit sites across seven emitter modules rendered
+`.unwrap_or_else(|error| panic!("{}", error))` — a *formatted string*. They now
+render `.unwrap_or_else(|error| smelt_panic_throw(error))`, and the adapter
+panics with a payload instead of text:
+
+```rust
+struct SmeltPanic { class: String, message: String }
+fn smelt_panic_throw(error: Box<dyn Error>) -> ! {
+    smelt_install_panic_hook();
+    ::std::panic::panic_any(smelt_panic_payload(&*error))
+}
+```
+
+The payload is a class plus a message and **not** the thrown `SmeltUnknown`,
+because `panic_any` requires `Any + Send` and a `SmeltUnknown` holds `Rc`
+handles. Those are the two parts a `catch` binding observes through the
+exception-payload record, so the record can be rebuilt on the other side. Custom
+fields on a thrown class instance still do not cross the unwind; that is a
+property of the route, and it is one of the reasons (b) exists.
+
+`smelt_panic_payload` projects the class the same way JavaScript reports
+`error.name`: the `__smelt_error` brand `new <ErrorClass>(m)` writes, else the
+`name` property a user error class carries.
+
+**The catch end.** Both `Err(__smelt_panic)` arms in
+`emitter/control_flow.rs` downcast only `String` and `&'static str`, then built
+the erased record with `panic_payload_record_expr`, whose class is the literal
+`"Error"`. They now call `smelt_panic_message` / `smelt_panic_error_value`, which
+try `SmeltPanic` first and recover the real class. `error_payload_record_expr`
+grew a sibling taking the class as a rendered *expression* rather than a literal,
+which is what a run-time class needs.
+
+**The hook.** `smelt_install_panic_hook` runs once, from inside
+`smelt_panic_throw`, so it is installed exactly when the route is first taken and
+nowhere else — no generated `main` change, and it works in a library crate under
+`cargo test`. It suppresses the report **only** for a `SmeltPanic` payload and
+delegates every other panic to the previous hook, so a genuine panic is as loud
+as it was.
+
+### 10.2 Pay-for-use
+
+`stdlib::needs_panic_route` gates the whole family on "something in this crate's
+signatures admits a throw" (a function item, a closure, or an interned
+`Type::Function` with `may_throw`). A crate with no throwing signature emits none
+of it — verified by the four emission snapshots that were *reverted* after the
+gate went in, and by the two that legitimately keep it.
+
+The structured `smelt_panic_payload` and `smelt_panic_error_value` name
+`SmeltUnknown`, so they are emitted inside the prelude's `needs_unknown` region
+and only when the route is needed. A crate with no erased values also has no
+structured throw payloads — its throw sites carry plain message strings — so the
+class is `Error` there by construction, which is the second body of
+`smelt_panic_payload`.
+
+### 10.3 `panic = "abort"`
+
+The route is unwind-dependent by construction: `catch_unwind` cannot catch an
+abort. `deps::cargo_toml` now says so where the profile is built, and
+`no_profile_sets_panic_abort_while_the_panic_route_exists` asserts that the
+emitted manifest mentions no panic strategy under any allocator or
+release-profile combination. The word `panic` appearing anywhere in the manifest
+fails the test, which is deliberately blunt: there is no spelling of a panic
+strategy that this route survives.
+
+### 10.4 Acceptance
+
+`tests/uri_decode_throw_runtime.rs`, six fixtures, all executing real generated
+crates:
+
+| fixture | route | asserts |
+| --- | --- | --- |
+| `the_thrown_uri_error_is_a_real_catchable_error_value` | direct (`Result`) | `error.name === 'URIError'` |
+| `the_callback_value_route_keeps_the_uri_error_identity` | callback value (panic) | `error.name === 'URIError'`, for both decoders, plus a well-formed input still decoding |
+| `the_panic_route_keeps_a_user_error_class_identity` | callback value (panic) | `new TypeError('bad x')` arrives as `TypeError` / `bad x` |
+
+The third is the one that shows the fix is general rather than per-builtin: it
+throws a `TypeError` from hand-written source through a declared non-throwing
+callback parameter, which is the same route with none of the URI machinery in it.
+
+### 10.5 (b) is deferred — the justification, restated
+
+(b) is the callback `may_throw` inference (§9.4). Round 5's justification for it
+was *reachability* — that Hono's `tryDecode` catch was dead — and §9.1 showed
+that justification is void: the catch is reachable and always was. **(b) is not
+deferred because the corrected premise made it unnecessary; it is deferred
+because its remaining justification is a different, narrower three-part one, and
+that is worth its own round rather than a rushed landing.** The three parts:
+
+1. **Identity, beyond a class and a message.** (a) carries what is `Send`. A
+   thrown class instance's custom fields, its `cause`, and its prototype
+   identity (`error instanceof MyError`) still do not cross the unwind. (b)
+   removes the unwind for the statically resolvable cases, so the whole payload
+   survives.
+2. **Abort strategy.** The route makes `panic = "abort"` a silent
+   behaviour change for the generated crate, which (a) can only *pin against*
+   (§10.3), not remove. A consumer who wants that profile for size cannot have
+   it while any throw is panic-routed. (b) removes the route where the callee is
+   known.
+3. **Noise.** (a)'s hook silences the report, which is the right floor, but a
+   silenced panic is still an unwind per caught error — allocation, hook lookup,
+   `Box<dyn Any>` — on ordinary input for a router decoding untrusted path
+   segments. A `Result` return costs none of that.
+
+None of the three is reachability. All three are real, and all three are bounded
+by the same fact: (b) can only help where the argument is statically resolvable,
+so **(a) remains the correct floor** for an erased callback pulled out of a data
+structure, which will always take the panic route. They compose; they are not
+alternatives.

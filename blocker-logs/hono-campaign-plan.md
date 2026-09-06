@@ -5,6 +5,40 @@ Runs in parallel with `blocker-logs/standards-tier-plan.md` (the "standards stre
 
 ---
 
+## DEFERRED
+
+Work that is designed, justified and deliberately not landed. Each entry names
+what it would fix that the landed floor does not.
+
+### D1. Callback `may_throw` inference (`hono-fallible-ops.md` §9.4, §10.5)
+
+A callback parameter's fallibility is not spellable in TypeScript, so it must be
+inferred whole-crate: the join of the fallibility of everything passed for that
+parameter, recorded in a side table keyed by `(ItemId, param index)` and never in
+the interned `Type::Function`. Design is complete in §9.4.
+
+**Round 6 landed the floor instead** (§10): the panic route now carries a `Send`
+class-plus-message payload, so a panic-routed throw keeps its class.
+
+**Justification for still doing D1 — identity, abort strategy, and noise, not
+reachability.** Round 5's stated reason was that Hono's `tryDecode` catch was
+unreachable; §9.1 proved that false and it is withdrawn. What remains:
+
+1. *Identity beyond a class and a message.* `panic_any` needs `Send` and a
+   `SmeltUnknown` holds `Rc`, so a thrown class instance's custom fields,
+   `cause`, and prototype identity still do not cross the unwind.
+2. *Abort strategy.* `panic = "abort"` silently converts every catchable
+   JavaScript exception into a process abort. Round 6 can only pin the manifest
+   against it; only D1 removes the dependency where the callee is known.
+3. *Noise and cost.* The hook silences the report, but a silenced panic is still
+   an unwind per caught error, on ordinary input, in a request path.
+
+D1 helps only where the argument is statically resolvable, so the round-6 floor
+stays: an erased callback out of a data structure will always take the panic
+route and must keep its identity there.
+
+---
+
 ## PROGRESS LOG — round 3
 
 Probe: **258 files / 6 with blockers / 8 occurrences / 6 shapes**

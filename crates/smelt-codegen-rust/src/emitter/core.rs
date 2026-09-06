@@ -247,7 +247,7 @@ impl<'mir> FunctionEmitter<'mir> {
             } else {
                 out.push_str("    let mut smelt_generator = smelt_generator;\n");
                 let completion = if self.function.can_throw {
-                "value.unwrap_or_else(|error| panic!(\"{}\", error))"
+                "value.unwrap_or_else(|error| smelt_panic_throw(error))"
                 } else {
                     "value"
                 };
@@ -1921,7 +1921,7 @@ impl<'mir> FunctionEmitter<'mir> {
             } else {
                 out.push_str("    let mut smelt_generator = smelt_generator;\n");
                 let completion = if self.function.can_throw {
-                    "value.unwrap_or_else(|error| panic!(\"{}\", error))"
+                    "value.unwrap_or_else(|error| smelt_panic_throw(error))"
                 } else {
                     "value"
                 };
@@ -2597,7 +2597,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Some(Type::Future(_))
         );
         let call_value = if source.may_throw && !source_returns_future {
-            format!("{call}.unwrap_or_else(|error| panic!(\"{{}}\", error))")
+            format!("{call}.unwrap_or_else(|error| smelt_panic_throw(error))")
         } else {
             call
         };
@@ -3033,7 +3033,7 @@ impl<'mir> FunctionEmitter<'mir> {
         let call_value = if source_function.may_throw && target_function.may_throw {
             format!("{call}?")
         } else if source_function.may_throw {
-            format!("{call}.unwrap_or_else(|error| panic!(\"{{}}\", error))")
+            format!("{call}.unwrap_or_else(|error| smelt_panic_throw(error))")
         } else {
             call
         };
@@ -3250,7 +3250,7 @@ impl<'mir> FunctionEmitter<'mir> {
         } else if source.may_throw && !source_returns_future && target_function.may_throw {
             format!("{call}?")
         } else if source.may_throw && !source_returns_future {
-            format!("{call}.unwrap_or_else(|error| panic!(\"{{}}\", error))")
+            format!("{call}.unwrap_or_else(|error| smelt_panic_throw(error))")
         } else {
             call
         };
@@ -3855,7 +3855,7 @@ impl<'mir> FunctionEmitter<'mir> {
         } else if source.may_throw && !source_returns_future && target_function.may_throw {
             format!("{call_text}?")
         } else if source.may_throw && !source_returns_future {
-            format!("{call_text}.unwrap_or_else(|error| panic!(\"{{}}\", error))")
+            format!("{call_text}.unwrap_or_else(|error| smelt_panic_throw(error))")
         } else {
             call_text
         };

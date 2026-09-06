@@ -488,6 +488,33 @@ fn module_hash_set_key_safe(mir: &Mir, ty: smelt_hir::TypeId) -> bool {
 
 /// Returns true when generated Rust needs the opaque `unknown` carrier type.
 #[must_use]
+/// Answers whether the crate needs the panic-route support items.
+///
+/// A `throw` reported by a body that cannot propagate a `Result` travels as a
+/// Rust panic, and an enclosing `try` recovers it with `catch_unwind` (see
+/// `thrown::emit_panic_route_support`). Both ends of that route only appear when
+/// something in the crate can throw at all: the throw adapter is emitted on an
+/// `unwrap_or_else` over a fallible callee, and the recovery helpers are emitted
+/// at a throwing call's exception handler. So one predicate covers both —
+/// anything in the crate whose signature admits a throw, whether that is a
+/// function item, a closure, or an interned function type reached through a
+/// callback parameter.
+pub(crate) fn needs_panic_route(mir: &Mir) -> bool {
+    // `needs_unknown` is part of the gate rather than a separate concern: the
+    // erased-function ABI answers `Result<SmeltUnknown, Box<dyn Error>>`, and the
+    // prelude helpers that invoke one -- the reflection getter dispatch, the
+    // function-object bridge, the timer callback -- unwrap it through the route
+    // unconditionally. Leaving them out made a program with a reflected getter
+    // and no throwing signature of its own emit a call to a function that was
+    // never declared (E0425).
+    needs_unknown_type(mir)
+        || mir.functions.iter().any(|function| function.can_throw)
+        || mir.closures.iter().any(|closure| closure.can_throw)
+        || mir.types.all().iter().any(|ty| {
+            matches!(ty, smelt_hir::Type::Function(function) if function.may_throw)
+        })
+}
+
 pub(crate) fn needs_unknown_type(mir: &Mir) -> bool {
     // `Type::Union` values are emitted as `SmeltUnknown` (see the type-text
     // helper) and their members are erased into that carrier, so a union
