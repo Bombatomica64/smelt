@@ -7,7 +7,7 @@ use crate::lowering::{
     FunctionType, HashMap, ListSearchOp, Literal, LocalCallbackDefault, LocalDecl, ModuleBuilder,
     Param, PrimitiveCastOp, SmeltError, Span, Stmt, StringAffixOp, StringCaseOp, Type,
 };
-use smelt_hir::StringTrimSide;
+use smelt_hir::{PropertyLookup, StringTrimSide};
 
 impl ModuleBuilder<'_> {
     /// Validate the inferred callback return type for an array method.
@@ -181,6 +181,7 @@ impl ModuleBuilder<'_> {
             | CallbackExprKind::Field { receiver, .. }
             | CallbackExprKind::HasField { receiver, .. }
             | CallbackExprKind::FieldTruthy { receiver, .. }
+            | CallbackExprKind::ValueTruthy { value: receiver }
             | CallbackExprKind::UnknownIs {
                 value: receiver, ..
             }
@@ -351,7 +352,11 @@ impl ModuleBuilder<'_> {
                     span,
                 });
                 Ok(body.push_expr(Expr {
-                    kind: ExprKind::DictContainsKey { dict, key },
+                    kind: ExprKind::DictContainsKey {
+                        dict,
+                        key,
+                        lookup: PropertyLookup::PrototypeChain,
+                    },
                     ty: callback.ty,
                     span,
                 }))
@@ -360,7 +365,11 @@ impl ModuleBuilder<'_> {
                 let dict = self.callback_expr_to_body_expr(receiver, args, body, span)?;
                 let key = self.callback_expr_to_body_expr(field, args, body, span)?;
                 Ok(body.push_expr(Expr {
-                    kind: ExprKind::DictContainsKey { dict, key },
+                    kind: ExprKind::DictContainsKey {
+                        dict,
+                        key,
+                        lookup: PropertyLookup::PrototypeChain,
+                    },
                     ty: callback.ty,
                     span,
                 }))
@@ -461,6 +470,21 @@ impl ModuleBuilder<'_> {
                     kind: ExprKind::Field {
                         receiver,
                         field: *field,
+                    },
+                    ty: callback.ty,
+                    span,
+                }))
+            }
+            CallbackExprKind::ValueTruthy { value } => {
+                // The callback tree's truthiness node lowers to exactly the cast
+                // the ordinary expression path uses, so an erased or
+                // type-parameter operand gets the full JS truthiness test rather
+                // than a runtime tag check.
+                let value = self.callback_expr_to_body_expr(value, args, body, span)?;
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::PrimitiveCast {
+                        op: PrimitiveCastOp::ToBool,
+                        operand: value,
                     },
                     ty: callback.ty,
                     span,
@@ -760,6 +784,7 @@ impl ModuleBuilder<'_> {
                     kind: ExprKind::DictContainsKey {
                         dict: receiver,
                         key,
+                        lookup: PropertyLookup::Own,
                     },
                     ty,
                     span,

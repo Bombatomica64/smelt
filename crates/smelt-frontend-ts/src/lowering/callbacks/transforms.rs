@@ -444,19 +444,21 @@ impl ModuleBuilder<'_> {
         // parameters now all reach the runtime probe, which the emitter renders
         // against the concrete `SmeltUnion` variant rather than a `SmeltUnknown`
         // tag, so this costs no erasure.
-        let mut expr = match self.static_typeof_match(value.ty, kind_literal.value.as_str()) {
-            Some(matches_kind) => CallbackExpr {
-                kind: CallbackExprKind::Literal(Literal::Bool(matches_kind)),
-                ty: bool_ty,
-            },
-            None => CallbackExpr {
-                kind: CallbackExprKind::UnknownIs {
-                    value: Box::new(value),
-                    kind,
+        let mut expr = self
+            .static_typeof_match(value.ty, kind_literal.value.as_str())
+            .map_or_else(
+                || CallbackExpr {
+                    kind: CallbackExprKind::UnknownIs {
+                        value: Box::new(value),
+                        kind,
+                    },
+                    ty: bool_ty,
                 },
-                ty: bool_ty,
-            },
-        };
+                |matches_kind| CallbackExpr {
+                    kind: CallbackExprKind::Literal(Literal::Bool(matches_kind)),
+                    ty: bool_ty,
+                },
+            );
         if matches!(
             binary.operator,
             BinaryOperator::StrictInequality | BinaryOperator::Inequality

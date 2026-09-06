@@ -25,7 +25,8 @@ use std::convert::TryFrom;
 use smelt_hir::{BodyId, Literal as HirLiteral, Span, Type, TypeId};
 
 use crate::{
-    ClosureId, Constant, FuncId, LocalId, Mir, MirClosure, MirFunction, Operand, Place,
+    BuiltinFn, Callee, ClosureId, Constant, FuncId, LocalId, Mir, MirClosure, MirFunction, Operand,
+    Place, Terminator,
 };
 
 /// The `LoweringCtx` state machine, its constructors, and shared accessors.
@@ -558,6 +559,7 @@ fn lower_module_bodies(
 /// [`closures`] for the invariants this publishes. Erased-record promotion and
 /// operational type normalization then run once over the finalized MIR.
 fn run_finalization_passes(mir: &mut Mir) {
+    intern_fallible_builtin_return_types(mir);
     closures::mark_escaping_closures(mir);
     passes::throwing::propagate_throwing_functions(mir);
     closures::widen_throwing_closure_types(mir);
@@ -565,6 +567,35 @@ fn run_finalization_passes(mir: &mut Mir) {
     closures::widen_throwing_closure_types(mir);
     crate::promote_erased_mutated_records(mir);
     crate::normalize_operational_types(mir);
+}
+
+/// Interns the return type of every fallible builtin the program calls.
+///
+/// A `Terminator::Call` records the destination's type, not the callee's, so a
+/// builtin whose own return type appears nowhere else in the program would
+/// leave that type absent from the table — and the backend, which asks for the
+/// callee's return type to coerce the call result, would find nothing. The one
+/// such builtin today is `JSON.parse`, whose result is a dynamic JavaScript
+/// value (`Type::Unknown`) regardless of the destination it is asserted into.
+fn intern_fallible_builtin_return_types(mir: &mut Mir) {
+    let calls_json_parse = mir
+        .functions
+        .iter()
+        .flat_map(|function| function.blocks.iter())
+        .chain(mir.closures.iter().flat_map(|closure| closure.blocks.iter()))
+        .filter_map(|block| block.terminator.as_ref())
+        .any(|terminator| {
+            matches!(
+                terminator,
+                Terminator::Call {
+                    callee: Callee::Builtin(BuiltinFn::JsonParse),
+                    ..
+                }
+            )
+        });
+    if calls_json_parse {
+        mir.types.intern(Type::Unknown);
+    }
 }
 
 /// Return whether `module` contains any function marked as a source test.

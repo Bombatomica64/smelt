@@ -304,13 +304,83 @@ impl FunctionEmitter<'_> {
                     } else {
                         self.demoting_erased_argument_text(place, place_ty)?
                     }
+                } else if self.list_argument_aliases_callee_parameter(
+                    place_ty,
+                    target,
+                    callee_emission_scope,
+                )? {
+                    // Different `TypeId`s, one Rust type: there is nothing to
+                    // convert, so borrow the caller's own list and let the
+                    // callee mutate it in place.
+                    self.place_text(place)?
                 } else {
+                    // HAZARD (unfixed): a coercion that has to change the
+                    // element representation collects into a fresh backing
+                    // store, so the callee mutates a temporary and the caller's
+                    // container is left untouched. The pairs that only LOOKED
+                    // like a conversion are handled by the alias arm above;
+                    // what reaches here is a genuine representation change
+                    // (`SmeltList<f64>` into an erased-element parameter --
+                    // three such call sites exist in the es-toolkit corpus).
+                    // Refusing the emit aborts the whole crate, and carrying the
+                    // mutation back needs the temporary-plus-write-back channel
+                    // `call::mut_list_adapter_arg` has and this
+                    // single-expression seam does not, so the hazard is named
+                    // here rather than papered over.
                     self.value_at_type(operand, target)?
                 }
             }
             Operand::Const(_) => self.value_at_type(operand, target)?,
         };
         Ok(format!("&mut {text}"))
+    }
+
+    /// Whether a `&mut` list argument and the callee's list parameter are the
+    /// SAME Rust type, so the argument can be borrowed rather than converted.
+    ///
+    /// MIR distinguishes more list types than Rust does: `unknown[]` and an
+    /// erased callee's `T[]` are different `TypeId`s that both render
+    /// `SmeltList<SmeltUnknown>`. Keying the element coercion on `TypeId`
+    /// inequality therefore rebuilt the buffer for pairs with nothing to
+    /// convert — and a rebuild allocates a fresh `Rc<RefCell<Vec<_>>>`, so the
+    /// callee mutated a temporary and the caller's array never saw the write
+    /// (an in-place `remove(arr, pred)` silently did nothing).
+    ///
+    /// Both halves have to agree for this to be an alias, and they are asked
+    /// separately because they can differ: the CALLER's rendering of the two
+    /// element types ([`FunctionEmitter::same_rust_repr`]) and the CALLEE's
+    /// rendering of its own parameter. A callee that kept its type parameter
+    /// renders `SmeltList<T>` where the caller has `SmeltList<SmeltUnknown>` —
+    /// still a real conversion, and still not something a `&mut` can bridge, so
+    /// it keeps the existing coercion path. With no callee scope to consult
+    /// (an indirect call through a function value) this answers `false` rather
+    /// than guessing.
+    fn list_argument_aliases_callee_parameter(
+        &self,
+        arg_ty: TypeId,
+        target: TypeId,
+        callee_emission_scope: Option<&HashSet<Symbol>>,
+    ) -> Result<bool, EmitError> {
+        if !matches!(
+            (self.mir.types.get(arg_ty), self.mir.types.get(target)),
+            (Some(Type::List(_)), Some(Type::List(_)))
+        ) {
+            return Ok(false);
+        }
+        if !self.same_rust_repr(arg_ty, target)? {
+            return Ok(false);
+        }
+        let Some(scope) = callee_emission_scope else {
+            return Ok(false);
+        };
+        let caller_scope = self.current_function_type_params();
+        let caller_text = self
+            .rust_type(arg_ty, false, &TypeSubstitution::lexical(&caller_scope))?
+            .into_string();
+        let target_text = self
+            .rust_type(target, false, &TypeSubstitution::callee_emission(scope))?
+            .into_string();
+        Ok(caller_text == target_text)
     }
 
     /// Return whether the caller's rendering of `arg_ty` equals the callee's

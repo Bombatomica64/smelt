@@ -7,6 +7,7 @@
 //! emit the concrete HIR construction and projection kinds.
 
 use crate::RestParam;
+use smelt_hir::PropertyLookup;
 use crate::lowering::{
     Argument, ArrayExpressionElement, AsyncOp, BinOp, BinaryOperator, BindingPattern, Body,
     CaptureMode, ClosureCapture, DictProjectionOp, Expr, ExprKind, Expression, Field, FunctionType,
@@ -2262,6 +2263,25 @@ impl ModuleBuilder<'_> {
         smelt_hir::type_normalize::non_nullish_type(&mut self.ctx.krate.types, ty)
     }
 
+    /// Return whether `ty` still admits a TypeScript nullish value.
+    ///
+    /// Used to decide whether a source-level `!` has anything to narrow at a
+    /// sink: an `Optional`, the bare `null` type, and a union carrying a `null`
+    /// arm all accept the nullish value, so the assertion is purely type-level
+    /// there. Checked structurally rather than by comparing
+    /// [`Self::non_nullish_type`] against the input, because that helper also
+    /// normalizes and so can report a difference for wholly non-nullish types.
+    pub(in crate::lowering) fn type_admits_nullish(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Optional(_) | Type::None) => true,
+            Some(Type::Union(items)) => items
+                .iter()
+                .copied()
+                .any(|item| self.type_admits_nullish(item)),
+            _ => false,
+        }
+    }
+
     /// Lower a TypeScript non-null assertion while preserving the narrowed type.
     pub(in crate::lowering) fn non_null_assertion_expression(
         &mut self,
@@ -2441,6 +2461,7 @@ impl ModuleBuilder<'_> {
                 kind: ExprKind::DictContainsKey {
                     dict: receiver,
                     key,
+                    lookup: PropertyLookup::PrototypeChain,
                 },
                 ty: bool_ty,
                 span,
@@ -2478,6 +2499,7 @@ impl ModuleBuilder<'_> {
                     kind: ExprKind::DictContainsKey {
                         dict: receiver,
                         key,
+                        lookup: PropertyLookup::PrototypeChain,
                     },
                     ty: bool_ty,
                     span,
@@ -2508,6 +2530,7 @@ impl ModuleBuilder<'_> {
             kind: ExprKind::DictContainsKey {
                 dict: receiver,
                 key,
+                lookup: PropertyLookup::PrototypeChain,
             },
             ty: bool_ty,
             span,
@@ -2990,6 +3013,12 @@ impl ModuleBuilder<'_> {
     /// and the literal keeps the single unified candidate when they all
     /// agree. Mixed or erased candidates fall back to `Unknown`, matching the
     /// previous blanket behavior for genuinely heterogeneous literals.
+    ///
+    /// A contextual hint that is a callee's *own* uninstantiated type parameter
+    /// is not a hint at all — `T` in `total<T>(items: readonly T[], …)` names
+    /// nothing at the call site, and adopting it types the literal `List<T>`
+    /// where `T` is out of scope. Nothing downstream can relate that to the
+    /// pieces' real types, so the pieces win instead.
     pub(in crate::lowering) fn array_spread_item_type(
         &mut self,
         pieces: &[(smelt_hir::ExprId, bool)],
@@ -2998,6 +3027,7 @@ impl ModuleBuilder<'_> {
     ) -> smelt_hir::TypeId {
         if let Some(hint) = type_hint
             && let Some(Type::List(item_ty)) = self.ctx.krate.types.get(hint)
+            && !self.type_param_is_out_of_scope(*item_ty)
         {
             return *item_ty;
         }
@@ -3523,7 +3553,15 @@ impl ModuleBuilder<'_> {
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         if let Expression::FunctionExpression(function) = &property.value {
-            if !function.params.items.is_empty() || function.params.rest.is_some() {
+            // Only a plain zero-parameter `function` value can be read as a
+            // getter-style field. A generator returns an iterator when *called*
+            // and its body never runs on the read, so collapsing it would drop
+            // the function entirely.
+            if !function.params.items.is_empty()
+                || function.params.rest.is_some()
+                || function.generator
+                || function.r#async
+            {
                 return self.function_expression_value(function, type_hint, property.span, body);
             }
             let Some(function_body) = &function.body else {
@@ -3541,14 +3579,15 @@ impl ModuleBuilder<'_> {
             if self.function_body_references_arguments(function_body) {
                 return self.function_expression_value(function, type_hint, property.span, body);
             }
+            // The getter collapse only applies to `{ k: function () { return v; } }`,
+            // whose single return expression IS the field's value. Any other body
+            // is a function the property holds, so it lowers as a function value —
+            // fabricating `null` here erased the function, and code that asks
+            // `typeof value === 'function'` (es-toolkit's JSON validators) then
+            // saw a null field instead of the function the source wrote.
             let [Statement::ReturnStatement(statement)] = function_body.statements.as_slice()
             else {
-                let ty = type_hint.unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
-                return Ok(body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::None),
-                    ty,
-                    span: self.span(function.span.start, function.span.end),
-                }));
+                return self.function_expression_value(function, type_hint, property.span, body);
             };
             let Some(argument) = &statement.argument else {
                 return Err(SmeltError::unsupported(
@@ -3924,6 +3963,27 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         if object_property.computed {
             if let Some(key_text) = self.computed_string_literal_key(object_property) {
+                let ty = self.ctx.krate.types.intern(Type::String);
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::String(key_text)),
+                    ty,
+                    span: self.span(
+                        object_property.key.span().start,
+                        object_property.key.span().end,
+                    ),
+                }));
+            }
+            // A computed key that names a STABLE SYMBOL (`[Symbol.toStringTag]`,
+            // `[Symbol.for('k')]`, a const aliasing either) names one fixed
+            // member, so the literal declares that member's storage key instead
+            // of taking the dynamic-key path — the same resolution the interface
+            // and class declaration sides use, so a declaration and a literal
+            // cannot disagree about which member a symbol key names. The symbol's
+            // VALUE spelling is a separate thing (see `symbol_static_member`); the
+            // shared well-known table relates the two.
+            if let Some((key_text, true)) =
+                self.resolve_static_computed_key_name(&object_property.key)
+            {
                 let ty = self.ctx.krate.types.intern(Type::String);
                 return Ok(body.push_expr(Expr {
                     kind: ExprKind::Literal(Literal::String(key_text)),

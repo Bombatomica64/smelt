@@ -7,7 +7,7 @@ use crate::lowering::{
     Body, CallbackExpr, CallbackExprKind, CaptureMode, ChainElement, ClosureCapture, Expr,
     ExprKind, Expression, ForStatementInit, ForStatementLeft, FunctionType, HashMap, HashSet,
     Literal, LocalDecl, LogicalOperator, ModuleBuilder, ObjectPropertyKind, Param, PropertyKey,
-    SimpleAssignmentTarget, SmeltError, Span, Statement, Stmt, Type, UnknownKind,
+    SimpleAssignmentTarget, SmeltError, Span, Statement, Stmt, Type,
 };
 use super::super::support::arrow_block_statements;
 use oxc::span::GetSpan;
@@ -350,6 +350,7 @@ impl ModuleBuilder<'_> {
             | CallbackExprKind::Field { receiver, .. }
             | CallbackExprKind::HasField { receiver, .. }
             | CallbackExprKind::FieldTruthy { receiver, .. }
+            | CallbackExprKind::ValueTruthy { value: receiver }
             | CallbackExprKind::UnknownIs {
                 value: receiver, ..
             }
@@ -539,10 +540,16 @@ impl ModuleBuilder<'_> {
                 self.expression_span(expression),
             );
         }
+        // Same rule as the ordinary condition path: functions and classes are
+        // always truthy, and so is a type parameter constrained to an object
+        // surface. An unconstrained `T` is tested for truthiness instead of
+        // being folded to `true`.
         if matches!(
             self.ctx.krate.types.get(expr_ty),
-            Some(Type::Function(_) | Type::Class { .. } | Type::TypeParam { .. })
-        ) {
+            Some(Type::Function(_) | Type::Class { .. })
+        ) || (matches!(self.ctx.krate.types.get(expr_ty), Some(Type::TypeParam { .. }))
+            && self.type_is_always_truthy_object_surface(expr_ty))
+        {
             return Ok(CallbackExpr {
                 kind: CallbackExprKind::Literal(Literal::Bool(true)),
                 ty: self.ctx.krate.types.intern(Type::Bool),
@@ -613,11 +620,18 @@ impl ModuleBuilder<'_> {
                 ty: bool_ty,
             });
         }
-        if self.ctx.krate.types.get(expr_ty) == Some(&Type::Unknown) {
+        // An erased value or an unconstrained type parameter in boolean position
+        // is a JavaScript truthiness test. A runtime tag check
+        // (`typeof x === "boolean"`) is not that test — it answers `true` for
+        // `false` and `false` for a truthy string or number — so this lowers to
+        // the same `ToBool` cast the ordinary expression path uses.
+        if matches!(
+            self.ctx.krate.types.get(expr_ty),
+            Some(Type::Unknown | Type::TypeParam { .. })
+        ) {
             return Ok(CallbackExpr {
-                kind: CallbackExprKind::UnknownIs {
+                kind: CallbackExprKind::ValueTruthy {
                     value: Box::new(expr),
-                    kind: UnknownKind::Bool,
                 },
                 ty: self.ctx.krate.types.intern(Type::Bool),
             });
@@ -1465,7 +1479,7 @@ impl ModuleBuilder<'_> {
             ClosureBodyKind::Statements(statements) => self
                 .predeclare_local_function_declarations(statements, &mut closure_body)
                 .and_then(|()| {
-                    self.predeclare_local_arrow_callbacks(statements, &mut closure_body)
+                    self.predeclare_forward_referenced_locals(statements, &mut closure_body)
                 }),
         };
         let lowering_result = if let Err(error) = predeclare_result {
@@ -1605,7 +1619,8 @@ impl ModuleBuilder<'_> {
             CallbackExprKind::Index { receiver, .. }
             | CallbackExprKind::Field { receiver, .. }
             | CallbackExprKind::HasField { receiver, .. }
-            | CallbackExprKind::FieldTruthy { receiver, .. } => {
+            | CallbackExprKind::FieldTruthy { receiver, .. }
+            | CallbackExprKind::ValueTruthy { value: receiver } => {
                 Self::callback_expr_contains_throw(receiver)
             }
             CallbackExprKind::DynamicIndex { receiver, index } => {

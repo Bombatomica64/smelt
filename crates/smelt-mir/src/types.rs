@@ -4,7 +4,7 @@
 //! including functions, basic blocks, locals, and various statements and expressions.
 
 use serde::{Deserialize, Serialize};
-use smelt_hir::{BodyId, Span, Symbol, TypeId, Visibility};
+use smelt_hir::{BodyId, PropertyLookup, Span, Symbol, TypeId, Visibility};
 
 /// Unique identifier for a function in MIR.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -688,6 +688,14 @@ pub enum Rvalue {
         /// Target class symbol.
         class: Symbol,
     },
+    /// Test whether a value's prototype chain reaches a runtime constructor's
+    /// `prototype` (`OrdinaryHasInstance`, JS `value instanceof target`).
+    InstanceOfValue {
+        /// Value whose prototype chain is walked.
+        value: Operand,
+        /// Constructor function value whose `prototype` is looked for.
+        target: Operand,
+    },
     /// Test the runtime tag of a TypeScript `unknown` value.
     UnknownIs {
         /// Value being tested.
@@ -819,6 +827,18 @@ pub enum Rvalue {
         /// Closure value to call.
         callee: Operand,
         /// Call arguments.
+        args: Vec<Operand>,
+    },
+    /// JavaScript `new callee(args)` through a function VALUE (`[[Construct]]`).
+    ///
+    /// Distinct from [`Rvalue::ClosureCall`] because construction allocates an
+    /// object linked to the callee's `prototype`, runs the callee with that
+    /// object as its receiver, and keeps the allocated object unless the callee
+    /// returned one of its own.
+    Construct {
+        /// Function value being constructed through.
+        callee: Operand,
+        /// Constructor arguments.
         args: Vec<Operand>,
     },
     /// Call a closure value with a runtime argument vector from spread syntax.
@@ -1511,6 +1531,10 @@ pub enum Rvalue {
         dict: Operand,
         /// Key to search for.
         key: Operand,
+        /// How far the presence test may look: own properties only
+        /// (`Object.hasOwn`, a typed collection probe) or the whole prototype
+        /// chain (the `in` operator).
+        lookup: PropertyLookup,
     },
     /// Insert or replace a dictionary key-value pair.
     DictSet {
@@ -1683,6 +1707,24 @@ pub enum Rvalue {
         args: Vec<Operand>,
         /// Compare only the most recent recorded call (`toHaveBeenLastCalledWith`).
         last: bool,
+    },
+    /// `vi.restoreAllMocks()`: undo every installed spy, newest first.
+    VitestRestoreAllMocks,
+    /// `vi.spyOn(target, name)`: install a recording mock over the member and
+    /// evaluate to it.
+    VitestSpyOn {
+        /// The object whose member is replaced.
+        target: Operand,
+        /// The member name.
+        name: Operand,
+    },
+    /// Whether two values are deep-equal under the vitest matcher rules,
+    /// where either side may hold an asymmetric matcher (bool).
+    VitestAsymmetricEqual {
+        /// The actual value under assertion.
+        actual: Operand,
+        /// The expected value, possibly an asymmetric matcher or containing one.
+        expected: Operand,
     },
     /// Whether a Vitest mock's most recent result deep-equals `expected`
     /// after flattening a resolved promise (bool).
@@ -2032,4 +2074,11 @@ pub enum BuiltinFn {
     ConsoleWrite,
     /// Write exact text to stderr.
     ConsoleErrorWrite,
+    /// Parse JSON text (`JSON.parse`).
+    ///
+    /// A builtin rather than an rvalue because it is *fallible*: malformed text
+    /// throws a catchable `SyntaxError` in JavaScript. Only `Terminator::Call`
+    /// and `Terminator::Await` carry an `unwind` edge, so a fallible operation
+    /// has to be a call to reach an enclosing `try`.
+    JsonParse,
 }

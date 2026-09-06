@@ -145,24 +145,57 @@ impl ModuleBuilder<'_> {
             && !self.classes.is_pending(class_text)
             && !self.imports.is_value(class_text)
         {
-            // `this instanceof bound` against a *function* value (the JS
-            // constructor-function idiom for detecting `new`-invocation, as in
-            // lodash-compat `bind`/`curry`). Smelt's runtime never constructs
-            // closure values with `new`, so no value can be an instance of a
-            // plain function: the check is truthfully `false`.
+            // `x instanceof f` against a *function* value (the JS
+            // constructor-function idiom, as in lodash-compat `bind`/`curry`
+            // and es-toolkit `partial`). Every non-arrow JavaScript function is
+            // a constructor, so this is `OrdinaryHasInstance`: walk `x`'s
+            // prototype chain looking for the object `f.prototype`. It cannot be
+            // answered at compile time — which function value the binding holds,
+            // and what its `prototype` is, are both runtime facts — so it
+            // lowers to the runtime predicate rather than folding.
+            //
             // Classes are not first-class values in Smelt, so a target that
             // resolves to a local binding or function item can only be a
-            // function value, never a constructible class.
+            // function value, never a nominal class; the nominal path below
+            // keeps its compile-time marker probe.
             let target_is_function_value = self.scope.is_bound(class_text)
                 || self.scope.has_callback(class_text)
                 || self
                     .items
                     .get(class_text)
                     .is_some_and(|&item| matches!(self.item_ref(item), smelt_hir::Item::Function(_)));
-            if target_is_function_value {
+            // The one shape that cannot be lowered: `this instanceof wrapper`
+            // read from INSIDE `wrapper`'s own body (the JS new-detection idiom
+            // in lodash-compat `curry`/`curryRight`). The constructor value is
+            // the closure being defined, so the body has no binding for it --
+            // a self-capturing closure is a capability Smelt does not have yet
+            // -- and naming it would emit an unresolved local. Such a target
+            // keeps the previous `false` answer; every namable target walks the
+            // chain. Recorded here rather than silently: JavaScript answers
+            // `true` for a `new`-invocation, so this stays wrong until a
+            // closure can capture itself.
+            let target_is_namable = !self
+                .defining_local_functions
+                .iter()
+                .any(|defining| defining == class_text);
+            if target_is_function_value && !target_is_namable {
                 let ty = self.ctx.krate.types.intern(Type::Bool);
                 return Ok(body.push_expr(Expr {
                     kind: ExprKind::Literal(Literal::Bool(false)),
+                    ty,
+                    span: self.span(binary.span.start, binary.span.end),
+                }));
+            }
+            if target_is_function_value {
+                let target = self.identifier_expression(
+                    class_text,
+                    class_ident.span.start,
+                    class_ident.span.end,
+                    body,
+                )?;
+                let ty = self.ctx.krate.types.intern(Type::Bool);
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::InstanceOfValue { value, target },
                     ty,
                     span: self.span(binary.span.start, binary.span.end),
                 }));
@@ -507,6 +540,38 @@ impl ModuleBuilder<'_> {
                 }
                 return Ok(Some(check));
             }
+            // A statically *erased* operand has no known `typeof` answer, so the
+            // presence question has to survive to runtime. `type_matches_typeof`
+            // has no `Unknown` arm and answers `false` for it, which would fold
+            // `typeof <erased> !== 'undefined'` to the constant `true` — the
+            // exact "only fold when the type pins a single spelling" rule that
+            // `typeof_expression` already documents. Emit the runtime tag test
+            // instead for every type whose runtime tag is not pinned: `unknown`,
+            // a union (whose arms disagree unless *all* of them match, which the
+            // static answer below already handles), and an unconstrained type
+            // parameter.
+            if self.typeof_answer_is_dynamic(value_ty) {
+                let check = body.push_expr(Expr {
+                    kind: ExprKind::UnknownIs {
+                        value,
+                        kind: UnknownKind::Undefined,
+                    },
+                    ty: bool_ty,
+                    span: self.span(binary.span.start, binary.span.end),
+                });
+                if matches!(
+                    binary.operator,
+                    BinaryOperator::StrictInequality | BinaryOperator::Inequality
+                ) {
+                    return Ok(Some(self.unary_bool_expr(
+                        UnaryOp::Not,
+                        check,
+                        binary.span,
+                        body,
+                    )));
+                }
+                return Ok(Some(check));
+            }
             let matches_kind = self.type_matches_typeof(value_ty, "undefined");
             let result = if matches!(
                 binary.operator,
@@ -637,6 +702,39 @@ impl ModuleBuilder<'_> {
             ty: bool_ty,
             span: self.span(binary.span.start, binary.span.end),
         }))
+    }
+
+    /// Return whether the `typeof` answer for a type is decided only at runtime.
+    ///
+    /// A type pins its runtime tag when every value it can hold answers the same
+    /// `typeof`. `unknown` pins nothing; an unconstrained type parameter pins
+    /// nothing; a union pins its answer only when its arms agree. Anything else
+    /// (a concrete primitive, list, class, `Optional`) has a static answer, so
+    /// the caller may keep folding the comparison to a literal.
+    ///
+    /// Used by [`Self::unknown_typeof_comparison`] so an erased operand emits a
+    /// runtime tag test instead of a fabricated constant.
+    pub(super) fn typeof_answer_is_dynamic(&self, ty: smelt_hir::TypeId) -> bool {
+        let resolved = self.type_param_constraint_or_self(ty);
+        match self.ctx.krate.types.get(resolved) {
+            // An unconstrained type parameter resolves to itself here.
+            Some(Type::Unknown | Type::TypeParam { .. }) => true,
+            Some(Type::Union(items)) => {
+                let items = items.clone();
+                let mut agrees = None;
+                for item in items {
+                    if self.typeof_answer_is_dynamic(item) {
+                        return true;
+                    }
+                    let matches_kind = self.type_matches_typeof(item, "undefined");
+                    if *agrees.get_or_insert(matches_kind) != matches_kind {
+                        return true;
+                    }
+                }
+                false
+            }
+            _ => false,
+        }
     }
 
     /// Return whether a name resolves to the ambient global object in this module.
@@ -1235,28 +1333,11 @@ impl ModuleBuilder<'_> {
             }
             Argument::ComputedMemberExpression(member) => self.computed_member(member, body),
             Argument::StaticMemberExpression(member) => self.static_member(member, body),
+            // Delegated so an awaited call argument lowers through the same rule
+            // as an awaited expression; the argument spelling used to have its
+            // own copy that dropped the operand for a non-future type.
             Argument::AwaitExpression(await_expr) => {
-                if !self.current_async {
-                    return Err(SmeltError::unsupported(
-                        self.span(await_expr.span.start, await_expr.span.end),
-                        "await expressions are only lowered inside async functions",
-                    ));
-                }
-                let awaited = self.expression(&await_expr.argument, body)?;
-                let awaited_ty = Self::expr_ty(body, awaited);
-                let Some(ty) = self.future_inner_type(awaited_ty) else {
-                    let ty = self.ctx.krate.types.intern(Type::Unknown);
-                    return Ok(body.push_expr(Expr {
-                        kind: ExprKind::Literal(Literal::None),
-                        ty,
-                        span: self.span(await_expr.span.start, await_expr.span.end),
-                    }));
-                };
-                Ok(body.push_expr(Expr {
-                    kind: ExprKind::Await(awaited),
-                    ty,
-                    span: self.span(await_expr.span.start, await_expr.span.end),
-                }))
+                self.await_expression(await_expr, None, body)
             }
             Argument::ArrowFunctionExpression(arrow) => self.arrow_function_expression(arrow, body),
             Argument::FunctionExpression(function) => {
@@ -1339,6 +1420,16 @@ impl ModuleBuilder<'_> {
             }
             Argument::TSNonNullExpression(non_null) => {
                 let value = self.expression_with_hint(&non_null.expression, body, type_hint)?;
+                // A source-level `!` asserts nothing at runtime. When the sink
+                // itself accepts nullish values (its type still has a nullish
+                // arm to strip), the assertion has nothing to narrow and must
+                // stay a no-op: narrowing here would unwrap the value only for
+                // the argument coercion to re-wrap it, turning a legitimate
+                // absent value into a runtime panic. JS passes the value
+                // through unchanged.
+                if type_hint.is_some_and(|hint| self.type_admits_nullish(hint)) {
+                    return Ok(value);
+                }
                 Ok(self.non_null_assertion_value(
                     value,
                     self.span(non_null.span.start, non_null.span.end),

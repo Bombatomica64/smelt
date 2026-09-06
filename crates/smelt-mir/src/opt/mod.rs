@@ -13,11 +13,13 @@ mod dict_entry_mutation;
 mod dict_entry_update;
 mod local_use;
 mod move_on_last_use;
+mod unobserved_receiver_bind;
 
 pub use dict_default_insert_elision::DictDefaultInsertElision;
 pub use dict_entry_mutation::DictEntryInPlaceMutation;
 pub use dict_entry_update::DictEntryUpdate;
 pub use move_on_last_use::MoveOnLastUse;
+pub use unobserved_receiver_bind::UnobservedReceiverBind;
 
 /// A MIR optimization pass that transforms the MIR.
 pub trait Pass {
@@ -54,6 +56,7 @@ pub fn default_passes() -> Vec<Box<dyn Pass>> {
         Box::<DictEntryInPlaceMutation>::default(),
         Box::<DictEntryUpdate>::default(),
         Box::<DictDefaultInsertElision>::default(),
+        Box::<UnobservedReceiverBind>::default(),
     ]
 }
 
@@ -299,9 +302,17 @@ fn rewrite_rvalue(
             rewrite_operand_except(callee, aliases, dest),
             |changed, arg| rewrite_operand_except(arg, aliases, dest) | changed,
         ),
+        Rvalue::Construct { callee, args } => args.iter_mut().fold(
+            rewrite_operand_except(callee, aliases, dest),
+            |changed, arg| rewrite_operand_except(arg, aliases, dest) | changed,
+        ),
         Rvalue::ClosureCallSpread { callee, args } => {
             rewrite_operand_except(callee, aliases, dest)
                 | rewrite_operand_except(args, aliases, dest)
+        }
+        Rvalue::InstanceOfValue { value, target } => {
+            rewrite_operand_except(value, aliases, dest)
+                | rewrite_operand_except(target, aliases, dest)
         }
         Rvalue::Binary { lhs, rhs, .. } => {
             rewrite_operand_except(lhs, aliases, dest) | rewrite_operand_except(rhs, aliases, dest)
@@ -689,7 +700,7 @@ fn rewrite_rvalue(
         Rvalue::TupleIndex { tuple, .. } | Rvalue::TupleSlice { tuple, .. } => {
             rewrite_operand_except(tuple, aliases, dest)
         }
-        Rvalue::DictContainsKey { dict, key } => {
+        Rvalue::DictContainsKey { dict, key, .. } => {
             rewrite_operand_except(dict, aliases, dest) | rewrite_operand_except(key, aliases, dest)
         }
         Rvalue::DictSet {
@@ -773,7 +784,7 @@ fn rewrite_rvalue(
         }
         Rvalue::HttpGetText { url } => rewrite_operand_except(url, aliases, dest),
         Rvalue::DateNow => false,
-        Rvalue::DateResetNow => false,
+        Rvalue::DateResetNow | Rvalue::VitestRestoreAllMocks => false,
         Rvalue::HostGlobalRead { .. } | Rvalue::HostGlobalPresent { .. } => false,
         Rvalue::HostGlobalWrite { value: stored, .. } => {
             rewrite_operand_except(stored, aliases, dest)
@@ -789,6 +800,16 @@ fn rewrite_rvalue(
         Rvalue::VitestMockCalledTimes { mock, count } => {
             let mut changed = rewrite_operand_except(mock, aliases, dest);
             changed |= rewrite_operand_except(count, aliases, dest);
+            changed
+        }
+        Rvalue::VitestSpyOn { target, name } => {
+            let mut changed = rewrite_operand_except(target, aliases, dest);
+            changed |= rewrite_operand_except(name, aliases, dest);
+            changed
+        }
+        Rvalue::VitestAsymmetricEqual { actual, expected } => {
+            let mut changed = rewrite_operand_except(actual, aliases, dest);
+            changed |= rewrite_operand_except(expected, aliases, dest);
             changed
         }
         Rvalue::VitestMockCalledWith { mock, args, .. } => {

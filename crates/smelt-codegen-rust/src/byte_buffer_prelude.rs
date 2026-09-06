@@ -459,6 +459,32 @@ fn emit_construct(writer: &mut CodeWriter) {
         "fn smelt_host_buffer_is_storage(value: &SmeltUnknown) -> bool {{ let SmeltUnknown::Object(map) = value else {{ return false; }}; [{storage_markers}].into_iter().any(|marker| map.contains_key(marker)) }}"
     ));
 
+    let text_marker = smelt_stdlib::host_object_marker("Buffer").unwrap_or("__smelt_buffer");
+
+    writer.line("/// The six-bit value of one base64 character (either alphabet), if it has one.");
+    writer.line("fn smelt_host_buffer_base64_value(value: char) -> Option<u8> { match value { 'A'..='Z' => Some(value as u8 - b'A'), 'a'..='z' => Some(value as u8 - b'a' + 26), '0'..='9' => Some(value as u8 - b'0' + 52), '+' | '-' => Some(62), '/' | '_' => Some(63), _ => None } }");
+    writer.line("/// Encode a JavaScript string into buffer bytes under a Node encoding name.");
+    writer.line("///");
+    writer.line("/// `Buffer.from(string[, encoding])` is the one byte-buffer constructor form");
+    writer.line("/// whose source is *text*: a typed array built from a string has no elements,");
+    writer.line("/// but a Buffer built from a string holds that string's encoded bytes. The");
+    writer.line("/// frontend rejects encodings this helper does not implement, so an unknown");
+    writer.line("/// name can only reach here as a dynamic value and falls back to the");
+    writer.line("/// JavaScript default of UTF-8.");
+    writer.line("fn smelt_host_buffer_encode_text(text: &str, encoding: Option<String>) -> Vec<SmeltUnknown> {");
+    writer.line("    let encoding = encoding.unwrap_or_else(|| \"utf8\".to_owned()).to_ascii_lowercase();");
+    writer.line("    let bytes: Vec<u8> = match encoding.as_str() {");
+    writer.line("        \"latin1\" | \"binary\" => text.chars().map(|value| (value as u32 & 0xff) as u8).collect(),");
+    writer.line("        \"ascii\" => text.chars().map(|value| (value as u32 & 0x7f) as u8).collect(),");
+    writer.line("        \"hex\" => { let digits = text.chars().filter_map(|value| value.to_digit(16)).collect::<Vec<_>>(); digits.chunks_exact(2).map(|pair| (pair[0] * 16 + pair[1]) as u8).collect() }");
+    // base64 / base64url: six-bit groups, padding and unknown characters
+    // skipped, trailing partial group dropped — Node's permissive decode.
+    writer.line("        \"base64\" | \"base64url\" => { let mut bytes = Vec::new(); let mut accumulator: u32 = 0; let mut bits = 0u32; for value in text.chars() { let Some(sextet) = smelt_host_buffer_base64_value(value) else { continue; }; accumulator = (accumulator << 6) | u32::from(sextet); bits += 6; if bits >= 8 { bits -= 8; bytes.push(((accumulator >> bits) & 0xff) as u8); } } bytes }");
+    writer.line("        _ => text.as_bytes().to_vec(),");
+    writer.line("    };");
+    writer.line("    bytes.into_iter().map(|byte| SmeltUnknown::Number(f64::from(byte))).collect()");
+    writer.line("}");
+
     writer.line("/// Read an optional non-negative numeric constructor argument.");
     writer.line("fn smelt_host_buffer_count_argument(argument: Option<&SmeltUnknown>) -> Option<usize> { match argument { Some(SmeltUnknown::Number(value)) if *value >= 0.0 => Some(*value as usize), _ => None } }");
 
@@ -484,6 +510,12 @@ fn emit_construct(writer: &mut CodeWriter) {
     writer.line("    let stride = element.map_or(1, |(_, width)| width);");
     writer.line("    let source = args.first();");
     writer.line("    match source {");
+    // `Buffer.from(string[, encoding])`: the source is text, not elements. Only
+    // the Buffer identity has this constructor form; `new Uint8Array("ab")` is
+    // empty, so the arm is gated on the registry's Buffer marker.
+    writer.line(format!(
+        "        Some(SmeltUnknown::String(text)) if marker == {text_marker:?} => {{ let encoding = match args.get(1) {{ Some(SmeltUnknown::String(value)) => Some(value.to_string()), _ => None }}; smelt_host_buffer_record(marker, smelt_host_buffer_encode_text(&text.to_string(), encoding)) }}"
+    ));
     // `new X(arrayBuffer, byteOffset, length)`: a byte window over shared storage.
     writer.line("        Some(value) if smelt_host_buffer_is_storage(value) => { let storage = smelt_host_buffer_raw_bytes(value).unwrap_or_default(); let offset = smelt_host_buffer_count_argument(args.get(1)).unwrap_or(0).min(storage.len()); let available = storage.len() - offset; let take = smelt_host_buffer_count_argument(args.get(2)).map_or(available, |count| (count * stride).min(available)); let window = storage.into_iter().skip(offset).take(take).collect::<Vec<_>>(); let buffer = smelt_host_buffer_is_view_marker(marker).then(|| value.clone()); smelt_host_buffer_view_record(marker, window, buffer, offset) }");
     // `new X(otherView)` / `new X([...])`: element-by-element conversion.

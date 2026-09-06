@@ -568,11 +568,16 @@ impl ModuleBuilder<'_> {
         }
         let field_ty = match self.class_field_type(access_receiver_ty, field) {
             Ok(field_ty) => field_ty,
-            // Reading an absent property yields `undefined` in JavaScript. A
-            // Smelt list is a plain vector with no expando-property storage
-            // (e.g. the RegExp match-array `index`/`input` fields), so an
-            // unmodeled field read on a list receiver is truthfully
-            // `undefined` rather than a lowering error.
+            // A JavaScript array is an exotic object: besides its elements it can
+            // carry ordinary named properties, and a `RegExp.exec` result is
+            // exactly that — an array with `index`, `input` and `groups`. So an
+            // unmodeled name on a list receiver is not statically absent; it is a
+            // question only the runtime can answer. Erase the receiver and read
+            // the property off it: the erasure aliases the array's identity, which
+            // is what the named-property table is keyed by, so the typed handle
+            // and an erased view of the same array read the same properties.
+            // Answering a constant `undefined` here dropped `.index`/`.input`
+            // from every clone that narrowed with `Array.isArray` first.
             Err(error) => {
                 if absent_list_field_is_undefined
                     && matches!(
@@ -580,11 +585,23 @@ impl ModuleBuilder<'_> {
                         Some(Type::List(_))
                     )
                 {
+                    let span = self.span(member.span.start, member.span.end);
                     let ty = self.ctx.krate.types.intern(Type::Unknown);
-                    return Ok(body.push_expr(Expr {
-                        kind: ExprKind::Literal(Literal::None),
+                    let erased = body.push_expr(Expr {
+                        kind: ExprKind::UnknownCast {
+                            value: receiver,
+                            target: ty,
+                        },
                         ty,
-                        span: self.span(member.span.start, member.span.end),
+                        span,
+                    });
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::Field {
+                            receiver: erased,
+                            field,
+                        },
+                        ty,
+                        span,
                     }));
                 }
                 return Err(error);
@@ -713,12 +730,21 @@ impl ModuleBuilder<'_> {
 
     /// Lower supported well-known `Symbol.<name>` member reads.
     ///
-    /// Each modeled well-known symbol resolves to the same stable synthetic
-    /// member spelling that computed property-key declaration uses (see
-    /// [`crate::lowering::ty::computed_key_symbols::well_known_symbol_key`]), so a
-    /// read such as `obj[Symbol.asyncIterator]` indexes the field declared by
-    /// `[Symbol.asyncIterator]()` (issue #115). `Symbol.iterator` keeps its
-    /// established `__smelt_symbol_iterator` spelling.
+    /// `Symbol.iterator` in VALUE position is a symbol, exactly like
+    /// `Symbol('d')` or `Symbol.for('d')`: `typeof Symbol.iterator` is
+    /// `'symbol'`, it can be stored in a variable, handed to a predicate, and
+    /// compared for identity. So it lowers to `Literal::Symbol` carrying the
+    /// shared value spelling, not to the property-key string it indexes —
+    /// lowering it as the key made every non-key use answer "string".
+    ///
+    /// The key half is a separate question, and one shared table
+    /// ([`smelt_stdlib::well_known_symbols`]) relates the two: a static computed
+    /// key (`[Symbol.asyncIterator]`) folds to the storage key through
+    /// [`crate::lowering::ty::computed_key_symbols::well_known_symbol_key`], and
+    /// a *runtime* symbol value used as a key resolves to the same storage key
+    /// in the generated prelude's property-key coercion. Because both sides read
+    /// one table, `obj[Symbol.asyncIterator]` still indexes the field declared
+    /// by `[Symbol.asyncIterator]()` (issue #115).
     pub(in crate::lowering) fn symbol_static_member(
         &mut self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
@@ -730,12 +756,15 @@ impl ModuleBuilder<'_> {
         if object.name != "Symbol" {
             return None;
         }
-        let key = crate::lowering::ty::computed_key_symbols::well_known_symbol_key(
-            member.property.name.as_str(),
-        )?;
-        let ty = self.ctx.krate.types.intern(Type::String);
+        let spelling =
+            crate::lowering::ty::computed_key_symbols::well_known_symbol_value_spelling(
+                member.property.name.as_str(),
+            )?;
+        // Symbol values are erased at runtime (`SmeltUnknown::Symbol`), the same
+        // type the `Symbol()` / `Symbol.for()` call paths intern.
+        let ty = self.ctx.krate.types.intern(Type::Unknown);
         Some(body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::String(key)),
+            kind: ExprKind::Literal(Literal::Symbol(spelling)),
             ty,
             span: self.span(member.span.start, member.span.end),
         }))
@@ -842,6 +871,10 @@ impl ModuleBuilder<'_> {
                 DictProjectionOp::Keys | DictProjectionOp::ForInKeys => {
                     self.ctx.krate.types.intern(Type::List(string_ty))
                 }
+                // `Reflect.ownKeys` answers `(string | symbol)[]`, so its
+                // element type is the erased carrier -- see
+                // `object_projection_call`.
+                DictProjectionOp::OwnKeys => self.ctx.krate.types.intern(Type::List(unknown)),
                 // Symbol keys come back as erased symbol VALUES, not descriptions,
                 // so re-indexing the receiver with one still resolves to the
                 // internal `__smelt_symbol:` key. See `object_projection_call`.

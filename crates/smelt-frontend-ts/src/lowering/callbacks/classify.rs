@@ -334,6 +334,23 @@ impl ModuleBuilder<'_> {
                     .ok()
                     .and_then(|index| body.locals.get(index))
                 {
+                    // A capture is normally by reference: the value is already
+                    // in the local when the closure is built, so a clone of it
+                    // is the value the closure observes forever. A binding this
+                    // closure READS BEFORE ITS DECLARATION is the one shape
+                    // where that is wrong -- the slot is still empty at capture
+                    // time and the declaration fills it later -- so it is
+                    // captured through the shared cell instead, exactly as an
+                    // assigned capture is.
+                    let mode = if local_decl
+                        .name
+                        .and_then(|symbol| self.ctx.krate.symbols.get(symbol))
+                        .is_some_and(|name| self.forward_referenced_locals.contains(name))
+                    {
+                        CaptureMode::ByMut
+                    } else {
+                        CaptureMode::ByRef
+                    };
                     captures.entry(*local).or_insert_with(|| ClosureCapture {
                         source_local: *local,
                         body_local: None,
@@ -341,7 +358,7 @@ impl ModuleBuilder<'_> {
                             .name
                             .unwrap_or_else(|| self.ctx.krate.symbols.intern("__capture")),
                         ty: local_decl.ty,
-                        mode: CaptureMode::ByRef,
+                        mode,
                     });
                 }
             }
@@ -389,7 +406,8 @@ impl ModuleBuilder<'_> {
             CallbackExprKind::Index { receiver, .. }
             | CallbackExprKind::Field { receiver, .. }
             | CallbackExprKind::HasField { receiver, .. }
-            | CallbackExprKind::FieldTruthy { receiver, .. } => {
+            | CallbackExprKind::FieldTruthy { receiver, .. }
+            | CallbackExprKind::ValueTruthy { value: receiver } => {
                 self.collect_callback_captures(receiver, body, captures);
             }
             CallbackExprKind::DynamicIndex { receiver, index } => {
@@ -483,9 +501,13 @@ impl ModuleBuilder<'_> {
             {
                 return Ok(callback);
             }
-            if let Argument::CallExpression(_call) = argument {
-                return Ok(self.opaque_member_callback(expected_param_tys));
-            }
+            // A callback produced by a call (`xs.filter(negate(isEven))`) is
+            // deliberately NOT modeled here. The compact callback IR can only
+            // stand in a fabricated callee for it, which silently replaces the
+            // factory's real result with a null value. It has to be evaluated
+            // once, in the enclosing body, and then called — see the callable
+            // surface branch of `Self::callback_argument`, which owns the
+            // enclosing `Body` and can bind the result to a local.
             if let Argument::FunctionExpression(function) = argument {
                 return self.function_callback_from_params(function, expected_param_tys, body);
             }

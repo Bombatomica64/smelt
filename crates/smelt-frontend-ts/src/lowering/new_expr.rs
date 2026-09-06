@@ -88,10 +88,17 @@ impl ModuleBuilder<'_> {
                 }));
             }
             // `new <expr>(...)` over a dynamic callee (`new object[key](...
-            // args)` in lodash-compat `bindKey`). Classes are not first-class
-            // values in Smelt, so a computed callee can only hold a function
-            // value: the construction lowers as a dynamic closure call through
-            // the erased ABI, a genuine dynamic boundary returning `unknown`.
+            // args)` in lodash-compat `bindKey`, `new (C as any)()` wherever
+            // TypeScript needs the cast to accept a plain function as a
+            // constructor). Classes are not first-class values in Smelt, so a
+            // computed callee can only hold a function value, and constructing
+            // through one is JavaScript `[[Construct]]`: the same
+            // `ExprKind::Construct` the named-binding path below uses.
+            //
+            // The SPREAD form (`new f(...args)`) still lowers as a dynamic call:
+            // `ExprKind::Construct` carries positional arguments, and a runtime
+            // argument vector needs its own node. Until it has one, `new
+            // f(...args)` keeps the pre-construction behavior.
             let callee_value = self.expression(&new_expr.callee, body)?;
             let callee_ty = Self::expr_ty(body, callee_value);
             let callable_ty = self.function_member_type(callee_ty);
@@ -130,11 +137,19 @@ impl ModuleBuilder<'_> {
                         self.argument_with_hint(arg, body, params.get(index).copied())
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                return Ok(body.push_expr(Expr {
-                    kind: ExprKind::ClosureCall {
+                let kind = if self.construct_through_value_is_dynamic(result_ty) {
+                    ExprKind::Construct {
                         callee: callee_value,
                         args,
-                    },
+                    }
+                } else {
+                    ExprKind::ClosureCall {
+                        callee: callee_value,
+                        args,
+                    }
+                };
+                return Ok(body.push_expr(Expr {
+                    kind,
                     ty: result_ty,
                     span,
                 }));
@@ -176,8 +191,13 @@ impl ModuleBuilder<'_> {
         if callee.name == "Array" {
             return self.array_constructor_expression(new_expr, body);
         }
-        if callee.name == "String" {
-            return self.string_constructor_expression(new_expr, body);
+        if callee.name == "String" && !self.classes.contains("String") {
+            return self.boxed_primitive_constructor_expression(
+                new_expr,
+                body,
+                "__smelt_string",
+                Literal::String(String::new()),
+            );
         }
         if callee.name == "Object" && !self.classes.contains("Object") {
             return self.object_constructor_expression(new_expr, body, type_hint);
@@ -381,19 +401,47 @@ impl ModuleBuilder<'_> {
         }))
     }
 
+    /// Return whether `new <value>(..)` through a callable of this return type
+    /// must perform the JavaScript `[[Construct]]` operation.
+    ///
+    /// A *declared* construct signature (`new (name: string) => Widget`) states
+    /// the constructed type, and the value filling it is a typed constructor
+    /// SLOT: it may be a class adapter closure with no function object behind
+    /// it at all, so there is no `prototype` to link and no receiver to install
+    /// — invoking it IS the construction, which is what
+    /// `constructor_type_to_hir` models. An ERASED result (`unknown`, a type
+    /// parameter) means the source told us nothing about what comes out, so the
+    /// value can only be a plain JavaScript function, and constructing through
+    /// one is `[[Construct]]`: allocate, link, install the receiver, and prefer
+    /// an object the body returned.
+    fn construct_through_value_is_dynamic(&self, return_ty: smelt_hir::TypeId) -> bool {
+        matches!(
+            self.ctx.krate.types.get(return_ty),
+            Some(Type::Unknown | Type::TypeParam { .. })
+        )
+    }
+
     /// Lower `new ctor(args)` where `ctor` is a callable value (a binding whose
     /// type is a constructor/function type), returning `None` when the callee is
     /// not such a value so the caller can fall through to the stdlib/class
     /// dispatch.
     ///
     /// A constructor-type annotation lowers to an ordinary `Type::Function` (see
-    /// `constructor_type_to_hir`), so `new ctor(args)` is just an indirect call
-    /// through that callable value: JavaScript classes *are* constructor
-    /// functions, and invoking one produces the constructed value. This reuses
-    /// the exact `ExprKind::ClosureCall` path a plain `ctor(args)` call takes,
-    /// with the result typed as the callable's declared return type. When the
-    /// binding is present but is *not* a callable value, `None` is returned and
-    /// the caller reports the existing "unresolved class" / non-callable error.
+    /// `constructor_type_to_hir`), so the callee is reached as a VALUE — but
+    /// constructing through a function value is not the same operation as
+    /// calling it. JavaScript `[[Construct]]` allocates an object linked to the
+    /// callee's `prototype`, runs the callee with that object as its receiver,
+    /// and keeps the allocated object unless the callee returned one of its
+    /// own; none of that happens for a plain call. So this lowers to
+    /// `ExprKind::Construct`, not `ExprKind::ClosureCall`, in both the
+    /// concretely-typed and the dynamic case. When the binding is present but
+    /// is *not* a callable value, `None` is returned and the caller reports the
+    /// existing "unresolved class" / non-callable error.
+    ///
+    /// The result type stays the callable's declared return type where there is
+    /// one, and that type also decides WHICH operation this is: see
+    /// [`Self::construct_through_value_is_dynamic`]. A callee with no function
+    /// type is a genuine dynamic boundary and stays `unknown`.
     pub(super) fn new_through_value_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
@@ -424,7 +472,7 @@ impl ModuleBuilder<'_> {
                 .map(|arg| self.argument(arg, body))
                 .collect::<Result<Vec<_>, _>>()?;
             return Ok(Some(body.push_expr(Expr {
-                kind: ExprKind::ClosureCall {
+                kind: ExprKind::Construct {
                     callee: callee_expr,
                     args,
                 },
@@ -447,11 +495,19 @@ impl ModuleBuilder<'_> {
             .take(function.params.len())
             .map(|arg| self.argument(arg, body))
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::ClosureCall {
+        let kind = if self.construct_through_value_is_dynamic(function.return_ty) {
+            ExprKind::Construct {
                 callee: callee_expr,
                 args,
-            },
+            }
+        } else {
+            ExprKind::ClosureCall {
+                callee: callee_expr,
+                args,
+            }
+        };
+        Ok(Some(body.push_expr(Expr {
+            kind,
             ty: function.return_ty,
             span: self.span(new_expr.span.start, new_expr.span.end),
         })))
@@ -763,37 +819,6 @@ impl ModuleBuilder<'_> {
                 field: UrlField::Href,
                 url,
             },
-            ty,
-            span: self.span(new_expr.span.start, new_expr.span.end),
-        }))
-    }
-
-    /// Lower boxed `new String(value)` as its primitive string payload.
-    pub(super) fn string_constructor_expression(
-        &mut self,
-        new_expr: &oxc::ast::ast::NewExpression<'_>,
-        body: &mut Body,
-    ) -> Result<smelt_hir::ExprId, SmeltError> {
-        if new_expr.arguments.len() > 1 {
-            return Err(SmeltError::unsupported(
-                self.span(new_expr.span.start, new_expr.span.end),
-                "new String(...) supports at most one argument",
-            ));
-        }
-        let ty = self.ctx.krate.types.intern(Type::String);
-        let Some(argument) = new_expr.arguments.first() else {
-            return Ok(body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::String(String::new())),
-                ty,
-                span: self.span(new_expr.span.start, new_expr.span.end),
-            }));
-        };
-        let value = self.argument(argument, body)?;
-        if Self::expr_ty(body, value) == ty {
-            return Ok(value);
-        }
-        Ok(body.push_expr(Expr {
-            kind: ExprKind::TypeAssert { value },
             ty,
             span: self.span(new_expr.span.start, new_expr.span.end),
         }))
@@ -1467,18 +1492,23 @@ impl ModuleBuilder<'_> {
         ))
     }
 
-    /// Lower a boxed primitive wrapper (`new Number(v)`, `new Boolean(v)`) to a
-    /// marker-bearing record.
+    /// Lower a boxed primitive wrapper (`new Number(v)`, `new Boolean(v)`,
+    /// `new String(v)`) to a marker-bearing record.
     ///
-    /// This is the boxed wrapper **object**, distinct from the `Number(x)` /
-    /// `Boolean(x)` coercion calls (which already lower to primitive values
-    /// elsewhere). The boxed object has `typeof === "object"`, so es-toolkit's
-    /// `isNumber`/`isBoolean` (`typeof x === "number"`) must report `false` for
-    /// it: modeling it as a record erased to `SmeltUnknown::Object` makes the
-    /// runtime `typeof` narrowing correctly miss. The wrapped value is retained
-    /// alongside the wrapper's dedicated marker so a later dynamic
-    /// `instanceof Number`/`instanceof Boolean` resolves through the marker,
-    /// mirroring the `ArrayBuffer` model.
+    /// All three wrappers share this one rule: `new` builds an **object**, so the
+    /// wrapper has reference identity of its own (`new String('a') !==
+    /// new String('a')`), answers `typeof === "object"` — which is why
+    /// es-toolkit's `isNumber`/`isBoolean`/`isString` (`typeof x === "number"`)
+    /// must report `false` for it, and modeling it as a record erased to
+    /// `SmeltUnknown::Object` is what makes the runtime narrowing correctly miss
+    /// — and keeps its payload under the wrapper's own identity marker, so a
+    /// later dynamic `instanceof Number`/`Boolean`/`String` resolves through that
+    /// marker (mirroring the `ArrayBuffer` model) and `valueOf`/member reads
+    /// unbox it.
+    ///
+    /// The `Number(x)` / `Boolean(x)` / `String(x)` CALLS are coercions, not
+    /// constructions: they lower to primitive values on their own path and are
+    /// unaffected.
     pub(super) fn boxed_primitive_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
@@ -1502,6 +1532,7 @@ impl ModuleBuilder<'_> {
         } else {
             let default_ty = self.ctx.krate.types.intern(match &default_value {
                 Literal::Bool(_) => Type::Bool,
+                Literal::String(_) => Type::String,
                 _ => Type::Float,
             });
             body.push_expr(Expr {
@@ -2386,54 +2417,7 @@ impl ModuleBuilder<'_> {
                 }))
             }
             Expression::AwaitExpression(await_expr) => {
-                if !self.current_async {
-                    return Err(SmeltError::unsupported(
-                        self.span(await_expr.span.start, await_expr.span.end),
-                        "await expressions are only lowered inside async functions",
-                    ));
-                }
-                // The context describes the resolved value; the operand must
-                // therefore produce a future of that value.
-                let awaited_hint =
-                    type_hint.map(|hint| self.ctx.krate.types.intern(Type::Future(hint)));
-                let awaited =
-                    self.expression_with_hint(&await_expr.argument, body, awaited_hint)?;
-                let awaited_ty = Self::expr_ty(body, awaited);
-                let Some(ty) = self.future_inner_type(awaited_ty) else {
-                    if let Some(resolved_ty) = type_hint
-                        && self.erased_or_union_surface(awaited_ty)
-                    {
-                        // An asserted await over an erased conditional call
-                        // still carries a runtime promise. Preserve the call and
-                        // make the checked future extraction explicit.
-                        let future_ty =
-                            self.ctx.krate.types.intern(Type::Future(resolved_ty));
-                        let future = body.push_expr(Expr {
-                            kind: ExprKind::TypeAssert { value: awaited },
-                            ty: future_ty,
-                            span: self.span(
-                                await_expr.argument.span().start,
-                                await_expr.argument.span().end,
-                            ),
-                        });
-                        return Ok(body.push_expr(Expr {
-                            kind: ExprKind::Await(future),
-                            ty: resolved_ty,
-                            span: self.span(await_expr.span.start, await_expr.span.end),
-                        }));
-                    }
-                    let ty = self.ctx.krate.types.intern(Type::Unknown);
-                    return Ok(body.push_expr(Expr {
-                        kind: ExprKind::Literal(Literal::None),
-                        ty,
-                        span: self.span(await_expr.span.start, await_expr.span.end),
-                    }));
-                };
-                Ok(body.push_expr(Expr {
-                    kind: ExprKind::Await(awaited),
-                    ty,
-                    span: self.span(await_expr.span.start, await_expr.span.end),
-                }))
+                self.await_expression(await_expr, type_hint, body)
             }
             Expression::UpdateExpression(update) => self.update_expression(update, body),
             Expression::StaticMemberExpression(member) => self.static_member(member, body),
@@ -2980,6 +2964,70 @@ impl ModuleBuilder<'_> {
         self.lowered_condition_expression(cond, self.expression_span(expression), body)
     }
 
+    /// Lower a JavaScript `await` operand into a HIR await, or into the operand
+    /// itself when it provably cannot be a thenable.
+    ///
+    /// Three cases, in order:
+    ///
+    /// 1. the operand's type is a future — await it and take the future's
+    ///    output type;
+    /// 2. the operand's type is erased or a union — it may still hold a runtime
+    ///    promise, so assert it to a future and await it through the checked
+    ///    extraction path, whose runtime helper drains promise chains and
+    ///    passes non-thenables through unchanged. The awaited value takes the
+    ///    contextual type when there is one and stays erased otherwise;
+    /// 3. the operand's type is concrete and not a future — `await v` is `v`.
+    ///
+    /// No case discards the operand: doing so silently deletes the awaited
+    /// computation, and its side effects, from the program.
+    ///
+    /// Shared by the ordinary expression path and the call-argument path so
+    /// both spellings of `await x` lower through one rule.
+    pub(in crate::lowering) fn await_expression(
+        &mut self,
+        await_expr: &oxc::ast::ast::AwaitExpression<'_>,
+        type_hint: Option<smelt_hir::TypeId>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if !self.current_async {
+            return Err(SmeltError::unsupported(
+                self.span(await_expr.span.start, await_expr.span.end),
+                "await expressions are only lowered inside async functions",
+            ));
+        }
+        // The context describes the resolved value; the operand must therefore
+        // produce a future of that value.
+        let awaited_hint = type_hint.map(|hint| self.ctx.krate.types.intern(Type::Future(hint)));
+        let awaited = self.expression_with_hint(&await_expr.argument, body, awaited_hint)?;
+        let awaited_ty = Self::expr_ty(body, awaited);
+        let Some(ty) = self.future_inner_type(awaited_ty) else {
+            if self.erased_or_union_surface(awaited_ty) {
+                let resolved_ty =
+                    type_hint.unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                let future_ty = self.ctx.krate.types.intern(Type::Future(resolved_ty));
+                let future = body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: awaited },
+                    ty: future_ty,
+                    span: self.span(
+                        await_expr.argument.span().start,
+                        await_expr.argument.span().end,
+                    ),
+                });
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::Await(future),
+                    ty: resolved_ty,
+                    span: self.span(await_expr.span.start, await_expr.span.end),
+                }));
+            }
+            return Ok(awaited);
+        };
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::Await(awaited),
+            ty,
+            span: self.span(await_expr.span.start, await_expr.span.end),
+        }))
+    }
+
     /// Coerce an already lowered JavaScript value into its boolean truthiness result.
     ///
     /// Assignment operators such as `||=` already lower their target as a
@@ -2995,10 +3043,17 @@ impl ModuleBuilder<'_> {
         if self.ctx.krate.types.get(cond_ty) == Some(&Type::Bool) {
             return Ok(cond);
         }
+        // A function or class value is always truthy in JavaScript, and so is a
+        // type parameter whose constraint pins it to an object surface. An
+        // unconstrained `T`, however, can hold `0`, `-0`, `NaN`, `""`, `false`,
+        // `null` or `undefined`, so it must be tested, not folded: it falls
+        // through to the `type_is_truthy_condition_surface` cast below.
         if matches!(
             self.ctx.krate.types.get(cond_ty),
-            Some(Type::Function(_) | Type::Class { .. } | Type::TypeParam { .. })
-        ) {
+            Some(Type::Function(_) | Type::Class { .. })
+        ) || (matches!(self.ctx.krate.types.get(cond_ty), Some(Type::TypeParam { .. }))
+            && self.type_is_always_truthy_object_surface(cond_ty))
+        {
             let ty = self.ctx.krate.types.intern(Type::Bool);
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::Bool(true)),

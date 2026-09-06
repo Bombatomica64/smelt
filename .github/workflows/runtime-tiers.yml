@@ -61,7 +61,7 @@ jobs:
               js_value_semantics_runtime erased_element_read_runtime
               erased_to_list_arms_runtime erased_host_roundtrip_runtime
               array_index_undefined_runtime array_hole_allocation_runtime
-              optional_record_field_runtime
+              optional_record_field_runtime overload_shape_runtime
           - shard: references
             tests: >-
               list_reference_semantics_runtime map_reference_runtime
@@ -72,12 +72,14 @@ jobs:
             tests: >-
               promise_value_fidelity_runtime abort_signal_runtime
               timer_runtime loop_await_runtime generator_runtime
+              truthiness_and_await_runtime
           - shard: functions
             tests: >-
               this_receiver_runtime function_statics_runtime
               erased_call_dispatch_runtime
               named_function_expression_runtime arguments_arity_runtime
               throwing_callback_runtime union_receiver_runtime
+              construct_semantics_runtime
           - shard: throwing
             tests: >-
               thrown_payload_runtime try_finally_runtime
@@ -90,7 +92,8 @@ jobs:
               typed_array_runtime symbol_key_runtime object_create_runtime
               regexp_compile_cache_runtime math_round_runtime
               define_properties_runtime proto_accessor_runtime
-              ambient_declaration_runtime
+              ambient_declaration_runtime object_model_runtime
+              stdlib_boundary_runtime
     name: runtime (${{ matrix.shard }})
     steps:
       - name: Checkout

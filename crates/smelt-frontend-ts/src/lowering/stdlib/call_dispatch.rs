@@ -6,7 +6,7 @@
 
 use crate::lowering::{ModuleBuilder, RestParam, stdlib_dispatch};
 use crate::{OverloadSignature, SmeltError, test_support};
-use oxc::ast::ast::{Argument, Expression};
+use oxc::ast::ast::{Argument, ArrayExpressionElement, Expression};
 use oxc::span::GetSpan;
 use smelt_hir::{
     AsyncOp, Body, CaptureMode, ClosureCapture, Expr, ExprKind, Field, FunctionType,
@@ -69,6 +69,14 @@ impl<'builder> ModuleBuilder<'builder> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        // A vitest asymmetric matcher (`expect.any(..)`, `expect.not.arrayContaining(..)`)
+        // is a matcher VALUE, so it is recognized before any callee resolution:
+        // `expect` used as a receiver rather than as a callee would otherwise
+        // fall through to the generic erased-object path and become an empty
+        // record. See `ModuleBuilder::vitest_asymmetric_matcher_call`.
+        if let Some(expr) = self.vitest_asymmetric_matcher_call(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.global_alias_namespace_call(call, body)? {
             return Ok(expr);
         }
@@ -946,6 +954,35 @@ impl<'builder> ModuleBuilder<'builder> {
             } else {
                 return_ty
             };
+            // An overload may promise a concrete return where the
+            // IMPLEMENTATION returns a type parameter no argument bound.
+            // es-toolkit `reduceAsync` is the shape: the implementation is
+            // `<T, U>(array, reducer, initialValue?: U): Promise<U>`, and a
+            // two-argument call supplies nothing that fixes `U` (the erased
+            // `vi.fn` reducer included), so the lowered body hands back a
+            // runtime-tagged value -- for an empty array, `undefined`.
+            // Asserting the overload's `Promise<number>` over that makes the
+            // emitter insert a JS `ToNumber` whose nullish arm MANUFACTURES a
+            // value (`undefined` becomes `f64::NAN`) and then fold
+            // `result === undefined` to `false`: the assertion the source
+            // wrote can never hold. The unbound parameter is the evidence that
+            // the concrete claim has no basis, so the erased return wins --
+            // the same reasoning as `renders_as_erased_function` above.
+            let return_ty = match self.return_leaf_type_param(implementation_return_ty) {
+                Some(name) if return_ty != implementation_return_ty => {
+                    let mut substitutions = HashMap::new();
+                    for (param, arg) in params.iter().zip(&args) {
+                        let arg_ty = Self::expr_ty(body, *arg);
+                        let _ = self.infer_overload_type(*param, arg_ty, &mut substitutions);
+                    }
+                    if substitutions.contains_key(&name) {
+                        return_ty
+                    } else {
+                        implementation_return_ty
+                    }
+                }
+                _ => return_ty,
+            };
             let callee = body.push_expr(Expr {
                 kind: ExprKind::Item(item),
                 ty: self.ctx.krate.types.intern(Type::Function(function_ty)),
@@ -1248,7 +1285,6 @@ impl<'builder> ModuleBuilder<'builder> {
         Self::node_process_cwd_call,
         Self::commonjs_require_call,
         Self::object_metadata_mutation_call,
-        Self::lodash_negate_call,
         Self::lodash_has_call,
         Self::object_get_own_property_symbols_call,
         Self::object_projection_call,
@@ -1297,16 +1333,66 @@ impl<'builder> ModuleBuilder<'builder> {
         ]
     }
 
-    /// Return whether the module source declares a callable with this local name.
+    /// Return whether the module source declares a callable with this local name
+    /// AT MODULE LEVEL.
+    ///
+    /// The caller uses this to resolve a name that is not in scope yet as a
+    /// module global, which for `Type::Unknown` FABRICATES an empty object.
+    /// That is defensible for a module-level binding lowered later in the file
+    /// (`module_global_expression` recreates its value), and wrong for a
+    /// FUNCTION-LOCAL one: a local read before its declaration is a binding,
+    /// not a host global, and answering `{}` for it turned
+    /// `clearTimeout(timeoutId)` into a silent no-op. Such a local is
+    /// predeclared by `predeclare_forward_referenced_locals` and never reaches
+    /// here; if one still does, it must fail loudly as an unresolved name.
+    ///
+    /// Module level is read off the declaration's INDENTATION, which is what
+    /// distinguishes the two in source text: a top-level declaration starts a
+    /// line (optionally after `export `/`declare `), a function-local one is
+    /// indented inside a block.
     pub(in crate::lowering) fn source_contains_forward_callable(&self, name: &str) -> bool {
         let const_prefix = format!("const {name}");
         let function_prefix = format!("function {name}(");
-        self.source.contains(&function_prefix)
-            || self
+        self.source_declaration_is_module_level(&function_prefix, |_| true)
+            || self.source_declaration_is_module_level(&const_prefix, |suffix| {
+                suffix.starts_with(" =") || suffix.starts_with(':')
+            })
+    }
+
+    /// Return whether `prefix` occurs at the start of a line (module level).
+    ///
+    /// `suffix_is_declaration` inspects the text right after the prefix, so a
+    /// caller can require `=` or `:` and not match a longer name.
+    fn source_declaration_is_module_level(
+        &self,
+        prefix: &str,
+        suffix_is_declaration: impl Fn(&str) -> bool,
+    ) -> bool {
+        let mut searched = 0usize;
+        while let Some(offset) = self.source.get(searched..).and_then(|rest| {
+            rest.find(prefix)
+                .map(|relative| searched.saturating_add(relative))
+        }) {
+            searched = offset.saturating_add(prefix.len());
+            if !self
                 .source
-                .split(&const_prefix)
-                .skip(1)
-                .any(|suffix| suffix.starts_with(" =") || suffix.starts_with(':'))
+                .get(searched..)
+                .is_some_and(&suffix_is_declaration)
+            {
+                continue;
+            }
+            // Everything between the line start and the declaration keyword must
+            // be a modifier, not indentation: `export`/`declare` keep a
+            // declaration at module level, leading whitespace does not.
+            let line_start = self.source[..offset]
+                .rfind('\n')
+                .map_or(0, |newline| newline.saturating_add(1));
+            let lead = self.source[line_start..offset].trim_end();
+            if lead.is_empty() || matches!(lead, "export" | "declare" | "export declare") {
+                return true;
+            }
+        }
+        false
     }
 
     /// Return whether the module source declares a class with this local name.
@@ -1946,6 +2032,15 @@ impl<'builder> ModuleBuilder<'builder> {
             } else {
                 return Ok(None);
             };
+        // The receiver is bound onto the member READ, before the call's own
+        // coercion re-types it. A member read whose declared type is `unknown`
+        // is coerced to a synthesized `Type::Function` built from the argument
+        // types, so asking the coerced operand what ABI it uses always answered
+        // "a concrete function" and no ordinary method call ever carried a
+        // receiver. The bind keeps the read's own type, so the coercion below is
+        // unaffected by it.
+        let span = self.span(call.span.start, call.span.end);
+        let callee = self.bind_member_call_receiver(callee, member, body, span);
         let callable = if callee_ty == function_ty {
             callee
         } else {
@@ -1966,8 +2061,6 @@ impl<'builder> ModuleBuilder<'builder> {
                 "calls through function types with never parameters are not lowered",
             ));
         }
-        let span = self.span(call.span.start, call.span.end);
-        let callable = self.bind_member_call_receiver(callee, callable, member, body, span);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::ClosureCall {
                 callee: callable,
@@ -1992,13 +2085,13 @@ impl<'builder> ModuleBuilder<'builder> {
     /// receiver-first with `this` as a real bound parameter, so binding the
     /// dynamic channel as well would install the receiver twice.
     ///
-    /// `callee` is the lowered member read whose shape decides whether there is
-    /// a receiver at all; `callable` is the (possibly re-typed) value actually
-    /// being called.
+    /// `callee` is the lowered member read: its shape decides whether there is
+    /// a receiver at all, its type decides whether the callee can observe one,
+    /// and the bind is returned in its place so the call's own coercion applies
+    /// on top of the bound value rather than underneath it.
     fn bind_member_call_receiver(
         &mut self,
         callee: smelt_hir::ExprId,
-        callable: smelt_hir::ExprId,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &mut Body,
         span: Span,
@@ -2007,12 +2100,12 @@ impl<'builder> ModuleBuilder<'builder> {
             .ok()
             .and_then(|index| body.exprs.get(index))
         else {
-            return callable;
+            return callee;
         };
         let (ExprKind::Field { receiver, .. } | ExprKind::OptionalField { receiver, .. }) =
             expr.kind
         else {
-            return callable;
+            return callee;
         };
         // Only a callee that is invoked through the ERASED call ABI takes a
         // receiver here. A callee that kept a concrete `Type::Function` is
@@ -2024,8 +2117,19 @@ impl<'builder> ModuleBuilder<'builder> {
         // `.bind` are unaffected by this restriction: there the source names the
         // receiver explicitly, so honoring it is not optional and the wrapper is
         // built for that callee's own signature.
-        let callable_ty = Self::expr_ty(body, callable);
-        let callee_uses_erased_call_abi = match self.ctx.krate.types.get(callable_ty) {
+        let callee_ty = Self::expr_ty(body, callee);
+        // A dynamic call surface is asked about FIRST, on the read's own type: a
+        // member read typed `unknown` (or a type parameter, or a union) is the
+        // ordinary shape of a callable stored as a property, and it is invoked
+        // through the runtime call ABI whatever concrete signature the call site
+        // later coerces it to.
+        let dispatch_ty = match self.ctx.krate.types.get(callee_ty) {
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => callee_ty,
+            // A nullishable or callable-object read resolves to the function
+            // type it carries, which is what says how the callee is invoked.
+            _ => self.function_member_type(callee_ty).unwrap_or(callee_ty),
+        };
+        let callee_uses_erased_call_abi = match self.ctx.krate.types.get(dispatch_ty) {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => true,
             // The variadic `(...args: unknown[]) => unknown` spelling is the one
             // `Type::Function` that codegen renders as the erased
@@ -2050,18 +2154,22 @@ impl<'builder> ModuleBuilder<'builder> {
             _ => false,
         };
         if !callee_uses_erased_call_abi {
-            return callable;
+            return callee;
         }
-        // A receiver that itself erases to `SmeltUnknown` at codegen makes the
-        // member read a RUNTIME `SmeltUnknown` value regardless of the field's
-        // declared type, so there is no owned callable to hang the binding on
-        // and the bound value could not be typed as the field's declared
-        // function type either. The same erasure rule already governs how a
-        // spread call on such a receiver is dispatched, a few branches above.
-        if self.static_member_receiver_dispatches_dynamically(member, body) {
-            return callable;
+        // A read whose DECLARED type is a function but whose receiver erases to
+        // `SmeltUnknown` produces a runtime `SmeltUnknown` value, not the owned
+        // erased-function struct that hosts the typed bind, so there is nothing
+        // to hang the binding on. A read already typed as a dynamic call
+        // surface has no such mismatch: it erases either way and the runtime
+        // `smelt_bind_this` handles both a function and a callable object.
+        if !matches!(
+            self.ctx.krate.types.get(callee_ty),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) && self.static_member_receiver_dispatches_dynamically(member, body)
+        {
+            return callee;
         }
-        self.bind_this_receiver(callable, receiver, body, span)
+        self.bind_this_receiver(callee, receiver, body, span)
     }
 
     /// Return true when a member access names an actual lowered class method.
@@ -2647,6 +2755,19 @@ impl<'builder> ModuleBuilder<'builder> {
         if implementation_return_ty == overload_return_ty {
             return overload_return_ty;
         }
+        // The callee's LOWERED return is what its Rust body actually produces.
+        // When that can be absent -- an `Option<T>`, or an erased value that may
+        // carry `undefined` -- and the declared overload return cannot, the
+        // declaration is a lie about a value the call site will observe. Keeping
+        // the declared type there makes the emitter insert a coercion that
+        // MANUFACTURES a value for absence (`map_or(Default::default(), ..)` for
+        // an `Option`, a JS `ToNumber` whose nullish arm is `f64::NAN` for an
+        // erased one) and then const-folds `result === undefined` to `false`.
+        // The presence information wins, exactly as it already does below for a
+        // callee that lowers to the fully-erased function shape.
+        if self.lowered_return_admits_absence(implementation_return_ty, overload_return_ty) {
+            return implementation_return_ty;
+        }
         let (
             Some(Type::Function(implementation_function)),
             Some(Type::Function(overload_function)),
@@ -2663,6 +2784,45 @@ impl<'builder> ModuleBuilder<'builder> {
             return implementation_return_ty;
         }
         overload_return_ty
+    }
+
+    /// Whether the lowered return type can be absent where the declared
+    /// overload return type cannot.
+    ///
+    /// Walks both types together through the wrappers that do not themselves
+    /// decide presence (`Promise`/`Future`, `List`), and reports the first
+    /// position where the lowered side admits absence and the declared side
+    /// does not:
+    ///
+    /// lowered `Optional(T)` against a non-optional declaration — the callee
+    /// returns `None` for some input, as `maxBy` does on an empty array.
+    ///
+    /// A declaration that is itself optional or erased asserts nothing extra,
+    /// so it keeps winning; this only ever *removes* a claim the callee cannot
+    /// honour.
+    ///
+    /// A lowered `Unknown` is deliberately NOT treated as absence here. The
+    /// data-last / purry idiom writes the implementation as
+    /// `f(...args: unknown[]): unknown` precisely so the overloads carry the
+    /// contract, and there the declaration is the more truthful of the two.
+    fn lowered_return_admits_absence(
+        &self,
+        lowered: smelt_hir::TypeId,
+        declared: smelt_hir::TypeId,
+    ) -> bool {
+        let lowered_ty = self.ctx.krate.types.get(lowered);
+        let declared_ty = self.ctx.krate.types.get(declared);
+        match (lowered_ty, declared_ty) {
+            (Some(Type::Future(lowered_inner)), Some(Type::Future(declared_inner)))
+            | (Some(Type::List(lowered_inner)), Some(Type::List(declared_inner))) => {
+                self.lowered_return_admits_absence(*lowered_inner, *declared_inner)
+            }
+            (Some(Type::Optional(_)), Some(declared_kind)) => !matches!(
+                declared_kind,
+                Type::Optional(_) | Type::Unknown | Type::None | Type::TypeParam { .. }
+            ),
+            _ => false,
+        }
     }
 
     /// Whether a function type says nothing about its values beyond its arity.
@@ -3321,6 +3481,60 @@ impl<'builder> ModuleBuilder<'builder> {
         matches!(argument, Argument::ArrayExpression(array) if array.elements.is_empty())
     }
 
+    /// Return whether every length-constrained parameter of `signature` has an
+    /// argument that *proves* the length its annotation demands.
+    ///
+    /// A tuple parameter (`[A, B]`) or a non-empty-array parameter
+    /// (`readonly [T, ...T[]]`, `NonEmptyArray<T>`) is a claim about the
+    /// argument's length, and only the call site can settle it: a spread-free
+    /// array literal with the right element count. A variable of type `T[]`, a
+    /// call result, or a literal containing a spread proves nothing about its
+    /// runtime length, so such a signature is inapplicable — otherwise the
+    /// earliest-declared tuple overload swallows plain-array calls TypeScript
+    /// routes to a later one, and its (often much narrower) return type becomes
+    /// the call's type.
+    ///
+    /// A missing argument is not a failure here: `overload_signature_arity_matches`
+    /// already ruled on arity, and an optional parameter may legally have none.
+    fn overload_param_lengths_are_proven(
+        signature: &OverloadSignature,
+        arguments: &[Argument<'_>],
+    ) -> bool {
+        signature
+            .param_lengths
+            .iter()
+            .enumerate()
+            .all(|(index, requirement)| {
+                let Some(requirement) = *requirement else {
+                    return true;
+                };
+                let Some(argument) = arguments.get(index) else {
+                    return true;
+                };
+                Self::argument_proven_array_length(argument)
+                    .is_some_and(|len| requirement.is_satisfied_by(len))
+            })
+    }
+
+    /// Return the statically known element count of an argument, if it has one.
+    ///
+    /// Only a spread-free array literal does. A spread element contributes an
+    /// unknown number of elements, so a literal containing one has no proven
+    /// length at all.
+    fn argument_proven_array_length(argument: &Argument<'_>) -> Option<usize> {
+        let Argument::ArrayExpression(array) = argument else {
+            return None;
+        };
+        if array
+            .elements
+            .iter()
+            .any(|element| matches!(element, ArrayExpressionElement::SpreadElement(_)))
+        {
+            return None;
+        }
+        Some(array.elements.len())
+    }
+
     /// Return whether an empty array literal `[]` is assignable to `ty`.
     ///
     /// `[]` inhabits collection-shaped types (arrays/lists, sets, dictionaries)
@@ -3390,6 +3604,7 @@ impl<'builder> ModuleBuilder<'builder> {
         if Self::overload_signature_arity_matches(signature, arg_tys.len())
             && signature.rest.is_none()
             && !has_spread_argument
+            && Self::overload_param_lengths_are_proven(signature, arguments)
             && signature
                 .params
                 .iter()
@@ -3408,6 +3623,9 @@ impl<'builder> ModuleBuilder<'builder> {
             return arg_tys.is_empty();
         };
         if rest_index != fixed_params.len() {
+            return false;
+        }
+        if !Self::overload_param_lengths_are_proven(signature, arguments) {
             return false;
         }
         if arg_tys.len() < fixed_params.len() {
@@ -3506,6 +3724,7 @@ impl<'builder> ModuleBuilder<'builder> {
         OverloadSignature {
             type_params: signature.type_params,
             params,
+            param_lengths: signature.param_lengths,
             rest: signature.rest,
             min_rest: signature.min_rest,
             required_params: signature.required_params,
@@ -3547,6 +3766,18 @@ impl<'builder> ModuleBuilder<'builder> {
     /// `<T, K extends Keys<T>>(key: K) => (data: T) => ...` before `T` is
     /// known; the later callable context provides it. Enforcing `K`'s bound
     /// while `T` is still present rejects valid curried calls.
+    /// Peel the wrappers that do not decide a return's identity, then report
+    /// the type parameter the leaf names, if it is one.
+    fn return_leaf_type_param(&self, ty: smelt_hir::TypeId) -> Option<smelt_hir::Symbol> {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::TypeParam { name }) => Some(*name),
+            Some(Type::Future(inner) | Type::Optional(inner)) => {
+                self.return_leaf_type_param(*inner)
+            }
+            _ => None,
+        }
+    }
+
     pub(in crate::lowering) fn overload_constraint_contains_unresolved_type_param(
         &self,
         constraint: smelt_hir::TypeId,

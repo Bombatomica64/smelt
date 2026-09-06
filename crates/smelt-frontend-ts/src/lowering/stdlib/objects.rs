@@ -3,11 +3,12 @@
 
 use crate::lowering::ModuleBuilder;
 use crate::SmeltError;
-use oxc::ast::ast::{Argument, Expression, ObjectPropertyKind, PropertyKey};
+use oxc::ast::ast::{Argument, Expression};
 use oxc::span::GetSpan;
 use oxc::syntax::operator::{BinaryOperator, LogicalOperator};
 use smelt_hir::{
     BinOp, Body, DictProjectionOp, Expr, ExprKind, FunctionType, Literal, PrimitiveCastOp,
+    PropertyLookup,
     StringAffixOp, StringCaseOp, StringNormalizeForm, StringReplaceOp, StringSearchOp,
     Span, StringTrimSide, Type, UnknownKind,
 };
@@ -219,12 +220,12 @@ impl ModuleBuilder<'_> {
 
     /// Lower direct TypeScript `Object.keys`, `Object.values`, and `Object.entries` calls.
     ///
-    /// `Reflect.ownKeys(record)` is also routed here as `Object.keys`: for the
-    /// plain-record receivers es-toolkit inspects (the `isJSONValue` key walk and
-    /// the `pick` key projection) the two return the same string-key list, since
-    /// Smelt records carry no non-enumerable or symbol keys. Modeling it through
-    /// the existing `DictProjection` keeps a concrete `List<string>` instead of
-    /// leaving `Reflect` an unresolved identifier or erasing the result.
+    /// `Reflect.ownKeys(record)` is routed here too, as its own projection: it
+    /// reports symbol-keyed properties as well as string-keyed ones, and a
+    /// symbol-keyed property IS stored (under the `__smelt_symbol:` key form),
+    /// so it is not interchangeable with `Object.keys`. Its declared result is
+    /// `(string | symbol)[]`, which is why that arm alone yields
+    /// `List<Unknown>`; see [`Lowering::dict_projection_result_ty`].
     pub(in crate::lowering) fn object_projection_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -240,7 +241,7 @@ impl ModuleBuilder<'_> {
             ("Object", "keys") => DictProjectionOp::Keys,
             ("Object", "values") => DictProjectionOp::Values,
             ("Object", "entries") => DictProjectionOp::Entries,
-            ("Reflect", "ownKeys") => DictProjectionOp::Keys,
+            ("Reflect", "ownKeys") => DictProjectionOp::OwnKeys,
             _ => return Ok(None),
         };
         let [dict_argument] = call.arguments.as_slice() else {
@@ -305,6 +306,18 @@ impl ModuleBuilder<'_> {
             DictProjectionOp::FromEntries => return Ok(None),
             DictProjectionOp::Keys | DictProjectionOp::ForInKeys => {
                 self.ctx.krate.types.intern(Type::List(key_ty))
+            }
+            // `Reflect.ownKeys` is declared `(target: object) => (string |
+            // symbol)[]` in TypeScript's own lib, and a consumer discriminates
+            // the two kinds at run time (`typeof key === 'string'`). A
+            // `List<string>` element type is therefore not a narrowing but a
+            // falsehood: it drops the symbol keys and const-folds the caller's
+            // `typeof` guard. `Unknown` is the representation a symbol value
+            // already has everywhere else (see the `Symbols` arm below), and the
+            // dynamic index paths map that tag back to the storage key.
+            DictProjectionOp::OwnKeys => {
+                let own_key_ty = self.ctx.krate.types.intern(Type::Unknown);
+                self.ctx.krate.types.intern(Type::List(own_key_ty))
             }
             // A symbol-keyed property list holds symbol VALUES, not their
             // descriptions: the property key an erased record stores is
@@ -510,6 +523,24 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower `Object.create(proto)` to an erased object shaped from its prototype.
+    ///
+    /// Every prototype spelling takes the SAME path: the value is erased and
+    /// handed to the `smelt_object_from_prototype` runtime helper, which mints a
+    /// fresh object, copies the prototype's own keys behind the
+    /// `__smelt_proto:` prefix (so they resolve on a read but stay out of the
+    /// created object's own-key enumeration), and records the prototype value
+    /// itself so `Object.getPrototypeOf` can answer with the very object that
+    /// was passed in.
+    ///
+    /// Two shortcuts used to bypass it and both lost the prototype CHAIN, which
+    /// is observable: an object-literal prototype was inlined as
+    /// `__smelt_proto:` entries with no record of the parent, and a `null`
+    /// prototype folded to an empty object literal whose `[[Prototype]]` then
+    /// read back as `Object.prototype`. `Object.getPrototypeOf` must answer the
+    /// literal for the first and `null` for the second — the distinction
+    /// `isPlainObject` is built on (`Object.create({})` is not a plain object,
+    /// `Object.create(null)` is). Dropping both also makes a spread or computed
+    /// key in the prototype literal work, which the inlining rejected.
     pub(in crate::lowering) fn object_create_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -530,25 +561,9 @@ impl ModuleBuilder<'_> {
                 "Object.create requires exactly one prototype argument",
             ));
         };
-        if let Argument::ObjectExpression(prototype_object) = prototype {
-            return self.object_create_from_literal_prototype(call, prototype_object, body);
-        }
         let prototype = self.argument(prototype, body)?;
         let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
         let span = self.span(call.span.start, call.span.end);
-        if matches!(self.ctx.krate.types.get(Self::expr_ty(body, prototype)), Some(Type::None)) {
-            return Ok(Some(body.push_expr(Expr {
-                kind: ExprKind::DictLit(Vec::new()),
-                ty: unknown_ty,
-                span,
-            })));
-        }
-        // Any other prototype spelling goes through the runtime helper, which
-        // always mints a fresh object. Returning `prototype` itself (the previous
-        // behavior) aliased a concrete prototype and, for the opaque
-        // `"__smelt_proto:*"` sentinels `Object.getPrototypeOf` yields, handed the
-        // caller a string to assign fields onto — the shape
-        // `Object.assign(Object.create(Object.getPrototypeOf(obj)), obj)` needs.
         let prototype = if Self::expr_ty(body, prototype) == unknown_ty {
             prototype
         } else {
@@ -565,110 +580,6 @@ impl ModuleBuilder<'_> {
             kind: ExprKind::ObjectFromPrototype { prototype },
             ty: unknown_ty,
             span,
-        })))
-    }
-
-    /// Lower `Object.create({ ... })` while marking properties as inherited.
-    pub(in crate::lowering) fn object_create_from_literal_prototype(
-        &mut self,
-        call: &oxc::ast::ast::CallExpression<'_>,
-        prototype_object: &oxc::ast::ast::ObjectExpression<'_>,
-        body: &mut Body,
-    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let span = self.span(call.span.start, call.span.end);
-        let key_ty = self.ctx.krate.types.intern(Type::String);
-        let value_ty = self.ctx.krate.types.intern(Type::Unknown);
-        let dict_ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
-        let mut entries = Vec::new();
-        for property in &prototype_object.properties {
-            let ObjectPropertyKind::ObjectProperty(object_property) = property else {
-                return Err(SmeltError::unsupported(
-                    self.span(property.span().start, property.span().end),
-                    "Object.create prototype spread properties are not lowered yet",
-                ));
-            };
-            let Some(key_text) = self.static_object_property_key_text(object_property)? else {
-                return self.object_create_call_fallback(call, body);
-            };
-            let key = body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::String(format!("__smelt_proto:{key_text}"))),
-                ty: key_ty,
-                span: self.span(
-                    object_property.key.span().start,
-                    object_property.key.span().end,
-                ),
-            });
-            let value = self.object_property_value_expr(object_property, body, Some(value_ty))?;
-            entries.push((key, value));
-        }
-        let object_expr = body.push_expr(Expr {
-            kind: ExprKind::DictLit(entries),
-            ty: dict_ty,
-            span,
-        });
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
-        Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::UnknownCast {
-                value: object_expr,
-                target: unknown_ty,
-            },
-            ty: unknown_ty,
-            span,
-        })))
-    }
-
-    /// Return a static object-literal key when one is available.
-    pub(in crate::lowering) fn static_object_property_key_text(
-        &self,
-        object_property: &oxc::ast::ast::ObjectProperty<'_>,
-    ) -> Result<Option<String>, SmeltError> {
-        if object_property.computed {
-            return Ok(self.computed_string_literal_key(object_property));
-        }
-        match &object_property.key {
-            PropertyKey::StaticIdentifier(ident) => Ok(Some(ident.name.as_str().to_owned())),
-            PropertyKey::StringLiteral(lit) => Ok(Some(lit.value.to_string())),
-            PropertyKey::NumericLiteral(lit) => Ok(Some(lit.raw.as_ref().map_or_else(
-                || {
-                    if lit.value.fract() == 0.0_f64 {
-                        format!("{:.0}", lit.value)
-                    } else {
-                        lit.value.to_string()
-                    }
-                },
-                ToString::to_string,
-            ))),
-            _ => Err(SmeltError::unsupported(
-                self.span(
-                    object_property.key.span().start,
-                    object_property.key.span().end,
-                ),
-                "Object.create prototype keys must be static string keys or computed strings",
-            )),
-        }
-    }
-
-    /// Fall back to the broad erased `Object.create` approximation.
-    pub(in crate::lowering) fn object_create_call_fallback(
-        &mut self,
-        call: &oxc::ast::ast::CallExpression<'_>,
-        body: &mut Body,
-    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let [prototype] = call.arguments.as_slice() else {
-            return Ok(None);
-        };
-        let prototype = self.argument(prototype, body)?;
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
-        if Self::expr_ty(body, prototype) == unknown_ty {
-            return Ok(Some(prototype));
-        }
-        Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::UnknownCast {
-                value: prototype,
-                target: unknown_ty,
-            },
-            ty: unknown_ty,
-            span: self.span(call.span.start, call.span.end),
         })))
     }
 
@@ -796,43 +707,6 @@ impl ModuleBuilder<'_> {
             let _ = self.argument(argument, body)?;
         }
         let ty = self.ctx.krate.types.intern(Type::Unknown);
-        Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::None),
-            ty,
-            span: self.span(call.span.start, call.span.end),
-        })))
-    }
-
-    /// Lower lodash/fp `negate(predicate)` as an opaque boolean predicate function.
-    pub(in crate::lowering) fn lodash_negate_call(
-        &mut self,
-        call: &oxc::ast::ast::CallExpression<'_>,
-        body: &mut Body,
-    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let Expression::Identifier(callee) = &call.callee else {
-            return Ok(None);
-        };
-        if callee.name != "negate" || !self.imports.is_value("negate") {
-            return Ok(None);
-        }
-        let [predicate] = call.arguments.as_slice() else {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                "negate requires exactly one predicate argument",
-            ));
-        };
-        let _ = self.argument(predicate, body)?;
-        let param_ty = self.ctx.krate.types.intern(Type::Unknown);
-        let return_ty = self.ctx.krate.types.intern(Type::Bool);
-        let ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
-            params: vec![param_ty],
-            rest: None,
-            required_params: None,
-                    mutable_params: Vec::new(),
-return_ty,
-            is_async: false,
-                            may_throw: false,
-        }));
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::None),
             ty,
@@ -1218,10 +1092,41 @@ return_ty,
             });
             dict_shape_ty = self.type_param_constraint_or_self(inner);
         }
-        // `Object.hasOwn(array, index)` checks whether a (numeric) index is a
-        // present element, i.e. `0 <= index < array.length`. Arrays are not
-        // records, so this lowers to an in-bounds comparison rather than a
-        // dictionary key lookup.
+        // `Object.hasOwn(array, index)` with a NUMERIC key checks whether that
+        // index is a present element, i.e. `0 <= index < array.length`, which is
+        // a comparison rather than a dictionary lookup.
+        //
+        // A non-numeric key is a different question. A JavaScript array is an
+        // exotic object whose own keys are its indices AND its named properties
+        // (`Object.hasOwn(/c/.exec(s), 'index')` is `true` — a match result is an
+        // array carrying `index`/`input`/`groups`), and only the runtime knows
+        // which names the array holds. Such a receiver is therefore erased and
+        // asked, exactly as an already-erased array receiver is: the erasure
+        // aliases the array's identity, which is what the named-property table is
+        // keyed by, so the typed handle and the erased view answer alike. Before
+        // this the in-bounds comparison ran on every key, and a string key
+        // parsed to `NaN` and answered a constant `false`.
+        if matches!(self.ctx.krate.types.get(dict_shape_ty), Some(Type::List(_)))
+            && !matches!(
+                self.ctx
+                    .krate
+                    .types
+                    .get(self.type_param_constraint_or_self(Self::expr_ty(body, key))),
+                Some(Type::Int | Type::Float)
+            )
+        {
+            let span = self.span(call.span.start, call.span.end);
+            let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+            dict = body.push_expr(Expr {
+                kind: ExprKind::UnknownCast {
+                    value: dict,
+                    target: unknown_ty,
+                },
+                ty: unknown_ty,
+                span,
+            });
+            dict_shape_ty = unknown_ty;
+        }
         if matches!(self.ctx.krate.types.get(dict_shape_ty), Some(Type::List(_))) {
             let span = self.span(call.span.start, call.span.end);
             let float_ty = self.ctx.krate.types.intern(Type::Float);
@@ -1347,7 +1252,11 @@ return_ty,
         }
         let ty = self.ctx.krate.types.intern(Type::Bool);
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::DictContainsKey { dict, key },
+            kind: ExprKind::DictContainsKey {
+                dict,
+                key,
+                lookup: PropertyLookup::Own,
+            },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))

@@ -110,6 +110,7 @@ impl LoweringCtx<'_> {
             | ExprKind::GlobalSet { .. }
             | ExprKind::Call { .. }
             | ExprKind::ClosureCall { .. }
+            | ExprKind::Construct { .. }
             | ExprKind::ClosureCallSpread { .. }
             | ExprKind::Method { .. }
             | ExprKind::OptionalField { .. }
@@ -239,12 +240,15 @@ impl LoweringCtx<'_> {
             | ExprKind::DateNow
             | ExprKind::DateSetNow { .. }
             | ExprKind::DateResetNow
+            | ExprKind::VitestRestoreAllMocks
             | ExprKind::DateTimezoneOffset
             | ExprKind::DateSetTimezoneOffset { .. }
             | ExprKind::DateResetTimezoneOffset
             | ExprKind::VitestMockFn { .. }
             | ExprKind::VitestMockCalledTimes { .. }
             | ExprKind::VitestMockCalledWith { .. }
+            | ExprKind::VitestSpyOn { .. }
+            | ExprKind::VitestAsymmetricEqual { .. }
             | ExprKind::VitestMockLastResolvedWith { .. }
             | ExprKind::DateTimezoneContext { .. }
             | ExprKind::DateToIsoString { .. }
@@ -268,6 +272,7 @@ impl LoweringCtx<'_> {
             | ExprKind::Conditional { .. }
             | ExprKind::FunctionTableLookup { .. }
             | ExprKind::InstanceOf { .. }
+            | ExprKind::InstanceOfValue { .. }
             | ExprKind::UnknownIs { .. }
             | ExprKind::TypeofValue { .. }
             | ExprKind::PrototypeSentinel { .. }

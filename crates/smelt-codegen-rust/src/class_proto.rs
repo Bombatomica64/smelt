@@ -158,8 +158,40 @@ pub(crate) fn method_is_proto_eligible(
     }
     function.params.iter().skip(1).all(|param| {
         local_decl(function, *param)
-            .is_some_and(|local| type_supports_from_unknown(mir, local.ty))
+            .is_some_and(|local| type_supports_from_unknown(mir, context, local.ty))
     })
+}
+
+/// The prelude expression yielding the canonical identity of one class method.
+///
+/// A method reference read off an instance has to capture its receiver to stay
+/// callable, so every read allocates a fresh `Rc` and reference equality on the
+/// allocation address answers `false`. JavaScript disagrees: the method lives
+/// once on the prototype, so `a.m === b.m === C.prototype.m`. Linking each
+/// freshly built adapter to ONE canonical id per (defining class, method) makes
+/// the generated answer match — while `a.m.bind(a)` stays a distinct value,
+/// because binding builds a wrapper that is never linked here.
+///
+/// Keyed by the *defining* class, taken from the method's [`HirOrigin`], so a
+/// method a subclass inherits resolves to the same identity as the base's own
+/// read — again exactly the prototype-chain answer.
+pub(crate) fn method_identity_text(
+    mir: &Mir,
+    function: &MirFunction,
+) -> Result<Option<String>, EmitError> {
+    let HirOrigin::ClassMethod { class, method, .. } = function.origin else {
+        return Ok(None);
+    };
+    let class_name = mir
+        .symbols
+        .get(class)
+        .ok_or_else(|| EmitError::new("class method references an unknown class symbol"))?;
+    let method_name = mir
+        .symbols
+        .get(method)
+        .ok_or_else(|| EmitError::new("class method references an unknown symbol"))?;
+    let key = format!("{class_name}::{method_name}");
+    Ok(Some(format!("smelt_method_identity({key:?})")))
 }
 
 /// Render the erased adapter expression for one eligible method.
@@ -196,10 +228,23 @@ fn method_adapter_text(
     } else {
         record_field_unknown_text(mir, "smelt_result", function.return_ty)?
     };
-    Ok(format!(
-        "SmeltUnknown::Function(::std::rc::Rc::new({{ let smelt_receiver = self.clone(); \
+    // The adapter is a fresh allocation per erasure, but it denotes the ONE
+    // prototype method; link it to that method's canonical identity so
+    // `instance.m === OtherInstance.m` answers `true` as it does in JavaScript.
+    let identity = method_identity_text(mir, function)?;
+    let body = format!(
+        "{{ let smelt_receiver = self.clone(); \
          move |smelt_args: Vec<SmeltUnknown>| {{ let _ = &smelt_args; \
-         let smelt_result = {call}; Ok({result}) }} }}))"
+         let smelt_result = {call}; Ok({result}) }} }}"
+    );
+    let Some(identity) = identity else {
+        return Ok(format!(
+            "SmeltUnknown::Function(::std::rc::Rc::new({body}))"
+        ));
+    };
+    Ok(format!(
+        "{{ let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({body}); \
+         smelt_link_function_identity_key(&smelt_method, {identity}); SmeltUnknown::Function(smelt_method) }}"
     ))
 }
 

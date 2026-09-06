@@ -491,7 +491,9 @@ impl ModuleBuilder<'_> {
             .map(|field| Field {
                 name: field.name,
                 ty: field.ty,
-                visibility: Visibility::Private,
+                // Synthesized descriptor storage, not a source attribute, so it
+                // must stay out of the erased object view.
+                visibility: Visibility::Hidden,
                 optional: false,
                 span,
             })

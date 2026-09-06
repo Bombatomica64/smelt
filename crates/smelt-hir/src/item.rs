@@ -25,14 +25,41 @@ pub enum Item {
 }
 
 /// Visibility modifier for items.
+///
+/// The three source-level modifiers (`Public`, `Private`, `Protected`) are
+/// *compile-time* restrictions: a TypeScript `private x` (like a Python `_x`)
+/// is an ordinary own property of the instance at runtime, only the type
+/// checker refuses to name it from outside the class. `Hidden` is the separate,
+/// stronger notion: a slot that is not an own property at all, so it must stay
+/// invisible to the erased object view, key enumeration, JSON and structural
+/// equality. Use [`Visibility::is_own_property`] rather than matching `Private`
+/// when the question is "does this field exist at runtime?".
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Visibility {
     /// Public visibility.
     Public,
-    /// Private visibility.
+    /// Private visibility: a compile-time restriction over a real own property.
     Private,
-    /// Protected visibility.
+    /// Protected visibility: a compile-time restriction over a real own property.
     Protected,
+    /// Not an own property at runtime. Covers a JavaScript `#name` private
+    /// field (which is a private *name*, not a string-keyed property) and
+    /// compiler-synthesized storage slots such as
+    /// [`crate::CLASS_INDEX_STORE_FIELD`].
+    Hidden,
+}
+
+impl Visibility {
+    /// Whether a field with this visibility is an own property of the instance
+    /// at runtime, and therefore participates in the erased object view,
+    /// `Object.keys`, `JSON.stringify` and structural equality.
+    ///
+    /// Every source-level modifier answers `true`; only [`Visibility::Hidden`]
+    /// answers `false`.
+    #[must_use]
+    pub const fn is_own_property(self) -> bool {
+        !matches!(self, Self::Hidden)
+    }
 }
 
 /// Distinguishes how a class gets its shape.

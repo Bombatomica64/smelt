@@ -2,7 +2,7 @@
 
 use std::fmt::Write as _;
 
-use crate::expr::{AsyncOp, Expr, ExprKind};
+use crate::expr::{AsyncOp, Expr, ExprKind, PropertyLookup};
 use crate::ids::ExprId;
 use crate::krate::Crate;
 
@@ -39,6 +39,7 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::ThisRead
         | ExprKind::BindThis { .. }
         | ExprKind::ClosureCall { .. }
+        | ExprKind::Construct { .. }
         | ExprKind::ClosureCallSpread { .. }
         | ExprKind::Method { .. }
         | ExprKind::New { .. } => call_like_expr_text(krate, expr),
@@ -690,8 +691,16 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::TupleContains { tuple, item } => {
             format!("tuple_contains {}, {}", expr_ref(*tuple), expr_ref(*item))
         }
-        ExprKind::DictContainsKey { dict, key } => {
-            format!("dict_contains_key {}, {}", expr_ref(*dict), expr_ref(*key))
+        ExprKind::DictContainsKey { dict, key, lookup } => {
+            let reach = match lookup {
+                PropertyLookup::Own => "own",
+                PropertyLookup::PrototypeChain => "chain",
+            };
+            format!(
+                "dict_contains_key {}, {}, {reach}",
+                expr_ref(*dict),
+                expr_ref(*key)
+            )
         }
         ExprKind::DictSet { dict, key, value } => {
             format!(
@@ -763,6 +772,7 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             let op_name = match op {
                 crate::expr::DictProjectionOp::FromEntries => "from_entries",
                 crate::expr::DictProjectionOp::Keys => "keys",
+                crate::expr::DictProjectionOp::OwnKeys => "own_keys",
                 crate::expr::DictProjectionOp::ForInKeys => "for_in_keys",
                 crate::expr::DictProjectionOp::Symbols => "symbols",
                 crate::expr::DictProjectionOp::Values => "values",
@@ -794,6 +804,7 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::DateNow => "date_now".to_owned(),
         ExprKind::DateSetNow { timestamp } => format!("date_set_now {}", expr_ref(*timestamp)),
         ExprKind::DateResetNow => "date_reset_now".to_owned(),
+        ExprKind::VitestRestoreAllMocks => "vitest_restore_all_mocks".to_owned(),
         ExprKind::DateTimezoneOffset => "date_timezone_offset".to_owned(),
         ExprKind::DateSetTimezoneOffset { offset } => {
             format!("date_set_timezone_offset {}", expr_ref(*offset))
@@ -816,6 +827,14 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 .map(|arg| expr_ref(*arg))
                 .collect::<Vec<_>>()
                 .join(", ")
+        ),
+        ExprKind::VitestSpyOn { target, name } => {
+            format!("vitest_spy_on {} {}", expr_ref(*target), expr_ref(*name))
+        }
+        ExprKind::VitestAsymmetricEqual { actual, expected } => format!(
+            "vitest_asymmetric_equal {} {}",
+            expr_ref(*actual),
+            expr_ref(*expected)
         ),
         ExprKind::VitestMockLastResolvedWith { mock, expected } => format!(
             "vitest_mock_last_resolved_with {} {}",
@@ -926,6 +945,9 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::InstanceOf { value, class } => {
             format!("instanceof {}, class{}", expr_ref(*value), class.0)
         }
+        ExprKind::InstanceOfValue { value, target } => {
+            format!("instanceof {}, {}", expr_ref(*value), expr_ref(*target))
+        }
         ExprKind::UnknownIs { value, kind } => {
             format!("unknown_is {kind:?} {}", expr_ref(*value))
         }
@@ -1033,6 +1055,10 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::ClosureCall { callee, args } => {
             let arg_text = expr_list_text(args);
             format!("closure_call {}({arg_text})", expr_ref(*callee))
+        }
+        ExprKind::Construct { callee, args } => {
+            let arg_text = expr_list_text(args);
+            format!("construct {}({arg_text})", expr_ref(*callee))
         }
         ExprKind::ClosureCallSpread { callee, args } => {
             format!("closure_call {}(...{})", expr_ref(*callee), expr_ref(*args))

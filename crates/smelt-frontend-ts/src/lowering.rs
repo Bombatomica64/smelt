@@ -93,10 +93,7 @@ impl ConstLiteral {
             Literal::String(value) => Some(value.clone()),
             Literal::Int(value) => Some(value.to_string()),
             Literal::Float(value) => Some(ModuleBuilder::numeric_property_key_name(*value)),
-            Literal::Symbol(value) => {
-                ty::computed_key_symbols::registry_description_of_symbol_literal(value)
-                    .map(ty::computed_key_symbols::registry_symbol_key)
-            }
+            Literal::Symbol(value) => Self::symbol_literal_member_name(value),
             Literal::Bool(_) | Literal::Undefined | Literal::None => None,
         }
     }
@@ -110,12 +107,27 @@ impl ConstLiteral {
     /// every non-registry-symbol constant.
     fn symbol_registry_name(&self) -> Option<String> {
         match &self.literal {
-            Literal::Symbol(value) => {
-                ty::computed_key_symbols::registry_description_of_symbol_literal(value)
-                    .map(ty::computed_key_symbols::registry_symbol_key)
-            }
+            Literal::Symbol(value) => Self::symbol_literal_member_name(value),
             _ => None,
         }
+    }
+
+    /// Return the synthetic member key a symbol *value* spelling indexes.
+    ///
+    /// Two spellings fold, for the same reason: they name a globally fixed
+    /// symbol. A `Symbol.for(<description>)` registry symbol maps through
+    /// `registry_symbol_key`, and a well-known `Symbol.<name>` value maps
+    /// through the shared well-known table — so `const s = Symbol.iterator;
+    /// ({ [s]: 1 })` declares the very member an inline `[Symbol.iterator]` key
+    /// declares. A unique `Symbol('d')` carries a span-tagged spelling and has
+    /// fresh identity per evaluation, so it never folds.
+    fn symbol_literal_member_name(spelling: &str) -> Option<String> {
+        if let Some(description) =
+            ty::computed_key_symbols::registry_description_of_symbol_literal(spelling)
+        {
+            return Some(ty::computed_key_symbols::registry_symbol_key(description));
+        }
+        ty::computed_key_symbols::well_known_key_of_symbol_literal(spelling)
     }
 }
 
@@ -194,6 +206,15 @@ struct AssertionNarrowing {
 struct LocalCallback {
     /// Root span identifying the lexical body that owns the materialized closure.
     defining_body_span: Option<Span>,
+    /// Whether the binding's local also HOLDS the closure value at runtime.
+    ///
+    /// A local callback is normally inlined at each use, which keeps a call
+    /// concrete (and a generic callback instantiable per call site) but gives
+    /// the binding's local no value. When the declaration additionally
+    /// materializes the closure into that local, the binding is a real function
+    /// value with observable JavaScript identity, and a reference must read it
+    /// instead of rebuilding a second closure.
+    materialized: bool,
     /// Lowered callback expression tree.
     callback: CallbackExpr,
     /// Parameter types in source order.
@@ -597,6 +618,34 @@ struct ModuleBuilder<'ctx> {
     current_statement_block: Option<smelt_hir::BlockId>,
     /// Postfix updates waiting for the variable initializer that reads their original value.
     deferred_postfix_updates: Option<Vec<Stmt>>,
+    /// Number of vitest asymmetric matchers (`expect.any`, `expect.arrayContaining`,
+    /// ...) lowered so far in this module.
+    ///
+    /// A matcher is a VALUE, so it can sit anywhere inside an expected value —
+    /// nested in an object literal, in an array, as one argument of
+    /// `toHaveBeenCalledWith`. Its presence is what decides whether a deep
+    /// equality matcher compares structurally or asks the matcher; comparing the
+    /// counter before and after lowering one operand answers that exactly,
+    /// without re-walking the argument's syntax looking for the spelling.
+    asymmetric_matchers_lowered: usize,
+    /// Names whose local was reserved by
+    /// [`Self::predeclare_forward_referenced_locals`] because a closure in an
+    /// EARLIER statement of the same list already reads them. The declaration
+    /// must then assign INTO that reserved local instead of pushing a second
+    /// one, or the earlier capture would observe a slot nothing ever writes.
+    /// An entry is consumed by the declaration that fills it.
+    forward_referenced_locals: HashSet<String>,
+    /// Names of the local `function` declarations whose OWN body is currently
+    /// being lowered, innermost last.
+    ///
+    /// A function cannot name itself as a value from inside its own body: the
+    /// closure would have to capture the value being constructed, which needs a
+    /// self-referential capture Smelt does not have. `this instanceof wrapper`
+    /// read from inside `wrapper` (the JavaScript idiom for "was I invoked with
+    /// `new`?") is the shape that asks for it, so
+    /// [`Self::instanceof_expression`] consults this stack instead of emitting a
+    /// reference the body cannot resolve.
+    defining_local_functions: Vec<String>,
     /// Whether type-test-only lowering may index erased unknown metadata.
     allow_unknown_index_access: bool,
     /// Whether a lifted specialization callable keeps its concrete `this` type through assertions.
@@ -608,6 +657,14 @@ struct ModuleBuilder<'ctx> {
     /// See [`state::import_scope::ImportScope`] for what it does and does not
     /// guarantee about those sets.
     imports: state::import_scope::ImportScope,
+    /// Local name each renamed `export { local as exported }` specifier exports.
+    ///
+    /// Keyed by exported spelling. Re-export specifiers are collected in a
+    /// prepass that runs before statement lowering, so a fact discovered about
+    /// the local *later* (such as "this const binds the ambient global object")
+    /// has to be projected onto the exported spelling once lowering finishes;
+    /// this map is what makes that projection possible.
+    export_renames: HashMap<String, String>,
     /// Object constants that act as namespace-like API surfaces.
     object_namespaces: HashMap<String, HashMap<String, smelt_hir::ItemId>>,
     /// Folded constant values visible to this module: literals, `enum` members,

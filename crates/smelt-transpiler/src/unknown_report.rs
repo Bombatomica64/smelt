@@ -594,7 +594,7 @@ fn classify_line(line: &str, in_prelude_helper: bool) -> Category {
 ///
 /// See [`classify_line`] rule 2 for the rationale behind each marker.
 fn is_legitimate_boundary_line(line: &str) -> bool {
-    const BOUNDARY_MARKERS: [&str; 18] = [
+    const BOUNDARY_MARKERS: [&str; 19] = [
         "SmeltUnknown::Function",
         "SmeltUnknown::Promise",
         "IntoSmeltUnknown",
@@ -696,6 +696,21 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // `crates/smelt-codegen-rust/tests/erased_class_method_runtime.rs`.
         "__smelt_proto_entries",
         "smelt_proto_entries",
+        // The canonical erased property read
+        // (`crates/smelt-codegen-rust/src/lib.rs`, `smelt_get_unknown_field`):
+        // a member looked up by STRING NAME on a value whose static type is
+        // `unknown` (or an optional / union receiver that erases to it), which
+        // dispatches on the `SmeltUnknown` variant at runtime — an object's own
+        // entries, an array's named-property side table, a function's property
+        // bag, the `Object.prototype` fallback. That is the "values inspected
+        // through runtime narrowing" case verbatim: the receiver's shape is
+        // decided by the value, so no concrete struct field, generated union
+        // arm, or scoped generic can name the member ahead of time. Before every
+        // erased read went through this one helper, the same sites inlined a
+        // `match` whose `SmeltUnknown::Function(smelt_getter)` getter arm carried
+        // the classification; the helper call is the same boundary, now spelled
+        // once. Proven in `erased_property_read_is_a_boundary` below.
+        "smelt_get_unknown_field(",
     ];
 
     // A JavaScript update-expression (`x++`/`++x`) used as a value snapshots its
@@ -933,6 +948,27 @@ mod tests {
             "the erased callable-object call ABI is a runtime-dispatch boundary"
         );
         let storage = "    let values: SmeltList<SmeltUnknown> = SmeltList::new(Vec::new());";
+        assert_eq!(
+            classify_line(storage, false),
+            Category::AvoidableErasure,
+            "ordinary erased storage must stay avoidable"
+        );
+    }
+
+    /// A property read through the erased chain is a boundary.
+    ///
+    /// The receiver is `unknown`, so the member is resolved by runtime
+    /// narrowing on the value's variant; an ordinary erased local next to it
+    /// stays avoidable, so the marker does not widen past the read.
+    #[test]
+    fn erased_property_read_is_a_boundary() {
+        let read = "    let groups: SmeltUnknown = smelt_get_unknown_field(::std::borrow::Borrow::borrow(&smelt_match), \"groups\");";
+        assert_eq!(
+            classify_line(read, false),
+            Category::LegitimateBoundary,
+            "a member looked up by name on an erased receiver is runtime narrowing"
+        );
+        let storage = "    let mut matches: Vec<SmeltUnknown> = Vec::new();";
         assert_eq!(
             classify_line(storage, false),
             Category::AvoidableErasure,

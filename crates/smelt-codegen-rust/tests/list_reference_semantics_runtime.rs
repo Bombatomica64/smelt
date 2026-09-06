@@ -320,3 +320,47 @@ test("a self-referential array holds itself, not a snapshot of itself", () => {
 "#;
     run_list_fixture(source, "list_erasure_shares");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_by_reference_argument_whose_element_type_only_looks_different_still_aliases() {
+    // The caller's array is `unknown[]`; the callee's parameter is a generic
+    // `T[]` the callee ended up rendering erased. Those are two different MIR
+    // `TypeId`s and ONE Rust type (`SmeltList<SmeltUnknown>`), so the
+    // list-to-list coercion, which keyed on `TypeId` inequality, rebuilt the
+    // buffer -- a fresh `Rc<RefCell<Vec<_>>>`. The callee then spliced a
+    // temporary and the caller's array never changed, which is how es-toolkit's
+    // in-place `remove` silently did nothing.
+    //
+    // Nothing needs converting when the two element types render alike, so the
+    // argument must be the caller's own list.
+    let source = r#"
+import { test, expect } from "vitest";
+function dropNullish<T>(target: T[]): T[] {
+  const removed: T[] = [];
+  for (let i = target.length - 1; i >= 0; i--) {
+    if (target[i] === undefined) {
+      removed.push(target[i]);
+      target.splice(i, 1);
+    }
+  }
+  return removed;
+}
+function appendTo<T>(target: T[], value: T): void {
+  target.push(value);
+}
+test("an in-place removal through an erased-element parameter is observed", () => {
+  const values: unknown[] = [1, undefined, 3, undefined, 5];
+  const removed = dropNullish(values);
+  expect(values).toEqual([1, 3, 5]);
+  expect(removed.length).toBe(2);
+});
+test("an in-place push through an erased-element parameter is observed", () => {
+  const values: unknown[] = [1];
+  appendTo(values, 2);
+  expect(values.length).toBe(2);
+  expect(values[1]).toBe(2);
+});
+"#;
+    run_list_fixture(source, "list_identity_coercion_aliases");
+}

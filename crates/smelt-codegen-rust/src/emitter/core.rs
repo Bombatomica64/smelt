@@ -2487,7 +2487,7 @@ impl<'mir> FunctionEmitter<'mir> {
         args: &[Operand],
     ) -> Result<String, EmitError> {
         if let Some(Type::Function(function)) = self.mir.types.get(self.operand_ty(callee)?)
-            && let Some(0) = function.rest
+            && function.rest == Some(0)
             && let [rest_param] = function.params.as_slice()
             && let [packed] = args
             && self.operand_ty(packed)? == *rest_param
@@ -3632,6 +3632,20 @@ impl<'mir> FunctionEmitter<'mir> {
             target_return_ty,
             &substitution,
         );
+        // An adapter whose body is placed inside `Box::pin(async move ..)`
+        // rebinds every by-reference parameter to an owned clone before the body
+        // runs (see `owned_arg_bindings` below, and the E0521 it avoids). That
+        // rebinding changes what `argN` NAMES inside the body -- an owned value,
+        // not a borrow -- so the forwarding built below has to be written against
+        // that effective form. Computing it after the forwarding, as this used to,
+        // left the zero-copy arm handing an owned value to a callback declared to
+        // take a reference (E0308).
+        let source_type_text_for_params =
+            self.type_text_with_impl_trait(self.operand_ty(operand)?, false)?;
+        let body_is_static_future = source.is_async
+            || matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_)))
+            || source_type_text_for_params.contains("Future<Output")
+            || matches!(self.mir.types.get(target_return_ty), Some(Type::Future(_)));
         let forwarded = source
             .params
             .iter()
@@ -3719,16 +3733,27 @@ impl<'mir> FunctionEmitter<'mir> {
                     );
                     let wrapped_takes_reference =
                         self.callback_param_is_shared_reference(source, index, *source_param);
+                    // A declared reference an async adapter has already rebound to
+                    // an owned clone is, inside the body, an owned value.
+                    let declared_reference_is_owned_in_body =
+                        declares_reference && body_is_static_future;
                     // The zero-copy path, and the reason the ABI exists: the same
-                    // by-reference type on both sides forwards the borrow untouched.
+                    // by-reference type on both sides forwards the borrow untouched --
+                    // re-borrowing the owned rebinding where there is one.
                     if declares_reference && wrapped_takes_reference && declared == *source_param {
-                        return Ok(format!("arg{index}"));
+                        return Ok(if declared_reference_is_owned_in_body {
+                            format!("&arg{index}")
+                        } else {
+                            format!("arg{index}")
+                        });
                     }
                     // Otherwise a conversion runs, and every conversion arm is written
                     // against an owned value — so a declared reference is copied back
                     // into one first. That copy is per CALL of the adapter, and only
-                    // where the two sides genuinely disagree about the type.
-                    let source_text = if declares_reference {
+                    // where the two sides genuinely disagree about the type; a
+                    // parameter the async rebinding already owns needs no second copy.
+                    let source_text = if declares_reference && !declared_reference_is_owned_in_body
+                    {
                         format!("arg{index}.clone()")
                     } else {
                         format!("arg{index}")
@@ -4024,8 +4049,6 @@ impl<'mir> FunctionEmitter<'mir> {
         // by-VALUE ABI used to hand the body — which happens per CALL and only for
         // the async adapters, not for the synchronous per-element ones the
         // by-reference ABI exists to speed up.
-        let body_is_static_future = source_returns_future
-            || matches!(self.mir.types.get(target_return_ty), Some(Type::Future(_)));
         let owned_arg_bindings: Vec<String> = if body_is_static_future {
             target_function
                 .params
@@ -4217,6 +4240,44 @@ impl<'mir> FunctionEmitter<'mir> {
         ))
     }
 
+    /// Registration text linking an erased callable to the class it constructs.
+    ///
+    /// Erasing `class X extends Host {}` to a callable value drops the one thing
+    /// `instanceof` needs: which class the callable constructs. The instances
+    /// record their own class (`__smelt_class`), so the callable records the
+    /// class names whose instances belong to it — the class itself plus every
+    /// subclass declared in this crate, resolved here where the hierarchy is
+    /// known rather than by a runtime class-graph walk.
+    ///
+    /// Empty text unless the callable returns a class AND this crate has host
+    /// override slots, since the registry only exists (and is only consulted)
+    /// there: a crate that never reassigns a host global emits byte-identical
+    /// output.
+    fn constructed_class_registration_text(&self, return_ty: TypeId) -> String {
+        let Some(Type::Class { name, .. }) = self.mir.types.get(return_ty) else {
+            return String::new();
+        };
+        if crate::stdlib::host_override_slot_names(self.mir).is_empty() {
+            return String::new();
+        }
+        let Ok(class_name) = self.symbol_source_name(*name) else {
+            return String::new();
+        };
+        let mut classes = vec![format!("{class_name:?}")];
+        for class in &self.mir.classes {
+            if class.name != *name
+                && self.class_extends_or_equals(class.name, *name)
+                && let Ok(subclass_name) = self.symbol_source_name(class.name)
+            {
+                classes.push(format!("{subclass_name:?}"));
+            }
+        }
+        format!(
+            "smelt_register_function_classes(&smelt_erased_fn, &[{}]); ",
+            classes.join(", ")
+        )
+    }
+
     /// Adapts a concrete callback to the erased JavaScript callback surface.
     pub(super) fn rest_vector_unknown_adapter_text(
         &self,
@@ -4246,9 +4307,10 @@ impl<'mir> FunctionEmitter<'mir> {
                 // the last point that knows both the arity and the allocation it
                 // belongs to. es-toolkit `rest(func)` reads `func.length` off
                 // exactly this adapter.
-                "{{ let smelt_source_fn = {function_text}.clone(); let smelt_callback = smelt_source_fn.clone(); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = {inner}; smelt_link_function_identity(&smelt_erased_fn, &smelt_source_fn); {register}(&smelt_erased_fn, {length}.0); smelt_erased_fn }}",
+                "{{ let smelt_source_fn = {function_text}.clone(); let smelt_callback = smelt_source_fn.clone(); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = {inner}; smelt_link_function_identity(&smelt_erased_fn, &smelt_source_fn); {register}(&smelt_erased_fn, {length}.0); {class_registration}smelt_erased_fn }}",
                 register = smelt_stdlib::runtime_symbols::function_length::REGISTER,
                 length = self.operand_function_length(operand)?,
+                class_registration = self.constructed_class_registration_text(source.return_ty),
             )));
         }
         // Non-owned (function-parameter) path: invoke the callback by its operand
@@ -5148,6 +5210,7 @@ pub(super) fn rvalue_uses_local(value: &Rvalue, local: LocalId) -> bool {
         | Rvalue::DictContainsKey {
             dict: lhs,
             key: rhs,
+            ..
         }
         | Rvalue::StringJoin {
             items: lhs,
@@ -5244,6 +5307,12 @@ pub(super) fn rvalue_uses_local(value: &Rvalue, local: LocalId) -> bool {
         }
         Rvalue::VitestMockLastResolvedWith { mock, expected } => {
             operand_uses_local(mock, local) || operand_uses_local(expected, local)
+        }
+        Rvalue::VitestAsymmetricEqual { actual, expected } => {
+            operand_uses_local(actual, local) || operand_uses_local(expected, local)
+        }
+        Rvalue::VitestSpyOn { target, name } => {
+            operand_uses_local(target, local) || operand_uses_local(name, local)
         }
         // A receiver bind reads BOTH the callable it wraps and the receiver it
         // installs. The callee is very often a closure temp whose only use is

@@ -679,10 +679,10 @@ const first = bag["0"];
 "#,
     );
 
+    // An array's own-key view is its element indices followed by the named
+    // properties in its side table, which is exactly `own_entries`.
     assert!(
-        source.contains(
-            "SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect()"
-        ),
+        source.contains("SmeltUnknown::Array(values) => values.own_entries().into_iter().collect()"),
         "{source}"
     );
 }
@@ -717,14 +717,17 @@ const entries = Object.entries(bag);
 ",
     );
 
+    // Recovering an erased object at its record type hands back a second
+    // handle on the object's OWN field store, which carries the key order (and
+    // the reference identity) rather than re-deriving either.
     assert!(
-        source.contains("fn with_id_from_entries<I: IntoIterator<Item = (K, V)>>"),
+        source.contains(
+            "fn smelt_shared_record(&self) -> SmeltRecord<String, SmeltUnknown> { SmeltRecord { id: self.id, store: ::std::rc::Rc::clone(&self.store) } }"
+        ),
         "{source}"
     );
     assert!(
-        source.contains(
-            "SmeltUnknown::Object(value) => SmeltRecord::with_id_from_entries(value.id, value.into_iter())"
-        ),
+        source.contains("SmeltUnknown::Object(value) => value.smelt_shared_record()"),
         "{source}"
     );
 }
@@ -3038,11 +3041,14 @@ function widen(values: unknown[]): number {
 
     // `values.length` lowers to `values.len() as f64`; the coercion seam must
     // not wrap the cast in defensive parentheses, which the compiler flags as
-    // `unused_parens` wherever the value stands alone.
-    assert!(source.contains("as f64"), "{source}");
+    // `unused_parens` wherever the value stands alone. Checked on the emitted
+    // FUNCTION BODY: the runtime prelude legitimately parenthesizes the same
+    // cast where it is an argument (`SmeltUnknown::Number(values.len() as f64)`).
+    let body = emitted_function_body(&source, "fn widen");
+    assert!(body.contains("as f64"), "{body}");
     assert!(
-        !source.contains("(values.len() as f64)"),
-        "int-to-float coercion should not wrap the cast in parentheses: {source}"
+        !body.contains("(values.len() as f64)"),
+        "int-to-float coercion should not wrap the cast in parentheses: {body}"
     );
 }
 
@@ -3295,8 +3301,14 @@ function hasLength(value: unknown): boolean {
     );
 
     assert!(
-        source.contains("SmeltUnknown::Array(values) => smelt_key == \"length\""),
-        "{source}"
+        source.contains("smelt_has_own_property("),
+        "`Object.hasOwn` must ask the own-property authority:\n{source}"
+    );
+    assert!(
+        source.contains(
+            "SmeltUnknown::Array(values) => key == \"length\" || values.named_keys().contains(&key.to_owned())"
+        ),
+        "an array's `length` and named keys are own properties:\n{source}"
     );
     // The `hasOwn` lowering must inspect the erased value directly, not cast it
     // into a typed record. Scope the check to the emitted `has_length` function
@@ -4459,9 +4471,14 @@ function makeMapper(): (value: number) => number {
         source.contains("fn make_mapper() -> ::std::rc::Rc<dyn Fn(f64) -> f64>"),
         "{source}"
     );
+    // The returned value is the BINDING, not a second closure: a function value
+    // has observable JavaScript identity, so `mapper` is materialized once and
+    // read back. Either spelling of that read is fine; what matters is that the
+    // return is an `Rc<dyn Fn>` (asserted above) rather than an unboxed closure.
     assert!(
         source.contains("return ::std::rc::Rc::new(")
-            || source.contains("return _smelt_tmp_2.clone()"),
+            || source.contains("return _smelt_tmp_2.clone()")
+            || source.contains("return mapper.clone()"),
         "{source}"
     );
 }
@@ -5135,7 +5152,14 @@ function select(value: unknown, context?: (value: unknown) => unknown): unknown 
 
     assert!(source.contains(".map_or_else("), "{source}");
     assert!(source.contains("SmeltUnknown::Function"), "{source}");
-    assert!(!source.contains(".is_some() ||"), "{source}");
+    // Scoped to the emitted function: the runtime prelude's own-property
+    // authority spells its own `.is_some() ||` for the byte-view element probe,
+    // which is unrelated to this program's selection.
+    let function_body = source
+        .split("fn select")
+        .nth(1)
+        .expect("generated source defines select");
+    assert!(!function_body.contains(".is_some() ||"), "{source}");
 }
 
 #[test]
@@ -5610,10 +5634,13 @@ function sizeOf(value: unknown): unknown {
 "#,
     );
 
-    assert!(
-        source.contains("smelt_get_object_field(&map, \"size\")"),
-        "{source}"
-    );
+    // The erased property read goes through the one prelude helper that knows
+    // every receiver shape (object record, array named property,
+    // `Object.prototype` fallback); the object arm inside it is still
+    // `smelt_get_object_field`.
+    let body = emitted_function_body(&source, "fn size_of");
+    assert!(body.contains("smelt_get_unknown_field("), "{body}");
+    assert!(body.contains("\"size\""), "{body}");
 }
 
 #[test]
@@ -8738,11 +8765,13 @@ function adapt(
 
     // The adapted callable is materialized (called) before any identity or
     // callable-object bookkeeping. A callable value narrowed from an object is
-    // re-erased back to that object when a registration exists; otherwise the
-    // origin is registered so the typed callback survives the erased ABI.
+    // re-erased back to that object when a registration exists; otherwise its
+    // canonical identity is read (before the callable is moved into the
+    // adapter) and the origin is registered, so the typed callback survives the
+    // erased ABI and both spellings denote one JavaScript function.
     assert!(
         source.contains(
-            "let smelt_function_value = (_smelt_adapted_callback)(arg0); if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_function_origin = smelt_function_value.clone();"
+            "let smelt_function_value = (_smelt_adapted_callback)(arg0); if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone();"
         ),
         "{source}"
     );
@@ -9030,10 +9059,15 @@ it("configures a chain", () => {
 });
 "#,
     );
+    // Count only the emitted PROGRAM, not the prelude: the prelude both defines
+    // the helper and calls it from the spy adapter, so a whole-source count
+    // moves whenever the runtime grows another caller.
+    let program = source
+        .split_once("@smelt:prelude-end")
+        .map_or(source.as_str(), |(_, program)| program);
     assert_eq!(
-        source.matches("smelt_vitest_mock_new(").count(),
-        // One construction site plus the helper's own definition in the prelude.
-        2,
+        program.matches("smelt_vitest_mock_new(").count(),
+        1,
         "chain must construct exactly one mock\n{source}"
     );
     // The gated mock prelude and its `SmeltPromise::rejected` dependency are
@@ -9089,6 +9123,42 @@ it("asserts calls", () => {
     assert!(
         source.contains("expect(...).toHaveBeenCalledWith(...) failed"),
         "argument mismatch must produce a test failure\n{source}"
+    );
+}
+
+#[test]
+fn a_call_assertion_about_a_non_mock_actual_is_false() {
+    // The mock matchers used to answer `true` for an actual carrying no
+    // `__smelt_vitest_mock` marker, back when `vi.spyOn` lowered to a plain
+    // placeholder and failing it would have failed suites Smelt could not model.
+    // A spy is a real mock now, so the honest answer is the one JavaScript
+    // implies: a value that is not a mock has recorded no calls, so it was not
+    // called with anything and its last result resolved to nothing. Only
+    // `toHaveBeenCalledTimes(0)` still holds.
+    let source = source_for(
+        r#"
+import { expect, it, vi } from "vitest";
+
+it("asserts calls", () => {
+  const spy = vi.fn();
+  spy(1);
+  expect(spy).toHaveBeenCalledTimes(1);
+});
+"#,
+    );
+    assert!(
+        source.contains(
+            "fn smelt_vitest_mock_called_times(value: &SmeltUnknown, expected: f64) -> bool { match smelt_vitest_mock_state(value) { Some(state) => state.borrow().calls.len() as f64 == expected, None => expected == 0.0 } }"
+        ),
+        "a non-mock has zero recorded calls: {source}"
+    );
+    assert!(
+        !source.contains("state.calls.iter().any(call_matches) } }, None => true } }"),
+        "a non-mock must not satisfy toHaveBeenCalledWith: {source}"
+    );
+    assert!(
+        source.contains("state.calls.iter().any(call_matches) } }, None => false } }"),
+        "a non-mock must not satisfy toHaveBeenCalledWith: {source}"
     );
 }
 
@@ -10064,7 +10134,7 @@ fn typed_array_own_keys_are_its_element_indices() {
         "export function f(value: any, key: string): boolean { return Object.hasOwn(value, key); }",
     );
     assert!(
-        has_own.contains("smelt_host_buffer_element(&values, &smelt_key).is_some()"),
+        has_own.contains("smelt_host_buffer_element(map, key).is_some()"),
         "a property test on a view must see its element indices:\n{has_own}"
     );
 }
@@ -12128,7 +12198,7 @@ export function wrap(fn: (value: string) => string): Wrapped {
 /// would fuse distinct source objects. What *is* shared is the pure half — the
 /// compiled `fancy_regex` automaton, a function of the pattern text alone — which
 /// the prelude memoizes in `SMELT_REGEX_CACHE`. The invariant this test pins is
-/// therefore: exactly ONE `fancy_regex::Regex::new` call site exists in the whole
+/// therefore: exactly ONE `fancy_regex` compile call site exists in the whole
 /// emitted crate (the memo), no matter how many times the const is inlined.
 #[test]
 fn module_level_regex_const_compiles_its_pattern_once() {
@@ -12151,7 +12221,7 @@ export function second(text: string): number {
         "the prelude must declare the compiled-automaton memo\n{source}"
     );
     assert_eq!(
-        source.matches("fancy_regex::Regex::new(").count(),
+        source.matches("fancy_regex::RegexBuilder::new(").count(),
         1,
         "the emitted crate must hold exactly one regex compile site (the memo), \
          so an inlined module-level const never recompiles its pattern\n{source}"

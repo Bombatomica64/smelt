@@ -213,18 +213,7 @@ impl ModuleBuilder<'_> {
                         }
                         Ok(function_ty)
                     }
-                    _ if meaningful.iter().all(|member_ty| {
-                        matches!(
-                            self.ctx.krate.types.get(*member_ty),
-                            Some(Type::Class { .. } | Type::Dict(_, _))
-                        )
-                    }) =>
-                    {
-                        let key_ty = self.ctx.krate.types.intern(Type::String);
-                        let value_ty = self.ctx.krate.types.intern(Type::Unknown);
-                        Ok(self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty)))
-                    }
-                    _ => Ok(self.ctx.krate.types.intern(Type::Union(meaningful))),
+                    _ => Ok(self.intersection_object_type(&meaningful)),
                 }
             }
             TSType::TSConditionalType(conditional) => {
@@ -1084,6 +1073,123 @@ return_ty: function.return_ty,
                     .count()
             }
             _ => 0,
+        }
+    }
+
+    /// Lower an object-shaped intersection `A & B` structurally.
+    ///
+    /// An intersection is **not** a union: a value of `A & B` has all the
+    /// members of both, so it inhabits neither arm of `A | B`. Lowering it to
+    /// `Type::Union` forced codegen to recover the value by picking an arm --
+    /// which for two object arms is undecidable from the runtime tag alone, and
+    /// the chosen arm then retyped every leaf (`age: 36` came back as `"36"`).
+    ///
+    /// HIR spells a record as `Dict(String, V)`, so when every member is a
+    /// known record the structural merge is: the union of their keys (always
+    /// `String`) against the per-field union of their value types -- which
+    /// collapses to the shared value type when the members agree and to
+    /// `Unknown` when they do not.
+    ///
+    /// A `Class` member is object-shaped but names no members here, so it
+    /// contributes the erased value type -- keeping the record spelling this
+    /// arm has always produced for a class intersection.
+    ///
+    /// Anything else makes the merged shape genuinely unknown, and there the
+    /// honest answer is the erased boundary type. In particular an intersection
+    /// of *type parameters* (`merge<T, S>(..): T & S`) must not be claimed as a
+    /// record: `merge` is called on arrays too and returns one, so asserting a
+    /// record would force the value into a record and lose the array.
+    fn intersection_object_type(&mut self, members: &[smelt_hir::TypeId]) -> smelt_hir::TypeId {
+        let mut value_ty: Option<smelt_hir::TypeId> = None;
+        for member in members {
+            let member_value = match self.ctx.krate.types.get(*member) {
+                Some(Type::Dict(_, field_ty)) => *field_ty,
+                Some(Type::Class { .. }) => self.ctx.krate.types.intern(Type::Unknown),
+                _ => return self.ctx.krate.types.intern(Type::Unknown),
+            };
+            match value_ty {
+                None => value_ty = Some(member_value),
+                Some(existing) if existing == member_value => {}
+                // Two different field types under one key: the merged record's
+                // value type is their union, which for unrelated shapes is the
+                // erased boundary.
+                Some(_) => value_ty = Some(self.ctx.krate.types.intern(Type::Unknown)),
+            }
+        }
+        let Some(value_ty) = value_ty else {
+            return self.ctx.krate.types.intern(Type::Unknown);
+        };
+        let key_ty = self.ctx.krate.types.intern(Type::String);
+        self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty))
+    }
+
+    /// Read the length an ordinary (non-rest) parameter's annotation demands.
+    ///
+    /// Companion to [`Self::rest_parameter_min_arity`], which answers the same
+    /// question for a `...rest` parameter as a plain count. A *fixed* parameter
+    /// position needs the distinction between "exactly n" and "at least n":
+    ///
+    /// * a rest-less tuple `[A, B]` => `Exact(2)` (and `[]` => `Exact(0)`),
+    /// * a required-prefix tuple `[T, ...T[]]` => `AtLeast(1)`,
+    /// * `NonEmptyArray<T>` => `AtLeast(1)`,
+    /// * everything else (`T[]`, `Array<T>`, non-array types) => `None`.
+    ///
+    /// `Readonly`/`Required`/parenthesized wrappers and the `readonly` operator
+    /// are transparent, matching `ts_type_to_hir`.
+    pub(in crate::lowering) fn parameter_length_requirement(
+        ty: &TSType<'_>,
+    ) -> Option<crate::context::ParamLength> {
+        use crate::context::ParamLength;
+        match ty {
+            TSType::TSParenthesizedType(parenthesized) => {
+                Self::parameter_length_requirement(&parenthesized.type_annotation)
+            }
+            TSType::TSTypeOperatorType(operator)
+                if operator.operator == oxc::ast::ast::TSTypeOperatorOperator::Readonly =>
+            {
+                Self::parameter_length_requirement(&operator.type_annotation)
+            }
+            TSType::TSTypeReference(reference) => match &reference.type_name {
+                TSTypeName::IdentifierReference(name) if name.name.as_str() == "NonEmptyArray" => {
+                    Some(ParamLength::AtLeast(1))
+                }
+                TSTypeName::IdentifierReference(name)
+                    if matches!(name.name.as_str(), "Readonly" | "Required") =>
+                {
+                    reference
+                        .type_arguments
+                        .as_ref()
+                        .and_then(|args| args.params.first())
+                        .and_then(Self::parameter_length_requirement)
+                }
+                _ => None,
+            },
+            TSType::TSTupleType(tuple) => {
+                // Every non-rest element is one element the argument must
+                // supply, wherever the rest sits: `[T, ...T[]]` and
+                // `[...T[], U]` both demand at least one. A rest element or an
+                // optional element makes the length a minimum; without either,
+                // the tuple pins it exactly.
+                let mut fixed = 0_usize;
+                let mut optional = 0_usize;
+                let mut has_rest = false;
+                for element in &tuple.element_types {
+                    match element {
+                        TSTupleElement::TSRestType(_) => has_rest = true,
+                        TSTupleElement::TSOptionalType(_) => {
+                            fixed += 1;
+                            optional += 1;
+                        }
+                        _ => fixed += 1,
+                    }
+                }
+                if has_rest || optional > 0 {
+                    Some(ParamLength::AtLeast(fixed.saturating_sub(optional)))
+                } else {
+                    Some(ParamLength::Exact(fixed))
+                }
+            }
+            _ => None,
         }
     }
 
@@ -2968,6 +3074,30 @@ return_ty: function.return_ty,
             Some(Type::TypeParam { name }) => self.type_parameter_constraint(*name).unwrap_or(ty),
             _ => ty,
         }
+    }
+
+    /// Return whether `ty` is a type parameter that is NOT in scope here.
+    ///
+    /// A type parameter is only meaningful inside the generic declaration that
+    /// introduced it. One that reaches a *caller* — the usual way being a
+    /// contextual type hint read straight off a callee's parameter annotation,
+    /// before the callee's generics are instantiated — names nothing here, so
+    /// any type built out of it is unrelatable to the values it describes.
+    /// Callers use this to reject such a type rather than propagate it.
+    pub(in crate::lowering) fn type_param_is_out_of_scope(&self, ty: smelt_hir::TypeId) -> bool {
+        let Some(Type::TypeParam { name }) = self.ctx.krate.types.get(ty) else {
+            return false;
+        };
+        let Some(spelling) = self
+            .ctx
+            .krate
+            .names
+            .get(*name)
+            .or_else(|| self.ctx.krate.symbols.get(*name))
+        else {
+            return true;
+        };
+        self.types.param_type(spelling).is_none()
     }
 
     /// Return whether a `keyof` mapped-type source is entirely array-like.

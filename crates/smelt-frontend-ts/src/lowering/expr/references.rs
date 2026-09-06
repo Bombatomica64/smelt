@@ -12,8 +12,18 @@ use smelt_hir::{
 
 impl ModuleBuilder<'_> {
     /// Intern a source identifier name and convert from `camelCase` to `snake_case`.
+    ///
+    /// The symbol's identity is the *exact* source spelling; only its Rust
+    /// rendering is case-folded. Interning on the folded spelling would alias
+    /// names JavaScript keeps apart (a declaration `Foo` and a property `foo`),
+    /// and `OriginalNameTable::record` being last-writer-wins would then let one
+    /// of them decide the key string the other is read with.
     pub(in crate::lowering) fn intern_source_name(&mut self, name: &str) -> smelt_hir::Symbol {
-        let symbol = self.ctx.krate.symbols.intern(&camel_to_snake(name));
+        let symbol = self
+            .ctx
+            .krate
+            .symbols
+            .intern_rendered(name, &camel_to_snake(name));
         self.ctx.krate.names.record(symbol, name);
         symbol
     }
@@ -132,15 +142,35 @@ impl ModuleBuilder<'_> {
                 span: self.span(start, end),
             }));
         }
-        // Prefer the materialized closure binding when this callback is being
-        // referenced from a nested closure body. Rebuilding the compact
-        // callback expression here would retain capture IDs from its defining
-        // body (for example `next` closing over `itemsByIndex`) instead of the
-        // nested body's remapped local for `next` itself.
-        if let (Some(local), Some(callback)) = (
-            self.scope.lookup(name),
-            self.scope.callback(name),
-        ) && body.blocks.first().map(|block| block.span) != callback.defining_body_span
+        // Prefer the materialized closure binding whenever the callback has one.
+        //
+        // A JavaScript function value has OBSERVABLE IDENTITY: `d === d` is true,
+        // and a value read twice out of one binding is one object. Rebuilding the
+        // compact callback expression at every reference allocates a fresh
+        // closure per read, so two reads of the same `const d = () => 1` compared
+        // unequal — `expect(instanceHoldingD).toEqual({ d })` could not hold, and
+        // neither could any other assertion that a callback survived a round
+        // trip. Reading the binding is also what keeps a reference from a NESTED
+        // body correct: a rebuild there would retain capture IDs from the
+        // defining body (for example `next` closing over `itemsByIndex`) instead
+        // of the nested body's remapped local.
+        //
+        // A callback registered by a DIFFERENT body than the one being lowered is
+        // stale for this body — an outer body's `const add` that this body
+        // shadows with a binding the callback table never learned about, or a
+        // name a nested closure closes over, whose rebuild would retain capture
+        // IDs from the defining body (for example `next` closing over
+        // `itemsByIndex`) instead of the nested body's remapped local.
+        //
+        // The rebuild below is still the path for a same-body callback whose
+        // local holds no value: an inlined declaration keeps calls concrete (and
+        // a generic callback instantiable per call site), and there is nothing to
+        // read.
+        if let Some(local) = self.scope.lookup(name)
+            && self.scope.callback(name).is_some_and(|callback| {
+                callback.materialized
+                    || body.blocks.first().map(|block| block.span) != callback.defining_body_span
+            })
             && usize::try_from(local.0)
                 .ok()
                 .and_then(|index| body.locals.get(index))
@@ -982,6 +1012,30 @@ impl ModuleBuilder<'_> {
             return None;
         }
         Some(self.global_object_value_expression(logical.span.start, logical.span.end, body))
+    }
+
+    /// Return whether an expression *folds* to the ambient global object.
+    ///
+    /// This is the value-level counterpart of
+    /// [`Self::expr_is_global_alias`]: it accepts the portable
+    /// global-detection chain (`(typeof globalThis === 'object' && globalThis)
+    /// || (typeof window === 'object' && window) || …`) that
+    /// [`Self::global_detection_chain_expression`] already collapses to the
+    /// single global-object value, including the parenthesized spelling. It is
+    /// deliberately separate from `expr_is_global_alias`, which answers the
+    /// narrower "is this a *name* bound to the global object" question that the
+    /// erasure denylists key on.
+    pub(in crate::lowering) fn expr_folds_to_global_alias(
+        &self,
+        expression: &Expression<'_>,
+    ) -> bool {
+        match Self::unparenthesized_expression(expression) {
+            Expression::LogicalExpression(logical) if logical.operator == LogicalOperator::Or => {
+                self.or_chain_resolves_to_global(&logical.left)
+                    || self.clause_is_present_global_guard(&logical.right)
+            }
+            _ => false,
+        }
     }
 
     /// Return whether an `||` chain of `(typeof X === 'object' && X)` clauses

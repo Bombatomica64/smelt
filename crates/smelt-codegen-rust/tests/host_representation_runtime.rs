@@ -43,12 +43,18 @@ use std::{
 };
 
 use smelt_codegen_rust::{CrateKind, EmitOptions, emit_crate};
-use smelt_frontend_ts::{HirCtx, to_hir};
+use smelt_frontend_ts::{HirCtx, scan_written_host_globals, to_hir};
 use smelt_hir::FileId;
 
 /// Lowers `source` through the real pipeline and emits a runnable program crate.
+///
+/// The host-global override prepass runs first, exactly as the transpiler does
+/// it: which host constructors a program REASSIGNS is a whole-program fact, and
+/// without it a `globalThis.File = ...` write is not recognized as one.
 fn emit_program(source: &str, crate_name: &str, crate_dir: &Path) {
     let mut ctx = HirCtx::new();
+    ctx.written_host_globals
+        .extend(scan_written_host_globals(source, "<memory>"));
     to_hir(source, FileId(0), &mut ctx).expect("HIR lowering");
     let mut mir = smelt_mir::lower_hir(&ctx.krate).expect("MIR lowering");
     smelt_mir::opt::optimize(&mut mir);
@@ -248,6 +254,123 @@ test("a host record does not leak its marker keys", () => {
 });
 "#;
     run_fixture(source, "smelt_host_constructor_identity");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn buffer_from_a_string_holds_the_encoded_bytes() {
+    // `Buffer.from(string[, encoding])` is the one byte-buffer constructor form
+    // whose source is text: a Buffer built from a string holds that string's
+    // encoded bytes (a typed array built from a string has no elements at all).
+    // The bytes used to be dropped for an empty buffer, so a buffer built from
+    // text had length 0 and compared equal to every other empty buffer.
+    let source = r#"
+import { test, expect } from "vitest";
+test("a buffer from text holds its UTF-8 bytes", () => {
+  const buffer: any = Buffer.from("test");
+  expect(buffer.length).toBe(4);
+  expect(buffer[0]).toBe(116);
+  expect(buffer[3]).toBe(116);
+});
+test("a multi-byte character encodes as several bytes", () => {
+  const buffer: any = Buffer.from("é");
+  expect(buffer.length).toBe(2);
+});
+test("an explicit byte-preserving encoding is honored", () => {
+  const buffer: any = Buffer.from("ff01", "hex");
+  expect(buffer.length).toBe(2);
+  expect(buffer[0]).toBe(255);
+  expect(buffer[1]).toBe(1);
+});
+test("a buffer from a byte list keeps that list", () => {
+  const buffer: any = Buffer.from([1, 2, 3]);
+  expect(buffer.length).toBe(3);
+  expect(buffer[1]).toBe(2);
+});
+"#;
+    run_fixture(source, "smelt_buffer_from_text");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn instanceof_reads_the_host_override_slot() {
+    // `instanceof` reads its right-hand BINDING, and an overridable host
+    // constructor's binding is its override slot. A static marker probe answers
+    // for the native builtin only, so a value constructed through an installed
+    // override (`globalThis.File = class File extends Blob {}`) was not an
+    // instance of the very name that built it. Restoring the slot must put the
+    // native answer back, and a subclass instance still satisfies the host base
+    // it extends.
+    let source = r#"
+import { test, expect } from "vitest";
+test("an override class recognizes its own instances", () => {
+  const original: any = globalThis.File;
+  globalThis.File = class File extends Blob {
+    name: string;
+    constructor(chunks: any[], filename: string, options?: any) {
+      super(chunks, options);
+      this.name = filename;
+    }
+  };
+  const file: any = new File(["content"], "example.txt", { type: "text/plain" });
+  expect(file instanceof File).toBe(true);
+  expect(file instanceof Blob).toBe(true);
+  const blob: any = new Blob(["content"]);
+  expect(blob instanceof File).toBe(false);
+  globalThis.File = original;
+});
+test("a restored slot answers with the native identity again", () => {
+  const native: any = new File(["content"], "example.txt");
+  expect(native instanceof File).toBe(true);
+});
+test("a deleted global has no instances", () => {
+  const original: any = globalThis.File;
+  globalThis.File = undefined;
+  const blob: any = new Blob(["content"]);
+  expect(blob instanceof File).toBe(false);
+  globalThis.File = original;
+});
+"#;
+    run_fixture(source, "smelt_host_override_instanceof");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn builtin_members_are_first_class_callable_values() {
+    // A builtin's members are ordinary properties: `Array.prototype.slice` is a
+    // function VALUE long before it is a call, and code stores it, probes it
+    // with `typeof`, reads its `length` and invokes it through `.call`. The
+    // namespace record modeled none of that, so every such read answered
+    // `undefined` and the value silently became a null callback. A member the
+    // registry does not model stays `undefined`, which is the honest answer.
+    let source = r#"
+import { test, expect } from "vitest";
+test("a prototype method is a function value with its arity", () => {
+  const slice: any = (Array.prototype as any).slice;
+  expect(typeof slice).toBe("function");
+  expect(slice.length).toBe(2);
+  expect((Array.prototype as any).slice).toBe(slice);
+});
+test("a prototype method applies to its receiver", () => {
+  const slice: any = (Array.prototype as any).slice;
+  expect(slice.call([1, 2, 3], 1)).toEqual([2, 3]);
+  const join: any = (Array.prototype as any).join;
+  expect(join.call([1, 2, 3], "-")).toBe("1-2-3");
+  const includes: any = (Array.prototype as any).includes;
+  expect(includes.call([1, 2, 3], 2)).toBe(true);
+  expect(includes.apply([1, 2, 3], [9])).toBe(false);
+});
+test("a static function is a value too", () => {
+  const isArray: any = (Array as any).isArray;
+  expect(typeof isArray).toBe("function");
+  expect(isArray([1])).toBe(true);
+  expect(isArray(1)).toBe(false);
+});
+test("an unmodeled member stays undefined", () => {
+  expect((Array.prototype as any).flatMap).toBe(undefined);
+});
+"#;
+    run_fixture(source, "smelt_builtin_member_values");
 }
 
 #[test]

@@ -291,11 +291,11 @@ fn math_numeric_constants_fold_to_literals() -> Result<(), String> {
     Ok(())
 }
 
-/// `Reflect.ownKeys(record)` lowers to the same `DictProjection`/`Keys` operation
-/// as `Object.keys(record)` (a concrete `List<string>`), since Smelt records
-/// carry no non-enumerable or symbol keys.
+/// `Reflect.ownKeys(record)` lowers to its OWN `DictProjection` operation, not
+/// to the one `Object.keys(record)` uses: it reports symbol-keyed properties as
+/// well as string-keyed ones, and its declared result is `(string | symbol)[]`.
 #[test]
-fn reflect_own_keys_lowers_like_object_keys() -> Result<(), String> {
+fn reflect_own_keys_lowers_to_the_own_key_projection() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
         ts!("const r = { a: 1, b: 2 }; const keys = Reflect.ownKeys(r);"),
@@ -307,11 +307,21 @@ fn reflect_own_keys_lowers_like_object_keys() -> Result<(), String> {
         body.exprs.iter().any(|expr| matches!(
             &expr.kind,
             ExprKind::DictProjection {
+                op: DictProjectionOp::OwnKeys,
+                ..
+            }
+        )),
+        "expected `Reflect.ownKeys(record)` to lower to an OwnKeys DictProjection",
+    );
+    ensure!(
+        !body.exprs.iter().any(|expr| matches!(
+            &expr.kind,
+            ExprKind::DictProjection {
                 op: DictProjectionOp::Keys,
                 ..
             }
         )),
-        "expected `Reflect.ownKeys(record)` to lower to a Keys DictProjection",
+        "`Reflect.ownKeys` must not alias the string-only `Object.keys` projection",
     );
     Ok(())
 }
@@ -323,12 +333,21 @@ fn reflect_own_keys_lowers_like_object_keys() -> Result<(), String> {
 #[test]
 fn bare_global_object_value_lowers_to_marker_record() -> Result<(), String> {
     let mut ctx = HirCtx::new();
+    // A chain-initialized `const` records a global-object ALIAS, so the marker
+    // record materializes where the alias is READ rather than at the
+    // declaration (which emits no local at all).
     let module_id = lower_ok(
-        ts!("const g: any = (typeof globalThis === 'object' && globalThis) || 1;"),
+        ts!(r"
+const g: any = (typeof globalThis === 'object' && globalThis) || 1;
+export function readGlobal(): unknown {
+  return g;
+}
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
-    let body = module_body(&ctx, module)?;
+    let function = named_function_item(&ctx, module, "read_global")?;
+    let body = function_body(&ctx, function)?;
     ensure!(
         body.exprs.iter().any(|expr| matches!(
             &expr.kind,
@@ -359,11 +378,15 @@ const globalThis_: any =
   (typeof self === 'object' && self) ||
   (typeof global === 'object' && global) ||
   1;
+export function readGlobal(): unknown {
+  return globalThis_;
+}
 "),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
-    let body = module_body(&ctx, module)?;
+    let function = named_function_item(&ctx, module, "read_global")?;
+    let body = function_body(&ctx, function)?;
     ensure!(
         body.exprs.iter().any(|expr| matches!(
             &expr.kind,
@@ -371,6 +394,150 @@ const globalThis_: any =
         )),
         "expected the global-detection chain to fold to the `__smelt_global_object` value",
     );
+    Ok(())
+}
+
+/// A module-level `const` initialized by the global-detection chain records a
+/// global-object ALIAS, and an importing module's binding of it is the global
+/// object too — so `globalThis.Buffer.isBuffer(x)` through an imported shim
+/// resolves against the modeled global instead of reading a field off a fresh
+/// empty record.
+///
+/// This is the shape every "universal global" shim ships (es-toolkit's
+/// `_internal/globalThis.ts` re-exports the chain-initialized binding under the
+/// name `globalThis`), so recognizing only the bare spelling made the answer
+/// depend on which spelling the source happened to use.
+#[test]
+fn imported_global_object_alias_resolves_modeled_globals() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_path_ok(
+        ts!(r"
+const globalThis_: any =
+  (typeof globalThis === 'object' && globalThis) ||
+  (typeof self === 'object' && self) ||
+  1;
+export { globalThis_ as globalThis };
+"),
+        "./shim.ts",
+        &mut ctx,
+    )?;
+    let module_id = lower_path_ok(
+        ts!(r"
+import { globalThis } from './shim';
+export function isBuffer(x: unknown): boolean {
+  return globalThis.Buffer.isBuffer(x);
+}
+"),
+        "./use.ts",
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = named_function_item(&ctx, module, "is_buffer")?;
+    let body = function_body(&ctx, function)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(&expr.kind, ExprKind::InstanceOf { .. })),
+        "expected `globalThis.Buffer.isBuffer(x)` through an imported alias to lower to the Buffer identity check",
+    );
+    ensure!(
+        !body.exprs.iter().any(|expr| matches!(
+            &expr.kind,
+            ExprKind::Literal(Literal::String(text)) if text == "__smelt_global_object"
+        )),
+        "the alias must resolve the member statically, not materialize the global object",
+    );
+    Ok(())
+}
+
+/// `typeof <erased> !== 'undefined'` must emit a runtime tag test, never a
+/// folded constant.
+///
+/// An `unknown` operand pins no `typeof` answer, so the static matcher's `false`
+/// ("this type is not `undefined`") turned the whole comparison into the
+/// constant `true` — a presence guard that always passed. The rule is the one
+/// `typeof_expression` already documents: only fold when the type pins a single
+/// spelling.
+#[test]
+fn typeof_undefined_on_erased_operand_stays_a_runtime_test() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+export function isPresent(x: unknown): boolean {
+  return typeof x !== 'undefined';
+}
+"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = named_function_item(&ctx, module, "is_present")?;
+    let body = function_body(&ctx, function)?;
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            &expr.kind,
+            ExprKind::UnknownIs {
+                kind: smelt_hir::UnknownKind::Undefined,
+                ..
+            }
+        )),
+        "expected an undefined-tag runtime test for an erased operand",
+    );
+    ensure!(
+        !body
+            .exprs
+            .iter()
+            .any(|expr| matches!(&expr.kind, ExprKind::Literal(Literal::Bool(_)))),
+        "the presence guard must not fold to a constant",
+    );
+    Ok(())
+}
+
+/// A concrete operand still folds: `typeof 1 === 'undefined'` has one answer, so
+/// the constant is the honest lowering and the runtime test would be waste.
+#[test]
+fn typeof_undefined_on_concrete_operand_still_folds() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+export function check(x: number): boolean {
+  return typeof x === 'undefined';
+}
+"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = named_function_item(&ctx, module, "check")?;
+    let body = function_body(&ctx, function)?;
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            &expr.kind,
+            ExprKind::Literal(Literal::Bool(false))
+        )),
+        "expected a concrete numeric operand to fold its `typeof` presence guard",
+    );
+    Ok(())
+}
+
+/// A zero-parameter `function` value in an object literal is only readable as a
+/// getter when its body is a single `return`. A generator (and any other body)
+/// is a function the property HOLDS, so it must erase to a function value rather
+/// than to `null` — es-toolkit's JSON validators ask `typeof value ===
+/// 'function'` about exactly this shape.
+#[test]
+fn object_property_generator_stays_a_function_value() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!("const table: any = { a: function* () {}, b: function () { const x = 1; } };"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    let closures = body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(&expr.kind, ExprKind::Closure(_)))
+        .count();
+    ensure_eq!(closures, 2);
     Ok(())
 }
 

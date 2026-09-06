@@ -1,0 +1,192 @@
+# es-toolkit final 45 — architecture plan
+
+Baseline: **1014 passed / 45 failed** (`blocker-logs/estk-current.md`, branch
+`claude/estoolkit-test-failures-4fuf9e` at `b149994`). Six read-only investigations
+(`estk-final45-{arrays,functions,objects,predicates,misc,async}.md`) root-caused every row
+against the generated Rust. Result: **43 general defects in 29 root families, 2 true host
+gaps.** Three rows earlier filed as "out of scope" (`debounce` spyOn, `throttle` this,
+`isBuffer`) were re-verified and are fixable; the prior rulings rested on premises that are
+no longer true of the emitter.
+
+## Out of scope (2)
+
+| test | why |
+| --- | --- |
+| `isBrowser should return true in browser environment` | `// @vitest-environment happy-dom`; profile is non-DOM by construction, `isBrowser()` correctly folds to `false`. |
+| `isPlainObject should return true for cross-realm plain objects` | `node:vm` `runInNewContext('({})')` = JS eval in a second realm. |
+
+## Deferred, needs a decision (1)
+
+| test | why |
+| --- | --- |
+| `at should return undefined for non-integer indices` | `at<T>(arr: readonly T[], indices): T[]` — an out-of-range `arr[i]` read yields `Default::default()` for a concrete `T` (`String::new()`), `Undefined` only for erased `T`. Honest fix is `noUncheckedIndexedAccess`-style typing of unproven index reads as `Optional<T>` (L, cross-cutting). Not started in this pass. |
+
+## Deferred, needs a decision (2 type-system families + 1 evaluation family)
+
+### D1 `Type::Null` — `null` and `undefined` are two values with one type (`mergeWith`)
+`null | undefined | void` all lower to `Type::None`, so a callback returning `null` in one branch
+and `undefined` in another has a unit return type and the adapter materializes `Undefined`.
+Fix: a distinct `Type::Null` (or `NormalizeOptions::preserve_observable_absence` on the canonical
+form), `StaticType` split to match, `last_return_type` seeing two `TypeId`s. Also retires three
+interim shapes this campaign shipped: the `String::new()` absence default in erased→`String`
+extraction (zip), the void-adapter shortcut in `core.rs`, and the `Optional`-widening Batch C
+declined. Size L. Rows: `mergeWith should respect null returned from customizer`.
+
+### D2 Unchecked index reads are `Optional<T>` (`at`)
+`arr[i]` on `List<T>` with an unproven index is typed `T` and a miss substitutes
+`Default::default()` for a concrete `T` (`String::new()`), `Undefined` only for an erased `T`; the
+answer is decided by how the caller spelled its array. Fix: TypeScript's
+`noUncheckedIndexedAccess` rule in HIR/MIR (`Place::Index` read is `Optional(T)` unless the index
+is provably in range; flow narrowing recovers `T`; a stored possibly-absent read widens the
+destination element type). Size L, touches every list read. Rows: `at should return undefined for
+non-integer indices`.
+
+### D3 Constant-source evaluation in a tagged realm (`isPlainObject` cross-realm)
+`runInNewContext('({})')` is not concurrency (it runs synchronously on the caller's thread and
+heap; a fork or green thread would isolate the wrong thing) but a second set of intrinsics plus
+evaluation of a source string. Two general rules, both without an interpreter:
+1. **A constant source string handed to an evaluator is a compile-time program.** When the
+   argument to `vm.runInNewContext` / `vm.runInThisContext` / `new vm.Script` / `new Function` /
+   `eval` is a string literal (or folds to one), transpile the literal as a nested expression at
+   compile time — Smelt already is the compiler for it. A runtime string stays a named blocker
+   (`SmeltError` at the call site), never a fabricated `null`.
+2. **A realm is a tag on the intrinsics.** `Object.prototype` is the sentinel `__smelt_proto:object`;
+   a value minted inside a new context carries `__smelt_proto:object@r<N>` (same for the array,
+   function and promise sentinels), so `proto === Object.prototype` is false for a foreign object
+   while `Object.getPrototypeOf(proto)` still answers `null` and `smelt_object_to_string_tag`
+   (which looks at shape, not realm) keeps answering `[object Object]`. The prototype-chain
+   helpers Batches P and T consolidated (`smelt_prototype_sentinel`, `smelt_proto_accessor`,
+   `smelt_instance_of_value`) compare the tagged sentinel, so cross-realm `instanceof` is false as
+   in JavaScript.
+   Regression tests: `isPlainObject(runInNewContext('({})'))`, `runInNewContext('[]') instanceof
+   Array === false`, `Object.getPrototypeOf(runInNewContext('({})')) !== Object.prototype`, and a
+   runtime-string call producing the named blocker. Size M. Rows: `isPlainObject should return
+   true for cross-realm plain objects`.
+
+`isBrowser` stays out of scope (see `estk-final45-host-gaps.md`): it asks whether a DOM exists, and
+the profile is non-DOM by construction.
+
+## Root families → implementation batches
+
+Two builders run at a time (CLAUDE.md cargo cap). Each batch is one Opus agent in its own
+worktree, sharing `CARGO_TARGET_DIR=/home/user/smelt/target` (deps shared, workspace crates
+keyed by path). Rounds are sequential; each round starts from the merged state.
+
+### Round 1
+
+**Batch A — frontend-ts: truthiness, name special case, non-null, await** (6 tests)
+- F1 truthiness: `callback_truthy_expression` lowers `!unknown` to `UnknownIs{Bool}` (a typeof test); `lowered_condition_expression` folds `TypeParam` conditions to `true`. Add a callback truthiness node lowering to `PrimitiveCast{ToBool}`; narrow the `Function|Class|TypeParam ⇒ true` arms. → compact, dropWhile, dropRightWhile, negate (2nd defect).
+- F2 delete `lodash_negate_call` (name-keyed special case replacing a user's `negate` with `null`); audit `lodash_has_call`, `lodash_fp_curried_call`, `lodash_for_each_call` for the same shadowing. → negate.
+- F25 `x!` argument into an `Optional` parameter hint must stay a no-op, not `Some(x.expect(..))`. → randomInt.
+- F27 `await <erased non-Future>` must not lower to `null` with the operand dropped; drop the `type_hint.is_some()` gate, `await v` of a concrete non-future is `v`. → attempt.
+
+**Batch C — emitter: nullish representation, list aliasing, own keys, method identity** (7 tests)
+- F7 undefined-in-containers: array-literal element hint must widen to `Optional` for a nullish element (zip expected side); erased→`String`/`Number` extraction must not coerce `Undefined` to `"undefined"` (zip actual); Dict erasure needs the `Constant::Undefined` recovery the List path has (isJSONValue undefinedProperty); absent property read on a class receiver is `Undefined` not `Null` (`place.rs:483`, cloneDeep `#b`). Interim for mergeWith: the `{call; SmeltUnknown::Undefined}` void-adapter shortcut (`core.rs:3862`) must not fire when the callback body returns a `null` literal — only if clean; the principled `Type::Null` split is L and out of this pass. → zip, isJSONValue(undefined), cloneDeep instance, mergeWith(stretch).
+- F5 `(List,List)` coercion with identity element map must alias (`with_storage`) not rebuild (`with_id` + collect); compare Rust renderings not TypeIds; by-ref parameter must never receive a rebuilt buffer. → remove.
+- F9 own-key enumeration on `SmeltJsMap` must drop `__smelt_proto:`/`__smelt_method:`/`__smelt_class` markers and map `__smelt_symbol:` back (prelude helper used by Keys/Values/Entries/ForIn). → invert.
+- F11 class method reference reads need one canonical identity per (class, method) via `smelt_link_function_identity_key` (both `class_method_reference_text` and `class_proto.rs`). → clone custom classes.
+
+### Round 2
+
+**Batch B — frontend-ts: overloads, spread hints, intersections, symbol interning** (7 tests)
+- F4 tuple/non-empty-array parameters need call-site length evidence (`param_min_len`, mirroring `min_rest`), so `readonly [T, ...T[]]` and `[A,B]` overloads stop swallowing plain arrays. Also: a callee whose lowered return is erased/`Optional` keeps that at the call (precedent `call_dispatch.rs:934`), no `map_or(Default::default())` collapse. → initial, maxBy, minBy, reduceAsync.
+- F16 array-spread item hint that is the callee's out-of-scope `TypeParam` must be dropped (unify piece types); `list_concat_text`'s two `Default::default()` fallbacks become `EmitError`. → sumBy.
+- F13 `A & B` over records lowers structurally (merged members, per-field union), never `Type::Union`; union recovery must discriminate object arms structurally and never retype leaves. → toMerged.
+- F3 `intern_source_name` case-folds (`Foo`/`foo`, `Buffer`/`buffer` share one `Symbol`, last-writer-wins spelling). Member/property names intern exactly (`intern_exact_source_name`) or the interner separates source spelling from Rust ident. → intersectionWith (+ unblocks isBuffer key).
+
+**Batch D — runtime object model** (6 tests)
+- F8 `SmeltList` gets a lazily allocated named-property side table; `smelt_index_assign` and the static store (`control_flow.rs:535`) insert there instead of replacing the array; reads/`Object.keys`/`for-in` consult it; structural equality ignores it. → merge, isEqualWith non-index.
+- F12 `Object.prototype` members as a lookup *fallback* table (never entries): `smelt_get_object_field` and the `__smelt_proto:object` sentinel fall back to it; `in`/`toHaveProperty` consult it; enumeration/equality/JSON never see it. → toSnakeCaseKeys.
+- F21 `Symbol.<wellKnown>` in value position is `Literal::Symbol`, one shared table maps spelling↔storage key (`well_known_symbol_key` + `smelt_property_key`); `smelt_object_to_string_tag` honours `@@toStringTag` first. → isSymbol, isPlainObject(toStringTag).
+- F18 `host_base_markers` stamps `__smelt_error: "<nearest builtin error base>"` for a class whose chain reaches a builtin error. → isError.
+
+### Round 3
+
+**Batch E — host globals / predicates** (6 tests)
+- F17 a module const whose initializer folds to the global alias is a global alias, and an imported binding of it too; `typeof <Unknown|Union|TypeParam> !== 'undefined'` emits `UnknownIs{Undefined}` not a constant; `Buffer.from(string)` encodes bytes. → isBuffer, isEqualWith buffers.
+- F19 erased class constructors register class identity; `instanceof <host name with override slot>` reads the slot (`Native` ⇒ marker probe, `Ctor(f)` ⇒ class chain, `Absent` ⇒ false). → isFile ×2.
+- F20 `<Builtin>.prototype.<method>` (and `<Builtin>.<fn>`) as first-class callable values via the stdlib registry (generalizing `object_static_function_member`). → isFunction.
+- F10 `new String(x)` boxes like `Number`/`Boolean` (`__smelt_string`); string member reads unbox. → cloneDeep String objects.
+
+**Batch G — stdlib throwing, reflection, regex, vitest** (5 tests)
+- F22 `JSON.parse` lowers through `Terminator::Call{Callee::Builtin, unwind}` like `Await`, runtime `smelt_json_parse -> Result`, `may_throw` propagates. → isJSON.
+- F23 `Reflect.ownKeys` → new `DictProjectionOp::OwnKeys` (strings then symbols, `List<Unknown>` — a genuine `string|symbol` boundary). → isJSONValue symbol key.
+- F24 JS→Rust regex translation as a class-aware scanner (no literal `str::replace` hacks), untranslatable pattern is loud; `replace_string` expands `$$ $& $\` $' $n $<name>`. → escapeRegExp.
+- F26 asymmetric matchers as marker values + `smelt_asymmetric_match`; `toEqual`/`toStrictEqual`/`toHaveBeenCalledWith` deep-equal consults markers. → sampleSize.
+- F29 `vi.spyOn(target, name)` becomes a real boundary adapter: resolve current member (field else synthesized host method via one shared prelude helper), wrap in `smelt_vitest_mock_new(Some(original))`, insert under `name`, restore table. → debounce.
+
+### Round 4
+
+**Batch F — function semantics** (5 tests)
+- F14 `recv.m(args)` lowers as `ClosureCall{ BindThis{ Field{recv,m}, recv } }` when the callee type can observe `this` (`Function|Unknown|TypeParam|Union`); arrows unaffected; no `this` ⇒ no channel. → memoize, throttle.
+- F15 non-arrow functions have a `prototype` own property; `new f(args)` on a function value is a real `[[Construct]]` (`Rvalue::Construct`), `instanceof <function value>` walks `__proto__` against `target.prototype` instead of folding to `false`. → partial, partialRight.
+- F28 a `const` read by an earlier closure in the same body is predeclared (generalize `predeclare_local_arrow_callbacks`); `source_contains_forward_callable` never fabricates a value for a function-local name. → withTimeout.
+
+## Validation per batch
+`cargo check --lib`, `cargo clippy --lib`, focused unit tests, new regression test(s), then
+`smelt rust-test-report --focus <spec>` on the batch's es-toolkit specs plus `--guard` on the
+sibling specs. Final validation after all merges: full es-toolkit report with
+`--baseline-report blocker-logs/estk-current.md`, remeda 1789/1789, radash 84/84,
+`smelt-unknown-report` es-toolkit ratchet, `cargo clippy --all-targets`, `cargo test`.
+
+## Progress log
+
+| after | es-toolkit | resolved | newly failing |
+| --- | --- | ---: | ---: |
+| baseline | 1014 / 45 | — | — |
+| Batch A + C (Round 1) | 1024 / 35 | 10 | 0 |
+| Batch D | 1027 / 32 | 14 cumulative | 1 (`clone should clone custom error`, see tail) |
+| Batch B (measured on A+C) | 1031 / 28 | 17 cumulative | 0 |
+| Batch E (measured on D) | 1034 / 25 | 21 cumulative | 0 |
+| Batch G (measured on B+D) | 1039 / 20 | 26 cumulative | 0 |
+| Batch F (measured on E; F14, F28, `clone custom error`; F15 not started) | 1045 / 14 | 31 cumulative | 0 |
+| Batch P (F15 construct semantics, measured on F) | 1052 / 7 | 38 cumulative | 0 |
+| Batch T (tail: RegExp match is an array, `Object.create` keeps prototype identity, `private` fields are properties, non-mock call assertions are false; measured on G) | 1049 / 10 | 36 cumulative | 0 |
+
+| Integration (T onto P, one identity-keyed prototype link) | 1055 / 4 | 41 cumulative | 0 |
+| Gate fixes (regex size budget; `Object.hasOwn` vs `in` reach; async closure adapters; second erased-field-read emitter routed through `smelt_get_unknown_field`) | 1055 / 4 | 41 | 0 |
+
+## Final state (head of `claude/estoolkit-test-failures-4fuf9e`)
+
+| gate | result |
+| --- | --- |
+| es-toolkit full suite (`blocker-logs/estk-final45-after.md`, baseline `1014 / 45`) | **1055 passed / 4 failed**, 41 resolved, 0 newly failing |
+| remeda (CI ref `3c80f28b`) | 1789 / 0 |
+| radash (CI ref `4cab1900`, with CI's vitest-import patch) | 84 / 0 |
+| SmeltUnknown es-toolkit ratchet | avoidable 34072 → 32912 (−1160), re-snapshotted; `smelt_get_unknown_field(` added to `BOUNDARY_MARKERS` (a by-name member read on an erased receiver is runtime narrowing), proven by `erased_property_read_is_a_boundary` |
+| SmeltUnknown examples invariant | avoidable 0, `--fail-on-regression` passes |
+| SmeltUnknown remeda (advisory) | avoidable 25336 → 25211 |
+| `cargo test` (workspace) | green |
+| `cargo clippy --all-targets` | the same pre-existing error set as `main` (`smelt-specialize` and `smelt-mir` test targets, files untouched on this branch); `--lib` clean for every crate changed |
+
+The four remaining rows: `isBrowser` (happy-dom, out of scope), `isPlainObject` cross-realm (`node:vm`, out of scope),
+`at` (unproven index reads need `Optional<T>` typing, L, deferred pending a decision), `mergeWith` (`null` vs
+`undefined` need a distinct `Type::Null`, L, deferred pending a decision).
+
+**Regression gates found red by Batch T on the E+G merge (`449a55e`):** remeda 1736 / 53 (`stringToPath` ×49,
+`hasProp` ×2, `isEmptyish`, `setPath`; main is 1789 / 0) and the radash generated crate no longer compiles
+(8 errors in `async_test.rs` / `typed_test.rs`; main is 84 / 84). A regression-gate agent is bisecting the
+batch merge commits and fixing the general rule that broke. Batches P and T also chose different
+`Object.create` prototype-link representations (hidden `__smelt_proto:__proto__` entry vs an
+identity-keyed `SMELT_OBJECT_PROTOTYPES` table); the integration agent unifies on the identity-keyed
+table, because a hidden entry has to be filtered from every entry-walking view and T measured that list
+as incomplete (a typed-record recovery turned the slot into `NaN`).
+
+## Tail: rows that moved but did not close, and follow-ups found while fixing
+
+Each is a distinct general root, discovered when an earlier assertion in the same test
+started passing.
+
+| row | remaining root | owner |
+| --- | --- | --- |
+| `clone should clone custom error` | **closed by Batch F**: recovering an erased object at `Dict(String, Unknown)` now hands back a second handle on the same store (reference identity), so `Object.assign` writes land. `smelt_class_constructor` (class-constructor VALUE ignores its args) remains a known inaccuracy, handed to Batch P. | done |
+| `isEqualWith … different non-index properties` | **closed by Batch T** (identity-keyed array props, `RegExp.exec` result erases to an array). Was: line 192: a `RegExp.exec` match result must BE an array (erase `SmeltMatch` to array + named props); needs the named-property side table reachable through a typed `SmeltList` handle (id-keyed registry, `smelt-runtime` cannot name `SmeltUnknown`) and `Object.hasOwn(list, nonNumericKey)` to stop lowering to a bounds check. | tail batch |
+| `isPlainObject should return false for invalid plain objects` | **closed by Batch T** (`Object.create` prototype recorded by identity). Was: line 79: `isPlainObject(Object.create({}))` needs prototype-chain identity for `Object.create(<plain object>)`; today `getPrototypeOf(getPrototypeOf(o))` folds to `null`. | tail batch |
+| `cloneDeep should clone instance` | **closed by Batch T**. The recorded root was wrong: the fields were declared; TS `private` was treated as hidden (only `#name` is), and `__smelt_class` leaked into structural equality. | done |
+| `mergeWith should respect null returned from customizer` | `null | undefined` lowers to one `Type::None`; needs `Type::Null` (or `preserve_observable_absence`) in the canonical type form. L. | deferred, decision needed |
+| `at should return undefined for non-integer indices` | unproven index read typed `Optional<T>`. L. | deferred, decision needed |
+
+Also found, not failing any row: `invertBy.rs` still has one `if true` (an `Array.isArray` fold on an
+erased read); name-keyed predicate lists `isEmpty|isArray|isString|isObject|trim` → `Literal::None`
+in `callbacks/dispatch.rs` and `known_callback_factory_predicate` (`has`/`omit`/`isNot`/`prop`) are the
+same illness as the deleted `lodash_negate_call`.

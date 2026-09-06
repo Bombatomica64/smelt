@@ -1,4 +1,13 @@
 //! Map emission helpers.
+//!
+//! Several projections here inline the same own-string-key predicate:
+//! `__smelt_symbol:` names a symbol-keyed property (never a string key),
+//! `__smelt_proto:` / `__smelt_method:` carry inherited members, and
+//! `__smelt_class` records which prototype an instance came from. JavaScript
+//! exposes none of the four as an own string-keyed property, so `Object.keys` /
+//! `values` / `entries` must skip every one of them. Keep the list in sync with
+//! `smelt_is_for_in_object_key` and `smelt_is_own_structural_key` in the runtime
+//! prelude when a marker is added.
 
 use super::*;
 
@@ -8,6 +17,7 @@ impl FunctionEmitter<'_> {
         &self,
         dict: &Operand,
         key: &Operand,
+        lookup: PropertyLookup,
     ) -> Result<String, EmitError> {
         let dict_ty = self.operand_ty(dict)?;
         // A `"field" in value` test over a concrete union projects to a static
@@ -25,8 +35,9 @@ impl FunctionEmitter<'_> {
         let Some(Type::Dict(key_ty, _) | Type::JsMap(key_ty, _)) = self.mir.types.get(dict_ty)
         else {
             if self.dict_contains_key_uses_erased_object(dict_ty) {
-                // Read by borrow: the emitted `match` appends its own `.clone()`,
-                // so cloning here made it `x.clone().clone()`.
+                // Read by borrow: the emitted helper takes its receiver by
+                // reference, so cloning here copied the whole record for a
+                // membership test.
                 let dict_text = self.operand_borrow_text(dict)?;
                 let key_text = self.operand_text(key)?;
                 let key_value = match self.mir.types.get(self.operand_ty(key)?) {
@@ -37,27 +48,23 @@ impl FunctionEmitter<'_> {
                     }
                     _ => return Ok("false".to_owned()),
                 };
-                // An erased `Map` (`{ __smelt_map: [...] }`) or `Set`
-                // (`{ __smelt_set: [...] }`) exposes `size` through its prototype,
-                // so `"size" in value` is true even though the marker object has no
-                // own `size` field. Mirror the virtual `.size` synthesized in
-                // `smelt_get_object_field`.
-                return Ok(format!(
-                    // A byte-backed view's indexed elements are properties too, and
-                    // they are decoded from `bytes` rather than stored as record
-                    // keys, so `'0' in new Uint8Array(1)` needs the element probe.
-                    //
-                    // The view's `length`/`byteLength`/`byteOffset`/`buffer` stay
-                    // answerable here because this one emitter serves both `k in obj`
-                    // and `Object.hasOwn(obj, k)`, and the two differ in JavaScript:
-                    // `in` walks the prototype chain, so `'length' in view` is
-                    // `true` (remeda's `isEmptyish` reads exactly that), while
-                    // `Object.hasOwn` sees only the element indices. Splitting them
-                    // is a pre-existing conflation, not part of view identity;
-                    // `Object.keys`/`Object.values`/`Object.entries` already report
-                    // the correct own-key set for these records.
-                    "{{ let smelt_key = {key_value}; match {dict_text}.clone() {{ SmeltUnknown::Object(values) => values.contains_key(&smelt_key) || smelt_host_buffer_element(&values, &smelt_key).is_some() || ((values.contains_key(\"__smelt_map\") || values.contains_key(\"__smelt_set\")) && smelt_key == \"size\"), SmeltUnknown::Array(values) => smelt_key == \"length\" || smelt_key == \"__smelt_symbol_iterator\" || smelt_key.parse::<usize>().ok().is_some_and(|index| index < values.len()), SmeltUnknown::String(value) => smelt_key == \"length\" || smelt_key == \"__smelt_symbol_iterator\" || smelt_key.parse::<usize>().ok().is_some_and(|index| index < value.chars().count()), _ => false }} }}"
-                ));
+                // The two JavaScript presence tests over an erased value are two
+                // different helpers, not one: `Object.hasOwn` stops at the
+                // value's own properties while `in` continues onto the prototype
+                // chain, so `Object.hasOwn({}, 'toString')` is `false` where
+                // `'toString' in {}` is `true`. Emitting a single disjunction for
+                // both spellings made whichever reach it picked wrong for the
+                // other -- and before `Rvalue::DictContainsKey` carried `lookup`
+                // there was nothing here to pick with. Both helpers live in the
+                // prelude beside the property-READ chain they must agree with,
+                // which is what keeps a synthesized own property (a boxed
+                // string's `length` and character indices, a byte view's
+                // elements) visible to the presence tests and not only to reads.
+                let helper = match lookup {
+                    PropertyLookup::Own => "smelt_has_own_property",
+                    PropertyLookup::PrototypeChain => "smelt_has_property",
+                };
+                return Ok(format!("{helper}(&({dict_text}), &({key_value}))"));
             }
             return Ok("false".to_owned());
         };
@@ -749,12 +756,25 @@ impl FunctionEmitter<'_> {
                 // Leaking them would make a deep-equality walk over two views
                 // compare storage keys instead of elements, and would recurse
                 // through `buffer` back into the view.
+                // An erased ARRAY's own enumerable keys are its element indices
+                // followed by the named properties in its side table, which is
+                // the order `Object.keys(['a'])` -> `["0"]` and
+                // `Object.keys(withNamedProp)` -> `["0", "x"]` report.
                 smelt_hir::DictProjectionOp::Keys => Ok(format!(
-                    "match {dict_text} {{ SmeltUnknown::Object(map) => {index_keys}(&SmeltUnknown::Object(map.clone())).unwrap_or_else(|| map.keys().into_iter().filter(|key| !key.starts_with(\"__smelt_symbol:\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").collect()), _ => Vec::new() }}",
+                    "match {dict_text} {{ SmeltUnknown::Object(map) => {index_keys}(&SmeltUnknown::Object(map.clone())).unwrap_or_else(|| map.keys().into_iter().filter(|key| !key.starts_with(\"__smelt_symbol:\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").collect()), SmeltUnknown::Array(values) => values.own_keys(), _ => Vec::new() }}",
                     index_keys = smelt_stdlib::runtime_symbols::byte_buffer::INDEX_KEYS,
                 )),
                 smelt_hir::DictProjectionOp::ForInKeys => Ok(format!(
-                    "match {dict_text} {{ SmeltUnknown::Object(map) => {index_keys}(&SmeltUnknown::Object(map.clone())).unwrap_or_else(|| smelt_for_in_object_keys(&map)), _ => Vec::new() }}",
+                    "match {dict_text} {{ SmeltUnknown::Object(map) => {index_keys}(&SmeltUnknown::Object(map.clone())).unwrap_or_else(|| smelt_for_in_object_keys(&map)), SmeltUnknown::Array(values) => values.own_keys(), _ => Vec::new() }}",
+                    index_keys = smelt_stdlib::runtime_symbols::byte_buffer::INDEX_KEYS,
+                )),
+                // `Reflect.ownKeys` reports the string keys AND the symbol keys,
+                // so unlike `Keys` above it cannot filter `__smelt_symbol:` out;
+                // the projection maps those storage keys back to symbol values.
+                // An array's own keys are its indices and named properties, all
+                // strings.
+                smelt_hir::DictProjectionOp::OwnKeys => Ok(format!(
+                    "match {dict_text} {{ SmeltUnknown::Object(map) => {index_keys}(&SmeltUnknown::Object(map.clone())).map_or_else(|| smelt_own_object_keys(&map), |keys| keys.into_iter().map(|key| SmeltUnknown::String(key.as_str().into())).collect()), SmeltUnknown::Array(values) => values.own_keys().into_iter().map(|key| SmeltUnknown::String(key.as_str().into())).collect(), _ => Vec::new() }}",
                     index_keys = smelt_stdlib::runtime_symbols::byte_buffer::INDEX_KEYS,
                 )),
                 // `Object.getOwnPropertySymbols` yields symbol VALUES. The stored
@@ -771,11 +791,11 @@ impl FunctionEmitter<'_> {
                 // decoded elements, paired with their index keys — the same own-key
                 // set `Object.keys` reports above.
                 smelt_hir::DictProjectionOp::Values => Ok(format!(
-                    "match {dict_text} {{ SmeltUnknown::Object(map) => {elements}(&SmeltUnknown::Object(map.clone())).unwrap_or_else(|| map.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").map(|(_, value)| value).collect()), _ => Vec::new() }}",
+                    "match {dict_text} {{ SmeltUnknown::Object(map) => {elements}(&SmeltUnknown::Object(map.clone())).unwrap_or_else(|| map.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").map(|(_, value)| value).collect()), SmeltUnknown::Array(values) => values.own_entries().into_iter().map(|(_, value)| value).collect(), _ => Vec::new() }}",
                     elements = smelt_stdlib::runtime_symbols::byte_buffer::ELEMENTS,
                 )),
                 smelt_hir::DictProjectionOp::Entries => Ok(format!(
-                    "match {dict_text} {{ SmeltUnknown::Object(map) => {elements}(&SmeltUnknown::Object(map.clone())).map_or_else(|| map.clone().into_iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").collect::<Vec<_>>(), |values| values.into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect::<Vec<_>>()), _ => Vec::new() }}",
+                    "match {dict_text} {{ SmeltUnknown::Object(map) => {elements}(&SmeltUnknown::Object(map.clone())).map_or_else(|| map.clone().into_iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").collect::<Vec<_>>(), |values| values.into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect::<Vec<_>>()), SmeltUnknown::Array(values) => values.own_entries(), _ => Vec::new() }}",
                     elements = smelt_stdlib::runtime_symbols::byte_buffer::ELEMENTS,
                 )),
             };
@@ -802,11 +822,13 @@ impl FunctionEmitter<'_> {
                     // (`__smelt_date`, `__smelt_regexp`/`source`/`flags`, ...),
                     // which are representation details, not real JS properties.
                     // This is why e.g. `isShallowEqual(/a/, /b/)` (no own keys) is
-                    // equal. The marker filter (`smelt_is_for_in_record_key`) is
-                    // defined only over `SmeltRecord` — the sole backing where
-                    // those markers can appear — so the `SmeltJsMap` and plain
-                    // dict backings keep the symbol-only filter (they never carry
-                    // internal markers, and the helper would not type-check there).
+                    // equal. `SmeltRecord` gets the filter through
+                    // `smelt_is_for_in_record_key`, which is defined over that
+                    // backing; a `SmeltUnknown`-keyed `SmeltJsMap` gets the same
+                    // rule from `smelt_own_js_map_entries` in the non-`String`
+                    // key branch below. A `SmeltJsMap` DOES carry the markers —
+                    // the erased-object coercion copies them in verbatim — so the
+                    // symbol-only filter used to leak an inherited key here.
                     if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty) {
                         // A byte-backed host record's own keys are its element
                         // indices, not the storage keys the marker filter hides.
@@ -829,11 +851,36 @@ impl FunctionEmitter<'_> {
                         ))
                     }
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
+                    // Own string keys only: the prelude helper strips the
+                    // representation markers and restores symbol tags, then the
+                    // symbol filter drops the symbol-keyed properties
+                    // `Object.keys` never reports.
                     Ok(format!(
-                        "{dict_text}.keys().filter(|key| !matches!(key, SmeltUnknown::Symbol(_))).collect::<Vec<_>>()"
+                        "smelt_own_js_map_entries(&{dict_text}).into_iter().filter(|(key, _)| !matches!(key, SmeltUnknown::Symbol(_))).map(|(key, _)| key).collect::<Vec<_>>()"
                     ))
                 } else {
                     Ok(format!("{dict_text}.keys().cloned().collect::<Vec<_>>()"))
+                }
+            }
+            // `Reflect.ownKeys`: the string keys in own-key order, then the
+            // symbol keys. One helper per backing, mirroring the `ForInKeys`
+            // split -- every string-keyed backing derefs to
+            // `&SmeltRecord<String, _>`, and a `SmeltUnknown`-keyed one goes
+            // through the own-entry helper that restores symbol tags.
+            smelt_hir::DictProjectionOp::OwnKeys => {
+                let Some(Type::Dict(key_ty, _) | Type::JsMap(key_ty, _)) =
+                    self.mir.types.get(self.operand_ty(dict)?)
+                else {
+                    return Err(EmitError::new("dict projection receiver must be a dict"));
+                };
+                if self.mir.types.get(*key_ty) == Some(&Type::String) {
+                    Ok(format!("smelt_own_keys(&{dict_text})"))
+                } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
+                    Ok(format!("smelt_own_js_map_keys(&{dict_text})"))
+                } else {
+                    Err(EmitError::new(
+                        "own-key projection needs a string-keyed or erased-keyed record",
+                    ))
                 }
             }
             smelt_hir::DictProjectionOp::ForInKeys => {
@@ -852,9 +899,10 @@ impl FunctionEmitter<'_> {
                     // this is one branch rather than three identical ones.
                     Ok(format!("smelt_for_in_record_keys(&{dict_text})"))
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
-                    Ok(format!(
-                        "{dict_text}.keys().filter(|key| !matches!(key, SmeltUnknown::Symbol(_))).collect::<Vec<_>>()"
-                    ))
+                    // `for...in` also walks the enumerable `__smelt_proto:`
+                    // members, so it uses the prototype-chain helper rather than
+                    // the own-entries one; see `smelt_for_in_js_map_keys`.
+                    Ok(format!("smelt_for_in_js_map_keys(&{dict_text})"))
                 } else {
                     Ok(format!("{dict_text}.keys().cloned().collect::<Vec<_>>()"))
                 }
@@ -873,8 +921,11 @@ impl FunctionEmitter<'_> {
                         "{dict_text}.keys().filter_map(|key| key.strip_prefix(\"__smelt_symbol:\").map(|description| SmeltUnknown::Symbol(description.into()))).collect::<Vec<_>>()"
                     ))
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
+                    // The mirror image of the `Keys` arm: the same own-entry
+                    // helper restores a `__smelt_symbol:` storage key to its tag,
+                    // and this arm keeps exactly the keys that filter drops.
                     Ok(format!(
-                        "{dict_text}.keys().filter(|key| matches!(key, SmeltUnknown::Symbol(_))).collect::<Vec<_>>()"
+                        "smelt_own_js_map_entries(&{dict_text}).into_iter().map(|(key, _)| key).filter(|key| matches!(key, SmeltUnknown::Symbol(_))).collect::<Vec<_>>()"
                     ))
                 } else {
                     Ok("Vec::<SmeltUnknown>::new()".to_owned())
@@ -906,8 +957,9 @@ impl FunctionEmitter<'_> {
                         ))
                     }
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
+                    // Own, non-symbol entries only -- same rule as the `Keys` arm.
                     Ok(format!(
-                        "{dict_text}.iter().filter(|(key, _)| !matches!(key, SmeltUnknown::Symbol(_))).map(|(_, value)| value).collect::<Vec<_>>()"
+                        "smelt_own_js_map_entries(&{dict_text}).into_iter().filter(|(key, _)| !matches!(key, SmeltUnknown::Symbol(_))).map(|(_, value)| value).collect::<Vec<_>>()"
                     ))
                 } else {
                     Ok(format!("{dict_text}.values().cloned().collect::<Vec<_>>()"))
@@ -939,8 +991,9 @@ impl FunctionEmitter<'_> {
                         ))
                     }
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
+                    // Own, non-symbol entries only -- same rule as the `Keys` arm.
                     Ok(format!(
-                        "{dict_text}.iter().filter(|(key, _)| !matches!(key, SmeltUnknown::Symbol(_))).collect::<Vec<_>>()"
+                        "smelt_own_js_map_entries(&{dict_text}).into_iter().filter(|(key, _)| !matches!(key, SmeltUnknown::Symbol(_))).collect::<Vec<_>>()"
                     ))
                 } else {
                     Ok(format!(

@@ -679,8 +679,8 @@ function findKey<Value, Obj extends { [key in string | number]: Value }>(
     );
 
     assert!(
-        source.contains("values.contains_key(&smelt_key)"),
-        "{source}"
+        source.contains("smelt_has_own_property("),
+        "the own-key probe must ask the shared own-property authority:\n{source}"
     );
     assert!(!source.contains("_smelt_tmp_7 = false;"), "{source}");
 }
@@ -866,7 +866,7 @@ export function run(): unknown {
         "an erased field write must not key on the Rust-mangled name: {source}"
     );
     assert!(
-        source.contains("smelt_get_object_field(&map, \"someProp\")"),
+        source.contains("smelt_get_unknown_field(&obj.clone(), \"someProp\")"),
         "the read side already used the source name and must keep doing so: {source}"
     );
 }
@@ -905,9 +905,30 @@ function shallowClone(obj: object): object {
     // instance is still classified as a class instance, not a plain object.
     assert!(
         source.contains(
-            "SmeltUnknown::String(sentinel) if &*sentinel == \"__smelt_proto:class\" => { fields.push((\"__smelt_class\".to_owned(), SmeltUnknown::Bool(true))); }"
+            "SmeltUnknown::String(sentinel) if &**sentinel == \"__smelt_proto:class\" => { fields.push((\"__smelt_class\".to_owned(), SmeltUnknown::Bool(true))); }"
         ),
         "a class prototype must carry the class marker onto the fresh object: {source}"
+    );
+    // The prototype's IDENTITY is recorded too, so `Object.getPrototypeOf` of the
+    // result answers with the very value that was passed in — but only when the
+    // result's own shape cannot already imply it. It is keyed by the created
+    // object's id, never stored as an entry, so no view of the object's entries
+    // can see it.
+    assert!(
+        source.contains(
+            "let object = SmeltObject::new(fields); if smelt_prototype_slot_is_observable(&prototype) { smelt_register_object_prototype(object.id, prototype); }"
+        ),
+        "Object.create must record an observable prototype: {source}"
+    );
+    assert!(
+        source.contains(
+            "fn smelt_prototype_slot_is_observable(prototype: &SmeltUnknown) -> bool"
+        ),
+        "the observability test must be emitted alongside: {source}"
+    );
+    assert!(
+        source.contains("static SMELT_OBJECT_PROTOTYPES:"),
+        "the prototype registry must be emitted: {source}"
     );
 }
 

@@ -4,6 +4,7 @@
 //! source syntax into local call shapes, ask this crate for a rule identity,
 //! and then perform their own typed lowering.
 
+pub mod builtin_members;
 pub mod category;
 pub mod classes;
 pub mod deps;
@@ -11,10 +12,15 @@ pub mod diagnostics;
 pub mod fields;
 pub mod globals;
 pub mod host_object;
+pub mod js_regex;
 pub mod recognition;
 pub mod rules;
 pub mod runtime_symbols;
+pub mod well_known_symbols;
 
+pub use builtin_members::{
+    BUILTIN_MEMBER_FUNCTIONS, BuiltinMember, BuiltinMemberKind, builtin_member, builtin_member_key,
+};
 pub use category::DiagnosticCategory;
 pub use classes::{
     MATCH_CLASS_NAME, MATCH_GROUPS_CLASS_NAME, StdlibClass, TYPED_ARRAY_CLASS_NAMES,
@@ -39,3 +45,4 @@ pub use recognition::{
 pub use rules::{
     ApiNamespace, ApiShape, ArgShape, EffectKind, ReceiverKind, ReturnShape, RuleId, SourceLanguage,
 };
+

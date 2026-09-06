@@ -214,6 +214,33 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
+            ExprKind::InstanceOfValue { value, target } => {
+                let lowered_value = self.lower_expr(*value)?;
+                let lowered_target = self.lower_expr(*target)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::InstanceOfValue {
+                        value: lowered_value,
+                        target: lowered_target,
+                    },
+                )?
+            }
+            ExprKind::Construct { callee, args } => {
+                let callee_operand = self.lower_expr(*callee)?;
+                let lowered_args = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::Construct {
+                        callee: callee_operand,
+                        args: lowered_args,
+                    },
+                )?
+            }
             ExprKind::UnknownIs { value, kind } => {
                 let lowered_value = self.lower_expr(*value)?;
                 self.assign_temp(
@@ -1657,7 +1684,7 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
-            ExprKind::DictContainsKey { dict, key } => {
+            ExprKind::DictContainsKey { dict, key, lookup } => {
                 let dict_operand = self.lower_expr(*dict)?;
                 let key_operand = self.lower_expr(*key)?;
                 self.assign_temp(
@@ -1666,6 +1693,7 @@ impl LoweringCtx<'_> {
                     Rvalue::DictContainsKey {
                         dict: dict_operand,
                         key: key_operand,
+                        lookup: *lookup,
                     },
                 )?
             }
@@ -1865,8 +1893,26 @@ impl LoweringCtx<'_> {
                 )?
             }
             ExprKind::JsonParse { text } => {
+                // `JSON.parse` is fallible: malformed text throws a catchable
+                // `SyntaxError`. A `Statement::Assign` has no unwind edge, so an
+                // rvalue form can never reach an enclosing `try` -- the catch
+                // block would have no predecessor and be dropped, turning a
+                // JavaScript-catchable error into an abort. Route it through the
+                // call terminator, exactly as the `Await` arm below does, so the
+                // handler (or, with none active, the throwing-function
+                // propagation pass) sees the throwing edge.
                 let text_operand = self.lower_expr(*text)?;
-                self.assign_temp(expr.ty, expr.span, Rvalue::JsonParse { text: text_operand })?
+                let dest = self.push_temp(expr.ty, expr.span);
+                let target = self.function.push_block(expr.span);
+                self.set_terminator(Terminator::Call {
+                    callee: Callee::Builtin(BuiltinFn::JsonParse),
+                    args: vec![text_operand],
+                    dest,
+                    target,
+                    unwind: self.current_exception_handler(),
+                })?;
+                self.current_block = target;
+                Operand::Copy(Place::Local(dest))
             }
             ExprKind::HttpGetText { url } => {
                 let url_operand = self.lower_expr(*url)?;
@@ -1884,6 +1930,9 @@ impl LoweringCtx<'_> {
                         timestamp: timestamp_operand,
                     },
                 )?
+            }
+            ExprKind::VitestRestoreAllMocks => {
+                self.assign_temp(expr.ty, expr.span, Rvalue::VitestRestoreAllMocks)?
             }
             ExprKind::DateResetNow => {
                 self.assign_temp(expr.ty, expr.span, Rvalue::DateResetNow)?
@@ -1941,6 +1990,30 @@ impl LoweringCtx<'_> {
                         mock: mock_operand,
                         args: arg_operands,
                         last: *last,
+                    },
+                )?
+            }
+            ExprKind::VitestSpyOn { target, name } => {
+                let target_operand = self.lower_expr(*target)?;
+                let name_operand = self.lower_expr(*name)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::VitestSpyOn {
+                        target: target_operand,
+                        name: name_operand,
+                    },
+                )?
+            }
+            ExprKind::VitestAsymmetricEqual { actual, expected } => {
+                let actual_operand = self.lower_expr(*actual)?;
+                let expected_operand = self.lower_expr(*expected)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::VitestAsymmetricEqual {
+                        actual: actual_operand,
+                        expected: expected_operand,
                     },
                 )?
             }

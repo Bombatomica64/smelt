@@ -356,7 +356,7 @@ impl ModuleBuilder<'_> {
             errors.push(error);
         }
         if let Err(error) =
-            self.predeclare_local_arrow_callbacks(&function_body.statements, &mut body)
+            self.predeclare_forward_referenced_locals(&function_body.statements, &mut body)
         {
             errors.push(error);
         }
@@ -1394,9 +1394,14 @@ impl ModuleBuilder<'_> {
                             self.span(property.span.start, property.span.end),
                         ));
                     }
+                    // A `#name` field is an ECMAScript *private name*, so it is not an
+                    // own property of the instance (`obj['#name']` is `undefined`, and
+                    // it never shows up in `Object.keys`/`JSON`/a structural compare).
+                    // A source `private`/`protected` modifier is only a compile-time
+                    // restriction, so such a field stays an ordinary own property.
                     let field_visibility =
                         if matches!(&property.key, PropertyKey::PrivateIdentifier(_)) {
-                            Visibility::Private
+                            Visibility::Hidden
                         } else {
                             visibility(property.accessibility)
                         };
@@ -1454,9 +1459,11 @@ impl ModuleBuilder<'_> {
                             .transpose()?
                             .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
                         fields.push(Field {
+                            // The accessor's backing storage, not a source
+                            // property: it must stay out of every erased view.
+                            visibility: Visibility::Hidden,
                             name,
                             ty,
-                            visibility: Visibility::Private,
                             optional: false,
                             span: self.span(method.span.start, method.span.end),
                         });
@@ -1569,7 +1576,8 @@ impl ModuleBuilder<'_> {
                 fields.push(Field {
                     name: store_name,
                     ty: store_ty,
-                    visibility: Visibility::Private,
+                    // Compiler-synthesized keyed storage, never a source property.
+                    visibility: Visibility::Hidden,
                     optional: false,
                     span: class_span,
                 });
@@ -2654,8 +2662,10 @@ impl ModuleBuilder<'_> {
         let Some((literal, ty)) = self.static_field_literal(value_expr)? else {
             return Ok(None);
         };
+        // See the instance-field comment above: `#name` is a private *name*
+        // (never an own property), while `private`/`protected` is compile-time only.
         let visibility = if matches!(&property.key, PropertyKey::PrivateIdentifier(_)) {
-            Visibility::Private
+            Visibility::Hidden
         } else {
             visibility(property.accessibility)
         };
@@ -2990,7 +3000,7 @@ impl ModuleBuilder<'_> {
             );
         }
         if let Err(error) =
-            self.predeclare_local_arrow_callbacks(&function_body.statements, &mut body)
+            self.predeclare_forward_referenced_locals(&function_body.statements, &mut body)
         {
             errors.push(error);
         }

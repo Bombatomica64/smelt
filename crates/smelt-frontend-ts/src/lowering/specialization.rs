@@ -448,11 +448,10 @@ impl ModuleBuilder<'_> {
             let field = Field {
                 name,
                 ty: self.materialized_static_type(&materialized.ty),
-                visibility: if materialized.is_private {
-                    Visibility::Private
-                } else {
-                    Visibility::Public
-                },
+                visibility: materialized_field_visibility(
+                    &materialized.name,
+                    materialized.is_private,
+                ),
                 optional: false,
                 span: materialized
                     .span
@@ -496,11 +495,10 @@ impl ModuleBuilder<'_> {
             static_fields.push(smelt_hir::StaticField {
                 name: self.intern_source_name(materialized_member_name(&materialized.name)),
                 ty: self.materialized_static_type(ty),
-                visibility: if materialized.is_private {
-                    Visibility::Private
-                } else {
-                    Visibility::Public
-                },
+                visibility: materialized_field_visibility(
+                    &materialized.name,
+                    materialized.is_private,
+                ),
                 value: value.and_then(|value| self.materialized_literal(value)),
                 span: materialized
                     .span
@@ -665,4 +663,22 @@ impl ModuleBuilder<'_> {
 /// Converts standard-decorator private names to the frontend's field spelling.
 pub(super) fn materialized_member_name(name: &str) -> &str {
     name.strip_prefix('#').unwrap_or(name)
+}
+
+/// Visibility of a materialized descriptor field.
+///
+/// A descriptor keeps the source spelling of the member name, so a `#name`
+/// field is recognizable as an ECMAScript *private name*: it is not an own
+/// property of the instance and must stay out of every erased view
+/// ([`Visibility::Hidden`]). A `private`/`protected` modifier, in contrast, is
+/// only a compile-time restriction over a real own property, so it lowers to
+/// [`Visibility::Private`] and stays observable at runtime.
+fn materialized_field_visibility(name: &str, is_private: bool) -> Visibility {
+    if name.starts_with('#') {
+        Visibility::Hidden
+    } else if is_private {
+        Visibility::Private
+    } else {
+        Visibility::Public
+    }
 }

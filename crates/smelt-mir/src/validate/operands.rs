@@ -54,6 +54,12 @@ impl Rvalue {
                     visit(arg);
                 }
             }
+            Self::Construct { callee, args } => {
+                visit(callee);
+                for arg in args {
+                    visit(arg);
+                }
+            }
             Self::ClosureCallSpread { callee, args } => {
                 visit(callee);
                 visit(args);
@@ -97,6 +103,10 @@ impl Rvalue {
             }
             Self::InstanceOf { value: operand, .. } => {
                 visit(operand);
+            }
+            Self::InstanceOfValue { value, target } => {
+                visit(value);
+                visit(target);
             }
             Self::UnknownIs {
                 value: unknown_value,
@@ -483,7 +493,7 @@ impl Rvalue {
             Self::TupleIndex { tuple, .. } | Self::TupleSlice { tuple, .. } => {
                 visit(tuple);
             }
-            Self::DictContainsKey { dict, key } => {
+            Self::DictContainsKey { dict, key, .. } => {
                 visit(dict);
                 visit(key);
             }
@@ -625,7 +635,7 @@ impl Rvalue {
                 visit(url);
             }
             Self::DateNow => {}
-            Self::DateResetNow => {}
+            Self::DateResetNow | Self::VitestRestoreAllMocks => {}
             Self::GlobalGet { .. } => {}
             Self::GlobalSet { value, .. } => {
                 visit(value);
@@ -651,6 +661,14 @@ impl Rvalue {
                 for arg in args {
                     visit(arg);
                 }
+            }
+            Self::VitestSpyOn { target, name } => {
+                visit(target);
+                visit(name);
+            }
+            Self::VitestAsymmetricEqual { actual, expected } => {
+                visit(actual);
+                visit(expected);
             }
             Self::VitestMockLastResolvedWith { mock, expected } => {
                 visit(mock);
@@ -843,6 +861,12 @@ impl Rvalue {
                     visit(arg);
                 }
             }
+            Self::Construct { callee, args } => {
+                visit(callee);
+                for arg in args.iter_mut() {
+                    visit(arg);
+                }
+            }
             Self::ClosureCallSpread { callee, args } => {
                 visit(callee);
                 visit(args);
@@ -886,6 +910,10 @@ impl Rvalue {
             }
             Self::InstanceOf { value: operand, .. } => {
                 visit(operand);
+            }
+            Self::InstanceOfValue { value, target } => {
+                visit(value);
+                visit(target);
             }
             Self::UnknownIs {
                 value: unknown_value,
@@ -1269,7 +1297,7 @@ impl Rvalue {
             Self::TupleIndex { tuple, .. } | Self::TupleSlice { tuple, .. } => {
                 visit(tuple);
             }
-            Self::DictContainsKey { dict, key } => {
+            Self::DictContainsKey { dict, key, .. } => {
                 visit(dict);
                 visit(key);
             }
@@ -1411,7 +1439,7 @@ impl Rvalue {
                 visit(url);
             }
             Self::DateNow => {}
-            Self::DateResetNow => {}
+            Self::DateResetNow | Self::VitestRestoreAllMocks => {}
             Self::GlobalGet { .. } => {}
             Self::GlobalSet { value, .. } => {
                 visit(value);
@@ -1437,6 +1465,14 @@ impl Rvalue {
                 for arg in args {
                     visit(arg);
                 }
+            }
+            Self::VitestSpyOn { target, name } => {
+                visit(target);
+                visit(name);
+            }
+            Self::VitestAsymmetricEqual { actual, expected } => {
+                visit(actual);
+                visit(expected);
             }
             Self::VitestMockLastResolvedWith { mock, expected } => {
                 visit(mock);

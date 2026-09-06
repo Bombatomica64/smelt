@@ -254,3 +254,38 @@ test("an erased object keeps its source key order", () => {
 "#;
     run_object_fixture(source, "object_shape_erased_key_order");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn recovering_an_erased_object_keeps_its_reference_identity() {
+    // Recovering an erased object at a record type used to REBUILD its entries,
+    // which detached the recovered record from the object it came from: every
+    // write through it landed in a copy nothing else could see. es-toolkit's
+    // `clone` reaches exactly that -- `Object.assign(newError, obj)` on an
+    // `unknown` target, whose result it then returns through the target
+    // binding, so the merged properties disappeared. An object is a reference
+    // value, so the recovery hands back a second handle on the same store.
+    let source = r#"
+import { test, expect } from "vitest";
+
+function decorate(target: unknown, source: Record<string, unknown>): void {
+  Object.assign(target as Record<string, unknown>, source);
+}
+
+test("Object.assign through an erased target writes into that object", () => {
+  const holder: Record<string, unknown> = { kept: 1 };
+  decorate(holder, { added: 2 });
+  expect(holder.kept).toBe(1);
+  expect(holder.added).toBe(2);
+});
+test("a property store through a recovered record reaches the object", () => {
+  const holder: Record<string, unknown> = { a: 1 };
+  const erased: unknown = holder;
+  const recovered = erased as Record<string, unknown>;
+  recovered.b = 2;
+  expect(holder.b).toBe(2);
+  expect(Object.keys(holder)).toEqual(["a", "b"]);
+});
+"#;
+    run_object_fixture(source, "object_shape_erased_recovery_identity");
+}

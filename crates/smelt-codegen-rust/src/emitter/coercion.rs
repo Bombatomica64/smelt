@@ -22,6 +22,24 @@ use crate::rust::RustIdent;
 use smelt_hir::FunctionType;
 
 impl FunctionEmitter<'_> {
+    /// Whether two MIR types render to the SAME Rust type.
+    ///
+    /// Type identity in MIR is finer-grained than Rust representation: several
+    /// distinct `TypeId`s legitimately share one Rust spelling (an erased
+    /// `Type::TypeParam` and `Type::Unknown` are both `SmeltUnknown`, a union
+    /// with no concrete Rust form likewise). A coercion keyed on `TypeId`
+    /// inequality therefore fires for pairs where there is nothing to convert,
+    /// and "nothing to convert" is not free: a container coercion rebuilds the
+    /// backing buffer, which severs the JavaScript reference identity the source
+    /// value carries. Asking about the RENDERING is the question these seams
+    /// actually mean.
+    pub(super) fn same_rust_repr(&self, left: TypeId, right: TypeId) -> Result<bool, EmitError> {
+        if left == right {
+            return Ok(true);
+        }
+        Ok(self.type_text(left)? == self.type_text(right)?)
+    }
+
     /// Converts an operand to Rust text, wrapping into `SmeltUnknown` when needed.
     /// Converts an operand to Rust text, wrapping into `SmeltUnknown` when needed.
     pub(super) fn value_at_type(
@@ -65,6 +83,19 @@ impl FunctionEmitter<'_> {
             && !matches!(self.mir.types.get(target), Some(Type::Function(_)))
         {
             return self.operand_text(operand);
+        }
+        // `Future<A>` -> `Future<B>` is a coercion of the AWAITED value, so it
+        // needs the awaiting adapter the text-based entry point already builds
+        // (`smelt_source_future.await?`, then the item coercion). Falling through
+        // to the unchanged operand instead emitted a future of the wrong item
+        // type at its declared type -- an E0308 that only appears once the
+        // program actually keeps the future, which is why a `return` of a
+        // promise-returning call whose declared item is erased did not type-check
+        // (radash's `_.try(async () => _.parallel(..))`).
+        if matches!(self.mir.types.get(source_ty), Some(Type::Future(_)))
+            && matches!(self.mir.types.get(target), Some(Type::Future(_)))
+        {
+            return self.value_at_type_text(&operand_text, source_ty, target);
         }
         if let Some(Type::TypeParam { name }) = self.mir.types.get(target)
             && self.current_function_has_type_param(*name)
@@ -367,7 +398,7 @@ impl FunctionEmitter<'_> {
             ) || self.is_erased_class_type(*target_item);
             if matches!(self.mir.types.get(*source_item), Some(Type::None))
                 && target_item_is_erased
-                && self.list_local_all_undefined_constants(operand)?
+                && self.container_local_all_undefined_constants(operand)?
             {
                 return Ok(format!(
                     "{{ let smelt_l: SmeltList<_> = {op}.into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| SmeltUnknown::Undefined).collect::<Vec<_>>()) }}",
@@ -651,7 +682,7 @@ impl FunctionEmitter<'_> {
             if self.is_borrowed_callback_capture_name(value_text) {
                 return self.borrowed_function_handle_text(value_text, target);
             }
-            return Ok(format!("{smelt_owned_value}"));
+            return Ok(smelt_owned_value);
         }
         if let (Some(Type::Future(source_item)), Some(Type::Future(target_item))) =
             (self.mir.types.get(source), self.mir.types.get(target))
@@ -860,7 +891,7 @@ impl FunctionEmitter<'_> {
             (self.mir.types.get(source), self.mir.types.get(target))
         {
             if source_inner == target_inner {
-                return Ok(format!("{smelt_owned_value}"));
+                return Ok(smelt_owned_value);
             }
             let mapped_value = self.value_at_type_text("value", *source_inner, *target_inner)?;
             return Ok(format!("{smelt_owned_value}.map(|value| {mapped_value})"));
@@ -1124,7 +1155,7 @@ impl FunctionEmitter<'_> {
                 // `Null` path. This mirrors the same recovery in `value_at_type`
                 // for the `List<None> -> List<Unknown>` coercion shape.
                 let value_wrap = if matches!(self.mir.types.get(*item), Some(Type::None))
-                    && self.list_local_all_undefined_constants(operand)?
+                    && self.container_local_all_undefined_constants(operand)?
                 {
                     "SmeltUnknown::Undefined".to_owned()
                 } else {
@@ -1161,24 +1192,23 @@ impl FunctionEmitter<'_> {
                 if self.mir.types.get(*key) == Some(&Type::String)
                     && self.mir.types.get(*item) == Some(&Type::Unknown) =>
             {
+                // The object arm ALIASES the erased object's field store
+                // (`smelt_shared_record`) rather than rebuilding its entries: a
+                // JavaScript object is a reference value, so a write through the
+                // recovered record must reach the object it came from.
                 Ok(format!(
                     "SmeltUnknown::Object(SmeltObject::from_unknown_record({smelt_owned_text}))"
                 ))
             }
             Some(Type::Dict(key, item)) if self.mir.types.get(*key) == Some(&Type::String) => {
-                let value_wrap = self.erase_value_text("value", *item)?;
-                if self.mir.types.get(*item) == Some(&Type::Float) {
-                    return Ok(format!(
-                        "{{ let smelt_record = {smelt_owned_text}; SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, {value_wrap})).collect())) }}"
-                    ));
-                }
+                let value_wrap = self.dict_erased_value_wrap(operand, *item)?;
                 Ok(format!(
                     "{{ let smelt_record = {smelt_owned_text}; SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, {value_wrap})).collect())) }}"
                 ))
             }
             Some(Type::Dict(key, item)) => {
                 let key_wrap = self.property_key_to_string_text("key", *key)?;
-                let value_wrap = self.erase_value_text("value", *item)?;
+                let value_wrap = self.dict_erased_value_wrap(operand, *item)?;
                 Ok(format!(
                     "SmeltUnknown::Object(SmeltObject::new({text}.into_iter().map(|(key, value)| ({key_wrap}, {value_wrap})).collect()))"
                 ))
@@ -1366,51 +1396,88 @@ impl FunctionEmitter<'_> {
         Ok(Some(bare.to_owned()))
     }
 
-    /// Report whether a `Type::None` list operand was defined by an array
-    /// literal whose elements are *all* the `undefined` literal.
+    /// The per-entry value erasure for a dict operand crossing into `unknown`.
+    ///
+    /// Identical to `erase_value_text` except for the one case the type cannot
+    /// answer: a `Dict<_, None>` whose defining literal held `undefined`, not
+    /// `null`. `{ a: undefined }` must erase to `SmeltUnknown::Undefined` so
+    /// `typeof o.a === 'undefined'` and `Object.values(o)[0] !== null` stay
+    /// true across the boundary. This is the dict twin of the recovery the list
+    /// arm does, sharing
+    /// [`Self::container_local_all_undefined_constants`] with it.
+    fn dict_erased_value_wrap(
+        &self,
+        operand: &Operand,
+        item: TypeId,
+    ) -> Result<String, EmitError> {
+        if matches!(self.mir.types.get(item), Some(Type::None))
+            && self.container_local_all_undefined_constants(operand)?
+        {
+            return Ok("SmeltUnknown::Undefined".to_owned());
+        }
+        self.erase_value_text("value", item)
+    }
+
+    /// Report whether a `Type::None`-holding CONTAINER operand was defined by a
+    /// literal whose held values are *all* the `undefined` literal.
     ///
     /// `null` and `undefined` both collapse to MIR `Type::None`, so a
-    /// `List<None>` carries no type-level hint about which JS singleton it
-    /// holds; the distinction survives only as the per-element
-    /// [`Constant::Undefined`] (see `specs/distinct-undefined.md`). When such a
-    /// list is later erased to `List<Unknown>` the generic per-type erase would
-    /// pick `SmeltUnknown::Null` for every element — wrong for an
-    /// `[undefined, …]` literal, which must compare equal to the `undefined`
-    /// any other producer yields (e.g. a debouncer's initial cached `result`).
+    /// `List<None>`, a `Tuple` of `None` or a `Dict<_, None>` carries no
+    /// type-level hint about which JS singleton it holds; the distinction
+    /// survives only as the per-value [`Constant::Undefined`] (see
+    /// `specs/distinct-undefined.md`). When such a container is erased, the
+    /// generic per-type erase would pick `SmeltUnknown::Null` for every held
+    /// value — wrong for an `[undefined, …]` / `{ k: undefined }` literal,
+    /// whose values must compare equal to the `undefined` any other producer
+    /// yields (`typeof o.k === 'undefined'`, `isJSONValue(undefined) === false`).
     ///
     /// We recover the lost distinction by inspecting the operand's *defining*
-    /// `Rvalue::List` (mirroring [`Self::erased_call_assignment_text`]): if every
-    /// element is the `undefined` constant, the whole list erases to
+    /// rvalue (mirroring [`Self::erased_call_assignment_text`]): if every held
+    /// value is the `undefined` constant, the whole container erases to
     /// `Undefined`. Mixed or all-`null` literals keep the historical `Null`
-    /// erasure, so genuine `null` arrays are untouched.
-    fn list_local_all_undefined_constants(&self, operand: &Operand) -> Result<bool, EmitError> {
+    /// erasure, so genuine `null` containers are untouched, as does any operand
+    /// with no single literal definition (the same conservatism the list path
+    /// has always had).
+    ///
+    /// One helper for all three container shapes on purpose: the list arm grew
+    /// this recovery first, the dict arm reproduced the bug because it did not,
+    /// and a tuple arm would have been the third.
+    fn container_local_all_undefined_constants(
+        &self,
+        operand: &Operand,
+    ) -> Result<bool, EmitError> {
         let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = operand
         else {
             return Ok(false);
         };
-        let mut defining_list = None;
+        let mut defining_values: Option<Vec<&Operand>> = None;
         for block in &self.function.blocks {
             for statement in &block.statements {
                 if let Statement::Assign { dest, value } = statement
                     && dest == local
                 {
                     // A reassignment of the same local would make the erasure
-                    // ambiguous; only trust a single defining list literal.
-                    if let Rvalue::List(items) = value {
-                        defining_list = Some(items);
-                    } else {
-                        return Ok(false);
+                    // ambiguous; only trust a single defining container literal.
+                    match value {
+                        Rvalue::List(items) | Rvalue::Tuple(items) => {
+                            defining_values = Some(items.iter().collect());
+                        }
+                        Rvalue::Dict(entries) => {
+                            defining_values =
+                                Some(entries.iter().map(|(_, value)| value).collect());
+                        }
+                        _ => return Ok(false),
                     }
                 }
             }
         }
-        let Some(items) = defining_list else {
+        let Some(values) = defining_values else {
             return Ok(false);
         };
-        Ok(!items.is_empty()
-            && items
+        Ok(!values.is_empty()
+            && values
                 .iter()
-                .all(|item| matches!(item, Operand::Const(Constant::Undefined))))
+                .all(|value| matches!(value, Operand::Const(Constant::Undefined))))
     }
 
     /// Re-render a typed callback local from its erased callable source when it
@@ -1684,8 +1751,20 @@ impl FunctionEmitter<'_> {
                     let erased_return = self.erase_value_text(&call_text, function.return_ty)?;
                     format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({erased_return})")
                 };
+                // Erasing a function value builds a fresh forwarding closure, so
+                // the allocation address JavaScript `===` would compare is a new
+                // one every time. The adapter and the typed callable it wraps are
+                // ONE JavaScript function, so both must resolve to one canonical
+                // identity: that is what keeps two erasures of the same closure —
+                // a field read through an erased view and the same closure erased
+                // into an object literal — `===` to each other, what lets
+                // `smelt_same_erased_function` see through both wrappers, and what
+                // makes an own property of the function (`f.prototype`) the same
+                // object whichever spelling reads it. The rest-vector adapter in
+                // `core.rs` links itself the same way. The identity is taken
+                // before the callable is moved into the adapter.
                 Ok(format!(
-                    "{{ let smelt_function_value = {value_text}; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) {{ smelt_callable_object }} else {{ let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text}); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }} }}"
+                    "{{ let smelt_function_value = {value_text}; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) {{ smelt_callable_object }} else {{ let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text}); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); SmeltUnknown::Function(smelt_erased_function) }} }}"
                 ))
             }
             Some(Type::Union(_)) if self.concrete_union_members(ty).is_some() => {
@@ -1706,15 +1785,29 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// The erased `null`/`undefined` tag of `SmeltUnknown`.
+    /// The erased `null` tag of `SmeltUnknown`.
     ///
-    /// This is the canonical boxed "no value" the seam hands back when a typed
-    /// value has nothing observable to carry across the boundary (a `None`
-    /// return, an absent field, the default of an erased target). Keeping the
-    /// variant text here means callers outside the seam never spell
+    /// This is the canonical boxed *value* `null`: a `Type::None` value the
+    /// source spelled, a `None` return, the default of an erased target. It is
+    /// NOT the answer for a property that does not exist — JavaScript
+    /// distinguishes the two, and `===`/`Object.is` see the difference, so an
+    /// absent property asks for [`Self::absent_value_text`] instead. Keeping
+    /// the variant text here means callers outside the seam never spell
     /// `SmeltUnknown::Null` by hand; they ask for the null tag by intent.
     pub(super) fn null_value_text(&self) -> String {
         "SmeltUnknown::Null".to_owned()
+    }
+
+    /// The erased tag for a property that is ABSENT.
+    ///
+    /// Reading a property an object does not have evaluates to `undefined` in
+    /// JavaScript, never to `null`. The two used to share
+    /// [`Self::null_value_text`], which made a miss on a class receiver
+    /// (`instance['nope']`) compare `=== null` and `!== undefined` — both
+    /// backwards. Absence and the `null` value are different values, so they
+    /// get different helpers and callers state which one they mean.
+    pub(super) fn absent_value_text(&self) -> String {
+        "SmeltUnknown::Undefined".to_owned()
     }
 
     /// Wrap a live concrete future in an erased, cloneable promise handle.
@@ -1844,7 +1937,7 @@ impl FunctionEmitter<'_> {
         };
         let entries_result = fields
             .iter()
-            .filter(|field| !matches!(field.visibility, smelt_hir::Visibility::Private))
+            .filter(|field| field.visibility.is_own_property())
             .map(|field| {
                 let source_name = self.symbol_source_name(field.name)?;
                 let field_name = sanitize_ident(self.symbol_name(field.name)?);
@@ -1892,13 +1985,13 @@ impl FunctionEmitter<'_> {
         // host subclasses — including override classes assigned into a
         // `globalThis.<Name>` slot — without any globalThis special-casing.
         let mut host_markers = String::new();
-        for marker in self.host_base_markers(*name) {
+        for (marker, value_text) in self.host_base_markers(*name) {
             use std::fmt::Write as _;
             // `marker` is a fixed `__smelt_*` identifier, so wrap it in explicit
             // quotes rather than Debug-formatting it into a Rust string literal.
             let _ = write!(
                 host_markers,
-                "smelt_object_entries.push((\"{marker}\".to_owned(), SmeltUnknown::Bool(true))); "
+                "smelt_object_entries.push((\"{marker}\".to_owned(), {value_text})); "
             );
         }
         // The marker VALUE is the class name, not a bare `true`. JavaScript exposes
@@ -1963,7 +2056,7 @@ impl FunctionEmitter<'_> {
     }
 
     /// Identity markers a class carries because its base chain reaches a modeled
-    /// host object.
+    /// host object or a builtin `Error`.
     ///
     /// Walks the single-inheritance base chain through `mir.classes`; the first
     /// base that names a registered host object (`smelt_stdlib::host_object_by_class`)
@@ -1971,8 +2064,23 @@ impl FunctionEmitter<'_> {
     /// matching the host subtype relationship the native `new File(...)` records
     /// stamp. Returns an empty vector for a class with no host base (the common
     /// case, which keeps existing erased output byte-identical).
-    fn host_base_markers(&self, class_name: Symbol) -> Vec<&'static str> {
-        let mut markers: Vec<&'static str> = Vec::new();
+    ///
+    /// A builtin `Error` class is not a `HOST_OBJECTS` entry — errors are modeled
+    /// by the `__smelt_error: "<ClassName>"` convention instead — so a class whose
+    /// chain reaches one contributes that marker with the NEAREST BUILTIN base's
+    /// name as its value. That is what makes an erased `class CustomError extends
+    /// Error` instance answer `instanceof Error` (the marker-presence probe) while
+    /// `class MyTypeError extends TypeError` also satisfies `instanceof TypeError`
+    /// (the recorded-name equality arm) and not `instanceof RangeError`; the user
+    /// class itself keeps resolving through `__smelt_class`. `instance_of_text`
+    /// answers those probes off the same `smelt_stdlib::is_error_class_name` list,
+    /// so neither side carries a hand-maintained copy of the error hierarchy.
+    ///
+    /// Each entry is the marker key plus the Rust text of its VALUE: an identity
+    /// marker is a bare `true`, while the error marker records which builtin
+    /// error class the chain reached.
+    fn host_base_markers(&self, class_name: Symbol) -> Vec<(&'static str, String)> {
+        let mut markers: Vec<(&'static str, String)> = Vec::new();
         let mut current = Some(class_name);
         for _ in 0u32..64 {
             let Some(name_sym) = current else { break };
@@ -1982,12 +2090,19 @@ impl FunctionEmitter<'_> {
             let Some(base) = class.base else { break };
             let Some(base_name) = self.mir.symbols.get(base) else { break };
             if let Some(entry) = smelt_stdlib::host_object_by_class(base_name) {
-                markers.push(entry.marker);
+                markers.push((entry.marker, "SmeltUnknown::Bool(true)".to_owned()));
                 if base_name == "File"
                     && let Some(blob) = smelt_stdlib::host_object_marker("Blob")
                 {
-                    markers.push(blob);
+                    markers.push((blob, "SmeltUnknown::Bool(true)".to_owned()));
                 }
+                break;
+            }
+            if smelt_stdlib::is_error_class_name(base_name) {
+                markers.push((
+                    "__smelt_error",
+                    format!("SmeltUnknown::String({base_name:?}.into())"),
+                ));
                 break;
             }
             current = Some(base);
@@ -2318,8 +2433,29 @@ impl FunctionEmitter<'_> {
             Some(Type::Int) => Ok(format!(
                 "match {smelt_owned_text} {{ SmeltUnknown::Number(value) => value as i64, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value as i64, _ => 0_i64 }}, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN) as i64, SmeltUnknown::Bool(value) => if value {{ 1_i64 }} else {{ 0_i64 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => 0_i64 }}"
             )),
+            // Reading an erased value out into a `String` slot is not the JS
+            // `String(x)` CONVERSION -- nothing in the source asked for one; the
+            // slot's declared type simply says `string`. So absence must not
+            // become the conversion's answer `"undefined"`: the slot cannot
+            // represent absence at all, and inventing a five-letter string for
+            // it makes the erased side disagree with the very same absence
+            // written as a literal, which the typed side renders as the type's
+            // default (`String::new()`). `Null` has always answered
+            // `String::new()` here rather than `"null"` for exactly that
+            // reason; `Undefined` was the arm that had drifted, and a
+            // `[3, undefined]` expectation therefore compared unequal to the
+            // `[3, undefined]` a callee produced. The real conversion lives in
+            // `strings.rs` (`String(x)`, template literals, a `replace`
+            // replacer's return) and keeps `"undefined"`.
+            //
+            // The honest representation of an absent `string` is
+            // `Optional(String)`; where the declared type refuses it (here a
+            // library overload asserting `[number, string][]` for a `zip` that
+            // pads with `undefined`) the type's default is the closest the slot
+            // can come -- and it is at least the SAME answer on both sides of a
+            // comparison.
             Some(Type::String) => Ok(format!(
-                "match {smelt_owned_text} {{ SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}"
+                "match {smelt_owned_text} {{ SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}"
             )),
             // Iterable-to-list extraction inspects the source through the
             // `SmeltUnknown` variant space (array/string/`Symbol.iterator`). The
@@ -2354,7 +2490,7 @@ impl FunctionEmitter<'_> {
                     && self.mir.types.get(*item) == Some(&Type::Unknown) =>
             {
                 Ok(format!(
-                    "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(value) => SmeltRecord::with_id_from_entries(value.id, value.into_iter()), SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect(), SmeltUnknown::String(value) => value.chars().enumerate().map(|(index, ch)| (index.to_string(), SmeltUnknown::String(ch.to_string().into()))).collect(), SmeltUnknown::Function(value) => SmeltRecord::from([(\"__smelt_call\".to_owned(), SmeltUnknown::Function(value))]), _ => SmeltRecord::new() }}"
+                    "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(value) => value.smelt_shared_record(), SmeltUnknown::Array(values) => values.own_entries().into_iter().collect(), SmeltUnknown::String(value) => value.chars().enumerate().map(|(index, ch)| (index.to_string(), SmeltUnknown::String(ch.to_string().into()))).collect(), SmeltUnknown::Function(value) => SmeltRecord::from([(\"__smelt_call\".to_owned(), SmeltUnknown::Function(value))]), _ => SmeltRecord::new() }}"
                 ))
             }
             Some(Type::Dict(key, item)) if self.mir.types.get(*key) == Some(&Type::String) => {

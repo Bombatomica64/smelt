@@ -794,6 +794,7 @@ impl ModuleBuilder<'_> {
                 }
             }
             Some(Type::Dict(key_ty, _)) if needle_ty == *key_ty => ExprKind::DictContainsKey {
+                lookup: PropertyLookup::Own,
                 dict: haystack,
                 key: needle,
             },

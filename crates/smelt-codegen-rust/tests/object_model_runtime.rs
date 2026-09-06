@@ -1,0 +1,560 @@
+//! Runtime execution tests for the parts of the JavaScript object model Smelt
+//! used to model as something simpler than it is.
+//!
+//! Four rules, each checked against Node before being written down:
+//!
+//! * **An array is an object with named properties.** `const a = ['1']; a.x = 2`
+//!   keeps `a` an array — `Array.isArray(a)`, `a[0] === '1'`, `a.length === 1` —
+//!   and adds a property that reads back, enumerates after the index keys, and
+//!   is invisible to array equality (JavaScript compares arrays index-wise).
+//!   Both store seams used to REPLACE the array with a one-property object,
+//!   losing every element.
+//! * **`Object.prototype`'s members are inherited by every object.**
+//!   `'toString' in {}` is `true`, `({}).toString` is a function, and two reads
+//!   of it are `===` because the function lives once on the prototype. They are
+//!   a lookup fallback, never entries: `Object.keys`, `for...in` and structural
+//!   equality must not see them.
+//! * **A well-known symbol is a value AND a key.** `typeof Symbol.iterator` is
+//!   `'symbol'`, and `obj[Symbol.iterator]` names the member an inline
+//!   `[Symbol.iterator]` key declares — one shared table relates the two
+//!   spellings. A string-valued `[Symbol.toStringTag]` also wins over the
+//!   builtin tag (ES2024 §20.1.3.6), so a tagged object is not a plain object.
+//! * **A subclass of a builtin error is an error.** `class C extends Error {}`
+//!   satisfies `value instanceof Error` even after the value has crossed an
+//!   erasure boundary into an `unknown` parameter, while `instanceof TypeError`
+//!   stays `false`.
+//!
+//! Each case is a TypeScript Vitest test; lowering it emits a `#[test]`, so this
+//! tier lowers the program to a crate and runs `cargo test` on it — a green run
+//! means every `expect(...)` held at runtime. The tier is `#[ignore]`d because it
+//! compiles and executes real crates. Run it explicitly:
+//!
+//! ```sh
+//! cargo test -p smelt-codegen-rust --test object_model_runtime -- --ignored
+//! ```
+
+#![expect(
+    clippy::expect_used,
+    reason = "runtime tests fail fast on invalid fixture setup"
+)]
+
+use std::{
+    path::{Path, PathBuf},
+    process::Command,
+    sync::atomic::{AtomicUsize, Ordering},
+};
+
+use smelt_codegen_rust::{CrateKind, EmitOptions, emit_crate};
+use smelt_frontend_ts::{HirCtx, to_hir};
+use smelt_hir::FileId;
+
+/// Lowers `source` through the real pipeline and emits a runnable program crate.
+fn emit_program(source: &str, crate_name: &str, crate_dir: &Path) {
+    let mut ctx = HirCtx::new();
+    to_hir(source, FileId(0), &mut ctx).expect("HIR lowering");
+    let mut mir = smelt_mir::lower_hir(&ctx.krate).expect("MIR lowering");
+    smelt_mir::opt::optimize(&mut mir);
+    let options = EmitOptions::new(crate_name.to_owned()).with_crate_kind(CrateKind::Program);
+    emit_crate(&mir, crate_dir, &options).expect("crate emission");
+}
+
+/// Runs `cargo test` on the emitted crate; a passing run means every generated
+/// `expect(...)` assertion held at runtime.
+fn run_generated_tests(crate_dir: &Path, target_dir: &Path) {
+    let output = Command::new(env!("CARGO"))
+        .arg("test")
+        .arg("--quiet")
+        .arg("--manifest-path")
+        .arg(crate_dir.join("Cargo.toml"))
+        .env("CARGO_TARGET_DIR", target_dir)
+        .env("RUSTFLAGS", "-Awarnings")
+        .output()
+        .expect("spawn cargo test");
+    assert!(
+        output.status.success(),
+        "generated object-model test failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// Returns a unique scratch directory root for this test run.
+fn scratch_root() -> PathBuf {
+    static COUNTER: AtomicUsize = AtomicUsize::new(0);
+    let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!(
+        "smelt-object-model-runtime-{}-{seq}",
+        std::process::id()
+    ))
+}
+
+/// Emit `source` as a crate and run its generated Vitest tests.
+fn run_fixture(source: &str, crate_name: &str) {
+    let root = scratch_root();
+    let crate_dir = root.join("crate");
+    let target_dir = root.join("target");
+    std::fs::create_dir_all(&crate_dir).expect("create crate dir");
+    std::fs::create_dir_all(&target_dir).expect("create target dir");
+    emit_program(source, crate_name, &crate_dir);
+    run_generated_tests(&crate_dir, &target_dir);
+    drop(std::fs::remove_dir_all(&root));
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn an_array_carries_named_properties_and_stays_an_array() {
+    // Every fixture writes and reads through an ERASED receiver, which is the
+    // only place a named property on an array is observable: TypeScript's `T[]`
+    // has no named members, so source that sets one has to lose the array type
+    // first (es-toolkit's `merge` receives its target as `unknown`, and
+    // `isEqualWith`'s spec declares `let array1: any`). `erase` is the boundary
+    // hop that models it -- a value typed `unknown` end to end.
+    //
+    // Both store spellings are covered: the dotted `a.x = 2` (the static-member
+    // store) and the computed `a[k] = v` (the runtime index-assign helper).
+    // Before the fix either one replaced the array with `{ x: 2 }`.
+    let source = r#"
+import { test, expect } from "vitest";
+function erase(value: unknown): unknown {
+  return value;
+}
+test("a dotted named write keeps the array", () => {
+  const a: any = erase(["1"]);
+  a.x = 2;
+  expect(Array.isArray(a)).toBe(true);
+  expect(a[0]).toBe("1");
+  expect(a.length).toBe(1);
+  expect(a.x).toBe(2);
+  expect(a["x"]).toBe(2);
+  expect(Object.keys(a)).toEqual(["0", "x"]);
+  expect("x" in a).toBe(true);
+  expect("y" in a).toBe(false);
+  a.x = 3;
+  expect(a.x).toBe(3);
+  expect(Object.keys(a)).toEqual(["0", "x"]);
+});
+test("a computed named write keeps the array, and an index write is still an element", () => {
+  const a: any = erase([1, 2, 3]);
+  const key = "note";
+  a[key] = "kept";
+  a[1] = 9;
+  expect(Array.isArray(a)).toBe(true);
+  expect(a.length).toBe(3);
+  expect(a[1]).toBe(9);
+  expect(a[key]).toBe("kept");
+  expect(Object.keys(a)).toEqual(["0", "1", "2", "note"]);
+  expect(Object.values(a)).toEqual([1, 9, 3, "kept"]);
+});
+test("named properties are shared by every handle on the array", () => {
+  const a: any = erase([1]);
+  const alias: any = a;
+  alias.tag = "shared";
+  expect(a.tag).toBe("shared");
+});
+test("arrays with equal elements and different named properties are equal", () => {
+  const left: any = erase([1, 2, 3]);
+  const right: any = erase([1, 2, 3]);
+  left.every = null;
+  right.concat = null;
+  expect(left).toEqual(right);
+});
+"#;
+    run_fixture(source, "smelt_object_model_array_named_properties");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn object_prototype_members_resolve_as_an_inherited_fallback() {
+    // Read through an ERASED receiver, the boundary where a property name that
+    // is not a declared member can be asked for at all (a typed
+    // `Record<string, number>` cannot answer `.toString` with a function, and
+    // TypeScript would reject the read). The fallback answers a read and a
+    // presence check, has ONE identity per member, and stays out of enumeration
+    // and structural equality.
+    let source = r#"
+import { test, expect } from "vitest";
+function erase(value: unknown): unknown {
+  return value;
+}
+test("every object inherits Object.prototype's members", () => {
+  const o: any = erase({ a: 1 });
+  expect("toString" in o).toBe(true);
+  expect("valueOf" in o).toBe(true);
+  expect(typeof o.toString).toBe("function");
+  expect(o.toString).toBe(Object.prototype.toString);
+  const other: any = erase({ b: 2 });
+  expect(o.toString).toBe(other.toString);
+  expect(typeof Object.prototype.hasOwnProperty).toBe("function");
+});
+test("the inherited members are not entries", () => {
+  const o: any = erase({ a: 1 });
+  expect(Object.keys(o)).toEqual(["a"]);
+  const seen: string[] = [];
+  for (const key in o) {
+    seen.push(key);
+  }
+  expect(seen).toEqual(["a"]);
+  expect(o).toEqual({ a: 1 });
+});
+test("an own property still shadows the inherited one", () => {
+  const shadowed: any = erase({ toString: 42 });
+  expect(shadowed.toString).toBe(42);
+  expect(Object.keys(shadowed)).toEqual(["toString"]);
+});
+"#;
+    run_fixture(source, "smelt_object_model_object_prototype");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_well_known_symbol_is_a_value_and_a_key() {
+    // The value half (`typeof`, identity, holding it in a variable) and the key
+    // half (a declaration and a read agreeing on one member) must come from one
+    // table, or a symbol used as a value and the same symbol used as a key name
+    // different things.
+    let source = r#"
+import { test, expect } from "vitest";
+test("a well-known symbol is a symbol value", () => {
+  expect(typeof Symbol.iterator).toBe("symbol");
+  expect(typeof Symbol.toStringTag).toBe("symbol");
+  const held: any = Symbol.iterator;
+  expect(typeof held).toBe("symbol");
+  expect(held).toBe(Symbol.iterator);
+  expect(Symbol.iterator === Symbol.asyncIterator).toBe(false);
+});
+test("the value and the key agree about which member they name", () => {
+  const tagged: any = { [Symbol.toStringTag]: "tagged" };
+  const key: any = Symbol.toStringTag;
+  expect(tagged[Symbol.toStringTag]).toBe("tagged");
+  expect(tagged[key]).toBe("tagged");
+  expect(Object.prototype.toString.call(tagged)).toBe("[object tagged]");
+  expect(Object.prototype.toString.call({ a: 1 })).toBe("[object Object]");
+});
+"#;
+    run_fixture(source, "smelt_object_model_well_known_symbols");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_subclass_of_a_builtin_error_is_an_error_after_erasure() {
+    // The value crosses an erasure boundary (an `unknown` parameter), so only
+    // the markers stamped at erasure survive: the nearest builtin error base's
+    // name, which answers `instanceof Error` and `instanceof TypeError`
+    // correctly without claiming every error class.
+    let source = r#"
+import { test, expect } from "vitest";
+class CustomError extends Error {}
+class CustomTypeError extends TypeError {}
+function isError(value: unknown): boolean {
+  return value instanceof Error;
+}
+function isTypeError(value: unknown): boolean {
+  return value instanceof TypeError;
+}
+test("an erased subclass instance is still an Error", () => {
+  expect(isError(new CustomError())).toBe(true);
+  expect(isError(new Error())).toBe(true);
+  expect(isError(new CustomTypeError())).toBe(true);
+  expect(isError({ message: "not an error" })).toBe(false);
+});
+test("a subclass of a specific builtin error keeps that base's identity", () => {
+  expect(isTypeError(new CustomTypeError())).toBe(true);
+  expect(isTypeError(new CustomError())).toBe(false);
+  expect(isTypeError(new Error())).toBe(false);
+});
+"#;
+    run_fixture(source, "smelt_object_model_error_subclass");
+}
+
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_class_instance_exposes_its_source_properties_and_hides_its_private_names() {
+    // A TypeScript `private`/`protected` modifier is a COMPILE-TIME restriction:
+    // the field is an ordinary own property, so it enumerates, erases and deep-
+    // compares like any other. A JavaScript `#name` field is a private *name*,
+    // not a string-keyed property, so `obj['#name']` is `undefined` and the slot
+    // is invisible everywhere. The erased view used to filter on the source
+    // modifier instead, dropping every `private` field.
+    //
+    // The instance's prototype (its `__smelt_class` provenance) is likewise not
+    // an own property, so own-property deep equality against a plain object of
+    // the same properties holds -- which is what vitest `toEqual` means.
+    let source = r##"
+import { test, expect } from "vitest";
+class Point {
+  readonly label: string;
+  #secret: number;
+  private x: number;
+  protected y: number;
+  private readonly onRead: () => number;
+  constructor(label: string, secret: number, x: number, y: number, onRead: () => number) {
+    this.label = label;
+    this.#secret = secret;
+    this.x = x;
+    this.y = y;
+    this.onRead = onRead;
+  }
+  readSecret(): number {
+    return this.#secret;
+  }
+}
+test("a #private field is not an own property, a private field is", () => {
+  const onRead = () => 7;
+  const point = new Point("origin", 42, 1, 2, onRead);
+  // @ts-expect-error: a private name is not a string key
+  expect(point["#secret"]).toBe(undefined);
+  expect(point.readSecret()).toBe(42);
+  expect(Object.keys(point)).toEqual(["label", "x", "y", "onRead"]);
+  expect(point).toEqual({ label: "origin", x: 1, y: 2, onRead });
+});
+"##;
+    run_fixture(source, "smelt_object_model_class_own_properties");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_callback_binding_is_one_function_value_however_often_it_is_read() {
+    // A JavaScript function value has observable identity. A local `const`
+    // arrow used to be re-lowered into a FRESH closure at every reference, so
+    // `d === d` was false, and a callback that travelled through a field, a
+    // container or an argument never compared equal to the binding it came
+    // from. A reference now reads the binding the declaration materialized.
+    let source = r#"
+import { test, expect } from "vitest";
+class Holder {
+  readonly run: () => number;
+  constructor(run: () => number) {
+    this.run = run;
+  }
+}
+test("an earlier body binds add as a plain two-field callback", () => {
+  const add = ({ a, b }: { a: number; b: number }) => a + b;
+  expect(add({ a: 1, b: 2 })).toBe(3);
+});
+test("two reads of one callback binding are the same value", () => {
+  const d = () => 1;
+  const left = d;
+  const right = d;
+  expect(left).toBe(right);
+  expect(left).toBe(d);
+});
+test("a callback keeps its identity through a container and a field", () => {
+  const d = () => 1;
+  const pair = [d, d];
+  expect(pair[0]).toBe(pair[1]);
+  expect(pair[0]).toBe(d);
+  const holder = new Holder(d);
+  expect(holder.run).toBe(d);
+  expect(holder).toEqual({ run: d });
+});
+test("one body's callback binding wins over an earlier body's same name", () => {
+  // The FIRST of two sibling bodies to bind `add` registers a compact
+  // callback; this second one binds it to a curried closure of a different
+  // shape. The binding a body introduces has to win there -- radash's `curry`
+  // suite declares `add` exactly this way, and `add(5)` used to call the other
+  // body's closure and stop compiling.
+  const add = (y: number) => (x: number) => x + y;
+  const addFive = add(5);
+  expect(addFive(1)).toBe(6);
+  expect(add(2)(3)).toBe(5);
+});
+"#;
+    run_fixture(source, "smelt_object_model_callback_identity");
+}
+
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_regexp_match_is_an_array_that_carries_its_named_properties() {
+    // `RegExp.prototype.exec` returns an ARRAY in JavaScript --
+    // `Array.isArray(/c/.exec(s))` is `true` -- that additionally carries
+    // `index`, `input` and `groups` as ordinary named properties. Erasing it to
+    // an object instead made `getTag` report `[object Object]`, so a match never
+    // compared equal to the plain array a spec matched it against.
+    //
+    // The named-property table is keyed by array IDENTITY, not held on the
+    // erased `SmeltArray`, which is what lets a reader narrow the value with
+    // `Array.isArray` -- getting a typed list handle whose Rust type cannot even
+    // name the erased carrier -- and still read `.index` off it, ask
+    // `Object.hasOwn` about it, and copy it onto a clone.
+    let source = r#"
+import { test, expect } from "vitest";
+function cloneArrayish<T>(value: T): unknown {
+  if (Array.isArray(value)) {
+    const out: any = [];
+    for (let i = 0; i < value.length; i++) {
+      out[i] = value[i];
+    }
+    if (Object.hasOwn(value, "index")) {
+      // @ts-ignore: a match array's named property
+      out.index = value.index;
+    }
+    if (Object.hasOwn(value, "input")) {
+      // @ts-ignore: a match array's named property
+      out.input = value.input;
+    }
+    return out;
+  }
+  return value;
+}
+test("a match result is an array with named properties", () => {
+  const erased: any = /c/.exec("abcde");
+  expect(Array.isArray(erased)).toBe(true);
+  expect(erased.length).toBe(1);
+  expect(erased[0]).toBe("c");
+  expect(erased.index).toBe(2);
+  expect(erased.input).toBe("abcde");
+  expect(Object.hasOwn(erased, "index")).toBe(true);
+  expect(Object.hasOwn(erased, "nope")).toBe(false);
+  expect(Object.keys(erased)).toEqual(["0", "index", "input", "groups"]);
+});
+test("a match equals the plain array of its groups", () => {
+  const erased: any = /c/.exec("abcde");
+  expect(erased).toEqual(["c"]);
+  expect(["c"]).toEqual(erased);
+});
+test("named properties survive an Array.isArray-narrowed copy", () => {
+  const cloned: any = cloneArrayish(/c/.exec("abcde"));
+  expect(cloned[0]).toBe("c");
+  expect(cloned.index).toBe(2);
+  expect(cloned.input).toBe("abcde");
+});
+test("a numeric Object.hasOwn key is still an in-bounds element check", () => {
+  const list: any = ["a", "b"];
+  expect(Object.hasOwn(list, 0)).toBe(true);
+  expect(Object.hasOwn(list, 1)).toBe(true);
+  expect(Object.hasOwn(list, 2)).toBe(false);
+});
+"#;
+    run_fixture(source, "smelt_object_model_match_array");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_match_result_reads_its_named_properties_through_every_receiver_path() {
+    // The named properties of a match array must be readable through BOTH
+    // spellings of the same receiver, because Smelt reaches an erased value by
+    // two different emitters:
+    //
+    // * a place expression (`emitter/place.rs`), which routes the read through
+    //   the one prelude chain `smelt_get_unknown_field`, and
+    // * a field read against an already-materialized receiver value
+    //   (`emitter/call_runtime.rs::field_access_text`), which is what an
+    //   optional receiver, a `?.` chain and a union-typed local go through.
+    //
+    // The second inlined an OBJECT-ONLY `match`, so once a match result became
+    // the array it is in JavaScript, `match.groups` on a `RegExpExecArray | null`
+    // local answered a constant `null` while the identical read on an `any`
+    // local answered correctly. remeda's `stringToPath`, which declares
+    // `let match: RegExpExecArray | null` and destructures `match.groups!` in a
+    // `while` loop, produced one path segment of `undefined` for every input.
+    let source = r#"
+import { test, expect } from "vitest";
+test("a typed RegExpExecArray local reads index, input and groups", () => {
+  const re = /(?<letter>[a-z])(?<digit>[0-9])/u;
+  const match: RegExpExecArray | null = re.exec("xa1y");
+  expect(match).not.toBeNull();
+  expect(match!.index).toBe(1);
+  expect(match!.input).toBe("xa1y");
+  expect(match!.groups!.letter).toBe("a");
+  expect(match!.groups!.digit).toBe("1");
+});
+test("destructuring the groups of a typed match binds every name", () => {
+  const re = /(?<letter>[a-z])(?<digit>[0-9])/u;
+  let match: RegExpExecArray | null;
+  const seen: string[] = [];
+  match = re.exec("a1");
+  while (match !== null) {
+    const { letter, digit } = match.groups!;
+    seen.push(letter!);
+    seen.push(digit!);
+    match = null;
+  }
+  expect(seen).toEqual(["a", "1"]);
+});
+test("an optional match receiver reads the same named properties", () => {
+  const re = /(?<letter>[a-z])/u;
+  const match = re.exec("q") ?? undefined;
+  expect(match?.index).toBe(0);
+  expect(match?.groups?.letter).toBe("q");
+});
+test("a sticky regexp walked with exec yields every segment", () => {
+  const re = /(?<segment>[a-z]+)\.?/uy;
+  const path = "foo.bar";
+  const parts: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(path)) !== null) {
+    const { segment } = match.groups!;
+    parts.push(segment!);
+  }
+  expect(parts).toEqual(["foo", "bar"]);
+});
+"#;
+    run_fixture(source, "smelt_object_model_typed_match_props");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_presence_test_answers_at_its_own_reach() {
+    // JavaScript has two presence tests over one property name, and they differ
+    // for everything a value inherits: `key in value` walks the prototype chain,
+    // `Object.hasOwn(value, key)` stops at the value's own properties. Both
+    // lower to the same containment node, so the node has to carry which reach
+    // it wants -- while it did not, adding the `Object.prototype` fallback for
+    // `in` also made `Object.hasOwn({}, 'toString')` answer `true`.
+    //
+    // The second half is the other side of the same rule: a property Smelt
+    // SYNTHESIZES rather than stores as a record entry is an OWN property in
+    // JavaScript, so both tests must see it. A boxed `String` wrapper's `length`
+    // and character indices are the case that reached a corpus (remeda's
+    // `isEmptyish` reads `'length' in data` on one), and an array's `length` is
+    // own while its `Symbol.iterator` is inherited.
+    let source = r#"
+import { test, expect } from "vitest";
+function erase(value: unknown): unknown {
+  return value;
+}
+test("`in` walks the prototype chain and `Object.hasOwn` does not", () => {
+  const o: any = erase({ a: 1 });
+  expect("toString" in o).toBe(true);
+  expect(Object.hasOwn(o, "toString")).toBe(false);
+  expect("hasOwnProperty" in o).toBe(true);
+  expect(Object.hasOwn(o, "hasOwnProperty")).toBe(false);
+  expect("a" in o).toBe(true);
+  expect(Object.hasOwn(o, "a")).toBe(true);
+  expect("b" in o).toBe(false);
+  expect(Object.hasOwn(o, "b")).toBe(false);
+});
+test("the unbound own-key probe agrees with Object.hasOwn", () => {
+  const o: any = erase({ a: 1 });
+  expect(Object.prototype.hasOwnProperty.call(o, "a")).toBe(true);
+  expect(Object.prototype.hasOwnProperty.call(o, "toString")).toBe(false);
+});
+test("a boxed String's length and indices are own properties", () => {
+  const boxed: any = erase(new String("test"));
+  expect(typeof boxed).toBe("object");
+  expect("length" in boxed).toBe(true);
+  expect(boxed.length).toBe(4);
+  expect(Object.hasOwn(boxed, "length")).toBe(true);
+  expect("0" in boxed).toBe(true);
+  expect(boxed[0]).toBe("t");
+  expect("9" in boxed).toBe(false);
+  expect(Object.hasOwn(boxed, "9")).toBe(false);
+  expect("toString" in boxed).toBe(true);
+  expect(Object.hasOwn(boxed, "toString")).toBe(false);
+});
+test("an array's length is own and its iterator is inherited", () => {
+  const a: any = erase([1, 2, 3]);
+  expect("length" in a).toBe(true);
+  expect(Object.hasOwn(a, "length")).toBe(true);
+  expect("1" in a).toBe(true);
+  expect(Object.hasOwn(a, "1")).toBe(true);
+  expect("3" in a).toBe(false);
+  expect(Object.hasOwn(a, "3")).toBe(false);
+  expect("toString" in a).toBe(true);
+  expect(Object.hasOwn(a, "toString")).toBe(false);
+});
+"#;
+    run_fixture(source, "smelt_object_model_presence_reach");
+}

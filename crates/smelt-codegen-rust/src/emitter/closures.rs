@@ -735,6 +735,18 @@ impl FunctionEmitter<'_> {
                 let return_ty = format!("Result<{output_text}, Box<dyn std::error::Error>>");
                 // Whether `smelt_async_value` is itself a future to await is read
                 // from the MIR return operand types, not from the emitted text.
+                //
+                // Awaiting one is always `.await?`, never a bare `.await`: every
+                // future in the generated runtime is a `SmeltFuture`, whose
+                // `Future::Output` is a `Result`, so the awaited value carries the
+                // callee's rejection and has to be propagated before it is used.
+                // A fallible closure adds its OWN `?` for the block that produced
+                // the future (`smelt_async_value?`), which is a separate result
+                // from the one awaiting it yields -- the two `?`s are not a
+                // duplicate. That shape was unreachable while an `await` over a
+                // non-future-typed operand was still being dropped by the
+                // frontend, and became reachable the moment `await` stopped
+                // discarding its operand.
                 let async_value_needs_await = emitter.closure_yields_future_value()?;
                 let return_value = if closure.can_throw && async_value_needs_await {
                     if matches!(
@@ -742,10 +754,10 @@ impl FunctionEmitter<'_> {
                         Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
                     ) || emitter.is_erased_class_type(output_ty)
                     {
-                        "let smelt_async_output = smelt_async_value?.await; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(smelt_async_output.into_smelt_unknown())".to_owned()
+                        "let smelt_async_output = smelt_async_value?.await?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(smelt_async_output.into_smelt_unknown())".to_owned()
                     } else {
                         format!(
-                            "let smelt_async_output = smelt_async_value?.await; Ok::<{output_text}, Box<dyn std::error::Error>>(smelt_async_output)"
+                            "let smelt_async_output = smelt_async_value?.await?; Ok::<{output_text}, Box<dyn std::error::Error>>(smelt_async_output)"
                         )
                     }
                 } else if closure.can_throw {

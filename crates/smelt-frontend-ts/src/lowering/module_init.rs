@@ -151,6 +151,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             mutable_global_items: HashMap::new(),
             items,
             imports: ImportScope::default(),
+            export_renames: HashMap::new(),
             classes: ClassRegistry::new(classes, class_index_values),
             interfaces: InterfaceRegistry::new(
                 interfaces,
@@ -167,6 +168,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
             current_arguments_arities: Vec::new(),
             current_statement_block: None,
             deferred_postfix_updates: None,
+            asymmetric_matchers_lowered: 0,
+            forward_referenced_locals: HashSet::new(),
+            defining_local_functions: Vec::new(),
             allow_unknown_index_access,
             preserve_specialization_receiver: false,
             object_namespaces,
@@ -648,6 +652,60 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if let Some(canonical) = Self::canonical_module_path(&self.path) {
             self.ctx.module_exports.insert(canonical, exports);
         }
+        self.record_module_global_object_aliases();
+    }
+
+    /// Publish this module's global-object alias names for importing modules.
+    ///
+    /// A module that binds the ambient global object (`const g = globalThis;` or
+    /// the portable `(typeof globalThis === 'object' && globalThis) || …`
+    /// detection chain) and exports that binding hands importers the global
+    /// object itself. Recording the names under the same path keys as
+    /// [`Self::record_module_exports`] lets [`Self::import_declaration`] mark the
+    /// imported local as a global alias, so `globalThis.Buffer.isBuffer(x)`
+    /// resolves against the modeled global no matter whether the source reaches
+    /// it through the bare spelling or through a shim module. Only names this
+    /// module can export are ever consulted by an importer, so publishing the
+    /// whole alias set is sound.
+    pub(super) fn record_module_global_object_aliases(&mut self) {
+        let mut aliases = self.imports.global_object_alias_names().clone();
+        if aliases.is_empty() {
+            return;
+        }
+        // Project the aliases onto the spellings they are exported under.
+        let renamed = self
+            .export_renames
+            .iter()
+            .filter(|(_, local)| aliases.contains(local.as_str()))
+            .map(|(exported, _)| exported.clone())
+            .collect::<Vec<_>>();
+        aliases.extend(renamed);
+        let mut keys = vec![self.path.clone()];
+        if let Some(stripped) = self.path.strip_prefix("./") {
+            keys.push(stripped.to_owned());
+        }
+        if let Some(canonical) = Self::canonical_module_path(&self.path) {
+            keys.push(canonical);
+        }
+        for key in keys {
+            self.ctx
+                .module_global_object_aliases
+                .entry(key)
+                .or_default()
+                .extend(aliases.iter().cloned());
+        }
+    }
+
+    /// Return whether `imported` is a global-object alias exported by `source`.
+    pub(super) fn source_exports_global_object_alias(&self, source: &str, imported: &str) -> bool {
+        self.resolved_module_export_keys(source)
+            .into_iter()
+            .any(|key| {
+                self.ctx
+                    .module_global_object_aliases
+                    .get(&key)
+                    .is_some_and(|aliases| aliases.contains(imported))
+            })
     }
 
     /// Return a canonical path string when the path exists on disk.
@@ -790,6 +848,22 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 }
                 continue;
             };
+            // A binding whose initializer IS the ambient global object (the bare
+            // alias, or the portable `(typeof globalThis === 'object' &&
+            // globalThis) || ...` detection chain) names the global object, not a
+            // value of its own. Recording the alias in this PREPASS is what makes
+            // every body see it — including a function lowered before the
+            // declaration — and stops the annotated-global path below from
+            // registering the name with its declared type, whose reads fabricate
+            // that type's default (an empty record for `any`) instead of
+            // resolving against the modeled global.
+            if let Some(init) = &declarator.init
+                && (self.expr_is_global_alias(init) || self.expr_folds_to_global_alias(init))
+            {
+                self.imports
+                    .mark_global_object_alias(binding.name.as_str().to_owned());
+                continue;
+            }
             if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
                 && let Some(init) = &declarator.init
                 && let Some(object) = Self::object_const_initializer(init)
@@ -1586,19 +1660,20 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let type_params = self.push_type_parameter_scope(function.type_parameters.as_deref())?;
         let result = (|| {
             let mut params = Vec::new();
+            // Recorded alongside the lowered type because the lowering erases
+            // it: `[A, B]`, `[T, ...T[]]` and `T[]` are all `Type::List`.
+            let mut param_lengths = Vec::new();
             for param in &function.params.items {
-                let ty = param
-                    .type_annotation
-                    .as_ref()
-                    .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                    .transpose()?
-                    .ok_or_else(|| {
-                        SmeltError::unsupported(
-                            self.span(param.span.start, param.span.end),
-                            "overload parameters must have explicit type annotations",
-                        )
-                    })?;
-                params.push(ty);
+                let annotation = param.type_annotation.as_ref().ok_or_else(|| {
+                    SmeltError::unsupported(
+                        self.span(param.span.start, param.span.end),
+                        "overload parameters must have explicit type annotations",
+                    )
+                })?;
+                param_lengths.push(Self::parameter_length_requirement(
+                    &annotation.type_annotation,
+                ));
+                params.push(self.ts_type_to_hir(&annotation.type_annotation)?);
             }
             let mut min_rest = 0;
             if let Some(rest) = &function.params.rest {
@@ -1611,6 +1686,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 min_rest = Self::rest_parameter_min_arity(&annotation.type_annotation);
                 let rest_ty = self.ts_type_to_hir(&annotation.type_annotation)?;
                 params.push(self.type_param_constraint_or_self(rest_ty));
+                // A rest parameter's length lives in `min_rest`, so the
+                // parallel vector carries no separate requirement for it.
+                param_lengths.push(None);
             }
             // An ASSERTION overload (`asserts condition`) returns void at runtime,
             // exactly as `function_declaration` records for the implementation
@@ -1648,6 +1726,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             Ok(OverloadSignature {
                 type_params,
                 params,
+                param_lengths,
                 rest: function
                     .params
                     .rest
@@ -2047,6 +2126,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
         for specifier in &export.specifiers {
             let local = module_export_name(&specifier.local);
             let exported = module_export_name(&specifier.exported);
+            // `export { globalThis_ as globalThis }` re-exports a local under a
+            // second spelling. This prepass runs before statement lowering, so
+            // record the rename and let `record_module_global_object_aliases`
+            // project any later-discovered global-object alias onto it.
+            if local != exported {
+                self.export_renames.insert(exported.clone(), local.clone());
+            }
             if let Some(item) = self.items.get(&local).copied() {
                 self.items.insert(exported.clone(), item);
                 self.ctx.export_aliases.insert(exported, item);
@@ -2230,6 +2316,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 self.imports.mark_value(local.clone());
                 if source == "@date-fns/tz" && imported == "tz" {
                     self.imports.mark_date_fns_timezone_factory(local.clone());
+                }
+                // An imported binding that the source module resolved to the
+                // ambient global object *is* the ambient global object here.
+                if self.source_exports_global_object_alias(source, &imported) {
+                    self.imports.mark_global_object_alias(local.clone());
                 }
             }
             let name = self.intern_source_name(&imported);

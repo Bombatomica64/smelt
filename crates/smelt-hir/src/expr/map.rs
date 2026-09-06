@@ -66,6 +66,7 @@ impl ExprKind {
             | Self::NumericRandom
             | Self::DateNow
             | Self::DateResetNow
+            | Self::VitestRestoreAllMocks
             | Self::DateTimezoneOffset
             | Self::DateResetTimezoneOffset
             | Self::Block(_)
@@ -95,6 +96,10 @@ impl ExprKind {
                 receiver: f(receiver)?,
             },
             Self::ClosureCall { callee, args } => Self::ClosureCall {
+                callee: f(callee)?,
+                args: map_vec(args, f)?,
+            },
+            Self::Construct { callee, args } => Self::Construct {
                 callee: f(callee)?,
                 args: map_vec(args, f)?,
             },
@@ -561,9 +566,10 @@ impl ExprKind {
                 tuple: f(tuple)?,
                 item: f(item)?,
             },
-            Self::DictContainsKey { dict, key } => Self::DictContainsKey {
+            Self::DictContainsKey { dict, key, lookup } => Self::DictContainsKey {
                 dict: f(dict)?,
                 key: f(key)?,
+                lookup,
             },
             Self::DictSet { dict, key, value } => Self::DictSet {
                 dict: f(dict)?,
@@ -648,6 +654,14 @@ impl ExprKind {
                 mock: f(mock)?,
                 args: map_vec(args, f)?,
                 last,
+            },
+            Self::VitestSpyOn { target, name } => Self::VitestSpyOn {
+                target: f(target)?,
+                name: f(name)?,
+            },
+            Self::VitestAsymmetricEqual { actual, expected } => Self::VitestAsymmetricEqual {
+                actual: f(actual)?,
+                expected: f(expected)?,
             },
             Self::VitestMockLastResolvedWith { mock, expected } => {
                 Self::VitestMockLastResolvedWith {
@@ -741,6 +755,10 @@ impl ExprKind {
             Self::InstanceOf { value, class } => Self::InstanceOf {
                 value: f(value)?,
                 class,
+            },
+            Self::InstanceOfValue { value, target } => Self::InstanceOfValue {
+                value: f(value)?,
+                target: f(target)?,
             },
             Self::UnknownIs { value, kind } => Self::UnknownIs {
                 value: f(value)?,

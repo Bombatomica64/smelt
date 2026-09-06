@@ -127,7 +127,7 @@ impl FunctionEmitter<'_> {
                             | "throwIfAborted"
                     ) {
                         return Ok(format!(
-                            "match {scrutinee} {{ SmeltUnknown::Object(map) if (map.contains_key(\"__smelt_abortcontroller\") || map.contains_key(\"__smelt_abortsignal\")) && !map.contains_key({field_name:?}) => smelt_abort_method(map, {field_name:?}), SmeltUnknown::Object(map) => smelt_get_object_field(&map, {field_name:?}), _ => SmeltUnknown::Undefined }}"
+                            "match {scrutinee} {{ SmeltUnknown::Object(map) => smelt_host_method(&map, {field_name:?}).unwrap_or_else(|| smelt_get_object_field(&map, {field_name:?})), _ => SmeltUnknown::Undefined }}"
                         ));
                     }
                     // `Function.prototype.apply`/`call` must resolve when the
@@ -154,8 +154,14 @@ impl FunctionEmitter<'_> {
                     if field_name == "valueOf" {
                         return Ok(format!("smelt_value_of_method({scrutinee})"));
                     }
+                    // Every receiver shape through one prelude helper: an object
+                    // record, an erased ARRAY (whose `length`, indices and named
+                    // side-table properties are all readable), and the
+                    // `Object.prototype` sentinel. Inlining an object-only `match`
+                    // here answered `undefined` for `arr.x` and for
+                    // `Object.prototype.toString`.
                     return Ok(format!(
-                        "match {scrutinee} {{ SmeltUnknown::Object(map) => smelt_get_object_field(&map, {field_name:?}), _ => SmeltUnknown::Undefined }}"
+                        "smelt_get_unknown_field(&{scrutinee}, {field_name:?})"
                     ));
                 }
                 if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
@@ -174,7 +180,7 @@ impl FunctionEmitter<'_> {
                         ));
                     }
                     return Ok(format!(
-                        "match {base_text}.clone().unwrap_or(SmeltUnknown::Undefined) {{ SmeltUnknown::Object(map) => smelt_get_object_field(&map, {field_name:?}), _ => SmeltUnknown::Undefined }}"
+                        "smelt_get_unknown_field(&{base_text}.clone().unwrap_or(SmeltUnknown::Undefined), {field_name:?})"
                     ));
                 }
                 if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
@@ -225,8 +231,29 @@ impl FunctionEmitter<'_> {
                         ))
                     };
                 }
+                // A JavaScript function is an object: a property read on one
+                // answers its own-property bag, where `prototype` is
+                // materialised on first read and where a source-written member
+                // (`wrapper.placeholder`, `partialed.prototype`) lands. The
+                // receiver is erased first so the read shares the one bag every
+                // representation of that function reads through, and so
+                // `prototype.constructor` can be the function itself.
+                //
+                // `Function.prototype`'s own members keep their existing
+                // answers: `apply`/`call`/`bind` are resolved by the
+                // callable-interface and erased-receiver paths, and `length` /
+                // `name` by the arity registry, so routing them here would
+                // change which helper answers them.
                 if matches!(self.mir.types.get(base_ty), Some(Type::Function(_))) {
-                    return Ok(self.null_value_text());
+                    let field_name = self.symbol_source_name(*field)?;
+                    if matches!(field_name, "apply" | "call" | "bind" | "length" | "name") {
+                        return Ok(self.null_value_text());
+                    }
+                    let base_text = self.local_value_text(*base)?;
+                    let erased = self.erase_value_text(&cloned_value_text(&base_text), base_ty)?;
+                    return Ok(format!(
+                        "smelt_get_unknown_field(&{erased}, {field_name:?})"
+                    ));
                 }
                 if smelt_stdlib::typescript_field_rule(self.symbol_source_name(*field)?)
                     == Some(smelt_stdlib::FieldRule::TsConstructor)
@@ -480,7 +507,11 @@ impl FunctionEmitter<'_> {
                         let default_value = self.default_value(value_ty)?;
                         Ok(format!("{optional_read}.unwrap_or({default_value})"))
                     }
-                    _ => Ok(self.null_value_text()),
+                    // No modelled keyed storage on this receiver, so the key
+                    // is not a property of it: JavaScript answers `undefined`
+                    // for a missing property, which is a DIFFERENT value from
+                    // `null` under `===` (see `absent_value_text`).
+                    _ => Ok(self.absent_value_text()),
                 }
             }
         }
@@ -1089,14 +1120,7 @@ impl FunctionEmitter<'_> {
                             smelt_key.parse::<usize>().ok().and_then(|index| value.chars().nth(index).map(|ch| SmeltUnknown::String(ch.to_string().into()))).unwrap_or(SmeltUnknown::Undefined)
                         }}
                     }}
-                    SmeltUnknown::Array(values) => {{
-                        let smelt_key = {key_text};
-                        if smelt_key == "length" {{
-                            SmeltUnknown::Number(values.len() as f64)
-                        }} else {{
-                            smelt_key.parse::<usize>().ok().and_then(|index| values.get(index).cloned()).unwrap_or(SmeltUnknown::Undefined)
-                        }}
-                    }}
+                    SmeltUnknown::Array(values) => smelt_get_array_field(&values, &{key_text}),
                     SmeltUnknown::Object(values) => smelt_get_object_field(&values, &{key_text}),
                     _ => SmeltUnknown::Undefined,
                 }}"#

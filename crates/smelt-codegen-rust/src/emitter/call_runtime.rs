@@ -1012,6 +1012,10 @@ impl FunctionEmitter<'_> {
                 value: operand,
                 class,
             } => self.instance_of_text(operand, *class),
+            Rvalue::InstanceOfValue { value, target } => {
+                self.instance_of_value_text(value, target)
+            }
+            Rvalue::Construct { callee, args } => self.construct_text(callee, args, dest_ty),
             Rvalue::UnknownIs {
                 value: unknown_value,
                 kind,
@@ -1768,7 +1772,9 @@ impl FunctionEmitter<'_> {
             Rvalue::TupleSlice { tuple, start, end } => {
                 self.tuple_slice_text(tuple, *start, *end, dest_ty)
             }
-            Rvalue::DictContainsKey { dict, key } => self.dict_contains_key_text(dict, key),
+            Rvalue::DictContainsKey { dict, key, lookup } => {
+                self.dict_contains_key_text(dict, key, *lookup)
+            }
             Rvalue::DictSet {
                 dict,
                 key,
@@ -1867,6 +1873,24 @@ impl FunctionEmitter<'_> {
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", "),
                 last
+            )),
+            // Both operands are erased first: an asymmetric matcher is a
+            // marker-bearing record, so the comparison is a runtime walk over
+            // the dynamic carrier -- deliberately NOT `SmeltUnknown`'s own
+            // `PartialEq`, which library code observes and which must stay
+            // blind to the test harness's markers.
+            Rvalue::VitestRestoreAllMocks => {
+                Ok("smelt_vitest_restore_all_mocks()".to_owned())
+            }
+            Rvalue::VitestSpyOn { target, name } => Ok(format!(
+                "smelt_vitest_spy_on(&({}), &({}))",
+                self.value_at_type(target, self.type_id(Type::Unknown)?)?,
+                self.value_at_type(name, self.type_id(Type::String)?)?
+            )),
+            Rvalue::VitestAsymmetricEqual { actual, expected } => Ok(format!(
+                "smelt_vitest_asymmetric_equals(&({}), &({}), &mut ::std::collections::HashSet::new())",
+                self.value_at_type(actual, self.type_id(Type::Unknown)?)?,
+                self.value_at_type(expected, self.type_id(Type::Unknown)?)?
             )),
             Rvalue::VitestMockLastResolvedWith { mock, expected } => Ok(format!(
                 "smelt_vitest_mock_last_resolved_with(&({}), {})",
@@ -2450,11 +2474,30 @@ impl FunctionEmitter<'_> {
                     | "throwIfAborted"
             ) {
                 return Ok(format!(
-                    "match {scrutinee} {{ SmeltUnknown::Object(map) if (map.contains_key(\"__smelt_abortcontroller\") || map.contains_key(\"__smelt_abortsignal\")) && !map.contains_key({field_name:?}) => smelt_abort_method(map.clone(), {field_name:?}), SmeltUnknown::Object(map) => match map.get({field_name:?}).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Object(mut getter) if getter.contains_key(\"__smelt_get\") => match getter.remove(\"__smelt_get\") {{ Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| panic!(\"{{}}\", error)), _ => SmeltUnknown::Null }}, value => value }}, _ => SmeltUnknown::Null }}"
+                    "match {scrutinee} {{ SmeltUnknown::Object(map) if smelt_host_method(&map, {field_name:?}).is_some() => smelt_host_method(&map, {field_name:?}).unwrap_or(SmeltUnknown::Undefined), SmeltUnknown::Object(map) => match map.get({field_name:?}).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Object(mut getter) if getter.contains_key(\"__smelt_get\") => match getter.remove(\"__smelt_get\") {{ Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| panic!(\"{{}}\", error)), _ => SmeltUnknown::Null }}, value => value }}, _ => SmeltUnknown::Null }}"
                 ));
             }
+            // Every receiver shape through the ONE prelude read chain
+            // (`smelt_get_unknown_field`), exactly as the place-expression path
+            // in `place.rs` already does. Inlining an object-only `match` here
+            // made `v.k` and `v[k]` disagree the moment the erased receiver was
+            // not a record: an erased ARRAY carries `length`, its element
+            // indices and its identity-keyed named properties, and a regex match
+            // result IS such an array — so `match.groups` read as a constant
+            // `null` on this path while the same read through `place.rs`
+            // answered correctly. The `Object.prototype` sentinel, a function's
+            // own property bag and the marker records (`Map.size`, boxed
+            // primitives, builtin namespaces) come along for free, and a genuine
+            // miss is `undefined` — the JavaScript answer — rather than `null`.
+            //
+            // `receiver_text` may already be a borrow (an `.as_ref().map(…)`
+            // closure parameter) or an owned value, and the helper takes
+            // `&SmeltUnknown`. `Borrow::borrow` is the one spelling that accepts
+            // both — `impl Borrow<T> for T` and `impl Borrow<T> for &T` — with
+            // the target fixed by the helper's parameter type, so neither shape
+            // needs its own emission.
             return Ok(format!(
-                "match {scrutinee} {{ SmeltUnknown::Object(map) => match map.get({field_name:?}).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Object(mut getter) if getter.contains_key(\"__smelt_get\") => match getter.remove(\"__smelt_get\") {{ Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| panic!(\"{{}}\", error)), _ => SmeltUnknown::Null }}, value => value }}, _ => SmeltUnknown::Null }}"
+                "smelt_get_unknown_field(::std::borrow::Borrow::borrow(&{scrutinee}), {field_name:?})"
             ));
         }
         if matches!(self.mir.types.get(receiver_ty), Some(Type::String)) {
@@ -2547,8 +2590,18 @@ impl FunctionEmitter<'_> {
         } else {
             format!("{receiver_text}.clone()")
         };
+        // Two reads of one method are `===` in JavaScript, because the method
+        // lives once on the prototype. The receiver capture makes each read a
+        // fresh allocation, so link it to the method's canonical identity (see
+        // `class_proto::method_identity_text`) instead of leaving reference
+        // equality to compare two unrelated addresses.
+        let Some(identity) = crate::class_proto::method_identity_text(self.mir, function)? else {
+            return Ok(Some(format!(
+                "{{ let smelt_receiver = {receiver_clone}; SmeltUnknown::Function(::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>({wrapped_returned}))) }}"
+            )));
+        };
         Ok(Some(format!(
-            "{{ let smelt_receiver = {receiver_clone}; SmeltUnknown::Function(::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>({wrapped_returned}))) }}"
+            "{{ let smelt_receiver = {receiver_clone}; let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>({wrapped_returned})); smelt_link_function_identity_key(&smelt_method, {identity}); SmeltUnknown::Function(smelt_method) }}"
         )))
     }
 

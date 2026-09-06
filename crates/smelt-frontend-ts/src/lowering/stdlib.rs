@@ -374,7 +374,7 @@ impl ModuleBuilder<'_> {
                 "vi.spyOn requires target object and method name arguments",
             ));
         };
-        let _target = self.argument(target, body)?;
+        let target_expr = self.argument(target, body)?;
         let method_expr = self.argument(method, body)?;
         if self.ctx.krate.types.get(Self::expr_ty(body, method_expr)) != Some(&Type::String) {
             return Err(SmeltError::unsupported(
@@ -382,12 +382,32 @@ impl ModuleBuilder<'_> {
                 "vi.spyOn method name must be a string",
             ));
         }
-        let is_date_timezone_offset_spy = matches!(method, Argument::StringLiteral(method_name) if method_name.value == "getTimezoneOffset");
-        Ok(Some(self.vitest_mock_handle_expr(
-            self.span(call.span.start, call.span.end),
-            body,
-            is_date_timezone_offset_spy,
-        )))
+        let span = self.span(call.span.start, call.span.end);
+        // `Date.prototype.getTimezoneOffset` is not an ordinary member: the
+        // generated runtime models the ambient timezone offset as its own piece
+        // of state rather than as a field on a `Date` object, so there is no
+        // member for a spy to replace. That one spelling keeps the dedicated
+        // class-marked handle whose `mockReturnValue`/`mockRestore` drive that
+        // state (see `DateSetTimezoneOffset`).
+        if matches!(method, Argument::StringLiteral(method_name) if method_name.value == "getTimezoneOffset")
+        {
+            return Ok(Some(self.vitest_mock_handle_expr(span, body, true)));
+        }
+        // Every other spy is a real boundary adapter: it resolves the member's
+        // CURRENT value, wraps it in a mock that forwards to it, and writes the
+        // mock back onto the target. Library code that later reads the member
+        // therefore calls the mock, which is what makes the recorded calls the
+        // ones the program actually made.
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let target_expr = Self::erase_to_unknown(target_expr, unknown_ty, span, body);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::VitestSpyOn {
+                target: target_expr,
+                name: method_expr,
+            },
+            ty: unknown_ty,
+            span,
+        })))
     }
 
     /// Lower Vitest mock-handle methods used to configure or restore mocks.
@@ -570,6 +590,23 @@ impl ModuleBuilder<'_> {
                 let timestamp = self.argument(timestamp, body)?;
                 Ok(Some(body.push_expr(Expr {
                     kind: ExprKind::DateSetNow { timestamp },
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                })))
+            }
+            // `vi.restoreAllMocks()` replays the spy restore table. It is
+            // grouped with the other nullary `vi.*` lifecycle calls because it
+            // is the same shape: a statement whose whole effect is on shared
+            // harness state.
+            "restoreAllMocks" => {
+                if !call.arguments.is_empty() {
+                    return Err(SmeltError::unsupported(
+                        self.span(call.span.start, call.span.end),
+                        "vi.restoreAllMocks does not accept arguments",
+                    ));
+                }
+                Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::VitestRestoreAllMocks,
                     ty,
                     span: self.span(call.span.start, call.span.end),
                 })))

@@ -981,7 +981,8 @@ impl ModuleBuilder<'_> {
             CallbackExprKind::Index { receiver, .. }
             | CallbackExprKind::Field { receiver, .. }
             | CallbackExprKind::HasField { receiver, .. }
-            | CallbackExprKind::FieldTruthy { receiver, .. } => {
+            | CallbackExprKind::FieldTruthy { receiver, .. }
+            | CallbackExprKind::ValueTruthy { value: receiver } => {
                 self.collect_callback_captures(receiver, body, captures);
             }
             CallbackExprKind::DynamicIndex { receiver, index } => {
