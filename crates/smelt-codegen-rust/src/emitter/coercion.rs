@@ -388,6 +388,16 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(target),
         ) && source_item != target_item
         {
+            // Distinct MIR item types can already share the same erased Rust
+            // representation. Keep the buffer when no element adapter is needed.
+            if self.list_items_render_as_unknown(self.operand_ty(operand)?)
+                && self.list_items_render_as_unknown(target)
+            {
+                return Ok(format!(
+                    "Into::<SmeltList<_>>::into({})",
+                    self.operand_text(operand)?
+                ));
+            }
             // A `List<None>` erased element-wise would become `Null`, but an
             // `[undefined, …]` literal must erase to `Undefined` (the type lost
             // the distinction; only the defining constants carry it). Recover it
@@ -709,6 +719,13 @@ impl FunctionEmitter<'_> {
             (self.mir.types.get(source), self.mir.types.get(target))
             && source_item != target_item
         {
+            // Match operand coercion: an erased generic and unknown have the
+            // same element representation, so conversion must preserve aliases.
+            if self.list_items_render_as_unknown(source)
+                && self.list_items_render_as_unknown(target)
+            {
+                return Ok(format!("Into::<SmeltList<_>>::into({smelt_owned_value})"));
+            }
             let source_item = *source_item;
             let target_item = *target_item;
             let element_text = if matches!(self.mir.types.get(source_item), Some(Type::List(_)))
@@ -1092,7 +1109,8 @@ impl FunctionEmitter<'_> {
         // `text` is usually already an owned temporary (an operand render clones the local
         // it reads), so take an owned copy rather than deep-copying it a second time.
         let smelt_owned_text = cloned_value_text(&text);
-        match self.mir.types.get(self.operand_ty(operand)?) {
+        let ty = self.operand_ty(operand)?;
+        match self.mir.types.get(ty) {
             Some(Type::Unknown) => Ok(text),
             // Whether a `Type::TypeParam` is a REAL Rust type parameter or is
             // itself spelled `SmeltUnknown` is one decision, taken for the whole
@@ -1138,7 +1156,10 @@ impl FunctionEmitter<'_> {
             Some(Type::Bool) => Ok(format!("SmeltUnknown::Bool({text})")),
             Some(Type::Int | Type::Float) => Ok(format!("SmeltUnknown::Number({text} as f64)")),
             Some(Type::String) => Ok(crate::rust::erased_string(&text)),
-            Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown) => {
+            Some(Type::List(_)) if self.list_items_render_as_unknown(ty) => {
+                // An out-of-scope generic element also renders as SmeltUnknown.
+                // Use its existing representation; this creates no new erasure.
+                // In-scope Rust generics still need the per-element path below.
                 // `From<SmeltList<SmeltUnknown>> for SmeltArray` carries the list's
                 // own JS reference id AND aliases its buffer, so erasing the same
                 // binding twice reuses one id (arrays compare `===` by id), an
@@ -1594,7 +1615,9 @@ impl FunctionEmitter<'_> {
                 ))
             }
             Some(Type::String) => Ok(crate::rust::erased_string(value_text)),
-            Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown) => {
+            Some(Type::List(_)) if self.list_items_render_as_unknown(ty) => {
+                // Keep the rendered-value and operand erasure paths in agreement:
+                // an already-erased generic array aliases the same backing buffer.
                 // Method receiver: wrap a loose operand before `.into()`.
                 Ok(format!(
                     "SmeltUnknown::Array({}.into())",
@@ -2830,7 +2853,7 @@ impl FunctionEmitter<'_> {
     /// general path would run is `into_smelt_unknown()` on a value that already
     /// IS a `SmeltUnknown` — the identity impl. An *in-scope* `T` is a real Rust
     /// generic and must keep going through the general path, which converts each
-    /// element through `SmeltFromUnknown`.
+    /// element through the corresponding inbound or outbound boundary adapter.
     ///
     /// Scope-aware rather than unconditional, and deliberately so: every
     /// destination Rust type is rendered by `type_text` under
