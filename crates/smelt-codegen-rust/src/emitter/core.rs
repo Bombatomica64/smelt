@@ -5018,8 +5018,12 @@ impl<'mir> FunctionEmitter<'mir> {
             .map_or(Ok("SmeltUnknown::Null"), Ok)
     }
 
-    /// Gets the string name of a symbol.
-    /// Gets the string name of a symbol.
+    /// Gets the Rust-facing rendering of a symbol.
+    ///
+    /// A source name that is not a valid Rust spelling is case-folded when it is
+    /// interned (`camelCase` -> `camel_case`), so this is the *generated* name,
+    /// not the one the source wrote. Use [`Self::symbol_source_name`] whenever
+    /// the answer is compared against a JavaScript key.
     pub(super) fn symbol_name(&self, symbol: Symbol) -> Result<&str, EmitError> {
         self.mir
             .symbols

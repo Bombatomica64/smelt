@@ -3490,14 +3490,18 @@ impl ModuleBuilder<'_> {
         };
         let field = self.intern_source_name(field_name);
         let field_ty = self.class_field_type(hint, field).ok()?;
-        if matches!(&property.value, Expression::ObjectExpression(_))
-            && matches!(
-                self.ctx.krate.types.get(field_ty),
-                Some(Type::Class { .. } | Type::Optional(_))
-            )
-        {
-            return None;
-        }
+        // A nested object literal gets the field's type as its own hint, class
+        // and optional-class fields included. This used to be refused, which
+        // left `{ inner: { count: 7 } }` against `interface Outer { inner?:
+        // Config }` lowering the inner literal with no hint: it became a
+        // `Dict`, the outer literal could then not be built as a struct either
+        // (its field was not assignable), and both ends went through the erased
+        // `SmeltRecord` reconstruction. The struct path can build the nested
+        // value directly -- `Outer { inner: Some(Config { count: Some(7.0) }) }`
+        // -- so the refusal cost avoidable erasure at every nesting level for
+        // nothing. `contextual_record_literal_type` already unwraps `Optional`
+        // and still declines any literal it cannot construct, so the decision
+        // stays where it belongs rather than being pre-empted here.
         Some(field_ty)
     }
 

@@ -139,18 +139,29 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         }
 
+        // Keyed by the literal's EXACT key text, because that is a JavaScript
+        // property name: case-sensitive, and never case-folded. Keying by
+        // `sanitize_ident` instead silently dropped every camelCase field --
+        // `{ plain: 1, camelCase: "a" }` against `interface Shape { plain?:
+        // number; camelCase?: string }` emitted `Shape { plain: Some(1.0),
+        // camel_case: None }`, so the program printed `undefined` where Node
+        // prints `a`. The field side is what has two spellings (see
+        // `symbol_source_name`), and it is the side that must be translated.
         let mut literal_entries = HashMap::new();
         for (entry_key, value) in entries {
             let Operand::Const(Constant::String(key_text)) = entry_key else {
                 return Ok(None);
             };
-            literal_entries.insert(sanitize_ident(key_text), value);
+            literal_entries.insert(key_text.as_str(), value);
         }
 
         let mut field_text = Vec::new();
         for field in fields {
+            // Two spellings of one field: the source name matches the literal
+            // key, the rendered name is the Rust struct field.
+            let source_name = self.symbol_source_name(field.name)?;
             let field_name = sanitize_ident(self.symbol_name(field.name)?);
-            let value = if let Some(entry_value) = literal_entries.get(&field_name) {
+            let value = if let Some(entry_value) = literal_entries.get(source_name) {
                 self.value_at_type(entry_value, field.ty)?
             } else if matches!(self.mir.types.get(field.ty), Some(Type::Optional(_))) {
                 self.default_value(field.ty)?
@@ -360,9 +371,9 @@ impl FunctionEmitter<'_> {
                     self.restore_declared_locals(declared);
                     format!("{{ {catch_text} }}")
                 } else if cleanup.is_some() {
-                    format!("{{ {cleanup_text} smelt_panic_throw(error) }}")
+                    format!("{{ {cleanup_text} smelt_panic_throw({}) }}", crate::thrown::throw_expr("error"))
                 } else {
-                    "smelt_panic_throw(error)".to_owned()
+                    format!("smelt_panic_throw({})", crate::thrown::throw_expr("error"))
                 };
                 // A generator whose declared return type is erased (`unknown`)
                 // pins every protocol channel to `SmeltUnknown` (see the
@@ -447,8 +458,13 @@ impl FunctionEmitter<'_> {
                 } else {
                     "return value"
                 };
+                // `SmeltGeneratorCommand::Throw` carries the thrown VALUE (a
+                // `SmeltUnknown`), not an error-channel box, so it enters the
+                // panic route through `smelt_throw` -- which is also what keeps
+                // the payload's class across the unwind.
+                let thrown_error = crate::thrown::throw_expr("error");
                 let consume_outer_sent = format!(
-                    "{{ let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command {{ SmeltGeneratorCommand::Next(_) => {{}}, SmeltGeneratorCommand::Return(value) => {return_command}, SmeltGeneratorCommand::Throw(error) => smelt_panic_throw(error) }} }}"
+                    "{{ let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command {{ SmeltGeneratorCommand::Next(_) => {{}}, SmeltGeneratorCommand::Return(value) => {return_command}, SmeltGeneratorCommand::Throw(error) => smelt_panic_throw({thrown_error}) }} }}"
                 );
                 match self.mir.types.get(generator_ty) {
                     Some(Type::Generator {

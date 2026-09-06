@@ -82,8 +82,8 @@ fn main (FuncId(3)) -> None
     %4 temp: Config
     %5 temp: Config
     %6 temp: Config
-    %7 temp: Dict<String, Float>
-    %8 temp: Dict<String, Dict<String, Float>>
+    %7 temp: Config
+    %8 temp: Outer
     %9 temp: String
     %10 temp: None
     %11 temp: Float

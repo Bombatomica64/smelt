@@ -1341,6 +1341,70 @@ export function run(): string {
 }
 
 #[test]
+fn matches_object_literal_keys_to_interface_fields_by_source_spelling() {
+    // A JavaScript property key is case-sensitive and never case-folded; an
+    // interface FIELD has two spellings, the source name and the Rust-safe
+    // rendering the struct field carries. Matching the literal's keys against
+    // the RENDERED spelling silently dropped every field whose source name is
+    // not already a valid Rust name: the field looked absent, took the optional
+    // default, and the program printed `undefined` where Node prints the value.
+    let source = source_for(
+        r#"
+interface Shape {
+  plain?: number;
+  camelCase?: string;
+  snake_case?: string;
+}
+
+export function build(): Shape {
+  return { plain: 1, camelCase: "a", snake_case: "b" };
+}
+"#,
+    );
+
+    assert!(
+        source.contains(
+            "Shape { plain: Some(1.0), camel_case: Some(\"a\".to_owned()), snake_case: Some(\"b\".to_owned()) }"
+        ),
+        "{source}"
+    );
+    // The specific defect: a camelCase key must not fall through to the
+    // optional default.
+    assert!(!source.contains("camel_case: None"), "{source}");
+}
+
+#[test]
+fn builds_a_nested_optional_interface_literal_as_a_struct() {
+    // The nested literal receives the field's type as its own hint, so both
+    // levels are built directly. Without it the inner literal lowered as a
+    // `Dict`, which made the OUTER literal unbuildable as a struct too, and
+    // both ends went through the erased `SmeltRecord` reconstruction.
+    let source = source_for(
+        r#"
+interface Inner {
+  camelCase?: string;
+  count?: number;
+}
+
+interface Outer {
+  innerShape?: Inner;
+}
+
+export function build(): Outer {
+  return { innerShape: { camelCase: "deep", count: 2 } };
+}
+"#,
+    );
+
+    assert!(
+        source.contains("Inner { camel_case: Some(\"deep\".to_owned()), count: Some(2.0) }"),
+        "{source}"
+    );
+    assert!(source.contains("Outer { inner_shape: Some("), "{source}");
+    assert!(!source.contains("smelt_record_map"), "{source}");
+}
+
+#[test]
 fn adapts_object_literal_for_interface_callback_field_argument() {
     let source = source_for(
         r#"

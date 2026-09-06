@@ -2288,27 +2288,37 @@ impl<K, T> IntoSmeltUnknown for SmeltRecord<K, T> where K: IntoSmeltUnknown + Eq
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
-struct Config {
-    label: Option<String>,
-    count: Option<f64>,
+struct Shape {
+    plain: Option<f64>,
+    camel_case: Option<String>,
+    snake_case: Option<String>,
+    a_very_long_camel_name: Option<f64>,
 }
-impl IntoSmeltUnknown for Config {
+impl IntoSmeltUnknown for Shape {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("label".to_owned(), self.label.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))),
-        ("count".to_owned(), self.count.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Number(value as f64))),
+        ("plain".to_owned(), self.plain.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Number(value as f64))),
+        ("camelCase".to_owned(), self.camel_case.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))),
+        ("snake_case".to_owned(), self.snake_case.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))),
+        ("aVeryLongCamelName".to_owned(), self.a_very_long_camel_name.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Number(value as f64))),
         ])))
     }
 }
-impl SmeltFromUnknown for Config {
+impl SmeltFromUnknown for Shape {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("label") {
-                result.label = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(field) = object.get("plain") {
+                result.plain = SmeltFromUnknown::smelt_from_unknown(field);
             }
-            if let Some(field) = object.get("count") {
-                result.count = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(field) = object.get("camelCase") {
+                result.camel_case = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("snake_case") {
+                result.snake_case = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+            if let Some(field) = object.get("aVeryLongCamelName") {
+                result.a_very_long_camel_name = SmeltFromUnknown::smelt_from_unknown(field);
             }
         }
         result
@@ -2316,22 +2326,22 @@ impl SmeltFromUnknown for Config {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
-struct Outer {
-    inner: Option<Config>,
+struct Wrapper {
+    inner_shape: Option<Shape>,
 }
-impl IntoSmeltUnknown for Outer {
+impl IntoSmeltUnknown for Wrapper {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("inner".to_owned(), self.inner.map_or(SmeltUnknown::Undefined, |value| (value).into_smelt_unknown())),
+        ("innerShape".to_owned(), self.inner_shape.map_or(SmeltUnknown::Undefined, |value| (value).into_smelt_unknown())),
         ])))
     }
 }
-impl SmeltFromUnknown for Outer {
+impl SmeltFromUnknown for Wrapper {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
         if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("inner") {
-                result.inner = SmeltFromUnknown::smelt_from_unknown(field);
+            if let Some(field) = object.get("innerShape") {
+                result.inner_shape = SmeltFromUnknown::smelt_from_unknown(field);
             }
         }
         result
@@ -2707,24 +2717,50 @@ impl SmeltFromUnknown for SmeltMatch {
 
 // @smelt:prelude-end — generated program below
 fn main() {
-    let _smelt_tmp_4: Config = Config { label: None::<String>, count: None::<f64> };
-    let empty: Config = _smelt_tmp_4;
-    let _smelt_tmp_5: Config = Config { label: Some("x".to_owned()), count: None::<f64> };
-    let partial: Config = _smelt_tmp_5;
-    let _smelt_tmp_6: Config = Config { label: None::<String>, count: Some(41.0) };
-    let counted: Config = _smelt_tmp_6;
-    let _smelt_tmp_7: Config = Config { label: None::<String>, count: Some(7.0) };
-    let _smelt_tmp_8: Outer = Outer { inner: Some(_smelt_tmp_7) };
-    let nested: Outer = _smelt_tmp_8;
-    let _smelt_tmp_9: String = label_of(empty.clone());
-    let _ = { println!("{}", _smelt_tmp_9); };
-    let _smelt_tmp_11: f64 = count_plus_one(empty);
-    let _ = { println!("{}", _smelt_tmp_11); };
-    let _smelt_tmp_13: String = label_of(partial);
-    let _ = { println!("{}", _smelt_tmp_13); };
-    let _smelt_tmp_15: f64 = count_plus_one(counted);
-    let _ = { println!("{}", _smelt_tmp_15); };
-    let _smelt_tmp_17: f64 = inner_count(nested);
-    let _ = { println!("{}", _smelt_tmp_17); };
+    let inner: Option<Shape>;
+    let _smelt_tmp_20: bool;
+    let mut _smelt_tmp_21: String;
+    let _smelt_tmp_22: Option<String>;
+    let _smelt_tmp_25: bool;
+    let mut _smelt_tmp_26: String;
+    let _smelt_tmp_27: Option<f64>;
+    let _smelt_tmp_4: Shape = Shape { plain: Some(1.0), camel_case: Some("a".to_owned()), snake_case: Some("b".to_owned()), a_very_long_camel_name: Some(41.0) };
+    let full: Shape = _smelt_tmp_4;
+    let _smelt_tmp_5: Shape = Shape { plain: None::<f64>, camel_case: Some("only".to_owned()), snake_case: None::<String>, a_very_long_camel_name: None::<f64> };
+    let partial: Shape = _smelt_tmp_5;
+    let _smelt_tmp_6: Shape = Shape { plain: Some(2.0), camel_case: Some("deep".to_owned()), snake_case: None::<String>, a_very_long_camel_name: None::<f64> };
+    let _smelt_tmp_7: Wrapper = Wrapper { inner_shape: Some(_smelt_tmp_6) };
+    let nested: Wrapper = _smelt_tmp_7;
+    let _smelt_tmp_8: String = number_of(full.plain.clone());
+    let _ = { println!("{}", _smelt_tmp_8); };
+    let _smelt_tmp_10: String = text_of(full.camel_case.clone());
+    let _ = { println!("{}", _smelt_tmp_10); };
+    let _smelt_tmp_12: String = text_of(full.snake_case.clone());
+    let _ = { println!("{}", _smelt_tmp_12); };
+    let _smelt_tmp_14: String = number_of(full.a_very_long_camel_name.clone());
+    let _ = { println!("{}", _smelt_tmp_14); };
+    let _smelt_tmp_16: String = text_of(partial.camel_case.clone());
+    let _ = { println!("{}", _smelt_tmp_16); };
+    let _smelt_tmp_18: String = text_of(partial.snake_case.clone());
+    let _ = { println!("{}", _smelt_tmp_18); };
+    inner = nested.inner_shape.clone();
+    _smelt_tmp_20 = inner.clone().is_none();
+    if _smelt_tmp_20 {
+    _smelt_tmp_21 = "no inner".to_owned();
+    } else {
+    _smelt_tmp_22 = inner.clone().as_ref().and_then(|_smelt_value| _smelt_value.camel_case.clone());
+    let _smelt_tmp_23: String = text_of(_smelt_tmp_22);
+    _smelt_tmp_21 = _smelt_tmp_23;
+    }
+    let _ = { println!("{}", _smelt_tmp_21); };
+    _smelt_tmp_25 = inner.clone().is_none();
+    if _smelt_tmp_25 {
+    _smelt_tmp_26 = "no inner".to_owned();
+    } else {
+    _smelt_tmp_27 = inner.as_ref().and_then(|_smelt_value| _smelt_value.plain.clone());
+    let _smelt_tmp_28: String = number_of(_smelt_tmp_27);
+    _smelt_tmp_26 = _smelt_tmp_28;
+    }
+    let _ = { println!("{}", _smelt_tmp_26); };
     return;
 }
