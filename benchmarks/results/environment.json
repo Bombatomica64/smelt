@@ -16,14 +16,18 @@
       "allocator": "mimalloc",
       "binary_sha256": "4c50c4acd1f243663a39f5c7a044c03140d702c85e79211f2a1ce19c65ca496f",
       "typescript_bundle_sha256": "6e36d4c66e6424f87aafa4a6d28b4cb1eb09d15d6e7b3316f8f674b8ce1cde7e",
-      "manifest_sha256": "14914dbde174e2d458f92f7fb1d1750624ea98727789c5fde56c1d6fa2299cdc"
+      "manifest_sha256": "14914dbde174e2d458f92f7fb1d1750624ea98727789c5fde56c1d6fa2299cdc",
+      "cargo_lock_file": "benchmarks/results/remeda.Cargo.lock",
+      "cargo_lock_sha256": "2510c5c7ed012caa69b340922de3846a2ef7dad8f7bc7fe9faa5dc99a97382af"
     },
     "es-toolkit": {
       "commit": "e008a2818cd8d07469a5cc12ee0c02405d523e07",
       "allocator": "mimalloc",
       "binary_sha256": "597ecf977ddb54bf4f2b6ab3a69a5c080f15ca2a67918122931cb025788e9ee1",
       "typescript_bundle_sha256": "4051c47ea88036521fbe352cbcc18e1308ef4ad6f409f6ea0ebd1dd3ae6724a8",
-      "manifest_sha256": "a86f495886732d04b540e8de2198963ae6b6901636680d11a8f6250a5eb092be"
+      "manifest_sha256": "a86f495886732d04b540e8de2198963ae6b6901636680d11a8f6250a5eb092be",
+      "cargo_lock_file": "benchmarks/results/es-toolkit.Cargo.lock",
+      "cargo_lock_sha256": "72846a19ae9b734a2d6bc82c58dee284d5df2b3c2e3615d8c82516d3eb58cd3f"
     }
   },
   "commands": [
@@ -35,5 +39,6 @@
     "Fresh compiler and generated native runner builds; compiler and timing harness unchanged.",
     "CARGO_BUILD_JOBS=2 during preparation; no concurrent compilation during the timed sweep.",
     "Different machine from the August report; changes between runs are not controlled speedup measurements."
-  ]
+  ],
+  "workspace_cargo_lock_sha256": "b5db70fe99abb95b9184708b7ebd3e00aba241ab4258884277ce31eee0212e1a"
 }
