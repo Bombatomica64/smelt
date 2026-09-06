@@ -1241,10 +1241,24 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let value = self.argument(argument, body)?;
-        if !self.is_json_serializable_type(Self::expr_ty(body, value)) {
+        let value_ty = Self::expr_ty(body, value);
+        if !self.is_json_serializable_type(value_ty) {
+            // Name the offending type. Without it the diagnostic says only that
+            // SOMETHING in a possibly deep union/record is not serializable,
+            // which is the least actionable form of a true statement.
             return Err(SmeltError::unsupported(
                 self.span(argument.span().start, argument.span().end),
-                "JSON.stringify() value must be JSON-serializable",
+                format!(
+                    "JSON.stringify() value must be JSON-serializable (got {:?}{})",
+                    self.ctx.krate.types.get(value_ty),
+                    match self.ctx.krate.types.get(value_ty) {
+                        Some(Type::Class { name, .. }) => format!(
+                            ", class `{}`",
+                            self.ctx.krate.symbols.get(*name).unwrap_or("<unknown>")
+                        ),
+                        _ => String::new(),
+                    }
+                ),
             ));
         }
         let ty = self.ctx.krate.types.intern(Type::String);

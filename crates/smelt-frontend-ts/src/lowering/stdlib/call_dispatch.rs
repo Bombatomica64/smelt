@@ -603,11 +603,21 @@ impl<'builder> ModuleBuilder<'builder> {
                     if let Some(Type::Function(function)) =
                         self.ctx.krate.types.get(item_ty).cloned()
                     {
-                        let callee = body.push_expr(Expr {
-                            kind: ExprKind::Literal(Literal::None),
-                            ty: item_ty,
-                            span: self.span(callee_ident.span.start, callee_ident.span.end),
-                        });
+                        // Read the item's VALUE as the callee. This used to push
+                        // `Literal::None` typed as the function — a fabricated
+                        // NULL callee — so `export const alias = original;
+                        // alias(s)` compiled and answered a default-constructed
+                        // value instead of calling anything. `identifier_expression`
+                        // is the general "read this name" path and inlines a
+                        // module const's initializer, so it produces the real
+                        // callable for a const aliasing a function, an arrow, or
+                        // a builtin global.
+                        let callee = self.identifier_expression(
+                            callee_ident.name.as_str(),
+                            callee_ident.span.start,
+                            callee_ident.span.end,
+                            body,
+                        )?;
                         let args = call
                             .arguments
                             .iter()
@@ -1627,15 +1637,32 @@ impl<'builder> ModuleBuilder<'builder> {
         })))
     }
 
-    /// Lower `encodeURI(value)` to the URI percent-encoding IR op.
+    /// Which of the four ECMA-262 URI transcoding globals `name` is, if any.
     ///
-    /// JavaScript `encodeURI` percent-encodes a full URI, leaving the
-    /// `encodeURI` unescaped character set intact (see the runtime
-    /// `smelt_encode_uri` helper for the exact set). The operand must be
-    /// string-compatible: a concrete `string` passes through, and an erased or
-    /// string-convertible operand is asserted to `string` first, mirroring how
-    /// other string builtins accept erased operands. The bare-value form of
-    /// `encodeURI` is handled by `builtin_function_value_expression`.
+    /// The four share one grammar and one operand rule and differ only in the
+    /// character set they treat as structure, so they share one lowering (see
+    /// [`smelt_hir::UriTranscodeOp`]) rather than four near-identical ones.
+    pub(in crate::lowering) const fn uri_transcode_global(
+        name: &str,
+    ) -> Option<smelt_hir::UriTranscodeOp> {
+        match name.as_bytes() {
+            b"encodeURI" => Some(smelt_hir::UriTranscodeOp::Encode),
+            b"encodeURIComponent" => Some(smelt_hir::UriTranscodeOp::EncodeComponent),
+            b"decodeURI" => Some(smelt_hir::UriTranscodeOp::Decode),
+            b"decodeURIComponent" => Some(smelt_hir::UriTranscodeOp::DecodeComponent),
+            _ => None,
+        }
+    }
+
+    /// Lower `encodeURI`/`encodeURIComponent`/`decodeURI`/`decodeURIComponent`
+    /// to the URI transcoding IR op.
+    ///
+    /// The operand must be string-compatible: a concrete `string` passes
+    /// through, and an erased or string-convertible operand is asserted to
+    /// `string` first, mirroring how other string builtins accept erased
+    /// operands. The bare-value form of each is handled by
+    /// `builtin_function_value_expression`, which builds a closure over the
+    /// same op.
     pub(in crate::lowering) fn uri_encode_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -1644,13 +1671,17 @@ impl<'builder> ModuleBuilder<'builder> {
         let Expression::Identifier(callee) = &call.callee else {
             return Ok(None);
         };
-        if callee.name != "encodeURI" || self.scope.is_bound(callee.name.as_str()) {
+        let Some(op) = Self::uri_transcode_global(callee.name.as_str()) else {
+            return Ok(None);
+        };
+        if self.scope.is_bound(callee.name.as_str()) {
             return Ok(None);
         }
+        let name = callee.name.as_str();
         let [value_arg] = call.arguments.as_slice() else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "encodeURI requires exactly one string argument",
+                format!("{name} requires exactly one string argument"),
             ));
         };
         let string_ty = self.ctx.krate.types.intern(Type::String);
@@ -1669,11 +1700,11 @@ impl<'builder> ModuleBuilder<'builder> {
         } else {
             return Err(SmeltError::unsupported(
                 self.span(value_arg.span().start, value_arg.span().end),
-                "encodeURI argument must be a string",
+                format!("{name} argument must be a string"),
             ));
         };
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::UriEncode { operand },
+            kind: ExprKind::UriTranscode { op, operand },
             ty: string_ty,
             span: self.span(call.span.start, call.span.end),
         })))

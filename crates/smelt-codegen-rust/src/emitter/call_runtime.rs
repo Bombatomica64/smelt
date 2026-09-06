@@ -1137,7 +1137,7 @@ impl FunctionEmitter<'_> {
             }
             Rvalue::StringCase { op, operand } => self.string_case_text(*op, operand, dest_ty),
             Rvalue::StringNormalize { form, operand } => self.string_normalize_text(*form, operand),
-            Rvalue::UriEncode { operand } => self.uri_encode_text(operand),
+            Rvalue::UriTranscode { op, operand } => self.uri_transcode_text(*op, operand),
             Rvalue::StringLocaleCompare { left, right } => {
                 self.string_locale_compare_text(left, right)
             }

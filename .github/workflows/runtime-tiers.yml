@@ -91,7 +91,7 @@ jobs:
               host_representation_runtime boxed_primitive_runtime
               typed_array_runtime symbol_key_runtime object_create_runtime
               regexp_compile_cache_runtime regex_replacer_arguments_runtime
-              math_round_runtime
+              uri_transcode_runtime math_round_runtime
               define_properties_runtime proto_accessor_runtime
               ambient_declaration_runtime object_model_runtime
               stdlib_boundary_runtime

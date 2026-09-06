@@ -923,10 +923,14 @@ pub enum Rvalue {
         /// String compared against the receiver.
         right: Operand,
     },
-    /// Percent-encode a string per JavaScript `encodeURI` (the full-URI
-    /// character set; see the runtime `smelt_encode_uri` helper).
-    UriEncode {
-        /// String operand to encode.
+    /// One of the four ECMA-262 URI transcoding globals (`encodeURI`,
+    /// `encodeURIComponent`, `decodeURI`, `decodeURIComponent`); see
+    /// `smelt_hir::UriTranscodeOp` and the `smelt_encode_uri*` /
+    /// `smelt_decode_uri*` runtime helpers.
+    UriTranscode {
+        /// Which of the four globals this is.
+        op: smelt_hir::UriTranscodeOp,
+        /// String operand to transcode.
         operand: Operand,
     },
     /// Resolve the JavaScript `Object.prototype.toString.call(x)` tag

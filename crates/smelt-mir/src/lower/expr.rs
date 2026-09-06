@@ -626,12 +626,13 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
-            ExprKind::UriEncode { operand } => {
+            ExprKind::UriTranscode { op, operand } => {
                 let lowered_operand = self.lower_expr(*operand)?;
                 self.assign_temp(
                     expr.ty,
                     expr.span,
-                    Rvalue::UriEncode {
+                    Rvalue::UriTranscode {
+                        op: *op,
                         operand: lowered_operand,
                     },
                 )?

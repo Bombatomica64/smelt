@@ -1250,8 +1250,14 @@ fn encode_uri_call_and_value_forms_lower_to_uri_encode() -> Result<(), String> {
         call_body
             .exprs
             .iter()
-            .any(|expr| matches!(&expr.kind, ExprKind::UriEncode { .. })),
-        "expected `encodeURI('a b')` to lower to the UriEncode op",
+            .any(|expr| matches!(
+                &expr.kind,
+                ExprKind::UriTranscode {
+                    op: smelt_hir::UriTranscodeOp::Encode,
+                    ..
+                }
+            )),
+        "expected `encodeURI('a b')` to lower to the UriTranscode op",
     );
 
     let mut value_ctx = HirCtx::new();

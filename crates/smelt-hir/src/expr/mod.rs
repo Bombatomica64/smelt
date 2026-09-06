@@ -24,6 +24,6 @@ pub use ops::{
     RegexMatchOp, RegexReplaceArg, SetBinaryOp, SetProjectionOp, SetRelationOp, SetRemoveOp,
     StringAffixOp,
     StringCaseOp, StringNormalizeForm, StringPadOp, StringPredicateOp, StringReplaceOp,
-    StringSearchOp, StringTrimSide, UrlField,
+    StringSearchOp, StringTrimSide, UriTranscodeOp, UrlField,
 };
 pub use types::{BinOp, UnaryOp, bin_op_text};

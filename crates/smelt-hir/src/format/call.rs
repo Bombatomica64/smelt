@@ -2,7 +2,7 @@
 
 use std::fmt::Write as _;
 
-use crate::expr::{AsyncOp, Expr, ExprKind, PropertyLookup, RegexReplaceArg};
+use crate::expr::{AsyncOp, Expr, ExprKind, PropertyLookup, RegexReplaceArg, UriTranscodeOp};
 use crate::ids::ExprId;
 use crate::krate::Crate;
 
@@ -26,6 +26,20 @@ fn regex_replace_args_text(args: &[RegexReplaceArg]) -> String {
         })
         .collect::<Vec<_>>()
         .join(",")
+}
+
+/// Formats a URI transcoding operation's node name.
+///
+/// Named per variant so a golden distinguishes `encodeURI` from
+/// `encodeURIComponent` — the pair differs only in its character set, which is
+/// precisely the mistake worth catching in a cheap test.
+const fn uri_transcode_op_text(op: UriTranscodeOp) -> &'static str {
+    match op {
+        UriTranscodeOp::Encode => "uri_encode",
+        UriTranscodeOp::EncodeComponent => "uri_encode_component",
+        UriTranscodeOp::Decode => "uri_decode",
+        UriTranscodeOp::DecodeComponent => "uri_decode_component",
+    }
 }
 
 /// Formats an expression as text.
@@ -204,8 +218,8 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             };
             format!("string_normalize_{form_name} {}", expr_ref(*operand))
         }
-        ExprKind::UriEncode { operand } => {
-            format!("uri_encode {}", expr_ref(*operand))
+        ExprKind::UriTranscode { op, operand } => {
+            format!("{} {}", uri_transcode_op_text(*op), expr_ref(*operand))
         }
         ExprKind::ObjectToStringTag { operand } => {
             format!("object_to_string_tag {}", expr_ref(*operand))

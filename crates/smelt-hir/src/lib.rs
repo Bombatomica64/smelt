@@ -71,7 +71,7 @@ pub use expr::{
     RegexReplaceArg, SetBinaryOp,
     SetProjectionOp, SetRelationOp, SetRemoveOp, StringAffixOp, StringCaseOp, StringNormalizeForm,
     StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, UnaryOp,
-    UnknownKind, UrlField, bin_op_text,
+    UnknownKind, UriTranscodeOp, UrlField, bin_op_text,
 };
 pub use format::format_compact;
 pub use ids::{

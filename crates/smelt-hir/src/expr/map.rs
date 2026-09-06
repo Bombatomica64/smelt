@@ -209,7 +209,8 @@ impl ExprKind {
                 form,
                 operand: f(operand)?,
             },
-            Self::UriEncode { operand } => Self::UriEncode {
+            Self::UriTranscode { op, operand } => Self::UriTranscode {
+                op,
                 operand: f(operand)?,
             },
             Self::ObjectToStringTag { operand } => Self::ObjectToStringTag {

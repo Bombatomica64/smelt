@@ -569,8 +569,14 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
             };
             format!("string_normalize_{form_text} {}", operand_text(operand))
         }
-        Rvalue::UriEncode { operand } => {
-            format!("uri_encode {}", operand_text(operand))
+        Rvalue::UriTranscode { op, operand } => {
+            let op_text = match op {
+                smelt_hir::UriTranscodeOp::Encode => "uri_encode",
+                smelt_hir::UriTranscodeOp::EncodeComponent => "uri_encode_component",
+                smelt_hir::UriTranscodeOp::Decode => "uri_decode",
+                smelt_hir::UriTranscodeOp::DecodeComponent => "uri_decode_component",
+            };
+            format!("{op_text} {}", operand_text(operand))
         }
         Rvalue::ObjectToStringTag { operand } => {
             format!("object_to_string_tag {}", operand_text(operand))

@@ -111,10 +111,15 @@ fn rvalue_needs_unicode_normalization(rvalue: &Rvalue) -> bool {
     matches!(rvalue, Rvalue::StringNormalize { .. })
 }
 
-/// Returns true when generated Rust needs the `smelt_encode_uri` runtime helper
-/// backing JavaScript `encodeURI`.
+/// Returns true when generated Rust needs the URI transcoding runtime helpers
+/// backing JavaScript `encodeURI`, `encodeURIComponent`, `decodeURI` and
+/// `decodeURIComponent`.
+///
+/// One gate for all four: the helpers are small, they share the decoder, and a
+/// per-variant gate would multiply the prelude bookkeeping without shrinking
+/// any realistic program (a project that percent-encodes usually decodes too).
 pub(crate) fn needs_uri_encode_runtime(mir: &Mir) -> bool {
-    any_rvalue_needs(mir, |rvalue| matches!(rvalue, Rvalue::UriEncode { .. }))
+    any_rvalue_needs(mir, |rvalue| matches!(rvalue, Rvalue::UriTranscode { .. }))
 }
 
 /// Returns true when generated Rust needs the `smelt_locale_compare` runtime

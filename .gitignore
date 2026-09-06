@@ -177,3 +177,6 @@ third_party/hono/
 !blocker-logs/hono-h4-union-truthiness.md
 !blocker-logs/hono-h11-string-field-read.md
 !blocker-logs/hono-fetch-demand.md
+!blocker-logs/hono-h10-uri-and-base64-globals.md
+!blocker-logs/hono-h12-const-alias-callee.md
+!blocker-logs/hono-scope.md

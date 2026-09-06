@@ -218,6 +218,40 @@ pub enum RegexReplaceArg {
     Source,
 }
 
+/// Which of the four ECMA-262 URI transcoding globals an operation is.
+///
+/// ECMA-262 §19.2.6 defines all four from two algorithms (`Encode` / `Decode`)
+/// parameterized by a character set, and the four differ *only* in that set:
+/// the `*Component` pair treats the URI reserved separators
+/// `; / ? : @ & = + $ , #` as ordinary data, while the non-component pair
+/// leaves them alone so a full URI's structure survives a round trip. Carrying
+/// the variant in the IR keeps that one distinction in one place instead of
+/// four near-identical nodes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum UriTranscodeOp {
+    /// `encodeURI(value)` — escape everything outside the full-URI set.
+    Encode,
+    /// `encodeURIComponent(value)` — also escape the reserved separators.
+    EncodeComponent,
+    /// `decodeURI(value)` — unescape everything except the reserved separators.
+    Decode,
+    /// `decodeURIComponent(value)` — unescape everything.
+    DecodeComponent,
+}
+
+impl UriTranscodeOp {
+    /// Whether this operation can fail on malformed input.
+    ///
+    /// Both decoders throw a `URIError` for input that is not well-formed
+    /// percent-encoding; the encoders are total over Rust `&str`, because the
+    /// only ECMA-262 encoding failure is a lone surrogate and a `&str` cannot
+    /// hold one.
+    #[must_use]
+    pub const fn is_fallible(self) -> bool {
+        matches!(self, Self::Decode | Self::DecodeComponent)
+    }
+}
+
 /// A directly lowered string padding operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StringPadOp {

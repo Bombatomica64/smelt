@@ -800,7 +800,7 @@ impl Rvalue {
             | Self::NumericUnaryFunc { operand, .. }
             | Self::StringCase { operand, .. }
             | Self::StringNormalize { operand, .. }
-            | Self::UriEncode { operand }
+            | Self::UriTranscode { operand, .. }
             | Self::ObjectToStringTag { operand }
             | Self::StructuredClone { operand }
             | Self::StringTrim { operand, .. }
@@ -1604,7 +1604,7 @@ impl Rvalue {
             | Self::NumericUnaryFunc { operand, .. }
             | Self::StringCase { operand, .. }
             | Self::StringNormalize { operand, .. }
-            | Self::UriEncode { operand }
+            | Self::UriTranscode { operand, .. }
             | Self::ObjectToStringTag { operand }
             | Self::StructuredClone { operand }
             | Self::StringTrim { operand, .. }

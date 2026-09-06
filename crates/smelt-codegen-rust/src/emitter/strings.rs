@@ -50,15 +50,48 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Converts JavaScript `encodeURI(value)` to a call to the runtime
-    /// percent-encoding helper (`smelt_encode_uri`), which implements the
-    /// ECMA-262 `encodeURI` character-set rules.
-    pub(super) fn uri_encode_text(&self, operand: &Operand) -> Result<String, EmitError> {
-        let receiver_text = self.string_like_operand_text(operand, "encodeURI")?;
-        Ok(format!(
-            "{encode_uri}({receiver_text}.as_str())",
-            encode_uri = smelt_stdlib::runtime_symbols::strings::ENCODE_URI,
-        ))
+    /// Converts one of the four JavaScript URI transcoding globals to a call to
+    /// its runtime helper.
+    ///
+    /// The encoders are total. The decoders return `None` for input ECMA-262
+    /// rejects with a `URIError`, and that failure is currently rendered as an
+    /// `.expect(...)` — a PANIC, not a catchable throw. That is deliberate and
+    /// matches the existing `JSON.parse` emission
+    /// (`serde_json::from_str(..).expect("JSON parse failed")`): a fallible
+    /// stdlib *rvalue* has no throwing edge in MIR, because only
+    /// `Terminator::Call` and `Terminator::Await` carry an
+    /// `unwind: Option<ExceptionHandler>`. Source that catches a `URIError`
+    /// therefore aborts instead of taking its fallback. See
+    /// `blocker-logs/hono-h10-uri-and-base64-globals.md` §"the throwing-rvalue
+    /// hole" — it is one general gap shared with `JSON.parse`, to be closed
+    /// once for both rather than worked around here.
+    pub(super) fn uri_transcode_text(
+        &self,
+        op: smelt_hir::UriTranscodeOp,
+        operand: &Operand,
+    ) -> Result<String, EmitError> {
+        use smelt_hir::UriTranscodeOp;
+        use smelt_stdlib::runtime_symbols::strings;
+
+        let name = match op {
+            UriTranscodeOp::Encode => "encodeURI",
+            UriTranscodeOp::EncodeComponent => "encodeURIComponent",
+            UriTranscodeOp::Decode => "decodeURI",
+            UriTranscodeOp::DecodeComponent => "decodeURIComponent",
+        };
+        let receiver_text = self.string_like_operand_text(operand, name)?;
+        let helper = match op {
+            UriTranscodeOp::Encode => strings::ENCODE_URI,
+            UriTranscodeOp::EncodeComponent => strings::ENCODE_URI_COMPONENT,
+            UriTranscodeOp::Decode => strings::DECODE_URI,
+            UriTranscodeOp::DecodeComponent => strings::DECODE_URI_COMPONENT,
+        };
+        let call = format!("{helper}({receiver_text}.as_str())");
+        Ok(if op.is_fallible() {
+            format!("{call}.expect(\"URIError: URI malformed\")")
+        } else {
+            call
+        })
     }
 
     /// Converts JavaScript `left.localeCompare(right)` to a call to the runtime

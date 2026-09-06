@@ -5,7 +5,7 @@ use super::{
     SetBinaryOp,
     SetProjectionOp, SetRelationOp, SetRemoveOp, StringAffixOp, StringCaseOp, StringNormalizeForm,
     StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, UnaryOp,
-    UnknownKind, UrlField,
+    UnknownKind, UriTranscodeOp, UrlField,
 };
 use crate::ids::{BlockId, BodyId, ExprId, ItemId, LocalId, Symbol, TypeId};
 use serde::{Deserialize, Serialize};
@@ -256,10 +256,13 @@ pub enum ExprKind {
         form: StringNormalizeForm,
         operand: ExprId,
     },
-    /// JavaScript `encodeURI(operand)`: percent-encode the string, leaving the
-    /// URI-reserved and unreserved characters of the `encodeURI` character set
-    /// intact (see the runtime `smelt_encode_uri` helper for the exact set).
-    UriEncode {
+    /// One of the four ECMA-262 URI transcoding globals applied to `operand`:
+    /// `encodeURI`, `encodeURIComponent`, `decodeURI`, `decodeURIComponent`.
+    /// `op` carries which; see [`UriTranscodeOp`] for why one node covers all
+    /// four, and the `smelt_encode_uri*` / `smelt_decode_uri*` runtime helpers
+    /// for the exact character sets.
+    UriTranscode {
+        op: UriTranscodeOp,
         operand: ExprId,
     },
     /// JavaScript `Object.prototype.toString.call(operand)`: the classic

@@ -2630,6 +2630,26 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 items.push(item);
                 continue;
             }
+            // `export const enc = encodeURIComponent;` — a bare reference to a
+            // JavaScript GLOBAL, aliasing it under a shorter name (Hono's
+            // `utils/url.ts` does exactly this, with the comment
+            // "`decodeURIComponent` is a long name"). This is the identifier
+            // twin of the member-access arm above: general expression lowering
+            // already produces the global's value (a builtin function value
+            // closure, a namespace, or the erased `Unknown` at a real dynamic
+            // boundary), so route it there instead of demanding a literal. The
+            // literal folder cannot help — a function is not a literal — and
+            // rejecting left the module unbuildable.
+            if let Some(identifier) = Self::bare_identifier_initializer(init)
+                && smelt_stdlib::globals::is_javascript_global_builtin(identifier)
+                && !self.scope.is_bound(identifier)
+                && !self.items.contains_key(identifier)
+                && self.literal_const_expression(init).is_err()
+            {
+                let item = self.push_expression_const_item(binding, init)?;
+                items.push(item);
+                continue;
+            }
             let value = match self.literal_const_expression(init) {
                 Ok(value) => value,
                 Err(error) if Self::is_known_non_importable_exported_const(init) => {
@@ -2737,6 +2757,32 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// handled earlier by [`Self::is_resolvable_module_reference`]; this catches
     /// the remaining statically resolvable member expressions that the
     /// well-known Number/Math folder would otherwise reject.
+    /// The name of a bare-identifier initializer, unwrapping the type-level
+    /// wrappers that never change the value (`as`, `satisfies`, `!`,
+    /// parentheses).
+    ///
+    /// Returns `None` for anything that is not just a name, so a caller can ask
+    /// "is this initializer an alias to some other binding?" without
+    /// re-implementing the unwrapping each time.
+    pub(super) fn bare_identifier_initializer<'a>(init: &'a Expression<'a>) -> Option<&'a str> {
+        match init {
+            Expression::Identifier(identifier) => Some(identifier.name.as_str()),
+            Expression::ParenthesizedExpression(parenthesized) => {
+                Self::bare_identifier_initializer(&parenthesized.expression)
+            }
+            Expression::TSAsExpression(as_expr) => {
+                Self::bare_identifier_initializer(&as_expr.expression)
+            }
+            Expression::TSSatisfiesExpression(satisfies) => {
+                Self::bare_identifier_initializer(&satisfies.expression)
+            }
+            Expression::TSNonNullExpression(non_null) => {
+                Self::bare_identifier_initializer(&non_null.expression)
+            }
+            _ => None,
+        }
+    }
+
     pub(super) fn is_member_access_initializer(init: &Expression<'_>) -> bool {
         match init {
             Expression::StaticMemberExpression(_) | Expression::ComputedMemberExpression(_) => true,

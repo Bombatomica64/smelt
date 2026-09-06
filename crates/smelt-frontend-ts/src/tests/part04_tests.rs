@@ -5008,6 +5008,63 @@ type BigIntLiterals = 1n | 2n | 3n;
 }
 
 #[test]
+fn lowers_all_four_uri_transcoding_globals_called_and_as_values() -> Result<(), String> {
+    // Only `encodeURI` was modeled. `encodeURIComponent`, `decodeURI` and
+    // `decodeURIComponent` were rejected as `unresolved identifier` whether
+    // called or passed as a value, even though all four are ECMA-262 §19.2.6
+    // and differ only in which character set they treat as structure. Hono's
+    // `utils/url.ts` needs all of the shapes below.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+type Coder = (value: string) => string;
+
+const apply = (value: string, coder: Coder): string => coder(value);
+
+export const encoded = (value: string): string => encodeURI(value);
+export const encodedComponent = (value: string): string => encodeURIComponent(value);
+export const decoded = (value: string): string => decodeURI(value);
+export const decodedComponent = (value: string): string => decodeURIComponent(value);
+
+export const viaValue = (value: string): string => apply(value, decodeURI);
+
+// A module const aliasing a global under a shorter name — the shape that
+// reported `exported const expression references unresolved const`, because
+// the exported-const path demanded a foldable LITERAL and a function is not
+// one.
+export const decodeURIComponent_ = decodeURIComponent;
+export const viaAlias = (value: string): string => apply(value, decodeURIComponent_);
+"),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    // Each variant must be distinguishable in the IR: one node with a wrong
+    // `op` would compile and produce a plausible but wrong string.
+    let ops = ctx
+        .krate
+        .bodies
+        .iter()
+        .flat_map(|body| body.exprs.iter())
+        .filter_map(|expr| match expr.kind {
+            smelt_hir::ExprKind::UriTranscode { op, .. } => Some(op),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    for expected in [
+        smelt_hir::UriTranscodeOp::Encode,
+        smelt_hir::UriTranscodeOp::EncodeComponent,
+        smelt_hir::UriTranscodeOp::Decode,
+        smelt_hir::UriTranscodeOp::DecodeComponent,
+    ] {
+        ensure!(
+            ops.contains(&expected),
+            "expected a UriTranscode node for {expected:?}, saw {ops:?}",
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn lowers_truthiness_guard_over_a_union_of_object_arms() -> Result<(), String> {
     // Only seven values are falsy in JavaScript and none of them is an object,
     // so a union whose every arm is an object has no falsy inhabitant. The
