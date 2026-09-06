@@ -1586,6 +1586,7 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 smelt_hir::AsyncOp::Resolve => "async_resolve",
                 smelt_hir::AsyncOp::Reject => "async_reject",
                 smelt_hir::AsyncOp::HttpGetText => "async_http_get_text",
+                smelt_hir::AsyncOp::HttpFetch => "async_http_fetch",
             };
             let arg_list = args.iter().map(operand_text).collect::<Vec<_>>().join(", ");
             format!("{op_text}({arg_list})")

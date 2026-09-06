@@ -1206,6 +1206,7 @@ fn async_op_text(op: AsyncOp, args: &[ExprId]) -> String {
         AsyncOp::Resolve => "async_resolve",
         AsyncOp::Reject => "async_reject",
         AsyncOp::HttpGetText => "async_http_get_text",
+        AsyncOp::HttpFetch => "async_http_fetch",
     };
     let args_text = args
         .iter()

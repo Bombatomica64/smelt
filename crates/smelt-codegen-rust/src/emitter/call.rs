@@ -528,6 +528,28 @@ impl FunctionEmitter<'_> {
                     self.operand_text(timeout)?
                 ))
             }
+            smelt_hir::AsyncOp::HttpFetch => {
+                let Some(url) = args.first() else {
+                    return Err(EmitError::new("async fetch requires a URL operand"));
+                };
+                if !matches!(
+                    self.mir.types.get(self.operand_ty(url)?),
+                    Some(Type::String)
+                ) {
+                    return Err(EmitError::new("async fetch URL must be a string"));
+                }
+                // The response is assembled from the parts the transport
+                // actually reports, so nothing is invented: the status and its
+                // canonical reason phrase, every response header in order, and
+                // the body as RAW BYTES. Bytes rather than text is deliberate —
+                // `SmeltBody::from_text` would stamp an implied
+                // `text/plain;charset=UTF-8`, and a fetched response's content
+                // type belongs to the server, not to how Smelt read it.
+                Ok(format!(
+                    "SmeltFuture::from_future(Box::pin(async move {{                      let smelt_http = reqwest::get({}).await.expect(\"HTTP request failed\");                      let smelt_status = f64::from(smelt_http.status().as_u16());                      let smelt_reason = smelt_http.status().canonical_reason().unwrap_or_default().to_owned();                      let smelt_pairs: Vec<(String, String)> = smelt_http.headers().iter().map(|(smelt_name, smelt_value)| (smelt_name.as_str().to_owned(), smelt_value.to_str().unwrap_or_default().to_owned())).collect();                      let smelt_bytes = smelt_http.bytes().await.expect(\"HTTP response body read failed\").to_vec();                      Ok::<_, Box<dyn std::error::Error>>(SmeltResponse::from_parts(smelt_status, smelt_reason, SmeltHeaders::from_pairs(smelt_pairs), SmeltBody::from_bytes(smelt_bytes))) }}))",
+                    self.operand_text(url)?
+                ))
+            }
             smelt_hir::AsyncOp::HttpGetText => {
                 let Some(url) = args.first() else {
                     return Err(EmitError::new("async HTTP GET requires a URL operand"));

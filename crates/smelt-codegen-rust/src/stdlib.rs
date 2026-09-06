@@ -141,7 +141,14 @@ pub(crate) fn needs_response_runtime(mir: &Mir) -> bool {
     any_rvalue_needs(mir, |rvalue| {
         matches!(
             rvalue,
-            Rvalue::ResponseNew { .. } | Rvalue::ResponseOp { .. }
+            Rvalue::ResponseNew { .. }
+                | Rvalue::ResponseOp { .. }
+                // `fetch` BUILDS a response, so a program that only calls it
+                // and never names the type still carries the runtime type.
+                | Rvalue::AsyncOp {
+                    op: AsyncOp::HttpFetch,
+                    ..
+                }
         )
     }) || mir
         .types
@@ -428,7 +435,7 @@ fn rvalue_needs_reqwest(rvalue: &Rvalue) -> bool {
         rvalue,
         Rvalue::HttpGetText { .. }
             | Rvalue::AsyncOp {
-                op: AsyncOp::HttpGetText,
+                op: AsyncOp::HttpGetText | AsyncOp::HttpFetch,
                 ..
             }
     )

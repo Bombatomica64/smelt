@@ -16,7 +16,7 @@ Milestone 0: `blocker-logs/express-v1-baseline.md`.
 | 4 `URLSearchParams` | landed, concrete Rust, runtime tier green |
 | 4 `Response` + `SmeltBody` | landed, concrete Rust, runtime tier green (section 3) |
 | 4 `Request` | landed, concrete Rust, runtime tier green (section 3) |
-| 4 `fetch` upgrade to return a `Response` | **not landed** — next |
+| 4 `fetch` upgrade to return a `Response` | landed, runtime tier against a real socket (section 3) |
 | 4 `TextEncoder`/`TextDecoder`, `FormData`, `ReadableStream`, `AbortController`, `crypto` | not landed |
 | 4 `Blob`/`File` upgrade (`text()`, `arrayBuffer()`, `slice`) | not landed |
 | 5 `node:http` on hyper | **not landed** — declared as a blocker; the runtime-flavor and body-model questions are now decided (section 5) |
@@ -229,6 +229,35 @@ driven. `run();` at module scope emits `smelt_spawn_promise_task(..)` and
 nothing. Node runs the microtask queue at exit. Top-level `await` is separately
 not lowered (`await expressions are only lowered inside async functions`), which
 is why the runtime tier uses generated vitest tests, whose callbacks are `async`.
+
+### `fetch` answers a `Response`
+
+`fetch(url)` lowered to `AsyncOp::HttpGetText` and typed `Promise<string>` —
+the fused "GET and give me the body text". That is not what `fetch` returns in
+any runtime, and `tsc` rejects the signature the old tests used
+(`async function load(): Promise<string> { return await fetch(url); }`).
+Collapsing it threw away the status, the reason phrase and the header list, and
+no compile step could notice, because the program had no way to ask.
+
+`AsyncOp::HttpFetch` now answers `Future<Response>`, assembled from what the
+transport actually reports: the status, its canonical reason phrase, every
+response header in order, and the body as **raw bytes**. Bytes rather than
+text is deliberate — `SmeltBody::from_text` stamps an implied
+`text/plain;charset=UTF-8`, and a fetched response's content type belongs to
+the server.
+
+`HttpGetText` stays in the op set. Python's `requests.get(url).text` really is
+the fused operation, so it keeps it, and a codegen test now pins that the
+Python path builds no `Response`.
+
+`crates/smelt-codegen-rust/tests/fetch_response_runtime.rs` proves the round
+trip against a **real HTTP server** — a `TcpListener` on port 0 speaking
+enough HTTP/1.1 to answer one request — because the parts being asserted are
+exactly the ones that come from the transport. A mocked transport would only be
+asserting Smelt's own construction, which the `Response` tier already covers.
+The generated crate fetches it and reads `status` 201, `statusText` `Created`,
+`ok`, two headers, the body once through `text()`, and a clone that reads
+independently.
 
 ## 4. M0.1's second half, now on
 
