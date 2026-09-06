@@ -1341,6 +1341,86 @@ export function run(): string {
 }
 
 #[test]
+fn keeps_a_module_scope_reassignment() {
+    // Every annotated or literal-initialized module-level binding has its
+    // declared type recorded so a function body can look it up. That record was
+    // read as "this name has no storage", so a top-level `x = e` evaluated `e`
+    // for its side effects and discarded the write: `let n: number | undefined;
+    // n = 5` still read `undefined`, with no diagnostic. Membership in that
+    // table says nothing about storage; a module-scope `let` has a local, and
+    // the write belongs to it.
+    let source = source_for(
+        r"
+let annotated: number | undefined;
+annotated = 5;
+
+let initialized: number = 1;
+initialized = 6;
+",
+    );
+
+    assert!(source.contains("annotated = Some(5.0)"), "{source}");
+    assert!(source.contains("initialized = 6.0"), "{source}");
+}
+
+#[test]
+fn types_an_iife_returned_arrow_from_the_assignment_target() {
+    // A contextual type flows through an immediately-invoked function
+    // expression's return position, so the arrow the IIFE returns takes its
+    // parameter types from the target rather than erasing to `SmeltUnknown`.
+    // The rule is one rule for all four spellings: `const f: T = (..)()`,
+    // `f = (..)()`, `f ||= (..)()` and `f ??= (..)()` reach it through the same
+    // contextual type.
+    let source = source_for(
+        r"
+type Sizer = (value: string) => number;
+
+let viaAssign: Sizer | undefined;
+viaAssign = (() => {
+  const offset = 10;
+  return (value) => value.length + offset;
+})();
+
+let viaOrAssign: Sizer | undefined;
+viaOrAssign ||= (() => {
+  const offset = 20;
+  return (value) => value.length + offset;
+})();
+
+const direct: Sizer = (() => {
+  const offset = 30;
+  return (value) => value.length + offset;
+})();
+",
+    );
+
+    assert!(!source.contains("closure_arg_0: &SmeltUnknown"), "{source}");
+    assert_eq!(
+        source.matches("closure_arg_0: String").count(),
+        3,
+        "each of the three IIFE-returned arrows takes a typed parameter: {source}"
+    );
+}
+
+#[test]
+fn an_annotated_iife_callee_keeps_its_own_return_type() {
+    // The negative half. An explicit return-type annotation on the callee wins
+    // over the contextual type, exactly as it does in TypeScript; handing an
+    // already-annotated callee a second, contextual answer only creates a way
+    // for the two to disagree.
+    let source = source_for(
+        r"
+export function run(): number {
+  const value: number = (function (): number { return 3; })();
+  return value;
+}
+",
+    );
+
+    assert!(source.contains("fn run()"), "{source}");
+}
+
+#[test]
 fn matches_object_literal_keys_to_interface_fields_by_source_spelling() {
     // A JavaScript property key is case-sensitive and never case-folded; an
     // interface FIELD has two spellings, the source name and the Rust-safe

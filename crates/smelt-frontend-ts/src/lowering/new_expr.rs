@@ -2444,7 +2444,7 @@ impl ModuleBuilder<'_> {
                 self.computed_member(member, body)
             }
             Expression::CallExpression(call) => {
-                let value = self.call_expression(call, body)?;
+                let value = self.call_expression_with_hint(call, body, type_hint)?;
                 // A bare `Array(n)` allocation takes the contextual list type
                 // when it has one, exactly as the `new Array(n)` spelling does
                 // below; the two forms must stay in lockstep.

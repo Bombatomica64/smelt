@@ -104,6 +104,29 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Lower call expressions, including stdlib shims and direct function/method invokes.
+    /// Lower a call expression whose result has a contextual type.
+    ///
+    /// Only the immediately-invoked function form consumes that context today
+    /// (see [`Self::immediately_invoked_function_call_with_hint`]); every other
+    /// callee shape is dispatched by [`Self::call_expression`] unchanged. An
+    /// IIFE callee is an inline function or arrow expression, which none of the
+    /// identifier- and member-callee dispatchers in `call_expression` can match,
+    /// so trying it first changes no other decision.
+    pub(in crate::lowering) fn call_expression_with_hint(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if type_hint.is_some()
+            && let Some(expr) =
+                self.immediately_invoked_function_call_with_hint(call, body, type_hint)?
+        {
+            return Ok(expr);
+        }
+        self.call_expression(call, body)
+    }
+
     pub(in crate::lowering) fn call_expression(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -1136,19 +1159,128 @@ impl<'builder> ModuleBuilder<'builder> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        self.immediately_invoked_function_call_with_hint(call, body, None)
+    }
+
+    /// Lower an immediately-invoked function expression, carrying the call's
+    /// contextual type into the callee's RETURN position.
+    ///
+    /// `const f: (value: string) => number = (() => { .. return (value) => .. })()`
+    /// gives the inner arrow its parameter types in TypeScript, because the
+    /// contextual type of the call flows to the IIFE's return expression. Smelt
+    /// lowered the callee with no hint at all, so the inner arrow's parameters
+    /// erased to `SmeltUnknown` and the value it built was reported as erased --
+    /// for a shape whose type is fully known. The rule is general: it holds for
+    /// `const f: T = (..)()`, for `f = (..)()`, and for `f ||= (..)()` /
+    /// `f ??= (..)()` alike, because all four reach here through the same
+    /// contextual type.
+    ///
+    /// Only the RETURN channel is derivable from a call's context. A call gives
+    /// its callee no contextual PARAMETER types -- TypeScript does not either --
+    /// so the synthesized hint carries an empty parameter list and the callee's
+    /// own annotations and inference supply them (`contextual_param_type_at` is
+    /// index-based, so an empty list is a clean no-op at any arity).
+    pub(in crate::lowering) fn immediately_invoked_function_call_with_hint(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        // An explicit return-type annotation on the callee wins over the
+        // contextual type, exactly as it does in TypeScript. `(function* ():
+        // Generator<number, T, unknown> { .. })()` already says what it returns;
+        // handing it a second, contextual answer only creates a way for the two
+        // to disagree.
+        // `None` means "not an immediately-invoked function expression at all",
+        // which is also the cheap early exit: every other callee shape leaves
+        // before anything is interned.
+        // `None` means "not an immediately-invoked function expression at all",
+        // which is also the cheap early exit: every other callee shape leaves
+        // before anything is interned. `true` means the callee already answers
+        // the question the hint would answer, so the hint is dropped.
+        //
+        // Two ways it already answers it. An explicit RETURN-TYPE ANNOTATION
+        // wins over the contextual type, exactly as in TypeScript; handing an
+        // annotated callee a second answer only creates a way for the two to
+        // disagree (`(function* (): Generator<number, T, unknown> { .. })()`).
+        // And a callee WITH PARAMETERS has a parameter list of its own: the hint
+        // synthesized here can only describe a nullary function, because a call
+        // gives its callee no contextual parameter types, so applying it to a
+        // parameterized callee replaces a real signature with an empty one --
+        // es-toolkit's `(function (..._: unknown[]) { return arguments })(...array)`
+        // kept its rest parameter in the emitted closure while the call site lost
+        // the argument (E0057). A nullary callee is the shape the hint fits
+        // exactly, and it is the shape contextual typing is for.
+        let skip_hint = match &call.callee {
+            Expression::FunctionExpression(function) => Some(
+                function.return_type.is_some()
+                    || !function.params.items.is_empty()
+                    || function.params.rest.is_some(),
+            ),
+            Expression::ArrowFunctionExpression(arrow) => Some(
+                arrow.return_type.is_some()
+                    || !arrow.params.items.is_empty()
+                    || arrow.params.rest.is_some(),
+            ),
+            Expression::ParenthesizedExpression(paren) => match &paren.expression {
+                Expression::FunctionExpression(function) => Some(
+                    function.return_type.is_some()
+                        || !function.params.items.is_empty()
+                        || function.params.rest.is_some(),
+                ),
+                Expression::ArrowFunctionExpression(arrow) => Some(
+                    arrow.return_type.is_some()
+                        || !arrow.params.items.is_empty()
+                        || arrow.params.rest.is_some(),
+                ),
+                _ => None,
+            },
+            _ => None,
+        };
+        let Some(skip_hint) = skip_hint else {
+            return Ok(None);
+        };
+        let type_hint = if skip_hint { None } else { type_hint };
+        // The target's OPTIONALITY does not belong to the callee's return
+        // channel: `let x: T | undefined; x = (() => .. return v ..)()` produces
+        // a `T` and the assignment wraps it. Hinting `T | undefined` instead
+        // makes the callee's emitted tail `Some(<concrete closure>)`, whose
+        // inferred Rust type is `Option<Rc<{closure}>>` rather than the declared
+        // `Option<Rc<dyn Fn..>>` (E0308) -- and it is a less precise contextual
+        // type besides. The arrow's own `return` statements still decide its
+        // real return type, so a callee that really can answer nothing still
+        // infers the optional.
+        let type_hint = type_hint.map(|hint| match self.ctx.krate.types.get(hint) {
+            Some(Type::Optional(inner)) => *inner,
+            _ => hint,
+        });
+        let callee_hint = type_hint.map(|return_ty| {
+            self.ctx
+                .krate
+                .types
+                .intern(Type::Function(smelt_hir::FunctionType {
+                    params: Vec::new(),
+                    rest: None,
+                    required_params: None,
+                    mutable_params: Vec::new(),
+                    return_ty,
+                    is_async: false,
+                    may_throw: false,
+                }))
+        });
         let callee = match &call.callee {
             Expression::FunctionExpression(function) => {
-                self.function_expression_value(function, None, function.span, body)?
+                self.function_expression_value(function, callee_hint, function.span, body)?
             }
             Expression::ArrowFunctionExpression(arrow) => {
-                self.arrow_function_expression(arrow, body)?
+                self.arrow_function_expression_with_hint(arrow, body, callee_hint)?
             }
             Expression::ParenthesizedExpression(paren) => match &paren.expression {
                 Expression::FunctionExpression(function) => {
-                    self.function_expression_value(function, None, function.span, body)?
+                    self.function_expression_value(function, callee_hint, function.span, body)?
                 }
                 Expression::ArrowFunctionExpression(arrow) => {
-                    self.arrow_function_expression(arrow, body)?
+                    self.arrow_function_expression_with_hint(arrow, body, callee_hint)?
                 }
                 _ => return Ok(None),
             },

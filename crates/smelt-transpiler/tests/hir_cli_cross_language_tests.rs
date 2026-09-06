@@ -329,6 +329,7 @@ fn end_to_end_examples_match_expected_outputs() -> TestResult {
         "33_console_optional_value",
         "34_optional_field_interface_literal",
         "35_interface_literal_key_spellings",
+        "36_module_scope_reassignment",
     ] {
         verify_end_to_end_example(name)?;
     }
