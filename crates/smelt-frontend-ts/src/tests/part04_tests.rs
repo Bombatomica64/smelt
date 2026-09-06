@@ -9538,9 +9538,9 @@ export const listen = (): void => {
 fn present_global_call_does_not_throw() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
+        ts!(r"
 export const now = (): number => Date.now();
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
