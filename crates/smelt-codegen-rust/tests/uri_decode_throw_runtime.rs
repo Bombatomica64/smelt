@@ -13,11 +13,16 @@
 //! a live one — both type-check — so the assertion is that a malformed input
 //! returns the fallback *value*.
 //!
-//! **Known gap, deliberately not covered here:** a decoder reached through a
-//! callback VALUE (`tryDecode(str, decodeURIComponent)`, Hono's real shape)
-//! still aborts. Marking the closure `may_throw` makes the value incompatible
-//! with its declared parameter type and breaks compilation instead; see
-//! `blocker-logs/hono-fallible-ops.md` §8.
+//! A decoder reached through a callback VALUE (`tryDecode(str, decodeURI)`,
+//! Hono's real shape) takes a second route: the argument closure's own type says
+//! `may_throw: false`, so it reports the throw by panicking and the enclosing
+//! `try` catches it with `catch_unwind`. That route used to panic with
+//! `format!("{}", error)`, losing the error's class, so a `catch` binding
+//! observed a bare `Error` where JavaScript gives a `URIError`. It now carries a
+//! `Send` class-plus-message payload (`thrown::emit_panic_route_support`), which
+//! is what `the_callback_value_route_keeps_the_uri_error_identity` pins --
+//! alongside the direct route's assertion, because the two routes recover the
+//! payload through different code. See `blocker-logs/hono-fallible-ops.md` §9.
 //!
 //! The tier is `#[ignore]`d because it compiles and executes real crates:
 //!
@@ -194,4 +199,71 @@ test('encoding runs with no handler in sight', () => {
 });
 ";
     run_fixture(source, "uri_encode_infallible");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn the_callback_value_route_keeps_the_uri_error_identity() {
+    // Hono's `tryDecode` shape. The decoder arrives as a callback VALUE, so the
+    // adapter closure Smelt builds for it is typed `(value: string) => string`
+    // -- `may_throw: false` -- and cannot propagate a `Result`. It therefore
+    // panics, and `tryDecode`'s own `try` catches the panic. The class has to
+    // survive that unwind: `panic_any` needs `Send` and a `SmeltUnknown` holds
+    // `Rc`, so the payload is the class brand plus the message rather than the
+    // thrown value itself.
+    let source = r"
+import { test, expect } from 'vitest';
+
+const tryDecode = (value: string, decoder: (value: string) => string): string => {
+  try {
+    return decoder(value);
+  } catch (error) {
+    return (error as Error).name;
+  }
+};
+
+const viaValue = (value: string): string => tryDecode(value, decodeURIComponent);
+const viaValueUri = (value: string): string => tryDecode(value, decodeURI);
+
+test('the callback-value route reports the URIError class', () => {
+  expect(viaValue('%E0%A4%A')).toBe('URIError');
+});
+test('decodeURI through the same parameter reports it too', () => {
+  expect(viaValueUri('%')).toBe('URIError');
+});
+test('a well-formed input still decodes through the callback', () => {
+  expect(viaValue('a%20b')).toBe('a b');
+});
+";
+    run_fixture(source, "uri_decode_callback_identity");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn the_panic_route_keeps_a_user_error_class_identity() {
+    // The fix is general, not per-builtin: any throw routed through a panic
+    // keeps its class. A user error class reports through its `name` property,
+    // which is what JavaScript reports for `error.name` on a subclass of
+    // `Error`, so the projection reads that when no `__smelt_error` brand is
+    // present.
+    let source = r"
+import { test, expect } from 'vitest';
+
+const apply = (value: string, callback: (value: string) => string): string => {
+  try {
+    return callback(value);
+  } catch (error) {
+    return (error as Error).name + '/' + (error as Error).message;
+  }
+};
+
+const throwTypeError = (value: string): string => {
+  throw new TypeError('bad ' + value);
+};
+
+test('a TypeError thrown through a non-throwing callback keeps its class', () => {
+  expect(apply('x', throwTypeError)).toBe('TypeError/bad x');
+});
+";
+    run_fixture(source, "panic_route_user_class_identity");
 }

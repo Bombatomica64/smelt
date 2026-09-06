@@ -275,7 +275,7 @@ impl FunctionEmitter<'_> {
                 )?;
                 let call = if source_closure.can_throw {
                     format!(
-                        "(smelt_callback)({args}).unwrap_or_else(|error| panic!(\"{{}}\", error))"
+                        "(smelt_callback)({args}).unwrap_or_else(|error| smelt_panic_throw(error))"
                     )
                 } else {
                     format!("(smelt_callback)({args})")
@@ -718,7 +718,7 @@ impl FunctionEmitter<'_> {
                     )
                 } else {
                     let completion = if closure.can_throw {
-                        "value.unwrap_or_else(|error| panic!(\"{}\", error))"
+                        "value.unwrap_or_else(|error| smelt_panic_throw(error))"
                     } else {
                         "value"
                     };

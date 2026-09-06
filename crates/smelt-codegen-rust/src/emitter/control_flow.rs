@@ -1221,7 +1221,10 @@ impl FunctionEmitter<'_> {
             self.emit_continuation(target, continuation, out)?;
             out.push_str("        }\n");
             out.push_str("        Err(__smelt_panic) => {\n");
-            out.push_str("            let __smelt_error = if let Some(message) = __smelt_panic.downcast_ref::<String>() { message.clone() } else if let Some(message) = __smelt_panic.downcast_ref::<&'static str>() { (*message).to_owned() } else { \"JavaScript exception\".to_owned() };\n");
+            out.push_str(&format!(
+                "            let __smelt_error = {};\n",
+                crate::thrown::caught_panic_message_expr("__smelt_panic")
+            ));
             if let Some(exception_local) = handler.exception_local {
                 let exception_name = self.local_name(exception_local)?;
                 let exception_decl = self.local_decl(exception_local)?;
@@ -1231,8 +1234,12 @@ impl FunctionEmitter<'_> {
                     // shared exception-payload record (see
                     // `thrown::panic_payload_record_expr` for why this is a real
                     // dynamic boundary rather than avoidable erasure).
+                    // The class comes from the panic payload, not a hard-coded
+                    // `Error`: a `URIError` routed through the panic channel
+                    // must still answer `error.name === 'URIError'`. See
+                    // `thrown::emit_panic_route_support`.
                     Some(Type::Unknown) => {
-                        crate::thrown::panic_payload_record_expr("__smelt_error")
+                        crate::thrown::caught_panic_error_value_expr("__smelt_panic")
                     }
                     _ => self.default_value(exception_decl.ty)?,
                 };
@@ -1294,7 +1301,10 @@ impl FunctionEmitter<'_> {
         self.emit_continuation(handler.catch_block, continuation, out)?;
         out.push_str("        }\n");
         out.push_str("        Err(__smelt_panic) => {\n");
-        out.push_str("            let __smelt_error = if let Some(message) = __smelt_panic.downcast_ref::<String>() { message.clone() } else if let Some(message) = __smelt_panic.downcast_ref::<&'static str>() { (*message).to_owned() } else { \"JavaScript exception\".to_owned() };\n");
+        out.push_str(&format!(
+                "            let __smelt_error = {};\n",
+                crate::thrown::caught_panic_message_expr("__smelt_panic")
+            ));
         if let Some(exception_local) = handler.exception_local {
             let exception_name = self.local_name(exception_local)?;
             let exception_decl = self.local_decl(exception_local)?;
@@ -1302,8 +1312,10 @@ impl FunctionEmitter<'_> {
                 Some(Type::String) => "__smelt_error".to_owned(),
                 // Same exception-payload record as the sibling call terminator;
                 // see `thrown::panic_payload_record_expr`.
+                // Same class-preserving recovery as the sibling call
+                // terminator; see `thrown::emit_panic_route_support`.
                 Some(Type::Unknown) => {
-                    crate::thrown::panic_payload_record_expr("__smelt_error")
+                    crate::thrown::caught_panic_error_value_expr("__smelt_panic")
                 }
                 _ => self.default_value(exception_decl.ty)?,
             };

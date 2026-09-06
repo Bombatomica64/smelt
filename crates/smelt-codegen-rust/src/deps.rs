@@ -65,6 +65,13 @@ pub(crate) fn cargo_toml(
     // ROOT and its `[profile.release]` is the one Cargo honours. See
     // `crate::ReleaseProfile` for why the stock profile leaves throughput on the
     // table for generated code specifically.
+    //
+    // NO `panic` STRATEGY MAY BE SET HERE. A generated body whose own type says
+    // `may_throw: false` reports a `throw` by panicking, and an enclosing `try`
+    // catches it with `std::panic::catch_unwind` (see
+    // `thrown::emit_panic_route_support`). `panic = "abort"` would turn every
+    // such catchable JavaScript exception into a process abort. This is pinned
+    // by `no_profile_sets_panic_abort_while_the_panic_route_exists`.
     let profile = match release_profile {
         crate::ReleaseProfile::Optimized => {
             "\n[profile.release]\nlto = \"thin\"\ncodegen-units = 1\n"

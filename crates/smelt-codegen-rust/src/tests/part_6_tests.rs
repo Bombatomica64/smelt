@@ -1471,6 +1471,31 @@ fn generator_in_erased_slot_erases_through_into_smelt_unknown() {
 }
 
 #[test]
+fn no_profile_sets_panic_abort_while_the_panic_route_exists() {
+    // A `throw` from a body that cannot propagate a `Result` travels as a Rust
+    // panic and is caught by the enclosing `try`'s `catch_unwind` (see
+    // `thrown::emit_panic_route_support`). `panic = "abort"` in the emitted
+    // manifest would silently convert every such catchable JavaScript exception
+    // into a process abort, so the manifest must never carry it -- in any
+    // profile, under any allocator or release-profile combination.
+    for allocator in [GeneratedAllocator::System, GeneratedAllocator::Mimalloc] {
+        for release_profile in [ReleaseProfile::Default, ReleaseProfile::Optimized] {
+            let manifest = deps::cargo_toml(
+                &EmitOptions::default().crate_name,
+                &[GeneratedDep::Tokio, GeneratedDep::Genawaiter],
+                allocator,
+                release_profile,
+            );
+
+            assert!(
+                !manifest.contains("panic"),
+                "emitted manifest must not mention a panic strategy:\n{manifest}"
+            );
+        }
+    }
+}
+
+#[test]
 fn injects_serde_json_dependency_for_json_mapping() {
     let manifest = deps::cargo_toml(
         &EmitOptions::default().crate_name,

@@ -1,0 +1,140 @@
+interface Shape
+interface Wrapper
+
+fn text_of (FuncId(0)) -> String
+  locals
+    %0 param value: Optional<String>
+    %1 temp: Bool
+    %2 temp: String
+    %3 temp: String
+  bb0:
+    %1 = copy %0 == undefined
+    switch move %1 ? bb1 : bb2
+  bb1:
+    %2 = "undefined"
+    goto bb3
+  bb2:
+    %3 = copy %0
+    %2 = move %3
+    goto bb3
+  bb3:
+    return move %2
+
+fn number_of (FuncId(1)) -> String
+  locals
+    %0 param value: Optional<Float>
+    %1 temp: Bool
+    %2 temp: String
+    %3 temp: Float
+    %4 temp: Float
+    %5 temp: String
+  bb0:
+    %1 = copy %0 == undefined
+    switch move %1 ? bb1 : bb2
+  bb1:
+    %2 = "undefined"
+    goto bb3
+  bb2:
+    %3 = copy %0
+    %4 = move %3 + 1.0
+    %5 = "" + move %4
+    %2 = move %5
+    goto bb3
+  bb3:
+    return move %2
+
+fn main (FuncId(2)) -> None
+  locals
+    %0 user full: Shape
+    %1 user partial: Shape
+    %2 user nested: Wrapper
+    %3 user inner: Optional<Shape>
+    %4 temp: Shape
+    %5 temp: Shape
+    %6 temp: Shape
+    %7 temp: Wrapper
+    %8 temp: String
+    %9 temp: None
+    %10 temp: String
+    %11 temp: None
+    %12 temp: String
+    %13 temp: None
+    %14 temp: String
+    %15 temp: None
+    %16 temp: String
+    %17 temp: None
+    %18 temp: String
+    %19 temp: None
+    %20 temp: Bool
+    %21 temp: String
+    %22 temp: Optional<String>
+    %23 temp: String
+    %24 temp: None
+    %25 temp: Bool
+    %26 temp: String
+    %27 temp: Optional<Float>
+    %28 temp: String
+    %29 temp: None
+  bb0:
+    %4 = {"plain": 1.0, "camelCase": "a", "snake_case": "b", "aVeryLongCamelName": 41.0}
+    %0 = move %4
+    %5 = {"camelCase": "only"}
+    %1 = move %5
+    %6 = {"camelCase": "deep", "plain": 2.0}
+    %7 = {"innerShape": move %6}
+    %2 = move %7
+    %8 = call fn1(copy %0.field6) -> bb1
+  bb1:
+    %9 = call @console_log(move %8) -> bb2
+  bb2:
+    %10 = call fn0(copy %0.field7) -> bb3
+  bb3:
+    %11 = call @console_log(move %10) -> bb4
+  bb4:
+    %12 = call fn0(copy %0.field8) -> bb5
+  bb5:
+    %13 = call @console_log(move %12) -> bb6
+  bb6:
+    %14 = call fn1(copy %0.field9) -> bb7
+  bb7:
+    %15 = call @console_log(move %14) -> bb8
+  bb8:
+    %16 = call fn0(copy %1.field7) -> bb9
+  bb9:
+    %17 = call @console_log(move %16) -> bb10
+  bb10:
+    %18 = call fn0(copy %1.field8) -> bb11
+  bb11:
+    %19 = call @console_log(move %18) -> bb12
+  bb12:
+    %3 = copy %2.field2
+    %20 = copy %3 == undefined
+    switch move %20 ? bb13 : bb14
+  bb13:
+    %21 = "no inner"
+    goto bb16
+  bb14:
+    %22 = copy %3?.field7
+    %23 = call fn0(move %22) -> bb15
+  bb15:
+    %21 = move %23
+    goto bb16
+  bb16:
+    %24 = call @console_log(move %21) -> bb17
+  bb17:
+    %25 = copy %3 == undefined
+    switch move %25 ? bb18 : bb19
+  bb18:
+    %26 = "no inner"
+    goto bb21
+  bb19:
+    %27 = move %3?.field6
+    %28 = call fn1(move %27) -> bb20
+  bb20:
+    %26 = move %28
+    goto bb21
+  bb21:
+    %29 = call @console_log(move %26) -> bb22
+  bb22:
+    return none
+

@@ -1254,7 +1254,7 @@ const locale: Locale = { formatDistance: localizeDistance };
     );
 
     assert!(
-        source.contains("unwrap_or_else(|error| panic!(\"{}\", error))"),
+        source.contains("unwrap_or_else(|error| smelt_panic_throw(error))"),
         "{source}"
     );
     assert!(
@@ -1338,6 +1338,210 @@ export function run(): string {
         !source.contains("format(::std::collections::HashMap::from"),
         "{source}"
     );
+}
+
+#[test]
+fn lowers_a_computed_method_call_over_known_members() {
+    // `receiver[key]()` on a receiver whose member set is known is a choice
+    // among known methods and lowers as one. Before this, the computed read
+    // answered `unknown`, an `unknown` callee became `undefined`, and the whole
+    // body collapsed to a default value with no diagnostic.
+    let source = source_for(
+        r"
+class Body {
+  json(): string {
+    return 'json-body';
+  }
+  text(): string {
+    return 'text-body';
+  }
+}
+
+export function read(body: Body, key: 'json' | 'text'): string {
+  return body[key]();
+}
+",
+    );
+
+    assert!(source.contains("body.json()"), "{source}");
+    assert!(source.contains("body.text()"), "{source}");
+    assert!(source.contains("\"json\".to_owned()"), "{source}");
+    // The defect: the body must not be a default value.
+    assert!(
+        !source.contains("fn read(body: Body, key: String) -> String {\n    return String::new();"),
+        "{source}"
+    );
+}
+
+#[test]
+fn leaves_a_computed_method_call_with_arguments_alone() {
+    // The negative half. Arguments are lowered once and would be referenced
+    // from every arm of the chain, so the desugar declines a call that has
+    // any -- binding them to temporaries first is a separate change, and
+    // silently evaluating an argument once per arm would be worse than the
+    // existing lowering.
+    let source = source_for(
+        r"
+class Body {
+  json(prefix: string): string {
+    return prefix + 'json';
+  }
+  text(prefix: string): string {
+    return prefix + 'text';
+  }
+}
+
+export function read(body: Body, key: 'json' | 'text'): string {
+  return body[key]('p');
+}
+",
+    );
+
+    assert!(!source.contains("body.json("), "{source}");
+}
+
+#[test]
+fn keeps_a_module_scope_reassignment() {
+    // Every annotated or literal-initialized module-level binding has its
+    // declared type recorded so a function body can look it up. That record was
+    // read as "this name has no storage", so a top-level `x = e` evaluated `e`
+    // for its side effects and discarded the write: `let n: number | undefined;
+    // n = 5` still read `undefined`, with no diagnostic. Membership in that
+    // table says nothing about storage; a module-scope `let` has a local, and
+    // the write belongs to it.
+    let source = source_for(
+        r"
+let annotated: number | undefined;
+annotated = 5;
+
+let initialized: number = 1;
+initialized = 6;
+",
+    );
+
+    assert!(source.contains("annotated = Some(5.0)"), "{source}");
+    assert!(source.contains("initialized = 6.0"), "{source}");
+}
+
+#[test]
+fn types_an_iife_returned_arrow_from_the_assignment_target() {
+    // A contextual type flows through an immediately-invoked function
+    // expression's return position, so the arrow the IIFE returns takes its
+    // parameter types from the target rather than erasing to `SmeltUnknown`.
+    // The rule is one rule for all four spellings: `const f: T = (..)()`,
+    // `f = (..)()`, `f ||= (..)()` and `f ??= (..)()` reach it through the same
+    // contextual type.
+    let source = source_for(
+        r"
+type Sizer = (value: string) => number;
+
+let viaAssign: Sizer | undefined;
+viaAssign = (() => {
+  const offset = 10;
+  return (value) => value.length + offset;
+})();
+
+let viaOrAssign: Sizer | undefined;
+viaOrAssign ||= (() => {
+  const offset = 20;
+  return (value) => value.length + offset;
+})();
+
+const direct: Sizer = (() => {
+  const offset = 30;
+  return (value) => value.length + offset;
+})();
+",
+    );
+
+    assert!(!source.contains("closure_arg_0: &SmeltUnknown"), "{source}");
+    assert_eq!(
+        source.matches("closure_arg_0: String").count(),
+        3,
+        "each of the three IIFE-returned arrows takes a typed parameter: {source}"
+    );
+}
+
+#[test]
+fn an_annotated_iife_callee_keeps_its_own_return_type() {
+    // The negative half. An explicit return-type annotation on the callee wins
+    // over the contextual type, exactly as it does in TypeScript; handing an
+    // already-annotated callee a second, contextual answer only creates a way
+    // for the two to disagree.
+    let source = source_for(
+        r"
+export function run(): number {
+  const value: number = (function (): number { return 3; })();
+  return value;
+}
+",
+    );
+
+    assert!(source.contains("fn run()"), "{source}");
+}
+
+#[test]
+fn matches_object_literal_keys_to_interface_fields_by_source_spelling() {
+    // A JavaScript property key is case-sensitive and never case-folded; an
+    // interface FIELD has two spellings, the source name and the Rust-safe
+    // rendering the struct field carries. Matching the literal's keys against
+    // the RENDERED spelling silently dropped every field whose source name is
+    // not already a valid Rust name: the field looked absent, took the optional
+    // default, and the program printed `undefined` where Node prints the value.
+    let source = source_for(
+        r#"
+interface Shape {
+  plain?: number;
+  camelCase?: string;
+  snake_case?: string;
+}
+
+export function build(): Shape {
+  return { plain: 1, camelCase: "a", snake_case: "b" };
+}
+"#,
+    );
+
+    assert!(
+        source.contains(
+            "Shape { plain: Some(1.0), camel_case: Some(\"a\".to_owned()), snake_case: Some(\"b\".to_owned()) }"
+        ),
+        "{source}"
+    );
+    // The specific defect: a camelCase key must not fall through to the
+    // optional default.
+    assert!(!source.contains("camel_case: None"), "{source}");
+}
+
+#[test]
+fn builds_a_nested_optional_interface_literal_as_a_struct() {
+    // The nested literal receives the field's type as its own hint, so both
+    // levels are built directly. Without it the inner literal lowered as a
+    // `Dict`, which made the OUTER literal unbuildable as a struct too, and
+    // both ends went through the erased `SmeltRecord` reconstruction.
+    let source = source_for(
+        r#"
+interface Inner {
+  camelCase?: string;
+  count?: number;
+}
+
+interface Outer {
+  innerShape?: Inner;
+}
+
+export function build(): Outer {
+  return { innerShape: { camelCase: "deep", count: 2 } };
+}
+"#,
+    );
+
+    assert!(
+        source.contains("Inner { camel_case: Some(\"deep\".to_owned()), count: Some(2.0) }"),
+        "{source}"
+    );
+    assert!(source.contains("Outer { inner_shape: Some("), "{source}");
+    assert!(!source.contains("smelt_record_map"), "{source}");
 }
 
 #[test]
@@ -1622,7 +1826,7 @@ function run(values: string[]): string[] {
     assert!(
         source.contains(".map(|(index, item)| { ((smelt_callback)(")
             && source.contains(
-                ")).unwrap_or_else(|error: Box<dyn std::error::Error>| panic!(\"{}\", error))"
+                ")).unwrap_or_else(|error: Box<dyn std::error::Error>| smelt_panic_throw(error))"
             ),
         "{source}"
     );
@@ -4118,7 +4322,7 @@ const firstValue = first.value;
     assert!(source.contains("self_owned.value"), "{source}");
     assert!(source.contains("value.__smelt_symbol_iterator()"), "{source}");
     assert!(
-        source.contains("value.unwrap_or_else(|error| panic!(\"{}\", error))"),
+        source.contains("value.unwrap_or_else(|error| smelt_panic_throw(error))"),
         "{source}"
     );
     assert!(
@@ -10928,7 +11132,7 @@ console.log(attempt(5));
 /// `unwind: _` — throwing the exception handler away. The call then went through
 /// `closure_call_text_for_dest`, whose single difference from the function-level
 /// path is that it rewrites a trailing `?` into
-/// `unwrap_or_else(|error| panic!(..))`. So a nested function whose body wrapped
+/// `unwrap_or_else(|error| smelt_panic_throw(error))`. So a nested function whose body wrapped
 /// a throwing call in `try`/`catch` did not run its `catch` at all: it aborted
 /// the process on the first throw.
 ///
@@ -10972,7 +11176,7 @@ console.log(outer(5));
         "the `catch` handler must be emitted inside the closure body:\n{body}"
     );
     assert!(
-        !body.contains("unwrap_or_else(|error| panic!"),
+        !body.contains("unwrap_or_else(|error| smelt_panic_throw"),
         "a caught throwing call must not be emitted as a panicking unwrap, which \
          is the handler being discarded:\n{body}"
     );
@@ -11056,7 +11260,7 @@ export function guard(cb: (x: number) => string, v: number): string {
 /// Adapting a throwing function into a callback slot wraps it in a closure whose
 /// Rust signature is `-> Result<T, Box<dyn std::error::Error>>`. The call inside
 /// that body was still rewritten from `?` to
-/// `unwrap_or_else(|error| panic!(..))`, which turned a recoverable JavaScript
+/// `unwrap_or_else(|error| smelt_panic_throw(error))`, which turned a recoverable JavaScript
 /// exception into an abort even though the enclosing signature could carry it.
 /// The `panic!` belongs only where the surrounding Rust signature genuinely
 /// cannot carry an error.

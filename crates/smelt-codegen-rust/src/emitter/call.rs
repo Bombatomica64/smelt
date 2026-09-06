@@ -1214,7 +1214,7 @@ impl FunctionEmitter<'_> {
         // absent handler (the resolved value still evaluates).
         if self.mir.types.get(self.operand_ty(callback)?) == Some(&Type::Unknown) {
             return Ok(format!(
-                "{{ let smelt_callable = match ({callback_text}).clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; match smelt_callable {{ Some(smelt_function) => (smelt_function)(vec![IntoSmeltUnknown::into_smelt_unknown({arg_expr})]).unwrap_or_else(|error| panic!(\"{{}}\", error)), None => {{ let _ = {arg_expr}; SmeltUnknown::Undefined }} }} }}"
+                "{{ let smelt_callable = match ({callback_text}).clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; match smelt_callable {{ Some(smelt_function) => (smelt_function)(vec![IntoSmeltUnknown::into_smelt_unknown({arg_expr})]).unwrap_or_else(|error| smelt_panic_throw(error)), None => {{ let _ = {arg_expr}; SmeltUnknown::Undefined }} }} }}"
             ));
         }
         if let Some(Type::Function(function)) = self.mir.types.get(self.operand_ty(callback)?) {
@@ -1707,7 +1707,7 @@ impl FunctionEmitter<'_> {
         let raw_call = if function.may_throw {
             if unwrap_errors {
                 format!(
-                    "(smelt_function)({rendered_args}).unwrap_or_else(|error| panic!(\"{{}}\", error))"
+                    "(smelt_function)({rendered_args}).unwrap_or_else(|error| smelt_panic_throw(error))"
                 )
             } else {
                 format!("(smelt_function)({rendered_args})?")
@@ -2470,7 +2470,7 @@ impl FunctionEmitter<'_> {
         if let Some(stripped) = call_text.strip_suffix('?')
             && !self.body_can_propagate_error()
         {
-            call_text = format!("{stripped}.unwrap_or_else(|error| panic!(\"{{}}\", error))");
+            call_text = format!("{stripped}.unwrap_or_else(|error| smelt_panic_throw(error))");
         }
         call_text = self.wrap_native_async_call_text(callee, call_text)?;
         // The emitted return, not the declared one. A monomorphized generic

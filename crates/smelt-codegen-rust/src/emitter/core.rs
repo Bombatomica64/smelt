@@ -252,7 +252,7 @@ impl<'mir> FunctionEmitter<'mir> {
             } else {
                 out.push_str("    let mut smelt_generator = smelt_generator;\n");
                 let completion = if self.function.can_throw {
-                "value.unwrap_or_else(|error| panic!(\"{}\", error))"
+                "value.unwrap_or_else(|error| smelt_panic_throw(error))"
                 } else {
                     "value"
                 };
@@ -1926,7 +1926,7 @@ impl<'mir> FunctionEmitter<'mir> {
             } else {
                 out.push_str("    let mut smelt_generator = smelt_generator;\n");
                 let completion = if self.function.can_throw {
-                    "value.unwrap_or_else(|error| panic!(\"{}\", error))"
+                    "value.unwrap_or_else(|error| smelt_panic_throw(error))"
                 } else {
                     "value"
                 };
@@ -2602,7 +2602,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Some(Type::Future(_))
         );
         let call_value = if source.may_throw && !source_returns_future {
-            format!("{call}.unwrap_or_else(|error| panic!(\"{{}}\", error))")
+            format!("{call}.unwrap_or_else(|error| smelt_panic_throw(error))")
         } else {
             call
         };
@@ -3038,7 +3038,7 @@ impl<'mir> FunctionEmitter<'mir> {
         let call_value = if source_function.may_throw && target_function.may_throw {
             format!("{call}?")
         } else if source_function.may_throw {
-            format!("{call}.unwrap_or_else(|error| panic!(\"{{}}\", error))")
+            format!("{call}.unwrap_or_else(|error| smelt_panic_throw(error))")
         } else {
             call
         };
@@ -3255,7 +3255,7 @@ impl<'mir> FunctionEmitter<'mir> {
         } else if source.may_throw && !source_returns_future && target_function.may_throw {
             format!("{call}?")
         } else if source.may_throw && !source_returns_future {
-            format!("{call}.unwrap_or_else(|error| panic!(\"{{}}\", error))")
+            format!("{call}.unwrap_or_else(|error| smelt_panic_throw(error))")
         } else {
             call
         };
@@ -3860,7 +3860,7 @@ impl<'mir> FunctionEmitter<'mir> {
         } else if source.may_throw && !source_returns_future && target_function.may_throw {
             format!("{call_text}?")
         } else if source.may_throw && !source_returns_future {
-            format!("{call_text}.unwrap_or_else(|error| panic!(\"{{}}\", error))")
+            format!("{call_text}.unwrap_or_else(|error| smelt_panic_throw(error))")
         } else {
             call_text
         };
@@ -5026,8 +5026,12 @@ impl<'mir> FunctionEmitter<'mir> {
             .map_or(Ok("SmeltUnknown::Null"), Ok)
     }
 
-    /// Gets the string name of a symbol.
-    /// Gets the string name of a symbol.
+    /// Gets the Rust-facing rendering of a symbol.
+    ///
+    /// A source name that is not a valid Rust spelling is case-folded when it is
+    /// interned (`camelCase` -> `camel_case`), so this is the *generated* name,
+    /// not the one the source wrote. Use [`Self::symbol_source_name`] whenever
+    /// the answer is compared against a JavaScript key.
     pub(super) fn symbol_name(&self, symbol: Symbol) -> Result<&str, EmitError> {
         self.mir
             .symbols

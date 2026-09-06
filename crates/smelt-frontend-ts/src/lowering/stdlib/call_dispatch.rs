@@ -104,6 +104,29 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Lower call expressions, including stdlib shims and direct function/method invokes.
+    /// Lower a call expression whose result has a contextual type.
+    ///
+    /// Only the immediately-invoked function form consumes that context today
+    /// (see [`Self::immediately_invoked_function_call_with_hint`]); every other
+    /// callee shape is dispatched by [`Self::call_expression`] unchanged. An
+    /// IIFE callee is an inline function or arrow expression, which none of the
+    /// identifier- and member-callee dispatchers in `call_expression` can match,
+    /// so trying it first changes no other decision.
+    pub(in crate::lowering) fn call_expression_with_hint(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if type_hint.is_some()
+            && let Some(expr) =
+                self.immediately_invoked_function_call_with_hint(call, body, type_hint)?
+        {
+            return Ok(expr);
+        }
+        self.call_expression(call, body)
+    }
+
     pub(in crate::lowering) fn call_expression(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -125,6 +148,11 @@ impl<'builder> ModuleBuilder<'builder> {
         // than in each rule: it is one place, and it keeps the blocker's
         // wording tied to the import that caused it.
         if let Some(expr) = self.blocked_import_member_call(call)? {
+            return Ok(expr);
+        }
+        if let Expression::ComputedMemberExpression(member) = &call.callee
+            && let Some(expr) = self.computed_method_call_over_members(call, member, body)?
+        {
             return Ok(expr);
         }
         if let Some(expr) = self.vitest_asymmetric_matcher_call(call, body)? {
@@ -1123,6 +1151,176 @@ impl<'builder> ModuleBuilder<'builder> {
         }))
     }
 
+
+    /// Lower `receiver[key]()` over a receiver whose member set is known.
+    ///
+    /// JavaScript reads the property named by `key` and calls it. When the
+    /// receiver's type is a class or interface, that set of names is static, so
+    /// the call is a CHOICE among known methods and lowers as one — a chain of
+    /// `key === "<name>"` tests, each arm the ordinary method call. A dynamic
+    /// lookup is never needed and never emitted.
+    ///
+    /// This is a silent-wrong-value fix, not a missing feature.
+    /// `computed_member` answers `Unknown` for such a read, and the arm below it
+    /// turns an `Unknown` callee into `undefined`, so
+    /// `function pick(req: Req, key: 'json' | 'text'): string { return req[key]() }`
+    /// emitted `return String::new()` — the whole body replaced by a default,
+    /// with no diagnostic. Hono's `await req[cacheKey]()` (`src/request.ts`) is
+    /// that shape.
+    ///
+    /// Deliberately narrow, and each limit is about not evaluating something
+    /// twice rather than about the shape being rare:
+    ///
+    /// * the receiver and the key must both be plain identifier references, so
+    ///   the single lowered expression each produces can be referenced from
+    ///   every arm without being evaluated more than once;
+    /// * the call must take no arguments, for the same reason — an argument
+    ///   would be lowered once and referenced from every arm, and binding it to
+    ///   a temporary first is a separate change. `receiver[key]()` is the
+    ///   accessor-style shape this form is written in;
+    /// * every candidate must answer the same return type, so the chain has one
+    ///   type. Candidates that disagree fall through to the existing lowering
+    ///   rather than being joined into a union here.
+    ///
+    /// The last candidate is the chain's `else` with no test of its own: the
+    /// source's key type says the key is one of these names, and a final
+    /// comparison whose failure has no answer would need a thrown `TypeError`
+    /// the surrounding expression position cannot hold.
+    fn computed_method_call_over_members(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        member: &oxc::ast::ast::ComputedMemberExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if !call.arguments.is_empty() || call.optional || member.optional {
+            return Ok(None);
+        }
+        if !matches!(&member.object, Expression::Identifier(_))
+            || !matches!(&member.expression, Expression::Identifier(_))
+        {
+            return Ok(None);
+        }
+        let receiver = self.expression(&member.object, body)?;
+        let receiver_ty = Self::expr_ty(body, receiver);
+        let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(receiver_ty).cloned() else {
+            return Ok(None);
+        };
+        let mut candidates: Vec<(smelt_hir::Symbol, String)> = Vec::new();
+        if let Some(class) = self.class_by_symbol(name).cloned() {
+            for method_item in &class.methods {
+                let Item::Function(function) = self.item_ref(*method_item) else {
+                    continue;
+                };
+                // A lowered class method carries its receiver as the leading
+                // parameter, so a JavaScript-nullary method has exactly one.
+                // An interface method SIGNATURE does not (see the arm below):
+                // the two shapes count differently and each is checked in its
+                // own terms rather than through one shared number.
+                if function.params.len() > 1 || function.rest.is_some() {
+                    continue;
+                }
+                let method = function.name;
+                let source = self.ctx.krate.symbols.source(method).unwrap_or_default().to_owned();
+                if source.is_empty() {
+                    return Ok(None);
+                }
+                candidates.push((method, source));
+            }
+        } else if let Some(interface) = self.find_interface(name).cloned() {
+            for signature in &interface.methods {
+                if !signature.params.is_empty() || signature.rest.is_some() {
+                    continue;
+                }
+                let source = self
+                    .ctx
+                    .krate
+                    .symbols
+                    .source(signature.name)
+                    .unwrap_or_default()
+                    .to_owned();
+                if source.is_empty() {
+                    return Ok(None);
+                }
+                candidates.push((signature.name, source));
+            }
+        } else {
+            return Ok(None);
+        }
+        if candidates.len() < 2 {
+            return Ok(None);
+        }
+        let member_span = member.span;
+        let mut return_ty = None;
+        for (method, _) in &candidates {
+            let (candidate_ty, _) = self.resolve_method(receiver_ty, *method, member_span)?;
+            if matches!(self.ctx.krate.types.get(candidate_ty), Some(Type::Unknown)) {
+                return Ok(None);
+            }
+            match return_ty {
+                None => return_ty = Some(candidate_ty),
+                Some(existing) if existing == candidate_ty => {}
+                Some(_) => return Ok(None),
+            }
+        }
+        let Some(return_ty) = return_ty else {
+            return Ok(None);
+        };
+        let key = self.expression(&member.expression, body)?;
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        if Self::expr_ty(body, key) != string_ty {
+            return Ok(None);
+        }
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let call_span = self.span(call.span.start, call.span.end);
+        let key_span = self.span(member.expression.span().start, member.expression.span().end);
+        let arm = |builder: &mut Self, target: &mut Body, method: smelt_hir::Symbol| {
+            let _ = builder;
+            target.push_expr(Expr {
+                kind: ExprKind::Method {
+                    receiver,
+                    method,
+                    args: Vec::new(),
+                },
+                ty: return_ty,
+                span: call_span,
+            })
+        };
+        let last_method = candidates
+            .last()
+            .map(|(method, _)| *method)
+            .ok_or_else(|| {
+                SmeltError::unsupported(call_span, "computed method call has no candidate members")
+            })?;
+        let mut expr = arm(self, body, last_method);
+        for (method, source) in candidates.iter().rev().skip(1) {
+            let literal = body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String(source.clone())),
+                ty: string_ty,
+                span: key_span,
+            });
+            let cond = body.push_expr(Expr {
+                kind: ExprKind::BinOp {
+                    op: smelt_hir::BinOp::JsStrictEq,
+                    lhs: key,
+                    rhs: literal,
+                },
+                ty: bool_ty,
+                span: key_span,
+            });
+            let then_expr = arm(self, body, *method);
+            expr = body.push_expr(Expr {
+                kind: ExprKind::Conditional {
+                    cond,
+                    then_expr,
+                    else_expr: expr,
+                },
+                ty: return_ty,
+                span: call_span,
+            });
+        }
+        Ok(Some(expr))
+    }
+
     /// Lower an immediately-invoked function expression (IIFE).
     ///
     /// `(function (a, b) { ... })(1, 2)` and `((a) => ...)(5)` invoke a function
@@ -1136,19 +1334,128 @@ impl<'builder> ModuleBuilder<'builder> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        self.immediately_invoked_function_call_with_hint(call, body, None)
+    }
+
+    /// Lower an immediately-invoked function expression, carrying the call's
+    /// contextual type into the callee's RETURN position.
+    ///
+    /// `const f: (value: string) => number = (() => { .. return (value) => .. })()`
+    /// gives the inner arrow its parameter types in TypeScript, because the
+    /// contextual type of the call flows to the IIFE's return expression. Smelt
+    /// lowered the callee with no hint at all, so the inner arrow's parameters
+    /// erased to `SmeltUnknown` and the value it built was reported as erased --
+    /// for a shape whose type is fully known. The rule is general: it holds for
+    /// `const f: T = (..)()`, for `f = (..)()`, and for `f ||= (..)()` /
+    /// `f ??= (..)()` alike, because all four reach here through the same
+    /// contextual type.
+    ///
+    /// Only the RETURN channel is derivable from a call's context. A call gives
+    /// its callee no contextual PARAMETER types -- TypeScript does not either --
+    /// so the synthesized hint carries an empty parameter list and the callee's
+    /// own annotations and inference supply them (`contextual_param_type_at` is
+    /// index-based, so an empty list is a clean no-op at any arity).
+    pub(in crate::lowering) fn immediately_invoked_function_call_with_hint(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        // An explicit return-type annotation on the callee wins over the
+        // contextual type, exactly as it does in TypeScript. `(function* ():
+        // Generator<number, T, unknown> { .. })()` already says what it returns;
+        // handing it a second, contextual answer only creates a way for the two
+        // to disagree.
+        // `None` means "not an immediately-invoked function expression at all",
+        // which is also the cheap early exit: every other callee shape leaves
+        // before anything is interned.
+        // `None` means "not an immediately-invoked function expression at all",
+        // which is also the cheap early exit: every other callee shape leaves
+        // before anything is interned. `true` means the callee already answers
+        // the question the hint would answer, so the hint is dropped.
+        //
+        // Two ways it already answers it. An explicit RETURN-TYPE ANNOTATION
+        // wins over the contextual type, exactly as in TypeScript; handing an
+        // annotated callee a second answer only creates a way for the two to
+        // disagree (`(function* (): Generator<number, T, unknown> { .. })()`).
+        // And a callee WITH PARAMETERS has a parameter list of its own: the hint
+        // synthesized here can only describe a nullary function, because a call
+        // gives its callee no contextual parameter types, so applying it to a
+        // parameterized callee replaces a real signature with an empty one --
+        // es-toolkit's `(function (..._: unknown[]) { return arguments })(...array)`
+        // kept its rest parameter in the emitted closure while the call site lost
+        // the argument (E0057). A nullary callee is the shape the hint fits
+        // exactly, and it is the shape contextual typing is for.
+        let skip_hint = match &call.callee {
+            Expression::FunctionExpression(function) => Some(
+                function.return_type.is_some()
+                    || !function.params.items.is_empty()
+                    || function.params.rest.is_some(),
+            ),
+            Expression::ArrowFunctionExpression(arrow) => Some(
+                arrow.return_type.is_some()
+                    || !arrow.params.items.is_empty()
+                    || arrow.params.rest.is_some(),
+            ),
+            Expression::ParenthesizedExpression(paren) => match &paren.expression {
+                Expression::FunctionExpression(function) => Some(
+                    function.return_type.is_some()
+                        || !function.params.items.is_empty()
+                        || function.params.rest.is_some(),
+                ),
+                Expression::ArrowFunctionExpression(arrow) => Some(
+                    arrow.return_type.is_some()
+                        || !arrow.params.items.is_empty()
+                        || arrow.params.rest.is_some(),
+                ),
+                _ => None,
+            },
+            _ => None,
+        };
+        let Some(skip_hint) = skip_hint else {
+            return Ok(None);
+        };
+        let type_hint = if skip_hint { None } else { type_hint };
+        // The target's OPTIONALITY does not belong to the callee's return
+        // channel: `let x: T | undefined; x = (() => .. return v ..)()` produces
+        // a `T` and the assignment wraps it. Hinting `T | undefined` instead
+        // makes the callee's emitted tail `Some(<concrete closure>)`, whose
+        // inferred Rust type is `Option<Rc<{closure}>>` rather than the declared
+        // `Option<Rc<dyn Fn..>>` (E0308) -- and it is a less precise contextual
+        // type besides. The arrow's own `return` statements still decide its
+        // real return type, so a callee that really can answer nothing still
+        // infers the optional.
+        let type_hint = type_hint.map(|hint| match self.ctx.krate.types.get(hint) {
+            Some(Type::Optional(inner)) => *inner,
+            _ => hint,
+        });
+        let callee_hint = type_hint.map(|return_ty| {
+            self.ctx
+                .krate
+                .types
+                .intern(Type::Function(smelt_hir::FunctionType {
+                    params: Vec::new(),
+                    rest: None,
+                    required_params: None,
+                    mutable_params: Vec::new(),
+                    return_ty,
+                    is_async: false,
+                    may_throw: false,
+                }))
+        });
         let callee = match &call.callee {
             Expression::FunctionExpression(function) => {
-                self.function_expression_value(function, None, function.span, body)?
+                self.function_expression_value(function, callee_hint, function.span, body)?
             }
             Expression::ArrowFunctionExpression(arrow) => {
-                self.arrow_function_expression(arrow, body)?
+                self.arrow_function_expression_with_hint(arrow, body, callee_hint)?
             }
             Expression::ParenthesizedExpression(paren) => match &paren.expression {
                 Expression::FunctionExpression(function) => {
-                    self.function_expression_value(function, None, function.span, body)?
+                    self.function_expression_value(function, callee_hint, function.span, body)?
                 }
                 Expression::ArrowFunctionExpression(arrow) => {
-                    self.arrow_function_expression(arrow, body)?
+                    self.arrow_function_expression_with_hint(arrow, body, callee_hint)?
                 }
                 _ => return Ok(None),
             },
