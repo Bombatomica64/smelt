@@ -577,7 +577,22 @@ impl FunctionEmitter<'_> {
                 matches!(self.mir.types.get(*key), Some(Type::String))
                     && self.is_json_serializable_type(*value)
             }
+            // JSON has no `undefined`, and `JSON.stringify(null)` is `null`.
+            Some(Type::None) => true,
+            // A union is serializable when every arm is. This is what lets a
+            // `BodyInit` (`string | ArrayBuffer | Blob | FormData |
+            // URLSearchParams | ReadableStream | null`) be stringified at all.
+            Some(Type::Union(items)) => items
+                .iter()
+                .all(|item| self.is_json_serializable_type(*item)),
             Some(Type::Class { name, .. }) => {
+                // A host object serializes as `{}` — none of its state is an own
+                // enumerable property (see the frontend's matching arm). The
+                // emitter erases such a value first, and the erased carrier's
+                // `Serialize` is what renders the empty object.
+                if self.is_host_object_class(*name) {
+                    return true;
+                }
                 if let Some(class) = self.mir.classes.iter().find(|class| class.name == *name) {
                     crate::classes::effective_class_fields(self.mir, class)
                         .iter()
@@ -595,6 +610,31 @@ impl FunctionEmitter<'_> {
                         })
                 }
             }
+            _ => false,
+        }
+    }
+
+    /// Return whether a class symbol names a registered host object.
+    ///
+    /// The registry is the shared one (`smelt_stdlib::host_object_marker`), so
+    /// the frontend's serializability rule and this one cannot disagree about
+    /// which classes have no own enumerable properties.
+    pub(super) fn is_host_object_class(&self, name: smelt_hir::Symbol) -> bool {
+        self.symbol_name(name)
+            .is_ok_and(|class_name| smelt_stdlib::host_object_marker(class_name).is_some())
+    }
+
+    /// Return whether a type reaches JSON only through the erased carrier.
+    ///
+    /// A union and a host-object class have no Rust `Serialize` of their own —
+    /// a union is not one Rust type, and a host object's runtime type is a
+    /// concrete struct whose fields are internal slots. Both cross into JSON
+    /// through `SmeltUnknown`, whose `Serialize` implements the JavaScript
+    /// rules (own enumerable properties only, so a host object is `{}`).
+    pub(super) fn json_needs_erasure(&self, ty: TypeId) -> bool {
+        match self.mir.types.get(ty) {
+            Some(Type::Union(_)) => true,
+            Some(Type::Class { name, .. }) => self.is_host_object_class(*name),
             _ => false,
         }
     }

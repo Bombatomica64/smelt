@@ -228,3 +228,107 @@ test('a source interface supplies a header list too', () => {
 "#;
     run_fixture(source, "user_init_interface_runtime");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_request_at_the_init_position_copies_the_source() {
+    let source = r#"
+import { test, expect } from 'vitest';
+
+test('method and headers are copied, the url is the new one', () => {
+  const src = new Request('https://a.test/p', {
+    method: 'POST',
+    body: 'payload',
+    headers: new Headers([['x-a', '1']]),
+  });
+  const copy = new Request('https://b.test/q', src);
+  expect(copy.method).toBe('POST');
+  expect(copy.url).toBe('https://b.test/q');
+  expect(copy.headers.get('x-a')).toBe('1');
+});
+
+test('reading the copy disturbs the source, as the spec says', async () => {
+  const src = new Request('https://a.test/p', { method: 'POST', body: 'payload' });
+  const copy = new Request('https://b.test/q', src);
+  expect(src.bodyUsed).toBe(false);
+  expect(await copy.text()).toBe('payload');
+  // Node: `src.bodyUsed` is true here and a later `src.text()` throws.
+  expect(src.bodyUsed).toBe(true);
+  let caught = 'none';
+  try {
+    await src.text();
+  } catch (error) {
+    caught = 'threw';
+  }
+  expect(caught).toBe('threw');
+});
+"#;
+    run_fixture(source, "request_as_init_runtime");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_generic_or_qualified_init_is_read_by_field() {
+    let source = r#"
+import { test, expect } from 'vitest';
+
+type StatusCode = 200 | 201 | 404 | 500;
+
+interface PageInit<T extends StatusCode = StatusCode> {
+  status?: T;
+  statusText?: string;
+}
+
+function page(body: string, init: PageInit): Response {
+  return new Response(body, init);
+}
+
+function platform(body: string, init: globalThis.ResponseInit): Response {
+  return new Response(body, init);
+}
+
+test('a generic key resolves through its constraint', () => {
+  expect(page('a', { status: 404 }).status).toBe(404);
+  expect(page('a', {}).status).toBe(200);
+});
+
+test('a qualified ambient init is read by field', () => {
+  expect(platform('b', { status: 201 }).status).toBe(201);
+  expect(platform('b', { status: 201 }).statusText).toBe('');
+  expect(platform('b', {}).status).toBe(200);
+});
+"#;
+    run_fixture(source, "generic_qualified_init_runtime");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_body_init_union_stringifies_and_narrows() {
+    let source = r#"
+import { test, expect } from 'vitest';
+
+function serialize(body: BodyInit): string {
+  return JSON.stringify(body);
+}
+
+interface PlainInit {
+  status?: number;
+}
+
+function pickStatus(arg?: number | PlainInit | Response): number {
+  return typeof arg === 'number' ? arg : (arg?.status ?? 200);
+}
+
+test('the string arm of a BodyInit stringifies', () => {
+  expect(serialize('text arm')).toBe('"text arm"');
+});
+
+test('a union of a number, an init and a Response reaches every arm', () => {
+  expect(pickStatus(404)).toBe(404);
+  expect(pickStatus({ status: 201 })).toBe(201);
+  expect(pickStatus(undefined)).toBe(200);
+  expect(pickStatus(new Response('x', { status: 500 }))).toBe(500);
+});
+"#;
+    run_fixture(source, "body_init_union_runtime");
+}

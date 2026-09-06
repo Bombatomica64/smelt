@@ -6022,11 +6022,33 @@ fn emit_unknown_serde_impls(writer: &mut CodeWriter) {
                     match_writer.line("Self::Null => serializer.serialize_none(),");
                     match_writer.line("Self::Undefined => serializer.serialize_none(),");
                     match_writer.line("Self::Bool(value) => serializer.serialize_bool(*value),");
-                    match_writer.line("Self::Number(value) => serializer.serialize_f64(*value),");
+                    // ECMA-262 `JSON.stringify` renders a number with the
+                    // JavaScript number-to-string algorithm, not Rust's float
+                    // formatting: an integral value has no fraction (`1`, not
+                    // `1.0`), `-0` is `0`, and a non-finite number is `null`
+                    // because JSON has no NaN or Infinity.
+                    match_writer.line("Self::Number(value) => if !value.is_finite() { serializer.serialize_none() } else if *value == value.trunc() && value.abs() < 1e21 { serializer.serialize_i64(*value as i64) } else { serializer.serialize_f64(*value) },");
                     match_writer.line("Self::String(value) => serializer.serialize_str(value),");
                     match_writer.line("Self::Symbol(value) => serializer.serialize_str(value),");
                     match_writer.line("Self::Array(values) => serde::Serialize::serialize(&*values.values.borrow(), serializer),");
-                    match_writer.line("Self::Object(values) => serde::Serialize::serialize(&values.iter().filter(|(key, _)| key != \"__smelt_class\" && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\")).collect::<::std::collections::HashMap<_, _>>(), serializer),");
+                    // `JSON.stringify` serializes an object's OWN ENUMERABLE
+                    // properties, in order. That is the same rule `for...in`
+                    // uses, so both read one predicate
+                    // (`smelt_is_for_in_object_key`) rather than keeping two
+                    // lists of internal keys that can drift apart. Three
+                    // consequences, each matching Node:
+                    //
+                    // * a HOST OBJECT serializes as `{}` — its state lives in
+                    //   internal slots, not in properties, so the marker and
+                    //   the slots must not appear (`JSON.stringify(new
+                    //   Headers([["a","b"]]))` is `{}`);
+                    // * key order is INSERTION order, which the previous
+                    //   `HashMap` collect destroyed;
+                    // * a property whose value is `undefined` is OMITTED, not
+                    //   emitted as `null` (`{a: undefined, b: 1}` is `{"b":1}`).
+                    //   Inside an ARRAY `undefined` still serializes as `null`,
+                    //   which the `Self::Undefined` arm above already does.
+                    match_writer.line("Self::Object(values) => { use serde::ser::SerializeMap as _; let entries = values.iter().filter(|(key, value)| !matches!(value, Self::Undefined) && smelt_is_for_in_object_key(values, key)).collect::<Vec<_>>(); let mut map = serializer.serialize_map(Some(entries.len()))?; for (key, value) in &entries { map.serialize_entry(key, value)?; } map.end() },");
                     match_writer.line("Self::Function(_) => serializer.serialize_str(\"function () { [native code] }\"),");
                     match_writer.line("Self::Promise(_) => serializer.serialize_str(\"[object Promise]\"),");
                 });

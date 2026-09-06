@@ -827,6 +827,13 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<(), SmeltError> {
         let source_ty = Self::expr_ty(body, source);
+        // The spec allows a `Request` at the init position: its method, headers
+        // and body are copied into the new request. Its members are modeled
+        // operations rather than struct fields, so they are read through those
+        // rather than through the field path below.
+        if self.is_request_type(source_ty) {
+            return self.request_init_fields(source, keys, span, fields, body);
+        }
         if matches!(self.ctx.krate.types.get(source_ty), Some(Type::Unknown)) {
             return Err(SmeltError::unsupported(
                 span,
@@ -847,6 +854,14 @@ impl ModuleBuilder<'_> {
             let Ok(field_ty) = self.class_field_type(source_ty, field) else {
                 continue;
             };
+            // An init interface may declare a key generically -- Hono's own
+            // `interface ResponseInit<T extends StatusCode>` has `status?: T`,
+            // where `StatusCode` is a numeric literal union. The key's type is
+            // then a type PARAMETER, which carries no runtime representation,
+            // so it resolves through its constraint: the bound is what the
+            // source guarantees about every instantiation, and it is what the
+            // construction site needs (a number, here).
+            let field_ty = self.resolve_init_key_constraint(field_ty);
             // A key the type does not declare resolves to an erased type
             // rather than failing — bare `Unknown`, or `Optional<Unknown>` when
             // the read went through the optional-field path. Reading it would
@@ -907,6 +922,79 @@ impl ModuleBuilder<'_> {
             ));
         }
         Ok(())
+    }
+
+    /// Read the modeled init keys off a `Request` used as an init.
+    ///
+    /// `new Request(url, source)` copies the source's method, headers and body
+    /// (WHATWG "new request" steps). The body is passed as the source request
+    /// itself so the emitter's body conversion can take its handle: sharing the
+    /// handle is what makes reading the new request's body mark the SOURCE used,
+    /// which is what Node does — `src.bodyUsed` becomes `true` and a later
+    /// `src.text()` throws `Body is unusable`.
+    ///
+    /// `keys` is still consulted, so this cannot supply a key the caller's type
+    /// does not model.
+    fn request_init_fields(
+        &mut self,
+        source: smelt_hir::ExprId,
+        keys: &[&str],
+        span: smelt_hir::Span,
+        fields: &mut InitFields,
+        body: &mut Body,
+    ) -> Result<(), SmeltError> {
+        for key in keys {
+            let op = match *key {
+                "method" => RequestOp::Method,
+                "headers" => RequestOp::Headers,
+                // The body is the source value itself; the emitter selects the
+                // handle conversion from its `Request` type.
+                "body" => {
+                    fields.set(key, source);
+                    continue;
+                }
+                _ => continue,
+            };
+            let ty = self.request_op_result_type(op);
+            let read = body.push_expr(Expr {
+                kind: ExprKind::RequestOp {
+                    op,
+                    request: source,
+                    args: Vec::new(),
+                },
+                ty,
+                span,
+            });
+            fields.set(key, read);
+        }
+        Ok(())
+    }
+
+    /// Resolve an init key's type through a type parameter's constraint.
+    ///
+    /// A key declared `status?: T` where `T extends StatusCode` arrives as
+    /// `Optional<T>`. The parameter itself has no runtime shape; its constraint
+    /// does, and the constraint is exactly what the source promises about every
+    /// instantiation. An unconstrained parameter is left alone, so it stays
+    /// erased and the caller's erasure check rejects it rather than a wrong
+    /// concrete type being invented.
+    fn resolve_init_key_constraint(&mut self, ty: smelt_hir::TypeId) -> smelt_hir::TypeId {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::TypeParam { .. }) => self.type_param_constraint_or_self(ty),
+            Some(&Type::Optional(inner))
+                if matches!(
+                    self.ctx.krate.types.get(inner),
+                    Some(Type::TypeParam { .. })
+                ) =>
+            {
+                let resolved = self.type_param_constraint_or_self(inner);
+                if resolved == inner {
+                    return ty;
+                }
+                self.ctx.krate.types.intern(Type::Optional(resolved))
+            }
+            _ => ty,
+        }
     }
 
 }

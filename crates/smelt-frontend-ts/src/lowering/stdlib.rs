@@ -1901,6 +1901,26 @@ impl ModuleBuilder<'_> {
                     && self.is_json_serializable_type_inner(value, seen)
             }
             Type::Class { name, args } => {
+                // A HOST OBJECT serializes as `{}`: none of its state is an own
+                // enumerable property, so JavaScript has nothing to write.
+                // `JSON.stringify(new Blob(['a']))`, `new FormData()`,
+                // `new URLSearchParams('a=1')`, `new Headers([..])` and
+                // `new Request(url)` are all `{}` in Node. Treating "Smelt does
+                // not know this class's fields" as "not serializable" rejected
+                // source that JavaScript accepts, and it is what made a
+                // `BodyInit` union unserializable as a whole.
+                if self
+                    .ctx
+                    .krate
+                    .names
+                    .get(name)
+                    .or_else(|| self.ctx.krate.symbols.get(name))
+                    .is_some_and(|class_name| {
+                        smelt_stdlib::host_object_marker(class_name).is_some()
+                    })
+                {
+                    return true;
+                }
                 self.json_class_fields(name, &args).is_some_and(|fields| {
                     if seen.contains(&name) {
                         return true;

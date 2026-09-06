@@ -382,6 +382,12 @@ impl FunctionEmitter<'_> {
         body_text: &str,
         body_ty: TypeId,
     ) -> Result<String, EmitError> {
+        // A `Request` at the body position is the WHATWG "copy the source's
+        // body" step: take its HANDLE, so consuming the new request's body is
+        // observable on the source, exactly as Node reports it.
+        if self.is_request_class_type(body_ty)? {
+            return Ok(format!("{body_text}.body()"));
+        }
         match self.mir.types.get(body_ty) {
             Some(Type::String) => Ok(format!("SmeltBody::from_text(&{body_text})")),
             Some(Type::None) => Ok("SmeltBody::empty()".to_owned()),
@@ -437,6 +443,14 @@ impl FunctionEmitter<'_> {
         };
         Ok(self.stdlib_class_of_symbol(*name)?
             == Some(smelt_stdlib::StdlibClass::UrlSearchParams))
+    }
+
+    /// Return whether a type names the generated `SmeltRequest` runtime type.
+    pub(super) fn is_request_class_type(&self, ty: TypeId) -> Result<bool, EmitError> {
+        let Some(Type::Class { name, .. }) = self.mir.types.get(ty) else {
+            return Ok(false);
+        };
+        Ok(self.stdlib_class_of_symbol(*name)? == Some(smelt_stdlib::StdlibClass::Request))
     }
 
     /// Return whether a type names the generated `SmeltHeaders` runtime type.
