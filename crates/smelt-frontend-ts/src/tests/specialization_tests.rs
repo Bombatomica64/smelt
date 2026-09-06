@@ -48,6 +48,7 @@ fn manifest_materializes_instance_private_accessor_and_static_fields() -> Result
         &mut ctx,
         FrontendOptions {
             specialization: Some(&manifest),
+            ..FrontendOptions::default()
         },
     )
     .map_err(|errors| format!("manifest-aware lowering failed: {errors:?}"))?;

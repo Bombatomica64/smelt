@@ -173,6 +173,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         source: String,
         ctx: &'ctx mut HirCtx,
         specialization: Option<SpecializationData>,
+        excluded_modules: Vec<String>,
     ) -> Self {
         let (items, classes, interfaces) = Self::visible_items(ctx);
         let const_literals = Self::visible_const_literals(ctx);
@@ -236,6 +237,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             functions: FunctionRegistry::new(function_overloads, function_rests),
             specialization,
             pending_host_imports: Vec::new(),
+            excluded_modules,
         }
     }
 
@@ -2556,6 +2558,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// legitimately sees such an import unresolved, and that is not a host-module
     /// gap.
     ///
+    /// The one exception is a specifier the manifest *excluded*: there the
+    /// resolver deliberately produced no source file, so the carve-out's
+    /// premise does not hold, and using an imported value has to report the
+    /// exclusion instead of erasing the binding. That check runs first.
+    ///
     /// A **test module** never blocks either. Test code routinely reaches for
     /// assertion and fixture libraries Smelt does not model (`chai`, `yup`,
     /// `@date-fns/utc`), and those values only ever flow into matchers that are
@@ -2566,6 +2573,25 @@ impl<'ctx> ModuleBuilder<'ctx> {
     fn classify_pending_host_imports(&mut self, test_module: bool) {
         let pending = std::mem::take(&mut self.pending_host_imports);
         for candidate in pending {
+            // A specifier the manifest excluded is neither a missing file nor a
+            // host package: the scope decision is recorded, so the blocker can
+            // name it precisely. This runs BEFORE the relative-specifier
+            // carve-out below, which exists for source files the manifest
+            // resolver owns — an excluded module is exactly the case where the
+            // resolver deliberately did not produce one. Type-only imports
+            // never reach here (the push site skips them), so `import type`
+            // and `export type` re-exports from an excluded module stay free,
+            // which is what keeps a barrel's type surface usable.
+            if self.excluded_modules.contains(&candidate.module) {
+                let blocker = format!(
+                    "`{name}` is imported from `{module}`, which the manifest excludes",
+                    name = candidate.imported,
+                    module = candidate.module,
+                );
+                self.imports
+                    .mark_unresolved_value_import(candidate.local, blocker);
+                continue;
+            }
             let bare_package = !candidate.module.starts_with('.')
                 && !candidate.module.starts_with('/');
             let blocker = if bare_package {

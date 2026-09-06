@@ -165,6 +165,7 @@ fn emit_and_compare(
         &mut ctx,
         FrontendOptions {
             specialization: Some(manifest),
+            ..FrontendOptions::default()
         },
     )
     .map_err(|errors| format!("manifest-aware HIR lowering failed: {errors:?}"))?;

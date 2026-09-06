@@ -9488,3 +9488,69 @@ export function pick(cond: boolean, xs: number[], y: number): number {
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
+
+/// Calling a global the non-DOM profile declares absent lowers to a THROW,
+/// not to a blocker and not to an erased no-op.
+///
+/// Hono's `hono-base.ts` calls `addEventListener` (under its own `@ts-ignore`),
+/// which Node does not define. JavaScript answers a name that is not defined
+/// with `ReferenceError`, so the program is correct and it is the *call* that
+/// throws — reporting a blocker would refuse a valid program, and erasing the
+/// call to a no-op would silently skip the registration.
+#[test]
+fn absent_global_call_lowers_to_a_throw() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export const listen = (): void => {
+  addEventListener("fetch", () => undefined);
+};
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+
+    // Some body in the crate must throw the ReferenceError message.
+    let throws_reference_error = ctx.krate.bodies.iter().any(|body| {
+        body.stmts.iter().any(|stmt| match stmt {
+            Stmt::Throw(expr) => matches!(
+                body.exprs.get(expr.0 as usize).map(|expr| &expr.kind),
+                Some(ExprKind::Literal(Literal::String(text)))
+                    if text == "ReferenceError: addEventListener is not defined"
+            ),
+            _ => false,
+        })
+    });
+    ensure!(
+        throws_reference_error,
+        "an absent global must lower to a thrown ReferenceError naming it",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// A global the profile *does* have is untouched by the absent-global path.
+///
+/// The negative half matters: the absent set drives both this lowering and the
+/// `"X" in globalThis` fold, so a name wrongly added to it would start throwing
+/// at runtime instead of merely answering a probe differently.
+#[test]
+fn present_global_call_does_not_throw() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export const now = (): number => Date.now();
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    let throws = ctx.krate.bodies.iter().any(|body| {
+        body.stmts
+            .iter()
+            .any(|stmt| matches!(stmt, Stmt::Throw(_)))
+    });
+    ensure!(!throws, "a present global must not lower to a throw");
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+

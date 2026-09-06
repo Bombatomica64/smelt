@@ -57,14 +57,19 @@ impl FunctionEmitter<'_> {
     /// rejects with a `URIError`, and that failure is currently rendered as an
     /// `.expect(...)` — a PANIC, not a catchable throw. That is deliberate and
     /// matches the existing `JSON.parse` emission
-    /// (`serde_json::from_str(..).expect("JSON parse failed")`): a fallible
-    /// stdlib *rvalue* has no throwing edge in MIR, because only
+    /// A fallible stdlib *rvalue* has no throwing edge in MIR, because only
     /// `Terminator::Call` and `Terminator::Await` carry an
     /// `unwind: Option<ExceptionHandler>`. Source that catches a `URIError`
-    /// therefore aborts instead of taking its fallback. See
-    /// `blocker-logs/hono-h10-uri-and-base64-globals.md` §"the throwing-rvalue
-    /// hole" — it is one general gap shared with `JSON.parse`, to be closed
-    /// once for both rather than worked around here.
+    /// therefore aborts instead of taking its fallback — and worse, the handler
+    /// block ends up with no predecessor and is dropped, so the fallback is
+    /// gone from the generated crate entirely.
+    ///
+    /// `JSON.parse` is NOT a fellow victim: it already lowers through
+    /// `Terminator::Call { Callee::Builtin(BuiltinFn::JsonParse), unwind }` and
+    /// is the reference implementation to copy. (An earlier version of this
+    /// comment claimed they shared one gap; they do not.) The fix is to give
+    /// the two fallible decoders the same builtin-callee shape — designed in
+    /// `blocker-logs/hono-fallible-ops.md`, not yet implemented.
     pub(super) fn uri_transcode_text(
         &self,
         op: smelt_hir::UriTranscodeOp,

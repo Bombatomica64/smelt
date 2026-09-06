@@ -285,7 +285,9 @@ fn lower_typescript_file_with_dependencies(
 /// isolated lowering.
 fn ordered_dependency_paths(target: PathBuf) -> Option<Vec<PathBuf>> {
     let root = read_manifest_source(target).ok()?;
-    let sources = dependency_closure(vec![root]).ok()?;
+    // No manifest is in scope here (this is the single-file fallback path),
+    // so there are no exclude globs to apply.
+    let sources = dependency_closure(vec![root], &[], Path::new(".")).ok()?;
     let ordered = order_manifest_sources(&sources).ok()?;
     Some(
         ordered
@@ -475,7 +477,7 @@ pub(crate) fn lower_manifest_entries(
             .collect::<Result<Vec<_>, _>>()
     })?;
     let sources = timing::measure("manifest.dependency_closure", || {
-        dependency_closure(root_sources)
+        dependency_closure(root_sources, config.source_excludes(), manifest_dir)
     })?;
 
     let ordered_sources = timing::measure("manifest.order_sources", || {
@@ -604,7 +606,7 @@ fn collect_matching_test_paths(
 /// Supported syntax is intentionally narrow: `*` matches any characters inside
 /// one path segment and `**` matches zero or more path segments. Patterns are
 /// evaluated with `/` separators regardless of platform.
-fn path_matches_glob(path: &Path, pattern: &str) -> bool {
+pub(crate) fn path_matches_glob(path: &Path, pattern: &str) -> bool {
     let path_segments = path
         .components()
         .filter_map(|component| component.as_os_str().to_str())
@@ -802,7 +804,7 @@ pub(crate) fn collect_manifest_diagnostics(
         .into_iter()
         .map(read_manifest_source)
         .collect::<Result<Vec<_>, _>>()?;
-    let sources = dependency_closure(root_sources)?;
+    let sources = dependency_closure(root_sources, config.source_excludes(), manifest_dir)?;
     let ordered_sources = order_manifest_sources(&sources)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?
         .into_iter()
@@ -901,6 +903,7 @@ fn lower_manifest_source(
                 &mut ctx,
                 smelt_frontend_ts::FrontendOptions {
                     specialization: specialization.typescript.as_ref(),
+                    excluded_modules: &source.excluded_imports,
                 },
             )
             .map_err(|errors| {
