@@ -515,6 +515,16 @@ fn rewrite_rvalue(
                 | rewrite_operand_except(right, aliases, dest)
         }
         Rvalue::SetProjection { set, .. } => rewrite_operand_except(set, aliases, dest),
+        Rvalue::HeadersNew { init } => init
+            .as_mut()
+            .is_some_and(|init| rewrite_operand_except(init, aliases, dest)),
+        Rvalue::HeadersOp { headers, args, .. } => {
+            let mut rewritten = rewrite_operand_except(headers, aliases, dest);
+            for arg in args {
+                rewritten |= rewrite_operand_except(arg, aliases, dest);
+            }
+            rewritten
+        }
         Rvalue::ListConcat { left, right } => {
             rewrite_operand_except(left, aliases, dest)
                 | rewrite_operand_except(right, aliases, dest)

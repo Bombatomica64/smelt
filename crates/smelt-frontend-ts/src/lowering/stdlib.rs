@@ -3,6 +3,7 @@
 mod buffer;
 pub(in crate::lowering) mod call_dispatch;
 mod collections;
+mod fetch_types;
 mod numbers_math;
 mod objects;
 

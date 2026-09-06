@@ -324,6 +324,7 @@ fn end_to_end_examples_match_expected_outputs() -> TestResult {
         "28_regex_match_result",
         "29_callable_object",
         "30_nullish_union_join",
+        "31_headers_fetch_type",
     ] {
         verify_end_to_end_example(name)?;
     }

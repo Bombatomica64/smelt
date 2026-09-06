@@ -98,6 +98,41 @@ fn rvalue_needs_regex(rvalue: &Rvalue, _mir: &Mir) -> bool {
     )
 }
 
+/// Returns true when generated Rust needs the `SmeltHeaders` runtime type.
+///
+/// Either the program performs a `Headers` operation, or it merely names the
+/// type (a parameter, field or annotation): both reference `SmeltHeaders`, so
+/// the type table is consulted alongside the rvalues. Everything else pays
+/// nothing for the fetch types.
+pub(crate) fn needs_headers_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| {
+        matches!(
+            rvalue,
+            Rvalue::HeadersNew { .. } | Rvalue::HeadersOp { .. }
+        )
+    }) || mir
+        .types
+        .all()
+        .iter()
+        .any(|ty| is_headers_type(mir, ty))
+}
+
+/// Returns true when a type names the WHATWG `Headers` class.
+///
+/// The class identity comes from the shared stdlib registry
+/// (`smelt_stdlib::typescript_stdlib_class`), never from a name comparison
+/// spelled here, so the frontend, this gate and the emitter all agree.
+fn is_headers_type(mir: &Mir, ty: &Type) -> bool {
+    let Type::Class { name, .. } = ty else {
+        return false;
+    };
+    mir.names
+        .get(*name)
+        .or_else(|| mir.symbols.get(*name))
+        .and_then(smelt_stdlib::typescript_stdlib_class)
+        == Some(smelt_stdlib::StdlibClass::Headers)
+}
+
 /// Returns true when a MIR rvalue uses Unicode normalization APIs.
 fn rvalue_needs_unicode_normalization(rvalue: &Rvalue) -> bool {
     matches!(rvalue, Rvalue::StringNormalize { .. })

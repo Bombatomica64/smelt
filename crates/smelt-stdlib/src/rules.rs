@@ -159,6 +159,15 @@ pub enum RuleId {
     TsSetMutation,
     /// TypeScript `Set` projection method.
     TsSetProjection,
+    /// TypeScript `Headers.prototype.get`.
+    TsHeadersGet,
+    /// TypeScript `Headers.prototype.has`.
+    TsHeadersHas,
+    /// TypeScript `Headers` mutating method (`set`, `append`, `delete`).
+    TsHeadersMutation,
+    /// TypeScript `Headers` projection method (`keys`, `values`, `entries`,
+    /// `getSetCookie`).
+    TsHeadersProjection,
     /// Python `json.dumps(value)`.
     PyJsonDumps,
     /// Python `json.loads(text)`.
@@ -224,7 +233,15 @@ impl RuleId {
             | Self::TsMapProjection
             | Self::TsSetHas
             | Self::TsSetMutation
-            | Self::TsSetProjection => None,
+            | Self::TsSetProjection
+            // `SmeltHeaders` is a generated runtime type with no external crate
+            // behind it: WHATWG header semantics (case folding, comma-joined
+            // reads, the `Set-Cookie` carve-out) are the implementation, so
+            // there is nothing to depend on.
+            | Self::TsHeadersGet
+            | Self::TsHeadersHas
+            | Self::TsHeadersMutation
+            | Self::TsHeadersProjection => None,
         }
     }
 
@@ -259,6 +276,10 @@ impl RuleId {
             Self::TsSetHas => "Set.has",
             Self::TsSetMutation => "Set mutation method",
             Self::TsSetProjection => "Set projection method",
+            Self::TsHeadersGet => "Headers.get",
+            Self::TsHeadersHas => "Headers.has",
+            Self::TsHeadersMutation => "Headers mutation method",
+            Self::TsHeadersProjection => "Headers projection method",
             Self::PyJsonDumps => "json.dumps",
             Self::PyJsonLoads => "json.loads",
             Self::PyReSearch => "re.search",

@@ -4874,6 +4874,11 @@ impl<'mir> FunctionEmitter<'mir> {
                             smelt_stdlib::StdlibClass::RegExp
                                 | smelt_stdlib::StdlibClass::Match
                                 | smelt_stdlib::StdlibClass::MatchGroups
+                                // A WHATWG `Headers` is the concrete
+                                // `SmeltHeaders` runtime type, so it never
+                                // erases: that is the whole point of modeling
+                                // the fetch types as real Rust values.
+                                | smelt_stdlib::StdlibClass::Headers
                         )
                     )
                 }) {

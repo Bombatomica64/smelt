@@ -4,7 +4,7 @@ use super::{
     NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp, RegexMatchOp, SetBinaryOp,
     SetProjectionOp, SetRelationOp, SetRemoveOp, StringAffixOp, StringCaseOp, StringNormalizeForm,
     StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, UnaryOp,
-    UnknownKind, UrlField,
+    HeadersOp as HeadersOpKind, UnknownKind, UrlField,
 };
 use crate::ids::{BlockId, BodyId, ExprId, ItemId, LocalId, Symbol, TypeId};
 use serde::{Deserialize, Serialize};
@@ -420,6 +420,24 @@ pub enum ExprKind {
     SetProjection {
         op: SetProjectionOp,
         set: ExprId,
+    },
+    /// `new Headers(init?)`.
+    ///
+    /// `init` is a record, a list of name/value pairs, or another `Headers`
+    /// value; which one is decided from the initializer's static type, so the
+    /// construction stays a concrete typed value with no runtime tag test.
+    HeadersNew {
+        /// Optional initializer expression.
+        init: Option<ExprId>,
+    },
+    /// A WHATWG `Headers` method call on a concrete `Headers` receiver.
+    HeadersOp {
+        /// Which header operation this call performs.
+        op: HeadersOpKind,
+        /// The `Headers` receiver.
+        headers: ExprId,
+        /// Operation arguments (name, or name and value).
+        args: Vec<ExprId>,
     },
     ListConcat {
         left: ExprId,

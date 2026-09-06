@@ -7,6 +7,11 @@
 pub enum StdlibClass {
     /// JavaScript `Date`, represented by timestamp and date helper operations.
     Date,
+    /// WHATWG `Headers`, backed by the generated concrete `SmeltHeaders`
+    /// runtime type (a case-insensitive, insertion-ordered header multi-map).
+    /// Reads keep their exact types: `get` is `string | null`, `has` is a
+    /// boolean, `getSetCookie` is a string list.
+    Headers,
     /// JavaScript `Map`, represented by dictionary HIR values.
     Map,
     /// Synthetic `RegExp` match result (`RegExp.exec` / `String.matchAll`),
@@ -44,6 +49,7 @@ pub const MATCH_GROUPS_CLASS_NAME: &str = "__SmeltMatchGroups";
 pub fn typescript_stdlib_class(name: &str) -> Option<StdlibClass> {
     match name {
         "Date" => Some(StdlibClass::Date),
+        "Headers" => Some(StdlibClass::Headers),
         "Map" => Some(StdlibClass::Map),
         MATCH_CLASS_NAME => Some(StdlibClass::Match),
         MATCH_GROUPS_CLASS_NAME => Some(StdlibClass::MatchGroups),
@@ -101,6 +107,10 @@ mod tests {
     #[test]
     fn recognizes_stdlib_class_names() {
         assert_eq!(typescript_stdlib_class("Date"), Some(StdlibClass::Date));
+        assert_eq!(
+            typescript_stdlib_class("Headers"),
+            Some(StdlibClass::Headers)
+        );
         assert_eq!(typescript_stdlib_class("Map"), Some(StdlibClass::Map));
         assert_eq!(
             typescript_stdlib_class(MATCH_CLASS_NAME),

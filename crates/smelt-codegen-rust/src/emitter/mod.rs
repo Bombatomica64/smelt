@@ -107,6 +107,7 @@ mod construct;
 mod control_flow_match;
 mod core;
 mod dict_entry_update;
+mod fetch_types;
 mod host_interop;
 mod list;
 mod list_mutation;

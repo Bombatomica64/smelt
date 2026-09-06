@@ -465,6 +465,33 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             };
             format!("set_{op_name} {}", expr_ref(*set))
         }
+        ExprKind::HeadersNew { init } => init.map_or_else(
+            || "headers_new".to_owned(),
+            |init| format!("headers_new {}", expr_ref(init)),
+        ),
+        ExprKind::HeadersOp { op, headers, args } => {
+            let op_name = match op {
+                crate::expr::HeadersOp::Get => "get",
+                crate::expr::HeadersOp::Has => "has",
+                crate::expr::HeadersOp::Set => "set",
+                crate::expr::HeadersOp::Append => "append",
+                crate::expr::HeadersOp::Delete => "delete",
+                crate::expr::HeadersOp::Keys => "keys",
+                crate::expr::HeadersOp::Values => "values",
+                crate::expr::HeadersOp::Entries => "entries",
+                crate::expr::HeadersOp::GetSetCookie => "get_set_cookie",
+            };
+            let args_text = args
+                .iter()
+                .map(|arg| expr_ref(*arg))
+                .collect::<Vec<_>>()
+                .join(", ");
+            if args_text.is_empty() {
+                format!("headers_{op_name} {}", expr_ref(*headers))
+            } else {
+                format!("headers_{op_name} {}, {args_text}", expr_ref(*headers))
+            }
+        }
         ExprKind::ListConcat { left, right } => {
             format!("list_concat {}, {}", expr_ref(*left), expr_ref(*right))
         }

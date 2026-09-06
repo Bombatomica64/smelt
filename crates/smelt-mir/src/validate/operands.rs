@@ -32,6 +32,17 @@ impl Rvalue {
             }
             Self::GeneratorDone { result } | Self::GeneratorValue { result } => visit(result),
             Self::GeneratorDelegate { generator } => visit(generator),
+            Self::HeadersNew { init } => {
+                if let Some(init) = init {
+                    visit(init);
+                }
+            }
+            Self::HeadersOp { headers, args, .. } => {
+                visit(headers);
+                for arg in args {
+                    visit(arg);
+                }
+            }
             Self::List(items) | Self::Set(items) | Self::Tuple(items) => {
                 for item in items {
                     visit(item);
@@ -839,6 +850,17 @@ impl Rvalue {
             }
             Self::GeneratorDone { result } | Self::GeneratorValue { result } => visit(result),
             Self::GeneratorDelegate { generator } => visit(generator),
+            Self::HeadersNew { init } => {
+                if let Some(init) = init {
+                    visit(init);
+                }
+            }
+            Self::HeadersOp { headers, args, .. } => {
+                visit(headers);
+                for arg in args.iter_mut() {
+                    visit(arg);
+                }
+            }
             Self::List(items) | Self::Set(items) | Self::Tuple(items) => {
                 for item in items.iter_mut() {
                     visit(item);

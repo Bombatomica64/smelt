@@ -229,5 +229,6 @@ mod enum_switch_tests;
 mod array_literal_expr_tests;
 mod estk_mir_gate_tests;
 mod module_globals_tests;
+mod fetch_types_tests;
 mod host_module_tests;
 mod host_override_tests;

@@ -84,6 +84,7 @@ mod reference_class_tests;
 mod module_globals_tests;
 mod snapshot_tests;
 mod snapshot_tests_part_2;
+mod fetch_types_tests;
 mod host_override_tests;
 mod thrown_tests;
 mod runtime_manifest_tests;

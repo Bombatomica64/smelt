@@ -22,6 +22,8 @@ pub enum TypeScriptReceiverKind {
     Map,
     /// A source `Set<T>` value.
     Set,
+    /// A WHATWG `Headers` value.
+    Headers,
 }
 
 /// Receiver-method call shape recognized after a frontend knows the receiver type.
@@ -138,6 +140,43 @@ pub const TYPESCRIPT_METHODS: &[MethodRecognition] = &[
         TypeScriptReceiverKind::Set,
         "entries",
         RuleId::TsSetProjection,
+    ),
+    method(TypeScriptReceiverKind::Headers, "get", RuleId::TsHeadersGet),
+    method(TypeScriptReceiverKind::Headers, "has", RuleId::TsHeadersHas),
+    method(
+        TypeScriptReceiverKind::Headers,
+        "set",
+        RuleId::TsHeadersMutation,
+    ),
+    method(
+        TypeScriptReceiverKind::Headers,
+        "append",
+        RuleId::TsHeadersMutation,
+    ),
+    method(
+        TypeScriptReceiverKind::Headers,
+        "delete",
+        RuleId::TsHeadersMutation,
+    ),
+    method(
+        TypeScriptReceiverKind::Headers,
+        "keys",
+        RuleId::TsHeadersProjection,
+    ),
+    method(
+        TypeScriptReceiverKind::Headers,
+        "values",
+        RuleId::TsHeadersProjection,
+    ),
+    method(
+        TypeScriptReceiverKind::Headers,
+        "entries",
+        RuleId::TsHeadersProjection,
+    ),
+    method(
+        TypeScriptReceiverKind::Headers,
+        "getSetCookie",
+        RuleId::TsHeadersProjection,
     ),
 ];
 

@@ -1290,6 +1290,7 @@ impl<'builder> ModuleBuilder<'builder> {
         Self::object_projection_call,
         Self::object_has_own_call,
         Self::dispatch_collection_method,
+        Self::dispatch_headers_method,
         Self::map_projection_call,
         Self::regexp_test_call,
         Self::regexp_exec_call,

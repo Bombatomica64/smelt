@@ -228,6 +228,36 @@ pub enum RegexMatchOp {
     FullMatch,
 }
 
+/// A directly lowered WHATWG `Headers` operation.
+///
+/// One enum for the whole surface, in the shape of the other lowered-intrinsic
+/// operation enums: the receiver is a concrete `Headers` value, so the operation
+/// is selected statically at the call site and the runtime never inspects a tag
+/// to find out which method was called. The WHATWG semantics each variant
+/// carries (case-insensitive names, comma-joined reads, the `Set-Cookie`
+/// carve-out) live in the generated runtime type; this enum only names them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HeadersOp {
+    /// `get(name)`: the comma-joined values for a name, or `null`.
+    Get,
+    /// `has(name)`.
+    Has,
+    /// `set(name, value)`: replace every value for a name.
+    Set,
+    /// `append(name, value)`: add a value, keeping existing ones.
+    Append,
+    /// `delete(name)`.
+    Delete,
+    /// `keys()`: header names, sorted and deduplicated.
+    Keys,
+    /// `values()`: header values in name order.
+    Values,
+    /// `entries()`: name/value pairs in name order.
+    Entries,
+    /// `getSetCookie()`: every `Set-Cookie` value, uncombined.
+    GetSetCookie,
+}
+
 /// A directly lowered local-time `Date` component.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DatePart {

@@ -1194,6 +1194,24 @@ pub enum Rvalue {
         /// Set value to project.
         set: Operand,
     },
+    /// Construct a WHATWG `Headers` value.
+    ///
+    /// The initializer's static type selects the conversion at emit time (a
+    /// record, a list of name/value pairs, or another `Headers`), so no runtime
+    /// tag test decides how the value is built.
+    HeadersNew {
+        /// Optional initializer value.
+        init: Option<Operand>,
+    },
+    /// Apply a WHATWG `Headers` operation to a concrete `Headers` receiver.
+    HeadersOp {
+        /// Operation to apply.
+        op: smelt_hir::HeadersOp,
+        /// `Headers` receiver.
+        headers: Operand,
+        /// Operation arguments (name, or name and value).
+        args: Vec<Operand>,
+    },
     /// Concatenate two lists into a new list.
     ListConcat {
         /// Left list value.

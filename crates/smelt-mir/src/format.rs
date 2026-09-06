@@ -878,6 +878,33 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 operand_text(right)
             )
         }
+        Rvalue::HeadersNew { init } => init.as_ref().map_or_else(
+            || "headers_new".to_owned(),
+            |init| format!("headers_new {}", operand_text(init)),
+        ),
+        Rvalue::HeadersOp { op, headers, args } => {
+            let op_text = match op {
+                smelt_hir::HeadersOp::Get => "get",
+                smelt_hir::HeadersOp::Has => "has",
+                smelt_hir::HeadersOp::Set => "set",
+                smelt_hir::HeadersOp::Append => "append",
+                smelt_hir::HeadersOp::Delete => "delete",
+                smelt_hir::HeadersOp::Keys => "keys",
+                smelt_hir::HeadersOp::Values => "values",
+                smelt_hir::HeadersOp::Entries => "entries",
+                smelt_hir::HeadersOp::GetSetCookie => "get_set_cookie",
+            };
+            let args_text = args
+                .iter()
+                .map(operand_text)
+                .collect::<Vec<_>>()
+                .join(", ");
+            if args_text.is_empty() {
+                format!("headers_{op_text} {}", operand_text(headers))
+            } else {
+                format!("headers_{op_text} {}, {args_text}", operand_text(headers))
+            }
+        }
         Rvalue::SetProjection { op, set } => {
             let op_text = match op {
                 smelt_hir::SetProjectionOp::Values => "values",

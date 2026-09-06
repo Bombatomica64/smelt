@@ -1178,6 +1178,11 @@ impl FunctionEmitter<'_> {
                 if self.is_match_class_symbol(*name)? {
                     return Ok(RustType::raw("SmeltMatch"));
                 }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::Headers)
+                {
+                    return Ok(RustType::raw("SmeltHeaders"));
+                }
                 if !self.mir.classes.iter().any(|class| class.name == *name)
                     && !self
                         .mir
@@ -1429,6 +1434,12 @@ impl FunctionEmitter<'_> {
             Type::TypeParam { .. } | Type::Union(_) => Ok(self.null_value_text()),
             Type::Class { name, .. } if self.is_regexp_class_symbol(*name)? => {
                 Ok("SmeltRegExp::new(String::new(), String::new())".to_owned())
+            }
+            Type::Class { name, .. }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::Headers) =>
+            {
+                Ok("SmeltHeaders::new()".to_owned())
             }
             Type::Class { name, .. } if self.is_match_class_symbol(*name)? => {
                 Ok("SmeltMatch::default()".to_owned())

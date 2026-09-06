@@ -1005,6 +1005,10 @@ impl FunctionEmitter<'_> {
                 method,
                 args,
             } => self.union_method_text(receiver, *method, args, dest_ty),
+            Rvalue::HeadersNew { init } => self.headers_new_text(init.as_ref()),
+            Rvalue::HeadersOp { op, headers, args } => {
+                self.headers_op_text(*op, headers, args, dest_ty)
+            }
             Rvalue::OptionalCoalesce { optional, fallback } => {
                 self.optional_coalesce_text(optional, fallback, dest_ty)
             }

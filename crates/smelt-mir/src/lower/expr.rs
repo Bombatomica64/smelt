@@ -1077,6 +1077,33 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
+            ExprKind::HeadersNew { init } => {
+                let init_operand = match init {
+                    Some(init) => Some(self.lower_expr(*init)?),
+                    None => None,
+                };
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::HeadersNew { init: init_operand },
+                )?
+            }
+            ExprKind::HeadersOp { op, headers, args } => {
+                let headers_operand = self.lower_expr(*headers)?;
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::HeadersOp {
+                        op: *op,
+                        headers: headers_operand,
+                        args: arg_operands,
+                    },
+                )?
+            }
             ExprKind::ListConcat { left, right } => {
                 let left_operand = self.lower_expr(*left)?;
                 let right_operand = self.lower_expr(*right)?;

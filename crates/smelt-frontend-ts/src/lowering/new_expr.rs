@@ -256,6 +256,12 @@ impl ModuleBuilder<'_> {
         {
             return self.byte_buffer_constructor_expression(new_expr, callee.name.as_str(), body);
         }
+        // A WHATWG `Headers` is a modeled concrete runtime type. A user class
+        // named `Headers` still wins: the registry models the host name, not the
+        // spelling.
+        if callee.name == "Headers" && !self.classes.contains("Headers") {
+            return self.headers_constructor_expression(new_expr, body);
+        }
         if callee.name == "URLSearchParams" {
             return self.url_search_params_constructor_expression(new_expr, body);
         }

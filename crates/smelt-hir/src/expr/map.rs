@@ -398,6 +398,24 @@ impl ExprKind {
                 right: f(right)?,
             },
             Self::SetProjection { op, set } => Self::SetProjection { op, set: f(set)? },
+            Self::HeadersNew { init } => Self::HeadersNew {
+                init: match init {
+                    Some(init) => Some(f(init)?),
+                    None => None,
+                },
+            },
+            Self::HeadersOp { op, headers, args } => {
+                let headers = f(headers)?;
+                let mut mapped = Vec::with_capacity(args.len());
+                for arg in args {
+                    mapped.push(f(arg)?);
+                }
+                Self::HeadersOp {
+                    op,
+                    headers,
+                    args: mapped,
+                }
+            }
             Self::ListConcat { left, right } => Self::ListConcat {
                 left: f(left)?,
                 right: f(right)?,

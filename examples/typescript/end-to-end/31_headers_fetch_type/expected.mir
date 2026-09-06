@@ -1,0 +1,112 @@
+fn main (FuncId(0)) -> None
+  locals
+    %0 user request: Headers
+    %1 user response: Headers
+    %2 user __smelt_for_item: (String, String)
+    %3 user name: String
+    %4 user value: String
+    %5 temp: Dict<String, String>
+    %6 temp: Headers
+    %7 temp: None
+    %8 temp: None
+    %9 temp: Headers
+    %10 temp: None
+    %11 temp: None
+    %12 temp: None
+    %13 temp: None
+    %14 temp: None
+    %15 temp: Optional<String>
+    %16 temp: String
+    %17 temp: None
+    %18 temp: Optional<String>
+    %19 temp: String
+    %20 temp: None
+    %21 temp: Optional<String>
+    %22 temp: String
+    %23 temp: None
+    %24 temp: Optional<String>
+    %25 temp: String
+    %26 temp: None
+    %27 temp: Bool
+    %28 temp: Bool
+    %29 temp: None
+    %30 temp: List<String>
+    %31 temp: String
+    %32 temp: None
+    %33 temp: List<String>
+    %34 temp: List<String>
+    %35 temp: List<String>
+    %36 temp: String
+    %37 temp: None
+    %38 temp: List<(String, String)>
+    %39 temp: Float
+    %40 temp: Float
+    %41 temp: Bool
+    %42 temp: String
+    %43 temp: String
+    %44 temp: None
+  bb0:
+    %5 = {"Content-Type": "text/plain"}
+    %6 = headers_new move %5
+    %0 = move %6
+    %7 = headers_append copy %0, "Accept", "text/html"
+    %8 = headers_append copy %0, "accept", "application/json"
+    %9 = headers_new copy %0
+    %1 = move %9
+    %10 = headers_set copy %1, "X-Trace", "first"
+    %11 = headers_set copy %1, "x-trace", "second"
+    %12 = headers_append copy %1, "Set-Cookie", "a=1"
+    %13 = headers_append copy %1, "set-cookie", "b=2"
+    %14 = headers_delete copy %1, "content-type"
+    %15 = headers_get copy %0, "content-type"
+    %16 = move %15 ?? "null"
+    %17 = call @console_log(move %16) -> bb1
+  bb1:
+    %18 = headers_get move %0, "accept"
+    %19 = move %18 ?? "null"
+    %20 = call @console_log(move %19) -> bb2
+  bb2:
+    %21 = headers_get copy %1, "x-trace"
+    %22 = move %21 ?? "null"
+    %23 = call @console_log(move %22) -> bb3
+  bb3:
+    %24 = headers_get copy %1, "content-type"
+    %25 = move %24 ?? "null"
+    %26 = call @console_log(move %25) -> bb4
+  bb4:
+    %27 = headers_has copy %1, "set-cookie"
+    %28 = headers_has copy %1, "content-type"
+    %29 = call @console_log(move %27, move %28) -> bb5
+  bb5:
+    %30 = headers_get_set_cookie copy %1
+    %31 = string_join move %30, "|"
+    %32 = call @console_log(move %31) -> bb6
+  bb6:
+    %33 = headers_keys copy %1
+    %34 = []
+    %35 = list_concat move %33, move %34
+    %36 = string_join move %35, ","
+    %37 = call @console_log(move %36) -> bb7
+  bb7:
+    %38 = headers_entries move %1
+    %39 = 0.0
+    goto bb8
+  bb8:
+    %40 = len copy %38
+    %41 = copy %39 < move %40
+    switch move %41 ? bb9 : bb11
+  bb9:
+    %2 = copy %38[copy %39]
+    %42 = tuple_index copy %2, 0
+    %3 = move %42
+    %43 = tuple_index move %2, 1
+    %4 = move %43
+    %44 = call @console_log(move %3, move %4) -> bb12
+  bb10:
+    %39 = copy %39 + 1.0
+    goto bb8
+  bb11:
+    return none
+  bb12:
+    goto bb10
+

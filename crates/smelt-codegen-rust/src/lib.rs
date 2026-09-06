@@ -84,6 +84,7 @@ use smelt_mir::{HirOrigin, Mir, MirClassProtocol, MirFunction, Rvalue};
 mod asymmetric_matcher_prelude;
 mod builtin_member_prelude;
 mod byte_buffer_prelude;
+mod fetch_types_prelude;
 pub(crate) mod class_proto;
 pub(crate) mod classes;
 pub(crate) mod classify;
@@ -539,6 +540,9 @@ fn emit_source_with_free_function_router(
     let needs_regex =
         stdlib::backend_dependencies(mir).contains(&smelt_stdlib::BackendDependency::Regex);
     let needs_unknown = stdlib::needs_unknown_type(mir);
+    // The fetch types are pay-for-use: a crate that never mentions `Headers`
+    // carries none of `SmeltHeaders`.
+    let needs_headers = stdlib::needs_headers_runtime(mir);
     let needs_smelt_list = stdlib::needs_smelt_list(mir);
     let needs_erased_function = needs_erased_function_runtime(mir);
     let needs_date_now = stdlib::needs_date_now_runtime(mir);
@@ -739,7 +743,7 @@ fn emit_source_with_free_function_router(
     // identity when later erased to `SmeltUnknown`). Emit it standalone only in
     // that regex-without-list case so list-using programs keep byte-identical
     // output. `needs_smelt_list` already subsumes `needs_unknown`.
-    if needs_regex && !needs_smelt_list {
+    if (needs_regex || needs_headers) && !needs_smelt_list {
         emit_runtime_gate(&mut writer, PreludeGate::ObjectIdentity)?;
     }
     if needs_smelt_list {
@@ -5171,6 +5175,9 @@ fn emit_source_with_free_function_router(
         });
         writer.blank_line();
         emit_smelt_match(&mut writer, needs_unknown);
+    }
+    if needs_headers {
+        fetch_types_prelude::emit(&mut writer, needs_unknown);
     }
     for class in &mir.classes {
         let name = class_name_text(mir, class)?;
