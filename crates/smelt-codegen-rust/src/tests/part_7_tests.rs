@@ -1341,6 +1341,66 @@ export function run(): string {
 }
 
 #[test]
+fn lowers_a_computed_method_call_over_known_members() {
+    // `receiver[key]()` on a receiver whose member set is known is a choice
+    // among known methods and lowers as one. Before this, the computed read
+    // answered `unknown`, an `unknown` callee became `undefined`, and the whole
+    // body collapsed to a default value with no diagnostic.
+    let source = source_for(
+        r"
+class Body {
+  json(): string {
+    return 'json-body';
+  }
+  text(): string {
+    return 'text-body';
+  }
+}
+
+export function read(body: Body, key: 'json' | 'text'): string {
+  return body[key]();
+}
+",
+    );
+
+    assert!(source.contains("body.json()"), "{source}");
+    assert!(source.contains("body.text()"), "{source}");
+    assert!(source.contains("\"json\".to_owned()"), "{source}");
+    // The defect: the body must not be a default value.
+    assert!(
+        !source.contains("fn read(body: Body, key: String) -> String {\n    return String::new();"),
+        "{source}"
+    );
+}
+
+#[test]
+fn leaves_a_computed_method_call_with_arguments_alone() {
+    // The negative half. Arguments are lowered once and would be referenced
+    // from every arm of the chain, so the desugar declines a call that has
+    // any -- binding them to temporaries first is a separate change, and
+    // silently evaluating an argument once per arm would be worse than the
+    // existing lowering.
+    let source = source_for(
+        r"
+class Body {
+  json(prefix: string): string {
+    return prefix + 'json';
+  }
+  text(prefix: string): string {
+    return prefix + 'text';
+  }
+}
+
+export function read(body: Body, key: 'json' | 'text'): string {
+  return body[key]('p');
+}
+",
+    );
+
+    assert!(!source.contains("body.json("), "{source}");
+}
+
+#[test]
 fn keeps_a_module_scope_reassignment() {
     // Every annotated or literal-initialized module-level binding has its
     // declared type recorded so a function body can look it up. That record was

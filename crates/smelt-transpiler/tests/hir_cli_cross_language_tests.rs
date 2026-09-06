@@ -330,6 +330,7 @@ fn end_to_end_examples_match_expected_outputs() -> TestResult {
         "34_optional_field_interface_literal",
         "35_interface_literal_key_spellings",
         "36_module_scope_reassignment",
+        "37_computed_method_over_known_members",
     ] {
         verify_end_to_end_example(name)?;
     }
