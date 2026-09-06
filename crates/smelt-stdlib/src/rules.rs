@@ -198,6 +198,16 @@ pub enum RuleId {
     TsRequestBodyRead,
     /// TypeScript `Request.prototype.clone`.
     TsRequestClone,
+    /// TypeScript `EventEmitter` listener registration (`on`, `addListener`,
+    /// `once`).
+    TsEventEmitterRegister,
+    /// TypeScript `EventEmitter` listener removal (`off`, `removeListener`,
+    /// `removeAllListeners`).
+    TsEventEmitterRemove,
+    /// TypeScript `EventEmitter.prototype.emit`.
+    TsEventEmitterEmit,
+    /// TypeScript `EventEmitter` read (`listenerCount`).
+    TsEventEmitterRead,
     /// Python `json.dumps(value)`.
     PyJsonDumps,
     /// Python `json.loads(text)`.
@@ -291,7 +301,13 @@ impl RuleId {
             | Self::TsResponseBodyRead
             | Self::TsResponseClone
             | Self::TsRequestBodyRead
-            | Self::TsRequestClone => None,
+            | Self::TsRequestClone
+            // The emitter is a generated list of erased callbacks; nothing in
+            // it needs a crate.
+            | Self::TsEventEmitterRegister
+            | Self::TsEventEmitterRemove
+            | Self::TsEventEmitterEmit
+            | Self::TsEventEmitterRead => None,
         }
     }
 
@@ -340,6 +356,10 @@ impl RuleId {
             Self::TsRequestRead => "Request property read",
             Self::TsRequestBodyRead => "Request body reader",
             Self::TsRequestClone => "Request.clone",
+            Self::TsEventEmitterRegister => "EventEmitter listener registration",
+            Self::TsEventEmitterRemove => "EventEmitter listener removal",
+            Self::TsEventEmitterEmit => "EventEmitter.emit",
+            Self::TsEventEmitterRead => "EventEmitter read",
             Self::PyJsonDumps => "json.dumps",
             Self::PyJsonLoads => "json.loads",
             Self::PyReSearch => "re.search",

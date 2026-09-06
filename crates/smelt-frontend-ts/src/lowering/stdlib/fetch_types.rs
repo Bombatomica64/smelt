@@ -28,7 +28,7 @@ use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use oxc::ast::ast::Expression;
 use oxc::span::GetSpan;
-use smelt_hir::{Body, Expr, ExprKind, HeadersOp, RequestOp, ResponseOp, Type};
+use smelt_hir::{Body, EventEmitterOp, Expr, ExprKind, HeadersOp, RequestOp, ResponseOp, Type};
 use smelt_stdlib::RuleId;
 
 
@@ -1013,6 +1013,134 @@ impl ModuleBuilder<'_> {
     /// that covers the ambient interfaces.
     fn erased_init_receiver(&self, name: smelt_hir::Symbol) -> bool {
         self.class_by_symbol(name).is_none() && self.find_interface(name).is_none()
+    }
+
+    /// Lower `new EventEmitter()` into a concrete emitter.
+    ///
+    /// The constructor's only option is `{ captureRejections }`, which changes
+    /// how a rejected promise returned by a listener is reported. Nothing here
+    /// can observe that yet, so passing it is a named blocker rather than an
+    /// argument that is accepted and ignored.
+    pub(in crate::lowering) fn event_emitter_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if !new_expr.arguments.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(new_expr.span.start, new_expr.span.end),
+                "EventEmitter options are not modeled yet",
+            ));
+        }
+        let ty = self.event_emitter_type();
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::EventEmitterNew,
+            ty,
+            span: self.span(new_expr.span.start, new_expr.span.end),
+        }))
+    }
+
+    /// Dispatch a modeled `EventEmitter` method on a concrete receiver.
+    pub(in crate::lowering) fn dispatch_event_emitter_method(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let member_name = member.property.name.as_str();
+        if smelt_stdlib::typescript_method_rule(
+            smelt_stdlib::TypeScriptReceiverKind::EventEmitter,
+            member_name,
+        )
+        .is_none()
+        {
+            return Ok(None);
+        }
+        let Ok(receiver) = self.expression(&member.object, body) else {
+            return Ok(None);
+        };
+        let receiver_ty = Self::expr_ty(body, receiver);
+        if !self.is_event_emitter_type(receiver_ty) {
+            return Ok(None);
+        }
+        // The member spelling picks the operation: `on` and `addListener` are
+        // the same operation under two names, as are `off` and
+        // `removeListener`.
+        let op = match member_name {
+            "on" | "addListener" => EventEmitterOp::On,
+            "once" => EventEmitterOp::Once,
+            "off" | "removeListener" => EventEmitterOp::Off,
+            "removeAllListeners" => EventEmitterOp::RemoveAll,
+            "emit" => EventEmitterOp::Emit,
+            "listenerCount" => EventEmitterOp::ListenerCount,
+            _ => return Ok(None),
+        };
+        let required = match op {
+            EventEmitterOp::On | EventEmitterOp::Once | EventEmitterOp::Off => 2,
+            _ => 1,
+        };
+        if call.arguments.len() < required {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                format!("`EventEmitter.{member_name}` requires {required} argument(s)"),
+            ));
+        }
+        // `emit` forwards its whole tail to every listener, so every argument is
+        // lowered; the others take exactly the arguments they model.
+        let taken = if matches!(op, EventEmitterOp::Emit) {
+            call.arguments.len()
+        } else {
+            required
+        };
+        let args = call
+            .arguments
+            .iter()
+            .take(taken)
+            .map(|argument| self.argument(argument, body))
+            .collect::<Result<Vec<_>, _>>()?;
+        let ty = self.event_emitter_op_result_type(op);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::EventEmitterOp {
+                op,
+                emitter: receiver,
+                args,
+            },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Return the modeled `EventEmitter` class type.
+    pub(in crate::lowering) fn event_emitter_type(&mut self) -> smelt_hir::TypeId {
+        let name = self.intern_type_name("EventEmitter");
+        self.ctx.krate.types.intern(Type::Class {
+            name,
+            args: Vec::new(),
+        })
+    }
+
+    /// Return whether a lowered type is the modeled `EventEmitter` class.
+    pub(in crate::lowering) fn is_event_emitter_type(&self, ty: smelt_hir::TypeId) -> bool {
+        self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::EventEmitter)
+            && !self.user_class_shadows("EventEmitter")
+    }
+
+    /// The HIR type an `EventEmitter` operation answers.
+    ///
+    /// Every registration and removal answers the EMITTER, which is what makes
+    /// `e.on(..).on(..)` chain as it does in Node; `emit` answers whether a
+    /// listener ran, and `listenerCount` a number.
+    fn event_emitter_op_result_type(&mut self, op: EventEmitterOp) -> smelt_hir::TypeId {
+        match op {
+            EventEmitterOp::On
+            | EventEmitterOp::Once
+            | EventEmitterOp::Off
+            | EventEmitterOp::RemoveAll => self.event_emitter_type(),
+            EventEmitterOp::Emit => self.ctx.krate.types.intern(Type::Bool),
+            EventEmitterOp::ListenerCount => self.ctx.krate.types.intern(Type::Float),
+        }
     }
 
 }

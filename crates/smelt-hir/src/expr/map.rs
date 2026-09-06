@@ -401,6 +401,19 @@ impl ExprKind {
                 right: f(right)?,
             },
             Self::SetProjection { op, set } => Self::SetProjection { op, set: f(set)? },
+            Self::EventEmitterNew => Self::EventEmitterNew,
+            Self::EventEmitterOp { op, emitter, args } => {
+                let emitter = f(emitter)?;
+                let mut mapped = Vec::with_capacity(args.len());
+                for arg in args {
+                    mapped.push(f(arg)?);
+                }
+                Self::EventEmitterOp {
+                    op,
+                    emitter,
+                    args: mapped,
+                }
+            }
             Self::RequestNew {
                 input,
                 method,

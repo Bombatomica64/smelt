@@ -42,6 +42,9 @@ pub enum StdlibClass {
     /// runtime type (a serialized URL, a method, a `SmeltHeaders`, and the same
     /// single-use `SmeltBody` a response holds).
     Request,
+    /// `node:events` `EventEmitter`, backed by the generated concrete
+    /// `SmeltEventEmitter` runtime type (an insertion-ordered listener list).
+    EventEmitter,
 }
 
 /// Reserved synthetic class name for a `RegExp` match result value.
@@ -72,6 +75,7 @@ pub fn typescript_stdlib_class(name: &str) -> Option<StdlibClass> {
         "URLSearchParams" => Some(StdlibClass::UrlSearchParams),
         "Response" => Some(StdlibClass::Response),
         "Request" => Some(StdlibClass::Request),
+        "EventEmitter" => Some(StdlibClass::EventEmitter),
         _ => None,
     }
 }

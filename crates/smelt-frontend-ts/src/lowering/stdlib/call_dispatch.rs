@@ -1417,6 +1417,7 @@ impl<'builder> ModuleBuilder<'builder> {
         Self::dispatch_url_search_params_method,
         Self::dispatch_response_method,
         Self::dispatch_request_method,
+        Self::dispatch_event_emitter_method,
         Self::map_projection_call,
         Self::regexp_test_call,
         Self::regexp_exec_call,

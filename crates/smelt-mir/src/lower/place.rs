@@ -195,6 +195,8 @@ impl LoweringCtx<'_> {
             | ExprKind::RegexReplaceFirstMatchUppercase { .. }
             | ExprKind::RegexSplit { .. }
             | ExprKind::RegexFind { .. }
+            | ExprKind::EventEmitterNew
+            | ExprKind::EventEmitterOp { .. }
             | ExprKind::RequestNew { .. }
             | ExprKind::RequestOp { .. }
             | ExprKind::ResponseNew { .. }

@@ -1105,6 +1105,25 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
+            ExprKind::EventEmitterNew => {
+                self.assign_temp(expr.ty, expr.span, Rvalue::EventEmitterNew)?
+            }
+            ExprKind::EventEmitterOp { op, emitter, args } => {
+                let emitter_operand = self.lower_expr(*emitter)?;
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::EventEmitterOp {
+                        op: *op,
+                        emitter: emitter_operand,
+                        args: arg_operands,
+                    },
+                )?
+            }
             ExprKind::RequestNew {
                 input,
                 method,

@@ -521,6 +521,14 @@ fn rewrite_rvalue(
                 | rewrite_operand_except(right, aliases, dest)
         }
         Rvalue::SetProjection { set, .. } => rewrite_operand_except(set, aliases, dest),
+        Rvalue::EventEmitterNew => false,
+        Rvalue::EventEmitterOp { emitter, args, .. } => {
+            let mut rewritten = rewrite_operand_except(emitter, aliases, dest);
+            for arg in args {
+                rewritten |= rewrite_operand_except(arg, aliases, dest);
+            }
+            rewritten
+        }
         Rvalue::RequestNew {
             input,
             method,

@@ -498,6 +498,16 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             };
             format!("set_{op_name} {}", expr_ref(*set))
         }
+        ExprKind::EventEmitterNew => "event_emitter_new".to_owned(),
+        ExprKind::EventEmitterOp { op, emitter, args } => {
+            let name = event_emitter_op_name(*op);
+            let mut text = format!("emitter_{name} {}", expr_ref(*emitter));
+            for arg in args {
+                text.push(' ');
+                text.push_str(&expr_ref(*arg));
+            }
+            text
+        }
         ExprKind::RequestNew {
             input,
             method,
@@ -1162,6 +1172,18 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
 }
 
 /// Formats a runtime-backed async operation.
+/// The dump spelling of an `EventEmitter` operation.
+const fn event_emitter_op_name(op: crate::expr::EventEmitterOp) -> &'static str {
+    match op {
+        crate::expr::EventEmitterOp::On => "on",
+        crate::expr::EventEmitterOp::Once => "once",
+        crate::expr::EventEmitterOp::Off => "off",
+        crate::expr::EventEmitterOp::RemoveAll => "remove_all",
+        crate::expr::EventEmitterOp::Emit => "emit",
+        crate::expr::EventEmitterOp::ListenerCount => "listener_count",
+    }
+}
+
 /// The dump spelling of a `Request` operation.
 const fn request_op_name(op: crate::expr::RequestOp) -> &'static str {
     match op {

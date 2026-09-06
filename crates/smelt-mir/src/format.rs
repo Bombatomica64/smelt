@@ -896,6 +896,23 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 operand_text(right)
             )
         }
+        Rvalue::EventEmitterNew => "event_emitter_new".to_owned(),
+        Rvalue::EventEmitterOp { op, emitter, args } => {
+            let name = match op {
+                smelt_hir::EventEmitterOp::On => "on",
+                smelt_hir::EventEmitterOp::Once => "once",
+                smelt_hir::EventEmitterOp::Off => "off",
+                smelt_hir::EventEmitterOp::RemoveAll => "remove_all",
+                smelt_hir::EventEmitterOp::Emit => "emit",
+                smelt_hir::EventEmitterOp::ListenerCount => "listener_count",
+            };
+            let mut text = format!("emitter_{name} {}", operand_text(emitter));
+            for arg in args {
+                text.push(' ');
+                text.push_str(&operand_text(arg));
+            }
+            text
+        }
         Rvalue::RequestNew {
             input,
             method,

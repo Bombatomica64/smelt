@@ -1260,6 +1260,11 @@ impl FunctionEmitter<'_> {
                 if self.stdlib_class_of_symbol(*name)? == Some(smelt_stdlib::StdlibClass::Request) {
                     return Ok(RustType::raw("SmeltRequest"));
                 }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::EventEmitter)
+                {
+                    return Ok(RustType::raw("SmeltEventEmitter"));
+                }
                 if !self.mir.classes.iter().any(|class| class.name == *name)
                     && !self
                         .mir
@@ -1529,6 +1534,12 @@ impl FunctionEmitter<'_> {
                     == Some(smelt_stdlib::StdlibClass::Response) =>
             {
                 Ok("SmeltResponse::new()".to_owned())
+            }
+            Type::Class { name, .. }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::EventEmitter) =>
+            {
+                Ok("SmeltEventEmitter::new()".to_owned())
             }
             Type::Class { name, .. }
                 if self.stdlib_class_of_symbol(*name)?

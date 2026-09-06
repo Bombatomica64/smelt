@@ -84,6 +84,7 @@ use smelt_mir::{HirOrigin, Mir, MirClassProtocol, MirFunction, MirGlobalInit, Rv
 mod asymmetric_matcher_prelude;
 mod builtin_member_prelude;
 mod byte_buffer_prelude;
+mod event_emitter_prelude;
 mod fetch_types_prelude;
 pub(crate) mod class_proto;
 pub(crate) mod classes;
@@ -557,6 +558,7 @@ fn emit_source_with_free_function_router(
     let needs_url_search_params = stdlib::needs_url_search_params_runtime(mir);
     let needs_response = stdlib::needs_response_runtime(mir);
     let needs_request = stdlib::needs_request_runtime(mir);
+    let needs_event_emitter = stdlib::needs_event_emitter_runtime(mir);
     let needs_body = stdlib::needs_body_runtime(mir);
     let needs_smelt_list = stdlib::needs_smelt_list(mir);
     let needs_erased_function = needs_erased_function_runtime(mir);
@@ -5213,6 +5215,9 @@ fn emit_source_with_free_function_router(
     }
     if needs_request {
         fetch_types_prelude::emit_request(&mut writer, needs_unknown);
+    }
+    if needs_event_emitter {
+        event_emitter_prelude::emit(&mut writer);
     }
     for class in &mir.classes {
         let name = class_name_text(mir, class)?;

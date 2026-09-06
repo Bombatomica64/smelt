@@ -70,6 +70,7 @@ pub use expr::{
     NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp, PropertyLookup, RegexMatchOp,
     RegexReplaceArg, SetBinaryOp,
     HeadersOp, SetProjectionOp, SetRelationOp, SetRemoveOp, StringAffixOp, StringCaseOp,
+    EventEmitterOp,
     RequestOp,
     ResponseOp,
     UrlSearchParamsOp,

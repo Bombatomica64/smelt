@@ -4889,6 +4889,9 @@ impl<'mir> FunctionEmitter<'mir> {
                                 // `SmeltResponse`, never an erased record.
                                 | smelt_stdlib::StdlibClass::Response
                                 | smelt_stdlib::StdlibClass::Request
+                                // An emitter is a concrete listener list, not
+                                // an erased record.
+                                | smelt_stdlib::StdlibClass::EventEmitter
                         )
                     )
                 }) {
@@ -5323,6 +5326,17 @@ pub(super) fn rvalue_uses_local(value: &Rvalue, local: LocalId) -> bool {
         // and presence probes take no operands. Missing this arm would let the
         // `_ => false` fallthrough elide a closure whose only use is the write.
         Rvalue::HostGlobalWrite { value: stored, .. } => operand_uses_local(stored, local),
+        // An `EventEmitter` operation reads its receiver and every argument. The
+        // listener argument of `on`/`once`/`off` is almost always a closure temp
+        // whose ONLY use is this rvalue, so without this arm the `_ => false`
+        // fallthrough elides the closure's own statement and the emitted code
+        // references an undeclared temporary.
+        Rvalue::EventEmitterOp { emitter, args, .. } => {
+            operand_uses_local(emitter, local)
+                || args
+                    .iter()
+                    .any(|operand| operand_uses_local(operand, local))
+        }
         // A Vitest mock construction reads its wrapped implementation (often a
         // closure temp whose ONLY use is this rvalue — missing this arm elides
         // that closure's declaration); the matcher queries read the mock and

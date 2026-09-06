@@ -173,6 +173,22 @@ pub(crate) fn needs_request_runtime(mir: &Mir) -> bool {
         .any(|ty| is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::Request))
 }
 
+/// Returns true when generated Rust needs the `SmeltEventEmitter` type.
+///
+/// Same pay-for-use rule as the fetch types.
+pub(crate) fn needs_event_emitter_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| {
+        matches!(
+            rvalue,
+            Rvalue::EventEmitterNew | Rvalue::EventEmitterOp { .. }
+        )
+    }) || mir
+        .types
+        .all()
+        .iter()
+        .any(|ty| is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::EventEmitter))
+}
+
 /// Returns true when generated Rust needs the `SmeltBody` runtime type.
 ///
 /// `SmeltBody` has no source spelling of its own — no program says `new

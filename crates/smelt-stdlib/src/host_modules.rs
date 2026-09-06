@@ -139,9 +139,6 @@ const HTTP_REASON: &str = "the node:http server surface is not implemented yet";
 /// Reason text shared by the `node:sqlite` surface.
 const SQLITE_REASON: &str = "the node:sqlite database surface is not implemented yet";
 
-/// Reason text shared by the `node:events` surface.
-const EVENTS_REASON: &str = "the node:events EventEmitter surface is not implemented yet";
-
 /// Reason text shared by the `WebCrypto` surface.
 const CRYPTO_REASON: &str = "the node:crypto surface is not implemented yet";
 
@@ -190,8 +187,8 @@ pub const HOST_MODULES: &[HostModule] = &[
     HostModule {
         specifiers: &["node:events", "events"],
         exports: &[
-            declared_class("EventEmitter", EVENTS_REASON),
-            declared_value("default", EVENTS_REASON),
+            modeled_class("EventEmitter"),
+            modeled_value("default"),
         ],
         dependencies: &[],
     },

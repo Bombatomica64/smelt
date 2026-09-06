@@ -1290,6 +1290,17 @@ pub enum Rvalue {
         set: Operand,
     },
     /// Construct a WHATWG `URLSearchParams` value.
+    /// Build an empty `EventEmitter`.
+    EventEmitterNew,
+    /// An `EventEmitter` member operation on a concrete emitter receiver.
+    EventEmitterOp {
+        /// Which operation this member performs.
+        op: smelt_hir::EventEmitterOp,
+        /// The emitter receiver.
+        emitter: Operand,
+        /// The event name, followed by the operation's own arguments.
+        args: Vec<Operand>,
+    },
     /// Build a concrete `Request` value.
     ///
     /// The init literal's keys arrive as separate operands, like

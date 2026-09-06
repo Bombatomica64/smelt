@@ -1011,6 +1011,10 @@ impl FunctionEmitter<'_> {
             Rvalue::UrlSearchParamsOp { op, params, args } => {
                 self.url_search_params_op_text(*op, params, args, dest_ty)
             }
+            Rvalue::EventEmitterNew => Ok("SmeltEventEmitter::new()".to_owned()),
+            Rvalue::EventEmitterOp { op, emitter, args } => {
+                self.event_emitter_op_text(*op, emitter, args)
+            }
             Rvalue::RequestNew {
                 input,
                 method,

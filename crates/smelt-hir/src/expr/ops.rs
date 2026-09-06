@@ -283,6 +283,33 @@ pub enum RegexMatchOp {
     FullMatch,
 }
 
+/// A directly lowered `node:events` `EventEmitter` operation.
+///
+/// The receiver is a concrete emitter, so which member was named is decided
+/// statically, exactly as for the fetch types. What the emitter STORES is
+/// erased, and that is a genuine dynamic boundary rather than a convenience:
+/// a listener's signature is not knowable from the event name (`on('data', cb)`
+/// takes a chunk, `on('end', cb)` takes nothing), `emit` passes an arbitrary
+/// positional list decided by the emitting site, and one emitter holds
+/// listeners for many events at once. The store is therefore heterogeneous and
+/// keyed by a runtime string, which no concrete type, generated union or scoped
+/// generic can express.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EventEmitterOp {
+    /// `on(name, listener)` / `addListener`: append a listener.
+    On,
+    /// `once(name, listener)`: append a listener that fires at most once.
+    Once,
+    /// `off(name, listener)` / `removeListener`: remove one instance.
+    Off,
+    /// `removeAllListeners(name)`: remove every listener for a name.
+    RemoveAll,
+    /// `emit(name, ...args)`: call the registered listeners in order.
+    Emit,
+    /// `listenerCount(name)`.
+    ListenerCount,
+}
+
 /// A directly lowered WHATWG `Request` operation.
 ///
 /// The same shape as [`ResponseOp`], and separate from it because the two types

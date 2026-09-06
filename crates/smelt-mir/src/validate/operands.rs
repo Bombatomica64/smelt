@@ -43,6 +43,13 @@ impl Rvalue {
                     visit(arg);
                 }
             }
+            Self::EventEmitterNew => {}
+            Self::EventEmitterOp { emitter, args, .. } => {
+                visit(emitter);
+                for arg in args {
+                    visit(arg);
+                }
+            }
             Self::RequestNew {
                 input,
                 method,
@@ -901,6 +908,13 @@ impl Rvalue {
             }
             Self::HeadersOp { headers, args, .. } => {
                 visit(headers);
+                for arg in args.iter_mut() {
+                    visit(arg);
+                }
+            }
+            Self::EventEmitterNew => {}
+            Self::EventEmitterOp { emitter, args, .. } => {
+                visit(emitter);
                 for arg in args.iter_mut() {
                     visit(arg);
                 }

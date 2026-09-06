@@ -5,7 +5,8 @@ use super::{
     SetBinaryOp,
     SetProjectionOp, SetRelationOp, SetRemoveOp, StringAffixOp, StringCaseOp, StringNormalizeForm,
     StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, UnaryOp,
-    HeadersOp as HeadersOpKind, RequestOp as RequestOpKind, ResponseOp as ResponseOpKind,
+    EventEmitterOp as EventEmitterOpKind, HeadersOp as HeadersOpKind,
+    RequestOp as RequestOpKind, ResponseOp as ResponseOpKind,
     UnknownKind, UriTranscodeOp,
     UrlField,
     UrlSearchParamsOp as UrlSearchParamsOpKind,
@@ -476,6 +477,22 @@ pub enum ExprKind {
         status_text: Option<ExprId>,
         /// `init.headers`, when the init literal set it.
         headers: Option<ExprId>,
+    },
+    /// `new EventEmitter()`.
+    ///
+    /// No options are modeled: the constructor's only argument is
+    /// `{ captureRejections }`, which changes how a rejected promise returned
+    /// by a listener is reported and has no meaning until listeners can be
+    /// async here.
+    EventEmitterNew,
+    /// An `EventEmitter` member operation on a concrete emitter receiver.
+    EventEmitterOp {
+        /// Which operation this member performs.
+        op: EventEmitterOpKind,
+        /// The emitter receiver.
+        emitter: ExprId,
+        /// The event name, followed by the operation's own arguments.
+        args: Vec<ExprId>,
     },
     /// `new Request(input, init?)`.
     ///

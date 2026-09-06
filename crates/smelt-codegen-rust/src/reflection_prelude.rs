@@ -141,6 +141,7 @@ pub fn reflected_construct_kind(class_name: &str) -> Option<&'static str> {
                 | smelt_stdlib::StdlibClass::UrlSearchParams
                 | smelt_stdlib::StdlibClass::Response
                 | smelt_stdlib::StdlibClass::Request
+                | smelt_stdlib::StdlibClass::EventEmitter
         )
     ) {
         return None;

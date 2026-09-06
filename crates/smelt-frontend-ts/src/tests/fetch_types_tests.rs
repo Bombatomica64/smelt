@@ -546,11 +546,11 @@ async function read(): Promise<void> {
 fn response_annotation_resolves_to_the_modeled_class() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 function statusOf(response: Response): number {
   return response.status;
 }
-"#),
+"),
         &mut ctx,
     )?;
     let ty = any_body_expr_ty(&ctx, |kind| {
@@ -575,7 +575,7 @@ function statusOf(response: Response): number {
 fn a_user_class_named_response_wins() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 class Response {
   constructor(readonly status: number) {}
   describe(): number {
@@ -585,7 +585,7 @@ class Response {
 
 const response = new Response(204);
 const described = response.describe();
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(
@@ -607,7 +607,7 @@ const described = response.describe();
 fn an_unrelated_status_read_is_not_a_response_read() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 interface Job {
   status: number;
   ok: boolean;
@@ -616,7 +616,7 @@ interface Job {
 const job: Job = { status: 3, ok: true };
 const status = job.status;
 const ok = job.ok;
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(
@@ -899,9 +899,9 @@ const request = new Request("https://a.test/p", { redirect: "manual" });
 fn request_requires_a_url_argument() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(
-        ts!(r#"
+        ts!(r"
 const request = new Request();
-"#),
+"),
         &mut ctx,
     )?;
     assert_unsupported_ts(&errors, "requires a URL argument")
@@ -915,11 +915,11 @@ const request = new Request();
 fn a_request_can_be_a_request_init() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 export function retarget(url: string, request: Request): Request {
   return new Request(url, request);
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(
@@ -1009,11 +1009,11 @@ export function platform(init: globalThis.ResponseInit): Response {
 fn body_init_is_a_union_whose_string_arm_survives() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 export function serialize(body: BodyInit): string {
   return JSON.stringify(body);
 }
-"#),
+"),
         &mut ctx,
     )?;
     let ty = any_body_expr_ty(&ctx, |kind| matches!(kind, ExprKind::Local(_)))?;
@@ -1027,11 +1027,11 @@ export function serialize(body: BodyInit): string {
 fn a_host_object_is_json_serializable() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
+        ts!(r"
 export function serialize(headers: Headers): string {
   return JSON.stringify(headers);
 }
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -1132,5 +1132,183 @@ export function required(init: Required<Base>): string {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// `new EventEmitter()` lowers to a concrete class value, not an erased record.
+///
+/// The registry entry for `node:events` is `Modeled`, so the import resolves
+/// instead of blocking, and the constructor answers `Type::Class { EventEmitter }`.
+#[test]
+fn the_event_emitter_constructor_lowers_to_a_concrete_class_value() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+import { EventEmitter } from 'node:events';
+const emitter = new EventEmitter();
+"),
+        &mut ctx,
+    )?;
+    let ty = last_expr_ty(&ctx, module_id, |kind| {
+        matches!(kind, ExprKind::EventEmitterNew)
+    })?;
+    ensure!(
+        matches!(ctx.krate.types.get(ty), Some(Type::Class { .. })),
+        "a constructed emitter must keep its class type, got {}",
+        type_text(&ctx, ty),
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// Every registration and removal answers the EMITTER, and `emit` a boolean.
+///
+/// Those return types are what makes `e.on(..).on(..)` chain and
+/// `if (e.emit(..))` narrow, so they are pinned at the HIR level rather than
+/// only observed at run time.
+#[test]
+fn emitter_members_keep_their_source_result_types() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+import { EventEmitter } from 'node:events';
+const emitter = new EventEmitter();
+const chained = emitter.on('a', () => {});
+const ran = emitter.emit('a');
+const count = emitter.listenerCount('a');
+"),
+        &mut ctx,
+    )?;
+    let registered = last_expr_ty(&ctx, module_id, |kind| {
+        matches!(
+            kind,
+            ExprKind::EventEmitterOp {
+                op: smelt_hir::EventEmitterOp::On,
+                ..
+            }
+        )
+    })?;
+    ensure!(
+        matches!(ctx.krate.types.get(registered), Some(Type::Class { .. })),
+        "`on` answers the emitter, got {}",
+        type_text(&ctx, registered),
+    );
+    let emitted = last_expr_ty(&ctx, module_id, |kind| {
+        matches!(
+            kind,
+            ExprKind::EventEmitterOp {
+                op: smelt_hir::EventEmitterOp::Emit,
+                ..
+            }
+        )
+    })?;
+    ensure_eq!(type_text(&ctx, emitted), "Some(Bool)".to_owned());
+    let counted = last_expr_ty(&ctx, module_id, |kind| {
+        matches!(
+            kind,
+            ExprKind::EventEmitterOp {
+                op: smelt_hir::EventEmitterOp::ListenerCount,
+                ..
+            }
+        )
+    })?;
+    ensure_eq!(type_text(&ctx, counted), "Some(Float)".to_owned());
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// `addListener`/`removeListener` are the same operations under other names.
+#[test]
+fn the_alias_spellings_lower_to_the_same_operations() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+import { EventEmitter } from 'node:events';
+const emitter = new EventEmitter();
+const listener = () => {};
+emitter.addListener('a', listener);
+emitter.removeListener('a', listener);
+"),
+        &mut ctx,
+    )?;
+    ensure!(
+        any_body_has(&ctx, |kind| matches!(
+            kind,
+            ExprKind::EventEmitterOp {
+                op: smelt_hir::EventEmitterOp::On,
+                ..
+            }
+        )),
+        "`addListener` is `on`",
+    );
+    ensure!(
+        any_body_has(&ctx, |kind| matches!(
+            kind,
+            ExprKind::EventEmitterOp {
+                op: smelt_hir::EventEmitterOp::Off,
+                ..
+            }
+        )),
+        "`removeListener` is `off`",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// A user class named `EventEmitter` shadows the modeled one.
+///
+/// The same shared `user_class_shadows` check the other modeled classes use:
+/// a source class of that name owns its own members, including inside its own
+/// methods where the class is still only pending.
+#[test]
+fn a_user_event_emitter_class_shadows_the_modeled_one() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+class EventEmitter {
+  constructor(readonly label: string) {}
+  emit(): string {
+    return this.label;
+  }
+}
+
+const mine = new EventEmitter('local');
+const label = mine.emit();
+"),
+        &mut ctx,
+    )?;
+    ensure!(
+        !any_body_has(&ctx, |kind| matches!(
+            kind,
+            ExprKind::EventEmitterNew | ExprKind::EventEmitterOp { .. }
+        )),
+        "a user class of the same name must not be claimed by the modeled type",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// The constructor's `captureRejections` option is a named blocker.
+///
+/// It changes how a rejected promise returned by a listener is reported, and
+/// nothing in the generated runtime can observe that yet. Accepting the option
+/// and ignoring it would be a silent behaviour difference, which is exactly
+/// what the honest-blocker rule exists to prevent.
+#[test]
+fn emitter_constructor_options_are_a_named_blocker() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r"
+import { EventEmitter } from 'node:events';
+const emitter = new EventEmitter({ captureRejections: true });
+"),
+        &mut ctx,
+    )?;
+    ensure!(
+        errors
+            .iter()
+            .any(|error| format!("{error:?}").contains("EventEmitter options")),
+        "the unmodeled option must be named in the diagnostic",
+    );
     Ok(())
 }

@@ -445,6 +445,80 @@ impl FunctionEmitter<'_> {
             == Some(smelt_stdlib::StdlibClass::UrlSearchParams))
     }
 
+    /// Emit an `EventEmitter` member operation on a concrete receiver.
+    ///
+    /// The first argument is always the event name; the rest are the
+    /// operation's own. `emit`'s tail becomes the erased argument vector every
+    /// listener is called with — the boundary the emitter's store is built on.
+    pub(super) fn event_emitter_op_text(
+        &self,
+        op: smelt_hir::EventEmitterOp,
+        emitter: &Operand,
+        args: &[Operand],
+    ) -> Result<String, EmitError> {
+        let receiver = self.operand_text(emitter)?;
+        let string_ty = self.type_id(Type::String)?;
+        let Some(event) = args.first() else {
+            return Err(EmitError::new(
+                "every EventEmitter operation takes an event name",
+            ));
+        };
+        let event_text = self.value_at_type(event, string_ty)?;
+        let listener = |index: usize| -> Result<String, EmitError> {
+            let arg = args.get(index).ok_or_else(|| {
+                EmitError::new(format!("`EventEmitter` operation {op:?} needs a listener"))
+            })?;
+            self.erased_emitter_argument_text(arg)
+        };
+        Ok(match op {
+            smelt_hir::EventEmitterOp::On | smelt_hir::EventEmitterOp::Once => {
+                let once = matches!(op, smelt_hir::EventEmitterOp::Once);
+                format!(
+                    "{{ let smelt_listener = match {} {{ SmeltUnknown::Function(smelt_function) => smelt_function, _ => ::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| Ok(SmeltUnknown::Undefined)) }}; {receiver}.add(&{event_text}, smelt_listener, {once}) }}",
+                    listener(1)?
+                )
+            }
+            smelt_hir::EventEmitterOp::Off => format!(
+                "{{ let smelt_listener = match {} {{ SmeltUnknown::Function(smelt_function) => smelt_function, _ => ::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| Ok(SmeltUnknown::Undefined)) }}; {receiver}.remove(&{event_text}, &smelt_listener) }}",
+                listener(1)?
+            ),
+            smelt_hir::EventEmitterOp::RemoveAll => {
+                format!("{receiver}.remove_all(&{event_text})")
+            }
+            smelt_hir::EventEmitterOp::ListenerCount => {
+                format!("{receiver}.listener_count(&{event_text})")
+            }
+            smelt_hir::EventEmitterOp::Emit => {
+                let mut erased = Vec::new();
+                for arg in args.iter().skip(1) {
+                    erased.push(self.erased_emitter_argument_text(arg)?);
+                }
+                format!(
+                    "{receiver}.emit(&{event_text}, Vec::from([{}]))?",
+                    erased.join(", ")
+                )
+            }
+        })
+    }
+
+    /// Erase one `EventEmitter` argument into the runtime's `SmeltUnknown` ABI.
+    ///
+    /// `operand_text` deliberately leaves a function-typed `copy` un-cloned,
+    /// because the usual consumer of a function operand is a callee position
+    /// that only borrows it to call. The erasure wrapper MOVES its value into
+    /// the adapter closure instead, so a listener that the source registers
+    /// twice - `e.on("x", fn); e.on("x", fn)` - needs its own handle each time.
+    fn erased_emitter_argument_text(&self, arg: &Operand) -> Result<String, EmitError> {
+        let ty = self.operand_ty(arg)?;
+        let mut text = self.operand_text(arg)?;
+        if matches!(arg, Operand::Copy(_))
+            && matches!(self.mir.types.get(ty), Some(Type::Function(_)))
+        {
+            text = format!("{text}.clone()");
+        }
+        self.erase_value_text(&text, ty)
+    }
+
     /// Return whether a type names the generated `SmeltRequest` runtime type.
     pub(super) fn is_request_class_type(&self, ty: TypeId) -> Result<bool, EmitError> {
         let Some(Type::Class { name, .. }) = self.mir.types.get(ty) else {

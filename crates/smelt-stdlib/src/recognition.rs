@@ -30,6 +30,8 @@ pub enum TypeScriptReceiverKind {
     Response,
     /// A WHATWG `Request` value.
     Request,
+    /// A `node:events` `EventEmitter` value.
+    EventEmitter,
 }
 
 /// Receiver-method call shape recognized after a frontend knows the receiver type.
@@ -258,6 +260,46 @@ pub const TYPESCRIPT_METHODS: &[MethodRecognition] = &[
         TypeScriptReceiverKind::Request,
         "clone",
         RuleId::TsRequestClone,
+    ),
+    method(
+        TypeScriptReceiverKind::EventEmitter,
+        "on",
+        RuleId::TsEventEmitterRegister,
+    ),
+    method(
+        TypeScriptReceiverKind::EventEmitter,
+        "addListener",
+        RuleId::TsEventEmitterRegister,
+    ),
+    method(
+        TypeScriptReceiverKind::EventEmitter,
+        "once",
+        RuleId::TsEventEmitterRegister,
+    ),
+    method(
+        TypeScriptReceiverKind::EventEmitter,
+        "off",
+        RuleId::TsEventEmitterRemove,
+    ),
+    method(
+        TypeScriptReceiverKind::EventEmitter,
+        "removeListener",
+        RuleId::TsEventEmitterRemove,
+    ),
+    method(
+        TypeScriptReceiverKind::EventEmitter,
+        "removeAllListeners",
+        RuleId::TsEventEmitterRemove,
+    ),
+    method(
+        TypeScriptReceiverKind::EventEmitter,
+        "emit",
+        RuleId::TsEventEmitterEmit,
+    ),
+    method(
+        TypeScriptReceiverKind::EventEmitter,
+        "listenerCount",
+        RuleId::TsEventEmitterRead,
     ),
 ];
 
