@@ -365,6 +365,14 @@ pub const HOST_OBJECTS: &[HostObject] = &[
     // holds and the record exists only at the boundary.
     host("Request", "__smelt_request"),
     host("Response", "__smelt_response"),
+    // The two `BodyInit` arms whose surfaces are not modeled yet. They are here
+    // for identity only -- `Object.prototype.toString` tags them, `instanceof`
+    // resolves through them, and `JSON.stringify` answers `{}` because a host
+    // object has no own enumerable properties. `reflected_construct_kind`
+    // excludes both, so no dynamic `new FormData()` builds a record that would
+    // pretend to have `append`.
+    host("FormData", "__smelt_formdata"),
+    host("ReadableStream", "__smelt_readablestream"),
     host("DOMException", "__smelt_domexception"),
     // ECMA-402 `Intl` namespace constructors. Source code constructs these only
     // to probe host identity (`isPlainObject(new Intl.Locale('en')) === false`);

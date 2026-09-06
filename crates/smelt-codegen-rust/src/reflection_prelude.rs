@@ -145,6 +145,13 @@ pub fn reflected_construct_kind(class_name: &str) -> Option<&'static str> {
     ) {
         return None;
     }
+    // `FormData` and `ReadableStream` carry a marker for identity but have no
+    // modeled surface, so a marker record must not stand in for one: the record
+    // would answer `instanceof` correctly and then silently fail every method
+    // the program calls on it.
+    if matches!(class_name, "FormData" | "ReadableStream") {
+        return None;
+    }
     smelt_stdlib::host_object_marker(class_name).and_then(|marker| marker.strip_prefix("__smelt_"))
 }
 

@@ -906,3 +906,134 @@ const request = new Request();
     )?;
     assert_unsupported_ts(&errors, "requires a URL argument")
 }
+
+/// A `Request` at the init position is lowered, not rejected as erased.
+///
+/// The spec allows it and copies the source's method, headers and body
+/// (`new Request(url, request)`), which `hono-base.ts` relies on.
+#[test]
+fn a_request_can_be_a_request_init() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+export function retarget(url: string, request: Request): Request {
+  return new Request(url, request);
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(
+        any_body_has(&ctx, |kind| matches!(kind, ExprKind::RequestNew { .. })),
+        "a `Request` init must still build a concrete request",
+    );
+    // The method is read through the modeled member, not a struct field.
+    ensure!(
+        any_body_has(&ctx, |kind| matches!(
+            kind,
+            ExprKind::RequestOp {
+                op: smelt_hir::RequestOp::Method,
+                ..
+            }
+        )),
+        "the source request's method must be read through its modeled member",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// A user-declared init interface whose key is generic still declares that key.
+///
+/// Hono declares `interface ResponseInit<T extends StatusCode>` with
+/// `status?: T`. A type parameter has no runtime shape, so the key resolves
+/// through its constraint — which is what the source promises about every
+/// instantiation.
+#[test]
+fn a_generic_init_key_resolves_through_its_constraint() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+type StatusCode = 200 | 201 | 404;
+
+interface PageInit<T extends StatusCode = StatusCode> {
+  status?: T;
+}
+
+export function page(init: PageInit): Response {
+  return new Response("page", init);
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(
+        any_body_has(&ctx, |kind| matches!(kind, ExprKind::ResponseNew { .. })),
+        "a generic init must still build a concrete response",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// A qualified ambient init resolves to the ambient interface, not a local one.
+///
+/// A module that declares its own `ResponseInit` can still reach the platform's
+/// through `globalThis.ResponseInit`; the qualified reference keeps its full
+/// path, which is what lets the two be told apart at all.
+#[test]
+fn a_qualified_ambient_init_is_not_the_local_one() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+interface ResponseInit {
+  unrelated?: string;
+}
+
+export function platform(init: globalThis.ResponseInit): Response {
+  return new Response("x", init);
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(
+        any_body_has(&ctx, |kind| matches!(kind, ExprKind::ResponseNew { .. })),
+        "the qualified ambient init must be lowered by field",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// `BodyInit` is a union, so its string arm survives.
+///
+/// Left opaque, `JSON.stringify(body)` reported "value must be
+/// JSON-serializable (got Class `BodyInit`)" for a value that is a string on
+/// every path a program takes.
+#[test]
+fn body_init_is_a_union_whose_string_arm_survives() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+export function serialize(body: BodyInit): string {
+  return JSON.stringify(body);
+}
+"#),
+        &mut ctx,
+    )?;
+    let ty = any_body_expr_ty(&ctx, |kind| matches!(kind, ExprKind::Local(_)))?;
+    let _ = ty;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// A host object is JSON-serializable, because JavaScript writes `{}` for one.
+#[test]
+fn a_host_object_is_json_serializable() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+export function serialize(headers: Headers): string {
+  return JSON.stringify(headers);
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}

@@ -17,6 +17,8 @@ Milestone 0: `blocker-logs/express-v1-baseline.md`.
 | 4 `Response` + `SmeltBody` | landed, concrete Rust, runtime tier green (section 3) |
 | 4 `Request` | landed, concrete Rust, runtime tier green (section 3) |
 | 4 typed non-literal `ResponseInit`/`RequestInit` | landed (section 3) |
+| 4 `Request` as an init, generic + qualified inits, `BodyInit` union | landed (section 3) |
+| `JSON.stringify` fidelity (host objects, numbers, key order, `undefined`) | landed (section 3) |
 | 4 `fetch` upgrade to return a `Response` | landed, runtime tier against a real socket (section 3) |
 | 4 `TextEncoder`/`TextDecoder`, `FormData`, `ReadableStream`, `AbortController`, `crypto` | not landed |
 | 4 `Blob`/`File` upgrade (`text()`, `arrayBuffer()`, `slice`) | not landed |
@@ -299,6 +301,70 @@ spread's 500 while a key only the spread supplied is kept.
 `crates/smelt-codegen-rust/tests/fetch_init_runtime.rs` (4 tests) covers the
 defaulting, which is what only a runtime tier catches: picking the wrong default
 for an absent key compiles perfectly and serves a plausible wrong value.
+
+### The last of the fetch init demand
+
+Four shapes from Hono's precise probe, all Node-diffed:
+
+1. **A `Request` at the init position** (`new Request(url, request)`). The spec
+   copies the source's method, headers and body. Its members are modeled
+   operations rather than struct fields, so they are read through those; the
+   body is passed as the source request itself and the emitter takes its
+   **handle**. Sharing the handle is what makes reading the new request's body
+   mark the source used — Node reports `src.bodyUsed === true` and a later
+   `src.text()` throws `Body is unusable`, and now so does Smelt.
+2. **A generic init key.** Hono's own `interface ResponseInit<T extends
+   StatusCode>` declares `status?: T`. A type parameter has no runtime shape, so
+   the key resolves through its **constraint** — what the source promises about
+   every instantiation.
+3. **A qualified ambient init.** `globalThis.ResponseInit` already kept its full
+   path as its own interned type (so the local and platform interfaces *can* be
+   told apart); the registry lookup had to recognize the qualified spelling.
+   Fixing this exposed a second bug: the ambient test excluded only *classes*,
+   so a source **interface** of the same name was treated as erased and got the
+   dynamic-cast read against a concrete `Option<f64>` struct field.
+4. **`BodyInit` as its union** (`string | ArrayBuffer | Blob | FormData |
+   URLSearchParams | ReadableStream | null`). Left opaque, `JSON.stringify(body)`
+   reported "value must be JSON-serializable (got Class `BodyInit`)" for a value
+   that is a string on every path a program takes.
+
+`FormData` and `ReadableStream` joined the host-object registry to make the
+union serializable as a whole — for **identity only**. Both are host objects
+(Node tags them and stringifies each as `{}`), but neither gains a marker-record
+constructor: their surfaces are not modeled, so a record standing in for one
+would answer `instanceof` correctly and then silently fail every method called
+on it.
+
+The union of a number, an init interface and a `Response` now lowers and
+narrows correctly (`typeof arg === 'number'`, then `?.status` reaching both the
+interface and the `Response` arm) — `404 / 201 / 200 / 500`, byte-identical to
+Node. The **generic** member spelling still breaks in the generated-union
+emitter, which is recorded separately in
+`blocker-logs/generated-union-generic-member.md`.
+
+### `JSON.stringify` of an erased value: four wrong values in one impl
+
+Found while making a `BodyInit` union serializable. All four were program
+output, so no compile gate could see them:
+
+| | before | Node 22 |
+| --- | --- | --- |
+| `JSON.stringify(new Headers([['a','b']]))` | `{"__smelt_headers":true,"entries":[["a","b"]]}` | `{}` |
+| `JSON.stringify({a: 1})` | `{"a":1.0}` | `{"a":1}` |
+| `JSON.stringify({b:1, a:2, c:3})` | arbitrary order (`HashMap`) | insertion order |
+| `JSON.stringify({a: undefined, b: 1})` | `{"a":null,"b":1}` | `{"b":1}` |
+
+The first is the worst: Smelt's internal marker was reaching program output.
+
+The fix is one rule, not four patches. `JSON.stringify` writes an object's
+**own enumerable properties, in order** — which is the same rule `for...in`
+uses, so both now read one predicate (`smelt_is_for_in_object_key`) instead of
+keeping two lists of internal keys that can drift. A host object has no own
+enumerable properties, so it writes `{}`; that is also why a host-object class
+counts as JSON-serializable at all, which is what let the `BodyInit` union
+through. Numbers use the JavaScript number-to-string algorithm (integral values
+without a fraction, `-0` as `0`, non-finite as `null`), and an `undefined`
+property is omitted while `undefined` inside an *array* stays `null`.
 
 ## 4. M0.1's second half, now on
 

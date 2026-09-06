@@ -1027,9 +1027,14 @@ impl FunctionEmitter<'_> {
                 "JSON stringify value must be JSON-serializable",
             ));
         }
-        Ok(format!(
-            "serde_json::to_string(&{}).expect(\"JSON serialization failed\")",
+        let value_ty = self.operand_ty(value)?;
+        let value_text = if self.json_needs_erasure(value_ty) {
+            self.erase_value_text(&self.operand_text(value)?, value_ty)?
+        } else {
             self.operand_text(value)?
+        };
+        Ok(format!(
+            "serde_json::to_string(&{value_text}).expect(\"JSON serialization failed\")"
         ))
     }
 

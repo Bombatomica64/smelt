@@ -1770,6 +1770,33 @@ return_ty: function.return_ty,
             .unwrap_or_default();
         match (name_text.as_str(), args.as_slice()) {
             ("RegExp", []) => Ok(self.regexp_type()),
+            // `BodyInit` is a UNION, not an opaque class. Leaving it opaque made
+            // `JSON.stringify(body)` report "value must be JSON-serializable
+            // (got Class `BodyInit`)" for a value that is a `string` on every
+            // path a program actually takes, and it hid the string arm from body
+            // construction. The arms are the spec's, in the spec's order; the
+            // ones Smelt does not model yet are their host classes, which is
+            // what makes them erase honestly rather than disappear.
+            ("BodyInit", []) => {
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                let none_ty = self.ctx.krate.types.intern(Type::None);
+                let mut members = vec![string_ty];
+                for arm in [
+                    "ArrayBuffer",
+                    "Blob",
+                    "FormData",
+                    "URLSearchParams",
+                    "ReadableStream",
+                ] {
+                    let name = self.intern_type_name(arm);
+                    members.push(self.ctx.krate.types.intern(Type::Class {
+                        name,
+                        args: Vec::new(),
+                    }));
+                }
+                members.push(none_ty);
+                Ok(self.ctx.krate.types.intern(Type::Union(members)))
+            }
             ("Capitalize" | "Uncapitalize" | "Uppercase" | "Lowercase", [_]) => {
                 Ok(self.ctx.krate.types.intern(Type::String))
             }
@@ -2765,8 +2792,16 @@ return_ty: function.return_ty,
         else {
             return false;
         };
-        matches!(name, "ResponseInit" | "RequestInit")
-            && self.class_by_symbol(class).is_none()
+        matches!(
+            name.strip_prefix("globalThis.").unwrap_or(name),
+            "ResponseInit" | "RequestInit"
+        ) && self.class_by_symbol(class).is_none()
+            // A source INTERFACE of the same name is concrete too: it becomes a
+            // real struct, so its keys are read directly. Only a name the crate
+            // declares nothing for is genuinely ambient. Missing this treated
+            // Hono's own `interface ResponseInit<T>` as erased and emitted the
+            // dynamic-cast read against an `Option<f64>` struct field.
+            && self.find_interface(class).is_none()
     }
 
     /// Resolve a field on one of the ambient fetch **init** interfaces.
@@ -2807,6 +2842,15 @@ return_ty: function.return_ty,
             .names
             .get(field)
             .or_else(|| self.ctx.krate.symbols.get(field))?
+            .to_owned();
+        // A site may qualify the ambient interface to escape a local one of the
+        // same name (`globalThis.ResponseInit` where the module declares its
+        // own `ResponseInit`). The qualified reference keeps its full path as a
+        // distinct type, which is what makes the two tell apart at all, so the
+        // registry recognizes both spellings of the ambient one.
+        let class_name = class_name
+            .strip_prefix("globalThis.")
+            .unwrap_or(&class_name)
             .to_owned();
         let inner = match (class_name.as_str(), field_name.as_str()) {
             ("ResponseInit", "status") => self.ctx.krate.types.intern(Type::Float),
