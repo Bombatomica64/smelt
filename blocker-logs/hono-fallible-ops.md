@@ -280,3 +280,135 @@ So Hono's `tryDecode` is **not** yet fixed, while `try { decodeURI(x) } catch`
 is. The remaining gap is one named, tested-around design issue rather than an
 unexplained abort.
 
+---
+
+## 9. Round 5: the premise was wrong, and what the real defect is
+
+Ruling received: infer a callback parameter's fallibility whole-crate in HIR, on
+the grounds (from my own §8) that Hono's `tryDecode(str, decodeURI)` aborts.
+
+**I checked that before implementing, and it does not abort. §8 was wrong.**
+Correcting it first, because the design's justification rested on it.
+
+### 9.1 What actually happens today
+
+`tryDecode(str, decodeURIComponent)` with malformed input **takes the catch**.
+Run on the round-4 merged head, three of three assertions pass:
+
+```ts
+const tryDecode = (str: string, decoder: (value: string) => string): string => {
+  try { return decoder(str); } catch { return str; }
+};
+const viaValue = (value: string): string => tryDecode(value, decodeURIComponent);
+// viaValue('%E0%A4%A') === '%E0%A4%A'   ✓
+// viaValue('a%20b')    === 'a b'        ✓
+// an infallible callback through the same parameter also works ✓
+```
+
+The mechanism is panic-as-exception, and both halves are already in the tree:
+
+* the adapter closure wrapping the decoder emits
+  `smelt_decode_uri_component_throwing(..).unwrap_or_else(|error| panic!("{}", error))`,
+  because its own type says `may_throw: false` so
+  `body_can_propagate_error()` is false;
+* the `try` in `tryDecode` emits
+  `std::panic::catch_unwind(AssertUnwindSafe(|| (decoder)(str)))`, so it catches
+  that panic and runs the handler.
+
+Separately, `lower/expr.rs`'s `ClosureCall` arm already gives an indirect call
+the unwind-carrying terminator form whenever a handler is active, regardless of
+the callee's declared `may_throw` — its comment says exactly why. So there was
+never a missing unwind edge on the call side either.
+
+**Why §8 got it wrong:** in round 4 I only ever ran this shape *with* my
+`may_throw` change applied, which broke compilation (E0599). I reverted the
+change and reported the shape as broken without re-running it. The revert left
+a working configuration. This is the same failure mode as the round-2 radash
+report — a conclusion drawn from a configuration I had not actually executed —
+and the lesson is the one already recorded: re-run after reverting, not just
+after changing.
+
+### 9.2 The defect that IS real
+
+Panic-as-exception loses the error's identity. Same fixture, asking for
+`error.name`:
+
+| route | `error.name` for malformed input |
+| --- | --- |
+| direct — `try { decodeURIComponent(x) } catch (e)` | `URIError` ✓ |
+| callback value — `tryDecode(x, decodeURIComponent)` | **not `URIError`** ✗ |
+
+The direct route uses the `Result` path and carries the structured record. The
+callback route panics with `panic!("{}", error)` — a *formatted string* — and
+the catch emission only ever downcasts one type:
+
+```rust
+let __smelt_error = if let Some(message) = __smelt_panic.downcast_ref::<String>() {
+    message.clone()
+} else if let Some(message) = __smelt_panic.downcast_ref::<&'static str>() {
+    (*message).to_owned()
+} else { "JavaScript exception".to_owned() };
+```
+
+so a `catch (error)` binding gets a string where JavaScript gives a `URIError`.
+`error.name`, `error instanceof URIError`, and `error.message` are all wrong.
+That is a silent wrong value, which is the class this campaign exists to find.
+
+Two further consequences of the same mechanism, neither of which a test would
+catch:
+
+* **`panic = "abort"` breaks it.** The generated `Cargo.toml` sets no `panic`
+  strategy, so the `unwind` default applies and it works today — but a consumer
+  adding `panic = "abort"` for size turns a catchable `URIError` into a process
+  abort, with nothing to warn them.
+* **stderr noise.** No panic hook is installed, so every caught error prints a
+  panic message plus a backtrace note. For a router decoding untrusted path
+  segments that is per-request output on ordinary input.
+
+### 9.3 Two ways to fix it, and they are not the same size
+
+**(a) Carry the payload through the panic.** Panic with the structured
+`SmeltUnknown` (or the `SmeltThrown` wrapper) instead of a formatted string, and
+have the catch emission downcast to that first, falling back to the existing
+string arms. This fixes identity for *every* panic-routed throw, not only the
+decoders, and it is contained to the throw and catch emission sites. It does not
+address `panic = "abort"` or the stderr noise — those are inherent to routing
+control flow through panics.
+
+**(b) The inference from the ruling.** Infer the parameter's fallibility so the
+argument closure can be `may_throw` without breaking the coercion, and the call
+through the parameter propagates a `Result` instead of panicking. This removes
+the panic route entirely for statically-resolvable cases, so it fixes identity,
+the abort strategy, and the noise together. It is a whole-crate HIR fixpoint
+plus MIR-lowering and emission changes, and it must not regress the callback-
+dense corpora.
+
+They compose: (a) is the correct floor for the cases (b) cannot resolve
+statically — an erased callback out of a data structure will always take the
+panic route, and its identity should survive that.
+
+**Recommendation: (a) now, (b) as its own round.** (a) fixes the observed wrong
+value at its cause with a small, testable change; (b) is the larger design and
+deserves the full gate run against es-toolkit / remeda / radash rather than
+being rushed alongside a correction. I have not started either — I stopped to
+report, because the ruling's stated justification is void and I did not want to
+spend the round building on it.
+
+### 9.4 If (b) proceeds, the design still stands
+
+§9's earlier draft of the rule survives the correction, with one simplification:
+the inference does **not** need to create unwind edges (§9.1 shows the call side
+already has them when a handler is active). It exists to make a throwing
+argument type-compatible with its parameter, so the argument need not panic.
+
+* the join rule, the three conservative cases (unresolvable argument, escaping
+  function, inherited fallibility) and the `while changed` fixpoint as ruled;
+* recorded in a side table keyed by `(ItemId, param index)`, never in
+  `Type::Function` — widening the interned type is the E0599 of round 4;
+* HIR rather than the emitter, because the unwind edge is attached during
+  HIR->MIR lowering and a handler with no predecessor is already gone by the
+  time the emitter runs (this is why the ownership fixpoint can live in the
+  emitter and this one cannot);
+* acceptance as ruled, plus **`error.name === 'URIError'` through the callback
+  route**, which is the assertion that actually fails today and the one that
+  proves the panic route is gone rather than merely working.
