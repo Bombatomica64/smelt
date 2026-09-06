@@ -225,12 +225,64 @@ recorded a Koa-style `http.createServer` module that lowered silently to
 nothing, and that module is now a reported diagnostic (see
 `qualified_node_http_server_factory_reports_the_unimplemented_surface`).
 
-## 6. Fidelity gap found while testing (not fixed here)
+## 6. `console.log` of an optional: fixed, and what it cost
 
-`console.log` of an `Option<T>` prints `Some("a")` / `None` where Node prints
-`a` / `undefined`. It is pre-existing (reproduced with a plain
-`function pick(values: string[]): string | undefined` fixture, no fetch types
-involved) and it is a *runtime output* difference, so it is invisible to every
-compile gate. Both end-to-end fixtures added here spell `?? "null"` to avoid
-depending on it. Worth its own fix: an optional in an erased `console.log`
-argument should print its inner value or `undefined`.
+`console.log` of an `Optional<T>` printed Rust's `Some("ada")` / `None`. Node
+prints `ada` / `undefined`. Two committed end-to-end fixtures had that Rust
+shape baked into their `expected.stdout`, and a CLI test asserted `Some("a")`
+as the output of a **Python** program, so the bug was pinned three times over
+rather than caught.
+
+The present arm now renders the inner value the way `console.log` renders that
+type alone, so the wrapper is invisible, and nested optionals recurse.
+
+The absent arm needed a decision. TypeScript's `null` and `undefined` both
+intern to `Type::None`, so `T | null` and `T | undefined` are the *same*
+`Optional(T)` by the time the emitter sees one; and both frontends lower to the
+same `CONSOLE_LOG_SYMBOL` builtin, while Python prints `None` where JavaScript
+prints `undefined`. Codegen therefore cannot tell either pair apart, and
+guessing was not acceptable.
+
+This is exactly the problem `NegativeIndex` already solves in this codebase
+(`xs[-1]` is the last element in Python and `undefined` in JavaScript), so the
+fix takes the same shape: an `AbsentSpelling` enum decided during MIR lowering
+from the call site's span — the span names the file, the file names the frontend
+— and carried on `BuiltinFn::ConsoleLog`. Verified in both directions:
+
+| program | source | Smelt output | reference |
+| --- | --- | --- | --- |
+| optional param, `Map.get` hit and miss | TypeScript | `ada undefined 1 undefined` | Node 22, identical |
+| `obj.id or None`, then a `None` | Python | `a` then `None` | CPython, identical |
+
+Within TypeScript, `undefined` is the word for an absent optional because it is
+what nearly every operation that *produces* one returns (`find`, `pop`,
+`Map.get`, an optional property or parameter, `?.`, `process.env.X`); a value
+annotated as plain `null` still prints `null` through the `Type::None` branch.
+Printing the right word for `T | null` too needs a distinct `Type::Undefined`
+carried down from the annotation, which is a type-table change and is not done
+here.
+
+Three fixtures now pin real program output where they used to pin Rust's
+`Option` Debug: `27_optional_chains` (`Ada undefined 3 user`),
+`28_regex_match_result` (29 lines, including two `undefined` non-participating
+capture groups), and the new `33_console_optional_value`. All three were diffed
+against Node 22 line by line.
+
+### Two pre-existing bugs this uncovered
+
+Neither is fixed here; both are recorded because they are invisible to the
+compile gates:
+
+1. **`Array.prototype.find` with a typed arrow does not compile.** The first
+   draft of `33_console_optional_value` used
+   `names.find((name: string) => name.startsWith("a"))`, and the generated crate
+   fails with E0308: the predicate's `bool` is assigned to a `SmeltUnknown`
+   temporary without being wrapped (`_smelt_tmp_3: SmeltUnknown =
+   closure_arg_0.clone().starts_with(&"z".to_owned())`). The fixture uses other
+   optional producers instead.
+
+2. **An empty object literal against an interface erases.** `const withoutLabel:
+   Config = {}` for `interface Config { label?: string }` emits
+   `SmeltRecord<String, SmeltUnknown>` rather than the `Config` struct — one
+   avoidable erasure, caught by the examples invariant when the second draft of
+   the fixture used that shape.

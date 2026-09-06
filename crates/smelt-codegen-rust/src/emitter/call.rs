@@ -702,10 +702,10 @@ impl FunctionEmitter<'_> {
     /// Converts a function call to its Rust text representation.
     pub(super) fn call_text(&self, callee: &Callee, args: &[Operand]) -> Result<String, EmitError> {
         match callee {
-            Callee::Builtin(BuiltinFn::ConsoleLog) => {
+            Callee::Builtin(BuiltinFn::ConsoleLog { absent }) => {
                 let rendered_args = args
                     .iter()
-                    .map(|arg| self.console_arg_text(arg))
+                    .map(|arg| self.console_arg_text(arg, *absent))
                     .collect::<Result<Vec<_>, _>>()?;
                 if rendered_args.is_empty() {
                     Ok("{ println!(); }".to_owned())
@@ -724,9 +724,12 @@ impl FunctionEmitter<'_> {
                 }
             }
             Callee::Builtin(BuiltinFn::ConsoleWrite | BuiltinFn::ConsoleErrorWrite) => {
+                // `process.stdout.write` takes a string, so the optional arm is
+                // unreachable from here; the TypeScript spelling is the right
+                // default for a write that only comes from that surface.
                 let (format_spec, value) = args
                     .first()
-                    .map(|argument| self.console_arg_text(argument))
+                    .map(|argument| self.console_arg_text(argument, AbsentSpelling::Undefined))
                     .transpose()?
                     .unwrap_or_else(|| ("{}", "\"\"".to_owned()));
                 let macro_name = if matches!(callee, Callee::Builtin(BuiltinFn::ConsoleWrite)) {
@@ -2483,7 +2486,7 @@ impl FunctionEmitter<'_> {
     pub(super) fn call_source_ty(&self, callee: &Callee) -> Result<TypeId, EmitError> {
         let source_ty = match callee {
             Callee::Builtin(
-                BuiltinFn::ConsoleLog | BuiltinFn::ConsoleWrite | BuiltinFn::ConsoleErrorWrite,
+                BuiltinFn::ConsoleLog { .. } | BuiltinFn::ConsoleWrite | BuiltinFn::ConsoleErrorWrite,
             ) => self.none_ty,
             // `JSON.parse` yields a dynamic JavaScript value; the destination's
             // own type drives the ordinary coercion from the erased carrier.
@@ -2518,16 +2521,23 @@ impl FunctionEmitter<'_> {
     pub(super) fn console_arg_text(
         &self,
         operand: &Operand,
+        absent: AbsentSpelling,
     ) -> Result<(&'static str, String), EmitError> {
-        if self.operand_ty(operand)? == self.none_ty {
+        let ty = self.operand_ty(operand)?;
+        if ty == self.none_ty {
             Ok(("{}", "\"null\"".to_owned()))
         } else if matches!(
-            self.mir.types.get(self.operand_ty(operand)?),
-            Some(Type::List(_) | Type::Dict(_, _) | Type::Tuple(_) | Type::Optional(_))
+            self.mir.types.get(ty),
+            Some(Type::List(_) | Type::Dict(_, _) | Type::Tuple(_))
         ) {
             Ok(("{:?}", self.operand_text(operand)?))
+        } else if matches!(self.mir.types.get(ty), Some(Type::Optional(_))) {
+            // An `Optional<T>` prints the value INSIDE it, never the Rust
+            // wrapper. `{:?}` on an `Option` put `Some("ada")` / `None` into
+            // program output, which is a shape no JavaScript runtime prints.
+            Ok(("{}", self.console_optional_text(operand, absent)?))
         } else if matches!(
-            self.mir.types.get(self.operand_ty(operand)?),
+            self.mir.types.get(ty),
             Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::Unknown)
         ) {
             // These render through their own `Display` impl (`SmeltUnknown`
@@ -2538,9 +2548,96 @@ impl FunctionEmitter<'_> {
             // has no Rust `Display` impl, so `{}` would fail to compile (E0277).
             // Erase to the runtime `SmeltUnknown` form, which does implement
             // `Display`, matching how the same values stringify everywhere else.
-            let ty = self.operand_ty(operand)?;
             Ok(("{}", self.erase_value_text(&self.operand_text(operand)?, ty)?))
         }
+    }
+
+    /// Render an `Optional<T>` console argument as a `String` expression.
+    ///
+    /// The present arm renders the inner value the way `console.log` renders
+    /// that type on its own, so the wrapper is invisible: a `string | undefined`
+    /// holding `"ada"` prints `ada`, and a `number[] | undefined` holding
+    /// `[1, 2]` prints through the container's `{:?}`.
+    ///
+    /// # Why the absent arm prints `undefined`
+    ///
+    /// TypeScript's `null` and `undefined` both intern to `Type::None` (see the
+    /// annotation lowering for `TSNullKeyword`/`TSUndefinedKeyword`), so
+    /// `string | null` and `string | undefined` are the *same*
+    /// `Optional(String)` here. Node prints `null` for the first and
+    /// `undefined` for the second, and this layer cannot tell them apart, so
+    /// one word has to be chosen and it is wrong for the other spelling.
+    ///
+    /// `undefined` is chosen because it is what nearly every operation that
+    /// *produces* an `Optional` in TypeScript returns: `find`, `pop`,
+    /// `Map.get`, an optional property or parameter, an index read, `?.`, and
+    /// `process.env.X`. `null` arrives mostly from annotations spelled `T |
+    /// null` (and from `headers.get`), and a value annotated as plain `null`
+    /// keeps printing `null` through the `Type::None` branch above. The
+    /// end-to-end fixture `33_console_optional_value` pins this against Node
+    /// 22, whose `find()` miss prints `undefined`.
+    ///
+    /// Printing the right word for both spellings needs a distinct
+    /// `Type::Undefined` carried down from the annotation — a type-table
+    /// change, not a console change.
+    fn console_optional_text(
+        &self,
+        operand: &Operand,
+        absent: AbsentSpelling,
+    ) -> Result<String, EmitError> {
+        let ty = self.operand_ty(operand)?;
+        let Some(&Type::Optional(inner)) = self.mir.types.get(ty) else {
+            return Err(EmitError::new(
+                "console optional rendering requires an optional operand",
+            ));
+        };
+        let present = self.console_value_text("value", inner, absent)?;
+        Ok(format!(
+            "match &{} {{ Some(value) => {present}, None => {:?}.to_owned() }}",
+            self.operand_text(operand)?,
+            absent.text()
+        ))
+    }
+
+    /// Render `value_text` of type `ty` as a `String` expression, console-style.
+    ///
+    /// The same three cases as [`Self::console_arg_text`], but producing an
+    /// owned `String` rather than a format-spec pair, so it can be used inside a
+    /// match arm. `value_text` names a *reference* to the value.
+    fn console_value_text(
+        &self,
+        value_text: &str,
+        ty: TypeId,
+        absent: AbsentSpelling,
+    ) -> Result<String, EmitError> {
+        if ty == self.none_ty {
+            return Ok("\"null\".to_owned()".to_owned());
+        }
+        if matches!(
+            self.mir.types.get(ty),
+            Some(Type::List(_) | Type::Dict(_, _) | Type::Tuple(_))
+        ) {
+            return Ok(format!("format!(\"{{:?}}\", {value_text})"));
+        }
+        if matches!(
+            self.mir.types.get(ty),
+            Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::Unknown)
+        ) {
+            return Ok(format!("format!(\"{{}}\", {value_text})"));
+        }
+        // A nested optional recurses, so `Array<string | undefined>`'s element
+        // prints its own inner value rather than a wrapper.
+        if let Some(&Type::Optional(inner)) = self.mir.types.get(ty) {
+            let present = self.console_value_text(value_text, inner, absent)?;
+            return Ok(format!(
+                "match {value_text} {{ Some(value) => {present}, None => {:?}.to_owned() }}",
+                absent.text()
+            ));
+        }
+        // Every remaining non-`Display` type takes the same erasure route the
+        // top-level argument takes.
+        let erased = self.erase_value_text(&format!("{value_text}.clone()"), ty)?;
+        Ok(format!("format!(\"{{}}\", {erased})"))
     }
 
     /// Converts a match scrutinee operand to its Rust text representation.

@@ -515,6 +515,37 @@ pub enum Place {
     },
 }
 
+/// How a source language spells a value that is absent.
+///
+/// Only reached when printing an `Optional<T>` that holds nothing. A Rust
+/// `Option` has no place in program output -- `{:?}` on one printed
+/// `Some("ada")` / `None`, a shape no source language produces -- so the
+/// present arm prints the value inside and the absent arm prints this word.
+///
+/// TypeScript's `null` and `undefined` both intern to `Type::None`, so
+/// `T | null` and `T | undefined` are one type by the time this is chosen, and
+/// `Undefined` is the answer for both: it is what nearly every operation that
+/// *produces* an optional in TypeScript returns (`find`, `pop`, `Map.get`, an
+/// optional property or parameter, `?.`, `process.env.X`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AbsentSpelling {
+    /// JavaScript/TypeScript: `undefined`.
+    Undefined,
+    /// Python: `None`.
+    None,
+}
+
+impl AbsentSpelling {
+    /// The word this language prints for an absent value.
+    #[must_use]
+    pub const fn text(self) -> &'static str {
+        match self {
+            Self::Undefined => "undefined",
+            Self::None => "None",
+        }
+    }
+}
+
 /// What a negative element index means at an indexed place.
 ///
 /// JavaScript and Python disagree, and the disagreement is not observable from
@@ -2101,7 +2132,17 @@ pub enum Callee {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BuiltinFn {
     /// Print to the console.
-    ConsoleLog,
+    ///
+    /// Carries how the SOURCE LANGUAGE spells an absent value, because both
+    /// frontends lower to this one builtin and they disagree: printing a
+    /// `string | undefined` that holds nothing is `undefined` in JavaScript and
+    /// `None` in Python. The disagreement is not observable from the operand or
+    /// its type, so -- exactly like [`NegativeIndex`] -- the rule belongs to the
+    /// site's language, which only lowering still knows.
+    ConsoleLog {
+        /// How this call site's language spells an absent value.
+        absent: AbsentSpelling,
+    },
     /// Write exact text to stdout.
     ConsoleWrite,
     /// Write exact text to stderr.
