@@ -30,6 +30,17 @@
 //! order until `sort()`, and the value serializes to
 //! `application/x-www-form-urlencoded` (so a space is `+` and `sort` is stable).
 //!
+//! The last tier covers the **erased boundary**. Both types keep their state
+//! behind a shared cell rather than in declared fields, so the generic
+//! struct-erasure path produced a record carrying nothing and the extract side
+//! answered `Default::default()`: a header list that round-tripped through an
+//! `unknown` bag came back EMPTY, with nothing failing. The erased record also
+//! has to answer runtime probes the way the host object does — remeda's
+//! `isEmptyish` asks `"size" in data && typeof data.size === "number"` and then
+//! walks `for...in`, so the params record carries `size` and both types carry
+//! their registry marker (which is what makes the internal slot
+//! non-enumerable).
+//!
 //! Each case is a TypeScript Vitest test; lowering emits a `#[test]`, and this
 //! tier emits the crate and runs `cargo test` on it, so a green run means the
 //! generated `expect(...)` calls held at runtime. The tier is `#[ignore]`d
@@ -363,4 +374,53 @@ test("a sequence-of-pairs initializer keeps duplicates", () => {
 });
 "#;
     run_fetch_fixture(source, "params_reference");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn fetch_types_survive_an_erased_round_trip() {
+    let source = r#"
+import { test, expect } from "vitest";
+test("a header list keeps its pairs through an unknown bag", () => {
+  const headers = new Headers({ accept: "text/html" });
+  headers.append("accept", "application/json");
+  const bag: Record<string, unknown> = { headers };
+  const back = bag["headers"] as Headers;
+  expect(back.get("accept")).toBe("text/html, application/json");
+});
+test("a parameter list keeps its pairs through an unknown bag", () => {
+  const params = new URLSearchParams("a=1&a=2");
+  const bag: Record<string, unknown> = { params };
+  const back = bag["params"] as URLSearchParams;
+  expect(back.getAll("a").join("|")).toBe("1|2");
+  expect(back.toString()).toBe("a=1&a=2");
+});
+test("an erased fetch value is an object, not a primitive", () => {
+  const headers = new Headers();
+  const params = new URLSearchParams();
+  const values: unknown[] = [headers, params];
+  expect(typeof values[0]).toBe("object");
+  expect(typeof values[1]).toBe("object");
+});
+test("an erased parameter list answers the size probe", () => {
+  const empty: unknown = new URLSearchParams();
+  const filled: unknown = new URLSearchParams("a=1&b=2");
+  const sizeOf = (value: unknown): number => {
+    if (typeof value === "object" && value !== null && "size" in value) {
+      const size = (value as { size: unknown }).size;
+      return typeof size === "number" ? size : -1;
+    }
+    return -1;
+  };
+  expect(sizeOf(empty)).toBe(0);
+  expect(sizeOf(filled)).toBe(2);
+});
+test("an erased fetch value enumerates no own keys", () => {
+  const headers: unknown = new Headers({ accept: "text/html" });
+  const params: unknown = new URLSearchParams("a=1");
+  expect(Object.keys(headers as object).length).toBe(0);
+  expect(Object.keys(params as object).length).toBe(0);
+});
+"#;
+    run_fetch_fixture(source, "fetch_boundary");
 }

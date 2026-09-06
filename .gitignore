@@ -165,4 +165,5 @@ node_modules/
 examples/typescript/express_crud/todos.db
 !blocker-logs/express-v1-baseline.md
 !blocker-logs/standards-tier-plan.md
+!blocker-logs/standards-tier-progress.md
 !blocker-logs/hono-campaign-plan.md

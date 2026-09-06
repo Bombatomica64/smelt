@@ -221,8 +221,12 @@ fn emit_params_traits(writer: &mut CodeWriter, needs_unknown: bool) {
                 fn_writer.line(
                     "let pairs: Vec<SmeltUnknown> = self.entries_in_order().into_iter().map(|(name, value)| SmeltUnknown::Array(Vec::from([SmeltUnknown::String(name.into()), SmeltUnknown::String(value.into())]).into())).collect();",
                 );
+                // `size` is the spec's own data property, and source code
+                // probes it on the ERASED value (`"size" in data && typeof
+                // data.size === "number"` is how remeda's `isEmptyish` decides
+                // emptiness), so the record has to carry it.
                 fn_writer.line(
-                    "SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([(\"__smelt_urlsearchparams\".to_owned(), SmeltUnknown::Bool(true)), (\"entries\".to_owned(), SmeltUnknown::Array(pairs.into()))])))",
+                    "SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([(\"__smelt_urlsearchparams\".to_owned(), SmeltUnknown::Bool(true)), (\"size\".to_owned(), SmeltUnknown::Number(pairs.len() as f64)), (\"entries\".to_owned(), SmeltUnknown::Array(pairs.into()))])))",
                 );
             });
         },

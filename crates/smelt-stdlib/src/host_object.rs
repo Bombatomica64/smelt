@@ -352,6 +352,15 @@ pub const HOST_OBJECTS: &[HostObject] = &[
     // surface is read, so it is a marker-only host object like `WeakMap` /
     // `DataView`. `instanceof Request` resolves through this marker.
     host("Request", "__smelt_request"),
+    // The concrete fetch types. Unlike the marker-only entries above, these have
+    // real generated runtime types (`SmeltHeaders`, `SmeltUrlSearchParams`) and
+    // their structural surface IS read — through typed methods, not through the
+    // record. They are registered here for what happens at the erased boundary:
+    // the marker is what makes the internal `entries` slot non-enumerable in
+    // `for...in` (a real header list enumerates nothing) and what `instanceof`
+    // resolves through. Their construction never takes the marker-only path.
+    host("Headers", "__smelt_headers"),
+    host("URLSearchParams", "__smelt_urlsearchparams"),
     host("DOMException", "__smelt_domexception"),
     // ECMA-402 `Intl` namespace constructors. Source code constructs these only
     // to probe host identity (`isPlainObject(new Intl.Locale('en')) === false`);

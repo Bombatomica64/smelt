@@ -254,6 +254,22 @@ impl FunctionEmitter<'_> {
         }
     }
 
+    /// Return whether a type is one of the concrete fetch runtime types.
+    ///
+    /// These are the classes whose state is a shared cell rather than declared
+    /// fields, so they cross the dynamic boundary through their own
+    /// `IntoSmeltUnknown`/`SmeltFromUnknown` adapters instead of the generic
+    /// struct record builder.
+    pub(super) fn is_fetch_runtime_class_type(&self, ty: TypeId) -> Result<bool, EmitError> {
+        let Some(Type::Class { name, .. }) = self.mir.types.get(ty) else {
+            return Ok(false);
+        };
+        Ok(matches!(
+            self.stdlib_class_of_symbol(*name)?,
+            Some(smelt_stdlib::StdlibClass::Headers | smelt_stdlib::StdlibClass::UrlSearchParams)
+        ))
+    }
+
     /// Return whether a type names the generated `SmeltUrlSearchParams` type.
     pub(super) fn is_url_search_params_class_type(&self, ty: TypeId) -> Result<bool, EmitError> {
         let Some(Type::Class { name, .. }) = self.mir.types.get(ty) else {

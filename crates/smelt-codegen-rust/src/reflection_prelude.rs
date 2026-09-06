@@ -130,6 +130,16 @@ fn constructor_class_markers() -> Vec<(&'static str, &'static str)> {
 /// record of that identity — so a class name and a live record agree on which
 /// constructor to run. `None` for names that are not modeled host objects.
 pub fn reflected_construct_kind(class_name: &str) -> Option<&'static str> {
+    // See the module note on the concrete fetch types: they carry a registry
+    // marker for identity and enumeration at the erased boundary, but they have
+    // no marker-record constructor, so a dynamic `new Headers()` must not
+    // silently build one.
+    if matches!(
+        smelt_stdlib::typescript_stdlib_class(class_name),
+        Some(smelt_stdlib::StdlibClass::Headers | smelt_stdlib::StdlibClass::UrlSearchParams)
+    ) {
+        return None;
+    }
     smelt_stdlib::host_object_marker(class_name).and_then(|marker| marker.strip_prefix("__smelt_"))
 }
 

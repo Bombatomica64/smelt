@@ -1221,6 +1221,15 @@ impl FunctionEmitter<'_> {
             Some(Type::Class { name, .. }) if self.is_match_class_symbol(*name)? => {
                 Ok(format!("{smelt_owned_text}.into_smelt_unknown()"))
             }
+            // The concrete fetch types keep their state behind a shared cell, not
+            // in declared fields, so the generic struct adapter would erase them
+            // to a record of nothing. Their prelude `IntoSmeltUnknown` is the one
+            // honest boundary form (identity marker, `size`, and the pairs).
+            Some(Type::Class { .. })
+                if self.is_fetch_runtime_class_type(self.operand_ty(operand)?)? =>
+            {
+                Ok(format!("{smelt_owned_text}.into_smelt_unknown()"))
+            }
             Some(Type::Class { name, .. })
                 if self.is_erased_class_type(self.operand_ty(operand)?)
                     && self.symbol_name(*name)? == "Date" =>
@@ -1656,6 +1665,11 @@ impl FunctionEmitter<'_> {
             // is erased through the single explicit `IntoSmeltUnknown` adapter,
             // reproducing the JavaScript match-array-with-properties shape.
             Some(Type::Class { name, .. }) if self.is_match_class_symbol(*name)? => {
+                Ok(format!("{smelt_owned_value}.into_smelt_unknown()"))
+            }
+            // See the operand-form arm: the fetch types erase through their own
+            // adapter rather than through the declared-field record builder.
+            Some(Type::Class { .. }) if self.is_fetch_runtime_class_type(ty)? => {
                 Ok(format!("{smelt_owned_value}.into_smelt_unknown()"))
             }
             Some(Type::Class { name, .. })
@@ -2602,6 +2616,16 @@ impl FunctionEmitter<'_> {
             Some(Type::Class { name, .. }) if self.is_match_class_symbol(*name)? => Ok(format!(
                 "<SmeltMatch as SmeltFromUnknown>::smelt_from_unknown(({text}).into_smelt_unknown())"
             )),
+            // The inverse of the fetch-type erasure. Without this arm the generic
+            // class fallback answers `Default::default()`, so a header list or a
+            // parameter list that round-tripped through erased dataflow came back
+            // EMPTY with no diagnostic.
+            Some(Type::Class { .. }) if self.is_fetch_runtime_class_type(target)? => {
+                let rust_type = self.type_text_with_impl_trait(target, false)?;
+                Ok(format!(
+                    "<{rust_type} as SmeltFromUnknown>::smelt_from_unknown({smelt_owned_text})"
+                ))
+            }
             Some(Type::Class { .. })
                 if self.type_text_with_impl_trait(target, false)? == "SmeltUnknown" =>
             {
