@@ -20,6 +20,9 @@
 //!   through either handle marks both used. Two different copies, both needed.
 //! * a `Headers` reached through `response.headers` is the SAME list, so a
 //!   mutation through it is visible on the response.
+//! * a STRING body implies `text/plain;charset=UTF-8`, which the constructor
+//!   appends unless the caller set a `Content-Type` — the spec's "extract a
+//!   body" step returns a body and a type together.
 //!
 //! Every expectation below was diffed against Node 22 on the same source,
 //! including the thrown `TypeError`'s message
@@ -209,8 +212,23 @@ test('an init header list is readable off the response', () => {
   expect(made.headers.has('x-missing')).toBe(false);
 });
 
-test('a response with no init has an empty header list', () => {
+test('a response with no body has no content type', () => {
   expect(new Response().headers.get('content-type')).toBe(null);
+});
+
+test('a string body implies its content type', () => {
+  // The spec's "extract a body" step returns a body AND a type, and the
+  // constructor appends the type when the caller set none. Node agrees; a
+  // response whose content type went missing would still compile and still
+  // serve, just with the wrong header.
+  expect(new Response('hi').headers.get('content-type')).toBe('text/plain;charset=UTF-8');
+});
+
+test('an explicit content type is not overwritten', () => {
+  const made = new Response('{}', {
+    headers: new Headers([['content-type', 'application/json']]),
+  });
+  expect(made.headers.get('content-type')).toBe('application/json');
 });
 
 test('mutating the reached list is visible on the response', () => {

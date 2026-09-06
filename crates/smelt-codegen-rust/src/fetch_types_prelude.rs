@@ -496,6 +496,14 @@ fn emit_body_struct(writer: &mut CodeWriter) {
         struct_writer.line("payload: ::std::rc::Rc<::std::cell::RefCell<SmeltBodyPayload>>,");
         struct_writer.line("/// The spec's `bodyUsed`, shared by every clone of this handle.");
         struct_writer.line("used: ::std::rc::Rc<::std::cell::Cell<bool>>,");
+        struct_writer.line("/// The `Content-Type` this body implies, when it implies one.");
+        struct_writer.line("///");
+        struct_writer.line("/// The spec's \"extract a body\" step returns a body *and* a type, and");
+        struct_writer.line("/// the type is what a `Request`/`Response` constructor appends to the");
+        struct_writer.line("/// header list when the caller did not set one. A string body implies");
+        struct_writer.line("/// `text/plain;charset=UTF-8`; raw bytes and a stream imply nothing,");
+        struct_writer.line("/// which is why this is an `Option` rather than a default string.");
+        struct_writer.line("content_type: Option<String>,")
     });
     writer.blank_line();
     // Structural equality over the bytes, matching how the other fetch types
@@ -521,8 +529,11 @@ fn emit_body_inherent_impl(writer: &mut CodeWriter, needs_unknown: bool) {
             "pub fn empty() -> Self { Self::from_payload(SmeltBodyPayload::Empty) }",
         );
         impl_writer.line("/// A buffered body holding `text`'s UTF-8 bytes.");
+        impl_writer.line("///");
+        impl_writer.line("/// Carries `text/plain;charset=UTF-8` as its implied type, which the");
+        impl_writer.line("/// holder's constructor appends when the caller set no `Content-Type`.");
         impl_writer.line(
-            "pub fn from_text(text: &str) -> Self { Self::from_payload(SmeltBodyPayload::Bytes(text.as_bytes().to_vec())) }",
+            "pub fn from_text(text: &str) -> Self { let mut body = Self::from_payload(SmeltBodyPayload::Bytes(text.as_bytes().to_vec())); body.content_type = Some(\"text/plain;charset=UTF-8\".to_owned()); body }",
         );
         impl_writer.line("/// A buffered body holding `bytes`.");
         impl_writer.line(
@@ -534,12 +545,16 @@ fn emit_body_inherent_impl(writer: &mut CodeWriter, needs_unknown: bool) {
         );
         impl_writer.line("/// Wrap a payload, unused, with a fresh identity.");
         impl_writer.line(
-            "fn from_payload(payload: SmeltBodyPayload) -> Self { Self { id: smelt_next_object_id(), payload: ::std::rc::Rc::new(::std::cell::RefCell::new(payload)), used: ::std::rc::Rc::new(::std::cell::Cell::new(false)) } }",
+            "fn from_payload(payload: SmeltBodyPayload) -> Self { Self { id: smelt_next_object_id(), payload: ::std::rc::Rc::new(::std::cell::RefCell::new(payload)), used: ::std::rc::Rc::new(::std::cell::Cell::new(false)), content_type: None } }",
         );
         impl_writer.line("/// JS reference identity of this body.");
         impl_writer.line("pub fn id(&self) -> usize { self.id }");
         impl_writer.line("/// The spec's `bodyUsed`.");
         impl_writer.line("pub fn body_used(&self) -> bool { self.used.get() }");
+        impl_writer.line("/// The `Content-Type` this body implies, when it implies one.");
+        impl_writer.line(
+            "pub fn content_type(&self) -> Option<String> { self.content_type.clone() }",
+        );
         impl_writer.line("/// Whether there is no body at all (the spec's null body).");
         impl_writer.line(
             "pub fn is_empty(&self) -> bool { matches!(&*self.payload.borrow(), SmeltBodyPayload::Empty) }",
@@ -599,7 +614,7 @@ fn emit_body_inherent_impl(writer: &mut CodeWriter, needs_unknown: bool) {
         impl_writer.line("/// (the Rust trait) is the *handle* copy and shares both, which is");
         impl_writer.line("/// what assigning a response to another variable does.");
         impl_writer.line(
-            "pub fn tee(&self) -> Self { Self::from_payload(self.payload.borrow().clone()) }",
+            "pub fn tee(&self) -> Self { let mut body = Self::from_payload(self.payload.borrow().clone()); body.content_type = self.content_type.clone(); body }",
         );
     });
     writer.blank_line();
@@ -659,8 +674,22 @@ fn emit_response_inherent_impl(writer: &mut CodeWriter) {
             "pub fn new() -> Self { Self::from_parts(200.0, String::new(), SmeltHeaders::new(), SmeltBody::empty()) }",
         );
         impl_writer.line("/// Assemble a response with a fresh JS reference identity.");
-        impl_writer.line(
-            "pub fn from_parts(status: f64, status_text: String, headers: SmeltHeaders, body: SmeltBody) -> Self { Self { id: smelt_next_object_id(), status, status_text, headers, body } }",
+        impl_writer.line("///");
+        impl_writer.line("/// A body that implies a `Content-Type` adds it to the header list");
+        impl_writer.line("/// unless the caller already set one — the spec's \"extract a body\"");
+        impl_writer.line("/// step, which is why `new Response('hi').headers.get('content-type')`");
+        impl_writer.line("/// is `text/plain;charset=UTF-8` and not `null`.");
+        impl_writer.block(
+            "pub fn from_parts(status: f64, status_text: String, headers: SmeltHeaders, body: SmeltBody) -> Self",
+            |fn_writer| {
+                fn_writer.block(
+                    "if let Some(content_type) = body.content_type() && !headers.has(\"content-type\")",
+                    |arm_writer| {
+                        arm_writer.line("headers.append(\"content-type\", &content_type);");
+                    },
+                );
+                fn_writer.line("Self { id: smelt_next_object_id(), status, status_text, headers, body }");
+            },
         );
         impl_writer.line("/// JS reference identity of this response.");
         impl_writer.line("pub fn id(&self) -> usize { self.id }");
