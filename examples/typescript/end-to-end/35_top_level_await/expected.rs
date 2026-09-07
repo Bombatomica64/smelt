@@ -2061,6 +2061,32 @@ async fn smelt_sleep_ms(delay_ms: f64) {
     if SMELT_RACE_DEPTH.with(::std::cell::Cell::get) == 0 { tokio::task::yield_now().await; }
 }
 
+thread_local! {
+    /// Open handles that keep the program alive, in Node's sense.
+    static SMELT_LIVE_HANDLES: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) };
+}
+/// Register a handle that must keep the program from exiting.
+#[allow(dead_code)]
+fn smelt_retain_handle() { SMELT_LIVE_HANDLES.with(|handles| handles.set(handles.get().saturating_add(1))); }
+/// Release a handle registered by `smelt_retain_handle`.
+#[allow(dead_code)]
+fn smelt_release_handle() { SMELT_LIVE_HANDLES.with(|handles| handles.set(handles.get().saturating_sub(1))); }
+/// Run the event loop until the program is allowed to exit.
+///
+/// First the ordinary run-until-idle drain, then Node's ref'd-handle
+/// rule: stay alive while any handle is open. Polling (rather than a
+/// notification) is deliberate -- this loop runs once, at the very end of
+/// the program, and only while a handle really is open, so its cost is a
+/// wakeup every few milliseconds in a process that is otherwise just
+/// serving.
+#[allow(dead_code)]
+async fn smelt_run_until_exit() {
+    smelt_sleep_ms(0.0).await;
+    while SMELT_LIVE_HANDLES.with(::std::cell::Cell::get) > 0 {
+        tokio::time::sleep(::std::time::Duration::from_millis(5)).await;
+    }
+}
+
 async fn smelt_promise_race<T>(mut racers: Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>>) -> Result<T, Box<dyn std::error::Error>> {
     struct SmeltRaceGuard;
     impl Drop for SmeltRaceGuard { fn drop(&mut self) { SMELT_RACE_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1))); } }
@@ -2852,8 +2878,10 @@ impl SmeltFromUnknown for SmeltMatch {
 }
 
 // @smelt:prelude-end — generated program below
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+let smelt_runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+let smelt_local = tokio::task::LocalSet::new();
+smelt_local.block_on(&smelt_runtime, async move {
     let first: String;
     let total: f64;
     let _smelt_tmp_3: String;
@@ -2875,7 +2903,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_10 = _smelt_tmp_9.await?;
     _smelt_tmp_11 = _smelt_tmp_10.chars().count() as f64;
     let _ = { println!("{}", _smelt_tmp_11); };
-    let _smelt_tmp_13: SmeltFuture<()> = SmeltFuture::from_future(Box::pin(async move { smelt_sleep_ms(0.0 as f64).await; Ok::<_, Box<dyn std::error::Error>>(()) }));
+    let _smelt_tmp_13: SmeltFuture<()> = SmeltFuture::from_future(Box::pin(async move { smelt_run_until_exit().await; Ok::<_, Box<dyn std::error::Error>>(()) }));
     _smelt_tmp_14 = _smelt_tmp_13.await?;
     return Ok(());
+})
 }

@@ -529,6 +529,24 @@ fn rewrite_rvalue(
             }
             rewritten
         }
+        Rvalue::HttpCreateServer { handler } => rewrite_operand_except(handler, aliases, dest),
+        Rvalue::HttpServerOp { server, args, .. } => {
+            let mut rewritten = rewrite_operand_except(server, aliases, dest);
+            for arg in args {
+                rewritten |= rewrite_operand_except(arg, aliases, dest);
+            }
+            rewritten
+        }
+        Rvalue::IncomingMessageOp { message, .. } => {
+            rewrite_operand_except(message, aliases, dest)
+        }
+        Rvalue::ServerResponseOp { response, args, .. } => {
+            let mut rewritten = rewrite_operand_except(response, aliases, dest);
+            for arg in args {
+                rewritten |= rewrite_operand_except(arg, aliases, dest);
+            }
+            rewritten
+        }
         Rvalue::RequestNew {
             input,
             method,

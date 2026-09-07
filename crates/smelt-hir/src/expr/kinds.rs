@@ -6,6 +6,8 @@ use super::{
     SetProjectionOp, SetRelationOp, SetRemoveOp, StringAffixOp, StringCaseOp, StringNormalizeForm,
     StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, UnaryOp,
     EventEmitterOp as EventEmitterOpKind, HeadersOp as HeadersOpKind,
+    HttpServerOp as HttpServerOpKind, IncomingMessageOp as IncomingMessageOpKind,
+    ServerResponseOp as ServerResponseOpKind,
     RequestOp as RequestOpKind, ResponseOp as ResponseOpKind,
     UnknownKind, UriTranscodeOp,
     UrlField,
@@ -486,12 +488,52 @@ pub enum ExprKind {
     /// async here.
     EventEmitterNew,
     /// An `EventEmitter` member operation on a concrete emitter receiver.
+    ///
+    /// The receiver is any value whose class
+    /// [`has_event_emitter`](smelt_stdlib::StdlibClass::has_event_emitter) — an
+    /// `EventEmitter` itself, or a `node:http` `IncomingMessage`, which holds
+    /// one by composition.
     EventEmitterOp {
         /// Which operation this member performs.
         op: EventEmitterOpKind,
         /// The emitter receiver.
         emitter: ExprId,
         /// The event name, followed by the operation's own arguments.
+        args: Vec<ExprId>,
+    },
+    /// `createServer(handler)` from `node:http`.
+    ///
+    /// The handler is stored CONCRETELY: unlike an event listener, its
+    /// signature is fixed by the module — `(IncomingMessage, ServerResponse)` —
+    /// so it needs none of the erasure the emitter's listener list needs.
+    HttpCreateServer {
+        /// The request handler, called once per accepted request.
+        handler: ExprId,
+    },
+    /// A `node:http` `Server` member operation.
+    HttpServerOp {
+        /// Which operation this member performs.
+        op: HttpServerOpKind,
+        /// The server receiver.
+        server: ExprId,
+        /// The operation's arguments: `listen` takes a port, an optional host,
+        /// and an optional listening callback; the others take none.
+        args: Vec<ExprId>,
+    },
+    /// A `node:http` `IncomingMessage` property read.
+    IncomingMessageOp {
+        /// Which property this reads.
+        op: IncomingMessageOpKind,
+        /// The request receiver.
+        message: ExprId,
+    },
+    /// A `node:http` `ServerResponse` member operation.
+    ServerResponseOp {
+        /// Which operation this member performs.
+        op: ServerResponseOpKind,
+        /// The response receiver.
+        response: ExprId,
+        /// The operation's arguments, in source order.
         args: Vec<ExprId>,
     },
     /// `new Request(input, init?)`.

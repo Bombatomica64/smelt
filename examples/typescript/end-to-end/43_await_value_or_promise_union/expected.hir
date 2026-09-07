@@ -11,16 +11,15 @@ module examples/typescript/end-to-end/43_await_value_or_promise_union/input.ts (
     #2: String = await #1
     #3: None = @5(console_log)
     #4: None = call #3(#2)
-    #5: Float = 0.0
-    #6: Future<None> = async_sleep(#5)
-    #7: None = await #6
+    #5: Future<None> = async_exit_drain()
+    #6: None = await #5
   stmts
     s0: #4
-    s1: #7
+    s1: #6
   async state machine
     states [state0, state1, state2]
     suspend #2 on #1 -> state3
-    suspend #7 on #6 -> state8
+    suspend #6 on #5 -> state7
 
 interned types
   t0 = Bool

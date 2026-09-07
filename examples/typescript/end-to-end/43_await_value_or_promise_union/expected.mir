@@ -113,7 +113,7 @@ async fn main (FuncId(4)) -> None throws
     %1 = await move %0
     %2 = call @console_log(move %1) -> bb2
   bb2:
-    %3 = async_sleep(0.0)
+    %3 = async_exit_drain()
     %4 = await move %3
     return none
 

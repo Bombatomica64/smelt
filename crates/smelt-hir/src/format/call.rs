@@ -508,6 +508,39 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             }
             text
         }
+        ExprKind::HttpCreateServer { handler } => {
+            format!("http_create_server {}", expr_ref(*handler))
+        }
+        ExprKind::HttpServerOp { op, server, args } => {
+            let name = match op {
+                crate::expr::HttpServerOp::Listen => "listen",
+                crate::expr::HttpServerOp::Close => "close",
+                crate::expr::HttpServerOp::Address => "address",
+            };
+            let mut text = format!("http_server_{name} {}", expr_ref(*server));
+            for arg in args {
+                text.push(' ');
+                text.push_str(&expr_ref(*arg));
+            }
+            text
+        }
+        ExprKind::IncomingMessageOp { op, message } => {
+            let name = match op {
+                crate::expr::IncomingMessageOp::Method => "method",
+                crate::expr::IncomingMessageOp::Url => "url",
+                crate::expr::IncomingMessageOp::Headers => "headers",
+            };
+            format!("incoming_message_{name} {}", expr_ref(*message))
+        }
+        ExprKind::ServerResponseOp { op, response, args } => {
+            let name = server_response_op_name(*op);
+            let mut text = format!("server_response_{name} {}", expr_ref(*response));
+            for arg in args {
+                text.push(' ');
+                text.push_str(&expr_ref(*arg));
+            }
+            text
+        }
         ExprKind::RequestNew {
             input,
             method,
@@ -1184,6 +1217,19 @@ const fn event_emitter_op_name(op: crate::expr::EventEmitterOp) -> &'static str 
     }
 }
 
+/// The dump spelling of a `ServerResponse` operation.
+const fn server_response_op_name(op: crate::expr::ServerResponseOp) -> &'static str {
+    match op {
+        crate::expr::ServerResponseOp::StatusCode => "status_code",
+        crate::expr::ServerResponseOp::SetStatusCode => "set_status_code",
+        crate::expr::ServerResponseOp::SetHeader => "set_header",
+        crate::expr::ServerResponseOp::GetHeader => "get_header",
+        crate::expr::ServerResponseOp::WriteHead => "write_head",
+        crate::expr::ServerResponseOp::Write => "write",
+        crate::expr::ServerResponseOp::End => "end",
+    }
+}
+
 /// The dump spelling of a `Request` operation.
 const fn request_op_name(op: crate::expr::RequestOp) -> &'static str {
     match op {
@@ -1215,6 +1261,7 @@ fn async_op_text(op: AsyncOp, args: &[ExprId]) -> String {
         AsyncOp::Race => "async_race",
         AsyncOp::AllSettled => "async_all_settled",
         AsyncOp::Sleep => "async_sleep",
+        AsyncOp::ExitDrain => "async_exit_drain",
         AsyncOp::SetTimeout => "async_set_timeout",
         AsyncOp::ClearTimeout => "async_clear_timeout",
         AsyncOp::SetInterval => "async_set_interval",

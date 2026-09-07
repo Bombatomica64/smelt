@@ -91,6 +91,7 @@ pub(crate) mod classes;
 pub(crate) mod classify;
 pub(crate) mod deps;
 mod function_object_prelude;
+mod http_server_prelude;
 // Increment 3 of the callback-generics plan made the last dormant entry point
 // live: the safety valve consults `collect_bindings` and `TypeParamBinding`
 // directly, so the module no longer needs a `dead_code` expectation.
@@ -480,11 +481,18 @@ fn needs_timer_helpers(mir: &Mir) -> bool {
     }) {
         return true;
     }
+    // A `node:http` server registers a live handle with the exit drain, which
+    // is emitted with the timer helpers. The handle accounting has to exist
+    // wherever the server does, whether or not the program also has a timer.
+    if stdlib::needs_http_server_runtime(mir) {
+        return true;
+    }
     stdlib::rvalues(mir).any(|value| {
         matches!(
             value,
             Rvalue::AsyncOp {
                 op: AsyncOp::Sleep
+                    | AsyncOp::ExitDrain
                     | AsyncOp::Resolve
                     | AsyncOp::Reject
                     | AsyncOp::SetTimeout
@@ -559,6 +567,7 @@ fn emit_source_with_free_function_router(
     let needs_response = stdlib::needs_response_runtime(mir);
     let needs_request = stdlib::needs_request_runtime(mir);
     let needs_event_emitter = stdlib::needs_event_emitter_runtime(mir);
+    let needs_http_server = stdlib::needs_http_server_runtime(mir);
     let needs_body = stdlib::needs_body_runtime(mir);
     let needs_smelt_list = stdlib::needs_smelt_list(mir);
     let needs_erased_function = needs_erased_function_runtime(mir);
@@ -4254,6 +4263,7 @@ fn emit_source_with_free_function_router(
             writer.line("    if SMELT_RACE_DEPTH.with(::std::cell::Cell::get) == 0 { tokio::task::yield_now().await; }");
             writer.line("}");
             writer.blank_line();
+            emit_exit_drain_support(&mut writer);
             // `Promise.race` on the virtual clock. Every generated promise value
             // is a spin-loop future that, when polled, advances virtual time by
             // at most one timer step and then yields. So within a single poll
@@ -5227,6 +5237,11 @@ fn emit_source_with_free_function_router(
     if needs_event_emitter {
         event_emitter_prelude::emit(&mut writer);
     }
+    // After the emitter, which `SmeltIncomingMessage` composes, and after
+    // `SmeltHeaders`, whose insertion-ordered pairs `writeHead` merges.
+    if needs_http_server {
+        http_server_prelude::emit(&mut writer);
+    }
     for class in &mir.classes {
         let name = class_name_text(mir, class)?;
         if !emitted_class_names.insert(name.clone()) {
@@ -5767,6 +5782,70 @@ fn insert_after_crate_header(mut root: String, text: &str) -> String {
 /// The runtime used to push the replacement verbatim, so `'\\$&'` — the whole
 /// point of a pattern like `escapeRegExp`'s — inserted the two characters `$&`
 /// instead of the matched text.
+/// Emit the live-handle counter and the event loop's exit drain.
+///
+/// # Why the exit drain is not `sleep(0)`
+///
+/// It was, and that made every async program's last act "drain the microtask
+/// queue and the due timers, then return". Node does that too — and then keeps
+/// going while a REFERENCED HANDLE is open. A listening `http.Server` is such a
+/// handle, which is the whole reason `createServer(..).listen(3000)` serves in
+/// Node rather than exiting immediately. With the drain spelled as `sleep(0)`,
+/// the generated program returned from `main` the instant the queue was empty
+/// and the server task was dropped mid-flight.
+///
+/// A mid-program `await sleep(0)` must NOT wait on handles — it would never
+/// return while a server was up — so the two cannot be the same operation.
+/// Hence [`smelt_hir::AsyncOp::ExitDrain`], which is what the module body's
+/// last statement lowers to.
+///
+/// The counter lives here rather than in the `node:http` prelude because the
+/// drain that reads it is emitted for EVERY async program, while the server
+/// prelude is emitted only for programs that serve. Anything else that gains a
+/// process-keeping handle later (a listening socket, a watched file) increments
+/// the same counter.
+fn emit_exit_drain_support(writer: &mut CodeWriter) {
+    writer.line("thread_local! {");
+    writer.line("    /// Open handles that keep the program alive, in Node's sense.");
+    writer.line("    static SMELT_LIVE_HANDLES: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) };");
+    writer.line("}");
+    writer.line("/// Register a handle that must keep the program from exiting.");
+    writer.line("#[allow(dead_code)]");
+    writer.line("fn smelt_retain_handle() { SMELT_LIVE_HANDLES.with(|handles| handles.set(handles.get().saturating_add(1))); }");
+    writer.line("/// Release a handle registered by `smelt_retain_handle`.");
+    writer.line("#[allow(dead_code)]");
+    writer.line("fn smelt_release_handle() { SMELT_LIVE_HANDLES.with(|handles| handles.set(handles.get().saturating_sub(1))); }");
+    writer.line("/// Run the event loop until the program is allowed to exit.");
+    writer.line("///");
+    writer.line("/// First the ordinary run-until-idle drain, then Node's ref'd-handle");
+    writer.line("/// rule: stay alive while any handle is open. Polling (rather than a");
+    writer.line("/// notification) is deliberate -- this loop runs once, at the very end of");
+    writer.line("/// the program, and only while a handle really is open, so its cost is a");
+    writer.line("/// wakeup every few milliseconds in a process that is otherwise just");
+    writer.line("/// serving.");
+    writer.line("#[allow(dead_code)]");
+    writer.block(
+        format!(
+            "async fn {exit_drain}()",
+            exit_drain = smelt_stdlib::runtime_symbols::timers::RUN_UNTIL_EXIT,
+        ),
+        |fn_writer| {
+            fn_writer.line(format!(
+                "{sleep_ms}(0.0).await;",
+                sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
+            ));
+            fn_writer.block(
+                "while SMELT_LIVE_HANDLES.with(::std::cell::Cell::get) > 0",
+                |loop_writer| {
+                    loop_writer
+                        .line("tokio::time::sleep(::std::time::Duration::from_millis(5)).await;");
+                },
+            );
+        },
+    );
+    writer.blank_line();
+}
+
 fn emit_regex_substitution(writer: &mut CodeWriter) {
     writer.line("/// Expand one JavaScript replacement pattern against a match (ECMA-262 `GetSubstitution`).");
     writer.line("///");

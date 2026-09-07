@@ -197,6 +197,10 @@ impl LoweringCtx<'_> {
             | ExprKind::RegexFind { .. }
             | ExprKind::EventEmitterNew
             | ExprKind::EventEmitterOp { .. }
+            | ExprKind::HttpCreateServer { .. }
+            | ExprKind::HttpServerOp { .. }
+            | ExprKind::IncomingMessageOp { .. }
+            | ExprKind::ServerResponseOp { .. }
             | ExprKind::RequestNew { .. }
             | ExprKind::RequestOp { .. }
             | ExprKind::ResponseNew { .. }

@@ -50,6 +50,20 @@ impl Rvalue {
                     visit(arg);
                 }
             }
+            Self::HttpCreateServer { handler } => visit(handler),
+            Self::HttpServerOp { server, args, .. } => {
+                visit(server);
+                for arg in args {
+                    visit(arg);
+                }
+            }
+            Self::IncomingMessageOp { message, .. } => visit(message),
+            Self::ServerResponseOp { response, args, .. } => {
+                visit(response);
+                for arg in args {
+                    visit(arg);
+                }
+            }
             Self::RequestNew {
                 input,
                 method,
@@ -915,6 +929,20 @@ impl Rvalue {
             Self::EventEmitterNew => {}
             Self::EventEmitterOp { emitter, args, .. } => {
                 visit(emitter);
+                for arg in args.iter_mut() {
+                    visit(arg);
+                }
+            }
+            Self::HttpCreateServer { handler } => visit(handler),
+            Self::HttpServerOp { server, args, .. } => {
+                visit(server);
+                for arg in args.iter_mut() {
+                    visit(arg);
+                }
+            }
+            Self::IncomingMessageOp { message, .. } => visit(message),
+            Self::ServerResponseOp { response, args, .. } => {
+                visit(response);
                 for arg in args.iter_mut() {
                     visit(arg);
                 }

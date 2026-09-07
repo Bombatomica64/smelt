@@ -13,6 +13,18 @@ pub enum AsyncOp {
     AllSettled,
     /// Sleep for a duration in milliseconds.
     Sleep,
+    /// Run the event loop until the program is allowed to exit.
+    ///
+    /// The last statement of an async module body (see
+    /// `append_module_exit_drain`). It is not `Sleep(0)` — which it used to be
+    /// — because draining the microtask queue and the due timers is only half
+    /// of what Node does before exiting: it also stays alive while a REFERENCED
+    /// HANDLE is open. A listening `http.Server` is such a handle, which is why
+    /// `createServer(..).listen(3000)` serves in Node instead of returning
+    /// immediately. A mid-program `await sleep(0)` must NOT wait on handles —
+    /// it would never return while a server was up — so the two cannot be the
+    /// same operation.
+    ExitDrain,
     /// Produce an already-rejected promise (`Promise.reject(reason)`).
     ///
     /// Operands are `[duration, reason?]`, mirroring `Resolve`: the duration

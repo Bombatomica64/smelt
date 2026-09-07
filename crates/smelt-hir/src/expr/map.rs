@@ -414,6 +414,37 @@ impl ExprKind {
                     args: mapped,
                 }
             }
+            Self::HttpCreateServer { handler } => Self::HttpCreateServer {
+                handler: f(handler)?,
+            },
+            Self::HttpServerOp { op, server, args } => {
+                let server = f(server)?;
+                let mut mapped = Vec::with_capacity(args.len());
+                for arg in args {
+                    mapped.push(f(arg)?);
+                }
+                Self::HttpServerOp {
+                    op,
+                    server,
+                    args: mapped,
+                }
+            }
+            Self::IncomingMessageOp { op, message } => Self::IncomingMessageOp {
+                op,
+                message: f(message)?,
+            },
+            Self::ServerResponseOp { op, response, args } => {
+                let response = f(response)?;
+                let mut mapped = Vec::with_capacity(args.len());
+                for arg in args {
+                    mapped.push(f(arg)?);
+                }
+                Self::ServerResponseOp {
+                    op,
+                    response,
+                    args: mapped,
+                }
+            }
             Self::RequestNew {
                 input,
                 method,

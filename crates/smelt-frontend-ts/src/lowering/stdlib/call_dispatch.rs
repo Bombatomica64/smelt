@@ -1724,6 +1724,12 @@ impl<'builder> ModuleBuilder<'builder> {
         Self::dispatch_url_search_params_method,
         Self::dispatch_response_method,
         Self::dispatch_request_method,
+        // Before the emitter dispatch: an `IncomingMessage` reaches the emitter
+        // through it, and the two `node:http` receivers with methods of their
+        // own must claim those names first.
+        Self::http_create_server_call,
+        Self::dispatch_http_server_method,
+        Self::dispatch_server_response_method,
         Self::dispatch_event_emitter_method,
         Self::map_projection_call,
         Self::regexp_test_call,

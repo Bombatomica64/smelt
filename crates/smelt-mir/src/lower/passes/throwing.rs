@@ -89,6 +89,14 @@ fn statement_can_throw(
     ) {
         return true;
     }
+    // `Server.listen` runs the listening callback in the same turn, and
+    // `close`/`address` reach the same runtime that a bind error surfaces
+    // through — a port already in use is a thrown `Error` in Node, not a
+    // silent no-op. Every server operation is therefore throwing, on the same
+    // reasoning as `emit`: what the operation reaches is decided at run time.
+    if matches!(value, Rvalue::HttpServerOp { .. }) {
+        return true;
+    }
     let Rvalue::ClosureCall { callee, .. } = value else {
         return false;
     };

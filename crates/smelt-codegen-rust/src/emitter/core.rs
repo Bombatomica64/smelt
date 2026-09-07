@@ -144,6 +144,46 @@ impl<'mir> FunctionEmitter<'mir> {
         Ok(names)
     }
 
+    /// The closing text of an async `main`'s runtime scope.
+    const ASYNC_MAIN_RUNTIME_EPILOGUE: &'static str = "})\n";
+
+    /// The runtime an async `main` runs its body on.
+    ///
+    /// # Why not `#[tokio::main]`
+    ///
+    /// That attribute builds a MULTI-THREADED, work-stealing runtime, and
+    /// everything Smelt generates is `Rc`-based: a closure's captured state, a
+    /// modeled object's shared cell, a promise's result cell. None of it is
+    /// `Send`, so nothing generated can be spawned onto such a runtime at all —
+    /// a `node:http` request handler least of all, since it captures whatever
+    /// the surrounding program had.
+    ///
+    /// A single-threaded loop is also what the source language actually has. A
+    /// TypeScript program ported to Rust that silently gained parallel handler
+    /// execution would be a different program: two requests could observe each
+    /// other's half-written state through exactly the shared cells that model
+    /// JavaScript's mutable objects. So the current-thread runtime is the
+    /// faithful shape, not a workaround for a missing bound.
+    ///
+    /// The `LocalSet` is the other half: it is what makes `spawn_local`
+    /// available, and `spawn_local` is how a listening server keeps accepting
+    /// while the program's own body carries on. Both are emitted for EVERY
+    /// async `main` rather than only for programs that serve — two runtime
+    /// shapes for one language is the special case this codebase refuses.
+    fn async_main_runtime_prologue(can_throw: bool) -> String {
+        // A runtime that cannot be built is not a program error the source can
+        // handle, but a throwing `main` can still report it in the ordinary
+        // channel rather than panicking.
+        let build = if can_throw {
+            ".build()?"
+        } else {
+            ".build().expect(\"tokio runtime\")"
+        };
+        format!(
+            "let smelt_runtime = tokio::runtime::Builder::new_current_thread().enable_all(){build};\nlet smelt_local = tokio::task::LocalSet::new();\nsmelt_local.block_on(&smelt_runtime, async move {{\n"
+        )
+    }
+
     /// Emits a free function definition.
     pub(crate) fn emit(&mut self, out: &mut String) -> Result<(), EmitError> {
         let name = self.symbol_name(self.function.name)?;
@@ -155,25 +195,28 @@ impl<'mir> FunctionEmitter<'mir> {
             }
         }
         if !self.function.is_test && name == "main" && self.function.return_ty == self.none_ty {
-            // An async module body ends by running the event loop to idle, and
-            // that drain is lowered as the body's last statement rather than
-            // wrapped around it here -- see `module_init`'s
-            // `append_module_exit_drain`. So this emission stays the plain
-            // shape and the two cases differ only in the attribute.
+            // An async module body ends by running the event loop until the
+            // program may exit, and that drain is lowered as the body's last
+            // statement rather than wrapped around it here -- see
+            // `module_init`'s `append_module_exit_drain`. So this emission
+            // supplies only the runtime the body runs on.
+            // The signature depends only on whether the body can throw, and
+            // the runtime scope only on whether it is async. They used to be
+            // entangled because an async `main` carried a `#[tokio::main]`
+            // attribute; it now builds its own runtime inside the body, so the
+            // two questions are answered separately.
             if self.function.can_throw {
-                if self.function.is_async {
-                    out.push_str(
-                        "#[tokio::main]\nasync fn main() -> Result<(), Box<dyn std::error::Error>> {\n",
-                    );
-                } else {
-                    out.push_str("fn main() -> Result<(), Box<dyn std::error::Error>> {\n");
-                }
-            } else if self.function.is_async {
-                out.push_str("#[tokio::main]\nasync fn main() {\n");
+                out.push_str("fn main() -> Result<(), Box<dyn std::error::Error>> {\n");
             } else {
                 out.push_str("fn main() {\n");
             }
+            if self.function.is_async {
+                out.push_str(&Self::async_main_runtime_prologue(self.function.can_throw));
+            }
             self.emit_body(out)?;
+            if self.function.is_async {
+                out.push_str(Self::ASYNC_MAIN_RUNTIME_EPILOGUE);
+            }
             out.push_str("}\n");
             return Ok(());
         }
@@ -5337,6 +5380,23 @@ pub(super) fn rvalue_uses_local(value: &Rvalue, local: LocalId) -> bool {
         // references an undeclared temporary.
         Rvalue::EventEmitterOp { emitter, args, .. } => {
             operand_uses_local(emitter, local)
+                || args
+                    .iter()
+                    .any(|operand| operand_uses_local(operand, local))
+        }
+        // The `node:http` operations, for the same reason: `createServer`'s
+        // handler and `listen`'s listening callback are closure temps whose
+        // ONLY use is the rvalue that consumes them.
+        Rvalue::HttpCreateServer { handler } => operand_uses_local(handler, local),
+        Rvalue::HttpServerOp { server, args, .. } => {
+            operand_uses_local(server, local)
+                || args
+                    .iter()
+                    .any(|operand| operand_uses_local(operand, local))
+        }
+        Rvalue::IncomingMessageOp { message, .. } => operand_uses_local(message, local),
+        Rvalue::ServerResponseOp { response, args, .. } => {
+            operand_uses_local(response, local)
                 || args
                     .iter()
                     .any(|operand| operand_uses_local(operand, local))

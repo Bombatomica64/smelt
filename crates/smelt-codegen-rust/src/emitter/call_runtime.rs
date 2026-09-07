@@ -1031,6 +1031,16 @@ impl FunctionEmitter<'_> {
             Rvalue::EventEmitterOp { op, emitter, args } => {
                 self.event_emitter_op_text(*op, emitter, args)
             }
+            Rvalue::HttpCreateServer { handler } => self.http_create_server_text(handler),
+            Rvalue::HttpServerOp { op, server, args } => {
+                self.http_server_op_text(*op, server, args)
+            }
+            Rvalue::IncomingMessageOp { op, message } => {
+                self.incoming_message_op_text(*op, message, dest_ty)
+            }
+            Rvalue::ServerResponseOp { op, response, args } => {
+                self.server_response_op_text(*op, response, args)
+            }
             Rvalue::RequestNew {
                 input,
                 method,

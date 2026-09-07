@@ -1265,6 +1265,18 @@ impl FunctionEmitter<'_> {
                 {
                     return Ok(RustType::raw("SmeltEventEmitter"));
                 }
+                if let Some(http_type) = match self.stdlib_class_of_symbol(*name)? {
+                    Some(smelt_stdlib::StdlibClass::HttpServer) => Some("SmeltHttpServer"),
+                    Some(smelt_stdlib::StdlibClass::IncomingMessage) => {
+                        Some("SmeltIncomingMessage")
+                    }
+                    Some(smelt_stdlib::StdlibClass::ServerResponse) => {
+                        Some("SmeltServerResponse")
+                    }
+                    _ => None,
+                } {
+                    return Ok(RustType::raw(http_type));
+                }
                 if !self.mir.classes.iter().any(|class| class.name == *name)
                     && !self
                         .mir
@@ -1540,6 +1552,18 @@ impl FunctionEmitter<'_> {
                     == Some(smelt_stdlib::StdlibClass::EventEmitter) =>
             {
                 Ok("SmeltEventEmitter::new()".to_owned())
+            }
+            // A `ServerResponse` has a default — a fresh 200 with nothing set —
+            // for the same reason a `Response` does. A `Server` and an
+            // `IncomingMessage` deliberately do NOT: a server without a handler
+            // and a request without a method are not values their types can
+            // hold, so a default for either would be an invented object rather
+            // than an empty one.
+            Type::Class { name, .. }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::ServerResponse) =>
+            {
+                Ok("SmeltServerResponse::new()".to_owned())
             }
             Type::Class { name, .. }
                 if self.stdlib_class_of_symbol(*name)?

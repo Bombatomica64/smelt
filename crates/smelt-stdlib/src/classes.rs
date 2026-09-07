@@ -45,6 +45,59 @@ pub enum StdlibClass {
     /// `node:events` `EventEmitter`, backed by the generated concrete
     /// `SmeltEventEmitter` runtime type (an insertion-ordered listener list).
     EventEmitter,
+    /// `node:http` `Server`, backed by the generated concrete `SmeltHttpServer`
+    /// runtime type (a request handler, a bound address, and a shutdown
+    /// signal).
+    HttpServer,
+    /// `node:http` `IncomingMessage`: the request half of one exchange. Holds
+    /// an emitter by COMPOSITION rather than by inheritance, so `req.on('data',
+    /// ..)` is the same operation on the same listener list that a plain
+    /// `EventEmitter` receiver gets.
+    IncomingMessage,
+    /// `node:http` `ServerResponse`: the response half of one exchange, and the
+    /// only modeled class with settable members (`res.statusCode = 200`).
+    ServerResponse,
+}
+
+impl StdlibClass {
+    /// Return whether values of this class carry a `node:events` listener list.
+    ///
+    /// This is the "has an emitter" test that replaced "is the emitter" once
+    /// `IncomingMessage` gained one: Node's `IncomingMessage` extends
+    /// `EventEmitter`, so `req.on('data', ..)` must reach the same operation as
+    /// `emitter.on('data', ..)`. Answering it from the registry — rather than
+    /// from a name comparison at each dispatch site — is what keeps the
+    /// frontend's method dispatch, the result typing, and codegen's receiver
+    /// rendering agreeing about which receivers are emitters.
+    #[must_use]
+    pub const fn has_event_emitter(self) -> bool {
+        matches!(self, Self::EventEmitter | Self::IncomingMessage)
+    }
+
+    /// The string parameters a listener for `event` receives, when this class
+    /// publishes a known schema for it.
+    ///
+    /// A plain `EventEmitter`'s events are open — any name, any listener
+    /// signature — which is the dynamic boundary its listener store is built
+    /// on. A MODELED class is different: `IncomingMessage` emits exactly the
+    /// events `node:http` documents, and `data` always carries one chunk while
+    /// `end` always carries nothing. That is static knowledge, so the source's
+    /// own listener keeps a real parameter type (`(chunk: string) => void`)
+    /// instead of taking an erased value and coercing it by hand. Only the
+    /// registration adapter still erases, and it is the boundary either way.
+    ///
+    /// `None` means "no schema" and the listener stays erased, which is the
+    /// answer for every event of a plain emitter and for the events of a
+    /// modeled class whose payload is not a string (`error` carries an error
+    /// object; nothing reads it yet, so nothing claims to know its shape).
+    #[must_use]
+    pub fn event_listener_string_params(self, event: &str) -> Option<usize> {
+        match (self, event) {
+            (Self::IncomingMessage, "data") => Some(1),
+            (Self::IncomingMessage, "end" | "close") => Some(0),
+            _ => None,
+        }
+    }
 }
 
 /// Reserved synthetic class name for a `RegExp` match result value.
@@ -76,6 +129,14 @@ pub fn typescript_stdlib_class(name: &str) -> Option<StdlibClass> {
         "Response" => Some(StdlibClass::Response),
         "Request" => Some(StdlibClass::Request),
         "EventEmitter" => Some(StdlibClass::EventEmitter),
+        // The `node:http` names as the module exports them, so a source that
+        // annotates its handler (`(req: IncomingMessage, res: ServerResponse)`)
+        // resolves to the same modeled classes the untyped handler is given.
+        // A user class of the same name shadows these, as it does for every
+        // other entry here.
+        "Server" => Some(StdlibClass::HttpServer),
+        "IncomingMessage" => Some(StdlibClass::IncomingMessage),
+        "ServerResponse" => Some(StdlibClass::ServerResponse),
         _ => None,
     }
 }

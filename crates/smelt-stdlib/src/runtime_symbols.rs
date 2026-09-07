@@ -31,6 +31,14 @@ pub mod timers {
     /// backs `await sleep(...)` and the Promise busy-wait loop.
     pub const SLEEP_MS: &str = "smelt_sleep_ms";
 
+    /// `async fn` the module body's LAST statement awaits before the program
+    /// exits: the run-until-idle drain, then Node's ref'd-handle rule.
+    ///
+    /// Separate from [`SLEEP_MS`] because only the exit drain may wait on an
+    /// open handle — a mid-program `await sleep(0)` that did would never return
+    /// while a server was listening.
+    pub const RUN_UNTIL_EXIT: &str = "smelt_run_until_exit";
+
     /// Registers a timer callback with a delay; backs `setTimeout`.
     pub const SET_TIMEOUT: &str = "smelt_set_timeout";
 

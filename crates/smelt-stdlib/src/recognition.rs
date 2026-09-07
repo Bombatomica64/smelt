@@ -32,6 +32,15 @@ pub enum TypeScriptReceiverKind {
     Request,
     /// A `node:events` `EventEmitter` value.
     EventEmitter,
+    /// A `node:http` `Server` value.
+    HttpServer,
+    /// A `node:http` `ServerResponse` value.
+    ///
+    /// `IncomingMessage` has no receiver kind of its own: every method on it is
+    /// an emitter method, so it dispatches through
+    /// [`TypeScriptReceiverKind::EventEmitter`] and its non-method members
+    /// (`method`, `url`, `headers`) are property reads rather than calls.
+    ServerResponse,
 }
 
 /// Receiver-method call shape recognized after a frontend knows the receiver type.
@@ -53,6 +62,13 @@ pub struct MethodRecognition {
 pub const TYPESCRIPT_CALLS: &[CallRecognition] = &[
     free("fetch", RuleId::TsFetch),
     free("structuredClone", RuleId::TsStructuredClone),
+    // `createServer` from `node:http`. A modeled host-module export is
+    // recognized at its USE site rather than at its binding (see
+    // `classify_pending_host_imports`), which is why the module's only free
+    // function appears in this table alongside the real globals. The dispatch
+    // site still refuses a `createServer` that resolves to a source function,
+    // so a program with its own is unaffected.
+    free("createServer", RuleId::TsHttpCreateServer),
     // `Object(value)` — the boxing call, not the `Object.*` statics. Recognized
     // here as a free call because the callee is a bare `Object` identifier.
     free("Object", RuleId::TsObjectBox),
@@ -300,6 +316,46 @@ pub const TYPESCRIPT_METHODS: &[MethodRecognition] = &[
         TypeScriptReceiverKind::EventEmitter,
         "listenerCount",
         RuleId::TsEventEmitterRead,
+    ),
+    method(
+        TypeScriptReceiverKind::HttpServer,
+        "listen",
+        RuleId::TsHttpServerListen,
+    ),
+    method(
+        TypeScriptReceiverKind::HttpServer,
+        "close",
+        RuleId::TsHttpServerClose,
+    ),
+    method(
+        TypeScriptReceiverKind::HttpServer,
+        "address",
+        RuleId::TsHttpServerAddress,
+    ),
+    method(
+        TypeScriptReceiverKind::ServerResponse,
+        "setHeader",
+        RuleId::TsServerResponseHeader,
+    ),
+    method(
+        TypeScriptReceiverKind::ServerResponse,
+        "getHeader",
+        RuleId::TsServerResponseHeader,
+    ),
+    method(
+        TypeScriptReceiverKind::ServerResponse,
+        "writeHead",
+        RuleId::TsServerResponseWriteHead,
+    ),
+    method(
+        TypeScriptReceiverKind::ServerResponse,
+        "write",
+        RuleId::TsServerResponseWrite,
+    ),
+    method(
+        TypeScriptReceiverKind::ServerResponse,
+        "end",
+        RuleId::TsServerResponseEnd,
     ),
 ];
 

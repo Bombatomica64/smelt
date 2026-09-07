@@ -228,6 +228,10 @@ impl FunctionEmitter<'_> {
                     "SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>({body}) }}))"
                 ))
             }
+            smelt_hir::AsyncOp::ExitDrain => Ok(format!(
+                "SmeltFuture::from_future(Box::pin(async move {{ {exit_drain}().await; Ok::<_, Box<dyn std::error::Error>>(()) }}))",
+                exit_drain = smelt_stdlib::runtime_symbols::timers::RUN_UNTIL_EXIT,
+            )),
             smelt_hir::AsyncOp::Sleep => {
                 let Some(duration) = args.first() else {
                     return Err(EmitError::new("async sleep requires a duration operand"));
@@ -532,6 +536,12 @@ impl FunctionEmitter<'_> {
                 let Some(url) = args.first() else {
                     return Err(EmitError::new("async fetch requires a URL operand"));
                 };
+                // `fetch(request)` — which `fetch(url, init)` is defined to be —
+                // carries a method, a header list and a body, so it needs the
+                // full client rather than the one-line GET.
+                if self.is_request_class_type(self.operand_ty(url)?)? {
+                    return self.http_fetch_request_text(url);
+                }
                 if !matches!(
                     self.mir.types.get(self.operand_ty(url)?),
                     Some(Type::String)

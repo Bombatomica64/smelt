@@ -913,6 +913,47 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
             }
             text
         }
+        Rvalue::HttpCreateServer { handler } => {
+            format!("http_create_server {}", operand_text(handler))
+        }
+        Rvalue::HttpServerOp { op, server, args } => {
+            let name = match op {
+                smelt_hir::HttpServerOp::Listen => "listen",
+                smelt_hir::HttpServerOp::Close => "close",
+                smelt_hir::HttpServerOp::Address => "address",
+            };
+            let mut text = format!("http_server_{name} {}", operand_text(server));
+            for arg in args {
+                text.push(' ');
+                text.push_str(&operand_text(arg));
+            }
+            text
+        }
+        Rvalue::IncomingMessageOp { op, message } => {
+            let name = match op {
+                smelt_hir::IncomingMessageOp::Method => "method",
+                smelt_hir::IncomingMessageOp::Url => "url",
+                smelt_hir::IncomingMessageOp::Headers => "headers",
+            };
+            format!("incoming_message_{name} {}", operand_text(message))
+        }
+        Rvalue::ServerResponseOp { op, response, args } => {
+            let name = match op {
+                smelt_hir::ServerResponseOp::StatusCode => "status_code",
+                smelt_hir::ServerResponseOp::SetStatusCode => "set_status_code",
+                smelt_hir::ServerResponseOp::SetHeader => "set_header",
+                smelt_hir::ServerResponseOp::GetHeader => "get_header",
+                smelt_hir::ServerResponseOp::WriteHead => "write_head",
+                smelt_hir::ServerResponseOp::Write => "write",
+                smelt_hir::ServerResponseOp::End => "end",
+            };
+            let mut text = format!("server_response_{name} {}", operand_text(response));
+            for arg in args {
+                text.push(' ');
+                text.push_str(&operand_text(arg));
+            }
+            text
+        }
         Rvalue::RequestNew {
             input,
             method,
@@ -1591,6 +1632,7 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 smelt_hir::AsyncOp::Race => "async_race",
                 smelt_hir::AsyncOp::AllSettled => "async_all_settled",
                 smelt_hir::AsyncOp::Sleep => "async_sleep",
+                smelt_hir::AsyncOp::ExitDrain => "async_exit_drain",
                 smelt_hir::AsyncOp::SetTimeout => "async_set_timeout",
                 smelt_hir::AsyncOp::ClearTimeout => "async_clear_timeout",
                 smelt_hir::AsyncOp::SetInterval => "async_set_interval",

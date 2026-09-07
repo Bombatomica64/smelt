@@ -336,6 +336,7 @@ fn end_to_end_examples_match_expected_outputs() -> TestResult {
         "41_symbol_keyed_class_members",
         "42_module_arrow_shared_capture",
         "43_await_value_or_promise_union",
+        "44_node_http_echo",
     ] {
         verify_end_to_end_example(name)?;
     }
