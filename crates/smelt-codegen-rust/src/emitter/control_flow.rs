@@ -383,7 +383,17 @@ impl FunctionEmitter<'_> {
                     self.mark_local_declared(*dest);
                     return Ok(());
                 }
-                let raw_rendered_value = self.rvalue_text_for_dest(value, local.ty)?;
+                // A `typeof` whose destination was narrowed to `&'static str`
+                // skips the owned copy entirely -- the borrowed spelling IS the
+                // value. See `emitter::typeof_str_locals`.
+                let raw_rendered_value = match value {
+                    Rvalue::TypeofValue { value: typeof_operand }
+                        if self.local_is_static_typeof_str(*dest) =>
+                    {
+                        self.typeof_str_text(typeof_operand)?
+                    }
+                    _ => self.rvalue_text_for_dest(value, local.ty)?,
+                };
                 let rendered_value =
                     if matches!(self.mir.types.get(local.ty), Some(Type::Function(_)))
                         && raw_rendered_value == "Default::default()"
@@ -423,7 +433,7 @@ impl FunctionEmitter<'_> {
                 {
                     ": Self".to_owned()
                 } else {
-                    format!(": {}", self.type_text_with_impl_trait(local.ty, false)?)
+                    format!(": {}", self.local_declaration_type_text(*dest, local.ty)?)
                 };
                 if self.local_uses_shared_capture_storage(*dest) {
                     // Annotate the cell with the local's declared type, exactly as
