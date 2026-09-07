@@ -279,29 +279,9 @@ impl FunctionEmitter<'_> {
         let Some(Type::Class { name, .. }) = self.mir.types.get(ty) else {
             return Ok(false);
         };
-        Ok(matches!(
-            self.stdlib_class_of_symbol(*name)?,
-            Some(
-                smelt_stdlib::StdlibClass::Headers
-                    | smelt_stdlib::StdlibClass::UrlSearchParams
-                    | smelt_stdlib::StdlibClass::Response
-                    | smelt_stdlib::StdlibClass::Request
-                    // A concrete byte view erases to the byte-backed host
-                    // record the typed-array views use, which is what makes an
-                    // erased `encoder.encode(..)` indistinguishable from an
-                    // erased `new Uint8Array(..)`. Without this arm the
-                    // declared-field record builder would stamp the view's
-                    // SYNTHETIC class name into the erased value and drop its
-                    // bytes.
-                    | smelt_stdlib::StdlibClass::ByteArray
-                    // A blob erases to the `__smelt_blob` record every existing
-                    // consumer of an erased blob reads, through its own
-                    // adapter; the declared-field record builder would stamp a
-                    // class name and drop the bytes.
-                    | smelt_stdlib::StdlibClass::Blob
-                    | smelt_stdlib::StdlibClass::File
-            )
-        ))
+        Ok(self
+            .stdlib_class_of_symbol(*name)?
+            .is_some_and(smelt_stdlib::StdlibClass::erases_through_adapter))
     }
 
     /// Emit `new Request(input, init?)` as a concrete `SmeltRequest`.

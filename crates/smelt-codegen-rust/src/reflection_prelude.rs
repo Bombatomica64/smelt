@@ -130,26 +130,21 @@ fn constructor_class_markers() -> Vec<(&'static str, &'static str)> {
 /// record of that identity — so a class name and a live record agree on which
 /// constructor to run. `None` for names that are not modeled host objects.
 pub fn reflected_construct_kind(class_name: &str) -> Option<&'static str> {
-    // See the module note on the concrete fetch types: they carry a registry
-    // marker for identity and enumeration at the erased boundary, but they have
-    // no marker-record constructor, so a dynamic `new Headers()` must not
-    // silently build one.
-    if matches!(
-        smelt_stdlib::typescript_stdlib_class(class_name),
-        Some(
-            smelt_stdlib::StdlibClass::Headers
-                | smelt_stdlib::StdlibClass::UrlSearchParams
-                | smelt_stdlib::StdlibClass::Response
-                | smelt_stdlib::StdlibClass::Request
-                | smelt_stdlib::StdlibClass::EventEmitter
-        )
-    ) {
+    // A class backed by a generated runtime type must not be reflectively
+    // constructed as a marker record: the record would answer `instanceof`
+    // correctly and then silently fail every method the program calls on it.
+    // `StdlibClass::reflects_to_marker_record` is that question, asked of the
+    // registry rather than of a list here — the list is what let `EventEmitter`
+    // be excluded while the five classes registered alongside it were not.
+    if smelt_stdlib::typescript_stdlib_class(class_name)
+        .is_some_and(|class| !class.reflects_to_marker_record())
+    {
         return None;
     }
     // `FormData` and `ReadableStream` carry a marker for identity but have no
-    // modeled surface, so a marker record must not stand in for one: the record
-    // would answer `instanceof` correctly and then silently fail every method
-    // the program calls on it.
+    // modeled surface at all — not even a runtime type for the registry to
+    // recognize — so they need naming here. The same reasoning applies: a
+    // marker record must not stand in for a surface that does not exist.
     if matches!(class_name, "FormData" | "ReadableStream") {
         return None;
     }

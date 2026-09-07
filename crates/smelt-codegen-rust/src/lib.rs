@@ -85,6 +85,7 @@ mod asymmetric_matcher_prelude;
 mod builtin_member_prelude;
 mod byte_buffer_prelude;
 mod event_emitter_prelude;
+mod host_value_erasure;
 mod blob_prelude;
 mod fetch_types_prelude;
 mod text_codec_prelude;
@@ -1348,6 +1349,64 @@ fn emit_source_with_free_function_router(
         writer.line("    SMELT_FUNCTION_ORIGINS.with(|origins| origins.borrow().get(&smelt_erased_function_key(function)).and_then(|origin| origin.downcast_ref::<T>()).cloned())");
         writer.line("}");
         writer.blank_line();
+        // Pay-for-use. Only the six classes whose state is not a record retain
+        // their live value, so a program that erases none of them must not carry
+        // the registry — sixteen example goldens grew by it before this gate.
+        if needs_text_encoder
+            || needs_text_decoder
+            || needs_event_emitter
+            || needs_http_server
+        {
+            // Host values whose state is NOT representable as a record.
+            //
+            // `Headers` and `Blob` round-trip structurally: their erased record
+            // carries the header pairs or the bytes, so `SmeltFromUnknown` can
+            // rebuild an equal value from it. The text codecs, the `node:events`
+            // emitter and the three `node:http` types cannot — their state is
+            // closures, cells and a tokio shutdown sender — so there is nothing to
+            // rebuild FROM.
+            //
+            // What JavaScript does there is not rebuild anything: erasing a value
+            // and narrowing it back yields the SAME object, so
+            // `const x: unknown = emitter; (x as EventEmitter).on(..)` reaches the
+            // same listener list. This registry is how the generated runtime keeps
+            // that promise: the erasure retains the live value under the erased
+            // record's object id, and `SmeltFromUnknown` hands that value back.
+            //
+            // Keyed on the JavaScript object id, not on an `Rc` address, so unlike
+            // the sibling callable registries it needs no address-reuse guard: ids
+            // are minted monotonically by `smelt_next_object_id` and are never
+            // reused within a thread. Entries are never removed, for the same
+            // reason as the callable registries — there is no drop hook — and the
+            // growth is one entry per host value that crosses the boundary.
+            writer.line("thread_local! {");
+            writer.line("    /// Live host values reachable from their erased records, by object id.");
+            writer.line("    static SMELT_HOST_ORIGINS: ::std::cell::RefCell<::std::collections::HashMap<usize, Box<dyn ::std::any::Any>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
+            writer.line("}");
+            writer.blank_line();
+            writer.line("/// Retain a host value so its erased record can hand back the same object.");
+            writer.line("///");
+            writer.line("/// Call this from the value's `IntoSmeltUnknown`, with the id the erased");
+            writer.line("/// record is built with, so the record and the retained value agree.");
+            writer.line("#[allow(dead_code)]");
+            writer.line("fn smelt_register_host_origin<T: Clone + 'static>(id: usize, value: T) {");
+            writer.line("    SMELT_HOST_ORIGINS.with(|origins| { origins.borrow_mut().insert(id, Box::new(value)); });");
+            writer.line("}");
+            writer.blank_line();
+            writer.line("/// Recover the host value an erased record was made from.");
+            writer.line("///");
+            writer.line("/// `None` for a record that did not come from an erasure — a hand-built");
+            writer.line("/// object carrying the marker, or one that crossed a process boundary. Each");
+            writer.line("/// caller decides what that means for its own type rather than being given");
+            writer.line("/// a fabricated value here.");
+            writer.line("#[allow(dead_code)]");
+            writer.line("fn smelt_restore_host_origin<T: Clone + 'static>(value: &SmeltUnknown) -> Option<T> {");
+            writer.line("    let SmeltUnknown::Object(map) = value else { return None };");
+            writer.line("    SMELT_HOST_ORIGINS.with(|origins| origins.borrow().get(&map.id).and_then(|origin| origin.downcast_ref::<T>()).cloned())");
+            writer.line("}");
+            writer.blank_line();
+        }
+
         // A JavaScript "callable object" (a function with attached own
         // properties, e.g. remeda's `map(cb)` carrying `.lazy`/`.lazyArgs`)
         // erases to `SmeltUnknown::Object { __smelt_call, ...props }`. When such
@@ -5285,10 +5344,10 @@ fn emit_source_with_free_function_router(
         blob_prelude::emit(&mut writer, needs_unknown);
     }
     if needs_text_encoder {
-        text_codec_prelude::emit_encoder(&mut writer);
+        text_codec_prelude::emit_encoder(&mut writer, needs_unknown);
     }
     if needs_text_decoder {
-        text_codec_prelude::emit_decoder(&mut writer);
+        text_codec_prelude::emit_decoder(&mut writer, needs_unknown);
     }
     if needs_event_emitter {
         event_emitter_prelude::emit(&mut writer);

@@ -72,6 +72,68 @@ pub fn emit(writer: &mut CodeWriter) {
     emit_server_response(writer);
     emit_server(writer);
     emit_connection_glue(writer);
+    emit_erasure(writer);
+}
+
+/// Emit the erasure adapter pair for the three `node:http` types.
+///
+/// Each record carries the type's identity marker plus the data properties a
+/// JavaScript program reads off it, so an erased request still answers
+/// `req.method` / `req.url` and an erased response still answers
+/// `res.statusCode`. The marker makes the whole record non-enumerable in
+/// `for...in`, so adding those properties cannot change what a key enumeration
+/// sees.
+///
+/// None of the three can be REBUILT from its record — a request owns a listener
+/// list and a pending body, a response owns the cells a handler writes through,
+/// a server owns a handler closure and a tokio shutdown sender — so the
+/// erasure retains the live value and narrowing hands that same value back.
+/// The three differ only in what a record with no retained origin means:
+///
+/// * a request recovers as an empty request (no method, no URL, no listeners),
+///   which is a real, if useless, state;
+/// * a response recovers as a fresh response, which is exactly the state a
+///   handler receives before writing to it;
+/// * a SERVER has no empty state at all. There is no such thing as a server
+///   that is not listening and has no handler, so rather than fabricate one it
+///   emits no recovery, and narrowing an erased server stays a named blocker.
+///   `StdlibClass::narrows_from_erased` excludes it for this reason.
+fn emit_erasure(writer: &mut CodeWriter) {
+    crate::host_value_erasure::emit_adapters(
+        writer,
+        "SmeltIncomingMessage",
+        "__smelt_incomingmessage",
+        &[
+            crate::host_value_erasure::DataProperty {
+                name: "method",
+                value_expr: "SmeltUnknown::String(self.method().into())",
+            },
+            crate::host_value_erasure::DataProperty {
+                name: "url",
+                value_expr: "SmeltUnknown::String(self.url().into())",
+            },
+        ],
+        crate::host_value_erasure::Recovery::Empty(
+            "Self::from_parts(String::new(), String::new(), Vec::new(), Vec::new())",
+        ),
+    );
+    crate::host_value_erasure::emit_adapters(
+        writer,
+        "SmeltServerResponse",
+        "__smelt_serverresponse",
+        &[crate::host_value_erasure::DataProperty {
+            name: "statusCode",
+            value_expr: "SmeltUnknown::Number(self.status_code())",
+        }],
+        crate::host_value_erasure::Recovery::Empty("Self::new()"),
+    );
+    crate::host_value_erasure::emit_adapters(
+        writer,
+        "SmeltHttpServer",
+        "__smelt_httpserver",
+        &[],
+        crate::host_value_erasure::Recovery::None,
+    );
 }
 
 /// Emit `SmeltIncomingMessage`: one request, and its listener list.

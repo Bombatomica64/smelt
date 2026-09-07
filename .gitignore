@@ -241,3 +241,11 @@ third_party/hono
 # local clones for corpus gates (radash etc.), never tracked
 /target-compat/
 third_party/es-toolkit-src/
+# The relayed Hono demand item (`new Headers(init)` in `src/context.ts`) checked
+# and found already resolved by round 10, with where the Hono build stops now.
+!blocker-logs/standards-hono-headers-init-resolved.md
+
+# Round 11 progress note: the six modeled classes that could not answer
+# instanceof, the three per-class lists collapsed onto the registry, and why the
+# erasure test lives in a tier rather than the invariant-bound examples corpus.
+!blocker-logs/standards-round11-progress.md

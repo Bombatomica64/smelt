@@ -365,6 +365,28 @@ pub const HOST_OBJECTS: &[HostObject] = &[
     // holds and the record exists only at the boundary.
     host("Request", "__smelt_request"),
     host("Response", "__smelt_response"),
+    // The six modeled classes whose state is NOT a record: the text codecs, the
+    // `node:events` emitter, and the three `node:http` types. They were the last
+    // modeled classes with no registry marker, and the consequence was that
+    // erasing one went through the generic struct path — which stamps
+    // `__smelt_class` and reads DECLARED FIELDS, of which a prelude type has
+    // none — so the erased value carried no identity and `instanceof` on it
+    // could not be answered at all. `instance_of_text` folded it to `false` and
+    // silently deleted the branch until round 10 turned that into a blocker;
+    // these entries are what retire it.
+    //
+    // Their state is closures, cells and a tokio shutdown sender, so unlike
+    // `Headers` or `Blob` they cannot be REBUILT from a record. Their erasure
+    // therefore retains the live value in `SMELT_HOST_ORIGINS` keyed by the
+    // record's object id, and `SmeltFromUnknown` hands back that same object —
+    // which is what JavaScript erasure does anyway: `const x: unknown = emitter`
+    // must reach the same listener list.
+    host("TextEncoder", "__smelt_textencoder"),
+    host("TextDecoder", "__smelt_textdecoder"),
+    host("EventEmitter", "__smelt_eventemitter"),
+    host("Server", "__smelt_httpserver"),
+    host("IncomingMessage", "__smelt_incomingmessage"),
+    host("ServerResponse", "__smelt_serverresponse"),
     // The two `BodyInit` arms whose surfaces are not modeled yet. They are here
     // for identity only -- `Object.prototype.toString` tags them, `instanceof`
     // resolves through them, and `JSON.stringify` answers `{}` because a host
