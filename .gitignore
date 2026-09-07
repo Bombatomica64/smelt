@@ -210,3 +210,6 @@ third_party/hono
 !blocker-logs/find-callback-repro.md
 !blocker-logs/generated-union-generic-member.md
 !blocker-logs/implementer-brief.md
+
+# Hono round 9 notes
+!blocker-logs/hono-h16-nested-callback-destructuring.md
