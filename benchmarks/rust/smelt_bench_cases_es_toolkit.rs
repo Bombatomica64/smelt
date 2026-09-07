@@ -247,7 +247,7 @@ pub fn run_case(name: &str) -> Option<Measurement> {
         }
         "clone_deep" => {
             let a = arr(records(N_SMALL, 9));
-            measure(|| entry_clone_deep(a.clone()).unwrap(), |out| hash_unknown(0, out))
+            measure(|| entry_clone_deep(a.clone()), |out| hash_unknown(0, out))
         }
 
         // --- strings ---
