@@ -2435,6 +2435,22 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
+            ExprKind::BlobOp { op, blob, args } => {
+                let blob_operand = self.lower_expr(*blob)?;
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::BlobOp {
+                        op: *op,
+                        blob: blob_operand,
+                        args: arg_operands,
+                    },
+                )?
+            }
             ExprKind::BlobFromParts {
                 parts,
                 blob_type,

@@ -284,7 +284,7 @@ const no = isBlob(1);
 }
 
 #[test]
-fn emits_blob_record_helper_for_file_constructor() {
+fn file_construction_is_concrete_and_answers_both_identities_statically() {
     let source = source_for(
         r#"
 const file = new File(["content"], "file.txt", { type: "text/plain" });
@@ -293,22 +293,22 @@ const isBlob = file instanceof Blob;
 "#,
     );
 
-    // Construction routes through the shared runtime helper (which stamps
-    // `__smelt_file` on top of `__smelt_blob`), and both instanceof checks
-    // resolve through their marker keys.
+    // Construction is the concrete `SmeltBlob`, whose parts argument is the one
+    // erased thing about it (a `BlobPart` is `Blob | BufferSource | string`).
+    assert!(source.contains("SmeltBlob::from_parts_unknown("), "{source}");
+    assert!(source.contains("pub struct SmeltBlob"), "{source}");
+    // Both identities are then STATIC facts about a concretely-typed receiver:
+    // a blob always is a `Blob`, and it is a `File` exactly when its optional
+    // name is present. Neither needs the erased marker probe.
+    assert!(source.contains(".is_file()"), "{source}");
     assert!(
-        source.contains("fn smelt_blob_record_from_parts("),
-        "{source}"
+        !source.contains("value.contains_key(\"__smelt_file\")"),
+        "a concrete receiver must not fall back to the marker probe: {source}"
     );
-    assert!(source.contains("smelt_blob_record_from_parts(("), "{source}");
-    assert!(
-        source.contains("value.contains_key(\"__smelt_file\")"),
-        "{source}"
-    );
-    assert!(
-        source.contains("value.contains_key(\"__smelt_blob\")"),
-        "{source}"
-    );
+    // The erased record still carries both markers, for a blob that crosses a
+    // dynamic boundary.
+    assert!(source.contains("\"__smelt_file\".to_owned()"), "{source}");
+    assert!(source.contains("\"__smelt_blob\".to_owned()"), "{source}");
 }
 
 #[test]

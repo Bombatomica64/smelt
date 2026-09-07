@@ -12,7 +12,7 @@ use super::{
     UnknownKind, UriTranscodeOp,
     UrlField,
     UrlSearchParamsOp as UrlSearchParamsOpKind,
-    ByteArrayOp as ByteArrayOpKind, TextDecoderOp as TextDecoderOpKind,
+    BlobOp as BlobOpKind, ByteArrayOp as ByteArrayOpKind, TextDecoderOp as TextDecoderOpKind,
     TextEncoderOp as TextEncoderOpKind,
 };
 use crate::ids::{BlockId, BodyId, ExprId, ItemId, LocalId, Symbol, TypeId};
@@ -1017,6 +1017,15 @@ pub enum ExprKind {
         blob_type: ExprId,
         name: Option<ExprId>,
         last_modified: Option<ExprId>,
+    },
+    /// A `Blob`/`File` member on a concrete receiver.
+    BlobOp {
+        /// Which member this reads or calls.
+        op: BlobOpKind,
+        /// The `Blob` receiver.
+        blob: ExprId,
+        /// Operation arguments (`slice`'s range and content type, or none).
+        args: Vec<ExprId>,
     },
     /// Construct a modeled host object of a *registry* identity from its
     /// constructor arguments (`new ArrayBuffer(8)`, `new DataView(buf, 1, 2)`).

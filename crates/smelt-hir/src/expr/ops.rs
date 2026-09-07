@@ -538,6 +538,36 @@ pub enum ByteArrayOp {
     ByteLength,
 }
 
+/// A directly lowered WHATWG `Blob`/`File` member.
+///
+/// One enum for both spellings, because a `File` IS a `Blob` and shares its
+/// whole surface; the two `File`-only data properties are variants here rather
+/// than a separate enum, and reading one off a plain `Blob` is refused at
+/// lowering where the receiver's type is still known.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BlobOp {
+    /// `size`: the byte count.
+    Size,
+    /// `type`: the MIME type, `""` when none was supplied.
+    Type,
+    /// `name`: the file name (`File` only).
+    Name,
+    /// `lastModified`: the modification time in epoch milliseconds
+    /// (`File` only).
+    LastModified,
+    /// `text()`: the bytes decoded as UTF-8. Async.
+    Text,
+    /// `arrayBuffer()`: the bytes as an `ArrayBuffer`. Async.
+    ArrayBuffer,
+    /// `bytes()`: the bytes as a `Uint8Array`. Async.
+    Bytes,
+    /// `slice(start?, end?, contentType?)`: a new blob over a byte range.
+    ///
+    /// Not async, and not a `File`: the spec's `slice` always answers a `Blob`,
+    /// so slicing a file drops its name.
+    Slice,
+}
+
 /// A directly lowered local-time `Date` component.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DatePart {

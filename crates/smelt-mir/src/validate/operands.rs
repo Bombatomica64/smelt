@@ -805,6 +805,12 @@ impl Rvalue {
                 visit(path);
                 visit(text);
             }
+            Self::BlobOp { blob, args, .. } => {
+                visit(blob);
+                for arg in args {
+                    visit(arg);
+                }
+            }
             Self::BlobFromParts {
                 parts,
                 blob_type,
@@ -1703,6 +1709,12 @@ impl Rvalue {
             Self::FileWriteText { path, text } => {
                 visit(path);
                 visit(text);
+            }
+            Self::BlobOp { blob, args, .. } => {
+                visit(blob);
+                for arg in args.iter_mut() {
+                    visit(arg);
+                }
             }
             Self::BlobFromParts {
                 parts,

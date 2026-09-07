@@ -1122,6 +1122,19 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::FileWriteText { path, text } => {
             format!("file_write_text {}, {}", expr_ref(*path), expr_ref(*text))
         }
+        ExprKind::BlobOp { op, blob, args } => {
+            let op_name = blob_op_name(*op);
+            let args_text = args
+                .iter()
+                .map(|arg| expr_ref(*arg))
+                .collect::<Vec<_>>()
+                .join(", ");
+            if args_text.is_empty() {
+                format!("blob_{op_name} {}", expr_ref(*blob))
+            } else {
+                format!("blob_{op_name} {} {args_text}", expr_ref(*blob))
+            }
+        }
         ExprKind::BlobFromParts {
             parts,
             blob_type,
@@ -1370,5 +1383,19 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
             format!("new {class_name}({arg_text})")
         }
         _ => "invalid call".to_owned(),
+    }
+}
+
+/// The compact dump name of a `Blob`/`File` member.
+const fn blob_op_name(op: crate::expr::BlobOp) -> &'static str {
+    match op {
+        crate::expr::BlobOp::Size => "size",
+        crate::expr::BlobOp::Type => "type",
+        crate::expr::BlobOp::Name => "name",
+        crate::expr::BlobOp::LastModified => "last_modified",
+        crate::expr::BlobOp::Text => "text",
+        crate::expr::BlobOp::ArrayBuffer => "array_buffer",
+        crate::expr::BlobOp::Bytes => "bytes",
+        crate::expr::BlobOp::Slice => "slice",
     }
 }

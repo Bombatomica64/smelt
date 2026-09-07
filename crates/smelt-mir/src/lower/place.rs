@@ -322,6 +322,7 @@ impl LoweringCtx<'_> {
             | ExprKind::UrlField { .. }
             | ExprKind::FileReadText { .. }
             | ExprKind::FileWriteText { .. }
+            | ExprKind::BlobOp { .. }
             | ExprKind::BlobFromParts { .. }
             | ExprKind::HostConstruct { .. }
             | ExprKind::BuiltinNamespace { .. }

@@ -1265,6 +1265,14 @@ impl FunctionEmitter<'_> {
                 } {
                     return Ok(RustType::raw(codec_type));
                 }
+                // `Blob` and `File` are one Rust type: a file is a blob whose
+                // name is present.
+                if self
+                    .stdlib_class_of_symbol(*name)?
+                    .is_some_and(smelt_stdlib::StdlibClass::is_blob_runtime_type)
+                {
+                    return Ok(RustType::raw("SmeltBlob"));
+                }
                 if self.stdlib_class_of_symbol(*name)? == Some(smelt_stdlib::StdlibClass::Request) {
                     return Ok(RustType::raw("SmeltRequest"));
                 }
@@ -1560,6 +1568,15 @@ impl FunctionEmitter<'_> {
                     == Some(smelt_stdlib::StdlibClass::TextEncoder) =>
             {
                 Ok("SmeltTextEncoder::new()".to_owned())
+            }
+            // An empty, untyped blob: a blob with no bytes is a value the type
+            // can hold.
+            Type::Class { name, .. }
+                if self
+                    .stdlib_class_of_symbol(*name)?
+                    .is_some_and(smelt_stdlib::StdlibClass::is_blob_runtime_type) =>
+            {
+                Ok("SmeltBlob::new()".to_owned())
             }
             Type::Class { name, .. }
                 if self.stdlib_class_of_symbol(*name)?

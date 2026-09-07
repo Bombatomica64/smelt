@@ -210,3 +210,10 @@ third_party/hono
 !blocker-logs/find-callback-repro.md
 !blocker-logs/generated-union-generic-member.md
 !blocker-logs/implementer-brief.md
+
+# Standards round 9 repro notes: three defects found while building the text
+# codecs and the Blob/File upgrade, each pre-existing and each recorded rather
+# than folded into a feature item.
+!blocker-logs/standards-instanceof-narrowing.md
+!blocker-logs/standards-module-const-host-value.md
+!blocker-logs/standards-erased-cast-size-collision.md

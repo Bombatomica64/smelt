@@ -4936,6 +4936,9 @@ impl<'mir> FunctionEmitter<'mir> {
                                 | smelt_stdlib::StdlibClass::TextEncoder
                                 | smelt_stdlib::StdlibClass::TextDecoder
                                 | smelt_stdlib::StdlibClass::ByteArray
+                                // `Blob`/`File` are the concrete `SmeltBlob`.
+                                | smelt_stdlib::StdlibClass::Blob
+                                | smelt_stdlib::StdlibClass::File
                                 // Likewise `Response`: a concrete
                                 // `SmeltResponse`, never an erased record.
                                 | smelt_stdlib::StdlibClass::Response

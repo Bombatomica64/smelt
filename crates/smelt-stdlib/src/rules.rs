@@ -181,6 +181,16 @@ pub enum RuleId {
     TsTextEncoderEncode,
     /// TypeScript `TextDecoder.prototype.decode`.
     TsTextDecoderDecode,
+    /// TypeScript `Blob`/`File` data-property read (`size`, `type`, `name`,
+    /// `lastModified`).
+    TsBlobRead,
+    /// TypeScript `Blob`/`File` body reader (`text`, `arrayBuffer`, `bytes`).
+    ///
+    /// Separate from [`Self::TsBlobRead`] because a body reader is `async`: its
+    /// result is a `Promise`, so the call site awaits rather than reads.
+    TsBlobBodyRead,
+    /// TypeScript `Blob.prototype.slice`.
+    TsBlobSlice,
     /// TypeScript `Response` data-property read (`status`, `ok`, `statusText`,
     /// `headers`, `bodyUsed`).
     TsResponseRead,
@@ -356,6 +366,11 @@ impl RuleId {
             // UTF-8 needs no crate behind it.
             | Self::TsTextEncoderEncode
             | Self::TsTextDecoderDecode
+            // `SmeltBlob` is immutable bytes plus a MIME string; nothing in it
+            // needs a crate.
+            | Self::TsBlobRead
+            | Self::TsBlobBodyRead
+            | Self::TsBlobSlice
             | Self::TsHeadersProjection
             // `Response` is a generated concrete type: a status line, a
             // `SmeltHeaders`, and a buffered `SmeltBody`. Nothing in that needs
@@ -433,6 +448,9 @@ impl RuleId {
             Self::TsUrlSearchParamsToString => "URLSearchParams.toString",
             Self::TsTextEncoderEncode => "TextEncoder.encode",
             Self::TsTextDecoderDecode => "TextDecoder.decode",
+            Self::TsBlobRead => "Blob property read",
+            Self::TsBlobBodyRead => "Blob body reader",
+            Self::TsBlobSlice => "Blob.slice",
             Self::TsResponseRead => "Response property read",
             Self::TsResponseBodyRead => "Response body reader",
             Self::TsResponseClone => "Response.clone",

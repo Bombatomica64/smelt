@@ -1,5 +1,6 @@
 //! Focused TypeScript standard-library lowering helpers.
 
+mod blob;
 mod buffer;
 pub(in crate::lowering) mod call_dispatch;
 mod collections;

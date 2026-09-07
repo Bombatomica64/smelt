@@ -1635,6 +1635,28 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 operand_text(text)
             )
         }
+        Rvalue::BlobOp { op, blob, args } => {
+            let op_name = match op {
+                smelt_hir::BlobOp::Size => "size",
+                smelt_hir::BlobOp::Type => "type",
+                smelt_hir::BlobOp::Name => "name",
+                smelt_hir::BlobOp::LastModified => "last_modified",
+                smelt_hir::BlobOp::Text => "text",
+                smelt_hir::BlobOp::ArrayBuffer => "array_buffer",
+                smelt_hir::BlobOp::Bytes => "bytes",
+                smelt_hir::BlobOp::Slice => "slice",
+            };
+            let args_text = args
+                .iter()
+                .map(operand_text)
+                .collect::<Vec<_>>()
+                .join(", ");
+            if args_text.is_empty() {
+                format!("blob_{op_name} {}", operand_text(blob))
+            } else {
+                format!("blob_{op_name} {} {args_text}", operand_text(blob))
+            }
+        }
         Rvalue::BlobFromParts {
             parts,
             blob_type,

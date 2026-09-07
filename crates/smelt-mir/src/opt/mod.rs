@@ -974,6 +974,13 @@ fn rewrite_rvalue(
             rewrite_operand_except(path, aliases, dest)
                 | rewrite_operand_except(text, aliases, dest)
         }
+        Rvalue::BlobOp { blob, args, .. } => {
+            let mut rewritten = rewrite_operand_except(blob, aliases, dest);
+            for arg in args {
+                rewritten |= rewrite_operand_except(arg, aliases, dest);
+            }
+            rewritten
+        }
         Rvalue::BlobFromParts {
             parts,
             blob_type,

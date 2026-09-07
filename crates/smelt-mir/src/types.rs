@@ -1410,6 +1410,7 @@ pub enum Rvalue {
         /// Byte-view receiver.
         bytes: Operand,
     },
+    /// Construct a WHATWG `URLSearchParams` value.
     UrlSearchParamsNew {
         /// Optional initializer value.
         init: Option<Operand>,
@@ -2042,8 +2043,22 @@ pub enum Rvalue {
         text: Operand,
     },
     /// Construct a modeled host `Blob`/`File` marker record from constructor parts.
+    /// Apply a `Blob`/`File` member to a concrete receiver.
+    BlobOp {
+        /// Member to read or call.
+        op: smelt_hir::BlobOp,
+        /// `Blob` receiver.
+        blob: Operand,
+        /// Operation arguments (`slice`'s range and content type, or none).
+        args: Vec<Operand>,
+    },
+    /// Construct a WHATWG `Blob` or `File` from its constructor arguments.
+    ///
+    /// The parts operand's TYPE selects the conversion: a list of strings or a
+    /// list of blobs is consumed directly, and only a heterogeneous array is
+    /// erased and walked at runtime. See `emitter::blob::blob_new_text`.
     BlobFromParts {
-        /// Erased `BlobPart` array (strings and other `Blob`/`File` records).
+        /// `BlobPart` array: string parts, blob parts, or an erased mixed array.
         parts: Operand,
         /// Resolved MIME `type` string.
         blob_type: Operand,

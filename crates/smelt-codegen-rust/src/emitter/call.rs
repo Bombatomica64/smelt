@@ -2877,6 +2877,20 @@ impl FunctionEmitter<'_> {
                 "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_arraybuffer\"))"
             ));
         }
+        // A CONCRETE blob answers both spellings statically: it always is a
+        // `Blob`, and it is a `File` exactly when its optional name is present
+        // (the two share one Rust type — see `blob_prelude`). Without these arms
+        // the marker probe below would be handed a `SmeltBlob` where it expects
+        // a `SmeltUnknown`.
+        if smelt_stdlib::typescript_stdlib_class(class_name)
+            .is_some_and(smelt_stdlib::StdlibClass::is_blob_runtime_type)
+            && self.is_blob_class_type(value_ty)?
+        {
+            if class_name == "File" {
+                return Ok(format!("{}.is_file()", self.operand_text(value)?));
+            }
+            return Ok("true".to_owned());
+        }
         if class_name == "Blob"
             && matches!(
                 self.mir.types.get(value_ty),

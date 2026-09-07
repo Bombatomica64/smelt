@@ -45,6 +45,12 @@ pub enum TypeScriptReceiverKind {
     TextEncoder,
     /// A WHATWG `TextDecoder` value.
     TextDecoder,
+    /// A WHATWG `Blob` or `File` value.
+    ///
+    /// One receiver kind for both spellings: a `File` IS a `Blob` in the spec
+    /// and shares its whole method surface, so keying the methods on two kinds
+    /// would duplicate every entry to say the same thing.
+    Blob,
 }
 
 /// Receiver-method call shape recognized after a frontend knows the receiver type.
@@ -254,6 +260,17 @@ pub const TYPESCRIPT_METHODS: &[MethodRecognition] = &[
         "decode",
         RuleId::TsTextDecoderDecode,
     ),
+    // The `Blob`/`File` surface. `text`/`slice`/`bytes` are ordinary user
+    // method names, so — like every entry here — the pair only fires once the
+    // receiver has lowered to the modeled class.
+    method(TypeScriptReceiverKind::Blob, "text", RuleId::TsBlobBodyRead),
+    method(
+        TypeScriptReceiverKind::Blob,
+        "arrayBuffer",
+        RuleId::TsBlobBodyRead,
+    ),
+    method(TypeScriptReceiverKind::Blob, "bytes", RuleId::TsBlobBodyRead),
+    method(TypeScriptReceiverKind::Blob, "slice", RuleId::TsBlobSlice),
     method(
         TypeScriptReceiverKind::UrlSearchParams,
         "keys",

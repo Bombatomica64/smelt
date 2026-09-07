@@ -710,13 +710,15 @@ fn object_constructor_passes_object_argument_through() -> Result<(), String> {
     Ok(())
 }
 
-/// `new Blob(parts, options)` lowers to a `BlobFromParts` construction (the
-/// `smelt_blob_record_from_parts` runtime helper builds the marker record with
-/// real `type`/`size`/`content`), retaining the spelled options `type` string,
-/// so `instanceof Blob` keeps a distinct identity and field reads observe real
-/// values instead of a shapeless erased object.
+/// `new Blob(parts, options)` lowers to a `BlobFromParts` construction typed as
+/// the modeled `Blob` CLASS, retaining the spelled options `type` string.
+///
+/// The type is what this pins: the construction used to be typed
+/// `Type::Unknown`, so every read off a blob went through the erased record.
+/// It is now the concrete `SmeltBlob`, which is what gives `size` an `f64`,
+/// `text()` a real future, and `slice` a blob — see `stdlib::blob`.
 #[test]
-fn new_blob_lowers_to_concrete_marker_record() -> Result<(), String> {
+fn new_blob_lowers_to_the_concrete_blob_class() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
         ts!(r#"const b = new Blob(["content"], { type: "text/plain" });"#),
@@ -733,10 +735,10 @@ fn new_blob_lowers_to_concrete_marker_record() -> Result<(), String> {
                     last_modified: None,
                     ..
                 },
-                Some(Type::Unknown)
-            )
+                Some(Type::Class { name, .. })
+            ) if ctx.krate.names.get(*name).or_else(|| ctx.krate.symbols.get(*name)) == Some("Blob")
         )),
-        "expected `new Blob(...)` to lower to a BlobFromParts construction",
+        "expected `new Blob(...)` to lower to a `Blob`-typed BlobFromParts construction",
     );
     ensure!(
         body.exprs.iter().any(|expr| matches!(
@@ -831,10 +833,10 @@ fn new_file_lowers_to_blob_from_parts_with_name() -> Result<(), String> {
                     last_modified: Some(_),
                     ..
                 },
-                Some(Type::Unknown)
-            )
+                Some(Type::Class { name, .. })
+            ) if ctx.krate.names.get(*name).or_else(|| ctx.krate.symbols.get(*name)) == Some("File")
         )),
-        "expected `new File(...)` to lower to BlobFromParts retaining name and lastModified",
+        "expected `new File(...)` to lower to a `File`-typed BlobFromParts construction",
     );
     Ok(())
 }

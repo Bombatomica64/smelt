@@ -85,6 +85,7 @@ mod asymmetric_matcher_prelude;
 mod builtin_member_prelude;
 mod byte_buffer_prelude;
 mod event_emitter_prelude;
+mod blob_prelude;
 mod fetch_types_prelude;
 mod text_codec_prelude;
 pub(crate) mod class_proto;
@@ -573,6 +574,7 @@ fn emit_source_with_free_function_router(
     let needs_text_encoder = stdlib::needs_text_encoder_runtime(mir);
     let needs_text_decoder = stdlib::needs_text_decoder_runtime(mir);
     let needs_byte_array = stdlib::needs_byte_array_runtime(mir);
+    let needs_blob = stdlib::needs_blob_runtime(mir);
     let needs_smelt_list = stdlib::needs_smelt_list(mir);
     let needs_erased_function = needs_erased_function_runtime(mir);
     let needs_date_now = stdlib::needs_date_now_runtime(mir);
@@ -789,7 +791,8 @@ fn emit_source_with_free_function_router(
         || needs_url_search_params
         || needs_byte_array
         || needs_text_encoder
-        || needs_text_decoder)
+        || needs_text_decoder
+        || needs_blob)
         && !needs_smelt_list
     {
         emit_runtime_gate(&mut writer, PreludeGate::ObjectIdentity)?;
@@ -3376,43 +3379,80 @@ fn emit_source_with_free_function_router(
             // (`smelt_reflected_construct`, always emitted) builds `Blob`/`File`
             // through this helper, so it cannot be gated on the crate spelling a
             // `new Blob(...)` itself.
-            writer.line("/// Build the modeled host `Blob`/`File` record for `new Blob(...)` / `new File(...)`.");
+            writer.line("/// Concatenate an erased `BlobPart` array into the bytes it contributes.");
             writer.line("///");
-            writer.line("/// Concatenates BlobPart contents (strings verbatim; nested Blob/File records");
-            writer.line("/// contribute their stored `content`; other parts stringify like JavaScript)");
-            writer.line("/// and stores the UTF-8 byte length as `size`. Passing a file name stamps the");
-            writer.line("/// `__smelt_file` marker on top of `__smelt_blob`, so `file instanceof Blob`");
-            writer.line("/// observes the host subtype relationship; `lastModified` defaults to `0.0`");
-            writer.line("/// for determinism instead of the wall clock.");
+            writer.line("/// A `BlobPart` is `Blob | BufferSource | string` — a heterogeneous host");
+            writer.line("/// union whose arm is a runtime fact — which is why the parts array is");
+            writer.line("/// erased and walked here. Strings contribute their UTF-8 bytes; a nested");
+            writer.line("/// `Blob`/`File` record contributes its stored `content`; a byte-backed");
+            writer.line("/// host record (`Uint8Array`, `ArrayBuffer`, `DataView`, ...) contributes");
+            writer.line("/// its raw `bytes`, which the pre-byte-backed version stringified and so");
+            writer.line("/// corrupted; anything else stringifies the way JavaScript does.");
+            writer.line("///");
+            writer.line("/// Shared by `new Blob(..)` (through `SmeltBlob::from_parts_unknown`) and by");
+            writer.line("/// the reflected host construction below, so a directly-constructed blob and");
+            writer.line("/// a reflectively-constructed one cannot disagree about their bytes.");
+            writer.line("fn smelt_blob_parts_bytes(parts: SmeltUnknown) -> Vec<u8> {");
+            writer.line("    let mut bytes: Vec<u8> = Vec::new();");
+            writer.line("    if let SmeltUnknown::Array(items) = parts {");
+            writer.line("        for item in items.iter() {");
+            writer.line("            match item {");
+            writer.line("                SmeltUnknown::String(text) => bytes.extend_from_slice(text.as_bytes()),");
+            writer.line("                SmeltUnknown::Object(map) if map.contains_key(\"__smelt_blob\") => {");
+            writer.line("                    if let Some(SmeltUnknown::String(text)) = map.get(\"content\") { bytes.extend_from_slice(text.as_bytes()); }");
+            writer.line("                }");
+            writer.line("                SmeltUnknown::Object(map) if matches!(map.get(\"bytes\"), Some(SmeltUnknown::Array(_))) => {");
+            writer.line("                    if let Some(SmeltUnknown::Array(elements)) = map.get(\"bytes\") {");
+            writer.line("                        for element in elements.iter() { if let SmeltUnknown::Number(value) = element { bytes.push(value as u8); } }");
+            writer.line("                    }");
+            writer.line("                }");
+            writer.line("                other => bytes.extend_from_slice(other.to_string().as_bytes()),");
+            writer.line("            }");
+            writer.line("        }");
+            writer.line("    }");
+            writer.line("    bytes");
+            writer.line("}");
+            writer.blank_line();
+            writer.line("/// The ERASED form of a blob: the one definition of the record shape.");
+            writer.line("///");
+            writer.line("/// Called both by the reflected constructor below (through");
+            writer.line("/// `smelt_blob_record_from_parts`) and by `impl IntoSmeltUnknown for");
+            writer.line("/// SmeltBlob`, so a concrete blob crossing a dynamic boundary and a");
+            writer.line("/// reflectively-constructed one are the same record. `content` is the");
+            writer.line("/// UTF-8 decoding of the bytes, which is what every existing consumer of an");
+            writer.line("/// erased blob reads; the concrete `SmeltBlob` is the value that carries");
+            writer.line("/// the bytes losslessly.");
+            writer.line("///");
+            writer.line("/// A file name stamps `__smelt_file` on top of `__smelt_blob`, so");
+            writer.line("/// `file instanceof Blob` observes the host subtype relationship.");
+            writer.line("fn smelt_blob_record(id: usize, bytes: &[u8], blob_type: &str, file_name: Option<String>, last_modified: f64) -> SmeltUnknown {");
+            writer.line("    let content = String::from_utf8_lossy(bytes).into_owned();");
+            writer.line("    let record = Vec::from([");
+            writer.line("        (\"__smelt_blob\".to_owned(), SmeltUnknown::Bool(true)),");
+            writer.line("        (\"type\".to_owned(), SmeltUnknown::String(blob_type.to_owned().into())),");
+            writer.line("        (\"size\".to_owned(), SmeltUnknown::Number(bytes.len() as f64)),");
+            writer.line("        (\"content\".to_owned(), SmeltUnknown::String(content.into())),");
+            writer.line("    ]);");
+            writer.line("    let record = SmeltObject::with_id(id, record);");
+            writer.line("    if let Some(name) = file_name {");
+            writer.line("        record.insert(\"__smelt_file\".to_owned(), SmeltUnknown::Bool(true));");
+            writer.line("        record.insert(\"name\".to_owned(), SmeltUnknown::String(name.into()));");
+            writer.line("        record.insert(\"lastModified\".to_owned(), SmeltUnknown::Number(last_modified));");
+            writer.line("    }");
+            writer.line("    SmeltUnknown::Object(record)");
+            writer.line("}");
+            writer.blank_line();
+            writer.line("/// Build the erased `Blob`/`File` record for the reflected constructor.");
+            writer.line("///");
+            writer.line("/// Kept separate from the concrete `SmeltBlob` so a crate that reflects over");
+            writer.line("/// host constructors but never names a blob does not carry the blob type.");
+            writer.line("/// `lastModified` defaults to `0.0` for determinism instead of the wall clock.");
             writer.line(format!(
                 "fn {}(parts: SmeltUnknown, blob_type: String, file_name: Option<String>, last_modified: Option<f64>) -> SmeltUnknown {{",
                 smelt_stdlib::runtime_symbols::host::BLOB_RECORD_FROM_PARTS,
             ));
-            writer.line("    let mut content = String::new();");
-            writer.line("    if let SmeltUnknown::Array(items) = parts {");
-            writer.line("        for item in items.iter() {");
-            writer.line("            match item {");
-            writer.line("                SmeltUnknown::String(text) => content.push_str(&text),");
-            writer.line("                SmeltUnknown::Object(map) if map.contains_key(\"__smelt_blob\") => {");
-            writer.line("                    if let Some(SmeltUnknown::String(text)) = map.get(\"content\") { content.push_str(&text); }");
-            writer.line("                }");
-            writer.line("                other => content.push_str(&other.to_string()),");
-            writer.line("            }");
-            writer.line("        }");
-            writer.line("    }");
-            writer.line("    let record = Vec::from([");
-            writer.line("        (\"__smelt_blob\".to_owned(), SmeltUnknown::Bool(true)),");
-            writer.line("        (\"type\".to_owned(), SmeltUnknown::String(blob_type.into())),");
-            writer.line("        (\"size\".to_owned(), SmeltUnknown::Number(content.len() as f64)),");
-            writer.line("        (\"content\".to_owned(), SmeltUnknown::String(content.into())),");
-            writer.line("    ]);");
-            writer.line("    let record = SmeltObject::new(record);");
-            writer.line("    if let Some(name) = file_name {");
-            writer.line("        record.insert(\"__smelt_file\".to_owned(), SmeltUnknown::Bool(true));");
-            writer.line("        record.insert(\"name\".to_owned(), SmeltUnknown::String(name.into()));");
-            writer.line("        record.insert(\"lastModified\".to_owned(), SmeltUnknown::Number(last_modified.unwrap_or(0.0)));");
-            writer.line("    }");
-            writer.line("    SmeltUnknown::Object(record)");
+            writer.line("    let bytes = smelt_blob_parts_bytes(parts);");
+            writer.line("    smelt_blob_record(smelt_next_object_id(), &bytes, &blob_type, file_name, last_modified.unwrap_or(0.0))");
             writer.line("}");
             writer.blank_line();
         }
@@ -5248,10 +5288,13 @@ fn emit_source_with_free_function_router(
     if needs_request {
         fetch_types_prelude::emit_request(&mut writer, needs_unknown);
     }
-    // The byte view is emitted before the codecs, which mention it in their
-    // signatures.
+    // The byte view is emitted before the codecs and the blob, which mention it
+    // in their signatures.
     if needs_byte_array {
         text_codec_prelude::emit_byte_array(&mut writer, needs_unknown);
+    }
+    if needs_blob {
+        blob_prelude::emit(&mut writer, needs_unknown);
     }
     if needs_text_encoder {
         text_codec_prelude::emit_encoder(&mut writer);

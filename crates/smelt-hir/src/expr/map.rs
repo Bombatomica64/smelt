@@ -886,6 +886,18 @@ impl ExprKind {
                 path: f(path)?,
                 text: f(text)?,
             },
+            Self::BlobOp { op, blob, args } => {
+                let blob = f(blob)?;
+                let mut mapped = Vec::with_capacity(args.len());
+                for arg in args {
+                    mapped.push(f(arg)?);
+                }
+                Self::BlobOp {
+                    op,
+                    blob,
+                    args: mapped,
+                }
+            }
             Self::BlobFromParts {
                 parts,
                 blob_type,

@@ -462,6 +462,11 @@ impl ModuleBuilder<'_> {
         {
             return Ok(expr);
         }
+        // The `Blob`/`File` data properties, placed here for the same reason:
+        // `size`, `type` and `name` are members of many values.
+        if let Some(expr) = self.blob_member_read(member, receiver, access_receiver_ty, body)? {
+            return Ok(expr);
+        }
         if member.property.name == "length" && self.supports_stdlib_length(access_receiver_ty)
             || member.property.name == "size" && self.supports_stdlib_size(access_receiver_ty)
         {
