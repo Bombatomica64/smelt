@@ -75,10 +75,9 @@ module examples/typescript/end-to-end/45_text_codec/input.ts (ModuleId(0))
 
 interned types
   t0 = TextEncoder
-  t1 = String
-  t2 = Unknown
-  t3 = Dict<String, Unknown>
+  t1 = Unknown
+  t2 = String
+  t3 = TextDecoder
   t4 = __SmeltUint8Array
-  t5 = TextDecoder
-  t6 = Float
-  t7 = None
+  t5 = Float
+  t6 = None

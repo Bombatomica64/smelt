@@ -1544,10 +1544,63 @@ impl ModuleBuilder<'_> {
         if let Some(Type::Function(function)) = self.ctx.krate.types.get(ty).cloned() {
             return self.module_global_function_expression(&function, ty, start, end, body);
         }
-        if matches!(
-            self.ctx.krate.types.get(ty),
-            Some(Type::Class { .. } | Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) {
+        // A CLASS INSTANCE has no meaningful default. Fabricating one here —
+        // an empty erased record cast to the class — silently discarded the
+        // value the module's initializer produced, and emitted the cast at the
+        // record type rather than at `SmeltUnknown`, so the generated crate did
+        // not even compile (`blocker-logs/standards-module-const-host-value.md`).
+        //
+        // Such a binding now lifts to a module-global slot in
+        // `ModuleBuilder::collect_class_value_globals`, and the read resolves
+        // through `GlobalGet` before ever reaching here. What still arrives is
+        // a binding that pass could not lift, and for those a named blocker is
+        // the honest answer.
+        //
+        // An AMBIENT binding is the exception, and not an arbitrary one: a
+        // `declare const x: SomeInterface` has no initializer at all, so there
+        // is no value to lose. It is a claim that the HOST provides `x`, and
+        // when the profile models no such global the erased record IS the
+        // honest representation of an opaque host value — `declare const
+        // memoize: Memoize` reaching `new memoize.Cache()` is the shape that
+        // depends on it. The defect this blocker replaces was specifically a
+        // binding whose OWN initializer ran and was then thrown away.
+        // Scoped to a MODELED class — one the stdlib registry knows, whose
+        // values have a concrete generated Rust representation. Any other
+        // `Type::Class` keeps the erased record: a user class, and also an
+        // INTERSECTION ALIAS (`type C = A & B` lowers to a nominal class), for
+        // which the empty record is the existing representation and changing it
+        // is not what this fixes.
+        if let Some(Type::Class { name: class_name, .. }) = self.ctx.krate.types.get(ty)
+            && self.stdlib_class_of_type(ty).is_some()
+            && !self.ambient_value_declarations.contains(name)
+        {
+            let class = self
+                .ctx
+                .krate
+                .symbols
+                .get(*class_name)
+                .unwrap_or("<unknown>")
+                .to_owned();
+            return Err(SmeltError::unsupported(
+                self.span(start, end),
+                format!(
+                    "module-level binding `{name}` holds a `{class}` instance that cannot be \
+                     read from here; a class-typed module binding is read through a module \
+                     slot, which needs an initializer expression and a name the reading \
+                     function does not also bind itself"
+                ),
+            ));
+        }
+        // Every class-typed binding the blocker above did not claim keeps the
+        // erased record: an ambient one (host-provided, no initializer to lose),
+        // a user class, an intersection alias.
+        let is_record_class = matches!(self.ctx.krate.types.get(ty), Some(Type::Class { .. }));
+        if is_record_class
+            || matches!(
+                self.ctx.krate.types.get(ty),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            )
+        {
             let key_ty = self.ctx.krate.types.intern(Type::String);
             let value_ty = self.ctx.krate.types.intern(Type::Unknown);
             let dict_ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));

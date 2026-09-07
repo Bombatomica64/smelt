@@ -904,3 +904,78 @@ const cause = error.cause;
     assert!(source.contains("\"cause\""), "{source}");
     assert!(source.contains("\"errors\""), "{source}");
 }
+
+
+/// A module-level `const` holding a modeled host value, read from a FUNCTION,
+/// reaches a module-global slot rather than the declared type's default.
+///
+/// The read used to fabricate an empty erased record cast to the class: the
+/// initializer's value was silently gone, AND for `Headers` the cast was
+/// emitted at the record type rather than at `SmeltUnknown`, so the generated
+/// crate did not compile. See
+/// `blocker-logs/standards-module-const-host-value.md`.
+#[test]
+fn module_const_host_value_reaches_a_slot_when_read_from_a_function() {
+    let source = source_for(
+        r#"
+const encoder = new TextEncoder();
+const headers = new Headers({ "content-type": "text/plain" });
+
+export function encoded(text: string): number {
+  return encoder.encode(text).length;
+}
+
+export function contentType(): string {
+  return headers.get("content-type") ?? "none";
+}
+"#,
+    );
+
+    // One `thread_local` slot per binding, lazily initialized by CALLING the
+    // nullary function the frontend synthesized from the initializer.
+    assert!(
+        source.contains("static SMELT_GLOBAL_ENCODER_0: ::std::cell::RefCell<SmeltTextEncoder>"),
+        "{source}"
+    );
+    assert!(
+        source.contains("static SMELT_GLOBAL_HEADERS_1: ::std::cell::RefCell<SmeltHeaders>"),
+        "{source}"
+    );
+    // Each initializer is a real function item, and its name carries the
+    // global's ITEM INDEX rather than the module's absolute path — a path in a
+    // symbol both leaks the build machine's filesystem and makes any golden
+    // containing it unreproducible elsewhere.
+    assert!(
+        source.contains("fn smelt_global_init__encoder__0()"),
+        "{source}"
+    );
+    assert!(
+        source.contains("fn smelt_global_init__headers__1()"),
+        "{source}"
+    );
+    assert!(!source.contains("__module_"), "{source}");
+    // Both functions read THROUGH the slot, so they see one object.
+    assert_eq!(
+        source
+            .matches("SMELT_GLOBAL_HEADERS_1.with(|value| value.borrow().clone())")
+            .count(),
+        1,
+        "{source}"
+    );
+}
+
+/// A module-level binding used ONLY in the module body keeps its ordinary
+/// module-body local, so the slot machinery is confined to the shape that was
+/// broken and no existing lowering moves.
+#[test]
+fn module_const_host_value_used_only_in_the_module_body_stays_a_local() {
+    let source = source_for(
+        r#"
+const headers = new Headers({ "content-type": "text/plain" });
+console.log(headers.get("content-type") ?? "none");
+"#,
+    );
+
+    assert!(!source.contains("SMELT_GLOBAL_HEADERS"), "{source}");
+    assert!(source.contains("let headers: SmeltHeaders"), "{source}");
+}

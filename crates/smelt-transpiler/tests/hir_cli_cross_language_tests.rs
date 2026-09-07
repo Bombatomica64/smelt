@@ -339,6 +339,7 @@ fn end_to_end_examples_match_expected_outputs() -> TestResult {
         "44_node_http_echo",
         "45_text_codec",
         "46_blob_file",
+        "47_module_const_host_value",
     ] {
         verify_end_to_end_example(name)?;
     }

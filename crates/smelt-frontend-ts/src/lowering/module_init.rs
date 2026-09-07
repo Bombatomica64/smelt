@@ -42,6 +42,59 @@ use smelt_hir::{
 /// both assignment left-hand sides and increment/decrement arguments, since the
 /// default traversal routes both through a simple assignment target. Walking
 /// continues into nested nodes so function and method bodies are covered.
+/// Collects the identifiers READ inside a hoisted item body that the item does
+/// not bind itself.
+///
+/// The mirror of [`MutatedNameCollector`] for the read direction, and driven by
+/// the same hoisted-body traversal: a module-level binding read from a position
+/// that lowers to an ITEM (a function or class declaration, or a `const`
+/// arrow/function initializer) has no module-body local to read through, which
+/// is the condition [`ModuleBuilder::collect_class_value_globals`] lifts on.
+///
+/// # Shadowing
+///
+/// `bound` records every name the item introduces anywhere inside itself — a
+/// parameter, a `let`/`const`/`var`, a catch binding, a nested function's name
+/// — and [`Self::into_free_names`] subtracts it from the reads. A function
+/// whose PARAMETER happens to share a module binding's name does not read that
+/// module binding, and counting it would lift a binding nothing outside the
+/// module body ever looks at.
+///
+/// The subtraction ignores the block structure that would make shadowing exact,
+/// so the error is one-directional: a name both bound somewhere in the item AND
+/// read as the module binding elsewhere in it is treated as not read. That
+/// shape — one identifier meaning two different things in one function, one of
+/// them a module-level class instance — leaves the read on the old path, which
+/// is now a NAMED BLOCKER rather than a fabricated empty record, so the honest
+/// failure is what a miss produces.
+struct ReadNameCollector {
+    /// Identifier names referenced inside the item.
+    names: HashSet<String>,
+    /// Names the item binds itself, at any depth.
+    bound: HashSet<String>,
+}
+
+impl ReadNameCollector {
+    /// The names read but not bound by the item.
+    fn into_free_names(self) -> HashSet<String> {
+        let Self { names, bound } = self;
+        names.difference(&bound).cloned().collect()
+    }
+}
+
+impl<'a> oxc::ast_visit::Visit<'a> for ReadNameCollector {
+    fn visit_identifier_reference(
+        &mut self,
+        identifier: &oxc::ast::ast::IdentifierReference<'a>,
+    ) {
+        self.names.insert(identifier.name.as_str().to_owned());
+    }
+
+    fn visit_binding_identifier(&mut self, binding: &oxc::ast::ast::BindingIdentifier<'a>) {
+        self.bound.insert(binding.name.as_str().to_owned());
+    }
+}
+
 struct MutatedNameCollector {
     /// Names observed as an assignment or update target.
     names: HashSet<String>,
@@ -380,6 +433,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         self.collect_module_enums(program);
         self.collect_module_globals(program);
         self.collect_mutable_globals(program, &mut module, &mut errors);
+        self.collect_class_value_globals(program, &mut module);
         // A module top-level `function Foo(){ this.a = … }` used with `new Foo()`,
         // `x instanceof Foo`, or `Foo.prototype.m = …` is a JavaScript
         // constructor function, not a plain function. Both name sets are handed
@@ -1252,6 +1306,192 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
+    /// Lift each module-level binding whose value is a CLASS INSTANCE to the
+    /// same module-global slot the mutable-global family uses.
+    ///
+    /// The rule is stated over the binding's TYPE, not over any class list or
+    /// any library spelling: a module-level binding typed `Type::Class` is
+    /// lifted when it is not already a mutable global and its initializer is a
+    /// real expression. That covers every modeled host class (`Headers`,
+    /// `URLSearchParams`, `Request`, `Response`, `TextEncoder`,
+    /// `TextDecoder`, `Blob`/`File`, …) and every user class alike.
+    ///
+    /// # Why a slot, and not the const-inlining path
+    ///
+    /// A `const` binding normally reaches its use sites by having its
+    /// initializer expression CLONED into each of them
+    /// (`ModuleBuilder::const_item_expression`), which is what lets a const of
+    /// any expression shape cross a module boundary. For a class instance that
+    /// is not merely a cost — it is a WRONG VALUE. Every non-primitive in the
+    /// generated runtime carries a JavaScript reference identity, so
+    ///
+    /// ```ts
+    /// const headers = new Headers({ "content-type": "text/plain" });
+    /// function add() { headers.set("x-extra", "1"); }
+    /// function read() { return headers.get("x-extra"); }
+    /// ```
+    ///
+    /// has ONE header list that both functions see. Re-running the initializer
+    /// per use site gives each function its own, so the write is invisible to
+    /// the read. The const's STORAGE, not its expression, is what has to be
+    /// shared — which is exactly what a module-global slot is. A `GlobalGet`
+    /// hands back `.borrow().clone()`, and a runtime clone PRESERVES reference
+    /// identity (it shares the `Rc` interior; `fresh_copy()` is the separate
+    /// seam that mints a new one), so the slot gives the source's single object
+    /// with no new mechanism.
+    ///
+    /// # What it replaces
+    ///
+    /// Before this pass such a binding was registered only in
+    /// `module_globals`, and `ModuleBuilder::module_global_expression`
+    /// fabricated the declared type's DEFAULT for it: an empty `DictLit`
+    /// wrapped in an `UnknownCast`. That was wrong twice over — the
+    /// initializer's value was silently gone, AND the cast was emitted at the
+    /// record type rather than at `SmeltUnknown`, so the generated crate did
+    /// not even compile (`blocker-logs/standards-module-const-host-value.md`).
+    ///
+    /// A `let`/`var` that IS mutated has already been lifted by
+    /// [`Self::collect_mutable_globals`]; one that is not is a `const` in all
+    /// but spelling and lifts here, so the rule does not depend on which
+    /// keyword the source used.
+    fn collect_class_value_globals(&mut self, program: &Program<'_>, module: &mut Module) {
+        let read_in_items = Self::collect_hoisted_body_reads(program);
+        if read_in_items.is_empty() {
+            return;
+        }
+        for statement in &program.body {
+            match statement {
+                Statement::VariableDeclaration(variable) => {
+                    self.register_class_value_global_decl(
+                        variable,
+                        &read_in_items,
+                        Visibility::Private,
+                        module,
+                    );
+                }
+                Statement::ExportDeclaration(export) => {
+                    if let Declaration::VariableDeclaration(variable) = &export.declaration {
+                        self.register_class_value_global_decl(
+                            variable,
+                            &read_in_items,
+                            Visibility::Public,
+                            module,
+                        );
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Lift each class-instance binding in one declaration to a module global.
+    ///
+    /// Registers the item with a [`smelt_hir::MutableGlobalInit::Pending`]
+    /// initializer; the expression is lowered into its own nullary function
+    /// item when the module body reaches this same declarator, by the shared
+    /// [`Self::lower_pending_mutable_global_init`].
+    fn register_class_value_global_decl(
+        &mut self,
+        decl: &oxc::ast::ast::VariableDeclaration<'_>,
+        read_in_items: &HashSet<String>,
+        visibility: Visibility,
+        module: &mut Module,
+    ) {
+        // An ambient declaration never creates a binding, and its name resolves
+        // through the host rather than through a slot of ours.
+        if decl.declare {
+            return;
+        }
+        for declarator in &decl.declarations {
+            let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
+                continue;
+            };
+            let name = binding.name.as_str();
+            // The condition the whole pass turns on: the binding is READ from a
+            // hoisted item body, where there is no module-body local to read
+            // through. A binding used only in module-body statements keeps its
+            // ordinary local and lowers byte-identically to before, which is
+            // what confines this change to the shape that was broken.
+            if !read_in_items.contains(name) {
+                continue;
+            }
+            // Already a mutable global: that pass owns the slot.
+            if self.mutable_global_items.contains_key(name) {
+                continue;
+            }
+            // A binding whose name already resolves to some other module item
+            // (a function, a class declaration, a const item) is not ours.
+            if self.items.contains_key(name) {
+                continue;
+            }
+            let Some(init) = &declarator.init else {
+                continue;
+            };
+            // A class-typed binding whose initializer is a FUNCTION is a
+            // callable, not an instance, and reaches its uses through the
+            // function-value path.
+            if matches!(
+                init,
+                Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)
+            ) {
+                continue;
+            }
+            // A binding some OTHER const path already lowers is not ours. The
+            // regexp path is the one that matters: `const P = /x/g` read from
+            // two functions deliberately rebuilds its `SmeltRegExp` wrapper at
+            // each use site, because `lastIndex` is observable per object and a
+            // shared wrapper would fuse two source objects' scan positions —
+            // see `blocker-logs/module-const-construction-cost.md`, which
+            // measured that decision. A slot would be the more faithful
+            // reading of `const P = /x/g` (JavaScript really does have ONE
+            // object there), but changing it is that note's decision to revisit,
+            // not this pass's to override silently.
+            if self.consts.regexp(name).is_some()
+                || self.consts.literal(name).is_some()
+                || self.consts.object(name).is_some()
+                || self.consts.collection(name).is_some()
+            {
+                continue;
+            }
+            // The type `collect_module_globals` already inferred for this
+            // binding is the one the slot gets, so the slot and the old
+            // fabricated default agree on the type and only the VALUE changes.
+            let Some(ty) = self.module_globals.get(name).copied() else {
+                continue;
+            };
+            // A MODELED class: one whose values have a concrete generated Rust
+            // representation carrying a JavaScript reference identity, which the
+            // stdlib registry answers. That is exactly the set whose reads
+            // fabricated an empty erased record, and exactly the set for which
+            // per-use re-creation loses a shared object.
+            //
+            // A USER class instance at module scope has the same fabricated
+            // default and plausibly the same fix, but its representation and its
+            // identity rules are the class emitter's, not the registry's, so it
+            // is left on the existing path rather than moved on an untested
+            // assumption. It now fails with the named blocker in
+            // `module_global_expression` instead of a wrong value.
+            if self.stdlib_class_of_type(ty).is_none() {
+                continue;
+            }
+            let span = self.span(binding.span.start, binding.span.end);
+            let symbol = self.intern_source_name(name);
+            let item = self
+                .ctx
+                .krate
+                .push_item(Item::MutableGlobal(smelt_hir::MutableGlobalItem {
+                    name: symbol,
+                    ty,
+                    init: smelt_hir::MutableGlobalInit::Pending,
+                    visibility,
+                    span,
+                }));
+            module.items.push(item);
+            self.items.insert(name.to_owned(), item);
+            self.mutable_global_items.insert(name.to_owned(), item);
+        }
+    }
+
     /// Lift each mutated identifier binding in one declaration to a global.
     fn register_mutable_global_decl(
         &mut self,
@@ -1416,12 +1656,18 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let value = lowered?;
         init_body.push_stmt(smelt_hir::Stmt::Return(Some(value)));
         let body_id = self.ctx.krate.push_body(init_body);
-        // The synthesized name is derived from the binding and the module path
-        // so two modules' same-named globals get distinct initializers, and is
-        // interned exactly so no later name-keyed lookup can collide with a
-        // source function.
-        let init_name =
-            self.intern_source_name(&format!("smelt_global_init__{name}__module_{}", self.path));
+        // The synthesized name is derived from the binding and the global's own
+        // HIR item index, so two modules' same-named globals get distinct
+        // initializers, and is interned exactly so no later name-keyed lookup
+        // can collide with a source function.
+        //
+        // The index, not the module PATH: the path is absolute, so putting it in
+        // a symbol both leaked a build-machine filesystem path into every
+        // generated crate and made any golden containing the symbol
+        // unreproducible outside the directory it was generated in. The item
+        // index is unique crate-wide and deterministic for a given program,
+        // which is all the disambiguation this needs.
+        let init_name = self.intern_source_name(&format!("smelt_global_init__{name}__{}", item.0));
         let init_item = self
             .ctx
             .krate
@@ -1539,6 +1785,73 @@ impl<'ctx> ModuleBuilder<'ctx> {
             collector.mutated_through,
             collector.mutated_through_nested,
         )
+    }
+
+    /// Collect every identifier name read inside a hoisted item body.
+    ///
+    /// Same statement dispatch as [`Self::collect_mutated_names`] — top-level
+    /// function and class declarations, exported or not, plus `const`
+    /// arrow/function initializers — because "positions that lower to an item"
+    /// is the same set for reads as for writes. Statements of the module body
+    /// itself are NOT visited: a binding used only there keeps its ordinary
+    /// module-body local and lowers byte-identically to before.
+    fn collect_hoisted_body_reads(program: &Program<'_>) -> HashSet<String> {
+        use oxc::ast_visit::Visit;
+        let mut collector = ReadNameCollector {
+            names: HashSet::new(),
+            bound: HashSet::new(),
+        };
+        for statement in &program.body {
+            let declaration = match statement {
+                Statement::FunctionDeclaration(function) => {
+                    collector.visit_function(function, oxc::semantic::ScopeFlags::Function);
+                    continue;
+                }
+                Statement::ClassDeclaration(class) => {
+                    collector.visit_class(class);
+                    continue;
+                }
+                Statement::VariableDeclaration(decl) => {
+                    Self::collect_hoisted_reads_in_const_callables(&mut collector, decl);
+                    continue;
+                }
+                Statement::ExportDeclaration(export) => Some(&export.declaration),
+                Statement::ExportDefaultDeclaration(_) => None,
+                _ => None,
+            };
+            match declaration {
+                Some(Declaration::FunctionDeclaration(function)) => {
+                    collector.visit_function(function, oxc::semantic::ScopeFlags::Function);
+                }
+                Some(Declaration::ClassDeclaration(class)) => {
+                    collector.visit_class(class);
+                }
+                Some(Declaration::VariableDeclaration(decl)) => {
+                    Self::collect_hoisted_reads_in_const_callables(&mut collector, decl);
+                }
+                _ => {}
+            }
+        }
+        collector.into_free_names()
+    }
+
+    /// Scan `const name = <arrow/function>` initializers for identifier reads.
+    fn collect_hoisted_reads_in_const_callables(
+        collector: &mut ReadNameCollector,
+        decl: &oxc::ast::ast::VariableDeclaration<'_>,
+    ) {
+        use oxc::ast_visit::Visit;
+        if decl.kind != oxc::ast::ast::VariableDeclarationKind::Const {
+            return;
+        }
+        for declarator in &decl.declarations {
+            if let Some(
+                init @ (Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)),
+            ) = &declarator.init
+            {
+                collector.visit_expression(init);
+            }
+        }
     }
 
     /// Scan `const name = <arrow/function>` initializers for mutation targets.

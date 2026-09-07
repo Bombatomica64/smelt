@@ -1,0 +1,95 @@
+module examples/typescript/end-to-end/47_module_const_host_value/input.ts (ModuleId(0))
+  body BodyId(11)
+  items
+    global mut encoder: TextEncoder
+    global mut decoder: TextDecoder
+    global mut headers: Headers
+    global mut params: URLSearchParams
+    fn encoded_length owner Module
+    fn round_trip owner Module
+    fn content_type owner Module
+    fn add_header owner Module
+    fn extra owner Module
+    fn param_a owner Module
+    fn append_param owner Module
+  exprs
+    #0: String = "hello"
+    #1: fn(String) -> Float = @4(encoded_length)
+    #2: Float = call #1(#0)
+    #3: None = @15(console_log)
+    #4: None = call #3(#2)
+    #5: String = "héllo"
+    #6: fn(String) -> Float = @4(encoded_length)
+    #7: Float = call #6(#5)
+    #8: None = @16(console_log)
+    #9: None = call #8(#7)
+    #10: String = "round trip"
+    #11: fn(String) -> String = @5(round_trip)
+    #12: String = call #11(#10)
+    #13: None = @17(console_log)
+    #14: None = call #13(#12)
+    #15: fn() -> String = @6(content_type)
+    #16: String = call #15()
+    #17: None = @18(console_log)
+    #18: None = call #17(#16)
+    #19: fn() -> String = @8(extra)
+    #20: String = call #19()
+    #21: None = @19(console_log)
+    #22: None = call #21(#20)
+    #23: fn() -> None = @7(add_header)
+    #24: None = call #23()
+    #25: fn() -> String = @8(extra)
+    #26: String = call #25()
+    #27: None = @20(console_log)
+    #28: None = call #27(#26)
+    #29: fn() -> String = @9(param_a)
+    #30: String = call #29()
+    #31: None = @21(console_log)
+    #32: None = call #31(#30)
+    #33: fn() -> None = @10(append_param)
+    #34: None = call #33()
+    #35: URLSearchParams = global_get @3(params)
+    #36: URLSearchParams = global_get @3(params)
+    #37: String = url_search_params_to_text #36
+    #38: None = @22(console_log)
+    #39: None = call #38(#37)
+    #40: Headers = global_get @2(headers)
+    #41: Headers = global_get @2(headers)
+    #42: String = "content-type"
+    #43: Optional<String> = headers_get #41, #42
+    #44: String = "none"
+    #45: String = #43 ?? #44
+    #46: None = @23(console_log)
+    #47: None = call #46(#45)
+  stmts
+    s0: #4
+    s1: #9
+    s2: #14
+    s3: #18
+    s4: #22
+    s5: #24
+    s6: #28
+    s7: #32
+    s8: #34
+    s9: #39
+    s10: #47
+
+interned types
+  t0 = TextEncoder
+  t1 = TextDecoder
+  t2 = String
+  t3 = Dict<String, String>
+  t4 = Headers
+  t5 = URLSearchParams
+  t6 = Float
+  t7 = fn(String) -> Float
+  t8 = fn(String) -> String
+  t9 = fn() -> String
+  t10 = None
+  t11 = fn() -> None
+  t12 = __SmeltUint8Array
+  t13 = Optional<String>
+  t14 = fn(String) -> Float
+  t15 = fn(String) -> String
+  t16 = fn() -> String
+  t17 = fn() -> None

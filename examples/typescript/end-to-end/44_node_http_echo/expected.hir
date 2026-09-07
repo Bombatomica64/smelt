@@ -107,9 +107,9 @@ interned types
   t14 = fn(IncomingMessage, ServerResponse) -> None
   t15 = Server
   t16 = Dict<String, Unknown>
-  t17 = Optional<Float>
-  t18 = Request
-  t19 = Response
-  t20 = Future<Response>
+  t17 = Request
+  t18 = Response
+  t19 = Future<Response>
+  t20 = Optional<Float>
   t21 = Future<String>
   t22 = Future<None>
