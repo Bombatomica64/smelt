@@ -453,19 +453,27 @@ impl ModuleBuilder<'_> {
             );
         let access_receiver_ty = self.optional_receiver_inner_type(receiver_ty);
         let field = self.intern_source_name(member.property.name.as_str());
-        // The text-codec data properties. Placed AFTER the receiver is lowered,
-        // and reusing that receiver, because `length` is a member of almost
-        // every value: a pre-receiver probe would lower the receiver a second
-        // time on every miss, which duplicates its side effects.
-        if let Some(expr) =
-            self.text_codec_member_read(member, receiver, access_receiver_ty, body)?
-        {
-            return Ok(expr);
-        }
-        // The `Blob`/`File` data properties, placed here for the same reason:
-        // `size`, `type` and `name` are members of many values.
-        if let Some(expr) = self.blob_member_read(member, receiver, access_receiver_ty, body)? {
-            return Ok(expr);
+        // The text-codec and `Blob`/`File` data properties. Placed AFTER the
+        // receiver is lowered, and reusing that receiver, because `length`,
+        // `size`, `type` and `name` are members of almost every value: a
+        // pre-receiver probe would lower the receiver a second time on every
+        // miss, which duplicates its side effects.
+        //
+        // Skipped for an assignment TARGET. Every member both handlers model is
+        // read-only in the spec, so a write to one is not a modeled operation
+        // and must fall through to the ordinary (discarded) write path — a read
+        // expression cannot be assigned to, and claiming one aborted MIR
+        // lowering of es-toolkit's `isBlob` spec, whose `class File extends
+        // Blob` writes `this.name`.
+        if !is_assignment_target {
+            if let Some(expr) =
+                self.text_codec_member_read(member, receiver, access_receiver_ty, body)?
+            {
+                return Ok(expr);
+            }
+            if let Some(expr) = self.blob_member_read(member, receiver, access_receiver_ty, body)? {
+                return Ok(expr);
+            }
         }
         if member.property.name == "length" && self.supports_stdlib_length(access_receiver_ty)
             || member.property.name == "size" && self.supports_stdlib_size(access_receiver_ty)

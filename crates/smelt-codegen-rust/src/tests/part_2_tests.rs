@@ -293,18 +293,22 @@ const isBlob = file instanceof Blob;
 "#,
     );
 
-    // Construction is the concrete `SmeltBlob`, whose parts argument is the one
-    // erased thing about it (a `BlobPart` is `Blob | BufferSource | string`).
-    assert!(source.contains("SmeltBlob::from_parts_unknown("), "{source}");
+    // Construction is the concrete `SmeltBlob`, and the string parts keep their
+    // type: `BlobPart` is `Blob | BufferSource | string`, and the two modeled
+    // arms reach their own typed constructors rather than the erased walk.
+    assert!(source.contains("SmeltBlob::from_string_parts("), "{source}");
     assert!(source.contains("pub struct SmeltBlob"), "{source}");
     // Both identities are then STATIC facts about a concretely-typed receiver:
     // a blob always is a `Blob`, and it is a `File` exactly when its optional
     // name is present. Neither needs the erased marker probe.
+    // `is_file()` is the static answer for `instanceof File` on a concrete
+    // receiver, and `true` for `instanceof Blob`. Asserted positively rather
+    // than by the absence of a marker probe: `contains_key("__smelt_file")`
+    // also appears in the shared runtime prelude (the `toStringTag` table, the
+    // host-marker filters), so a negative string assertion would be testing the
+    // prelude rather than the call site.
     assert!(source.contains(".is_file()"), "{source}");
-    assert!(
-        !source.contains("value.contains_key(\"__smelt_file\")"),
-        "a concrete receiver must not fall back to the marker probe: {source}"
-    );
+    assert!(source.contains("_smelt_tmp_6: bool = true;"), "{source}");
     // The erased record still carries both markers, for a blob that crosses a
     // dynamic boundary.
     assert!(source.contains("\"__smelt_file\".to_owned()"), "{source}");
