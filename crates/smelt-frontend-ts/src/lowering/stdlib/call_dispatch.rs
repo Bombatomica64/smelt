@@ -2677,7 +2677,7 @@ impl<'builder> ModuleBuilder<'builder> {
     /// methods, so its class item does not exist yet) and the finished class
     /// item for a class from another module.
     fn class_declares_field(
-        &mut self,
+        &self,
         class_name: smelt_hir::Symbol,
         field: smelt_hir::Symbol,
     ) -> bool {
