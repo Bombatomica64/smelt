@@ -9802,7 +9802,10 @@ const value = new C();
 ",
     );
 
-    assert!(source.contains("let __smelt_super: A = "), "{source}");
+    // The `super()` result is bound at the base-most type. A constructor body
+    // predeclares its locals like any other method body, so the binding and its
+    // assignment are two statements; what matters is the TYPE of the binding.
+    assert!(source.contains("let __smelt_super: A"), "{source}");
     assert!(source.contains("B::new()"), "{source}");
     // `C::new` copies BOTH inherited slots out of the constructed `B`, so the
     // base-most field reaches the leaf instance.
@@ -12252,7 +12255,7 @@ class C(B):
     );
 
     assert!(
-        source.contains("let __smelt_super: B = "),
+        source.contains("let __smelt_super: B"),
         "`C` must construct its immediate base `B`:\n{source}"
     );
     // `C::new` copies BOTH inherited slots out of the constructed `B`, so the
@@ -13052,5 +13055,137 @@ export function countBy<T, K extends PropertyKey>(
     assert!(
         !body.contains(".get(&"),
         "the read probe is gone: {body}"
+    );
+}
+
+/// A method body predeclares its function-scope locals (H22).
+///
+/// MIR locals are function-scoped; generated Rust branch bodies are lexically
+/// scoped. A free function body has always predeclared the locals first assigned
+/// outside its entry block, but a METHOD body did not, so a temporary first
+/// assigned inside one `if` arm was declared *inside* that arm and the sibling
+/// arm's assignment named something out of scope — E0425 in the generated crate,
+/// 19053 of them in Hono's routers, with no diagnostic before rustc.
+#[test]
+fn a_method_body_predeclares_locals_assigned_in_more_than_one_branch() {
+    let source = source_for(
+        r"
+class Counter {
+  total = 0;
+
+  step(flag: boolean, amount: number): number {
+    let next: number;
+    if (flag) {
+      next = this.total + amount;
+    } else {
+      next = this.total - amount;
+    }
+    this.total = next;
+    return next;
+  }
+}
+const counter = new Counter();
+console.log(counter.step(true, 2));
+",
+    );
+
+    let body = emitted_function_body(&source, "fn step(");
+    let branch_start = body
+        .find("if flag {")
+        .expect("the branch is emitted: {body}");
+    let (prelude, branches) = body.split_at(branch_start);
+    assert!(
+        prelude.contains("let _smelt_tmp_4: f64;"),
+        "the branch temporary is declared before the branch: {body}"
+    );
+    assert!(
+        !branches
+            .lines()
+            .any(|line| line.trim_start().starts_with("let _smelt_tmp_")),
+        "no temporary is introduced inside a branch arm: {body}"
+    );
+    assert!(
+        branches.contains("_smelt_tmp_4 =") && branches.contains("_smelt_tmp_5 ="),
+        "both arms assign their predeclared temporary: {body}"
+    );
+}
+
+/// A write through a receiver that is still optional-typed is an lvalue (H23).
+///
+/// `tsc` proved the receiver present (the assignment above narrows it), so the
+/// write unwraps in place — `as_mut()`, never a copy, which would drop the
+/// write — and a REFERENCE class keeps its handle (`.0.borrow_mut()`). Before
+/// this the lvalue fell through to the field READ expression, which is not an
+/// lvalue at all (E0070), and the read spelled a field of the handle rather than
+/// of its interior (E0609).
+#[test]
+fn a_field_write_through_an_optional_receiver_unwraps_in_place() {
+    let source = source_for(
+        r"
+class Slot {
+  label = '';
+}
+export function label(slots: Record<string, Slot>, key: string, text: string): string {
+  let slot: Slot | undefined = slots[key];
+  if (!slot) {
+    slot = new Slot();
+    slots[key] = slot;
+  }
+  slot.label = text;
+  return slot.label;
+}
+console.log(label({}, 'a', 'x'));
+",
+    );
+
+    let body = emitted_function_body(&source, "fn label(");
+    assert!(
+        body.contains("expect(\"optional value was absent after narrowing\")"),
+        "the receiver is unwrapped where `tsc` proved it present: {body}"
+    );
+    assert!(
+        body.contains(".0.borrow_mut().label ="),
+        "the write goes through the reference class's handle: {body}"
+    );
+    assert!(
+        body.contains("_smelt_value.0.borrow().label.clone()"),
+        "so does the read through the optional receiver: {body}"
+    );
+    assert!(
+        !body.contains("_smelt_value.label.clone()"),
+        "no field of the handle itself is ever named: {body}"
+    );
+}
+
+/// A value asked for at `bool` is a truthiness test, not a cast (H24).
+///
+/// Wherever JavaScript expects a boolean it applies truthiness, and for a class
+/// instance the answer is "present". The coercion used to hand the value back
+/// unchanged, so an `Option<Node>` in a boolean position emitted
+/// `.map_or(false, |value| value)` — E0308, 48 sites in Hono's trie router.
+#[test]
+fn a_class_valued_optional_in_a_boolean_position_tests_presence() {
+    let source = source_for(
+        r"
+class Node {
+  key = '';
+}
+export function has(nodes: Record<string, Node>, key: string): boolean {
+  const found: Node | undefined = nodes[key];
+  const present = !!found;
+  return present;
+}
+console.log(has({}, 'a'));
+",
+    );
+
+    let body = emitted_function_body(&source, "fn has(");
+    assert!(
+        !body.contains("|value| value)"),
+        "the class value is not handed back where a bool is expected: {body}"
+    );
+    assert!(
+        body.contains("is_some()"),
+        "presence is the truthiness of a class-valued optional: {body}"
     );
 }

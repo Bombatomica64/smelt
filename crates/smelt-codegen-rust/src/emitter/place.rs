@@ -221,6 +221,34 @@ impl FunctionEmitter<'_> {
                 {
                     return self.match_field_text(&self.local_value_text(*base)?, kind, *field);
                 }
+                // A REFERENCE class reached through an optional receiver keeps
+                // its handle: its fields live behind `Rc<RefCell<Inner>>`, so
+                // the read is `.0.borrow().field`, never a field of the handle
+                // itself. Checked before the structural-record arm below because
+                // a reference class is still record-shaped structurally — that
+                // arm emitted `_smelt_value.field` and the generated crate did
+                // not compile (E0609).
+                if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
+                    && self.is_reference_class_type(*inner)
+                    && self.class_has_named_field(*inner, *field)
+                    && let Some(field_ty) = self
+                        .structural_record_fields(*inner)
+                        .and_then(|fields| {
+                            fields
+                                .iter()
+                                .find(|candidate| candidate.name == *field)
+                                .map(|candidate| candidate.ty)
+                        })
+                {
+                    let base_text = self.local_value_text(*base)?;
+                    let field_name = sanitize_ident(self.symbol_name(*field)?);
+                    let read = format!("_smelt_value.0.borrow().{field_name}.clone()");
+                    return if matches!(self.mir.types.get(field_ty), Some(Type::Optional(_))) {
+                        Ok(format!("{base_text}.as_ref().and_then(|_smelt_value| {read})"))
+                    } else {
+                        Ok(format!("{base_text}.as_ref().map(|_smelt_value| {read})"))
+                    };
+                }
                 if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
                     && let Some(fields) = self.structural_record_fields(*inner)
                     && let Some(field_ty) = fields
@@ -807,7 +835,34 @@ impl FunctionEmitter<'_> {
                 }
             }
             Place::Field { base, field } => {
-                let base_ty = self.local_decl(*base)?.ty;
+                let declared_ty = self.local_decl(*base)?.ty;
+                // A receiver whose type is still optional at the WRITE. `tsc`
+                // proved it present (the source either narrowed it or asserted
+                // it), so the lvalue unwraps in place: `as_mut()` keeps the
+                // write inside the value the binding holds, where a copy would
+                // silently drop it. Without this the lvalue fell through to the
+                // READ expression below (`base.as_ref().and_then(..)`), which is
+                // not an lvalue at all (E0070).
+                let (base_ty, base_read_text, base_write_text) =
+                    if let Some(Type::Optional(inner)) = self.mir.types.get(declared_ty) {
+                        (
+                            *inner,
+                            format!(
+                                "{}.as_ref().expect(\"optional value was absent after narrowing\")",
+                                self.local_value_text(*base)?
+                            ),
+                            format!(
+                                "{}.as_mut().expect(\"optional value was absent after narrowing\")",
+                                self.local_mut_value_text(*base)?
+                            ),
+                        )
+                    } else {
+                        (
+                            declared_ty,
+                            self.local_value_text(*base)?,
+                            self.local_mut_value_text(*base)?,
+                        )
+                    };
                 // A declared field of a reference class is written through a
                 // narrow `borrow_mut()`. The statement's right-hand side has
                 // already been reduced to an operand by MIR temping, so the
@@ -818,15 +873,13 @@ impl FunctionEmitter<'_> {
                     && self.class_has_named_field(base_ty, *field)
                 {
                     return Ok(format!(
-                        "{}.0.borrow_mut().{}",
-                        self.local_value_text(*base)?,
+                        "{base_read_text}.0.borrow_mut().{}",
                         sanitize_ident(self.symbol_name(*field)?)
                     ));
                 }
                 if self.structural_record_fields(base_ty).is_some() {
                     return Ok(format!(
-                        "{}.{}",
-                        self.local_mut_value_text(*base)?,
+                        "{base_write_text}.{}",
                         sanitize_ident(self.symbol_name(*field)?)
                     ));
                 }
