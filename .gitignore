@@ -217,3 +217,8 @@ third_party/hono
 !blocker-logs/standards-instanceof-narrowing.md
 !blocker-logs/standards-module-const-host-value.md
 !blocker-logs/standards-erased-cast-size-collision.md
+
+# Round 9 progress note: what landed, and the settled design for the items that
+# did not (FormData's multipart pick, crypto's crate picks, the AbortController
+# upgrade, and why the Optional string coercion is blocked on Type::Null).
+!blocker-logs/standards-round9-progress.md
