@@ -4928,6 +4928,14 @@ impl<'mir> FunctionEmitter<'mir> {
                                 // the fetch types as real Rust values.
                                 | smelt_stdlib::StdlibClass::Headers
                                 | smelt_stdlib::StdlibClass::UrlSearchParams
+                                // The text codecs and the concrete byte view
+                                // are generated Rust types too. The byte view
+                                // is reached only through its synthetic class
+                                // name, so the source spelling `Uint8Array`
+                                // keeps its erased byte-backed-record meaning.
+                                | smelt_stdlib::StdlibClass::TextEncoder
+                                | smelt_stdlib::StdlibClass::TextDecoder
+                                | smelt_stdlib::StdlibClass::ByteArray
                                 // Likewise `Response`: a concrete
                                 // `SmeltResponse`, never an erased record.
                                 | smelt_stdlib::StdlibClass::Response

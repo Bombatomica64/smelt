@@ -259,6 +259,14 @@ impl ModuleBuilder<'_> {
         // A WHATWG `Headers` is a modeled concrete runtime type. A user class
         // named `Headers` still wins: the registry models the host name, not the
         // spelling.
+        // The text codecs, gated the same way: the registry models the host
+        // name, and a user class of that name still wins.
+        if callee.name == "TextEncoder" && !self.classes.contains("TextEncoder") {
+            return self.text_encoder_constructor_expression(new_expr, body);
+        }
+        if callee.name == "TextDecoder" && !self.classes.contains("TextDecoder") {
+            return self.text_decoder_constructor_expression(new_expr, body);
+        }
         if callee.name == "Headers" && !self.classes.contains("Headers") {
             return self.headers_constructor_expression(new_expr, body);
         }

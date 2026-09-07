@@ -7,6 +7,7 @@ mod fetch_types;
 mod http_server;
 mod numbers_math;
 mod objects;
+mod text_codec;
 
 use oxc::ast::ast::{Argument, CallExpression, Expression, ObjectPropertyKind, PropertyKey};
 use oxc::span::GetSpan;

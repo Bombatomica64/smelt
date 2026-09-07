@@ -205,6 +205,11 @@ impl LoweringCtx<'_> {
             | ExprKind::RequestOp { .. }
             | ExprKind::ResponseNew { .. }
             | ExprKind::ResponseOp { .. }
+            | ExprKind::TextEncoderNew
+            | ExprKind::TextDecoderNew { .. }
+            | ExprKind::TextEncoderOp { .. }
+            | ExprKind::TextDecoderOp { .. }
+            | ExprKind::ByteArrayOp { .. }
             | ExprKind::UrlSearchParamsNew { .. }
             | ExprKind::UrlSearchParamsOp { .. }
             | ExprKind::HeadersNew { .. }

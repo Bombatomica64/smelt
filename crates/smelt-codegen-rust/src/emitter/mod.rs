@@ -109,6 +109,7 @@ mod control_flow_match;
 mod core;
 mod dict_entry_update;
 mod fetch_types;
+mod text_codec;
 mod host_interop;
 mod http_server;
 mod list;

@@ -1027,6 +1027,15 @@ impl FunctionEmitter<'_> {
             Rvalue::UrlSearchParamsOp { op, params, args } => {
                 self.url_search_params_op_text(*op, params, args, dest_ty)
             }
+            Rvalue::TextEncoderNew => Ok("SmeltTextEncoder::new()".to_owned()),
+            Rvalue::TextDecoderNew { label } => self.text_decoder_new_text(label.as_ref()),
+            Rvalue::TextEncoderOp { op, encoder, args } => {
+                self.text_encoder_op_text(*op, encoder, args, dest_ty)
+            }
+            Rvalue::TextDecoderOp { op, decoder, args } => {
+                self.text_decoder_op_text(*op, decoder, args, dest_ty)
+            }
+            Rvalue::ByteArrayOp { op, bytes } => self.byte_array_op_text(*op, bytes, dest_ty),
             Rvalue::EventEmitterNew => Ok("SmeltEventEmitter::new()".to_owned()),
             Rvalue::EventEmitterOp { op, emitter, args } => {
                 self.event_emitter_op_text(*op, emitter, args)

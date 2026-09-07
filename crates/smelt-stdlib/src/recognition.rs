@@ -41,6 +41,10 @@ pub enum TypeScriptReceiverKind {
     /// [`TypeScriptReceiverKind::EventEmitter`] and its non-method members
     /// (`method`, `url`, `headers`) are property reads rather than calls.
     ServerResponse,
+    /// A WHATWG `TextEncoder` value.
+    TextEncoder,
+    /// A WHATWG `TextDecoder` value.
+    TextDecoder,
 }
 
 /// Receiver-method call shape recognized after a frontend knows the receiver type.
@@ -236,6 +240,19 @@ pub const TYPESCRIPT_METHODS: &[MethodRecognition] = &[
         TypeScriptReceiverKind::UrlSearchParams,
         "sort",
         RuleId::TsUrlSearchParamsMutation,
+    ),
+    // The text codecs. `encode`/`decode` are also ordinary user method names,
+    // so — like every entry in this table — recognition is receiver-typed: the
+    // pair only fires once the receiver has lowered to the modeled class.
+    method(
+        TypeScriptReceiverKind::TextEncoder,
+        "encode",
+        RuleId::TsTextEncoderEncode,
+    ),
+    method(
+        TypeScriptReceiverKind::TextDecoder,
+        "decode",
+        RuleId::TsTextDecoderDecode,
     ),
     method(
         TypeScriptReceiverKind::UrlSearchParams,

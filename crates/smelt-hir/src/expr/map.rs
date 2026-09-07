@@ -512,6 +512,41 @@ impl ExprKind {
                     args: mapped,
                 }
             }
+            Self::TextEncoderNew => Self::TextEncoderNew,
+            Self::TextDecoderNew { label } => Self::TextDecoderNew {
+                label: match label {
+                    Some(label) => Some(f(label)?),
+                    None => None,
+                },
+            },
+            Self::TextEncoderOp { op, encoder, args } => {
+                let encoder = f(encoder)?;
+                let mut mapped = Vec::with_capacity(args.len());
+                for arg in args {
+                    mapped.push(f(arg)?);
+                }
+                Self::TextEncoderOp {
+                    op,
+                    encoder,
+                    args: mapped,
+                }
+            }
+            Self::TextDecoderOp { op, decoder, args } => {
+                let decoder = f(decoder)?;
+                let mut mapped = Vec::with_capacity(args.len());
+                for arg in args {
+                    mapped.push(f(arg)?);
+                }
+                Self::TextDecoderOp {
+                    op,
+                    decoder,
+                    args: mapped,
+                }
+            }
+            Self::ByteArrayOp { op, bytes } => Self::ByteArrayOp {
+                op,
+                bytes: f(bytes)?,
+            },
             Self::UrlSearchParamsNew { init } => Self::UrlSearchParamsNew {
                 init: match init {
                     Some(init) => Some(f(init)?),

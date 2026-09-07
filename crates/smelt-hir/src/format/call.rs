@@ -602,6 +602,50 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             }
             text
         }
+        ExprKind::TextEncoderNew => "text_encoder_new".to_owned(),
+        ExprKind::TextDecoderNew { label } => label.map_or_else(
+            || "text_decoder_new".to_owned(),
+            |label| format!("text_decoder_new {}", expr_ref(label)),
+        ),
+        ExprKind::TextEncoderOp { op, encoder, args } => {
+            let op_name = match op {
+                crate::expr::TextEncoderOp::Encode => "encode",
+                crate::expr::TextEncoderOp::Encoding => "encoding",
+            };
+            let args_text = args
+                .iter()
+                .map(|arg| expr_ref(*arg))
+                .collect::<Vec<_>>()
+                .join(", ");
+            if args_text.is_empty() {
+                format!("text_encoder_{op_name} {}", expr_ref(*encoder))
+            } else {
+                format!("text_encoder_{op_name} {} {args_text}", expr_ref(*encoder))
+            }
+        }
+        ExprKind::TextDecoderOp { op, decoder, args } => {
+            let op_name = match op {
+                crate::expr::TextDecoderOp::Decode => "decode",
+                crate::expr::TextDecoderOp::Encoding => "encoding",
+            };
+            let args_text = args
+                .iter()
+                .map(|arg| expr_ref(*arg))
+                .collect::<Vec<_>>()
+                .join(", ");
+            if args_text.is_empty() {
+                format!("text_decoder_{op_name} {}", expr_ref(*decoder))
+            } else {
+                format!("text_decoder_{op_name} {} {args_text}", expr_ref(*decoder))
+            }
+        }
+        ExprKind::ByteArrayOp { op, bytes } => {
+            let op_name = match op {
+                crate::expr::ByteArrayOp::Length => "length",
+                crate::expr::ByteArrayOp::ByteLength => "byte_length",
+            };
+            format!("byte_array_{op_name} {}", expr_ref(*bytes))
+        }
         ExprKind::UrlSearchParamsNew { init } => init.map_or_else(
             || "url_search_params_new".to_owned(),
             |init| format!("url_search_params_new {}", expr_ref(init)),

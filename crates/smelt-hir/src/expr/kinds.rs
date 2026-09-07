@@ -12,6 +12,8 @@ use super::{
     UnknownKind, UriTranscodeOp,
     UrlField,
     UrlSearchParamsOp as UrlSearchParamsOpKind,
+    ByteArrayOp as ByteArrayOpKind, TextDecoderOp as TextDecoderOpKind,
+    TextEncoderOp as TextEncoderOpKind,
 };
 use crate::ids::{BlockId, BodyId, ExprId, ItemId, LocalId, Symbol, TypeId};
 use serde::{Deserialize, Serialize};
@@ -452,6 +454,45 @@ pub enum ExprKind {
     UrlSearchParamsNew {
         /// Optional initializer expression.
         init: Option<ExprId>,
+    },
+    /// `new TextEncoder()`.
+    ///
+    /// No initializer: the spec gives the constructor no arguments and fixes
+    /// the encoding at UTF-8.
+    TextEncoderNew,
+    /// `new TextDecoder(label?)`.
+    ///
+    /// `label` is the encoding label. Only the UTF-8 labels are modeled; any
+    /// other label is a named blocker at lowering rather than a decoder that
+    /// silently decodes as UTF-8.
+    TextDecoderNew {
+        /// The optional encoding-label expression.
+        label: Option<ExprId>,
+    },
+    /// A `TextEncoder` member on a concrete receiver.
+    TextEncoderOp {
+        /// Which member this reads or calls.
+        op: TextEncoderOpKind,
+        /// The `TextEncoder` receiver.
+        encoder: ExprId,
+        /// Operation arguments (the string to encode, or none).
+        args: Vec<ExprId>,
+    },
+    /// A `TextDecoder` member on a concrete receiver.
+    TextDecoderOp {
+        /// Which member this reads or calls.
+        op: TextDecoderOpKind,
+        /// The `TextDecoder` receiver.
+        decoder: ExprId,
+        /// Operation arguments (the byte view to decode, or none).
+        args: Vec<ExprId>,
+    },
+    /// A size read on a concrete byte view.
+    ByteArrayOp {
+        /// Which size member this reads.
+        op: ByteArrayOpKind,
+        /// The byte-view receiver.
+        bytes: ExprId,
     },
     /// A `URLSearchParams` method call on a concrete receiver.
     UrlSearchParamsOp {

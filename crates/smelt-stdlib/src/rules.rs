@@ -177,6 +177,10 @@ pub enum RuleId {
     TsUrlSearchParamsProjection,
     /// TypeScript `URLSearchParams.prototype.toString`.
     TsUrlSearchParamsToString,
+    /// TypeScript `TextEncoder.prototype.encode`.
+    TsTextEncoderEncode,
+    /// TypeScript `TextDecoder.prototype.decode`.
+    TsTextDecoderDecode,
     /// TypeScript `Response` data-property read (`status`, `ok`, `statusText`,
     /// `headers`, `bodyUsed`).
     TsResponseRead,
@@ -346,6 +350,12 @@ impl RuleId {
             | Self::TsHeadersGet
             | Self::TsHeadersHas
             | Self::TsHeadersMutation
+            // The text codecs are `String::as_bytes` and
+            // `String::from_utf8_lossy`: UTF-8 is Rust's own string encoding,
+            // so the whole `TextEncoder`/`TextDecoder` surface the spec fixes at
+            // UTF-8 needs no crate behind it.
+            | Self::TsTextEncoderEncode
+            | Self::TsTextDecoderDecode
             | Self::TsHeadersProjection
             // `Response` is a generated concrete type: a status line, a
             // `SmeltHeaders`, and a buffered `SmeltBody`. Nothing in that needs
@@ -421,6 +431,8 @@ impl RuleId {
             Self::TsUrlSearchParamsMutation => "URLSearchParams mutation method",
             Self::TsUrlSearchParamsProjection => "URLSearchParams projection method",
             Self::TsUrlSearchParamsToString => "URLSearchParams.toString",
+            Self::TsTextEncoderEncode => "TextEncoder.encode",
+            Self::TsTextDecoderDecode => "TextDecoder.decode",
             Self::TsResponseRead => "Response property read",
             Self::TsResponseBodyRead => "Response body reader",
             Self::TsResponseClone => "Response.clone",

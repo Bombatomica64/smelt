@@ -250,6 +250,54 @@ pub(crate) fn needs_url_search_params_runtime(mir: &Mir) -> bool {
         .any(|ty| is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::UrlSearchParams))
 }
 
+/// Returns true when generated Rust needs the `SmeltTextEncoder` type.
+///
+/// Same pay-for-use rule as [`needs_headers_runtime`]: either a `TextEncoder`
+/// member, or a mention of the type in the type table.
+pub(crate) fn needs_text_encoder_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| {
+        matches!(
+            rvalue,
+            Rvalue::TextEncoderNew | Rvalue::TextEncoderOp { .. }
+        )
+    }) || mir
+        .types
+        .all()
+        .iter()
+        .any(|ty| is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::TextEncoder))
+}
+
+/// Returns true when generated Rust needs the `SmeltTextDecoder` type.
+pub(crate) fn needs_text_decoder_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| {
+        matches!(
+            rvalue,
+            Rvalue::TextDecoderNew { .. } | Rvalue::TextDecoderOp { .. }
+        )
+    }) || mir
+        .types
+        .all()
+        .iter()
+        .any(|ty| is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::TextDecoder))
+}
+
+/// Returns true when generated Rust needs the `SmeltUint8Array` type.
+///
+/// A byte view has no source constructor of its own — the concrete view is the
+/// value `TextEncoder.encode` answers — so the gate is "some type that PRODUCES
+/// or CONSUMES one is present", plus a mention of the class in the type table
+/// for a view that is only named (a parameter or a field).
+pub(crate) fn needs_byte_array_runtime(mir: &Mir) -> bool {
+    needs_text_encoder_runtime(mir)
+        || needs_text_decoder_runtime(mir)
+        || any_rvalue_needs(mir, |rvalue| matches!(rvalue, Rvalue::ByteArrayOp { .. }))
+        || mir
+            .types
+            .all()
+            .iter()
+            .any(|ty| is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::ByteArray))
+}
+
 /// Returns true when a type names the WHATWG `Headers` class.
 ///
 /// The class identity comes from the shared stdlib registry

@@ -86,6 +86,7 @@ mod builtin_member_prelude;
 mod byte_buffer_prelude;
 mod event_emitter_prelude;
 mod fetch_types_prelude;
+mod text_codec_prelude;
 pub(crate) mod class_proto;
 pub(crate) mod classes;
 pub(crate) mod classify;
@@ -569,6 +570,9 @@ fn emit_source_with_free_function_router(
     let needs_event_emitter = stdlib::needs_event_emitter_runtime(mir);
     let needs_http_server = stdlib::needs_http_server_runtime(mir);
     let needs_body = stdlib::needs_body_runtime(mir);
+    let needs_text_encoder = stdlib::needs_text_encoder_runtime(mir);
+    let needs_text_decoder = stdlib::needs_text_decoder_runtime(mir);
+    let needs_byte_array = stdlib::needs_byte_array_runtime(mir);
     let needs_smelt_list = stdlib::needs_smelt_list(mir);
     let needs_erased_function = needs_erased_function_runtime(mir);
     let needs_date_now = stdlib::needs_date_now_runtime(mir);
@@ -777,7 +781,17 @@ fn emit_source_with_free_function_router(
     // identity when later erased to `SmeltUnknown`). Emit it standalone only in
     // that regex-without-list case so list-using programs keep byte-identical
     // output. `needs_smelt_list` already subsumes `needs_unknown`.
-    if (needs_regex || needs_headers || needs_url_search_params) && !needs_smelt_list {
+    // The text codecs join that list: each of the three types carries a JS
+    // reference identity, so a program that only encodes a string still mints
+    // ids.
+    if (needs_regex
+        || needs_headers
+        || needs_url_search_params
+        || needs_byte_array
+        || needs_text_encoder
+        || needs_text_decoder)
+        && !needs_smelt_list
+    {
         emit_runtime_gate(&mut writer, PreludeGate::ObjectIdentity)?;
     }
     if needs_smelt_list {
@@ -5233,6 +5247,17 @@ fn emit_source_with_free_function_router(
     }
     if needs_request {
         fetch_types_prelude::emit_request(&mut writer, needs_unknown);
+    }
+    // The byte view is emitted before the codecs, which mention it in their
+    // signatures.
+    if needs_byte_array {
+        text_codec_prelude::emit_byte_array(&mut writer, needs_unknown);
+    }
+    if needs_text_encoder {
+        text_codec_prelude::emit_encoder(&mut writer);
+    }
+    if needs_text_decoder {
+        text_codec_prelude::emit_decoder(&mut writer);
     }
     if needs_event_emitter {
         event_emitter_prelude::emit(&mut writer);

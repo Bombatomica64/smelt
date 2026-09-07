@@ -497,6 +497,47 @@ pub enum UrlSearchParamsOp {
     Entries,
 }
 
+/// A directly lowered WHATWG `TextEncoder` member.
+///
+/// Same shape as the other lowered-intrinsic operation enums: the receiver is a
+/// concrete `TextEncoder`, so the member is selected statically. The spec fixes
+/// the encoder's encoding at UTF-8 and gives it no state, so both members are
+/// pure functions of the argument.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TextEncoderOp {
+    /// `encode(input)`: the UTF-8 bytes of a string, as a byte view.
+    Encode,
+    /// `encoding`: always `"utf-8"`.
+    Encoding,
+}
+
+/// A directly lowered WHATWG `TextDecoder` member.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TextDecoderOp {
+    /// `decode(input)`: a byte view read back as a string.
+    ///
+    /// Malformed UTF-8 becomes U+FFFD, which is the spec's non-`fatal`
+    /// behaviour and exactly `String::from_utf8_lossy`.
+    Decode,
+    /// `encoding`: the decoder's normalized encoding label.
+    Encoding,
+}
+
+/// A directly lowered read on a concrete byte view.
+///
+/// The two size members a byte view publishes. They differ for every OTHER
+/// typed-array view — `length` is the element count and `byteLength` the byte
+/// count — and agree here because a `Uint8Array`'s elements are one byte wide;
+/// both are modeled rather than one aliased to the other so the enum stays true
+/// to the spec if a wider concrete view is added.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ByteArrayOp {
+    /// `length`: the element count.
+    Length,
+    /// `byteLength`: the byte count.
+    ByteLength,
+}
+
 /// A directly lowered local-time `Date` component.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DatePart {

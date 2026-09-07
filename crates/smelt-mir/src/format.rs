@@ -1030,6 +1030,56 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
             }
             text
         }
+        Rvalue::TextEncoderNew => "text_encoder_new".to_owned(),
+        Rvalue::TextDecoderNew { label } => label.as_ref().map_or_else(
+            || "text_decoder_new".to_owned(),
+            |label| format!("text_decoder_new {}", operand_text(label)),
+        ),
+        Rvalue::TextEncoderOp { op, encoder, args } => {
+            let op_name = match op {
+                smelt_hir::TextEncoderOp::Encode => "encode",
+                smelt_hir::TextEncoderOp::Encoding => "encoding",
+            };
+            let args_text = args
+                .iter()
+                .map(operand_text)
+                .collect::<Vec<_>>()
+                .join(", ");
+            if args_text.is_empty() {
+                format!("text_encoder_{op_name} {}", operand_text(encoder))
+            } else {
+                format!(
+                    "text_encoder_{op_name} {} {args_text}",
+                    operand_text(encoder)
+                )
+            }
+        }
+        Rvalue::TextDecoderOp { op, decoder, args } => {
+            let op_name = match op {
+                smelt_hir::TextDecoderOp::Decode => "decode",
+                smelt_hir::TextDecoderOp::Encoding => "encoding",
+            };
+            let args_text = args
+                .iter()
+                .map(operand_text)
+                .collect::<Vec<_>>()
+                .join(", ");
+            if args_text.is_empty() {
+                format!("text_decoder_{op_name} {}", operand_text(decoder))
+            } else {
+                format!(
+                    "text_decoder_{op_name} {} {args_text}",
+                    operand_text(decoder)
+                )
+            }
+        }
+        Rvalue::ByteArrayOp { op, bytes } => {
+            let op_name = match op {
+                smelt_hir::ByteArrayOp::Length => "length",
+                smelt_hir::ByteArrayOp::ByteLength => "byte_length",
+            };
+            format!("byte_array_{op_name} {}", operand_text(bytes))
+        }
         Rvalue::UrlSearchParamsNew { init } => init.as_ref().map_or_else(
             || "url_search_params_new".to_owned(),
             |init| format!("url_search_params_new {}", operand_text(init)),

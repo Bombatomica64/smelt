@@ -1257,6 +1257,14 @@ impl FunctionEmitter<'_> {
                 {
                     return Ok(RustType::raw("SmeltResponse"));
                 }
+                if let Some(codec_type) = match self.stdlib_class_of_symbol(*name)? {
+                    Some(smelt_stdlib::StdlibClass::TextEncoder) => Some("SmeltTextEncoder"),
+                    Some(smelt_stdlib::StdlibClass::TextDecoder) => Some("SmeltTextDecoder"),
+                    Some(smelt_stdlib::StdlibClass::ByteArray) => Some("SmeltUint8Array"),
+                    _ => None,
+                } {
+                    return Ok(RustType::raw(codec_type));
+                }
                 if self.stdlib_class_of_symbol(*name)? == Some(smelt_stdlib::StdlibClass::Request) {
                     return Ok(RustType::raw("SmeltRequest"));
                 }
@@ -1546,6 +1554,27 @@ impl FunctionEmitter<'_> {
                     == Some(smelt_stdlib::StdlibClass::Response) =>
             {
                 Ok("SmeltResponse::new()".to_owned())
+            }
+            Type::Class { name, .. }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::TextEncoder) =>
+            {
+                Ok("SmeltTextEncoder::new()".to_owned())
+            }
+            Type::Class { name, .. }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::TextDecoder) =>
+            {
+                Ok("SmeltTextDecoder::new()".to_owned())
+            }
+            // An empty byte view, which is what `new Uint8Array(0)` is: a view
+            // with no bytes is a value the type can hold, unlike a server
+            // without a handler.
+            Type::Class { name, .. }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::ByteArray) =>
+            {
+                Ok("SmeltUint8Array::new()".to_owned())
             }
             Type::Class { name, .. }
                 if self.stdlib_class_of_symbol(*name)?

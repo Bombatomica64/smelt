@@ -1378,6 +1378,38 @@ pub enum Rvalue {
         /// Operation arguments; every modeled member is nullary today.
         args: Vec<Operand>,
     },
+    /// Construct a WHATWG `TextEncoder` value.
+    TextEncoderNew,
+    /// Construct a WHATWG `TextDecoder` value.
+    TextDecoderNew {
+        /// Optional encoding-label value.
+        label: Option<Operand>,
+    },
+    /// Apply a `TextEncoder` member to a concrete receiver.
+    TextEncoderOp {
+        /// Member to read or call.
+        op: smelt_hir::TextEncoderOp,
+        /// `TextEncoder` receiver.
+        encoder: Operand,
+        /// Operation arguments (the string to encode, or none).
+        args: Vec<Operand>,
+    },
+    /// Apply a `TextDecoder` member to a concrete receiver.
+    TextDecoderOp {
+        /// Member to read or call.
+        op: smelt_hir::TextDecoderOp,
+        /// `TextDecoder` receiver.
+        decoder: Operand,
+        /// Operation arguments (the byte view to decode, or none).
+        args: Vec<Operand>,
+    },
+    /// Read a size member of a concrete byte view.
+    ByteArrayOp {
+        /// Member to read.
+        op: smelt_hir::ByteArrayOp,
+        /// Byte-view receiver.
+        bytes: Operand,
+    },
     UrlSearchParamsNew {
         /// Optional initializer value.
         init: Option<Operand>,

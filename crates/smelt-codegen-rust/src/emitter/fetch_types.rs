@@ -286,6 +286,14 @@ impl FunctionEmitter<'_> {
                     | smelt_stdlib::StdlibClass::UrlSearchParams
                     | smelt_stdlib::StdlibClass::Response
                     | smelt_stdlib::StdlibClass::Request
+                    // A concrete byte view erases to the byte-backed host
+                    // record the typed-array views use, which is what makes an
+                    // erased `encoder.encode(..)` indistinguishable from an
+                    // erased `new Uint8Array(..)`. Without this arm the
+                    // declared-field record builder would stamp the view's
+                    // SYNTHETIC class name into the erased value and drop its
+                    // bytes.
+                    | smelt_stdlib::StdlibClass::ByteArray
             )
         ))
     }

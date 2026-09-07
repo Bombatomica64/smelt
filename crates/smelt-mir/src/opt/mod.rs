@@ -589,6 +589,25 @@ fn rewrite_rvalue(
             }
             rewritten
         }
+        Rvalue::TextEncoderNew => false,
+        Rvalue::TextDecoderNew { label } => label
+            .as_mut()
+            .is_some_and(|label| rewrite_operand_except(label, aliases, dest)),
+        Rvalue::TextEncoderOp { encoder, args, .. } => {
+            let mut rewritten = rewrite_operand_except(encoder, aliases, dest);
+            for arg in args {
+                rewritten |= rewrite_operand_except(arg, aliases, dest);
+            }
+            rewritten
+        }
+        Rvalue::TextDecoderOp { decoder, args, .. } => {
+            let mut rewritten = rewrite_operand_except(decoder, aliases, dest);
+            for arg in args {
+                rewritten |= rewrite_operand_except(arg, aliases, dest);
+            }
+            rewritten
+        }
+        Rvalue::ByteArrayOp { bytes, .. } => rewrite_operand_except(bytes, aliases, dest),
         Rvalue::UrlSearchParamsNew { init } => init
             .as_mut()
             .is_some_and(|init| rewrite_operand_except(init, aliases, dest)),

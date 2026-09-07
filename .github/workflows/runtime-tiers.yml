@@ -89,7 +89,7 @@ jobs:
               runtime_type_test_runtime
           - shard: standards
             tests: >-
-              fetch_types_runtime
+              fetch_types_runtime text_codec_runtime
           - shard: host
             tests: >-
               host_representation_runtime boxed_primitive_runtime
