@@ -1615,9 +1615,13 @@ impl FunctionEmitter<'_> {
                     // enclosing statement. Calling it in place therefore runs
                     // the callee while the cell is borrowed, and a class-field
                     // arrow's body mutates that same cell ("already borrowed").
-                    // Binding the callable drops the guard before the call.
+                    // Binding the callable drops the guard before the call, and
+                    // it is CLONED rather than moved: a shared capture renders
+                    // as `(*cell.borrow())`, and an `Rc<dyn Fn ..>` moved out of
+                    // a `Ref` deref is E0507. Twin of the same binding in
+                    // `call.rs`.
                     format!(
-                        "{{ let smelt_callable = {callee_text}; (smelt_callable)({args_text}) }}"
+                        "{{ let smelt_callable = ::std::clone::Clone::clone(&{callee_text}); (smelt_callable)({args_text}) }}"
                     )
                 } else {
                     format!("({callee_text})({args_text})")
@@ -2593,6 +2597,21 @@ impl FunctionEmitter<'_> {
         };
         if let Some(method_text) = self.class_method_reference_text(receiver_text, *name, field)? {
             return Ok(method_text);
+        }
+        // A REFERENCE class is an `Rc<RefCell<Inner>>` handle, so its fields are
+        // reached through the handle, never as tuple-struct fields of the handle
+        // itself. The ordinary place path already knows this
+        // (`place_is_reference_class_field`); this path did not, so a field read
+        // through an optional chain on such a class emitted
+        // `handle.field.clone()` and the generated crate failed to compile
+        // (E0609). It was unreachable until an assignment through an
+        // optional-typed receiver stopped being rejected in MIR.
+        if self.is_reference_class_type(receiver_ty) && self.class_has_named_field(receiver_ty, field)
+        {
+            return Ok(format!(
+                "{receiver_text}.0.borrow().{}.clone()",
+                sanitize_ident(self.symbol_name(field)?)
+            ));
         }
         Ok(format!(
             "{receiver_text}.{}.clone()",

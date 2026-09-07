@@ -2093,10 +2093,20 @@ fn emit_source_with_free_function_router(
         // `__smelt_proto:`-prefixed entries hold members INHERITED from a
         // prototype (`Object.create(proto)`), so they are never own keys — JS
         // `Object.keys` / `for...in` own-key enumeration must skip them.
-        writer.line("fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { if smelt_object_has_host_marker(object) { return false; } !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && key != \"__smelt_map\" && key != \"__smelt_set\" && !(object.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\" | \"lastIndex\")) && !(object.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\" | \"stack\")) && !(object.contains_key(\"__smelt_arguments\") && matches!(key, \"__smelt_arguments\" | \"length\")) }");
+        //
+        // A symbol-keyed property is skipped for a stronger reason: in
+        // JavaScript a symbol key NEVER appears in string-key enumeration
+        // (`Object.keys`, `Object.values`, `Object.entries`, `for...in`,
+        // `JSON.stringify`), only in `Object.getOwnPropertySymbols` and
+        // `Reflect.ownKeys`. Every storage spelling of a symbol key shares the
+        // `__smelt_symbol` stem (`smelt_stdlib::symbol_keys::SYMBOL_KEY_STEM`) —
+        // the opaque `__smelt_symbol:<description>` form, the folded registry and
+        // unique member names, and the well-known keys — so one prefix test
+        // covers all of them.
+        writer.line("fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { if smelt_object_has_host_marker(object) { return false; } !key.starts_with(\"__smelt_symbol\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && key != \"__smelt_map\" && key != \"__smelt_set\" && !(object.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\" | \"lastIndex\")) && !(object.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\" | \"stack\")) && !(object.contains_key(\"__smelt_arguments\") && matches!(key, \"__smelt_arguments\" | \"length\")) }");
         writer
             .line("/// Return whether a record key is visible to JavaScript `for...in` iteration.");
-        writer.line("fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> bool { if smelt_record_has_host_marker(record) { return false; } !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && !(record.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\" | \"lastIndex\")) && !(record.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\" | \"stack\")) && !(record.contains_key(\"__smelt_arguments\") && matches!(key, \"__smelt_arguments\" | \"length\")) }");
+        writer.line("fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> bool { if smelt_record_has_host_marker(record) { return false; } !key.starts_with(\"__smelt_symbol\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && !(record.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\" | \"lastIndex\")) && !(record.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\" | \"stack\")) && !(record.contains_key(\"__smelt_arguments\") && matches!(key, \"__smelt_arguments\" | \"length\")) }");
         // `for...in` walks the PROTOTYPE CHAIN; `Object.keys` does not. The two
         // therefore cannot share one key list. Inherited members live behind the
         // `__smelt_proto:` prefix, which the own-key filters above exclude — right
@@ -2138,8 +2148,8 @@ fn emit_source_with_free_function_router(
         writer.line("///");
         writer.line("/// Drops `__smelt_proto:` / `__smelt_method:` / `__smelt_class` keys (inherited");
         writer.line("/// members, prototype methods and class provenance are not own properties) and");
-        writer.line("/// restores a `__smelt_symbol:` key to its `SmeltUnknown::Symbol` tag.");
-        writer.line("fn smelt_own_js_map_entries<V: Clone>(map: &SmeltJsMap<SmeltUnknown, V>) -> Vec<(SmeltUnknown, V)> { map.iter().filter_map(|(key, value)| { let SmeltUnknown::String(text) = &key else { return Some((key, value)); }; let text = text.to_string(); if text.starts_with(\"__smelt_proto:\") || text.starts_with(\"__smelt_method:\") || text == \"__smelt_class\" { return None; } if let Some(description) = text.strip_prefix(\"__smelt_symbol:\") { return Some((SmeltUnknown::Symbol(description.into()), value)); } Some((key, value)) }).collect() }");
+        writer.line("/// restores any symbol key to its `SmeltUnknown::Symbol` tag.");
+        writer.line("fn smelt_own_js_map_entries<V: Clone>(map: &SmeltJsMap<SmeltUnknown, V>) -> Vec<(SmeltUnknown, V)> { map.iter().filter_map(|(key, value)| { let SmeltUnknown::String(text) = &key else { return Some((key, value)); }; let text = text.to_string(); if text.starts_with(\"__smelt_proto:\") || text.starts_with(\"__smelt_method:\") || text == \"__smelt_class\" { return None; } if let Some(symbol) = smelt_own_symbol_key_value(&text) { return Some((symbol, value)); } Some((key, value)) }).collect() }");
         writer.blank_line();
         writer.line("/// Every key JavaScript `for...in` yields for a `SmeltJsMap` backing.");
         writer.line("///");
@@ -3491,31 +3501,9 @@ fn emit_source_with_free_function_router(
         writer.line("    }");
         writer.line("}");
         writer.blank_line();
-        // The property key a SYMBOL value indexes.
-        //
-        // A well-known symbol (`Symbol.iterator`, `Symbol.toStringTag`, ...) is a
-        // constant of the language, so `obj[Symbol.iterator]` and a declared
-        // `[Symbol.iterator]` member must name ONE member. The frontend folds the
-        // static key spelling through `smelt_stdlib::well_known_symbols`; this is
-        // the runtime half of that same table, for the spelling that only exists
-        // as a value at compile time (a `const s = Symbol.iterator` alias handed
-        // through an erased slot, a symbol read out of `Object.getOwnPropertySymbols`).
-        // Every other symbol — unique `Symbol('d')`, registry `Symbol.for('d')` —
-        // keeps the generic `__smelt_symbol:<description>` storage form, which is
-        // what makes it a key distinct from its own description string.
-        writer.line("/// The property key a symbol value indexes.");
-        {
-            let well_known_arms = smelt_stdlib::well_known_symbols::spelling_key_pairs()
-                .into_iter()
-                .fold(String::new(), |mut arms, (spelling, key)| {
-                    use ::std::fmt::Write as _;
-                    let _ = write!(arms, "{spelling:?} => {key:?}.to_owned(), ");
-                    arms
-                });
-            writer.line(format!(
-                "fn smelt_symbol_property_key(description: &str) -> String {{ match description {{ {well_known_arms}other => format!(\"__smelt_symbol:{{other}}\") }} }}"
-            ));
-        }
+        // The runtime half of the symbol-value/property-key correspondence the
+        // frontend folds statically; see `emit_symbol_key_derivation`.
+        emit_symbol_key_derivation(&mut writer);
         writer.blank_line();
         // JavaScript property-key coercion: `obj[key]` stringifies whatever `key`
         // is. Lives in the prelude because it was previously emitted as a full
@@ -5962,6 +5950,76 @@ fn emit_regex_substitution(writer: &mut CodeWriter) {
     writer.line("}");
 }
 
+/// Emits the runtime symbol-value ⇄ property-key correspondence.
+///
+/// A symbol is a value and a property key at once, and the two spellings have to
+/// agree: a computed key the frontend folded statically (`{ [KEY]: 1 }`,
+/// `class C { get [KEY]() {} }`) and a key the generated code derives from an
+/// erased symbol value (`obj[prop]` where `prop` arrived through a
+/// `SmeltUnknown` slot) must name the SAME record entry. That is why the
+/// derivation is owned by `smelt_stdlib::symbol_keys` and rendered here rather
+/// than invented twice: a well-known symbol is a language constant, a registry
+/// `Symbol.for('d')` is interned by description, and a unique `Symbol('d')`
+/// carries the source offset of the binding that created it — each folds to an
+/// identifier-safe synthetic member name (a symbol key can also name a *class*
+/// member, which has to be spellable as a Rust identifier), and every other
+/// spelling keeps the generic `__smelt_symbol:<description>` form so a symbol
+/// key never collides with the plain string key of its own description.
+///
+/// Three functions come out of it:
+///
+/// * `smelt_symbol_key_escape` / `smelt_symbol_key_unescape` — the reversible
+///   identifier encoding (`_<hex>_` for every non-alphanumeric character), so a
+///   folded key can be read back as the description it came from;
+/// * `smelt_symbol_property_key` — the key a symbol value indexes; and
+/// * `smelt_folded_symbol_key_spelling` — its inverse, which is what
+///   `Object.getOwnPropertySymbols`, `Reflect.ownKeys` and erased-Map
+///   enumeration hand back to the program as a symbol.
+fn emit_symbol_key_derivation(writer: &mut CodeWriter) {
+    let well_known_arms = smelt_stdlib::well_known_symbols::spelling_key_pairs()
+        .into_iter()
+        .fold(String::new(), |mut arms, (spelling, key)| {
+            use ::std::fmt::Write as _;
+            let _ = write!(arms, "{spelling:?} => {key:?}.to_owned(), ");
+            arms
+        });
+    let registry_prefix = smelt_stdlib::symbol_keys::REGISTRY_SYMBOL_PREFIX;
+    let unique_prefix = smelt_stdlib::symbol_keys::UNIQUE_SYMBOL_PREFIX;
+    let opaque_prefix = smelt_stdlib::symbol_keys::OPAQUE_SYMBOL_PREFIX;
+    let offset_separator = smelt_stdlib::symbol_keys::UNIQUE_OFFSET_SEPARATOR;
+    writer.line("/// An identifier-safe, reversible encoding of a symbol description.");
+    writer.line(
+        "fn smelt_symbol_key_escape(text: &str) -> String { let mut escaped = String::with_capacity(text.len()); for ch in text.chars() { if ch.is_ascii_alphanumeric() { escaped.push(ch); } else { escaped.push('_'); escaped.push_str(&format!(\"{:x}\", u32::from(ch))); escaped.push('_'); } } escaped }",
+    );
+    writer.blank_line();
+    writer.line("/// Decodes `smelt_symbol_key_escape`; a malformed escape passes through.");
+    writer.line(
+        "fn smelt_symbol_key_unescape(escaped: &str) -> String { let mut decoded = String::with_capacity(escaped.len()); let mut rest = escaped; while let Some(index) = rest.find('_') { decoded.push_str(&rest[..index]); let tail = &rest[index + 1..]; let Some((hex, remainder)) = tail.split_once('_') else { decoded.push('_'); decoded.push_str(tail); return decoded; }; match u32::from_str_radix(hex, 16).ok().and_then(char::from_u32) { Some(ch) => decoded.push(ch), None => { decoded.push('_'); decoded.push_str(hex); decoded.push('_'); } } rest = remainder; } decoded.push_str(rest); decoded }",
+    );
+    writer.blank_line();
+    writer.line("/// The property key a symbol value indexes.");
+    writer.line(format!(
+        "fn smelt_symbol_property_key(description: &str) -> String {{ match description {{ {well_known_arms}other => {{ if let Some(registry) = other.strip_prefix(\"Symbol.for(\").and_then(|rest| rest.strip_suffix(')')) {{ return format!(\"{registry_prefix}{{}}\", smelt_symbol_key_escape(registry)); }} let unique = other.rsplit_once('@').filter(|(_, offset)| !offset.is_empty() && offset.bytes().all(|byte| byte.is_ascii_digit())).and_then(|(head, offset)| head.strip_prefix(\"Symbol(\").and_then(|rest| rest.strip_suffix(')')).map(|unique| (unique, offset))); match unique {{ Some((unique, offset)) => format!(\"{unique_prefix}{{}}{offset_separator}{{offset}}\", smelt_symbol_key_escape(unique)), None => format!(\"{opaque_prefix}{{other}}\") }} }} }} }}"
+    ));
+    writer.blank_line();
+    writer.line("/// The symbol value spelling a folded symbol key came from.");
+    writer.line(format!(
+        "fn smelt_folded_symbol_key_spelling(key: &str) -> Option<String> {{ if let Some(escaped) = key.strip_prefix({unique_prefix:?}) {{ let (description, offset) = escaped.rsplit_once({offset_separator:?})?; return Some(format!(\"Symbol({{}})@{{offset}}\", smelt_symbol_key_unescape(description))); }} let escaped = key.strip_prefix({registry_prefix:?})?; Some(format!(\"Symbol.for({{}})\", smelt_symbol_key_unescape(escaped))) }}"
+    ));
+    writer.blank_line();
+    // `Object.getOwnPropertySymbols` reports the symbols a program itself put on
+    // an object: the opaque form and the two folded forms. A well-known key is
+    // deliberately NOT one of them here — Smelt also writes
+    // `__smelt_symbol_iterator` onto erased iterables as part of their
+    // representation, and reporting that as a source symbol would invent a
+    // property the source never wrote. `smelt_key_symbol_value` is the wider
+    // view, for `Reflect.ownKeys`, where the well-known table already applied.
+    writer.line("/// The symbol value a program-written symbol key denotes.");
+    writer.line(format!(
+        "fn smelt_own_symbol_key_value(key: &str) -> Option<SmeltUnknown> {{ if let Some(description) = key.strip_prefix({opaque_prefix:?}) {{ return Some(SmeltUnknown::Symbol(description.into())); }} smelt_folded_symbol_key_spelling(key).map(|spelling| SmeltUnknown::Symbol(spelling.into())) }}"
+    ));
+}
+
 /// Emits the `Reflect.ownKeys` projection and the storage-key → symbol inverse.
 ///
 /// `Reflect.ownKeys(o)` answers *every* own key: the string keys in JavaScript's
@@ -5994,7 +6052,7 @@ fn emit_own_keys_projection(writer: &mut CodeWriter) {
         });
     writer.line("/// The symbol value a stored property key denotes, if it is a symbol key.");
     writer.line(format!(
-        "fn smelt_key_symbol_value(key: &str) -> Option<SmeltUnknown> {{ if let Some(description) = key.strip_prefix(\"__smelt_symbol:\") {{ return Some(SmeltUnknown::Symbol(description.into())); }} match key {{ {well_known_arms}_ => None }} }}"
+        "fn smelt_key_symbol_value(key: &str) -> Option<SmeltUnknown> {{ if let Some(description) = key.strip_prefix(\"__smelt_symbol:\") {{ return Some(SmeltUnknown::Symbol(description.into())); }} if let Some(spelling) = smelt_folded_symbol_key_spelling(key) {{ return Some(SmeltUnknown::Symbol(spelling.into())); }} match key {{ {well_known_arms}_ => None }} }}"
     ));
     writer.blank_line();
     writer.line("/// `Reflect.ownKeys` over a string-keyed record: string keys, then symbol keys.");

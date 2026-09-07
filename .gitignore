@@ -231,3 +231,13 @@ third_party/hono
 # slots, instanceof narrowing), why item 6 needs Dict provenance, and the six
 # modeled classes that still cannot answer instanceof on an erased value.
 !blocker-logs/standards-round10-progress.md
+
+# Hono round 10 notes
+!blocker-logs/remeda-symbol-key-regression.md
+!blocker-logs/hono-h19-projected-receiver-places.md
+!blocker-logs/hono-phase2-generated-rust.md
+!blocker-logs/hono-routers-diagnostics.md
+!blocker-logs/es-toolkit-refcell-callable-move.md
+# local clones for corpus gates (radash etc.), never tracked
+/target-compat/
+third_party/es-toolkit-src/

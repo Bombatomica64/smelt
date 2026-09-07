@@ -671,6 +671,24 @@ impl FunctionEmitter<'_> {
         if source == target && !matches!(self.mir.types.get(target), Some(Type::Function(_))) {
             return Ok(value_text.to_owned());
         }
+        // A value asked for at `bool` is a TRUTHINESS test, not a cast: that is
+        // what JavaScript does wherever a boolean is expected, and it is the
+        // only reading of a class instance, a list, a string or a number in a
+        // boolean position. Without this the coercion fell through to the
+        // structural arms, which had no rule and handed the value back
+        // unchanged — `Option<Node<T>>` at `bool` emitted
+        // `.map_or(false, |value| value)`, and the generated crate did not
+        // compile (E0308, 48 sites in Hono's trie router alone). `Type::Unknown`
+        // keeps its own erased narrowing path below, which already answers
+        // truthiness for a tagged value.
+        if matches!(self.mir.types.get(target), Some(Type::Bool))
+            && !matches!(
+                self.mir.types.get(source),
+                Some(Type::Bool | Type::Unknown | Type::TypeParam { .. })
+            )
+        {
+            return self.value_truthy_text(value_text, source);
+        }
         if source == target && matches!(self.mir.types.get(target), Some(Type::Function(_))) {
             if self.is_borrowed_callback_capture_name(value_text) {
                 return self.borrowed_function_handle_text(value_text, target);

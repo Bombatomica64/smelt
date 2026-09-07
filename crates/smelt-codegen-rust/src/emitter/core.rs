@@ -1979,6 +1979,16 @@ impl<'mir> FunctionEmitter<'mir> {
             if self.method_owner_is_reference_class() {
                 self.emit_shared_parameter_preludes(out)?;
             }
+            // A method body needs the same function-scope declarations a free
+            // function body gets. MIR locals are function-scoped while generated
+            // Rust branch bodies are lexically scoped, so a temporary first
+            // assigned inside one `if` arm and assigned again in the sibling arm
+            // (or read after the branch) has to be declared OUTSIDE the branch.
+            // Methods skipped this and emitted an inline `let mut` in the first
+            // arm instead, so the sibling assignment referred to a name that was
+            // out of scope: E0425 by the thousand in a branchy method (Hono's
+            // routers), with no diagnostic anywhere before rustc.
+            self.emit_mutable_local_preludes(out)?;
             self.emit_block(self.entry_block()?, out)?;
         }
         out.push_str("    }\n");
