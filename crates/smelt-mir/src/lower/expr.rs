@@ -2942,7 +2942,7 @@ impl LoweringCtx<'_> {
             return Ok((self.lower_expr(expr_id)?, None));
         }
 
-        let place = self.lower_place(expr_id)?;
+        let (place, writebacks) = self.lower_place(expr_id)?;
         if matches!(place, Place::Local(_)) {
             return Ok((Operand::Copy(place), None));
         }
@@ -2952,7 +2952,32 @@ impl LoweringCtx<'_> {
             dest: local,
             value: Rvalue::Use(Operand::Copy(place.clone())),
         });
+        // The receiver's OWN base may itself have been a projection copied into
+        // a temporary (`a.b.list.push(x)`); those inner levels commit first, so
+        // this receiver's writeback lands in a base that is still live. The
+        // mutation arms replay the returned entry after the mutation statement.
+        self.write_back_place_receivers(writebacks)?;
         Ok((Operand::Copy(Place::Local(local)), Some((place, local))))
+    }
+
+    /// Commits every copied projection of a place write back through its own
+    /// place, INNERMOST FIRST.
+    ///
+    /// `PlaceWritebacks` explains why the copies exist and why they must be
+    /// committed. Innermost first is what makes a nested receiver work: the
+    /// entries were pushed outermost-to-innermost as the projection was walked
+    /// down, and committing `a.b.c` before `a.b` would store a stale `a.b`.
+    pub(super) fn write_back_place_receivers(
+        &mut self,
+        writebacks: super::PlaceWritebacks,
+    ) -> Result<(), LowerError> {
+        for (place, local) in writebacks.into_iter().rev() {
+            self.block_mut()?.statements.push(Statement::AssignPlace {
+                place,
+                value: Rvalue::Use(Operand::Copy(Place::Local(local))),
+            });
+        }
+        Ok(())
     }
 
     /// Writes a mutated temporary collection back through its original place.

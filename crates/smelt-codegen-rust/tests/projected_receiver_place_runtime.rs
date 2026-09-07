@@ -217,3 +217,102 @@ test("an index write through a definite assertion is kept", () => {
 "#;
     run_fixture(source, "smelt_projected_receiver_optional_write");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_write_through_a_projected_value_receiver_lands_in_the_original() {
+    // H31: the family with NO rustc error at all. A MIR place is rooted at a
+    // local, so `this.children[key] = child` copies `this.children` into a
+    // temporary and writes through that. For a Smelt collection HANDLE the copy
+    // shares storage and the write lands; for a VALUE representation -- a plain
+    // `HashMap`/`Vec` field, a value-class struct -- it is a deep copy, so the
+    // write went nowhere and the program printed a different answer than Node
+    // while compiling perfectly. The receiver is now committed back through its
+    // own place, so both representations agree.
+    //
+    // Two levels of nesting are the point: `this.branches[b].leaves[k] = leaf`
+    // copies `this.branches[b]` (itself rooted in a copy of `this.branches`),
+    // so the inner level has to commit before the outer one or the outer store
+    // writes back a stale value.
+    let source = r#"
+import { test, expect } from "vitest";
+
+class Leaf {
+  pattern = "";
+  hits: number[] = [];
+}
+
+class Branch {
+  leaves: Record<string, Leaf> = {};
+  label = "";
+}
+
+class Tree {
+  branches: Record<string, Branch> = {};
+  rows: number[][] = [[0], [0]];
+
+  insert(branch: string, key: string, pattern: string): void {
+    this.branches[branch] = new Branch();
+    this.branches[branch].label = branch;
+    this.branches[branch].leaves[key] = new Leaf();
+    this.branches[branch].leaves[key].pattern = pattern;
+    this.branches[branch].leaves[key].hits[0] = 1;
+  }
+
+  patternOf(branch: string, key: string): string {
+    const found = this.branches[branch];
+    if (!found) {
+      return "no-branch";
+    }
+    const leaf = found.leaves[key];
+    return leaf ? leaf.pattern : "no-leaf";
+  }
+
+  bump(row: number, column: number, value: number): void {
+    this.rows[row][column] = value;
+  }
+}
+
+test("a write through a projected receiver reaches the object", () => {
+  const tree = new Tree();
+  tree.insert("a", "k", "p1");
+  expect(tree.patternOf("a", "k")).toBe("p1");
+  expect(tree.patternOf("b", "k")).toBe("no-branch");
+  expect(tree.patternOf("a", "zz")).toBe("no-leaf");
+});
+
+test("each level of a nested projection keeps its own write", () => {
+  const tree = new Tree();
+  tree.insert("a", "k", "p1");
+  expect(tree.branches["a"].label).toBe("a");
+  expect(tree.branches["a"].leaves["k"].pattern).toBe("p1");
+  expect(tree.branches["a"].leaves["k"].hits[0]).toBe(1);
+});
+
+test("a second insert does not lose the first", () => {
+  const tree = new Tree();
+  tree.insert("a", "k", "p1");
+  tree.insert("b", "j", "p2");
+  expect(tree.patternOf("a", "k")).toBe("p1");
+  expect(tree.patternOf("b", "j")).toBe("p2");
+});
+
+test("an index write through a nested list projection is kept", () => {
+  const tree = new Tree();
+  tree.bump(1, 0, 42);
+  expect(tree.rows[1][0]).toBe(42);
+  expect(tree.rows[0][0]).toBe(0);
+});
+
+test("a write through a projected local receiver is kept", () => {
+  // The same shape with no `this` in sight: the receiver is a projection of a
+  // plain local, which is how every non-method spelling of H31 arrives.
+  const outer: Record<string, Record<string, number>> = { a: {} };
+  outer.a["k"] = 5;
+  outer["a"]["j"] = 6;
+  expect(outer.a["k"]).toBe(5);
+  expect(outer.a["j"]).toBe(6);
+});
+"#;
+    run_fixture(source, "smelt_projected_value_receiver_write");
+}

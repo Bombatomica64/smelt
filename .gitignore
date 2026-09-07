@@ -241,3 +241,4 @@ third_party/hono
 # local clones for corpus gates (radash etc.), never tracked
 /target-compat/
 third_party/es-toolkit-src/
+!blocker-logs/hono-h31-projected-receiver-writeback.md

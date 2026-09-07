@@ -12,8 +12,8 @@ use smelt_hir::{ExprId, ExprKind};
 
 use crate::{Constant, GlobalProjection, Operand, Place};
 
-use super::LowerError;
 use super::context::LoweringCtx;
+use super::{LowerError, PlaceWritebacks};
 
 impl LoweringCtx<'_> {
     /// Lowers an lvalue expression to a MIR place for assignment targets.
@@ -25,14 +25,17 @@ impl LoweringCtx<'_> {
         clippy::wildcard_enum_match_arm,
         reason = "compile-time exhaustiveness for non-place kinds is enforced in place_unsupported"
     )]
-    pub(super) fn lower_place(&mut self, expr_id: ExprId) -> Result<Place, LowerError> {
+    pub(super) fn lower_place(
+        &mut self,
+        expr_id: ExprId,
+    ) -> Result<(Place, PlaceWritebacks), LowerError> {
         let expr = self.hir_expr(expr_id)?.clone();
         match &expr.kind {
             ExprKind::Local(local) => {
                 let local_id = self.locals.get(local).copied().ok_or_else(|| {
                     self.error("assignment references an unknown local", Some(expr.span))
                 })?;
-                Ok(Place::Local(local_id))
+                Ok((Place::Local(local_id), PlaceWritebacks::new()))
             }
             ExprKind::Field { receiver, field } => {
                 // A write THROUGH a module-level mutable global must name the
@@ -43,19 +46,22 @@ impl LoweringCtx<'_> {
                 // silently lost for the other. See
                 // `blocker-logs/hono-h6-place-global.md`.
                 if let Some(base) = self.mutable_global_receiver(*receiver) {
-                    return Ok(Place::Global {
-                        base,
-                        projection: GlobalProjection::Field(*field),
-                    });
+                    return Ok((
+                        Place::Global {
+                            base,
+                            projection: GlobalProjection::Field(*field),
+                        },
+                        PlaceWritebacks::new(),
+                    ));
                 }
-                let receiver_operand = self.lower_expr(*receiver)?;
-                let receiver_ty = self.hir_expr(*receiver)?.ty;
-                let base =
-                    self.materialize_operand_local(receiver_operand, receiver_ty, expr.span)?;
-                Ok(Place::Field {
-                    base,
-                    field: *field,
-                })
+                let (base, writebacks) = self.place_base_local(*receiver, expr.span)?;
+                Ok((
+                    Place::Field {
+                        base,
+                        field: *field,
+                    },
+                    writebacks,
+                ))
             }
             ExprKind::Index { receiver, index } => {
                 if let Some(base) = self.mutable_global_receiver(*receiver) {
@@ -63,24 +69,27 @@ impl LoweringCtx<'_> {
                     // emission time, which is what keeps `cache[cache_key()] =
                     // v` from double-borrowing the `RefCell` at runtime.
                     let index_operand = self.lower_expr(*index)?;
-                    return Ok(Place::Global {
-                        base,
-                        projection: GlobalProjection::Index {
-                            index: Box::new(index_operand),
-                            negative: self.negative_index_policy(expr.span),
+                    return Ok((
+                        Place::Global {
+                            base,
+                            projection: GlobalProjection::Index {
+                                index: Box::new(index_operand),
+                                negative: self.negative_index_policy(expr.span),
+                            },
                         },
-                    });
+                        PlaceWritebacks::new(),
+                    ));
                 }
-                let receiver_operand = self.lower_expr(*receiver)?;
-                let receiver_ty = self.hir_expr(*receiver)?.ty;
-                let base =
-                    self.materialize_operand_local(receiver_operand, receiver_ty, expr.span)?;
+                let (base, writebacks) = self.place_base_local(*receiver, expr.span)?;
                 let index_operand = self.lower_expr(*index)?;
-                Ok(Place::Index {
-                    base,
-                    index: Box::new(index_operand),
-                    negative: self.negative_index_policy(expr.span),
-                })
+                Ok((
+                    Place::Index {
+                        base,
+                        index: Box::new(index_operand),
+                        negative: self.negative_index_policy(expr.span),
+                    },
+                    writebacks,
+                ))
             }
             ExprKind::TupleIndex { tuple, index } => {
                 let tuple_operand = self.lower_expr(*tuple)?;
@@ -89,13 +98,16 @@ impl LoweringCtx<'_> {
                 let tuple_index = i64::try_from(*index).map_err(|_error| {
                     self.error("tuple index does not fit in MIR integer", Some(expr.span))
                 })?;
-                Ok(Place::Index {
-                    base,
-                    index: Box::new(Operand::Const(Constant::Int(tuple_index))),
-                    // A tuple index is a resolved, non-negative position; the
-                    // policy never applies, so record the language's anyway.
-                    negative: self.negative_index_policy(expr.span),
-                })
+                Ok((
+                    Place::Index {
+                        base,
+                        index: Box::new(Operand::Const(Constant::Int(tuple_index))),
+                        // A tuple index is a resolved, non-negative position; the
+                        // policy never applies, so record the language's anyway.
+                        negative: self.negative_index_policy(expr.span),
+                    },
+                    PlaceWritebacks::new(),
+                ))
             }
             // A write through a receiver whose HIR type is still optional.
             //
@@ -112,20 +124,26 @@ impl LoweringCtx<'_> {
             // whose `Rvalue::Use` of an optional operand emits the narrowing
             // unwrap, then an ordinary field or index projection on it.
             ExprKind::OptionalField { receiver, field } => {
-                let base = self.narrowed_receiver_base(*receiver, expr.span)?;
-                Ok(Place::Field {
-                    base,
-                    field: *field,
-                })
+                let (base, writebacks) = self.narrowed_receiver_base(*receiver, expr.span)?;
+                Ok((
+                    Place::Field {
+                        base,
+                        field: *field,
+                    },
+                    writebacks,
+                ))
             }
             ExprKind::OptionalIndex { receiver, index } => {
-                let base = self.narrowed_receiver_base(*receiver, expr.span)?;
+                let (base, writebacks) = self.narrowed_receiver_base(*receiver, expr.span)?;
                 let index_operand = self.lower_expr(*index)?;
-                Ok(Place::Index {
-                    base,
-                    index: Box::new(index_operand),
-                    negative: self.negative_index_policy(expr.span),
-                })
+                Ok((
+                    Place::Index {
+                        base,
+                        index: Box::new(index_operand),
+                        negative: self.negative_index_policy(expr.span),
+                    },
+                    writebacks,
+                ))
             }
             ExprKind::TypeAssert { value } | ExprKind::UnknownCast { value, .. } => {
                 self.lower_place(*value)
@@ -137,41 +155,117 @@ impl LoweringCtx<'_> {
         }
     }
 
+    /// The local a place projection is rooted at, plus any writeback the root
+    /// needs.
+    ///
+    /// A plain local receiver (`x[i] = v`) is its own root and needs nothing. A
+    /// PROJECTED receiver (`a.b[i] = v`, `a.b.c[i] = v`) has to be copied into a
+    /// temporary, because a MIR place is rooted at a local -- and that copy is
+    /// exactly the silent-wrong-value bug H31 names: for a value representation
+    /// the write lands in the copy and never reaches `a`. So the projection is
+    /// returned alongside the temporary as a writeback for the caller to replay
+    /// after the write, the same contract [`Self::lower_mutation_receiver`] uses
+    /// for `a.b.push(x)`. Recursing through [`Self::lower_place`] rather than
+    /// [`Self::lower_expr`] is what makes depth work: each level contributes its
+    /// own entry, and `PlaceWritebacks` documents the replay order.
+    ///
+    /// A receiver that is not a projection at all (a call, a `new`, a literal)
+    /// keeps the ordinary materialize-a-value path: there is nowhere to commit
+    /// it back to, and nothing observes it.
+    fn place_base_local(
+        &mut self,
+        receiver: ExprId,
+        span: smelt_hir::Span,
+    ) -> Result<(crate::LocalId, PlaceWritebacks), LowerError> {
+        let receiver_expr = self.hir_expr(receiver)?.clone();
+        // The transparent wrappers (`TypeAssert`, `UnknownCast`) are deliberately
+        // NOT here. `bucket![0] = 9` roots at the local `bucket`, whose declared
+        // type is still `T[] | undefined`, and an optional-typed place base has
+        // no index-write spelling -- the write was silently discarded. Their
+        // `lower_expr` does the narrowing the write needs, so a wrapped receiver
+        // keeps the materialize-a-value path. `OptionalField`/`OptionalIndex`
+        // are here: `lower_place` roots those at a temporary of the INNER type
+        // (`narrowed_receiver_base`), which is a place base a write can use.
+        if !matches!(
+            receiver_expr.kind,
+            ExprKind::Field { .. }
+                | ExprKind::Index { .. }
+                | ExprKind::TupleIndex { .. }
+                | ExprKind::OptionalField { .. }
+                | ExprKind::OptionalIndex { .. }
+        ) {
+            let receiver_operand = self.lower_expr(receiver)?;
+            let local =
+                self.materialize_operand_local(receiver_operand, receiver_expr.ty, span)?;
+            return Ok((local, PlaceWritebacks::new()));
+        }
+        let (place, mut writebacks) = self.lower_place(receiver)?;
+        if let Place::Local(local) = place {
+            return Ok((local, writebacks));
+        }
+        // A mutable global's cell is already the assignment root: `Place::Global`
+        // exists precisely so the write does not go through a copy, and it has
+        // no lvalue fragment to compose a nested projection onto. Fall back to
+        // the value read for it, which is what the previous code always did.
+        if matches!(place, Place::Global { .. }) {
+            let receiver_operand = self.lower_expr(receiver)?;
+            let local =
+                self.materialize_operand_local(receiver_operand, receiver_expr.ty, span)?;
+            return Ok((local, writebacks));
+        }
+        let local = self.push_temp(receiver_expr.ty, span);
+        self.block_mut()?.statements.push(crate::Statement::Assign {
+            dest: local,
+            value: crate::Rvalue::Use(Operand::Copy(place.clone())),
+        });
+        writebacks.push((place, local));
+        Ok((local, writebacks))
+    }
+
     /// Materializes an assignment receiver whose type is still optional, as a
-    /// local of the INNER type, and returns that local for use as a place base.
+    /// local of the INNER type, and returns that local for use as a place base
+    /// together with the writebacks the roots need.
     ///
     /// The temporary is typed with the optional's inner type, so the
     /// `Rvalue::Use` that fills it converts an `Optional<T>` operand to `T`
     /// through the emitter's narrowing unwrap. A receiver that is not optional
-    /// keeps its own type and goes through the ordinary materialization, so this
-    /// is safe to call for any receiver.
+    /// keeps its own type and goes through the ordinary root, so this is safe to
+    /// call for any receiver.
     ///
-    /// The base is a temporary rather than the receiver expression itself for the
-    /// same reason `Field`/`Index` already materialize theirs: MIR places are
-    /// rooted at a local, and a projected or unwrapped receiver is a value. Smelt's
-    /// collection handles share their storage across clones, which is what makes a
-    /// write through such a temporary land in the original object — the property
-    /// `a.b[i] = v` already depends on.
+    /// The receiver is rooted through [`Self::place_base_local`], not through
+    /// `lower_expr`: a PROJECTED optional receiver
+    /// (`this.branches[b].leaves[k] = leaf`) would otherwise be read as a value
+    /// -- `tmp.as_ref().map(|v| v.leaves.clone())` -- and the write would land
+    /// in that clone. Rooting it at a place makes each level of the projection
+    /// commit back through its own place (H31).
+    ///
+    /// The unwrap ITSELF gets a writeback: the inner value is a copy of what the
+    /// optional holds, so it is stored back into the optional place afterwards
+    /// (the emitter re-wraps an inner-typed operand for an optional
+    /// destination). For a shared handle that store is a no-op in effect; for a
+    /// value representation it is the difference between keeping and losing the
+    /// write.
     fn narrowed_receiver_base(
         &mut self,
         receiver: ExprId,
         span: smelt_hir::Span,
-    ) -> Result<crate::LocalId, LowerError> {
-        let receiver_operand = self.lower_expr(receiver)?;
+    ) -> Result<(crate::LocalId, PlaceWritebacks), LowerError> {
+        let (base, mut writebacks) = self.place_base_local(receiver, span)?;
         let receiver_ty = self.hir_expr(receiver)?.ty;
-        let base_ty = match self.krate.types.get(receiver_ty) {
-            Some(smelt_hir::Type::Optional(inner)) => *inner,
-            _ => return self.materialize_operand_local(receiver_operand, receiver_ty, span),
+        let Some(smelt_hir::Type::Optional(inner)) = self.krate.types.get(receiver_ty) else {
+            return Ok((base, writebacks));
         };
-        // Always a FRESH temporary: reusing an already-local operand would keep
-        // the optional type on the place base, and the projection needs the
+        let inner_ty = *inner;
+        // Always a FRESH temporary: reusing the optional local as the place base
+        // would keep the optional type on it, and the projection needs the
         // unwrapped value.
-        let local = self.push_temp(base_ty, span);
+        let local = self.push_temp(inner_ty, span);
         self.block_mut()?.statements.push(crate::Statement::Assign {
             dest: local,
-            value: crate::Rvalue::Use(receiver_operand),
+            value: crate::Rvalue::Use(Operand::Copy(Place::Local(base))),
         });
-        Ok(local)
+        writebacks.push((Place::Local(base), local));
+        Ok((local, writebacks))
     }
 
     /// The MIR global index when `receiver` reads a module-level mutable global.
