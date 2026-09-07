@@ -5,6 +5,38 @@ Runs in parallel with `blocker-logs/standards-tier-plan.md` (the "standards stre
 
 ---
 
+## PROGRESS LOG — round 9
+
+Probe: **258 files / 3 with blockers / 3 occurrences** -> **258 / 0 / 0**.
+Phase 1's metric (files with blockers 14 -> 0) is met. `smelt check` on the
+whole manifest is clean.
+
+### Landed
+
+| item | note | what it was |
+| --- | --- | --- |
+| H16 | `hono-h16-nested-callback-destructuring.md` | a destructured callback parameter bound ONE level; `([[, route]]) => route` was a hard blocker, not even a closure-body retry. The binder is now recursive over the projection it has already built, carrying the projected type at every level. |
+| H17 | `hono-h17-private-field-capture.md` | the `context.ts` `receiver: Float` blocker was NOT the ternary at line 651 (that lowers correctly in isolation, proof in the note) but `this.#status = status` inside a class-field ARROW at 533: the capture walk had no arm for a private-field expression, so `this` resolved to the arrow's first parameter. Three defects in one chain — a missing capture, a class not lifted to reference semantics when its instance escapes a constructor, and a callable field of a reference class read/called through the handle. With a string parameter the same bug COMPILED and dropped the write. |
+| H18 | `hono-h18-accessors-and-private-names.md` | source `set` accessors lower (only the source-level descriptor registration was missing); a private name interns as `#res`, its own namespace, which un-aliases `#res`/`get res()`/`set res()` and `#newResponse`/`newResponse`; calling a private FIELD that holds a function mirrors the public callable-field path; `for...in` over a union of record-like arms projects the keys. |
+
+### Open
+
+| # | shape | state |
+| --- | --- | --- |
+| H14 | `type table does not contain literal operand type Unknown` | still open, and round 9 hit the same hazard from the other side: interning `Unknown` as a per-method fallback flipped crate-wide erasure decisions in a crate with no erased value. Reproduced (`Code = 200 \| 404` literal union + a generic interface, `call_runtime.rs:2145`) if a fixture is wanted. |
+| H19 | `field and index reads currently require a local receiver` — `node.#patterns` in `router/trie-router/node.ts`. MIR, not naming: the public spelling of the same shape fails identically. | NEW, open. This is what the whole-crate BUILD now aborts on, so the emitter never runs and phase 2 has not started. |
+| H20 | an inline anonymous object type lowers to `Record<string, union-of-members>`, so `p.key.size + 1` becomes string concatenation. Silent wrong value, no diagnostic. | NEW, open, recorded in the H16 note. |
+| H21 | a source class named `Box` (or any prelude name) collides with the prelude in the generated crate: E0107 throughout `SmeltPromiseFuture`. | NEW, open, recorded in the H18 note. |
+
+### Phase 2
+
+Not started, and the reason is not the round running out: the generated crate
+cannot be EMITTED yet. Source lowering is clean, but whole-crate MIR lowering
+walks into the gaps above, in the order H18 item 3 (fixed), H18 item 3 again
+(fixed), then H19 (open). `cargo check` of `dist-smelt` needs a `dist-smelt`.
+
+---
+
 ## PROGRESS LOG — round 8
 
 Probe: **258 files / 4 with blockers / 4 occurrences** -> **258 / 3 / 3**.
