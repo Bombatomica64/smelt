@@ -213,6 +213,14 @@ impl FunctionEmitter<'_> {
         // table at all, and requiring it there would spuriously error.
         if self.mir.types.get(operand_ty) == Some(&Type::String) {
             match operand {
+                // A local narrowed to `&'static str` (see
+                // `emitter::typeof_str_locals`) is already the `&str` the string
+                // arms match against, and has no `.as_str()` to call.
+                Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))
+                    if self.local_is_static_typeof_str(*local) =>
+                {
+                    self.place_text(&Place::Local(*local))
+                }
                 Operand::Copy(place) | Operand::Move(place) => {
                     Ok(format!("{}.as_str()", self.place_text(place)?))
                 }
