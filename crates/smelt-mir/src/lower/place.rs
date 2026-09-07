@@ -434,8 +434,9 @@ impl LoweringCtx<'_> {
     /// a reader (or the next round) which shape reached a rejection site.
     fn expr_kind_name(kind: &ExprKind) -> String {
         let rendered = format!("{kind:?}");
-        rendered
-            .split_once(|ch: char| !ch.is_ascii_alphanumeric())
-            .map_or(rendered.clone(), |(name, _)| name.to_owned())
+        match rendered.split_once(|ch: char| !ch.is_ascii_alphanumeric()) {
+            Some((name, _)) => name.to_owned(),
+            None => rendered,
+        }
     }
 }

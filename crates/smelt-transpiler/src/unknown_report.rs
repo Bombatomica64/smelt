@@ -594,7 +594,7 @@ fn classify_line(line: &str, in_prelude_helper: bool) -> Category {
 ///
 /// See [`classify_line`] rule 2 for the rationale behind each marker.
 fn is_legitimate_boundary_line(line: &str) -> bool {
-    const BOUNDARY_MARKERS: [&str; 20] = [
+    const BOUNDARY_MARKERS: [&str; 21] = [
         "SmeltUnknown::Function",
         "SmeltUnknown::Promise",
         // A JavaScript SYMBOL value. `Symbol()` mints a value whose whole
@@ -609,6 +609,18 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // the symbol as a first-class VALUE. Proven in
         // `symbol_value_is_a_boundary` below.
         "SmeltUnknown::Symbol",
+        // Recovering a symbol VALUE from the property key it indexed:
+        // `Object.getOwnPropertySymbols`, `Reflect.ownKeys` and erased-Map
+        // enumeration hand a stored key back to the program AS A SYMBOL, and
+        // `smelt_symbol_keys::own_symbol_key_value` is the one inverse that does
+        // it (round 10; see `blocker-logs/remeda-symbol-key-regression.md`).
+        // The value it produces is a `SmeltUnknown::Symbol` -- the marker
+        // directly above -- for exactly the reason given there: a fresh runtime
+        // identity has no static carrier. The tag now sits INSIDE the helper, so
+        // the call site needs its own marker to keep the classification it had
+        // when the same conversion was spelled inline. Proven in
+        // `symbol_key_inverse_is_a_boundary` below.
+        "smelt_own_symbol_key_value",
         "IntoSmeltUnknown",
         "into_smelt_unknown",
         "to_smelt_unknown",
@@ -1062,6 +1074,34 @@ mod tests {
             classify_line(program_error, false),
             Category::AvoidableErasure,
             "an Error record built from program values keeps its classification"
+        );
+    }
+
+
+    /// The inverse direction of the same boundary: a stored property key handed
+    /// back to the program as a symbol VALUE.
+    ///
+    /// `Object.getOwnPropertySymbols` / `Reflect.ownKeys` / erased-Map
+    /// enumeration produce symbols, and round 10 moved that conversion behind
+    /// one prelude helper so the frontend and the runtime derive a symbol's key
+    /// the same way. The `SmeltUnknown::Symbol` tag therefore sits inside the
+    /// helper rather than at the call site, so the call site carries its own
+    /// marker and keeps the classification the inline spelling had.
+    #[test]
+    fn symbol_key_inverse_is_a_boundary() {
+        let own_symbols = "    let keys: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into(record.keys().filter_map(|key| smelt_own_symbol_key_value(&key)).collect::<Vec<_>>());";
+        assert_eq!(
+            classify_line(own_symbols, false),
+            Category::LegitimateBoundary,
+            "recovering a symbol value from its key is the same boundary as minting one"
+        );
+        // A list of erased values built any other way keeps its classification:
+        // the marker names one helper, not "a list of SmeltUnknown".
+        let plain_list = "    let keys: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into(record.keys().map(|key| SmeltUnknown::String(key.into())).collect::<Vec<_>>());";
+        assert_eq!(
+            classify_line(plain_list, false),
+            Category::AvoidableErasure,
+            "a string-keyed projection is still avoidable erasure"
         );
     }
 

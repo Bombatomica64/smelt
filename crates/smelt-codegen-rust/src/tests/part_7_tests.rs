@@ -13189,3 +13189,47 @@ console.log(has({}, 'a'));
         "presence is the truthiness of a class-valued optional: {body}"
     );
 }
+
+/// A callee read out of a `RefCell` is CLONED out of the guard, not moved.
+///
+/// H17 bound such a callee to a `let` so the read's `Ref` guard drops before the
+/// call runs (a class-field arrow's body mutates the same cell). A SHARED
+/// CLOSURE CAPTURE renders as `(*cell.borrow())`, whose `Rc<dyn Fn ..>` is not
+/// `Copy`, so the plain binding was a move out of a `Ref` deref — E0507, which
+/// stopped the whole es-toolkit probe crate from compiling. Cloning bumps a
+/// refcount and still drops the guard.
+#[test]
+fn a_recursive_capture_callee_is_cloned_out_of_its_borrow_guard() {
+    let source = source_for(
+        r"
+export function flattenAll(values: unknown[], depth: number): unknown[] {
+  const walk = (items: unknown[], level: number): unknown[] => {
+    const out: unknown[] = [];
+    for (const item of items) {
+      if (Array.isArray(item) && level < depth) {
+        for (const nested of walk(item as unknown[], level + 1)) {
+          out.push(nested);
+        }
+      } else {
+        out.push(item);
+      }
+    }
+    return out;
+  };
+  return walk(values, 0);
+}
+console.log(flattenAll([1, [2, [3]]], 2).length);
+",
+    );
+
+    assert!(
+        !source.contains("let smelt_callable = (*"),
+        "a callable is never moved out of a `Ref` deref: {source}"
+    );
+    if source.contains("smelt_callable") {
+        assert!(
+            source.contains("let smelt_callable = ::std::clone::Clone::clone(&"),
+            "the guarded callee is cloned before the call: {source}"
+        );
+    }
+}

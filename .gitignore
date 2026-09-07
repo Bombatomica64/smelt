@@ -221,3 +221,7 @@ third_party/hono
 !blocker-logs/hono-h19-projected-receiver-places.md
 !blocker-logs/hono-phase2-generated-rust.md
 !blocker-logs/hono-routers-diagnostics.md
+!blocker-logs/es-toolkit-refcell-callable-move.md
+# local clones for corpus gates (radash etc.), never tracked
+/target-compat/
+third_party/es-toolkit-src/

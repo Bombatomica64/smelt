@@ -1606,9 +1606,13 @@ impl FunctionEmitter<'_> {
                     // enclosing statement. Calling it in place therefore runs
                     // the callee while the cell is borrowed, and a class-field
                     // arrow's body mutates that same cell ("already borrowed").
-                    // Binding the callable drops the guard before the call.
+                    // Binding the callable drops the guard before the call, and
+                    // it is CLONED rather than moved: a shared capture renders
+                    // as `(*cell.borrow())`, and an `Rc<dyn Fn ..>` moved out of
+                    // a `Ref` deref is E0507. Twin of the same binding in
+                    // `call.rs`.
                     format!(
-                        "{{ let smelt_callable = {callee_text}; (smelt_callable)({args_text}) }}"
+                        "{{ let smelt_callable = ::std::clone::Clone::clone(&{callee_text}); (smelt_callable)({args_text}) }}"
                     )
                 } else {
                     format!("({callee_text})({args_text})")

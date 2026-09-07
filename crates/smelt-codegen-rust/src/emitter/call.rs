@@ -1203,8 +1203,18 @@ impl FunctionEmitter<'_> {
                 // the call panicked with "already borrowed". Binding the callable
                 // in its own `let` drops the guard before the call.
                 if self.operand_reads_through_ref_cell(indirect_callee) {
+                    // CLONED out of the guard, not moved out of it. A shared
+                    // closure capture renders as `(*cell.borrow())`, whose
+                    // `Rc<dyn Fn ..>` is not `Copy`, so binding it directly was
+                    // a move out of a `Ref` deref — E0507, and the es-toolkit
+                    // probe crate did not compile at all (`flatten`'s recursive
+                    // capture). Cloning an `Rc` bumps a refcount, the `let`
+                    // still drops the guard before the call, and a callee text
+                    // that is already an owned clone (a reference class's
+                    // function-typed field, `recv.0.borrow().f.clone()`) only
+                    // pays one more refcount.
                     return Ok(format!(
-                        "{{ let smelt_callable = {callee_text}; (smelt_callable)({rendered_args}){suffix} }}"
+                        "{{ let smelt_callable = ::std::clone::Clone::clone(&{callee_text}); (smelt_callable)({rendered_args}){suffix} }}"
                     ));
                 }
                 Ok(format!("({callee_text})({rendered_args}){suffix}"))
