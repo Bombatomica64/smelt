@@ -2805,7 +2805,7 @@ impl ModuleBuilder<'_> {
             .narrowed_type(local_name)
             .unwrap_or_else(|| Self::local_ty(body, local));
         let class_name = class.name.as_str();
-        let retained = self.filtered_union_members(ty, |member| {
+        if let Some(retained) = self.filtered_union_members(ty, |member| {
             matches!(
                 member,
                 Type::Class {
@@ -2813,8 +2813,39 @@ impl ModuleBuilder<'_> {
                     ..
                 } if self.ctx.krate.symbols.get(*class_symbol) == Some(class_name)
             )
-        })?;
-        let narrowed = self.intern_filtered_union(retained)?;
+        }) {
+            let narrowed = self.intern_filtered_union(retained)?;
+            return Some((local_name.to_owned(), narrowed));
+        }
+        // The local is not a union, so there is nothing to filter — which used
+        // to end the narrowing here and leave an ERASED local erased across the
+        // guard. `if (x instanceof Headers)` then read `x.get(..)` through the
+        // erased member path, which has no `get` on the header record and
+        // answered `undefined`: a silently wrong value where the equivalent
+        // user type predicate (`x is Headers`) narrowed correctly and emitted
+        // the right checked cast (`blocker-logs/standards-instanceof-narrowing.md`).
+        //
+        // An erased local narrows to the target class whenever that class can be
+        // recovered from an erased value — `StdlibClass::narrows_from_erased`,
+        // which is true exactly for the classes whose runtime type declares a
+        // `SmeltFromUnknown` adapter next to its host marker. Asking the
+        // registry that question is what keeps this a general rule: the
+        // narrowing is emitted precisely where it can be materialized, and a
+        // class with no adapter still keeps its erased type rather than being
+        // given an invented conversion.
+        //
+        // Only an ERASED local narrows this way. A local already typed as some
+        // concrete thing is not made into something else by an `instanceof`
+        // test: that is either a tautology or dead code, and rewriting its type
+        // would discard what the source said it was.
+        if !matches!(self.ctx.krate.types.get(ty), Some(Type::Unknown)) {
+            return None;
+        }
+        let target = self.stdlib_class_for_name(class_name)?;
+        if !target.narrows_from_erased() || self.user_class_shadows(class_name) {
+            return None;
+        }
+        let narrowed = self.stdlib_class_type(class_name);
         Some((local_name.to_owned(), narrowed))
     }
 

@@ -979,3 +979,37 @@ console.log(headers.get("content-type") ?? "none");
     assert!(!source.contains("SMELT_GLOBAL_HEADERS"), "{source}");
     assert!(source.contains("let headers: SmeltHeaders"), "{source}");
 }
+/// `x instanceof <concrete host class>` narrows an ERASED `x` in the true
+/// branch, so the member read that follows is a concrete typed read rather
+/// than an erased field probe that answers `undefined`.
+///
+/// See `blocker-logs/standards-instanceof-narrowing.md`: the equivalent user
+/// type predicate (`x is Headers`) already narrowed and emitted exactly this
+/// checked cast, so only the inline `instanceof` form was wrong.
+#[test]
+fn instanceof_a_host_class_narrows_an_erased_local() {
+    let source = source_for(
+        r#"
+const direct: unknown = new Headers({ a: "b" });
+if (direct instanceof Headers) {
+  console.log(direct.get("a") ?? "null");
+}
+"#,
+    );
+
+    // The guard is the marker probe, and the narrowed body materializes the
+    // class through its checked adapter.
+    assert!(
+        source.contains("value.contains_key(\"__smelt_headers\")"),
+        "{source}"
+    );
+    assert!(
+        source.contains("<SmeltHeaders as SmeltFromUnknown>::smelt_from_unknown(direct"),
+        "{source}"
+    );
+    // The erased field read that used to answer `undefined` is gone.
+    assert!(
+        !source.contains("smelt_get_unknown_field(&direct.clone(), \"get\")"),
+        "the erased member path must not be reached after narrowing\n{source}"
+    );
+}

@@ -107,6 +107,40 @@ impl StdlibClass {
         matches!(self, Self::EventEmitter | Self::IncomingMessage)
     }
 
+    /// Return whether an ERASED value can be checked for this class and
+    /// converted back into its concrete Rust representation.
+    ///
+    /// True exactly for the classes whose generated runtime type declares a
+    /// `SmeltFromUnknown` adapter alongside a host marker: the marker makes the
+    /// `instanceof` check possible, and the adapter makes the conversion
+    /// possible. Both halves are needed, which is why this is one question and
+    /// not two.
+    ///
+    /// It is what lets `x instanceof Headers` NARROW an erased `x`: the
+    /// narrowing is emitted exactly where it can be materialized, so the rule
+    /// stays general — "there is a sound checked cast for this class" — rather
+    /// than becoming a list of spellings. A class without an adapter keeps its
+    /// erased type across the guard, because inventing a conversion for it
+    /// would be guessing at a representation.
+    ///
+    /// `Blob` and `File` both answer true and share one adapter, since they
+    /// share one runtime type (see [`Self::File`]).
+    #[must_use]
+    pub const fn narrows_from_erased(self) -> bool {
+        matches!(
+            self,
+            Self::Headers
+                | Self::UrlSearchParams
+                | Self::Response
+                | Self::Request
+                | Self::Blob
+                | Self::File
+                | Self::RegExp
+                | Self::Match
+                | Self::ByteArray
+        )
+    }
+
     /// Return whether values of this class are the generated `SmeltBlob` type.
     ///
     /// `Blob` and `File` share one Rust representation (see [`Self::File`]), and

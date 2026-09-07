@@ -3002,11 +3002,38 @@ impl FunctionEmitter<'_> {
                 ));
             }
         }
-        let result = match self.mir.types.get(value_ty) {
-            Some(Type::Class { name, .. }) => self.class_extends_or_equals(*name, class),
-            _ => false,
-        };
-        Ok(result.to_string())
+        // Nothing above recognized the pair. For a CONCRETE operand that is a
+        // real static answer: the class hierarchy settles whether the operand's
+        // class is or extends the target.
+        if let Some(Type::Class { name, .. }) = self.mir.types.get(value_ty) {
+            return Ok(self.class_extends_or_equals(*name, class).to_string());
+        }
+        // For a DYNAMIC operand it is not. `false` here is a guess, and for a
+        // modeled host class it is a guess that silently deletes a live branch:
+        // `const x: unknown = new TextEncoder(); if (x instanceof TextEncoder)`
+        // folded to `if false`, so the body never ran and no diagnostic said so.
+        // The cause is that the class has no recoverable identity on an erased
+        // value — no `host_instance_markers` entry, because its erasure goes
+        // through the generic struct path that stamps `__smelt_class` rather
+        // than a registry marker — and a class whose erasure and whose
+        // `instanceof` disagree cannot answer this question at all.
+        //
+        // A named blocker rather than a fold: the honest answer is "this is not
+        // modeled", and the fix for each such class is to give its runtime type
+        // a marker and an erasure adapter (as `Blob` and `Headers` have), after
+        // which the shared marker path above answers it.
+        if matches!(
+            self.mir.types.get(value_ty),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
+        ) && smelt_stdlib::typescript_stdlib_class(class_name).is_some()
+        {
+            return Err(EmitError::new(format!(
+                "`instanceof {class_name}` on a dynamically-typed value is not modeled: \
+                 `{class_name}` values carry no identity marker on an erased value, so the \
+                 check cannot be answered at runtime"
+            )));
+        }
+        Ok("false".to_owned())
     }
 
     /// Render a method call through a stored callable field when the receiver's

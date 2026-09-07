@@ -373,6 +373,32 @@ impl ModuleBuilder<'_> {
         smelt_stdlib::typescript_stdlib_class(class_name)
     }
 
+    /// Resolve a source class SPELLING to its stdlib class identity.
+    ///
+    /// The name-keyed counterpart of [`Self::stdlib_class_of_type`], for the
+    /// sites that hold a source identifier rather than a lowered type — an
+    /// `instanceof` right-hand side, for instance.
+    pub(in crate::lowering) fn stdlib_class_for_name(
+        &self,
+        name: &str,
+    ) -> Option<smelt_stdlib::StdlibClass> {
+        smelt_stdlib::typescript_stdlib_class(name)
+    }
+
+    /// Intern the class type for a modeled class spelling.
+    ///
+    /// Keeps the SPELLING the source used, which matters where two spellings
+    /// share one runtime type: `Blob` and `File` are both `SmeltBlob`, but only
+    /// the `File` type carries the two `File`-only data properties, and the
+    /// spelling is the only thing that still distinguishes them at this point.
+    pub(in crate::lowering) fn stdlib_class_type(&mut self, name: &str) -> smelt_hir::TypeId {
+        let interned = self.intern_type_name(name);
+        self.ctx.krate.types.intern(Type::Class {
+            name: interned,
+            args: Vec::new(),
+        })
+    }
+
     /// Return the modeled `Headers` class type.
     pub(in crate::lowering) fn headers_type(&mut self) -> smelt_hir::TypeId {
         let name = self.intern_type_name("Headers");
