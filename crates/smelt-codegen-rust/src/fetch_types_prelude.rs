@@ -539,6 +539,12 @@ fn emit_body_inherent_impl(writer: &mut CodeWriter, needs_unknown: bool) {
         impl_writer.line(
             "pub fn from_bytes(bytes: Vec<u8>) -> Self { Self::from_payload(SmeltBodyPayload::Bytes(bytes)) }",
         );
+        // The spec's "extract a body" step for a `Blob` carries the blob's
+        // `type` as the body's content type, unless the blob has none.
+        impl_writer.line("/// A body from a blob's bytes, carrying the blob's MIME type.");
+        impl_writer.line(
+            "pub fn from_blob(bytes: Vec<u8>, blob_type: String) -> Self { let mut body = Self::from_payload(SmeltBodyPayload::Bytes(bytes)); if !blob_type.is_empty() { body.content_type = Some(blob_type); } body }",
+        );
         impl_writer.line("/// A streaming body whose chunks arrive in order.");
         impl_writer.line(
             "pub fn from_chunks(chunks: Vec<Vec<u8>>) -> Self { Self::from_payload(SmeltBodyPayload::Stream(chunks)) }",

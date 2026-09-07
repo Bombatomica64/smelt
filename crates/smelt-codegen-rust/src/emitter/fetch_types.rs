@@ -286,6 +286,20 @@ impl FunctionEmitter<'_> {
                     | smelt_stdlib::StdlibClass::UrlSearchParams
                     | smelt_stdlib::StdlibClass::Response
                     | smelt_stdlib::StdlibClass::Request
+                    // A concrete byte view erases to the byte-backed host
+                    // record the typed-array views use, which is what makes an
+                    // erased `encoder.encode(..)` indistinguishable from an
+                    // erased `new Uint8Array(..)`. Without this arm the
+                    // declared-field record builder would stamp the view's
+                    // SYNTHETIC class name into the erased value and drop its
+                    // bytes.
+                    | smelt_stdlib::StdlibClass::ByteArray
+                    // A blob erases to the `__smelt_blob` record every existing
+                    // consumer of an erased blob reads, through its own
+                    // adapter; the declared-field record builder would stamp a
+                    // class name and drop the bytes.
+                    | smelt_stdlib::StdlibClass::Blob
+                    | smelt_stdlib::StdlibClass::File
             )
         ))
     }
@@ -387,6 +401,15 @@ impl FunctionEmitter<'_> {
         // observable on the source, exactly as Node reports it.
         if self.is_request_class_type(body_ty)? {
             return Ok(format!("{body_text}.body()"));
+        }
+        // A `Blob` at the body position contributes its BYTES, and its `type`
+        // becomes the body's content type — which is what makes
+        // `new Response(blob).headers.get("content-type")` answer the blob's
+        // MIME type, as the spec's "extract a body" step does.
+        if self.is_blob_class_type(body_ty)? {
+            return Ok(format!(
+                "SmeltBody::from_blob({body_text}.to_bytes(), {body_text}.blob_type())"
+            ));
         }
         match self.mir.types.get(body_ty) {
             Some(Type::String) => Ok(format!("SmeltBody::from_text(&{body_text})")),

@@ -1027,6 +1027,15 @@ impl FunctionEmitter<'_> {
             Rvalue::UrlSearchParamsOp { op, params, args } => {
                 self.url_search_params_op_text(*op, params, args, dest_ty)
             }
+            Rvalue::TextEncoderNew => Ok("SmeltTextEncoder::new()".to_owned()),
+            Rvalue::TextDecoderNew { label } => self.text_decoder_new_text(label.as_ref()),
+            Rvalue::TextEncoderOp { op, encoder, args } => {
+                self.text_encoder_op_text(*op, encoder, args, dest_ty)
+            }
+            Rvalue::TextDecoderOp { op, decoder, args } => {
+                self.text_decoder_op_text(*op, decoder, args, dest_ty)
+            }
+            Rvalue::ByteArrayOp { op, bytes } => self.byte_array_op_text(*op, bytes, dest_ty),
             Rvalue::EventEmitterNew => Ok("SmeltEventEmitter::new()".to_owned()),
             Rvalue::EventEmitterOp { op, emitter, args } => {
                 self.event_emitter_op_text(*op, emitter, args)
@@ -2005,30 +2014,8 @@ impl FunctionEmitter<'_> {
                 blob_type,
                 name,
                 last_modified,
-            } => {
-                let parts_text = self.operand_text(parts)?;
-                let type_text = self.operand_text(blob_type)?;
-                let name_text = match name {
-                    Some(name_operand) => {
-                        format!("Some(({}).clone())", self.operand_text(name_operand)?)
-                    }
-                    None => "None".to_owned(),
-                };
-                let last_modified_text = match last_modified {
-                    Some(last_modified_operand) => {
-                        format!(
-                            "Some(({}) as f64)",
-                            self.operand_text(last_modified_operand)?
-                        )
-                    }
-                    None => "None".to_owned(),
-                };
-                Ok(format!(
-                    "{blob_record_from_parts}(({parts_text}).clone(), ({type_text}).clone(), {name_text}, {last_modified_text})",
-                    blob_record_from_parts =
-                        smelt_stdlib::runtime_symbols::host::BLOB_RECORD_FROM_PARTS,
-                ))
-            }
+            } => self.blob_new_text(parts, blob_type, name.as_ref(), last_modified.as_ref()),
+            Rvalue::BlobOp { op, blob, args } => self.blob_op_text(*op, blob, args, dest_ty),
             Rvalue::HostConstruct { class_name, args } => {
                 self.host_construct_text(class_name, args, dest_ty)
             }

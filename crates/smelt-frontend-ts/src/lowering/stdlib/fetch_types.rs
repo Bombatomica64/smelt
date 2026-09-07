@@ -324,6 +324,38 @@ impl ModuleBuilder<'_> {
         self.is_url_search_params_type(ty)
     }
 
+    /// Resolve a call receiver's modeled class WITHOUT lowering it.
+    ///
+    /// The builtin call-handler chain is a flat list of independent handlers,
+    /// each of which lowers the receiver to decide whether it owns the call. That
+    /// is harmless while every handler's member names are distinct, and wrong as
+    /// soon as two modeled receivers share one: `text()` is a member of `Blob`,
+    /// `Response` AND `Request`, so whichever handler runs first lowers the
+    /// receiver, answers `None`, and leaves a duplicate expression behind — which
+    /// double-evaluates a receiver with side effects, and which the
+    /// `44_node_http_echo` HIR golden caught the moment `Blob` gained a `text`.
+    ///
+    /// This is the cheap way out: for a receiver whose class is knowable from the
+    /// binding alone, a handler can DECLINE before lowering anything. `None`
+    /// means "not knowable here" — a call, an index, a property chain — and the
+    /// caller falls back to lowering and checking, which is still correct, just
+    /// not free.
+    pub(in crate::lowering) fn receiver_class_hint(
+        &self,
+        object: &Expression<'_>,
+        body: &smelt_hir::Body,
+    ) -> Option<smelt_stdlib::StdlibClass> {
+        let Expression::Identifier(identifier) = object else {
+            return None;
+        };
+        let name = identifier.name.as_str();
+        let local = self.scope.lookup(name)?;
+        let ty = self
+            .narrowed_type(name)
+            .unwrap_or_else(|| Self::local_ty(body, local));
+        self.stdlib_class_of_type(ty)
+    }
+
     /// Resolve a lowered type to its shared stdlib class identity, if any.
     pub(in crate::lowering) fn stdlib_class_of_type(
         &self,

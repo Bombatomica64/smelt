@@ -1,5 +1,6 @@
 //! Focused TypeScript standard-library lowering helpers.
 
+mod blob;
 mod buffer;
 pub(in crate::lowering) mod call_dispatch;
 mod collections;
@@ -7,6 +8,7 @@ mod fetch_types;
 mod http_server;
 mod numbers_math;
 mod objects;
+mod text_codec;
 
 use oxc::ast::ast::{Argument, CallExpression, Expression, ObjectPropertyKind, PropertyKey};
 use oxc::span::GetSpan;

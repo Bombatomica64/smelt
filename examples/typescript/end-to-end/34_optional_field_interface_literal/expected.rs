@@ -1534,40 +1534,77 @@ impl Clone for SmeltUnknown {
     }
 }
 
-/// Build the modeled host `Blob`/`File` record for `new Blob(...)` / `new File(...)`.
+/// Concatenate an erased `BlobPart` array into the bytes it contributes.
 ///
-/// Concatenates BlobPart contents (strings verbatim; nested Blob/File records
-/// contribute their stored `content`; other parts stringify like JavaScript)
-/// and stores the UTF-8 byte length as `size`. Passing a file name stamps the
-/// `__smelt_file` marker on top of `__smelt_blob`, so `file instanceof Blob`
-/// observes the host subtype relationship; `lastModified` defaults to `0.0`
-/// for determinism instead of the wall clock.
-fn smelt_blob_record_from_parts(parts: SmeltUnknown, blob_type: String, file_name: Option<String>, last_modified: Option<f64>) -> SmeltUnknown {
-    let mut content = String::new();
+/// A `BlobPart` is `Blob | BufferSource | string` — a heterogeneous host
+/// union whose arm is a runtime fact — which is why the parts array is
+/// erased and walked here. Strings contribute their UTF-8 bytes; a nested
+/// `Blob`/`File` record contributes its stored `content`; a byte-backed
+/// host record (`Uint8Array`, `ArrayBuffer`, `DataView`, ...) contributes
+/// its raw `bytes`, which the pre-byte-backed version stringified and so
+/// corrupted; anything else stringifies the way JavaScript does.
+///
+/// Shared by `new Blob(..)` (through `SmeltBlob::from_parts_unknown`) and by
+/// the reflected host construction below, so a directly-constructed blob and
+/// a reflectively-constructed one cannot disagree about their bytes.
+fn smelt_blob_parts_bytes(parts: SmeltUnknown) -> Vec<u8> {
+    let mut bytes: Vec<u8> = Vec::new();
     if let SmeltUnknown::Array(items) = parts {
         for item in items.iter() {
             match item {
-                SmeltUnknown::String(text) => content.push_str(&text),
+                SmeltUnknown::String(text) => bytes.extend_from_slice(text.as_bytes()),
                 SmeltUnknown::Object(map) if map.contains_key("__smelt_blob") => {
-                    if let Some(SmeltUnknown::String(text)) = map.get("content") { content.push_str(&text); }
+                    if let Some(SmeltUnknown::String(text)) = map.get("content") { bytes.extend_from_slice(text.as_bytes()); }
                 }
-                other => content.push_str(&other.to_string()),
+                SmeltUnknown::Object(map) if matches!(map.get("bytes"), Some(SmeltUnknown::Array(_))) => {
+                    if let Some(SmeltUnknown::Array(elements)) = map.get("bytes") {
+                        for element in elements.iter() { if let SmeltUnknown::Number(value) = element { bytes.push(value as u8); } }
+                    }
+                }
+                other => bytes.extend_from_slice(other.to_string().as_bytes()),
             }
         }
     }
+    bytes
+}
+
+/// The ERASED form of a blob: the one definition of the record shape.
+///
+/// Called both by the reflected constructor below (through
+/// `smelt_blob_record_from_parts`) and by `impl IntoSmeltUnknown for
+/// SmeltBlob`, so a concrete blob crossing a dynamic boundary and a
+/// reflectively-constructed one are the same record. `content` is the
+/// UTF-8 decoding of the bytes, which is what every existing consumer of an
+/// erased blob reads; the concrete `SmeltBlob` is the value that carries
+/// the bytes losslessly.
+///
+/// A file name stamps `__smelt_file` on top of `__smelt_blob`, so
+/// `file instanceof Blob` observes the host subtype relationship.
+fn smelt_blob_record(id: usize, bytes: &[u8], blob_type: &str, file_name: Option<String>, last_modified: f64) -> SmeltUnknown {
+    let content = String::from_utf8_lossy(bytes).into_owned();
     let record = Vec::from([
         ("__smelt_blob".to_owned(), SmeltUnknown::Bool(true)),
-        ("type".to_owned(), SmeltUnknown::String(blob_type.into())),
-        ("size".to_owned(), SmeltUnknown::Number(content.len() as f64)),
+        ("type".to_owned(), SmeltUnknown::String(blob_type.to_owned().into())),
+        ("size".to_owned(), SmeltUnknown::Number(bytes.len() as f64)),
         ("content".to_owned(), SmeltUnknown::String(content.into())),
     ]);
-    let record = SmeltObject::new(record);
+    let record = SmeltObject::with_id(id, record);
     if let Some(name) = file_name {
         record.insert("__smelt_file".to_owned(), SmeltUnknown::Bool(true));
         record.insert("name".to_owned(), SmeltUnknown::String(name.into()));
-        record.insert("lastModified".to_owned(), SmeltUnknown::Number(last_modified.unwrap_or(0.0)));
+        record.insert("lastModified".to_owned(), SmeltUnknown::Number(last_modified));
     }
     SmeltUnknown::Object(record)
+}
+
+/// Build the erased `Blob`/`File` record for the reflected constructor.
+///
+/// Kept separate from the concrete `SmeltBlob` so a crate that reflects over
+/// host constructors but never names a blob does not carry the blob type.
+/// `lastModified` defaults to `0.0` for determinism instead of the wall clock.
+fn smelt_blob_record_from_parts(parts: SmeltUnknown, blob_type: String, file_name: Option<String>, last_modified: Option<f64>) -> SmeltUnknown {
+    let bytes = smelt_blob_parts_bytes(parts);
+    smelt_blob_record(smelt_next_object_id(), &bytes, &blob_type, file_name, last_modified.unwrap_or(0.0))
 }
 
 fn smelt_index_assign(target: &mut SmeltUnknown, key: String, value: SmeltUnknown) {

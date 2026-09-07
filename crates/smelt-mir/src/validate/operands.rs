@@ -97,6 +97,25 @@ impl Rvalue {
                     visit(arg);
                 }
             }
+            Self::TextEncoderNew => {}
+            Self::TextDecoderNew { label } => {
+                if let Some(label) = label {
+                    visit(label);
+                }
+            }
+            Self::TextEncoderOp { encoder, args, .. } => {
+                visit(encoder);
+                for arg in args {
+                    visit(arg);
+                }
+            }
+            Self::TextDecoderOp { decoder, args, .. } => {
+                visit(decoder);
+                for arg in args {
+                    visit(arg);
+                }
+            }
+            Self::ByteArrayOp { bytes, .. } => visit(bytes),
             Self::UrlSearchParamsNew { init } => {
                 if let Some(init) = init {
                     visit(init);
@@ -786,6 +805,12 @@ impl Rvalue {
                 visit(path);
                 visit(text);
             }
+            Self::BlobOp { blob, args, .. } => {
+                visit(blob);
+                for arg in args {
+                    visit(arg);
+                }
+            }
             Self::BlobFromParts {
                 parts,
                 blob_type,
@@ -980,6 +1005,25 @@ impl Rvalue {
                     visit(arg);
                 }
             }
+            Self::TextEncoderNew => {}
+            Self::TextDecoderNew { label } => {
+                if let Some(label) = label {
+                    visit(label);
+                }
+            }
+            Self::TextEncoderOp { encoder, args, .. } => {
+                visit(encoder);
+                for arg in args.iter_mut() {
+                    visit(arg);
+                }
+            }
+            Self::TextDecoderOp { decoder, args, .. } => {
+                visit(decoder);
+                for arg in args.iter_mut() {
+                    visit(arg);
+                }
+            }
+            Self::ByteArrayOp { bytes, .. } => visit(bytes),
             Self::UrlSearchParamsNew { init } => {
                 if let Some(init) = init {
                     visit(init);
@@ -1665,6 +1709,12 @@ impl Rvalue {
             Self::FileWriteText { path, text } => {
                 visit(path);
                 visit(text);
+            }
+            Self::BlobOp { blob, args, .. } => {
+                visit(blob);
+                for arg in args.iter_mut() {
+                    visit(arg);
+                }
             }
             Self::BlobFromParts {
                 parts,

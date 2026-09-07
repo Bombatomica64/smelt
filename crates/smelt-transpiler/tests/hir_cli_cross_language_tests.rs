@@ -337,6 +337,8 @@ fn end_to_end_examples_match_expected_outputs() -> TestResult {
         "42_module_arrow_shared_capture",
         "43_await_value_or_promise_union",
         "44_node_http_echo",
+        "45_text_codec",
+        "46_blob_file",
     ] {
         verify_end_to_end_example(name)?;
     }

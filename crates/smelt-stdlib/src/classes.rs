@@ -57,6 +57,39 @@ pub enum StdlibClass {
     /// `node:http` `ServerResponse`: the response half of one exchange, and the
     /// only modeled class with settable members (`res.statusCode = 200`).
     ServerResponse,
+    /// WHATWG `TextEncoder`, backed by the generated concrete `SmeltTextEncoder`
+    /// runtime type. The spec fixes its encoding at UTF-8, so the value carries
+    /// only a JS reference identity and its `encoding` data property.
+    TextEncoder,
+    /// WHATWG `TextDecoder`, backed by the generated concrete `SmeltTextDecoder`
+    /// runtime type (an encoding label plus the reference identity).
+    TextDecoder,
+    /// A concrete byte view: the value `TextEncoder.encode` answers, backed by
+    /// the generated `SmeltUint8Array` runtime type (a shared `Vec<u8>` with a
+    /// JS reference identity).
+    ///
+    /// Reached only through the reserved synthetic name
+    /// [`BYTE_ARRAY_CLASS_NAME`], never through the source spelling
+    /// `Uint8Array`. That separation is deliberate: the eleven typed-array
+    /// VIEWS are still byte-backed host records (`host_object.rs`), because a
+    /// view's identity carries an element type, a byte offset, and a shared
+    /// `ArrayBuffer` that reflective construction reads back at runtime. A
+    /// source `Uint8Array` annotation therefore keeps its erased meaning, and a
+    /// concrete byte view crosses into it through the ordinary
+    /// `IntoSmeltUnknown` boundary adapter. Converting the whole view family to
+    /// concrete Rust is recorded as demand, not done here.
+    ByteArray,
+    /// WHATWG `Blob`, backed by the generated concrete `SmeltBlob` runtime type
+    /// (immutable bytes, a MIME type, and optional `File` metadata).
+    Blob,
+    /// WHATWG `File`. Backed by the SAME `SmeltBlob` runtime type: the spec's
+    /// `File` is a `Blob` plus exactly two data properties (`name`,
+    /// `lastModified`), so a file is a blob whose name is present. Rust has no
+    /// inheritance, and modeling the subtype as an optional-name blob is what
+    /// makes `file instanceof Blob` free and what the erased record already
+    /// does — it stamps `__smelt_file` on top of `__smelt_blob` rather than
+    /// carrying a second shape.
+    File,
 }
 
 impl StdlibClass {
@@ -72,6 +105,18 @@ impl StdlibClass {
     #[must_use]
     pub const fn has_event_emitter(self) -> bool {
         matches!(self, Self::EventEmitter | Self::IncomingMessage)
+    }
+
+    /// Return whether values of this class are the generated `SmeltBlob` type.
+    ///
+    /// `Blob` and `File` share one Rust representation (see [`Self::File`]), and
+    /// several sites — the emitted Rust type, the erasure adapter, the
+    /// pay-for-use gate — need "is this the blob runtime type" rather than
+    /// "which of the two spellings is it". Asking the registry keeps those
+    /// sites from each re-deriving the pairing.
+    #[must_use]
+    pub const fn is_blob_runtime_type(self) -> bool {
+        matches!(self, Self::Blob | Self::File)
     }
 
     /// The string parameters a listener for `event` receives, when this class
@@ -110,6 +155,15 @@ pub const MATCH_CLASS_NAME: &str = "__SmeltMatch";
 /// Reserved synthetic class name for `matchResult.groups` named-group access.
 pub const MATCH_GROUPS_CLASS_NAME: &str = "__SmeltMatchGroups";
 
+/// Reserved synthetic class name for a concrete byte view.
+///
+/// `TextEncoder.encode` answers a value of this class. The name is not writable
+/// in user TypeScript (double-underscore prefix), so it never collides with a
+/// source class, and — unlike the spelling `Uint8Array` — it never collides with
+/// the byte-backed host record the typed-array views still use. See
+/// [`StdlibClass::ByteArray`].
+pub const BYTE_ARRAY_CLASS_NAME: &str = "__SmeltUint8Array";
+
 /// Return the stdlib class modeled by a TypeScript class type name.
 ///
 /// Codegen consults this instead of comparing class symbol names inline so
@@ -137,6 +191,11 @@ pub fn typescript_stdlib_class(name: &str) -> Option<StdlibClass> {
         "Server" => Some(StdlibClass::HttpServer),
         "IncomingMessage" => Some(StdlibClass::IncomingMessage),
         "ServerResponse" => Some(StdlibClass::ServerResponse),
+        "TextEncoder" => Some(StdlibClass::TextEncoder),
+        "TextDecoder" => Some(StdlibClass::TextDecoder),
+        BYTE_ARRAY_CLASS_NAME => Some(StdlibClass::ByteArray),
+        "Blob" => Some(StdlibClass::Blob),
+        "File" => Some(StdlibClass::File),
         _ => None,
     }
 }

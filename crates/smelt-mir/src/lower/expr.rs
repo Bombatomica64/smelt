@@ -1259,6 +1259,65 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
+            ExprKind::TextEncoderNew => {
+                self.assign_temp(expr.ty, expr.span, Rvalue::TextEncoderNew)?
+            }
+            ExprKind::TextDecoderNew { label } => {
+                let label_operand = match label {
+                    Some(label) => Some(self.lower_expr(*label)?),
+                    None => None,
+                };
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::TextDecoderNew {
+                        label: label_operand,
+                    },
+                )?
+            }
+            ExprKind::TextEncoderOp { op, encoder, args } => {
+                let encoder_operand = self.lower_expr(*encoder)?;
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::TextEncoderOp {
+                        op: *op,
+                        encoder: encoder_operand,
+                        args: arg_operands,
+                    },
+                )?
+            }
+            ExprKind::TextDecoderOp { op, decoder, args } => {
+                let decoder_operand = self.lower_expr(*decoder)?;
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::TextDecoderOp {
+                        op: *op,
+                        decoder: decoder_operand,
+                        args: arg_operands,
+                    },
+                )?
+            }
+            ExprKind::ByteArrayOp { op, bytes } => {
+                let bytes_operand = self.lower_expr(*bytes)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ByteArrayOp {
+                        op: *op,
+                        bytes: bytes_operand,
+                    },
+                )?
+            }
             ExprKind::UrlSearchParamsNew { init } => {
                 let init_operand = match init {
                     Some(init) => Some(self.lower_expr(*init)?),
@@ -2373,6 +2432,22 @@ impl LoweringCtx<'_> {
                     Rvalue::FileWriteText {
                         path: path_operand,
                         text: text_operand,
+                    },
+                )?
+            }
+            ExprKind::BlobOp { op, blob, args } => {
+                let blob_operand = self.lower_expr(*blob)?;
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::BlobOp {
+                        op: *op,
+                        blob: blob_operand,
+                        args: arg_operands,
                     },
                 )?
             }

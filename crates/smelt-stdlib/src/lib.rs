@@ -24,7 +24,8 @@ pub use builtin_members::{
 };
 pub use category::DiagnosticCategory;
 pub use classes::{
-    MATCH_CLASS_NAME, MATCH_GROUPS_CLASS_NAME, StdlibClass, TYPED_ARRAY_CLASS_NAMES,
+    BYTE_ARRAY_CLASS_NAME, MATCH_CLASS_NAME, MATCH_GROUPS_CLASS_NAME, StdlibClass,
+    TYPED_ARRAY_CLASS_NAMES,
     is_typed_array_class_name, typescript_stdlib_class,
 };
 pub use deps::BackendDependency;

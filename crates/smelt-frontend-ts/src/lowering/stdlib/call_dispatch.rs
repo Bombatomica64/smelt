@@ -1733,6 +1733,9 @@ impl<'builder> ModuleBuilder<'builder> {
         Self::dispatch_collection_method,
         Self::dispatch_headers_method,
         Self::dispatch_url_search_params_method,
+        Self::dispatch_text_encoder_method,
+        Self::dispatch_text_decoder_method,
+        Self::dispatch_blob_method,
         Self::dispatch_response_method,
         Self::dispatch_request_method,
         // Before the emitter dispatch: an `IncomingMessage` reaches the emitter

@@ -215,3 +215,14 @@ third_party/hono
 !blocker-logs/hono-h16-nested-callback-destructuring.md
 !blocker-logs/hono-h17-private-field-capture.md
 !blocker-logs/hono-h18-accessors-and-private-names.md
+# Standards round 9 repro notes: three defects found while building the text
+# codecs and the Blob/File upgrade, each pre-existing and each recorded rather
+# than folded into a feature item.
+!blocker-logs/standards-instanceof-narrowing.md
+!blocker-logs/standards-module-const-host-value.md
+!blocker-logs/standards-erased-cast-size-collision.md
+
+# Round 9 progress note: what landed, and the settled design for the items that
+# did not (FormData's multipart pick, crypto's crate picks, the AbortController
+# upgrade, and why the Optional string coercion is blocked on Type::Null).
+!blocker-logs/standards-round9-progress.md

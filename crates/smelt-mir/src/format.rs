@@ -1030,6 +1030,56 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
             }
             text
         }
+        Rvalue::TextEncoderNew => "text_encoder_new".to_owned(),
+        Rvalue::TextDecoderNew { label } => label.as_ref().map_or_else(
+            || "text_decoder_new".to_owned(),
+            |label| format!("text_decoder_new {}", operand_text(label)),
+        ),
+        Rvalue::TextEncoderOp { op, encoder, args } => {
+            let op_name = match op {
+                smelt_hir::TextEncoderOp::Encode => "encode",
+                smelt_hir::TextEncoderOp::Encoding => "encoding",
+            };
+            let args_text = args
+                .iter()
+                .map(operand_text)
+                .collect::<Vec<_>>()
+                .join(", ");
+            if args_text.is_empty() {
+                format!("text_encoder_{op_name} {}", operand_text(encoder))
+            } else {
+                format!(
+                    "text_encoder_{op_name} {} {args_text}",
+                    operand_text(encoder)
+                )
+            }
+        }
+        Rvalue::TextDecoderOp { op, decoder, args } => {
+            let op_name = match op {
+                smelt_hir::TextDecoderOp::Decode => "decode",
+                smelt_hir::TextDecoderOp::Encoding => "encoding",
+            };
+            let args_text = args
+                .iter()
+                .map(operand_text)
+                .collect::<Vec<_>>()
+                .join(", ");
+            if args_text.is_empty() {
+                format!("text_decoder_{op_name} {}", operand_text(decoder))
+            } else {
+                format!(
+                    "text_decoder_{op_name} {} {args_text}",
+                    operand_text(decoder)
+                )
+            }
+        }
+        Rvalue::ByteArrayOp { op, bytes } => {
+            let op_name = match op {
+                smelt_hir::ByteArrayOp::Length => "length",
+                smelt_hir::ByteArrayOp::ByteLength => "byte_length",
+            };
+            format!("byte_array_{op_name} {}", operand_text(bytes))
+        }
         Rvalue::UrlSearchParamsNew { init } => init.as_ref().map_or_else(
             || "url_search_params_new".to_owned(),
             |init| format!("url_search_params_new {}", operand_text(init)),
@@ -1584,6 +1634,28 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 operand_text(path),
                 operand_text(text)
             )
+        }
+        Rvalue::BlobOp { op, blob, args } => {
+            let op_name = match op {
+                smelt_hir::BlobOp::Size => "size",
+                smelt_hir::BlobOp::Type => "type",
+                smelt_hir::BlobOp::Name => "name",
+                smelt_hir::BlobOp::LastModified => "last_modified",
+                smelt_hir::BlobOp::Text => "text",
+                smelt_hir::BlobOp::ArrayBuffer => "array_buffer",
+                smelt_hir::BlobOp::Bytes => "bytes",
+                smelt_hir::BlobOp::Slice => "slice",
+            };
+            let args_text = args
+                .iter()
+                .map(operand_text)
+                .collect::<Vec<_>>()
+                .join(", ");
+            if args_text.is_empty() {
+                format!("blob_{op_name} {}", operand_text(blob))
+            } else {
+                format!("blob_{op_name} {} {args_text}", operand_text(blob))
+            }
         }
         Rvalue::BlobFromParts {
             parts,

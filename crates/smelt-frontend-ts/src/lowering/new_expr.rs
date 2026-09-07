@@ -259,6 +259,14 @@ impl ModuleBuilder<'_> {
         // A WHATWG `Headers` is a modeled concrete runtime type. A user class
         // named `Headers` still wins: the registry models the host name, not the
         // spelling.
+        // The text codecs, gated the same way: the registry models the host
+        // name, and a user class of that name still wins.
+        if callee.name == "TextEncoder" && !self.classes.contains("TextEncoder") {
+            return self.text_encoder_constructor_expression(new_expr, body);
+        }
+        if callee.name == "TextDecoder" && !self.classes.contains("TextDecoder") {
+            return self.text_decoder_constructor_expression(new_expr, body);
+        }
         if callee.name == "Headers" && !self.classes.contains("Headers") {
             return self.headers_constructor_expression(new_expr, body);
         }
@@ -1267,11 +1275,11 @@ impl ModuleBuilder<'_> {
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
         let span = self.span(new_expr.span.start, new_expr.span.end);
         let parts = self.blob_parts_expression(new_expr.arguments.first(), body, span)?;
         let (blob_type, _) =
             self.blob_options_expressions(new_expr.arguments.get(1), "Blob", body, span)?;
+        let ty = self.blob_class_type();
         Ok(body.push_expr(Expr {
             kind: ExprKind::BlobFromParts {
                 parts,
@@ -1279,7 +1287,7 @@ impl ModuleBuilder<'_> {
                 name: None,
                 last_modified: None,
             },
-            ty: unknown_ty,
+            ty,
             span,
         }))
     }
@@ -1300,7 +1308,6 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let string_ty = self.ctx.krate.types.intern(Type::String);
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
         let span = self.span(new_expr.span.start, new_expr.span.end);
         let parts = self.blob_parts_expression(new_expr.arguments.first(), body, span)?;
         let name = match new_expr.arguments.get(1) {
@@ -1316,6 +1323,7 @@ impl ModuleBuilder<'_> {
         };
         let (blob_type, last_modified) =
             self.blob_options_expressions(new_expr.arguments.get(2), "File", body, span)?;
+        let ty = self.file_class_type();
         Ok(body.push_expr(Expr {
             kind: ExprKind::BlobFromParts {
                 parts,
@@ -1323,34 +1331,64 @@ impl ModuleBuilder<'_> {
                 name: Some(name),
                 last_modified,
             },
-            ty: unknown_ty,
+            ty,
             span,
         }))
     }
 
-    /// Lower a `Blob`/`File` constructor `BlobPart` array to an erased value.
+    /// Lower a `Blob`/`File` constructor `BlobPart` array.
     ///
-    /// Parts are heterogeneous at runtime (strings and other Blob/File records),
-    /// so the lowered array is erased to `SmeltUnknown` and walked by the
-    /// `smelt_blob_record_from_parts` runtime helper. A missing argument
-    /// (`new Blob()`) lowers to an empty erased list.
+    /// `BlobPart` is `Blob | BufferSource | string`. Two of those three arms are
+    /// modeled concretely, so a parts array whose ELEMENT TYPE is one of them
+    /// keeps that type: `new Blob(["a", "b"])` is a `List<String>` and
+    /// `new Blob([blob, other])` a `List<Blob>`, and codegen consumes each
+    /// through its own typed constructor. Only a genuinely heterogeneous array —
+    /// mixed arms, or a `BufferSource`, which is still the erased byte-backed
+    /// host record family — is erased to `SmeltUnknown` and walked at runtime by
+    /// `smelt_blob_parts_bytes`. That is the real dynamic boundary here, and it
+    /// shrinks to nothing once the typed-array views become concrete.
+    ///
+    /// A missing argument (`new Blob()`) and an empty array are string parts:
+    /// there is nothing heterogeneous about no bytes.
     fn blob_parts_expression(
         &mut self,
         parts_argument: Option<&Argument<'_>>,
         body: &mut Body,
         span: Span,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
-        let parts = if let Some(argument) = parts_argument {
-            self.argument(argument, body)?
-        } else {
-            let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
-            body.push_expr(Expr {
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let Some(argument) = parts_argument else {
+            let list_ty = self.ctx.krate.types.intern(Type::List(string_ty));
+            return Ok(body.push_expr(Expr {
                 kind: ExprKind::ListLit(Vec::new()),
                 ty: list_ty,
                 span,
-            })
+            }));
         };
+        let parts = self.argument(argument, body)?;
+        let parts_ty = Self::expr_ty(body, parts);
+        if self.blob_parts_type_is_concrete(parts_ty) {
+            return Ok(parts);
+        }
+        // An empty array literal has no element type to read, so it lowers as
+        // `List<Unknown>`; retype it as string parts rather than erasing an
+        // array that carries nothing.
+        if matches!(self.ctx.krate.types.get(parts_ty), Some(Type::List(_)))
+            && usize::try_from(parts.0).is_ok_and(|index| {
+                matches!(
+                    body.exprs.get(index).map(|expr| &expr.kind),
+                    Some(ExprKind::ListLit(items)) if items.is_empty()
+                )
+            })
+        {
+            let list_ty = self.ctx.krate.types.intern(Type::List(string_ty));
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::ListLit(Vec::new()),
+                ty: list_ty,
+                span,
+            }));
+        }
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
         Ok(body.push_expr(Expr {
             kind: ExprKind::UnknownCast {
                 value: parts,
@@ -1359,6 +1397,18 @@ impl ModuleBuilder<'_> {
             ty: unknown_ty,
             span,
         }))
+    }
+
+    /// Return whether a `BlobPart` array's type is one codegen consumes directly.
+    ///
+    /// The two modeled `BlobPart` arms: a list of strings, or a list of blobs
+    /// (`File` included — it is the same runtime type).
+    fn blob_parts_type_is_concrete(&self, parts_ty: smelt_hir::TypeId) -> bool {
+        let Some(Type::List(item)) = self.ctx.krate.types.get(parts_ty) else {
+            return false;
+        };
+        matches!(self.ctx.krate.types.get(*item), Some(Type::String))
+            || self.is_blob_class_type(*item)
     }
 
     /// Resolve the `type` (and `File`-only `lastModified`) expressions from a
