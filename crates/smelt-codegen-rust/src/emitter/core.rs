@@ -2294,9 +2294,43 @@ impl<'mir> FunctionEmitter<'mir> {
                     Ok(format!("{}.clone()", self.place_text(place)?))
                 }
             }
-            Operand::Move(place) => self.place_text(place),
+            Operand::Move(place) => {
+                // A value that lives in a shared capture cell is read as
+                // `(*smelt_capture_x.borrow())`, a place behind a `Ref` guard.
+                // Rust cannot MOVE out of that, so a move operand over such a
+                // place has to clone — the same answer the `Copy` arm above
+                // gives, for the same reason (the cell keeps owning the value).
+                // A `Copy` scalar and a non-cloneable type are excluded exactly
+                // as they are there.
+                if self.place_reads_through_shared_capture(place)
+                    && !self.place_type_is_copy_scalar(place)?
+                    && !self.type_contains_noncloneable(self.place_ty(place)?)
+                    && !matches!(
+                        self.mir.types.get(self.place_ty(place)?),
+                        Some(Type::Function(_))
+                    )
+                {
+                    return Ok(cloned_value_text(&self.place_text(place)?));
+                }
+                self.place_text(place)
+            }
             Operand::Const(constant) => Ok(constant_text(constant)),
         }
+    }
+
+    /// Whether reading `place` projects out of a shared closure-capture cell.
+    ///
+    /// A local captured by reference from a sibling closure is stored in an
+    /// `Rc<RefCell<T>>` and every read of it renders as
+    /// `(*smelt_capture_x.borrow())`, including a field or index projection off
+    /// it, whose base is that same local. Such a read borrows; it does not own.
+    pub(super) fn place_reads_through_shared_capture(&self, place: &Place) -> bool {
+        let root = match place {
+            Place::Local(local) => *local,
+            Place::Field { base, .. } | Place::Index { base, .. } => *base,
+            Place::Global { .. } => return false,
+        };
+        self.local_uses_shared_capture_storage(root) && self.is_local_declared(root)
     }
 
     /// Whether a place reads a scalar that lowers to a `Copy` Rust type.
@@ -4771,6 +4805,22 @@ impl<'mir> FunctionEmitter<'mir> {
             return false;
         };
         self.is_reference_class_type(base_ty) && self.class_has_named_field(base_ty, *field)
+    }
+
+    /// Returns whether reading `operand` holds a `RefCell` borrow guard.
+    ///
+    /// Two shapes read through a cell: a declared field of a reference class
+    /// (`recv.0.borrow().f.clone()`) and a shared closure capture
+    /// (`(*smelt_capture_x.borrow())`). Both guards live to the end of the
+    /// enclosing statement, so a caller that would run arbitrary code in that
+    /// same statement — invoking the value it just read — must bind the read to
+    /// a local first.
+    pub(super) fn operand_reads_through_ref_cell(&self, operand: &Operand) -> bool {
+        let place = match operand {
+            Operand::Copy(place) | Operand::Move(place) => place,
+            Operand::Const(_) => return false,
+        };
+        self.place_is_reference_class_field(place) || self.place_reads_through_shared_capture(place)
     }
 
     /// Returns whether an index read already produces an owned value.

@@ -87,7 +87,7 @@ pub(crate) fn reference_classes(mir: &Mir) -> HashSet<Symbol> {
     for function in &mir.functions {
         collect_field_write_triggers(mir, function, &mut references);
         collect_field_mutation_triggers(mir, function, &mut references);
-        collect_self_capture_triggers(function, &mut references);
+        collect_self_capture_triggers(mir, function, &mut references);
     }
     // V1 deviation: a class with a dynamic index-signature store
     // (`[key: string]: T`) keeps its existing by-value struct emission. Its
@@ -223,12 +223,34 @@ fn operand_field_base(operand: &Operand) -> Option<LocalId> {
 /// A closure that captures the method receiver needs a shareable handle to the
 /// same object (the resolver stored in `deferredTasks` is the canonical case),
 /// which only the reference representation provides.
-fn collect_self_capture_triggers(function: &MirFunction, references: &mut HashSet<Symbol>) {
-    let HirOrigin::ClassMethod { class, .. } = function.origin else {
-        return;
-    };
-    let Some(self_local) = function.params.first().copied() else {
-        return;
+fn collect_self_capture_triggers(
+    mir: &Mir,
+    function: &MirFunction,
+    references: &mut HashSet<Symbol>,
+) {
+    let (class, self_local) = match function.origin {
+        HirOrigin::ClassMethod { class, .. } => {
+            let Some(self_local) = function.params.first().copied() else {
+                return;
+            };
+            (class, self_local)
+        }
+        // A CONSTRUCTOR whose instance escapes into a closure needs the same
+        // handle. A class-field arrow (`status = (s) => { this.#status = s }`)
+        // is initialized in the constructor and captures the instance under
+        // construction, then mutates it long after the constructor returned.
+        // With a by-value struct the closure mutates the constructor's cell and
+        // the returned struct is a snapshot of it, so every write through such
+        // an arrow is lost. The constructor's own direct writes stay excluded in
+        // `collect_field_write_triggers` -- those really are construction; this
+        // trigger is about the instance ESCAPING, which construction is not.
+        HirOrigin::ClassConstructor { class, .. } => {
+            let Some(self_local) = constructor_instance_local(mir, function, class) else {
+                return;
+            };
+            (class, self_local)
+        }
+        _ => return,
     };
     for block in &function.blocks {
         for statement in &block.statements {
@@ -247,6 +269,26 @@ fn collect_self_capture_triggers(function: &MirFunction, references: &mut HashSe
             }
         }
     }
+}
+
+/// Return the local a constructor builds its instance in (`this`).
+///
+/// A constructor's instance is a user binding (not a parameter, which is what
+/// [`collect_self_capture_triggers`] uses for a method's receiver), so it is
+/// identified by its type: the first user binding whose type is the class under
+/// construction. That is the local a class-field arrow captures.
+fn constructor_instance_local(
+    mir: &Mir,
+    function: &MirFunction,
+    class: Symbol,
+) -> Option<LocalId> {
+    function
+        .locals
+        .iter()
+        .enumerate()
+        .filter(|(_, decl)| matches!(decl.kind, smelt_mir::LocalKind::UserBinding(_)))
+        .filter_map(|(index, _)| u32::try_from(index).ok().map(LocalId))
+        .find(|local| class_name_of_local(mir, function, *local) == Some(class))
 }
 
 /// Return the class symbol of a local's type, if the local is a *nominal class*.

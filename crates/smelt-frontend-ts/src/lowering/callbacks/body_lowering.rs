@@ -1970,6 +1970,16 @@ impl ModuleBuilder<'_> {
             Expression::StaticMemberExpression(member) => {
                 self.collect_expression_capture_names(&member.object, param_names, captures);
             }
+            // An ES private field (`this.#status`) is a member expression like
+            // any other: the RECEIVER is an ordinary expression that may name a
+            // captured binding, and `this` is the only receiver the language
+            // allows here. Leaving it out of the walk left `this` uncaptured, so
+            // the closure body resolved `this` to whatever the enclosing scope
+            // offered — the arrow's first parameter — and the read was typed
+            // against that parameter.
+            Expression::PrivateFieldExpression(member) => {
+                self.collect_expression_capture_names(&member.object, param_names, captures);
+            }
             Expression::ComputedMemberExpression(member) => {
                 self.collect_expression_capture_names(&member.object, param_names, captures);
                 self.collect_expression_capture_names(&member.expression, param_names, captures);
@@ -2085,7 +2095,9 @@ impl ModuleBuilder<'_> {
                         captures,
                     );
                 }
-                ChainElement::PrivateFieldExpression(_) => {}
+                ChainElement::PrivateFieldExpression(member) => {
+                    self.collect_expression_capture_names(&member.object, param_names, captures);
+                }
             },
             Expression::UpdateExpression(update) => {
                 self.collect_simple_assignment_target_capture_names(
@@ -2189,6 +2201,13 @@ impl ModuleBuilder<'_> {
             SimpleAssignmentTarget::StaticMemberExpression(member) => {
                 self.collect_expression_capture_names(&member.object, param_names, captures);
             }
+            // `this.#count++` writes through a private field; see the
+            // `Expression::PrivateFieldExpression` arm of
+            // [`Self::collect_expression_capture_names`] for why the receiver
+            // must be walked.
+            SimpleAssignmentTarget::PrivateFieldExpression(member) => {
+                self.collect_expression_capture_names(&member.object, param_names, captures);
+            }
             SimpleAssignmentTarget::ComputedMemberExpression(member) => {
                 self.collect_expression_capture_names(&member.object, param_names, captures);
                 self.collect_expression_capture_names(&member.expression, param_names, captures);
@@ -2216,6 +2235,14 @@ impl ModuleBuilder<'_> {
                 self.collect_expression_capture_names(&member.expression, param_names, captures);
             }
             AssignmentTarget::StaticMemberExpression(member) => {
+                self.collect_expression_capture_names(&member.object, param_names, captures);
+            }
+            // `this.#status = value` inside a class-field arrow: the write
+            // destination's receiver is a capture like any other. Missing it
+            // dropped the write entirely -- see the
+            // `Expression::PrivateFieldExpression` arm of
+            // [`Self::collect_expression_capture_names`].
+            AssignmentTarget::PrivateFieldExpression(member) => {
                 self.collect_expression_capture_names(&member.object, param_names, captures);
             }
             _ => {}

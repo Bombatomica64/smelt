@@ -213,3 +213,4 @@ third_party/hono
 
 # Hono round 9 notes
 !blocker-logs/hono-h16-nested-callback-destructuring.md
+!blocker-logs/hono-h17-private-field-capture.md

@@ -1194,6 +1194,19 @@ impl FunctionEmitter<'_> {
                     None => self.indirect_call_args_text(function, args)?,
                 };
                 let suffix = if function.may_throw { "?" } else { "" };
+                // A callee read out of a `RefCell` — a reference class's
+                // function-typed field, or a shared closure capture — renders as
+                // `recv.0.borrow().f.clone()`. The `Ref` guard that read creates
+                // lives to the END of the enclosing statement, so calling it in
+                // place holds the borrow while the callee runs; a class-field
+                // arrow's whole purpose is to `borrow_mut()` that same cell, so
+                // the call panicked with "already borrowed". Binding the callable
+                // in its own `let` drops the guard before the call.
+                if self.operand_reads_through_ref_cell(indirect_callee) {
+                    return Ok(format!(
+                        "{{ let smelt_callable = {callee_text}; (smelt_callable)({rendered_args}){suffix} }}"
+                    ));
+                }
                 Ok(format!("({callee_text})({rendered_args}){suffix}"))
             }
         }
@@ -3024,7 +3037,23 @@ impl FunctionEmitter<'_> {
             })
             .collect::<Result<Vec<_>, _>>()?
             .join(", ");
-        let call = if rendered_args.is_empty() {
+        // A reference class keeps its declared fields inside the shared cell, so
+        // the callable field is read through `.0.borrow()` exactly as
+        // `place_text` reads any other declared field of one. Without this the
+        // call named a field the handle newtype does not have (E0609). The
+        // `.clone()` on the read is what ends the borrow guard before the call
+        // runs, which matters here more than anywhere: the closure being called
+        // is precisely the one that borrows the same cell to mutate the
+        // instance.
+        let call = if self.is_reference_class_type(receiver_ty) {
+            // The `Ref` guard from `.0.borrow()` lives to the end of the
+            // enclosing statement, and the callable being read is typically the
+            // class-field arrow that mutates that very cell ("already
+            // borrowed"). Bind it first so the guard drops before the call.
+            format!(
+                "{{ let smelt_callable = {receiver_text}.0.borrow().{method_name}.clone(); (smelt_callable)({rendered_args}) }}"
+            )
+        } else if rendered_args.is_empty() {
             format!("({receiver_text}.{method_name}.clone())()")
         } else {
             format!("({receiver_text}.{method_name}.clone())({rendered_args})")

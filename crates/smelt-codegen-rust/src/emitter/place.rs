@@ -293,6 +293,21 @@ impl FunctionEmitter<'_> {
                     return Ok(getter);
                 }
                 if self.storage_field_is_function(base_ty, *field) {
+                    // A function-typed field of a REFERENCE class lives inside
+                    // the shared cell like every other declared field, so it is
+                    // read through `.0.borrow()`. Without this the arm below
+                    // named a field the handle newtype does not have (E0609);
+                    // it is reached before the general reference-class field arm
+                    // further down, so the projection has to be repeated here.
+                    if self.is_reference_class_type(base_ty)
+                        && self.class_has_named_field(base_ty, *field)
+                    {
+                        return Ok(format!(
+                            "{}.0.borrow().{}.clone()",
+                            self.local_value_text(*base)?,
+                            sanitize_ident(self.symbol_name(*field)?)
+                        ));
+                    }
                     return Ok(format!(
                         "{}.{}.clone()",
                         self.local_value_text(*base)?,

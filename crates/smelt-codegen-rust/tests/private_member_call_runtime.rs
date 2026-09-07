@@ -273,3 +273,93 @@ test('a zero-depth recursion returns the accumulator untouched', () => {
 ";
     run_fixture(source, "private_call_recursion");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_class_field_arrow_reaches_this_through_a_private_name() {
+    // Hono's `context.ts` writes its state through class-field arrows:
+    //
+    // ```ts
+    // status = (status: StatusCode): void => { this.#status = status }
+    // ```
+    //
+    // A class-field arrow captures `this`, and the capture is discovered by
+    // walking the arrow's body for names bound outside it. That walk knew a
+    // static member (`this.x`) and a computed one (`this[k]`) but not a PRIVATE
+    // one, so `this.#status = status` captured nothing: `this` resolved to
+    // whatever the enclosing scope offered — the arrow's own first parameter —
+    // and the write was emitted as `let _ = SmeltUnknown::Number(..)`, i.e.
+    // dropped. With a numeric parameter it was a hard blocker instead
+    // (`field access ... (receiver: Float, field: status)`), which is what
+    // stopped `src/context.ts` from lowering; with a string parameter it
+    // compiled and silently lost every write.
+    //
+    // All four private-name positions inside a field arrow are asserted: a
+    // write, a compound write, a read, and an optional-chained read, plus a
+    // private METHOD call from the same place.
+    let source = r"
+import { test, expect } from 'vitest';
+
+class Ctx {
+  #status: number | undefined;
+  #count = 0;
+  #label = 'none';
+
+  setStatus = (status: number): void => {
+    this.#status = status;
+  };
+
+  bump = (): void => {
+    this.#count++;
+  };
+
+  addTwice = (by: number): void => {
+    this.#count += this.#twice(by);
+  };
+
+  #twice(value: number): number {
+    return value + value;
+  }
+
+  describe = (): string => {
+    return `${this.#label}:${this.#status ?? -1}:${this.#count}`;
+  };
+
+  readStatus(): number {
+    return this.#status ?? -1;
+  }
+
+  readCount(): number {
+    return this.#count;
+  }
+}
+
+test('a private write inside a class-field arrow reaches the instance', () => {
+  const ctx = new Ctx();
+  ctx.setStatus(404);
+  expect(ctx.readStatus()).toBe(404);
+});
+
+test('a private compound write inside a class-field arrow accumulates', () => {
+  const ctx = new Ctx();
+  ctx.bump();
+  ctx.bump();
+  expect(ctx.readCount()).toBe(2);
+});
+
+test('a private method call inside a class-field arrow reaches this', () => {
+  const ctx = new Ctx();
+  ctx.addTwice(5);
+  expect(ctx.readCount()).toBe(10);
+});
+
+test('a private read inside a class-field arrow sees the writes', () => {
+  const ctx = new Ctx();
+  ctx.setStatus(201);
+  ctx.bump();
+  expect(ctx.describe()).toBe('none:201:1');
+  expect(new Ctx().describe()).toBe('none:-1:0');
+});
+";
+    run_fixture(source, "private_field_in_class_field_arrow");
+}

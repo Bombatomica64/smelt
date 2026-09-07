@@ -1599,6 +1599,17 @@ impl FunctionEmitter<'_> {
                     format!("{callee_text}.call({args_text})")
                 } else if self.callee_is_borrowed_function_handle(callee)? {
                     format!("{callee_text}({args_text})")
+                } else if self.operand_reads_through_ref_cell(callee) {
+                    // The callee was read out of a `RefCell` (a reference
+                    // class's function-typed field, or a shared closure
+                    // capture), and that read's guard lives to the end of the
+                    // enclosing statement. Calling it in place therefore runs
+                    // the callee while the cell is borrowed, and a class-field
+                    // arrow's body mutates that same cell ("already borrowed").
+                    // Binding the callable drops the guard before the call.
+                    format!(
+                        "{{ let smelt_callable = {callee_text}; (smelt_callable)({args_text}) }}"
+                    )
                 } else {
                     format!("({callee_text})({args_text})")
                 };
