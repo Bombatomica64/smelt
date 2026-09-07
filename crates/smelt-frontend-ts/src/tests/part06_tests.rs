@@ -429,16 +429,23 @@ fn rejects_uninitialized_static_field_but_lowers_static_members() -> Result<(), 
 }
 
 #[test]
-fn rejects_setters_and_decorators_and_lowers_abstract_classes() -> Result<(), String> {
+fn lowers_setters_and_abstract_classes_and_rejects_decorators() -> Result<(), String> {
+    // A source `set` accessor lowers as a `__smelt_set_<name>` class method plus
+    // an accessor descriptor carrying the setter, which is what routes
+    // `obj.name = v` to the body instead of storing a field. The `#name` slot
+    // beside it is a PRIVATE NAME, an unrelated member, and must not shadow the
+    // accessor: see `crates/smelt-codegen-rust/tests/class_accessor_runtime.rs`.
     let mut setter_ctx = HirCtx::new();
-    let setter_errors = lowering_errors(
+    lower_ok(
         ts!("class User {
-  set name(value: string) {}
+  #name: string = \"\";
+  get name(): string { return this.#name; }
+  set name(value: string) { this.#name = value; }
 }
 "),
         &mut setter_ctx,
     )?;
-    assert_unsupported_ts(&setter_errors, "setters are not lowered yet")?;
+    ensure!(smelt_hir::validate(&setter_ctx.krate).is_empty());
 
     let mut decorator_ctx = HirCtx::new();
     let decorator_errors = lowering_errors(

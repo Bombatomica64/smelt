@@ -678,10 +678,22 @@ impl FunctionEmitter<'_> {
             .iter()
             .find(|descriptor| descriptor.name == field)
         {
+            // An instance DATA property shadows a prototype accessor of the same
+            // name, which is why a matching field wins here. A `Visibility::
+            // Hidden` field is not an own property at all — a JavaScript `#name`
+            // private field lives in a separate private-name namespace, and a
+            // synthesized storage slot has no source name — so it cannot shadow
+            // anything. Counting it did: `#res` and `get res()/set res()` on the
+            // same class (Hono's `context.ts`) intern the same symbol, so the
+            // accessor pair was ignored and `ctx.res = r` wrote the private slot
+            // directly, skipping the setter's body.
             let instance_storage_shadows = !descriptor.data_descriptor
                 && crate::classes::effective_class_fields(self.mir, class)
                     .iter()
-                    .any(|candidate| candidate.name == field);
+                    .any(|candidate| {
+                        candidate.name == field
+                            && candidate.visibility != smelt_hir::Visibility::Hidden
+                    });
             if !instance_storage_shadows {
                 return Some((class, descriptor));
             }

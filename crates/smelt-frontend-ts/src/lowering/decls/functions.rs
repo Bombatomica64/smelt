@@ -1622,15 +1622,10 @@ impl ModuleBuilder<'_> {
                             class_text,
                         ));
                     }
-                    // Plain source getters are lowered as `&self` methods and
-                    // registered as accessor descriptors below; setters still need
-                    // the write path that is not modeled yet.
-                    if materialized.is_none() && method.kind == MethodDefinitionKind::Set {
-                        return Err(SmeltError::unsupported(
-                            self.span(method.span.start, method.span.end),
-                            "setters are not lowered yet",
-                        ));
-                    }
+                    // Plain source getters AND setters are lowered as class
+                    // methods (`__smelt_get_x` / `__smelt_set_x`) and registered
+                    // as one accessor descriptor per property name below, which
+                    // is what routes `obj.x` and `obj.x = v` to them.
                     if method.computed && !self.is_resolvable_property_key(&method.key) {
                         return Err(SmeltError::unsupported(
                             self.span(method.span.start, method.span.end),
@@ -1718,26 +1713,104 @@ impl ModuleBuilder<'_> {
                             ));
                         }
                         // Register a source-level accessor descriptor for a plain
-                        // getter so member reads dispatch to the computed method.
-                        if materialized.is_none() && method.kind == MethodDefinitionKind::Get {
+                        // getter or setter so member reads dispatch to the
+                        // computed method and member WRITES dispatch to the
+                        // setter. A property with both accessors is ONE
+                        // descriptor carrying both halves, whichever order the
+                        // two appear in the class body, because that is what the
+                        // read and write emitters look up by property name.
+                        if materialized.is_none()
+                            && matches!(
+                                method.kind,
+                                MethodDefinitionKind::Get | MethodDefinitionKind::Set
+                            )
+                        {
                             let name = self.property_key_symbol(&method.key)?;
-                            let read_ty = method
-                                .value
-                                .return_type
-                                .as_ref()
-                                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                                .transpose()?
-                                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
-                            source_descriptors.push(smelt_hir::Descriptor {
-                                name,
-                                read_ty,
-                                write_ty: None,
-                                getter: Some(item),
-                                setter: None,
-                                data_descriptor: false,
-                                is_static: false,
-                                value_fields: Vec::new(),
-                            });
+                            match method.kind {
+                                MethodDefinitionKind::Get => {
+                                    // `Unknown` is interned only when an
+                                    // accessor genuinely has no annotation:
+                                    // interning it unconditionally would add an
+                                    // `Unknown` entry to the type table of every
+                                    // crate that declares any class method,
+                                    // which flips crate-wide erasure decisions
+                                    // (record backing, the erased prelude) for
+                                    // code that has no erased value at all.
+                                    let read_ty = match method.value.return_type.as_ref() {
+                                        Some(annotation) => {
+                                            self.ts_type_to_hir(&annotation.type_annotation)?
+                                        }
+                                        None => self.ctx.krate.types.intern(Type::Unknown),
+                                    };
+                                    if let Some(existing) = source_descriptors
+                                        .iter_mut()
+                                        .find(|descriptor| descriptor.name == name)
+                                    {
+                                        existing.read_ty = read_ty;
+                                        existing.getter = Some(item);
+                                    } else {
+                                        source_descriptors.push(smelt_hir::Descriptor {
+                                            name,
+                                            read_ty,
+                                            write_ty: None,
+                                            getter: Some(item),
+                                            setter: None,
+                                            data_descriptor: false,
+                                            is_static: false,
+                                            value_fields: Vec::new(),
+                                        });
+                                    }
+                                }
+                                MethodDefinitionKind::Set => {
+                                    // The written type is the setter's own
+                                    // parameter type; a setter takes exactly one
+                                    // parameter, and an unannotated one is the
+                                    // erased boundary the same way an
+                                    // unannotated getter return is.
+                                    let write_ty = match method
+                                        .value
+                                        .params
+                                        .items
+                                        .first()
+                                        .and_then(|param| param.type_annotation.as_ref())
+                                    {
+                                        Some(annotation) => {
+                                            self.ts_type_to_hir(&annotation.type_annotation)?
+                                        }
+                                        None => self.ctx.krate.types.intern(Type::Unknown),
+                                    };
+                                    if let Some(existing) = source_descriptors
+                                        .iter_mut()
+                                        .find(|descriptor| descriptor.name == name)
+                                    {
+                                        existing.write_ty = Some(write_ty);
+                                        existing.setter = Some(item);
+                                    } else {
+                                        source_descriptors.push(smelt_hir::Descriptor {
+                                            name,
+                                            // A set-only property has no getter,
+                                            // so no READ ever dispatches through
+                                            // this descriptor (a getterless
+                                            // descriptor read is an emit error,
+                                            // and JavaScript answers `undefined`
+                                            // for one). The slot mirrors the
+                                            // written type rather than interning
+                                            // `Unknown`, which would add an
+                                            // erased entry to the crate's type
+                                            // table for a value that never
+                                            // exists.
+                                            read_ty: write_ty,
+                                            write_ty: Some(write_ty),
+                                            getter: None,
+                                            setter: Some(item),
+                                            data_descriptor: false,
+                                            is_static: false,
+                                            value_fields: Vec::new(),
+                                        });
+                                    }
+                                }
+                                _ => {}
+                            }
                         }
                         methods.push(item);
                         item

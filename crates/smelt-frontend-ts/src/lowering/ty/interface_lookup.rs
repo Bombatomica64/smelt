@@ -20,8 +20,11 @@ impl ModuleBuilder<'_> {
             PropertyKey::StaticIdentifier(ident) => {
                 Ok(self.intern_source_name(ident.name.as_str()))
             }
+            // An ES private name lives in its own namespace; see
+            // `intern_private_name` for what aliasing it with the property of
+            // the same source spelling broke.
             PropertyKey::PrivateIdentifier(ident) => {
-                Ok(self.intern_source_name(ident.name.as_str()))
+                Ok(self.intern_private_name(ident.name.as_str()))
             }
             PropertyKey::StringLiteral(lit) => Ok(self.intern_source_name(lit.value.as_str())),
             PropertyKey::NumericLiteral(lit) => {

@@ -258,10 +258,21 @@ impl<'builder> ModuleBuilder<'builder> {
         // stdlib member, which is why this arm sits after the builtin/static
         // pre-passes above without needing to consult them.
         if let Expression::PrivateFieldExpression(member) = &call.callee {
+            // The member name carries the `#`, because a private name is its
+            // own namespace: `this.#newResponse()` must not resolve to the
+            // public `newResponse` field of the same class (Hono's `Context`
+            // declares both, and resolving the private call to the public
+            // arrow — whose body calls the private method — recurses forever).
+            // See `intern_private_name`; a `#`-spelled name matches no builtin
+            // or stdlib member either, which is exactly right.
+            let private_name = format!("#{}", member.field.name.as_str());
+            if let Some(expr) = self.private_callable_field_call(call, member, body)? {
+                return Ok(expr);
+            }
             return self.member_call(
                 call,
                 &member.object,
-                member.field.name.as_str(),
+                &private_name,
                 member.span,
                 member.optional,
                 body,
@@ -2530,6 +2541,170 @@ impl<'builder> ModuleBuilder<'builder> {
             ty: function.return_ty,
             span,
         })))
+    }
+
+    /// Lower `receiver.#field(args)` where `#field` holds a FUNCTION.
+    ///
+    /// A private name can denote either a method or a field, and a field may
+    /// hold a closure: Hono's `HonoRequest` declares
+    /// `#cachedBody = (key: keyof Body) => ...` and calls `this.#cachedBody('text')`
+    /// from six methods. That is a CALL OF A FIELD, not a method call, and the
+    /// public spelling has always been lowered as one (see
+    /// [`Self::callable_static_member_call`]); the private spelling had no such
+    /// path, so it lowered as `ExprKind::Method` and MIR then failed with
+    /// `class method '#cached_body' is not resolvable` — there is no method of
+    /// that name to resolve. The blocker was masked while `context.ts` and
+    /// `request.ts` still had earlier ones.
+    ///
+    /// Returns `None` when the private member is not a function-typed field, so
+    /// a genuine private METHOD keeps the receiver-first method lowering.
+    ///
+    /// The receiver is restricted to an identifier or `this` — the only shapes
+    /// whose lowering has no side effect — because deciding between the two
+    /// lowerings requires reading the receiver's type, and the method fallback
+    /// lowers the receiver again.
+    fn private_callable_field_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        member: &oxc::ast::ast::PrivateFieldExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if call.optional || member.optional {
+            return Ok(None);
+        }
+        if !matches!(
+            &member.object,
+            Expression::Identifier(_) | Expression::ThisExpression(_)
+        ) {
+            return Ok(None);
+        }
+        let receiver = self.expression(&member.object, body)?;
+        let receiver_ty = Self::expr_ty(body, receiver);
+        let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(receiver_ty).cloned() else {
+            return Ok(None);
+        };
+        let field = self.intern_private_name(member.field.name.as_str());
+        // Only a declared FIELD takes this path. A private METHOD also answers
+        // a function type through `class_field_type` (as a bound method value),
+        // and routing it here would replace its direct receiver-first call with
+        // the erased callable-value ABI. A private name is either a method or a
+        // field, never both, so the field's existence is the whole test — a
+        // field that is CALLED and is not callable is not valid TypeScript.
+        if !self.class_declares_field(name, field) {
+            return Ok(None);
+        }
+        let Ok(callee) = self.private_field_member(
+            &member.object,
+            member.field.name.as_str(),
+            member.span,
+            body,
+        ) else {
+            return Ok(None);
+        };
+        let callee_ty = Self::expr_ty(body, callee);
+        let mut args = Vec::new();
+        for arg in &call.arguments {
+            args.push(self.argument(arg, body)?);
+        }
+        let (function_ty, function) = match self.function_member_type(callee_ty) {
+            Some(function_ty) => {
+                let Some(Type::Function(function)) =
+                    self.ctx.krate.types.get(function_ty).cloned()
+                else {
+                    return Ok(None);
+                };
+                (function_ty, function)
+            }
+            // An ERASED callable field: Hono's `#renderer: Renderer` resolves
+            // through a conditional type (`ContextRenderer extends Function ?
+            // ...`) that carries no callable shape, so the read is `unknown`.
+            // The call is then the dynamic callable boundary, and the ABI is
+            // synthesized from the argument types exactly as the public
+            // callable-field path does for the same shape.
+            None if self.is_nullishable_type(callee_ty)
+                || self.type_contains_unknown(callee_ty) =>
+            {
+                let unknown = self.ctx.krate.types.intern(Type::Unknown);
+                let params = args
+                    .iter()
+                    .map(|arg| Self::expr_ty(body, *arg))
+                    .collect::<Vec<_>>();
+                let function = FunctionType {
+                    params,
+                    rest: None,
+                    required_params: None,
+                    mutable_params: Vec::new(),
+                    return_ty: unknown,
+                    is_async: false,
+                    may_throw: false,
+                };
+                let function_ty = self
+                    .ctx
+                    .krate
+                    .types
+                    .intern(Type::Function(function.clone()));
+                (function_ty, function)
+            }
+            None => return Ok(None),
+        };
+        // `#renderer: Renderer | undefined` is declared optional and assigned
+        // through `??=` before the call, so the read's type is the optional (or
+        // union) that carries the callable. The call site asserts the callable
+        // member, exactly as the public callable-field path does.
+        let callable = if callee_ty == function_ty {
+            callee
+        } else {
+            body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: callee },
+                ty: function_ty,
+                span: self.span(member.span.start, member.span.end),
+            })
+        };
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::ClosureCall {
+                callee: callable,
+                args,
+            },
+            ty: function.return_ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Whether class `class_name` declares a field named `field`.
+    ///
+    /// Both stores are consulted: the sidecar registered while the class is
+    /// still being lowered (a private field is called from the same class's
+    /// methods, so its class item does not exist yet) and the finished class
+    /// item for a class from another module.
+    fn class_declares_field(
+        &mut self,
+        class_name: smelt_hir::Symbol,
+        field: smelt_hir::Symbol,
+    ) -> bool {
+        let field_ty = self
+            .ctx
+            .krate
+            .names
+            .get(class_name)
+            .or_else(|| self.ctx.krate.symbols.get(class_name))
+            .map(str::to_owned)
+            .and_then(|class_text| self.classes.fields(&class_text).cloned())
+            .and_then(|fields| {
+                fields
+                    .iter()
+                    .find(|candidate| candidate.name == field)
+                    .map(|candidate| candidate.ty)
+            })
+            .or_else(|| {
+                self.class_by_symbol(class_name).and_then(|class| {
+                    class
+                        .fields
+                        .iter()
+                        .find(|candidate| candidate.name == field)
+                        .map(|candidate| candidate.ty)
+                })
+            });
+        field_ty.is_some()
     }
 
     /// Bind `object` as the receiver of an `object.method(..)` callable field read.

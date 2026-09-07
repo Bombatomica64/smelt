@@ -28,6 +28,26 @@ impl ModuleBuilder<'_> {
         symbol
     }
 
+    /// Intern an ECMAScript PRIVATE name (`#status`) in its own namespace.
+    ///
+    /// A private name is not a property name: `class C { #x; get x() {} }`
+    /// declares two entirely unrelated members, `obj['#x']` is `undefined`, and
+    /// a private name never appears in `Object.keys`/`JSON`. The parser hands
+    /// the bare text (`"x"`) for both spellings, so interning the private one
+    /// through [`Self::intern_source_name`] ALIASED them: the accessor pair on
+    /// Hono's `Context` (`get res()` / `set res()`) collided with its `#res`
+    /// slot, which made a read skip the getter, a write skip the setter, and —
+    /// once setters lowered — `set res(v) { this.#res = v }` recurse into
+    /// itself.
+    ///
+    /// Keeping the `#` in the symbol's identity is what separates them. The
+    /// Rust rendering is the sanitized form (`#res` -> `_res`), so a private
+    /// slot and a public property of the same source name are distinct struct
+    /// fields, and the `#` spelling is what a reader sees in a diagnostic.
+    pub(in crate::lowering) fn intern_private_name(&mut self, name: &str) -> smelt_hir::Symbol {
+        self.intern_source_name(&format!("#{name}"))
+    }
+
     /// Intern a generated source name without case-folding it.
     ///
     /// Synthetic object function-table entries need exact key spelling because

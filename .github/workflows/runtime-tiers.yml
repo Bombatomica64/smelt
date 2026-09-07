@@ -99,7 +99,7 @@ jobs:
               uri_transcode_runtime math_round_runtime
               define_properties_runtime proto_accessor_runtime
               ambient_declaration_runtime object_model_runtime
-              stdlib_boundary_runtime
+              stdlib_boundary_runtime class_accessor_runtime
     name: runtime (${{ matrix.shard }})
     steps:
       - name: Checkout

@@ -2916,7 +2916,9 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let receiver = self.expression(object, body)?;
         let receiver_ty = Self::expr_ty(body, receiver);
-        let field = self.intern_source_name(field_name);
+        // A private name is not the property of the same spelling; see
+        // `intern_private_name`.
+        let field = self.intern_private_name(field_name);
         let ty = self.class_field_type(receiver_ty, field)?;
         Ok(body.push_expr(Expr {
             kind: ExprKind::Field { receiver, field },
