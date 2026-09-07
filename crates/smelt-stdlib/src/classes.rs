@@ -107,26 +107,24 @@ impl StdlibClass {
         matches!(self, Self::EventEmitter | Self::IncomingMessage)
     }
 
-    /// Return whether an ERASED value can be checked for this class and
-    /// converted back into its concrete Rust representation.
+    /// Return whether values of this class cross the dynamic boundary through
+    /// their runtime type's OWN `IntoSmeltUnknown` adapter.
     ///
-    /// True exactly for the classes whose generated runtime type declares a
-    /// `SmeltFromUnknown` adapter alongside a host marker: the marker makes the
-    /// `instanceof` check possible, and the adapter makes the conversion
-    /// possible. Both halves are needed, which is why this is one question and
-    /// not two.
+    /// True for every class backed by a generated runtime type that keeps its
+    /// state somewhere other than declared fields — behind a shared cell, in a
+    /// closure, in a byte vector. That is the whole set of them, and the reason
+    /// they need their own adapter is that the generic struct erasure reads
+    /// DECLARED FIELDS and stamps `__smelt_class`: for a prelude type it finds
+    /// no fields, so it produces a record with no state and no host identity.
     ///
-    /// It is what lets `x instanceof Headers` NARROW an erased `x`: the
-    /// narrowing is emitted exactly where it can be materialized, so the rule
-    /// stays general — "there is a sound checked cast for this class" — rather
-    /// than becoming a list of spellings. A class without an adapter keeps its
-    /// erased type across the guard, because inventing a conversion for it
-    /// would be guessing at a representation.
-    ///
-    /// `Blob` and `File` both answer true and share one adapter, since they
-    /// share one runtime type (see [`Self::File`]).
+    /// This drives two things that must not disagree. The emitter routes an
+    /// erasure of such a value to `.into_smelt_unknown()` instead of the
+    /// declared-field builder, and `instance_of_text` answers `instanceof` on
+    /// an erased value through the marker that same adapter stamps. Both used
+    /// to consult their own hand-maintained lists of class names, which is how
+    /// the two came apart for the six classes that had neither.
     #[must_use]
-    pub const fn narrows_from_erased(self) -> bool {
+    pub const fn erases_through_adapter(self) -> bool {
         matches!(
             self,
             Self::Headers
@@ -138,7 +136,68 @@ impl StdlibClass {
                 | Self::RegExp
                 | Self::Match
                 | Self::ByteArray
+                | Self::TextEncoder
+                | Self::TextDecoder
+                | Self::EventEmitter
+                | Self::HttpServer
+                | Self::IncomingMessage
+                | Self::ServerResponse
         )
+    }
+
+    /// Return whether a REFLECTED `new <this class>()` may build a marker
+    /// record instead of running the class's own constructor.
+    ///
+    /// Reflected construction — `new (Object.getPrototypeOf(x).constructor)()`,
+    /// which es-toolkit's `clone` uses — has only a class NAME to work from, so
+    /// for a host class it builds a record carrying that class's identity
+    /// marker. That is right for a class whose values ARE records, and wrong
+    /// for one backed by a generated runtime type: the record would answer
+    /// `instanceof` correctly and then silently fail every method called on it.
+    ///
+    /// `Blob` and `File` are the exception among the runtime-typed classes, and
+    /// deliberately: `blob_prelude` emits a reflected constructor that shares
+    /// `smelt_blob_record` with the erasure, so the record it builds is exactly
+    /// the one a real blob erases to and the two cannot drift.
+    ///
+    /// Asking the registry replaces two hand-maintained exclusion lists in
+    /// `reflection_prelude`, which is how five of the six classes registered in
+    /// round 11 would otherwise have silently become reflectively constructible
+    /// as records the moment they gained a marker.
+    #[must_use]
+    pub const fn reflects_to_marker_record(self) -> bool {
+        !self.erases_through_adapter() || matches!(self, Self::Blob | Self::File)
+    }
+
+    /// Return whether an ERASED value can be converted BACK into this class's
+    /// concrete Rust representation.
+    ///
+    /// The other half of [`Self::erases_through_adapter`], and deliberately a
+    /// separate question: erasing needs only `IntoSmeltUnknown`, while
+    /// recovering needs a `SmeltFromUnknown` that can honestly produce a value.
+    /// Conflating them is what made the round-10 narrowing rule exclude classes
+    /// whose `instanceof` was perfectly answerable.
+    ///
+    /// It is what lets `x instanceof Headers` NARROW an erased `x`: the
+    /// narrowing is emitted exactly where it can be materialized, so the rule
+    /// stays general — "there is a sound checked cast for this class" — rather
+    /// than becoming a list of spellings. A class without a recovery keeps its
+    /// erased type across the guard, because inventing a conversion for it
+    /// would be guessing at a representation.
+    ///
+    /// `HttpServer` is the one class that erases but does NOT recover. A server
+    /// is a live listening socket with a handler closure and a tokio shutdown
+    /// sender; a record cannot describe one, and the origin registry only helps
+    /// for a record that came from an erasure in this same thread. Rather than
+    /// fabricate a server that is not listening, narrowing one stays a named
+    /// blocker — the honest answer, and the same reason its `instanceof` is
+    /// still worth answering: identity is knowable where reconstruction is not.
+    ///
+    /// `Blob` and `File` both answer true and share one adapter, since they
+    /// share one runtime type (see [`Self::File`]).
+    #[must_use]
+    pub const fn narrows_from_erased(self) -> bool {
+        self.erases_through_adapter() && !matches!(self, Self::HttpServer)
     }
 
     /// Return whether values of this class are the generated `SmeltBlob` type.

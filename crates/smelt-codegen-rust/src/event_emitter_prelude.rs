@@ -39,6 +39,30 @@ use crate::rust::CodeWriter;
 pub fn emit(writer: &mut CodeWriter) {
     emit_struct(writer);
     emit_inherent_impl(writer);
+    emit_erasure(writer);
+}
+
+/// Emit the emitter's erasure adapter pair.
+///
+/// Node's `EventEmitter` exposes no enumerable data property, so the record is
+/// the identity marker alone — which is all `instanceof` and
+/// `Object.prototype.toString` need, and all a JavaScript `for...in` over an
+/// emitter would see.
+///
+/// The listener list is closures, so it cannot round-trip through a record; the
+/// erasure retains the live emitter instead, and narrowing an erased emitter
+/// therefore reaches the SAME listener list, which is what JavaScript does. A
+/// record with no retained origin answers a fresh emitter with no listeners —
+/// a real state of the type, unlike any listener set that could be invented
+/// for it.
+fn emit_erasure(writer: &mut CodeWriter) {
+    crate::host_value_erasure::emit_adapters(
+        writer,
+        "SmeltEventEmitter",
+        "__smelt_eventemitter",
+        &[],
+        crate::host_value_erasure::Recovery::Empty("Self::new()"),
+    );
 }
 
 /// Emit the listener record and the emitter struct.

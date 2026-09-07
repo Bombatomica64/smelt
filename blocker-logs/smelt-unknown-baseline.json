@@ -1,9 +1,9 @@
 {
-  "files_scanned": 45,
-  "total": 15250,
+  "files_scanned": 46,
+  "total": 15290,
   "category_totals": {
     "legitimate-boundary": 165,
-    "runtime-prelude": 15085
+    "runtime-prelude": 15125
   },
   "shapes": [
     {
@@ -50,7 +50,7 @@
     },
     {
       "category": "runtime-prelude",
-      "shape": "fn smelt_object_to_string_tag(value: &SmeltUnknown) -> String { match value { SmeltUnknown::Null => \"S\".to_owned(), SmeltUnknown::Undefined => \"S\".to_owned(), SmeltUnknown::Bool(_) => \"S\".to_owned(), SmeltUnknown::Number(_) => \"S\".to_owned(), SmeltUnknown::String(_) => \"S\".to_owned(), SmeltUnknown::Symbol(_) => \"S\".to_owned(), SmeltUnknown::Array(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned(), SmeltUnknown::Object(map) => { if let Some(SmeltUnknown::String(tag)) = map.get(\"S\") { return format!(\"S\"); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { if let Some(SmeltUnknown::String(name)) = map.get(\"S\") { return format!(\"S\"); } } \"S\".to_owned() } } }",
+      "shape": "fn smelt_object_to_string_tag(value: &SmeltUnknown) -> String { match value { SmeltUnknown::Null => \"S\".to_owned(), SmeltUnknown::Undefined => \"S\".to_owned(), SmeltUnknown::Bool(_) => \"S\".to_owned(), SmeltUnknown::Number(_) => \"S\".to_owned(), SmeltUnknown::String(_) => \"S\".to_owned(), SmeltUnknown::Symbol(_) => \"S\".to_owned(), SmeltUnknown::Array(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned(), SmeltUnknown::Object(map) => { if let Some(SmeltUnknown::String(tag)) = map.get(\"S\") { return format!(\"S\"); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { return \"S\".to_owned(); } if map.contains_key(\"S\") { if let Some(SmeltUnknown::String(name)) = map.get(\"S\") { return format!(\"S\"); } } \"S\".to_owned() } } }",
       "occurrences": 208,
       "files": 16,
       "example": "examples/typescript/end-to-end/27_optional_chains/expected.rs:1252"
@@ -1257,7 +1257,7 @@
       "shape": "let _smelt_tmp_N: SmeltIncomingMessage = { let smelt_listener = match { let smelt_function_value = _smelt_tmp_N.clone(); if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| { (smelt_function_value)(match smelt_args.get(N).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"S\".to_owned(), SmeltUnknown::Function(_) => \"S\".to_owned(), SmeltUnknown::Promise(_) => \"S\".to_owned() }); Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined) }); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); SmeltUnknown::Function(smelt_erased_function) } } { SmeltUnknown::Function(smelt_function) => smelt_function, _ => ::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| Ok(SmeltUnknown::Undefined)) }; closure_arg_N.clone().add(&\"S\".to_owned(), smelt_listener, false) };",
       "occurrences": 18,
       "files": 1,
-      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3804"
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3878"
     },
     {
       "category": "runtime-prelude",
@@ -2867,7 +2867,7 @@
       "shape": "SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([(\"S\".to_owned(), SmeltUnknown::Bool(true)), (\"S\".to_owned(), SmeltUnknown::Array(elements.into())), (\"S\".to_owned(), SmeltUnknown::Number(count)), (\"S\".to_owned(), SmeltUnknown::Number(count))])))",
       "occurrences": 10,
       "files": 2,
-      "example": "examples/typescript/end-to-end/45_text_codec/expected.rs:2730"
+      "example": "examples/typescript/end-to-end/45_text_codec/expected.rs:2756"
     },
     {
       "category": "runtime-prelude",
@@ -2902,7 +2902,7 @@
       "shape": "let _smelt_tmp_N: SmeltIncomingMessage = { let smelt_listener = match { let smelt_function_value = _smelt_tmp_N.clone(); if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| { (smelt_function_value)(); Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined) }); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); SmeltUnknown::Function(smelt_erased_function) } } { SmeltUnknown::Function(smelt_function) => smelt_function, _ => ::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| Ok(SmeltUnknown::Undefined)) }; closure_arg_N.clone().add(&\"S\".to_owned(), smelt_listener, false) };",
       "occurrences": 7,
       "files": 1,
-      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3862"
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3936"
     },
     {
       "category": "runtime-prelude",
@@ -2916,7 +2916,14 @@
       "shape": "SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([(\"S\".to_owned(), SmeltUnknown::Bool(true)), (\"S\".to_owned(), SmeltUnknown::Number(self.status)), (\"S\".to_owned(), SmeltUnknown::String(self.status_text.into())), (\"S\".to_owned(), SmeltUnknown::Bool(self.status >= N.N && self.status <= N.N)), (\"S\".to_owned(), self.headers.into_smelt_unknown()), (\"S\".to_owned(), SmeltUnknown::String(body_text.into()))])))",
       "occurrences": 6,
       "files": 1,
-      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3280"
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3306"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl IntoSmeltUnknown for SmeltIncomingMessage { fn into_smelt_unknown(self) -> SmeltUnknown { let smelt_id = self.id; smelt_register_host_origin(smelt_id, self.clone()); SmeltUnknown::Object(SmeltObject::with_id(smelt_id, Vec::from([(\"S\".to_owned(), SmeltUnknown::Bool(true)), (\"S\".to_owned(), SmeltUnknown::String(self.method().into())), (\"S\".to_owned(), SmeltUnknown::String(self.url().into()))]))) } }",
+      "occurrences": 6,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3821"
     },
     {
       "category": "runtime-prelude",
@@ -2930,7 +2937,7 @@
       "shape": "SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([(\"S\".to_owned(), SmeltUnknown::Bool(true)), (\"S\".to_owned(), SmeltUnknown::String(self.url.into())), (\"S\".to_owned(), SmeltUnknown::String(self.method.into())), (\"S\".to_owned(), self.headers.into_smelt_unknown()), (\"S\".to_owned(), SmeltUnknown::String(body_text.into()))])))",
       "occurrences": 5,
       "files": 1,
-      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3373"
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3399"
     },
     {
       "category": "runtime-prelude",
@@ -2962,6 +2969,27 @@
     },
     {
       "category": "runtime-prelude",
+      "shape": "impl IntoSmeltUnknown for SmeltServerResponse { fn into_smelt_unknown(self) -> SmeltUnknown { let smelt_id = self.id; smelt_register_host_origin(smelt_id, self.clone()); SmeltUnknown::Object(SmeltObject::with_id(smelt_id, Vec::from([(\"S\".to_owned(), SmeltUnknown::Bool(true)), (\"S\".to_owned(), SmeltUnknown::Number(self.status_code()))]))) } }",
+      "occurrences": 5,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3835"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl IntoSmeltUnknown for SmeltTextDecoder { fn into_smelt_unknown(self) -> SmeltUnknown { let smelt_id = self.id; smelt_register_host_origin(smelt_id, self.clone()); SmeltUnknown::Object(SmeltObject::with_id(smelt_id, Vec::from([(\"S\".to_owned(), SmeltUnknown::Bool(true)), (\"S\".to_owned(), SmeltUnknown::String(self.encoding().into()))]))) } }",
+      "occurrences": 5,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/45_text_codec/expected.rs:2835"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl IntoSmeltUnknown for SmeltTextEncoder { fn into_smelt_unknown(self) -> SmeltUnknown { let smelt_id = self.id; smelt_register_host_origin(smelt_id, self.clone()); SmeltUnknown::Object(SmeltObject::with_id(smelt_id, Vec::from([(\"S\".to_owned(), SmeltUnknown::Bool(true)), (\"S\".to_owned(), SmeltUnknown::String(self.encoding().into()))]))) } }",
+      "occurrences": 5,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/45_text_codec/expected.rs:2796"
+    },
+    {
+      "category": "runtime-prelude",
       "shape": "let SmeltUnknown::Number(id) = handle.into_smelt_unknown() else { return; };",
       "occurrences": 5,
       "files": 5,
@@ -2972,7 +3000,7 @@
       "shape": "return Err(smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"S\".to_owned(), SmeltUnknown::String(\"S\".into())), (\"S\".to_owned(), SmeltUnknown::String(\"S\".into())), (\"S\".to_owned(), SmeltUnknown::Undefined), (\"S\".to_owned(), SmeltUnknown::Undefined)])))));",
       "occurrences": 5,
       "files": 1,
-      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3186"
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3212"
     },
     {
       "category": "legitimate-boundary",
@@ -2997,6 +3025,20 @@
     },
     {
       "category": "runtime-prelude",
+      "shape": "impl IntoSmeltUnknown for SmeltEventEmitter { fn into_smelt_unknown(self) -> SmeltUnknown { let smelt_id = self.id; smelt_register_host_origin(smelt_id, self.clone()); SmeltUnknown::Object(SmeltObject::with_id(smelt_id, Vec::from([(\"S\".to_owned(), SmeltUnknown::Bool(true))]))) } }",
+      "occurrences": 4,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3494"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl IntoSmeltUnknown for SmeltHttpServer { fn into_smelt_unknown(self) -> SmeltUnknown { let smelt_id = self.id; smelt_register_host_origin(smelt_id, self.clone()); SmeltUnknown::Object(SmeltObject::with_id(smelt_id, Vec::from([(\"S\".to_owned(), SmeltUnknown::Bool(true))]))) } }",
+      "occurrences": 4,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3849"
+    },
+    {
+      "category": "runtime-prelude",
       "shape": "let (Some(SmeltUnknown::String(name)), Some(SmeltUnknown::String(entry_value))) = (pair.first().cloned(), pair.get(N).cloned()) else { continue };",
       "occurrences": 4,
       "files": 2,
@@ -3007,21 +3049,21 @@
       "shape": "let elements: Vec<SmeltUnknown> = bytes.iter().map(|byte| SmeltUnknown::Number(fN::from(*byte))).collect();",
       "occurrences": 4,
       "files": 2,
-      "example": "examples/typescript/end-to-end/45_text_codec/expected.rs:2728"
+      "example": "examples/typescript/end-to-end/45_text_codec/expected.rs:2754"
     },
     {
       "category": "runtime-prelude",
       "shape": "pub fn add(&self, event: &str, callback: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn ::std::error::Error>>>, once: bool) -> Self {",
       "occurrences": 4,
       "files": 1,
-      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3420"
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3446"
     },
     {
       "category": "runtime-prelude",
       "shape": "pub fn remove(&self, event: &str, callback: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn ::std::error::Error>>>) -> Self {",
       "occurrences": 4,
       "files": 1,
-      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3431"
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3457"
     },
     {
       "category": "legitimate-boundary",
@@ -3123,6 +3165,13 @@
     },
     {
       "category": "runtime-prelude",
+      "shape": "/// Call this from the value'C'",
+      "occurrences": 2,
+      "files": 2,
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:530"
+    },
+    {
+      "category": "runtime-prelude",
       "shape": "Self::MN(value) => SmeltUnknown::Number(value as fN),",
       "occurrences": 2,
       "files": 2,
@@ -3140,7 +3189,14 @@
       "shape": "callback: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn ::std::error::Error>>>,",
       "occurrences": 2,
       "files": 1,
-      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3393"
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3419"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "fn smelt_restore_host_origin<T: Clone + 'C'",
+      "occurrences": 2,
+      "files": 2,
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:544"
     },
     {
       "category": "runtime-prelude",
@@ -3161,7 +3217,7 @@
       "shape": "impl IntoSmeltUnknown for SmeltUintNArray {",
       "occurrences": 2,
       "files": 2,
-      "example": "examples/typescript/end-to-end/45_text_codec/expected.rs:2725"
+      "example": "examples/typescript/end-to-end/45_text_codec/expected.rs:2751"
     },
     {
       "category": "runtime-prelude",
@@ -3172,10 +3228,17 @@
     },
     {
       "category": "runtime-prelude",
+      "shape": "let SmeltUnknown::Object(map) = value else { return None };",
+      "occurrences": 2,
+      "files": 2,
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:545"
+    },
+    {
+      "category": "runtime-prelude",
       "shape": "let Some(SmeltUnknown::Array(items)) = map.get(\"S\") else { return Self::new() };",
       "occurrences": 2,
       "files": 2,
-      "example": "examples/typescript/end-to-end/45_text_codec/expected.rs:2738"
+      "example": "examples/typescript/end-to-end/45_text_codec/expected.rs:2764"
     },
     {
       "category": "runtime-prelude",
@@ -3189,14 +3252,14 @@
       "shape": "let body = match map.get(\"S\") { Some(SmeltUnknown::String(text)) if !text.is_empty() => SmeltBody::from_text(&text.to_string()), _ => SmeltBody::empty() };",
       "occurrences": 2,
       "files": 1,
-      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3291"
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3317"
     },
     {
       "category": "runtime-prelude",
       "shape": "let bytes = items.into_vec().into_iter().map(|item| match item { SmeltUnknown::Number(number) => number as uN, _ => N }).collect::<Vec<uN>>();",
       "occurrences": 2,
       "files": 2,
-      "example": "examples/typescript/end-to-end/45_text_codec/expected.rs:2739"
+      "example": "examples/typescript/end-to-end/45_text_codec/expected.rs:2765"
     },
     {
       "category": "legitimate-boundary",
@@ -3287,7 +3350,7 @@
       "shape": "fn smelt_unknown_from_json_value(value: serde_json::Value) -> SmeltUnknown {",
       "occurrences": 1,
       "files": 1,
-      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:2604"
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:2630"
     },
     {
       "category": "runtime-prelude",
@@ -3343,14 +3406,14 @@
       "shape": "impl IntoSmeltUnknown for SmeltRequest {",
       "occurrences": 1,
       "files": 1,
-      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3370"
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3396"
     },
     {
       "category": "runtime-prelude",
       "shape": "impl IntoSmeltUnknown for SmeltResponse {",
       "occurrences": 1,
       "files": 1,
-      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3277"
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3303"
     },
     {
       "category": "runtime-prelude",
@@ -3368,24 +3431,59 @@
     },
     {
       "category": "runtime-prelude",
+      "shape": "impl SmeltFromUnknown for SmeltEventEmitter { fn smelt_from_unknown(value: SmeltUnknown) -> Self { smelt_restore_host_origin::<Self>(&value).unwrap_or_else(|| Self::new()) } }",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3502"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl SmeltFromUnknown for SmeltIncomingMessage { fn smelt_from_unknown(value: SmeltUnknown) -> Self { smelt_restore_host_origin::<Self>(&value).unwrap_or_else(|| Self::from_parts(String::new(), String::new(), Vec::new(), Vec::new())) } }",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3829"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl SmeltFromUnknown for SmeltServerResponse { fn smelt_from_unknown(value: SmeltUnknown) -> Self { smelt_restore_host_origin::<Self>(&value).unwrap_or_else(|| Self::new()) } }",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3843"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl SmeltFromUnknown for SmeltTextDecoder { fn smelt_from_unknown(value: SmeltUnknown) -> Self { smelt_restore_host_origin::<Self>(&value).unwrap_or_else(|| Self::new()) } }",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/45_text_codec/expected.rs:2841"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl SmeltFromUnknown for SmeltTextEncoder { fn smelt_from_unknown(value: SmeltUnknown) -> Self { smelt_restore_host_origin::<Self>(&value).unwrap_or_else(|| Self::new()) } }",
+      "occurrences": 1,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/45_text_codec/expected.rs:2802"
+    },
+    {
+      "category": "runtime-prelude",
       "shape": "impl serde::Serialize for SmeltUnknown {",
       "occurrences": 1,
       "files": 1,
-      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:2580"
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:2606"
     },
     {
       "category": "runtime-prelude",
       "shape": "impl<'C'de> for SmeltUnknown {",
       "occurrences": 1,
       "files": 1,
-      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:2597"
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:2623"
     },
     {
       "category": "runtime-prelude",
       "shape": "let SmeltUnknown::Object(map) = value else { return Self::from_parts(\"S\", \"S\".to_owned(), SmeltHeaders::new(), SmeltBody::empty()) };",
       "occurrences": 1,
       "files": 1,
-      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3380"
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3406"
     },
     {
       "category": "runtime-prelude",
@@ -3413,7 +3511,7 @@
       "shape": "let method = match map.get(\"S\") { Some(SmeltUnknown::String(method)) => method.to_string(), _ => \"S\".to_owned() };",
       "occurrences": 1,
       "files": 1,
-      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3382"
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3408"
     },
     {
       "category": "runtime-prelude",
@@ -3427,35 +3525,35 @@
       "shape": "let status = match map.get(\"S\") { Some(SmeltUnknown::Number(status)) => status, _ => N.N };",
       "occurrences": 1,
       "files": 1,
-      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3288"
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3314"
     },
     {
       "category": "runtime-prelude",
       "shape": "let status_text = match map.get(\"S\") { Some(SmeltUnknown::String(text)) => text.to_string(), _ => String::new() };",
       "occurrences": 1,
       "files": 1,
-      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3289"
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3315"
     },
     {
       "category": "runtime-prelude",
       "shape": "let url = match map.get(\"S\") { Some(SmeltUnknown::String(url)) => url.to_string(), _ => \"S\".to_owned() };",
       "occurrences": 1,
       "files": 1,
-      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3381"
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3407"
     },
     {
       "category": "runtime-prelude",
       "shape": "pub fn emit(&self, event: &str, args: Vec<SmeltUnknown>) -> Result<bool, Box<dyn ::std::error::Error>> {",
       "occurrences": 1,
       "files": 1,
-      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3451"
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3477"
     },
     {
       "category": "runtime-prelude",
       "shape": "pub fn emit(&self, event: &str, args: Vec<SmeltUnknown>) -> Result<bool, Box<dyn ::std::error::Error>> { self.emitter.emit(event, args) }",
       "occurrences": 1,
       "files": 1,
-      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3520"
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3560"
     },
     {
       "category": "runtime-prelude",
@@ -3469,49 +3567,49 @@
       "shape": "self.emitter.emit(\"S\", vec![SmeltUnknown::String(chunk.into())])?;",
       "occurrences": 1,
       "files": 1,
-      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3532"
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3572"
     },
     {
       "category": "runtime-prelude",
       "shape": "serde_json::Value::Array(values) => SmeltUnknown::Array(values.into_iter().map(smelt_unknown_from_json_value).collect()),",
       "occurrences": 1,
       "files": 1,
-      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:2610"
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:2636"
     },
     {
       "category": "runtime-prelude",
       "shape": "serde_json::Value::Bool(value) => SmeltUnknown::Bool(value),",
       "occurrences": 1,
       "files": 1,
-      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:2607"
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:2633"
     },
     {
       "category": "runtime-prelude",
       "shape": "serde_json::Value::Null => SmeltUnknown::Null,",
       "occurrences": 1,
       "files": 1,
-      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:2606"
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:2632"
     },
     {
       "category": "runtime-prelude",
       "shape": "serde_json::Value::Number(value) => SmeltUnknown::Number(value.as_fN().unwrap_or_default()),",
       "occurrences": 1,
       "files": 1,
-      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:2608"
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:2634"
     },
     {
       "category": "runtime-prelude",
       "shape": "serde_json::Value::Object(values) => SmeltUnknown::Object(SmeltObject::new(values.into_iter().map(|(key, value)| (key, smelt_unknown_from_json_value(value))).collect())),",
       "occurrences": 1,
       "files": 1,
-      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:2611"
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:2637"
     },
     {
       "category": "runtime-prelude",
       "shape": "serde_json::Value::String(value) => SmeltUnknown::String(value.into()),",
       "occurrences": 1,
       "files": 1,
-      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:2609"
+      "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:2635"
     }
   ]
 }

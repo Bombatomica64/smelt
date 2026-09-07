@@ -102,7 +102,32 @@ fn host_instance_markers(class_name: &str) -> Option<Vec<&'static str>> {
         .filter(|entry| entry.class_name == class_name || entry.to_string_tag == class_name)
         .map(|entry| entry.marker)
         .collect::<Vec<_>>();
-    (!markers.is_empty()).then_some(markers)
+    if !markers.is_empty() {
+        return Some(markers);
+    }
+    // The markers owned by a SUBSYSTEM rather than by the host-object registry.
+    //
+    // `host_object_markers()` deliberately excludes these — the runtime tracks
+    // dates, regexps, maps, sets and abort controllers through their own
+    // helpers, and the `for...in` filter must not treat them as host records.
+    // But `instanceof` asks a different question, and for that question they
+    // are no different from a registry marker: the erasure stamps the key, so
+    // an erased value's identity is recoverable from it.
+    //
+    // Naming them here rather than at five separate `if class_name == ".."`
+    // arms is what lets ONE probe below serve every class. Each arm that
+    // remains does so because it asks something OTHER than marker presence,
+    // and says which.
+    let subsystem = match class_name {
+        "Date" => "__smelt_date",
+        "RegExp" => "__smelt_regexp",
+        "Map" => "__smelt_map",
+        "Set" => "__smelt_set",
+        "AbortController" => "__smelt_abortcontroller",
+        "AbortSignal" => "__smelt_abortsignal",
+        _ => return None,
+    };
+    Some(vec![subsystem])
 }
 
 impl FunctionEmitter<'_> {
@@ -2723,6 +2748,22 @@ impl FunctionEmitter<'_> {
     /// implementation for a runtime tag check. With today's concrete class
     /// lowering, the operand type is statically known, so codegen emits a
     /// boolean after the operand has already been evaluated by MIR lowering.
+    /// Whether an `instanceof` operand's identity is a RUNTIME fact.
+    ///
+    /// True for the erased shapes — `unknown`, an unscoped type parameter, a
+    /// union, an optional — whose storage does not settle which class the value
+    /// belongs to, so the answer has to come from an identity marker on the
+    /// value itself. False for concrete storage, where the type settles it.
+    ///
+    /// Shared by the per-class arms and by the marker probe they fall through
+    /// to, so an arm cannot decline an operand the probe would have answered.
+    fn instanceof_operand_is_dynamic(&self, value_ty: TypeId) -> bool {
+        matches!(
+            self.mir.types.get(value_ty),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
+        )
+    }
+
     pub(super) fn instance_of_text(
         &self,
         value: &Operand,
@@ -2787,92 +2828,26 @@ impl FunctionEmitter<'_> {
                 "matches!({value_text}.clone(), SmeltUnknown::Object(value) if {marker_probe})"
             ));
         }
-        if class_name == "Date"
-            && matches!(
-                self.mir.types.get(value_ty),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
-            )
-        {
-            let value_text = self.operand_text(value)?;
-            if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
-                return Ok(format!(
-                    "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"__smelt_date\"))"
-                ));
-            }
-            return Ok(format!(
-                "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_date\"))"
-            ));
-        }
-        // A concrete `SmeltRegExp` answers `instanceof RegExp` through the typed
-        // path; an erased one recovers its identity from the `__smelt_regexp`
-        // marker its erasure stamps, exactly like the Date arm above. Without this
-        // arm the check was `false` for any `unknown`-typed regex, so es-toolkit
-        // `cloneDeepWithImpl` skipped its `valueToClone instanceof RegExp` branch
-        // and fell through to the generic `Object.create(getPrototypeOf(x))` path,
-        // which produced an object with no `source`/`flags` at all.
-        if class_name == "RegExp"
-            && matches!(
-                self.mir.types.get(value_ty),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
-            )
-        {
-            let value_text = self.operand_text(value)?;
-            if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
-                return Ok(format!(
-                    "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"__smelt_regexp\"))"
-                ));
-            }
-            return Ok(format!(
-                "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_regexp\"))"
-            ));
-        }
+        // A concrete source `Map`/`Set` is unconditionally an instance of its own
+        // class, and any OTHER concrete operand carries no such identity. Those
+        // are static answers about storage, which is why the two keep an arm; the
+        // dynamic case falls through to the shared marker probe below, where
+        // `__smelt_map` / `__smelt_set` answer it like any other identity marker.
         if class_name == "Map" {
-            // A concrete source `Map` (`JsMap`) is unconditionally `instanceof
-            // Map`. An erased operand recovers Map identity through the
-            // `__smelt_map` marker its erasure stamps.
             if matches!(self.mir.types.get(value_ty), Some(Type::JsMap(_, _))) {
                 return Ok("true".to_owned());
             }
-            if matches!(
-                self.mir.types.get(value_ty),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
-            ) {
-                let value_text = self.operand_text(value)?;
-                if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
-                    return Ok(format!(
-                        "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"__smelt_map\"))"
-                    ));
-                }
-                return Ok(format!(
-                    "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_map\"))"
-                ));
+            if !self.instanceof_operand_is_dynamic(value_ty) {
+                return Ok("false".to_owned());
             }
-            // Any other concrete operand carries no Map identity.
-            return Ok("false".to_owned());
         }
         if class_name == "Set" {
-            // A concrete source `Set` is unconditionally `instanceof Set`. An
-            // erased operand recovers Set identity through the `__smelt_set`
-            // marker its erasure stamps. Mirrors the `Map` arm above.
             if matches!(self.mir.types.get(value_ty), Some(Type::Set(_))) {
                 return Ok("true".to_owned());
             }
-            if matches!(
-                self.mir.types.get(value_ty),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
-            ) {
-                let value_text = self.operand_text(value)?;
-                if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
-                    return Ok(format!(
-                        "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"__smelt_set\"))"
-                    ));
-                }
-                return Ok(format!(
-                    "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_set\"))"
-                ));
+            if !self.instanceof_operand_is_dynamic(value_ty) {
+                return Ok("false".to_owned());
             }
-            // Any other concrete operand carries no Set identity.
-            return Ok("false".to_owned());
         }
         if class_name == "ArrayBuffer"
             && matches!(
@@ -2975,17 +2950,13 @@ impl FunctionEmitter<'_> {
         // filter. (`ArrayBuffer`/`Blob`/`Number` are already handled by dedicated
         // branches above; sourcing them here too is harmless since those
         // short-circuit first.)
-        let abort_marker = match class_name {
-            "AbortController" => Some(vec!["__smelt_abortcontroller"]),
-            "AbortSignal" => Some(vec!["__smelt_abortsignal"]),
-            _ => host_instance_markers(class_name),
-        };
-        if let Some(markers) = abort_marker {
-            let value_is_dynamic = matches!(
-                self.mir.types.get(value_ty),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
-            );
-            if value_is_dynamic || self.is_erased_class_type(value_ty) {
+        // The shared identity probe. `host_instance_markers` answers for every
+        // class whose identity survives erasure — the host-object registry and
+        // the subsystem-owned markers alike — so this one arm replaces what used
+        // to be a separate `if class_name == ".."` block per class, and a class
+        // that gains a marker is answered here without touching this function.
+        if let Some(markers) = host_instance_markers(class_name) {
+            if self.instanceof_operand_is_dynamic(value_ty) || self.is_erased_class_type(value_ty) {
                 let value_text = self.operand_text(value)?;
                 let probe = markers
                     .iter()
@@ -3008,29 +2979,26 @@ impl FunctionEmitter<'_> {
         if let Some(Type::Class { name, .. }) = self.mir.types.get(value_ty) {
             return Ok(self.class_extends_or_equals(*name, class).to_string());
         }
-        // For a DYNAMIC operand it is not. `false` here is a guess, and for a
-        // modeled host class it is a guess that silently deletes a live branch:
-        // `const x: unknown = new TextEncoder(); if (x instanceof TextEncoder)`
-        // folded to `if false`, so the body never ran and no diagnostic said so.
-        // The cause is that the class has no recoverable identity on an erased
-        // value — no `host_instance_markers` entry, because its erasure goes
-        // through the generic struct path that stamps `__smelt_class` rather
-        // than a registry marker — and a class whose erasure and whose
-        // `instanceof` disagree cannot answer this question at all.
+        // For a DYNAMIC operand it is not, and round 10 made that a blocker
+        // rather than a `false` fold, because folding silently deleted the
+        // branch: `const x: unknown = new TextEncoder(); if (x instanceof
+        // TextEncoder)` became `if false` with no diagnostic.
         //
-        // A named blocker rather than a fold: the honest answer is "this is not
-        // modeled", and the fix for each such class is to give its runtime type
-        // a marker and an erasure adapter (as `Blob` and `Headers` have), after
-        // which the shared marker path above answers it.
-        if matches!(
-            self.mir.types.get(value_ty),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
-        ) && smelt_stdlib::typescript_stdlib_class(class_name).is_some()
+        // Every modeled class now carries an identity marker and erases through
+        // its own adapter, so the probe above answers all of them and nothing
+        // modeled reaches here any more. The blocker stays as the honest answer
+        // for a target that is modeled but has no marker — the state no class is
+        // in today, and the state a NEW modeled class starts in before its
+        // erasure adapter is written. Keeping it makes that omission a build
+        // error instead of a deleted branch.
+        if self.instanceof_operand_is_dynamic(value_ty)
+            && smelt_stdlib::typescript_stdlib_class(class_name).is_some()
         {
             return Err(EmitError::new(format!(
                 "`instanceof {class_name}` on a dynamically-typed value is not modeled: \
                  `{class_name}` values carry no identity marker on an erased value, so the \
-                 check cannot be answered at runtime"
+                 check cannot be answered at runtime. A modeled class needs a host-object \
+                 registry marker and an `IntoSmeltUnknown` that stamps it."
             )));
         }
         Ok("false".to_owned())

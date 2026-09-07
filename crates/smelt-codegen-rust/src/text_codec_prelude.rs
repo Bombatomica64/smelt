@@ -56,8 +56,11 @@ pub fn emit_byte_array(writer: &mut CodeWriter, needs_unknown: bool) {
     emit_byte_array_traits(writer, needs_unknown);
 }
 
+
 /// Emit the `SmeltTextEncoder` runtime type.
-pub fn emit_encoder(writer: &mut CodeWriter) {
+///
+/// `needs_unknown` gates the erasure adapters, as it does for the byte view.
+pub fn emit_encoder(writer: &mut CodeWriter, needs_unknown: bool) {
     writer.line("/// A WHATWG `TextEncoder`: a UTF-8 encoder with a JS reference identity.");
     writer.line("#[derive(Clone)]");
     writer.block("pub struct SmeltTextEncoder", |struct_writer| {
@@ -90,10 +93,13 @@ pub fn emit_encoder(writer: &mut CodeWriter) {
         );
     });
     writer.blank_line();
+    emit_codec_erasure(writer, needs_unknown, "SmeltTextEncoder", "__smelt_textencoder");
 }
 
 /// Emit the `SmeltTextDecoder` runtime type.
-pub fn emit_decoder(writer: &mut CodeWriter) {
+///
+/// `needs_unknown` gates the erasure adapters, as it does for the byte view.
+pub fn emit_decoder(writer: &mut CodeWriter, needs_unknown: bool) {
     writer.line("/// A WHATWG `TextDecoder`: a UTF-8 decoder with a JS reference identity.");
     writer.line("#[derive(Clone)]");
     writer.block("pub struct SmeltTextDecoder", |struct_writer| {
@@ -138,6 +144,7 @@ pub fn emit_decoder(writer: &mut CodeWriter) {
         );
     });
     writer.blank_line();
+    emit_codec_erasure(writer, needs_unknown, "SmeltTextDecoder", "__smelt_textdecoder");
 }
 
 /// Emit the byte-view struct and its comparisons.
@@ -249,4 +256,33 @@ fn emit_byte_array_traits(writer: &mut CodeWriter, needs_unknown: bool) {
         );
     });
     writer.blank_line();
+}
+
+/// Emit one text codec's erasure adapter pair.
+///
+/// Both codecs erase to the same shape — an identity marker plus the spec's one
+/// readable data property, `encoding` — and both recover LOSSLESSLY, because a
+/// codec's only state besides its reference identity IS its encoding label. The
+/// two therefore share this call rather than each spelling the shape out.
+fn emit_codec_erasure(
+    writer: &mut CodeWriter,
+    needs_unknown: bool,
+    type_name: &str,
+    marker: &str,
+) {
+    if !needs_unknown {
+        return;
+    }
+    crate::host_value_erasure::emit_adapters(
+        writer,
+        type_name,
+        marker,
+        &[crate::host_value_erasure::DataProperty {
+            name: "encoding",
+            value_expr: "SmeltUnknown::String(self.encoding().into())",
+        }],
+        // The spec fixes both codecs at UTF-8 and the label is the only state,
+        // so `Self::new()` IS the value the record describes.
+        crate::host_value_erasure::Recovery::Structural("Self::new()"),
+    );
 }

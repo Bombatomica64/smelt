@@ -1013,3 +1013,146 @@ if (direct instanceof Headers) {
         "the erased member path must not be reached after narrowing\n{source}"
     );
 }
+
+
+/// The six modeled classes whose state is not a record now erase through their
+/// own adapter, carrying a registry identity marker.
+///
+/// Before this, erasing one fell through to the generic struct path — which
+/// reads declared fields and stamps `__smelt_class`, and a prelude type has no
+/// declared fields — so the erased value carried no host identity and
+/// `instanceof` on it could not be answered at all.
+#[test]
+fn host_value_erasure_stamps_the_registry_marker() {
+    let source = source_for(
+        r#"
+const enc: unknown = new TextEncoder();
+console.log(enc instanceof TextEncoder);
+"#,
+    );
+
+    // The adapter, not the declared-field record builder.
+    assert!(
+        source.contains("impl IntoSmeltUnknown for SmeltTextEncoder"),
+        "{source}"
+    );
+    assert!(
+        source.contains("(\"__smelt_textencoder\".to_owned(), SmeltUnknown::Bool(true))"),
+        "{source}"
+    );
+    // The erased record keeps the value's OWN object id, so erasing one value
+    // twice yields two `===`-equal objects.
+    assert!(
+        source.contains("SmeltObject::with_id(smelt_id,"),
+        "{source}"
+    );
+    // And the live value is retained, so narrowing hands back the same object.
+    assert!(
+        source.contains("smelt_register_host_origin(smelt_id, self.clone())"),
+        "{source}"
+    );
+    // The check is the shared marker probe, no longer a folded `false`.
+    assert!(
+        source.contains("value.contains_key(\"__smelt_textencoder\")"),
+        "{source}"
+    );
+    assert!(
+        !source.contains("(\"__smelt_class\".to_owned(), SmeltUnknown::String(\"TextEncoder\""),
+        "the generic struct erasure must not claim a host runtime type\n{source}"
+    );
+}
+
+/// A `node:http` `Server` erases but does NOT recover.
+///
+/// A server is a live listening socket with a handler closure and a tokio
+/// shutdown sender; there is no empty server to fall back to, so rather than
+/// fabricate one that is not listening the emitter writes no `SmeltFromUnknown`
+/// and `StdlibClass::narrows_from_erased` excludes it. Its `instanceof` is
+/// still answered, because identity is knowable where reconstruction is not.
+#[test]
+fn a_server_erases_but_does_not_recover() {
+    let source = source_for(
+        r#"
+import { createServer } from "node:http";
+
+const server = createServer((_req, res) => {
+  res.end("ok");
+});
+const erased: unknown = server;
+console.log(erased instanceof Server);
+"#,
+    );
+
+    assert!(
+        source.contains("impl IntoSmeltUnknown for SmeltHttpServer"),
+        "{source}"
+    );
+    assert!(
+        !source.contains("impl SmeltFromUnknown for SmeltHttpServer"),
+        "a server has no honest empty value to recover to\n{source}"
+    );
+    assert!(
+        source.contains("value.contains_key(\"__smelt_httpserver\")"),
+        "{source}"
+    );
+}
+
+/// The host-origin registry is pay-for-use.
+///
+/// Only the six classes whose state is not a record retain their live value, so
+/// a program that erases none of them must not carry the registry — sixteen
+/// example goldens grew by it before the gate was added.
+#[test]
+fn the_host_origin_registry_is_pay_for_use() {
+    let without = source_for(
+        r#"
+const value: unknown = { a: 1 };
+console.log(value);
+"#,
+    );
+    assert!(!without.contains("SMELT_HOST_ORIGINS"), "{without}");
+
+    let with = source_for(
+        r#"
+const enc: unknown = new TextEncoder();
+console.log(enc);
+"#,
+    );
+    assert!(with.contains("SMELT_HOST_ORIGINS"), "{with}");
+}
+
+/// A class backed by a generated runtime type is not reflectively constructible
+/// as a marker record.
+///
+/// Reflected construction has only a class NAME to work from, so for a host
+/// class it builds a record carrying that class's marker. For a runtime-typed
+/// class that record would answer `instanceof` correctly and then silently fail
+/// every method called on it. `Blob` is the deliberate exception: its reflected
+/// constructor shares one record definition with its erasure.
+#[test]
+fn runtime_typed_host_classes_are_not_reflectively_constructible() {
+    let source = source_for(
+        r#"
+const value: unknown = new TextEncoder();
+console.log(value);
+"#,
+    );
+
+    let table = source
+        .lines()
+        .find(|line| line.contains("fn smelt_builtin_construct_kind"))
+        .unwrap_or_default();
+    for excluded in [
+        "TextEncoder",
+        "TextDecoder",
+        "EventEmitter",
+        "IncomingMessage",
+        "ServerResponse",
+    ] {
+        assert!(
+            !table.contains(&format!("(\"{excluded}\"")),
+            "{excluded} must not be reflectively constructible as a marker record\n{table}"
+        );
+    }
+    assert!(table.contains("(\"Blob\", \"blob\")"), "{table}");
+}

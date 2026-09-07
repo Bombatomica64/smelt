@@ -77,6 +77,22 @@ impl FunctionEmitter<'_> {
         {
             return self.operand_text(operand);
         }
+        // A concrete host value used at a RECORD or COLLECTION type goes
+        // through its erasure adapter first. Same rule as in
+        // `value_at_type_text`, which this delegates to so the two spellings
+        // of the coercion cannot disagree; the operand entry point is the one
+        // an ordinary assignment reaches.
+        if let Some(Type::Class { name, .. }) = self.mir.types.get(source_ty)
+            && matches!(
+                self.mir.types.get(target),
+                Some(Type::Dict(_, _) | Type::List(_) | Type::Set(_))
+            )
+            && self
+                .stdlib_class_of_symbol(*name)?
+                .is_some_and(smelt_stdlib::StdlibClass::erases_through_adapter)
+        {
+            return self.value_at_type_text(&operand_text, source_ty, target);
+        }
         // `Future<A>` -> `Future<B>` is a coercion of the AWAITED value, so it
         // needs the awaiting adapter the text-based entry point already builds
         // (`smelt_source_future.await?`, then the item coercion). Falling through
@@ -670,6 +686,35 @@ impl FunctionEmitter<'_> {
         let smelt_owned_value = cloned_value_text(value_text);
         if source == target && !matches!(self.mir.types.get(target), Some(Type::Function(_))) {
             return Ok(value_text.to_owned());
+        }
+        // A concrete host value cast to a RECORD or a COLLECTION goes through
+        // its erasure adapter first.
+        //
+        // `erased as { type: string }` reads fields off the host record, and the
+        // adapters below know how to walk a `SmeltUnknown` into a typed record —
+        // but they are reached only when the source is already erased. A
+        // concrete `SmeltBlob` therefore fell straight through and was assigned
+        // to a `SmeltRecord` (E0308).
+        //
+        // It became reachable when `instanceof` started narrowing an erased
+        // local (round 10): inside `x instanceof Blob ? (x as { type: string }) : ..`
+        // the operand is now the concrete class rather than `unknown`, so the
+        // cast has a concrete source where it used to have an erased one. The
+        // blob runtime tier is what caught it.
+        //
+        // Stated over `erases_through_adapter`, so it holds for every host class
+        // with an adapter rather than for the one that exposed it.
+        if let Some(Type::Class { name, .. }) = self.mir.types.get(source)
+            && matches!(
+                self.mir.types.get(target),
+                Some(Type::Dict(_, _) | Type::List(_) | Type::Set(_))
+            )
+            && self
+                .stdlib_class_of_symbol(*name)?
+                .is_some_and(smelt_stdlib::StdlibClass::erases_through_adapter)
+        {
+            let erased = format!("({smelt_owned_value}).into_smelt_unknown()");
+            return self.value_at_type_text(&erased, self.type_id(Type::Unknown)?, target);
         }
         if source == target && matches!(self.mir.types.get(target), Some(Type::Function(_))) {
             if self.is_borrowed_callback_capture_name(value_text) {
