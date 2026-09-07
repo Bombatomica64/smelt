@@ -2841,7 +2841,7 @@ impl ModuleBuilder<'_> {
         if !matches!(self.ctx.krate.types.get(ty), Some(Type::Unknown)) {
             return None;
         }
-        let target = self.stdlib_class_for_name(class_name)?;
+        let target = Self::stdlib_class_for_name(class_name)?;
         if !target.narrows_from_erased() || self.user_class_shadows(class_name) {
             return None;
         }

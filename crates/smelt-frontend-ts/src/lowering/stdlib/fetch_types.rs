@@ -379,7 +379,6 @@ impl ModuleBuilder<'_> {
     /// sites that hold a source identifier rather than a lowered type — an
     /// `instanceof` right-hand side, for instance.
     pub(in crate::lowering) fn stdlib_class_for_name(
-        &self,
         name: &str,
     ) -> Option<smelt_stdlib::StdlibClass> {
         smelt_stdlib::typescript_stdlib_class(name)
