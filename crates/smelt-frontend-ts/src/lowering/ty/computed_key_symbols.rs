@@ -21,13 +21,6 @@
 //! stable static spelling, so it deliberately does not fold here and stays on
 //! the runtime-keyed path.
 
-/// Synthetic member-name prefix for `Symbol.for(...)` registry symbols.
-///
-/// The registry description string is sanitized into an identifier-safe suffix
-/// (see [`registry_key_suffix`]) so, for example,
-/// `Symbol.for("@ts-pattern/matcher")` and a `const matcher = Symbol.for(...)`
-/// alias both resolve to `__smelt_symbol_for_ts_pattern_matcher`.
-const REGISTRY_SYMBOL_PREFIX: &str = "__smelt_symbol_for_";
 
 /// Return the stable synthetic member key for a well-known `Symbol.<name>`.
 ///
@@ -59,8 +52,6 @@ pub(in crate::lowering) fn well_known_symbol_value_spelling(name: &str) -> Optio
     smelt_stdlib::well_known_symbols::value_spelling(name)
 }
 
-/// Synthetic member-name prefix for a unique `Symbol(...)` bound to a const.
-const UNIQUE_SYMBOL_PREFIX: &str = "__smelt_symbol_unique_";
 
 /// Return the stable synthetic member key for a unique `Symbol(...)` VALUE that
 /// a module-level `const` binds.
@@ -81,20 +72,13 @@ const UNIQUE_SYMBOL_PREFIX: &str = "__smelt_symbol_unique_";
 ///
 /// Returns `None` for any spelling that is not a unique symbol, so registry and
 /// well-known symbols keep their own globally interned keys.
+///
+/// Delegates to [`smelt_stdlib::symbol_keys`], the single owner of the
+/// value-spelling-to-key derivation: the generated Rust prelude derives the same
+/// key from a *runtime* symbol value, so neither half may hold its own copy of
+/// the scheme.
 pub(in crate::lowering) fn unique_symbol_key(spelling: &str) -> Option<String> {
-    if registry_description_of_symbol_literal(spelling).is_some()
-        || well_known_key_of_symbol_literal(spelling).is_some()
-    {
-        return None;
-    }
-    let (_, offset) = spelling.rsplit_once('@')?;
-    if !spelling.starts_with("Symbol(") || offset.is_empty() {
-        return None;
-    }
-    Some(format!(
-        "{UNIQUE_SYMBOL_PREFIX}{}",
-        registry_key_suffix(spelling)
-    ))
+    smelt_stdlib::symbol_keys::unique_symbol_key(spelling)
 }
 
 /// Return the stable synthetic member key for a `Symbol.for(description)`.
@@ -103,8 +87,11 @@ pub(in crate::lowering) fn unique_symbol_key(spelling: &str) -> Option<String> {
 /// collision-resistant identifier while remaining a pure function of the
 /// registry description (every reference to the same registry symbol folds to
 /// the same key).
+///
+/// Delegates to [`smelt_stdlib::symbol_keys`] for the same reason
+/// [`unique_symbol_key`] does.
 pub(in crate::lowering) fn registry_symbol_key(description: &str) -> String {
-    format!("{REGISTRY_SYMBOL_PREFIX}{}", registry_key_suffix(description))
+    smelt_stdlib::symbol_keys::registry_symbol_key(description)
 }
 
 /// Extract the registry description from a lowered `Symbol.for(...)` literal.
@@ -115,36 +102,7 @@ pub(in crate::lowering) fn registry_symbol_key(description: &str) -> String {
 /// registry form yields a stable key, so this returns `Some(desc)` for the
 /// former and `None` for the latter.
 pub(in crate::lowering) fn registry_description_of_symbol_literal(value: &str) -> Option<&str> {
-    value
-        .strip_prefix("Symbol.for(")
-        .and_then(|rest| rest.strip_suffix(')'))
-}
-
-/// Sanitize a `Symbol.for` description into an identifier-safe key suffix.
-///
-/// Non-alphanumeric characters collapse to single underscores and leading and
-/// trailing underscores are trimmed, so `"@ts-pattern/matcher"` becomes
-/// `"ts_pattern_matcher"`. An empty or all-symbol description falls back to
-/// `"anonymous"` so the produced key is always a valid identifier.
-fn registry_key_suffix(description: &str) -> String {
-    let mut suffix = String::with_capacity(description.len());
-    let mut pending_underscore = false;
-    for ch in description.chars() {
-        if ch.is_ascii_alphanumeric() {
-            if pending_underscore && !suffix.is_empty() {
-                suffix.push('_');
-            }
-            pending_underscore = false;
-            suffix.push(ch.to_ascii_lowercase());
-        } else {
-            pending_underscore = true;
-        }
-    }
-    if suffix.is_empty() {
-        "anonymous".to_owned()
-    } else {
-        suffix
-    }
+    smelt_stdlib::symbol_keys::registry_description_of_value_spelling(value)
 }
 
 #[cfg(test)]
@@ -176,27 +134,34 @@ mod tests {
         assert_eq!(well_known_symbol_key("madeUpSymbol"), None);
     }
 
+    /// The folded key is a pure function of the description, distinguishes
+    /// descriptions that differ only in punctuation, and is exactly the key the
+    /// shared derivation gives a `Symbol.for` VALUE — the agreement the runtime
+    /// half of the compiler also depends on.
     #[test]
-    fn registry_key_is_deterministic_and_sanitized() {
+    fn registry_key_agrees_with_the_shared_derivation() {
         assert_eq!(
             registry_symbol_key("@ts-pattern/matcher"),
-            "__smelt_symbol_for_ts_pattern_matcher"
+            smelt_stdlib::symbol_keys::storage_key_for_value_spelling(
+                "Symbol.for(@ts-pattern/matcher)"
+            )
         );
-        assert_eq!(
-            registry_symbol_key("@ts-pattern/override"),
-            "__smelt_symbol_for_ts_pattern_override"
+        assert_ne!(
+            registry_symbol_key("@ts-pattern/matcher"),
+            registry_symbol_key("@ts-pattern/override")
         );
+        assert_ne!(registry_symbol_key("a.b"), registry_symbol_key("a_b"));
         // Same description -> same key, regardless of how it was referenced.
         assert_eq!(
             registry_symbol_key("app.event"),
             registry_symbol_key("app.event")
         );
-    }
-
-    #[test]
-    fn empty_registry_description_falls_back() {
-        assert_eq!(registry_symbol_key(""), "__smelt_symbol_for_anonymous");
-        assert_eq!(registry_symbol_key("///"), "__smelt_symbol_for_anonymous");
+        assert!(
+            registry_symbol_key("@ns/name")
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || ch == '_'),
+            "a folded key must be spellable as a Rust identifier"
+        );
     }
 
     #[test]

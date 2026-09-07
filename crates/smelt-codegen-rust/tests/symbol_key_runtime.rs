@@ -187,3 +187,89 @@ test("the getSymbols idiom keeps enumerable symbol keys", () => {
 "#;
     run_fixture(source, "smelt_symbol_key_property_is_enumerable");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_folded_symbol_key_and_a_runtime_derived_key_name_one_property() {
+    // The regression remeda's `groupByProp` "by Symbol" tests caught. A
+    // module-level `const KEY = Symbol("k")` is one symbol for the program's
+    // lifetime, so the frontend folds `{ [KEY]: v }` to a static member key --
+    // and the generated Rust derived a DIFFERENT key when the same symbol
+    // arrived at `obj[prop]` through an erased parameter. The literal's property
+    // was then invisible to every dynamic read of the very symbol that wrote it,
+    // with no diagnostic: `groupByProp` grouped nothing.
+    //
+    // Both halves now derive the key through `smelt_stdlib::symbol_keys`, so
+    // this holds for each kind of symbol whose identity is fixed (unique bound
+    // once, registry) and in both directions: a folded write read dynamically,
+    // and a dynamic write read through the folded key.
+    let source = r#"
+import { test, expect } from "vitest";
+
+const UNIQUE = Symbol("u");
+const REGISTRY = Symbol.for("app.event");
+
+function readProp(item: any, prop: PropertyKey): unknown {
+  return item[prop];
+}
+
+function writeProp(target: any, prop: PropertyKey, value: unknown): void {
+  target[prop] = value;
+}
+
+test("an erased read finds the property a folded key wrote", () => {
+  const row: any = { [UNIQUE]: "cat", [REGISTRY]: "dog", plain: 1 };
+  expect(readProp(row, UNIQUE)).toBe("cat");
+  expect(readProp(row, REGISTRY)).toBe("dog");
+  expect(readProp(row, "plain")).toBe(1);
+});
+
+test("a folded read finds the property an erased write made", () => {
+  const row: any = {};
+  writeProp(row, UNIQUE, "cat");
+  writeProp(row, REGISTRY, "dog");
+  expect(row[UNIQUE]).toBe("cat");
+  expect(row[REGISTRY]).toBe("dog");
+});
+
+test("a symbol key stays out of string-key enumeration", () => {
+  const row: any = { [UNIQUE]: "cat", [REGISTRY]: "dog", plain: 1 };
+  expect(Object.keys(row)).toStrictEqual(["plain"]);
+  expect(Object.values(row)).toStrictEqual([1]);
+  const seen: string[] = [];
+  for (const name in row) {
+    seen.push(name);
+  }
+  expect(seen).toStrictEqual(["plain"]);
+});
+
+test("a folded key still reports its own symbol and description", () => {
+  const row: any = { [UNIQUE]: "cat" };
+  const symbols = Object.getOwnPropertySymbols(row);
+  expect(symbols.length).toBe(1);
+  expect(typeof symbols[0]).toBe("symbol");
+  expect(symbols[0]).toBe(UNIQUE);
+  expect(row[symbols[0]]).toBe("cat");
+});
+
+test("the grouping idiom that regressed groups by a symbol prop", () => {
+  const data: any[] = [
+    { [UNIQUE]: "cat", n: 1 },
+    { [UNIQUE]: "dog", n: 2 },
+    { [UNIQUE]: "cat", n: 3 },
+  ];
+  const output: any = {};
+  for (const item of data) {
+    const key = readProp(item, UNIQUE);
+    if (key !== undefined) {
+      const bucket: any[] | undefined = output[String(key)];
+      output[String(key)] = bucket === undefined ? [item] : [...bucket, item];
+    }
+  }
+  expect(Object.keys(output)).toStrictEqual(["cat", "dog"]);
+  expect(output.cat.length).toBe(2);
+  expect(output.dog.length).toBe(1);
+});
+"#;
+    run_fixture(source, "smelt_symbol_key_folded_and_runtime_agree");
+}

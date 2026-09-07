@@ -385,7 +385,7 @@ item_pairs: list[tuple[int, int]] = enumerate(items)
     assert!(source.contains("idx as i64"));
     assert!(
         source.contains(
-            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol:\")).cloned().collect::<Vec<_>>()"
+            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol\")).cloned().collect::<Vec<_>>()"
         ),
         "{source}"
     );
@@ -408,7 +408,7 @@ mixed: list[tuple[str, int]] = zip(lookup, items)
     assert!(source.contains(".iter().cloned().zip("));
     assert!(
         source.contains(
-            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol:\")).cloned().collect::<Vec<_>>()"
+            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol\")).cloned().collect::<Vec<_>>()"
         ),
         "{source}"
     );
@@ -773,7 +773,7 @@ for (const entry: [string, number] of mapping) {
     // per-entry `.clone()`.
     assert!(
         source.contains(
-            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").collect::<Vec<_>>()"
+            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").collect::<Vec<_>>()"
         ),
         "{source}"
     );
@@ -799,7 +799,7 @@ for name in names:
     assert!(source.contains(".iter().cloned().collect::<Vec<_>>()"));
     assert!(
         source.contains(
-            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol:\")).cloned().collect::<Vec<_>>()"
+            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol\")).cloned().collect::<Vec<_>>()"
         ),
         "{source}"
     );

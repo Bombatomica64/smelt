@@ -215,3 +215,6 @@ third_party/hono
 !blocker-logs/hono-h16-nested-callback-destructuring.md
 !blocker-logs/hono-h17-private-field-capture.md
 !blocker-logs/hono-h18-accessors-and-private-names.md
+
+# Hono round 10 notes
+!blocker-logs/remeda-symbol-key-regression.md

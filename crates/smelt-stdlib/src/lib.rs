@@ -17,6 +17,7 @@ pub mod js_regex;
 pub mod recognition;
 pub mod rules;
 pub mod runtime_symbols;
+pub mod symbol_keys;
 pub mod well_known_symbols;
 
 pub use builtin_members::{

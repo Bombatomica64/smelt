@@ -851,8 +851,8 @@ export interface Matcher {
     let matcher = interface_named(&ctx, module, "Matcher")?;
     ensure!(
         matcher.methods.iter().any(|method| ctx.krate.symbols.get(method.name)
-            == Some("__smelt_symbol_for_ts_pattern_matcher")),
-        "expected a `__smelt_symbol_for_ts_pattern_matcher` method, got {:?}",
+            == Some(smelt_stdlib::symbol_keys::registry_symbol_key("@ts-pattern/matcher").as_str())),
+        "expected the folded `Symbol.for(\"@ts-pattern/matcher\")` method, got {:?}",
         matcher.methods
     );
     Ok(())
@@ -877,8 +877,8 @@ export interface Branded {
     let branded = interface_named(&ctx, module, "Branded")?;
     ensure!(
         branded.fields.iter().any(|field| ctx.krate.symbols.get(field.name)
-            == Some("__smelt_symbol_for_ts_pattern_override")),
-        "expected a `__smelt_symbol_for_ts_pattern_override` field, got {:?}",
+            == Some(smelt_stdlib::symbol_keys::registry_symbol_key("@ts-pattern/override").as_str())),
+        "expected the folded `Symbol.for(\"@ts-pattern/override\")` field, got {:?}",
         branded.fields
     );
     Ok(())
@@ -915,8 +915,8 @@ export interface Override {
     let override_iface = interface_named(&ctx, module, "Override")?;
     ensure!(
         override_iface.fields.iter().any(|field| ctx.krate.symbols.get(field.name)
-            == Some("__smelt_symbol_for_ts_pattern_override")),
-        "expected a `__smelt_symbol_for_ts_pattern_override` field, got {:?}",
+            == Some(smelt_stdlib::symbol_keys::registry_symbol_key("@ts-pattern/override").as_str())),
+        "expected the folded `Symbol.for(\"@ts-pattern/override\")` field, got {:?}",
         override_iface.fields
     );
     Ok(())
