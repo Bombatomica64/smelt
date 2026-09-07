@@ -616,8 +616,19 @@ impl LoweringCtx<'_> {
             .copied()
             .ok_or_else(|| self.error("for pattern references an unknown local", None))?;
         let iter_operand = self.lower_expr(iter)?;
-        let iter_span = self.hir_expr(iter)?.span;
-        let iter_local = self.local_operand(iter_operand, iter_span)?;
+        let iter_expr = self.hir_expr(iter)?;
+        let iter_span = iter_expr.span;
+        let iter_ty = iter_expr.ty;
+        // The loop indexes its iterable by place, so the iterable needs a base
+        // it can index. A source `for (const x of a.b)` — or of a call result,
+        // or of `m[k]` — hands back a projection or a value, not a local, and
+        // demanding a local here rejected the program outright
+        // (`for (const child of node.#patterns)` in Hono's trie router). A
+        // hand-written Rust loop over `a.b` binds it first, and so does this:
+        // JavaScript evaluates the iterable expression exactly once and then
+        // iterates that value, so one temporary is both what the semantics ask
+        // for and what the emitter needs.
+        let iter_local = self.materialize_operand_local(iter_operand, iter_ty, iter_span)?;
         let float_ty = self.loop_index_ty;
         let bool_ty = self.loop_bool_ty;
         let idx = self.push_temp(float_ty, iter_span);

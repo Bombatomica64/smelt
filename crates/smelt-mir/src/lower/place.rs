@@ -97,6 +97,36 @@ impl LoweringCtx<'_> {
                     negative: self.negative_index_policy(expr.span),
                 })
             }
+            // A write through a receiver whose HIR type is still optional.
+            //
+            // `tsc` has already proved the receiver present at this write —
+            // `let parts: number[] | undefined; parts = []; parts[i] = v` is
+            // accepted only because the assignment narrows `parts` to
+            // `number[]`, and `parts![i] = v` says so outright. The frontend's
+            // narrowing does not always reach the write target, so the target
+            // arrives as `OptionalField` / `OptionalIndex` and used to be
+            // rejected outright (`partOffsets[p] = offset` in Hono's trie
+            // router). A hand-written Rust team would bind the unwrapped
+            // receiver and assign through it, which is exactly what
+            // `narrowed_receiver_base` builds: a temporary of the INNER type,
+            // whose `Rvalue::Use` of an optional operand emits the narrowing
+            // unwrap, then an ordinary field or index projection on it.
+            ExprKind::OptionalField { receiver, field } => {
+                let base = self.narrowed_receiver_base(*receiver, expr.span)?;
+                Ok(Place::Field {
+                    base,
+                    field: *field,
+                })
+            }
+            ExprKind::OptionalIndex { receiver, index } => {
+                let base = self.narrowed_receiver_base(*receiver, expr.span)?;
+                let index_operand = self.lower_expr(*index)?;
+                Ok(Place::Index {
+                    base,
+                    index: Box::new(index_operand),
+                    negative: self.negative_index_policy(expr.span),
+                })
+            }
             ExprKind::TypeAssert { value } | ExprKind::UnknownCast { value, .. } => {
                 self.lower_place(*value)
             }
@@ -105,6 +135,43 @@ impl LoweringCtx<'_> {
             // compile time lives in `place_unsupported`, keeping this match short.
             _ => Err(self.place_unsupported(&expr)),
         }
+    }
+
+    /// Materializes an assignment receiver whose type is still optional, as a
+    /// local of the INNER type, and returns that local for use as a place base.
+    ///
+    /// The temporary is typed with the optional's inner type, so the
+    /// `Rvalue::Use` that fills it converts an `Optional<T>` operand to `T`
+    /// through the emitter's narrowing unwrap. A receiver that is not optional
+    /// keeps its own type and goes through the ordinary materialization, so this
+    /// is safe to call for any receiver.
+    ///
+    /// The base is a temporary rather than the receiver expression itself for the
+    /// same reason `Field`/`Index` already materialize theirs: MIR places are
+    /// rooted at a local, and a projected or unwrapped receiver is a value. Smelt's
+    /// collection handles share their storage across clones, which is what makes a
+    /// write through such a temporary land in the original object — the property
+    /// `a.b[i] = v` already depends on.
+    fn narrowed_receiver_base(
+        &mut self,
+        receiver: ExprId,
+        span: smelt_hir::Span,
+    ) -> Result<crate::LocalId, LowerError> {
+        let receiver_operand = self.lower_expr(receiver)?;
+        let receiver_ty = self.hir_expr(receiver)?.ty;
+        let base_ty = match self.krate.types.get(receiver_ty) {
+            Some(smelt_hir::Type::Optional(inner)) => *inner,
+            _ => return self.materialize_operand_local(receiver_operand, receiver_ty, span),
+        };
+        // Always a FRESH temporary: reusing an already-local operand would keep
+        // the optional type on the place base, and the projection needs the
+        // unwrapped value.
+        let local = self.push_temp(base_ty, span);
+        self.block_mut()?.statements.push(crate::Statement::Assign {
+            dest: local,
+            value: crate::Rvalue::Use(receiver_operand),
+        });
+        Ok(local)
     }
 
     /// The MIR global index when `receiver` reads a module-level mutable global.
@@ -156,6 +223,10 @@ impl LoweringCtx<'_> {
             | ExprKind::Construct { .. }
             | ExprKind::ClosureCallSpread { .. }
             | ExprKind::Method { .. }
+            // `OptionalField` / `OptionalIndex` ARE assignable (see
+            // `lower_place`); they reach this exhaustive listing only because it
+            // enumerates every variant, and naming them here keeps that
+            // enumeration complete.
             | ExprKind::OptionalField { .. }
             | ExprKind::OptionalIndex { .. }
             | ExprKind::OptionalMethod { .. }
@@ -346,9 +417,25 @@ impl LoweringCtx<'_> {
             | ExprKind::New { .. }
             | ExprKind::Await(_)
             | ExprKind::AsyncOp { .. } => self.error(
-                "only local, field, and index expressions can be assigned",
+                format!(
+                    "only local, field, and index expressions can be assigned, not `{}`",
+                    Self::expr_kind_name(&expr.kind)
+                ),
                 Some(expr.span),
             ),
         }
+    }
+
+    /// The variant name of an `ExprKind`, for a diagnostic that has to say which
+    /// expression it refused.
+    ///
+    /// `Debug` on an `ExprKind` prints the whole subtree, which is unreadable in
+    /// a diagnostic, so this keeps just the leading variant name — enough to tell
+    /// a reader (or the next round) which shape reached a rejection site.
+    fn expr_kind_name(kind: &ExprKind) -> String {
+        let rendered = format!("{kind:?}");
+        rendered
+            .split_once(|ch: char| !ch.is_ascii_alphanumeric())
+            .map_or(rendered.clone(), |(name, _)| name.to_owned())
     }
 }
