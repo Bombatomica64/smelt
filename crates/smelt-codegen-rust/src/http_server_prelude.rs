@@ -67,7 +67,7 @@ use crate::rust::CodeWriter;
 /// Requires the `SmeltEventEmitter` prelude (composed into
 /// [`SmeltIncomingMessage`]) and the timer prelude's live-handle counter, both
 /// of which `crate::stdlib` gates on this prelude's own use.
-pub(crate) fn emit(writer: &mut CodeWriter) {
+pub fn emit(writer: &mut CodeWriter) {
     emit_incoming_message(writer);
     emit_server_response(writer);
     emit_server(writer);
