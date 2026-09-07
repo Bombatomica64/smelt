@@ -231,3 +231,7 @@ third_party/hono
 # slots, instanceof narrowing), why item 6 needs Dict provenance, and the six
 # modeled classes that still cannot answer instanceof on an erased value.
 !blocker-logs/standards-round10-progress.md
+
+# The relayed Hono demand item (`new Headers(init)` in `src/context.ts`) checked
+# and found already resolved by round 10, with where the Hono build stops now.
+!blocker-logs/standards-hono-headers-init-resolved.md
