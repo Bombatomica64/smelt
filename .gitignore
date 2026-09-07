@@ -209,3 +209,4 @@ third_party/hono
 !blocker-logs/interface-literal-camel-case.md
 !blocker-logs/find-callback-repro.md
 !blocker-logs/generated-union-generic-member.md
+!blocker-logs/implementer-brief.md
