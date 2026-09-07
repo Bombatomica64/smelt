@@ -1318,6 +1318,25 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
+            ExprKind::FormDataNew => {
+                self.assign_temp(expr.ty, expr.span, Rvalue::FormDataNew)?
+            }
+            ExprKind::FormDataOp { op, form, args } => {
+                let form_operand = self.lower_expr(*form)?;
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::FormDataOp {
+                        op: *op,
+                        form: form_operand,
+                        args: arg_operands,
+                    },
+                )?
+            }
             ExprKind::UrlSearchParamsNew { init } => {
                 let init_operand = match init {
                     Some(init) => Some(self.lower_expr(*init)?),

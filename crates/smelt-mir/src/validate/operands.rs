@@ -127,6 +127,13 @@ impl Rvalue {
                     visit(arg);
                 }
             }
+            Self::FormDataNew => {}
+            Self::FormDataOp { form, args, .. } => {
+                visit(form);
+                for arg in args {
+                    visit(arg);
+                }
+            }
             Self::List(items) | Self::Set(items) | Self::Tuple(items) => {
                 for item in items {
                     visit(item);
@@ -1031,6 +1038,13 @@ impl Rvalue {
             }
             Self::UrlSearchParamsOp { params, args, .. } => {
                 visit(params);
+                for arg in args.iter_mut() {
+                    visit(arg);
+                }
+            }
+            Self::FormDataNew => {}
+            Self::FormDataOp { form, args, .. } => {
+                visit(form);
                 for arg in args.iter_mut() {
                     visit(arg);
                 }

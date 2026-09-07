@@ -611,6 +611,14 @@ fn rewrite_rvalue(
         Rvalue::UrlSearchParamsNew { init } => init
             .as_mut()
             .is_some_and(|init| rewrite_operand_except(init, aliases, dest)),
+        Rvalue::FormDataNew => false,
+        Rvalue::FormDataOp { form, args, .. } => {
+            let mut rewritten = rewrite_operand_except(form, aliases, dest);
+            for arg in args {
+                rewritten |= rewrite_operand_except(arg, aliases, dest);
+            }
+            rewritten
+        }
         Rvalue::UrlSearchParamsOp { params, args, .. } => {
             let mut rewritten = rewrite_operand_except(params, aliases, dest);
             for arg in args {

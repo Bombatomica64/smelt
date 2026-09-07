@@ -82,6 +82,16 @@ pub enum StdlibClass {
     /// WHATWG `Blob`, backed by the generated concrete `SmeltBlob` runtime type
     /// (immutable bytes, a MIME type, and optional `File` metadata).
     Blob,
+    /// WHATWG `FormData`, backed by the generated concrete `SmeltFormData`
+    /// runtime type: an insertion-ordered, case-SENSITIVE name/value pair list
+    /// whose values are `string | File`.
+    ///
+    /// The same pair-list shape as `Headers` and `URLSearchParams`, and it
+    /// belongs after `Blob` for the value type: an entry value is a real
+    /// two-arm union of MODELED types (`String` and the blob runtime type), so
+    /// nothing about it has to be erased. Before `Blob` was concrete this would
+    /// have needed a `SmeltUnknown` for the file arm.
+    FormData,
     /// WHATWG `File`. Backed by the SAME `SmeltBlob` runtime type: the spec's
     /// `File` is a `Blob` plus exactly two data properties (`name`,
     /// `lastModified`), so a file is a blob whose name is present. Rust has no
@@ -142,6 +152,7 @@ impl StdlibClass {
                 | Self::HttpServer
                 | Self::IncomingMessage
                 | Self::ServerResponse
+                | Self::FormData
         )
     }
 
@@ -284,6 +295,7 @@ pub fn typescript_stdlib_class(name: &str) -> Option<StdlibClass> {
         "Server" => Some(StdlibClass::HttpServer),
         "IncomingMessage" => Some(StdlibClass::IncomingMessage),
         "ServerResponse" => Some(StdlibClass::ServerResponse),
+        "FormData" => Some(StdlibClass::FormData),
         "TextEncoder" => Some(StdlibClass::TextEncoder),
         "TextDecoder" => Some(StdlibClass::TextDecoder),
         BYTE_ARRAY_CLASS_NAME => Some(StdlibClass::ByteArray),

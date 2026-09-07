@@ -282,7 +282,9 @@ impl LoweringCtx<'_> {
             | ExprKind::TextDecoderOp { .. }
             | ExprKind::ByteArrayOp { .. }
             | ExprKind::UrlSearchParamsNew { .. }
+            | ExprKind::FormDataNew
             | ExprKind::UrlSearchParamsOp { .. }
+            | ExprKind::FormDataOp { .. }
             | ExprKind::HeadersNew { .. }
             | ExprKind::HeadersOp { .. }
             | ExprKind::RegexExec { .. }
