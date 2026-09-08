@@ -5162,7 +5162,11 @@ impl<'builder> ModuleBuilder<'builder> {
             .take(fixed_param_count)
             .enumerate()
             .map(|(index, arg)| {
-                let hint = function.params.get(index).copied();
+                let hint = function
+                    .params
+                    .get(index)
+                    .copied()
+                    .filter(|param| self.hint_preserves_argument_shape(*param));
                 self.argument_with_hint(arg, body, hint)
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -5200,6 +5204,41 @@ impl<'builder> ModuleBuilder<'builder> {
             ty: call_return_ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Whether a parameter type is worth hinting an argument with, i.e. whether
+    /// it PRESERVES the argument's own shape rather than erasing it.
+    ///
+    /// A hint makes the argument lower AT the hinted type. That is what turns
+    /// an inline object literal into its struct, but it cuts the other way when
+    /// the parameter itself is an erased surface: hinting `unknown[]` at
+    /// `spreadFn([1, 2])` builds `Vec<SmeltUnknown>` directly, erasing each
+    /// element at construction, where the unhinted lowering builds `Vec<f64>`
+    /// and erases at the call through the boundary adapter the emitter already
+    /// generates. Same runtime value, but the erasure moves from an explicit
+    /// boundary into ordinary data flow, which is what the `SmeltUnknown`
+    /// policy forbids — measured as +14 avoidable erasure in es-toolkit's
+    /// `spread.spec.ts` when the hint was passed unconditionally.
+    ///
+    /// So an `unknown`, or a container whose elements/values are `unknown`, is
+    /// not a shape to lower into. Peels `Optional` first, because
+    /// `Optional<Opts>` is a real hint (fixture 66 covers it) while
+    /// `Optional<unknown>` is not.
+    fn hint_preserves_argument_shape(&self, ty: smelt_hir::TypeId) -> bool {
+        let peeled = match self.ctx.krate.types.get(ty) {
+            Some(Type::Optional(inner)) => *inner,
+            _ => ty,
+        };
+        match self.ctx.krate.types.get(peeled) {
+            Some(Type::Unknown) => false,
+            Some(Type::List(item) | Type::Set(item)) => {
+                !matches!(self.ctx.krate.types.get(*item), Some(Type::Unknown))
+            }
+            Some(Type::Dict(_, value) | Type::JsMap(_, value)) => {
+                !matches!(self.ctx.krate.types.get(*value), Some(Type::Unknown))
+            }
+            _ => true,
+        }
     }
 
     /// Return whether a local's structural class type is an erased callable object.
