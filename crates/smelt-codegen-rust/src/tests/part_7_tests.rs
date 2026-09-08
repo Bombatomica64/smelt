@@ -13782,3 +13782,64 @@ export class Holder {
         "a throwing getter read must not clone the Result: {source}"
     );
 }
+
+/// A method the class reassigns through `this` becomes a function-typed field;
+/// a sibling method that is never assigned stays an inherent method.
+///
+/// JavaScript lets an instance replace its own method, and Hono's
+/// `SmartRouter` does it to skip its router-selection loop after the first
+/// request (`smart-router/router.ts`). A Rust inherent method cannot be
+/// assigned, so the write emitted `self.match_ = ...` against a method and
+/// failed with `E0615`.
+///
+/// The scoping half of the rule is the point of the sibling assertion: this
+/// must not turn every method into an `Rc<dyn Fn>` field, because that would
+/// trade a static call for a dynamic one everywhere and is the opposite of
+/// carrying a concrete type down to runtime.
+#[test]
+fn a_method_reassigned_through_this_becomes_a_callable_field() {
+    let source = source_for(
+        r"
+export class Picker {
+  tag: unknown = 0;
+  pick(value: string): string { return value; }
+  other(value: string): string { return value + '?'; }
+  run(value: string): string {
+    this.pick = (v: string) => v + '!';
+    return this.pick(value) + this.other(value);
+  }
+}
+",
+    );
+
+    // The reassigned method is a field of the method's own signature ...
+    assert!(
+        source.contains("pick: ::std::rc::Rc<dyn Fn(String) -> String>"),
+        "a reassigned method must become a function-typed field: {source}"
+    );
+    // ... initialised to the method's own body, so a class that never assigns
+    // still behaves as declared ...
+    assert!(
+        source.contains("this.0.borrow_mut().pick = "),
+        "the field must be initialised in the constructor: {source}"
+    );
+    // ... and the assignment writes that field rather than a method.
+    assert!(
+        source.contains("self.0.borrow_mut().pick = "),
+        "the reassignment must write the field: {source}"
+    );
+
+    // The untouched sibling keeps its inherent method and its STATIC call.
+    assert!(
+        source.contains("fn other(&self, value: String) -> String"),
+        "an unassigned sibling must stay an inherent method: {source}"
+    );
+    assert!(
+        source.contains("self.other(value.clone())"),
+        "an unassigned sibling must keep a static call: {source}"
+    );
+    assert!(
+        !source.contains("other: ::std::rc::Rc<dyn Fn"),
+        "an unassigned sibling must NOT become a field: {source}"
+    );
+}

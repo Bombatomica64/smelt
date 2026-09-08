@@ -1,8 +1,8 @@
 # H43 — a method assigned at runtime must be a callable field
 
-Round 15, item 3. Note before building, as instructed. **2 slice errors**
-(`E0615` on `SmartRouter<T>::match_`), and one question that needs a ruling
-before any code is written.
+Round 15 note, **landed in round 16**. 2 slice errors cleared (`E0615` on
+`SmartRouter<T>::match_`); slice 14 -> 12. What shipped is option B below, the
+exact-but-narrow rule, per the coordinator ruling. See "What landed" at the end.
 
 ## The shape
 
@@ -118,3 +118,74 @@ unrelated code, and it buys nothing hono needs.
 downstream specialization resolved to a concrete class while the read came
 through an `as any` cast — and four fixtures failed to reproduce it. It is not
 fixed by H43 and should not be folded into it.
+
+---
+
+## What landed (round 16)
+
+Option **B**, in `smelt-frontend-ts` only — the emitter needed no change, as
+predicted:
+
+- `methods_assigned_on_this` scans a class body for `this.<name> = …`
+  (static or string-literal key, `this` receiver, walking into nested closures).
+  Syntactic, no type resolution, no new HIR fact.
+- A non-static method whose name is in that set is lowered as a **field** whose
+  type is `method_signature_function_type` (the method's own signature, so a
+  call through the field keeps the declared parameter and return types) and
+  whose initialiser is the method's own body, lowered through
+  `function_expression_value` — the same path a `f = function () {…}` field
+  initialiser already took. `ClassFieldInit` is the small enum that lets a
+  field initialiser come from either an expression or a method.
+- The method-lowering loop skips exactly those methods, so nothing is emitted
+  twice.
+
+Generated shape, from the new end-to-end example:
+
+```rust
+pick: ::std::rc::Rc<dyn Fn(String) -> String>,     // the reassigned method
+this.0.borrow_mut().pick = _smelt_tmp_1.clone();   // its own body, in `new`
+self.0.borrow_mut().pick = _smelt_tmp_4.clone();   // the reassignment
+fn describe(&self, path: String) -> String { … }   // the untouched sibling
+let _smelt_tmp_7: String = self.describe(path.clone());  // still a STATIC call
+```
+
+### Verification
+
+- `examples/typescript/end-to-end/55_reassigned_method` — a runtime fixture
+  where the reassignment changes behaviour and persists across calls:
+  `slow:a,fast:a` / `fast:b,fast:b` / `[a][b]`. The first line proves the
+  original body ran before the assignment and the new one after; the second
+  proves the assignment stuck on the instance; the third proves the untouched
+  sibling still works. This matches JavaScript, where the assignment creates an
+  own property shadowing the prototype method.
+- `a_method_reassigned_through_this_becomes_a_callable_field` asserts the
+  emitted text on both halves, including three negative assertions that the
+  sibling stays an inherent method with a static call and does NOT become a
+  field. That scoping is the point: converting every method would trade a
+  static call for an `Rc<dyn Fn>` everywhere.
+- `cargo test --workspace`: 2671 passed, 0 failed. Every pre-existing golden
+  is unchanged, which is the corpus-level evidence that the rule is scoped.
+- es-toolkit and remeda are **byte-identical, because neither contains the
+  shape**: remeda has no `this.<name> = …` in non-test sources at all, and
+  es-toolkit's three (`this.name` in `server/exec.ts`, `this.capacity` and
+  `this.available` in `promise/semaphore.ts`) all assign data fields, none of
+  which is also a method. So the rule cannot fire there.
+- SmeltUnknown examples invariant: avoidable 0, +0 versus baseline.
+
+### Known consequences, recorded deliberately
+
+1. A class with an assigned method becomes a reference class
+   (`Rc<RefCell<…Inner>>`) if it was not one already, because the field is
+   mutable. That is inherent to making the member assignable.
+2. A call through the field is an indirect call, so a method that calls the
+   reassigned member becomes fallible (`run` in the fixture returns
+   `Result<…>`). Direct calls to the untouched siblings are unaffected. This
+   is the ordinary cost of the member genuinely being a function value.
+
+### Still open
+
+External assignment — `instance.method = …` from outside the class — remains a
+**named blocker**. The receiver's class is not knowable from the AST, so it
+needs the `(class, member)` HIR fact described as option C above. Nothing in
+hono's slice needs it. Every member option B converts, option C also converts,
+so widening later does not have to unwind this.

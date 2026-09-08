@@ -1,0 +1,47 @@
+module examples/typescript/end-to-end/55_reassigned_method/input.ts (ModuleId(0))
+  body BodyId(5)
+  items
+    class Router fields [Public log: String, Public pick: fn(String) -> String] constructor Some(ItemId(2)) methods [ItemId(0), ItemId(1)] implements []
+  locals
+    %0 const router: Router
+    %1 const first: String
+    %2 const second: String
+  exprs
+    #0: Router = new Router()
+    #1: Router = %0
+    #2: fn(String) -> String = #1.route
+    #3: Router = %0
+    #4: String = "a"
+    #5: String = #3.route(#4)
+    #6: Router = %0
+    #7: fn(String) -> String = #6.route
+    #8: Router = %0
+    #9: String = "b"
+    #10: String = #8.route(#9)
+    #11: String = %1
+    #12: None = @4(console_log)
+    #13: None = call #12(#11)
+    #14: String = %2
+    #15: None = @5(console_log)
+    #16: None = call #15(#14)
+    #17: Router = %0
+    #18: String = #17.log
+    #19: None = @6(console_log)
+    #20: None = call #19(#18)
+  stmts
+    s0: let %0: Router = #0
+    s1: let %1: String = #5
+    s2: let %2: String = #10
+    s3: #13
+    s4: #16
+    s5: #20
+
+interned types
+  t0 = Router
+  t1 = String
+  t2 = Unknown
+  t3 = Dict<String, Unknown>
+  t4 = fn(String) -> Unknown
+  t5 = fn(String) -> String
+  t6 = fn(String) -> String
+  t7 = None

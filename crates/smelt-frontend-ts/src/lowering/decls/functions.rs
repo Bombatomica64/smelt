@@ -21,7 +21,170 @@ use smelt_hir::{
     ParamSig, Pattern, Span, Stmt, Type, Visibility,
 };
 
+/// What a class field's initializer is lowered from.
+///
+/// A declared field carries a source expression. A method reassigned through
+/// `this` (see [`methods_assigned_on_this`]) is lowered as a function-typed
+/// field whose initializer is the method's own body, so it needs the function
+/// rather than an expression: an inherent Rust method cannot be assigned, and
+/// there is no source expression to point at.
+#[derive(Clone, Copy)]
+enum ClassFieldInit<'a> {
+    /// A declared field's `= <expr>` initializer.
+    Expression(&'a Expression<'a>),
+    /// A reassigned method's own body, lowered as a function value.
+    Method(&'a oxc::ast::ast::Function<'a>),
+}
+
+/// The plain source spelling of a property key, when it has one.
+///
+/// Used to match a method against the names collected by
+/// [`methods_assigned_on_this`], which are syntactic: a `this.<name> = ...`
+/// target is always a static identifier or a string-literal key, so those are
+/// the only two spellings that can match. A private name is deliberately
+/// excluded -- `this.#m = ...` targets a private slot, not a method member.
+fn property_key_plain_name<'a>(key: &'a PropertyKey<'a>) -> Option<&'a str> {
+    match key {
+        PropertyKey::StaticIdentifier(ident) => Some(ident.name.as_str()),
+        PropertyKey::StringLiteral(lit) => Some(lit.value.as_str()),
+        _ => None,
+    }
+}
+
+/// Collect the method names a class body reassigns through `this.<name> = ...`.
+///
+/// JavaScript lets an instance replace one of its own methods at runtime, and
+/// Hono's `SmartRouter` does exactly that: it picks a concrete router on the
+/// first request and then rewrites its own `match` so later requests skip the
+/// selection loop (`smart-router/router.ts`). A Rust inherent method cannot be
+/// assigned, so such a member is lowered as a function-typed FIELD initialised
+/// to the method's own body instead, which the emitter already knows how to
+/// carry (an `Rc<dyn Fn(..)>` field, reassignable, with calls dispatching
+/// through it).
+///
+/// The scan is deliberately syntactic and deliberately narrow: only
+/// `this.<name> = ...` inside the class's own body, where the receiver names
+/// the class being lowered without any type resolution. Assignment through an
+/// instance from outside the class (`instance.method = ...`) needs the
+/// receiver's class, which is not knowable from the AST, and stays a named
+/// blocker rather than being guessed at. Every member this converts, that
+/// general rule would also convert, so the narrow form does not have to be
+/// unwound to widen it later.
+///
+/// Walking continues into nested nodes, so an assignment inside a callback,
+/// a loop body or a nested closure in the class body is recorded too.
+fn methods_assigned_on_this(body: &oxc::ast::ast::ClassBody<'_>) -> HashSet<String> {
+    let mut names = HashSet::new();
+    let mut collector = ThisMethodAssignmentCollector { names: &mut names };
+    for element in &body.body {
+        oxc::ast_visit::Visit::visit_class_element(&mut collector, element);
+    }
+    names
+}
+
+/// AST collector for `this.<name> = ...` writes anywhere in a class body.
+struct ThisMethodAssignmentCollector<'names> {
+    /// Accumulates each member name assigned through `this`.
+    names: &'names mut HashSet<String>,
+}
+
+impl<'a> oxc::ast_visit::Visit<'a> for ThisMethodAssignmentCollector<'_> {
+    fn visit_assignment_expression(&mut self, assign: &oxc::ast::ast::AssignmentExpression<'a>) {
+        if let Some(name) = assignment_target_this_member_name(&assign.left) {
+            self.names.insert(name.to_owned());
+        }
+        oxc::ast_visit::walk::walk_assignment_expression(self, assign);
+    }
+}
+
+/// Yield the member name of an assignment target of the form `this.<name>`.
+///
+/// Both the static spelling and a string-literal computed key are recognised,
+/// mirroring `assignment_target_host_global_name`. An optional (`this?.x`) or
+/// dynamically computed target yields nothing.
+fn assignment_target_this_member_name<'a>(
+    target: &'a oxc::ast::ast::AssignmentTarget<'a>,
+) -> Option<&'a str> {
+    use oxc::ast::ast::AssignmentTarget;
+    let (object, property) = match target {
+        AssignmentTarget::StaticMemberExpression(member) if !member.optional => {
+            (&member.object, member.property.name.as_str())
+        }
+        AssignmentTarget::ComputedMemberExpression(member) if !member.optional => {
+            let Expression::StringLiteral(key) = &member.expression else {
+                return None;
+            };
+            (&member.object, key.value.as_str())
+        }
+        _ => return None,
+    };
+    matches!(object, Expression::ThisExpression(_)).then_some(property)
+}
+
 impl ModuleBuilder<'_> {
+    /// Build the HIR function type describing a method's own signature.
+    ///
+    /// Used when a reassigned method is carried as a function-typed field (see
+    /// [`methods_assigned_on_this`]): the field's declared type has to be the
+    /// signature the method itself declares, so a call through the field keeps
+    /// the parameter and return types the source wrote rather than widening to
+    /// the runtime carrier. Parameters and the return follow the same
+    /// annotation-or-`Unknown` rules as an abstract method signature.
+    fn method_signature_function_type(
+        &mut self,
+        method: &oxc::ast::ast::MethodDefinition<'_>,
+    ) -> Result<smelt_hir::TypeId, SmeltError> {
+        let _type_params = self.push_type_parameter_scope(method.value.type_parameters.as_deref())?;
+        let return_ty = method
+            .value
+            .return_type
+            .as_ref()
+            .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+            .transpose()?
+            .unwrap_or_else(|| {
+                let unknown = self.ctx.krate.types.intern(Type::Unknown);
+                if method.value.r#async {
+                    self.ctx.krate.types.intern(Type::Future(unknown))
+                } else {
+                    unknown
+                }
+            });
+        let mut params = Vec::new();
+        for param in &method.value.params.items {
+            let ty = param
+                .type_annotation
+                .as_ref()
+                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                .transpose()?
+                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+            params.push(ty);
+        }
+        // `Function.length` counts the leading parameters before the first
+        // optional or defaulted one, the same rule named-function lowering uses.
+        let required_params = method
+            .value
+            .params
+            .items
+            .iter()
+            .position(|param| param.optional || Self::formal_parameter_has_default(param))
+            .unwrap_or(method.value.params.items.len());
+        let rest = method
+            .value
+            .params
+            .rest
+            .as_ref()
+            .map(|_| params.len().saturating_sub(1));
+        Ok(self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params,
+            rest,
+            required_params: Some(required_params),
+            mutable_params: Vec::new(),
+            return_ty,
+            is_async: method.value.r#async,
+            may_throw: false,
+        })))
+    }
+
     /// Lower a TypeScript function declaration into a HIR function item.
     pub(in crate::lowering) fn function_declaration(
         &mut self,
@@ -1354,6 +1517,11 @@ impl ModuleBuilder<'_> {
                 .set_base(class_text.to_owned(), base_name, base_args.clone());
         }
         let mut fields = Vec::new();
+        // Methods this class reassigns through `this`, which are carried as
+        // function-typed fields instead of inherent methods. Scanned once here
+        // because both loops below need it: the field loop converts them, the
+        // method loop skips them.
+        let assigned_methods = methods_assigned_on_this(&class.body);
         let mut field_initializers = Vec::new();
         let mut constructor = None;
         let mut methods = Vec::new();
@@ -1374,6 +1542,34 @@ impl ModuleBuilder<'_> {
 
         for element in &class.body.body {
             match element {
+                // A method this class reassigns through `this` is carried as a
+                // function-typed field rather than as an inherent method, which
+                // cannot be assigned. The field's type is the method's own
+                // signature and its initializer is the method's own body, so a
+                // class that never actually assigns behaves exactly as before.
+                ClassElement::MethodDefinition(method)
+                    if !method.r#static
+                        && method.kind == MethodDefinitionKind::Method
+                        && method.value.body.is_some()
+                        && property_key_plain_name(&method.key)
+                            .is_some_and(|name| assigned_methods.contains(name)) =>
+                {
+                    let name = self.property_key_symbol(&method.key)?;
+                    let ty = self.method_signature_function_type(method)?;
+                    field_initializers.push((
+                        name,
+                        ClassFieldInit::Method(&method.value),
+                        ty,
+                        self.span(method.span.start, method.span.end),
+                    ));
+                    fields.push(Field {
+                        name,
+                        ty,
+                        visibility: visibility(method.accessibility),
+                        optional: false,
+                        span: self.span(method.span.start, method.span.end),
+                    });
+                }
                 ClassElement::PropertyDefinition(property) => {
                     if !property.decorators.is_empty() && materialized.is_none() {
                         return Err(SmeltError::specialization_required(
@@ -1444,7 +1640,7 @@ impl ModuleBuilder<'_> {
                     if let Some(value) = &property.value {
                         field_initializers.push((
                             name,
-                            value,
+                            ClassFieldInit::Expression(value),
                             ty,
                             self.span(property.span.start, property.span.end),
                         ));
@@ -1662,6 +1858,16 @@ impl ModuleBuilder<'_> {
             match element {
                 ClassElement::PropertyDefinition(_) => {}
                 ClassElement::MethodDefinition(method) => {
+                    // Already lowered as a function-typed field above, because
+                    // this class assigns over it through `this`.
+                    if !method.r#static
+                        && method.kind == MethodDefinitionKind::Method
+                        && method.value.body.is_some()
+                        && property_key_plain_name(&method.key)
+                            .is_some_and(|name| assigned_methods.contains(name))
+                    {
+                        continue;
+                    }
                     // An overload declaration has no JavaScript body. TypeScript
                     // validates overload applicability before Smelt runs; when
                     // the class also contains the matching concrete method, only
@@ -2417,7 +2623,7 @@ impl ModuleBuilder<'_> {
         class_name: smelt_hir::Symbol,
         class_ty: smelt_hir::TypeId,
         has_base: bool,
-        field_initializers: &[(smelt_hir::Symbol, &Expression<'_>, smelt_hir::TypeId, Span)],
+        field_initializers: &[(smelt_hir::Symbol, ClassFieldInit<'_>, smelt_hir::TypeId, Span)],
         span: Span,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let saved_locals = self.scope.take_bindings();
@@ -2482,7 +2688,7 @@ impl ModuleBuilder<'_> {
         &mut self,
         this_local: smelt_hir::LocalId,
         class_ty: smelt_hir::TypeId,
-        field_initializers: &[(smelt_hir::Symbol, &Expression<'_>, smelt_hir::TypeId, Span)],
+        field_initializers: &[(smelt_hir::Symbol, ClassFieldInit<'_>, smelt_hir::TypeId, Span)],
         body: &mut Body,
     ) -> Result<(), SmeltError> {
         for (field, initializer, field_ty, span) in field_initializers {
@@ -2506,7 +2712,21 @@ impl ModuleBuilder<'_> {
             // empty `new Map()` for a `Map<T, string>` field infers
             // `Map<Unknown, Unknown>`, forcing a lossy key conversion at the
             // assignment that cannot collect into the generic field type (E0277).
-            let value = self.expression_with_hint(initializer, body, Some(*field_ty))?;
+            let value = match initializer {
+                ClassFieldInit::Expression(expression) => {
+                    self.expression_with_hint(expression, body, Some(*field_ty))?
+                }
+                // A method reassigned through `this` is carried as a
+                // function-typed field, so its own body becomes the field's
+                // initializer: the class still behaves as declared until
+                // something assigns over it. Lowered as a function VALUE (the
+                // same path a `f = function () {..}` field initializer takes)
+                // rather than as an inherent method, because an inherent method
+                // is what cannot be assigned in the first place.
+                ClassFieldInit::Method(function) => {
+                    self.function_expression_value(function, Some(*field_ty), function.span, body)?
+                }
+            };
             body.push_stmt(Stmt::Assign { target, value });
         }
         Ok(())
@@ -2866,7 +3086,7 @@ impl ModuleBuilder<'_> {
         class_ty: smelt_hir::TypeId,
         method: &oxc::ast::ast::MethodDefinition<'_>,
         is_constructor: bool,
-        field_initializers: &[(smelt_hir::Symbol, &Expression<'_>, smelt_hir::TypeId, Span)],
+        field_initializers: &[(smelt_hir::Symbol, ClassFieldInit<'_>, smelt_hir::TypeId, Span)],
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         self.class_function_impl(
             class_text,
@@ -2894,7 +3114,7 @@ impl ModuleBuilder<'_> {
         method: &oxc::ast::ast::MethodDefinition<'_>,
         is_constructor: bool,
         is_static: bool,
-        field_initializers: &[(smelt_hir::Symbol, &Expression<'_>, smelt_hir::TypeId, Span)],
+        field_initializers: &[(smelt_hir::Symbol, ClassFieldInit<'_>, smelt_hir::TypeId, Span)],
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let Some(function_body) = &method.value.body else {
             return Err(SmeltError::unsupported(
