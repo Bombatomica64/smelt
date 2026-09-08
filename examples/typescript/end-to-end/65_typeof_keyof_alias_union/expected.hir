@@ -1,0 +1,87 @@
+module examples/typescript/end-to-end/65_typeof_keyof_alias_union/input.ts (ModuleId(0))
+  body BodyId(1)
+  items
+    type Mime = String
+    type HeadersInitLike = List<(String, String)> | Dict<String, String> | Headers
+    fn header_of owner Module
+  locals
+    %0 const mimes: Dict<String, String>
+    %1 const declared: String
+  exprs
+    #0: String = "json"
+    #1: String = "application/json"
+    #2: String = "text"
+    #3: String = "text/plain"
+    #4: Dict<String, String> = {#0: #1, #2: #3}
+    #5: Dict<String, String> = %0
+    #6: String = #5.json
+    #7: String = "Content-Type"
+    #8: String = %1
+    #9: Dict<String, String> = {#7: #8}
+    #10: String = "content-type"
+    #11: fn(List<(String, String)> | Dict<String, String> | Headers, String) -> String = @4(header_of)
+    #12: String = call #11(#9, #10)
+    #13: None = @7(console_log)
+    #14: None = call #13(#12)
+    #15: String = "x-kind"
+    #16: String = "pairs"
+    #17: List<String> = [#15, #16]
+    #18: List<(String, String)> | Dict<String, String> | Headers = [#17]
+    #19: String = "x-kind"
+    #20: fn(List<(String, String)> | Dict<String, String> | Headers, String) -> String = @4(header_of)
+    #21: String = call #20(#18, #19)
+    #22: None = @8(console_log)
+    #23: None = call #22(#21)
+    #24: String = "x-kind"
+    #25: String = "record"
+    #26: Dict<String, String> = {#24: #25}
+    #27: String = "x-kind"
+    #28: fn(List<(String, String)> | Dict<String, String> | Headers, String) -> String = @4(header_of)
+    #29: String = call #28(#26, #27)
+    #30: None = @9(console_log)
+    #31: None = call #30(#29)
+    #32: String = "x-kind"
+    #33: String = "headers"
+    #34: List<String> = [#32, #33]
+    #35: List<List<String>> = [#34]
+    #36: Headers = headers_new #35
+    #37: String = "x-kind"
+    #38: fn(List<(String, String)> | Dict<String, String> | Headers, String) -> String = @4(header_of)
+    #39: String = call #38(#36, #37)
+    #40: None = @10(console_log)
+    #41: None = call #40(#39)
+    #42: String = "Content-Type"
+    #43: Dict<String, String> = %0
+    #44: String = #43.text
+    #45: Dict<String, String> = {#42: #44}
+    #46: String = "x-missing"
+    #47: fn(List<(String, String)> | Dict<String, String> | Headers, String) -> String = @4(header_of)
+    #48: String = call #47(#45, #46)
+    #49: None = @11(console_log)
+    #50: None = call #49(#48)
+  stmts
+    s0: let %0: Dict<String, String> = #4
+    s1: let %1: String = #6
+    s2: #14
+    s3: #23
+    s4: #31
+    s5: #41
+    s6: #50
+
+interned types
+  t0 = Unknown
+  t1 = String
+  t2 = (String, String)
+  t3 = List<(String, String)>
+  t4 = Dict<String, Unknown>
+  t5 = Dict<String, String>
+  t6 = Headers
+  t7 = List<(String, String)> | Dict<String, Unknown> | Dict<String, String> | Headers
+  t8 = List<String>
+  t9 = fn(List<(String, String)> | Dict<String, Unknown> | Dict<String, String> | Headers, String) -> String
+  t10 = List<(String, String)> | Dict<String, String> | Headers
+  t11 = Optional<String>
+  t12 = Unknown | String
+  t13 = fn(List<(String, String)> | Dict<String, String> | Headers, String) -> String
+  t14 = None
+  t15 = List<List<String>>

@@ -359,7 +359,8 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "61_tuple_spread_arguments",
     "63_generic_init_union_arm",
     "64_error_subclass_optional_message",
-    "65_const_arrow_literal_hint",
+    "65_typeof_keyof_alias_union",
+    "66_const_arrow_literal_hint",
 ];
 
 #[test]
