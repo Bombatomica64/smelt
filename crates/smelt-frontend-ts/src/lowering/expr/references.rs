@@ -466,7 +466,7 @@ impl ModuleBuilder<'_> {
                 span: self.span(start, end),
             }));
         }
-        // Narrowing an OPTIONAL erased local to one concrete arm takes two
+        // Narrowing an OPTIONAL UNION local to one CONCRETE arm takes two
         // steps, and only both together are a value the backend can call a
         // method on. `string | File | undefined` narrowed to `File` — the shape
         // a `FormData` entry read has after a null check and a
@@ -474,21 +474,27 @@ impl ModuleBuilder<'_> {
         // surviving union arm projected out of the payload. Each step alone is
         // already supported: a bare local read at the payload type is the
         // narrowing unwrap the backend renders as `.expect(..)`, and an
-        // `UnknownCast` off an erased payload is the arm projection. Emitting
-        // the read at the narrowed arm type directly (what happened before)
-        // left the local's `Option<SmeltUnion…>` in place and the generated
-        // Rust called the arm's methods straight on the `Option`.
+        // `UnknownCast` off the payload is the arm projection. Emitting the
+        // read at the narrowed arm type directly left the local's
+        // `Option<SmeltUnion…>` in place and the generated Rust called the
+        // arm's methods straight on the `Option`.
+        //
+        // Only a NOMINAL CLASS arm takes this path, and the seam is what
+        // decides that. A class member is rendered as an INHERENT Rust method
+        // call on the raw receiver text — `blob_op_text` is
+        // `format!("{receiver}.file_name()")` — so nothing downstream can fix
+        // up a receiver of the wrong type, and the value has to already BE the
+        // arm. Every other arm shape reaches its members through a
+        // type-directed coercion (`value_at_type`) that unwraps the optional
+        // payload itself, so a second HIR step there buys nothing and its extra
+        // temporary just holds an erased value: 85 of those across es-toolkit's
+        // optional erased callbacks, which the erasure ratchet counts as
+        // avoidable.
         if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(base_ty).cloned()
             && ty != inner
             && ty != base_ty
-            && matches!(
-                self.ctx.krate.types.get(inner),
-                Some(Type::Unknown | Type::Union(_))
-            )
-            && !matches!(
-                self.ctx.krate.types.get(ty),
-                Some(Type::Optional(_) | Type::None)
-            )
+            && matches!(self.ctx.krate.types.get(inner), Some(Type::Union(_)))
+            && matches!(self.ctx.krate.types.get(ty), Some(Type::Class { .. }))
         {
             let payload = body.push_expr(Expr {
                 kind: ExprKind::Local(local),

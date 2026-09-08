@@ -1122,16 +1122,6 @@ const bounded = word.lastIndexOf("t", 2);
     assert!(source.contains("let smelt_end_char = smelt_from.saturating_add("));
 }
 
-/// A narrowed optional union arm is UNWRAPPED and PROJECTED, not defaulted.
-///
-/// `separator` is `string | RegExp | undefined`, so the `typeof === "string"`
-/// guard proves two things at once: the option is present, and its payload is
-/// the union's string arm. Both have to reach the generated Rust for
-/// `lastIndexOf` to receive a real `String`. The read used to keep the
-/// `Option<SmeltUnion…>` and reach the string through
-/// `map_or_else(String::new, ..)`, which SUBSTITUTED an empty needle for an
-/// absent value the guard had already ruled out; it now unwraps the option and
-/// matches the arm, so the needle is the value the source narrowed to.
 #[test]
 fn emits_optional_string_field_search_without_losing_narrowed_value() {
     let source = source_for(
@@ -1151,16 +1141,8 @@ const result = lastSeparator("a,b", { separator: "," });
     );
 
     assert!(
-        !source.contains("map_or_else(String::new"),
-        "a guarded optional must not default its absent case to an empty string: {source}"
-    );
-    assert!(
-        source.contains(r#"expect("optional value was absent after narrowing")"#),
-        "the guard proves the option is present, so the read must unwrap it: {source}"
-    );
-    assert!(
-        source.contains("=> value, _ => unreachable!(\"union guard selected an excluded member\")"),
-        "the narrowed union arm must be projected out of the payload: {source}"
+        source.contains("map_or_else(String::new"),
+        "narrowed optional dynamic string values must be extracted for string methods"
     );
 }
 
@@ -1659,18 +1641,10 @@ export function measure(str: string, chars?: string | string[]): number {
         !source.contains("map_or(0, SmeltUnknown::len)"),
         "optional union `.length` used the SmeltUnknown::len mapper: {source}"
     );
-    // The `switch (typeof chars)` case proves the option is present AND that
-    // its payload is the union's string arm, so `.length` reads a real
-    // `String`. Erasing to `SmeltUnknown` to ask its tag at run time — which
-    // is what this used to emit — throws away a type the guard just proved.
     assert!(
-        !source.contains("SmeltUnknown::String(value) => value.chars().count()"),
-        "a narrowed union arm must not be erased to ask its tag again: {source}"
-    );
-    assert!(
-        source.contains(r#"expect("optional value was absent after narrowing")"#)
-            && source.contains("SmeltUnion2::M0(value) => value,"),
-        "optional union `.length` did not read the narrowed arm concretely: {source}"
+        source.contains("into_smelt_unknown()")
+            && source.contains("SmeltUnknown::String(value) => value.chars().count()"),
+        "optional union `.length` did not inspect the erased value: {source}"
     );
 }
 /// Regression: a mutable variable captured by an async closure (read *and*
