@@ -241,6 +241,7 @@ impl DependencyCollector {
         for import in &imports {
             let resolved =
                 self.resolve_import_to_existing_sources(&source_path, lang, import)?;
+
             let (included, excluded): (Vec<PathBuf>, Vec<PathBuf>) = resolved
                 .into_iter()
                 .partition(|path| !self.excluded_target(path));
@@ -781,7 +782,24 @@ fn typescript_import_statements(source: &str) -> Vec<String> {
         if let Some(buffer) = &mut current {
             buffer.push(' ');
             buffer.push_str(trimmed);
-            if trimmed.ends_with(';') {
+            // A statement ends at its semicolon OR, in a semicolon-free file,
+            // as soon as it has a module specifier: `import {\n A,\n B\n}
+            // from './m'` is complete at the closing line whether or not a `;`
+            // follows.
+            //
+            // Waiting for a semicolon that never comes was not a cosmetic bug:
+            // the buffer swallowed the REST OF THE FILE, so every import after
+            // the first multi-line one in a semicolon-free source was never
+            // seen. Those modules never entered the dependency closure, their
+            // type aliases were never predeclared, and each type imported from
+            // them fell back to a nominal `Type::Class` — which erases, and an
+            // erased member makes a whole union non-concrete. That is how
+            // Hono's `ResponseHeadersInit` reached `new Headers(init)` as
+            // `SmeltUnknown`: `import type { BaseMime } from './utils/mime'`
+            // sits four lines after a multi-line `import type { ... } from
+            // './types'`. See
+            // `blocker-logs/standards-generic-arm-and-typeof-indexed-alias.md`.
+            if trimmed.ends_with(';') || statement_has_module_specifier(buffer) {
                 statements.push(buffer.trim_end_matches(';').trim().to_owned());
                 current = None;
             }
@@ -802,6 +820,19 @@ fn typescript_import_statements(source: &str) -> Vec<String> {
         statements.push(buffer.trim_end_matches(';').trim().to_owned());
     }
     statements
+}
+
+/// Whether a buffered import/export statement already names its module.
+///
+/// The terminator for a semicolon-free multi-line import: everything up to and
+/// including the quoted specifier after the last ` from ` is one complete
+/// statement, so the scanner must stop there instead of appending the next
+/// line.
+fn statement_has_module_specifier(statement: &str) -> bool {
+    statement
+        .rsplit_once(" from ")
+        .and_then(|(_, right)| quoted_module_specifier(right))
+        .is_some()
 }
 
 /// Extracts named imports from a simple TypeScript import clause.
@@ -876,6 +907,41 @@ mod tests {
                         ]
                 })
         }));
+    }
+
+    /// A semicolon-free multi-line import must not swallow later imports.
+    ///
+    /// Regression: the scanner only closed a buffered statement on `;`, so in a
+    /// source formatted without semicolons (Hono, and Prettier's `semi: false`
+    /// generally) the first multi-line import consumed the rest of the file.
+    /// Every module imported after it was missing from the dependency closure,
+    /// which is invisible until a type imported from one of them silently
+    /// erases.
+    #[test]
+    fn a_multiline_import_without_semicolons_does_not_swallow_later_imports() {
+        let source = "import { HonoRequest } from './request'\n\
+                      import type {\n\
+                        Env,\n\
+                        Input,\n\
+                      } from './types'\n\
+                      import type { ResponseHeader } from './utils/headers'\n\
+                      import type { BaseMime } from './utils/mime'\n";
+
+        let modules = scan_typescript_imports(source)
+            .into_iter()
+            .map(|import| import.module)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            modules,
+            vec![
+                "./request".to_owned(),
+                "./types".to_owned(),
+                "./utils/headers".to_owned(),
+                "./utils/mime".to_owned(),
+            ],
+            "every import after the multi-line one has to be scanned"
+        );
     }
 
     #[test]
