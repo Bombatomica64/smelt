@@ -255,3 +255,4 @@ third_party/es-toolkit-src/
 !blocker-logs/hono-h33-sibling-method-call.md
 !blocker-logs/hono-h28-dropped-branch-region.md
 !blocker-logs/hono-h34-union-valued-record.md
+!blocker-logs/hono-h35-union-index-write.md

@@ -688,6 +688,33 @@ impl FunctionEmitter<'_> {
                         let index_ty = self.operand_ty(index)?;
                         let index_text = self.operand_text(index)?;
                         let key_text = self.property_key_to_string_text(&index_text, index_ty)?;
+                        // A CONCRETE union stores a tagged `SmeltUnion…` enum, so
+                        // it is not a `&mut SmeltUnknown` and cannot be handed to
+                        // the erased keyed-write helper — this arm matched
+                        // `Type::Union(_)` and passed the enum straight through
+                        // (`expected &mut SmeltUnknown, found &mut SmeltUnion164`,
+                        // 360 of the hono router slice's errors).
+                        //
+                        // This is H26's rule on the WRITE path, and a write needs
+                        // one more step than a read: cross the boundary adapter
+                        // OUT, mutate the erased view, then cross back IN and
+                        // commit the result to the place. Mutating a copy without
+                        // committing it would drop the write silently, which is the
+                        // failure this whole family is about — so the write-back is
+                        // the point, not a detail.
+                        //
+                        // A union with no generated enum still renders as
+                        // `SmeltUnknown` and keeps the direct call below.
+                        if self.concrete_union_members(base_ty).is_some() {
+                            let union_text = self.union_type_text(base_ty)?;
+                            let erased = self
+                                .erase_concrete_union_text(&self.local_value_text(*base)?, base_ty);
+                            out.push_str(&format!(
+                                "    {{ let smelt_key = {key_text}; let smelt_value = {rendered_value}; let mut smelt_erased = {erased}; smelt_index_assign(&mut smelt_erased, smelt_key, smelt_value); {} = {union_text}::from_smelt_unknown(smelt_erased); }}\n",
+                                self.local_mut_value_text(*base)?
+                            ));
+                            return Ok(());
+                        }
                         out.push_str(&format!(
                             "    {{ let smelt_key = {key_text}; let smelt_value = {rendered_value}; smelt_index_assign(&mut {}, smelt_key, smelt_value); }}\n",
                             self.local_mut_value_text(*base)?
