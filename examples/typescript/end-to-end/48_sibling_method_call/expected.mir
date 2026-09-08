@@ -1,0 +1,67 @@
+class Registry fields [Public public_log: String, Public private_log: String] constructor Some(FuncId(3)) methods [FuncId(0), FuncId(1), FuncId(2)]
+
+fn stash (FuncId(0)) -> None
+  locals
+    %0 param this: Registry
+    %1 param value: String
+    %2 temp: String
+  bb0:
+    %2 = copy %0.field2 + copy %1
+    %0.field2 = move %2
+    return none
+
+fn keep (FuncId(1)) -> None
+  locals
+    %0 param this: Registry
+    %1 param value: String
+    %2 temp: String
+  bb0:
+    %2 = copy %0.field1 + copy %1
+    %0.field1 = move %2
+    return none
+
+fn add (FuncId(2)) -> None
+  locals
+    %0 param this: Registry
+    %1 param value: String
+    %2 temp: None
+    %3 temp: None
+  bb0:
+    %2 = call fn0(copy %0, copy %1) -> bb1
+  bb1:
+    %3 = call fn1(copy %0, copy %1) -> bb2
+  bb2:
+    return none
+
+fn new (FuncId(3)) -> Registry
+  locals
+    %0 user this: Registry
+  bb0:
+    %0 = struct0 {}
+    %0.field1 = ""
+    %0.field2 = ""
+    return move %0
+
+fn main (FuncId(4)) -> None
+  locals
+    %0 user registry: Registry
+    %1 temp: Registry
+    %2 temp: None
+    %3 temp: None
+    %4 temp: String
+    %5 temp: String
+    %6 temp: None
+  bb0:
+    %1 = call fn3() -> bb1
+  bb1:
+    %0 = move %1
+    %2 = call fn2(copy %0, "a") -> bb2
+  bb2:
+    %3 = call fn2(copy %0, "b") -> bb3
+  bb3:
+    %4 = copy %0.field2 + ","
+    %5 = move %4 + copy %0.field1
+    %6 = call @console_log(move %5) -> bb4
+  bb4:
+    return none
+

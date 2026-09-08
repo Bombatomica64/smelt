@@ -1,0 +1,40 @@
+module examples/typescript/end-to-end/48_sibling_method_call/input.ts (ModuleId(0))
+  body BodyId(4)
+  items
+    class Registry fields [Public public_log: String, Public private_log: String] constructor Some(ItemId(3)) methods [ItemId(0), ItemId(1), ItemId(2)] implements []
+  locals
+    %0 const registry: Registry
+  exprs
+    #0: Registry = new Registry()
+    #1: Registry = %0
+    #2: Registry = %0
+    #3: fn(String) -> None = #2.add
+    #4: Registry = %0
+    #5: String = "a"
+    #6: None = #4.add(#5)
+    #7: Registry = %0
+    #8: Registry = %0
+    #9: fn(String) -> None = #8.add
+    #10: Registry = %0
+    #11: String = "b"
+    #12: None = #10.add(#11)
+    #13: Registry = %0
+    #14: String = #13.private_log
+    #15: String = ","
+    #16: String = Add #14, #15
+    #17: Registry = %0
+    #18: String = #17.public_log
+    #19: String = Add #16, #18
+    #20: None = @5(console_log)
+    #21: None = call #20(#19)
+  stmts
+    s0: let %0: Registry = #0
+    s1: #6
+    s2: #12
+    s3: #21
+
+interned types
+  t0 = Registry
+  t1 = String
+  t2 = None
+  t3 = fn(String) -> None
