@@ -204,3 +204,80 @@ built from them — and then let the spread distribute positionally. That reache
 into `arrow_callback_from_params`
 (`callbacks/classify.rs`) and the `CallbackExpr`/param-index machinery, which is
 why it wants its own round rather than a corner of one.
+
+---
+
+## The call-argument half, found in round 17 — and it silently miscompiles
+
+Round 16 sized the REST-PARAMETER half of this rule (above). Round 17 found the
+other half while working the slice's remaining rows, and it is worse: a spread
+of a tuple-typed value into a call **drops the arguments entirely and calls with
+defaults**. That compiles, so nothing catches it.
+
+### The mechanism
+
+`crates/smelt-frontend-ts/src/lowering/guards.rs`, in the call-argument
+lowering:
+
+```rust
+Argument::SpreadElement(spread) => self.expression(&spread.argument, body),
+```
+
+The spread-ness is discarded: `f(...triple)` lowers as if it were `f(triple)`,
+one argument where the callee declares three. The arity mismatch is then filled
+with defaults.
+
+### Reproduction
+
+```ts
+type Route = [string, string, number];
+export function replay(routes: Route[], sink: (a: string, b: string, c: number) => void): void {
+  for (let i = 0; i < routes.length; i++) {
+    sink(...routes[i]);
+  }
+}
+```
+
+emits
+
+```rust
+_smelt_tmp_5 = sink(String::new(), String::new(), 0.0);
+```
+
+All three arguments are defaults. The tuple is never read. A program built this
+way runs and produces wrong answers rather than failing.
+
+### In the slice
+
+hono's `smart-router/router.ts:36` is the same shape —
+`#routes?: [string, string, T][]`, then `router.add(...routes[i])` — and there
+it surfaces as **1 slice error** (`expected String, found (String, String, T)`,
+`main.rs:7219`) rather than silently, because `add` is reached through an
+`Rc<dyn Fn(String, String, &T)>` field whose types do not admit the fudge. The
+compile error is luck, not detection: the same rule that produced it produced
+the silent version in the fixture above.
+
+### The rule
+
+A spread argument whose operand is a TUPLE of known arity distributes its
+elements positionally, each at the callee's corresponding parameter type. HIR
+already has what this needs — `ExprKind::Index` handles a tuple receiver, and
+the emitter's tuple index path renders `.0` / `.1` — so the work is at the
+argument-COLLECTION site rather than in `argument()`: one `Argument` currently
+maps to exactly one `ExprId`, and a spread has to be able to yield several. The
+operand should be lowered once into a local first, so a spread of a call result
+is not re-evaluated per element.
+
+Where the operand is a LIST rather than a tuple the arity is not statically
+known and this rule does not apply; that case needs the packed-vector call path
+and should stay on it.
+
+### Why it is not in this round
+
+It is a correctness bug rather than a blocker, it wants its own commit with a
+runtime fixture proving the arguments actually arrive (a compile-only assertion
+would have passed on the silent version), and the round it was found in had
+already spent its budget. It is also the same rule as the rest-parameter half,
+so doing them together is cheaper than doing either alone — the rest-parameter
+case needs the closure arity expansion described above, and both need the
+argument-collection site to yield several arguments from one `Argument`.
