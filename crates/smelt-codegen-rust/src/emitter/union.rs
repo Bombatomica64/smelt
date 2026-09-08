@@ -317,6 +317,40 @@ impl FunctionEmitter<'_> {
         Ok(None)
     }
 
+    /// The single union arm a LIST LITERAL of `len` elements can be built at.
+    ///
+    /// A list literal fits a `List` arm (any element type — the elements coerce
+    /// into it) and a `Tuple` arm of the same arity. `None` when the target is
+    /// not a concrete union, when no arm is a collection, or when more than one
+    /// arm is: the literal's own element types cannot break that tie, so the
+    /// caller keeps its erased path rather than guessing an arm.
+    ///
+    /// Answering here rather than in `inject_union_value_text` is deliberate: a
+    /// literal has no single source type to inject FROM, so the arm has to be
+    /// chosen before the value is rendered, and the render then happens at the
+    /// arm's own type.
+    pub(super) fn union_collection_arm_for_list_literal(
+        &self,
+        union_ty: TypeId,
+        len: usize,
+    ) -> Option<(usize, TypeId)> {
+        let members = self.concrete_union_members(union_ty)?;
+        let candidates = members
+            .iter()
+            .enumerate()
+            .filter(|(_, member)| match self.mir.types.get(**member) {
+                Some(Type::List(_)) => true,
+                Some(Type::Tuple(items)) => items.len() == len,
+                _ => false,
+            })
+            .map(|(index, member)| (index, *member))
+            .collect::<Vec<_>>();
+        match candidates.as_slice() {
+            [single] => Some(*single),
+            _ => None,
+        }
+    }
+
     /// Whether every required field of an object-shaped union `member` can be
     /// populated from `source`.
     ///

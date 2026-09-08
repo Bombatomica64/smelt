@@ -352,3 +352,31 @@ export function make(): unknown {
     );
     assert!(source.contains("__smelt_response"), "{source}");
 }
+
+/// A bare nested literal is built at the arm's element type, not erased.
+///
+/// TypeScript infers `string[][]` for `[["a", "b"]]` while the union's arm is a
+/// tuple list, so the literal is not an exact member of the union. Erasing it
+/// into a `SmeltUnknown::Array` for the union to reconstruct at runtime is two
+/// conversions and a lost type for a value whose arm the compiler knows — and
+/// it is the shape Hono writes inline (`{ headers: [['a','b']] }`).
+#[test]
+fn a_nested_array_literal_injects_into_the_tuple_arm() {
+    let source = source_for(
+        r#"
+type HeadersInitUnion = [string, string][] | Record<string, string> | Headers;
+function contentTypeOf(init: HeadersInitUnion): string {
+  return new Headers(init).get("content-type") ?? "none";
+}
+console.log(contentTypeOf([["content-type", "text/html"]]));
+"#,
+    );
+    assert!(
+        source.contains("Vec<(String, String)>"),
+        "the literal must be built at the arm's tuple element type:\n{source}"
+    );
+    assert!(
+        !source.contains("from_smelt_unknown(SmeltUnknown::Array"),
+        "the literal must not round-trip through the erased boundary:\n{source}"
+    );
+}

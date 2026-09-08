@@ -1,5 +1,11 @@
 # `AbortSignal`: what the marker record still gets wrong, measured
 
+**STATUS: the inventory below is from 2026-09-07 and is now largely closed.**
+`reason`, `throwIfAborted`, both statics and the dependent signal behind
+`Request.signal` all landed; see "Closed 2026-09-08 (round 16)" at the bottom
+for what each of them actually needed. `AbortSignal.any` and the
+concrete-type upgrade are what remain.
+
 > **Round 14 status.** Everything in the "silent wrong values" and "member
 > inventory" sections below is FIXED, in the order this log gave: `reason`,
 > `throwIfAborted()`, `AbortSignal.abort`, `AbortSignal.timeout`, and
@@ -146,3 +152,82 @@ exercise the ERASED member path on purpose (`signal?.addEventListener('abort',
 ..)` through an optional chain), because that spelling is how every
 `AbortSignal`-aware helper reaches a signal. They pass today and have to keep
 passing.
+
+---
+
+# Closed 2026-09-08 (round 16): both statics and the dependent signal
+
+Everything the two sections above listed as future work is in, and each of the
+three predictions they made was right about what the work would need.
+
+## `Request.signal` is a dependent signal, and it already was
+
+`new Request(url, { signal })` answers a NEW signal registered on the given
+one's follow list (`smelt_abort_signal_follow`, which settles the dependent
+immediately when the source has already aborted — the construction-time
+evaluation the note asked for). Checked against Node 22, all four facts hold:
+
+| | |
+| --- | --- |
+| `r.signal !== c.signal` | `true` |
+| `c.abort("stop now")` then `r.signal.aborted` | `true` |
+| `String(r.signal.reason)` | `"stop now"` |
+| a listener on `r.signal` fires | yes |
+
+The last row is the one a middleware depends on: it listens on the REQUEST's
+signal, not the caller's, so the dependent has to drain its own listener list
+rather than merely report `aborted`. `a_request_signal_is_a_dependent_signal_of_the_one_it_was_built_with`
+in `abort_signal_runtime` pins all four, and its comment records why each
+assertion excludes a wrong model (aliasing passes the abort assertions and
+fails identity; copying the flag at construction passes identity and fails the
+follow).
+
+## `AbortSignal.timeout` had two real defects
+
+Both were invisible to `aborted`-only assertions, which is exactly what the
+"waits on `reason`" section predicted.
+
+**It did not bring the timer helpers it calls.** `needs_timer_helpers` keyed on
+`AsyncOp` rvalues, and a timeout signal is an `AbortSignalOp` whose result type
+mentions nothing async — so a program whose only timer was a timeout signal
+emitted `smelt_spawn_promise_task` and `smelt_sleep_ms` against a prelude that
+defined neither: E0425 twice, in a crate that otherwise compiled. Same shape as
+round 14's `Rvalue::RegexTest` prelude-demand bug — an operation whose emitted
+TEXT reaches for a helper its TYPE does not mention.
+`abort_signal_timeout_carries_the_timer_helpers_it_calls` is the isolate.
+
+**It was a sleeping task, not a timer.** The sketch in the section above says
+"spawn a task that sleeps `ms` on the virtual clock", and that is what shipped
+— but on this clock the two are not interchangeable. Time advances to the
+earliest TIMER deadline, so a sleeping promise task's own deadline does not
+hold time back:
+
+```ts
+const signal = AbortSignal.timeout(20);
+await settle(wait(100, signal));   // Node: "rejected:aborted"; Smelt: "completed"
+```
+
+The 100 ms timer won, the wait it was meant to cancel ran to completion, and the
+signal only reported `aborted` afterwards — so the abort was real but ordered
+wrongly, which no `aborted` assertion after the fact would catch. It is now
+armed with `smelt_set_timeout`, the same queue `setTimeout` uses, which is also
+what WHATWG says ("start a timeout"). The handle is discarded: `clearTimeout`
+cannot cancel a timeout signal, and the source has no way to name it.
+
+`a_timeout_signal_aborts_with_the_spec_reason` checks the reason
+(`reason.name === "TimeoutError"`, which is the only thing distinguishing a
+timed-out signal from `AbortSignal.abort()`), that the signal is NOT aborted
+before its delay, that it cancels a pending wait, and that a roomy timeout lets
+the wait complete.
+
+## Still open on this surface
+
+* **`AbortSignal.any([..])`** — the follow list it needs is in place and
+  `Request.signal` uses it, so this is now the wiring change the note said
+  `Request.signal` was not.
+* **The concrete-type upgrade.** The record is still erased
+  (`SmeltUnknown::Object` with a marker), which is why this whole surface is
+  covered by runtime tiers rather than the examples corpus: a signal costs
+  around 30 avoidable-erasure lines, and that corpus holds zero. The erasure is
+  defensible for `reason` (any JavaScript value) but not for `aborted` or for
+  the listener list.

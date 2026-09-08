@@ -267,3 +267,6 @@ third_party/es-toolkit-src/
 !blocker-logs/top-level-try-await-tail.md
 # regex-literal-test-erases-match.md documents the RegExp.prototype.test erasure fix
 !blocker-logs/regex-literal-test-erases-match.md
+# standards-narrowing-sweep-and-nullish-stringify.md closes out the narrowing
+# gaps and records the nullish-stringify find
+!blocker-logs/standards-narrowing-sweep-and-nullish-stringify.md

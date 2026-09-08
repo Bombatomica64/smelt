@@ -40,11 +40,22 @@ impl FunctionEmitter<'_> {
                 format!("SmeltUnknown::Object(smelt_abort_signal_record(Some({reason})))")
             }
             // `AbortSignal.timeout(ms)` answers a NOT-yet-aborted signal and
-            // schedules the abort. The task holds a clone of the record, which
-            // is `Rc`-shared, so the abort it performs later is observed through
-            // the signal the caller is holding — and it fires with the spec's
-            // `TimeoutError`, which is the only thing distinguishing a timed-out
-            // signal from `AbortSignal.abort()`.
+            // schedules the abort. The scheduled callback holds a clone of the
+            // record, which is `Rc`-shared, so the abort it performs later is
+            // observed through the signal the caller is holding — and it fires
+            // with the spec's `TimeoutError`, which is the only thing
+            // distinguishing a timed-out signal from `AbortSignal.abort()`.
+            //
+            // It is armed as a real TIMER (`smelt_set_timeout`), the same queue
+            // `setTimeout` uses, and not as a promise task that sleeps. WHATWG
+            // says "start a timeout", and on Smelt's virtual clock the two are
+            // not interchangeable: the clock advances to the earliest TIMER
+            // deadline, so a sleeping task's own deadline does not hold time
+            // back. `AbortSignal.timeout(20)` racing a `setTimeout(.., 100)`
+            // let the 100 ms timer win — the wait it was meant to cancel ran to
+            // completion, and the signal only reported `aborted` afterwards.
+            // The handle is discarded because the source has no way to name it:
+            // `clearTimeout` cannot cancel a timeout signal.
             smelt_hir::AbortSignalOp::Timeout => {
                 let Some(delay) = args.first() else {
                     return Err(EmitError::new(
@@ -55,11 +66,11 @@ impl FunctionEmitter<'_> {
                 format!(
                     "{{ let smelt_signal = smelt_abort_signal_record(None); \
                      let smelt_handle = smelt_signal.clone(); \
-                     {spawn}(Box::pin(async move {{ {sleep}({delay} as f64).await; \
-                     smelt_abort_signal_fire(&smelt_handle, smelt_abort_timeout_reason()); }})); \
+                     let _ = {set_timeout}(::std::rc::Rc::new(::std::cell::RefCell::new(move || {{ \
+                     smelt_abort_signal_fire(&smelt_handle, smelt_abort_timeout_reason()); \
+                     Ok(()) }})), {delay} as f64); \
                      SmeltUnknown::Object(smelt_signal) }}",
-                    spawn = smelt_stdlib::runtime_symbols::timers::SPAWN_PROMISE_TASK,
-                    sleep = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
+                    set_timeout = smelt_stdlib::runtime_symbols::timers::SET_TIMEOUT,
                     delay = self.value_at_type(delay, float_ty)?,
                 )
             }

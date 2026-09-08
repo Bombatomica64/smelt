@@ -6701,6 +6701,34 @@ const isSignal = signal instanceof AbortSignal;
 }
 
 #[test]
+fn abort_signal_timeout_carries_the_timer_helpers_it_calls() {
+    // `AbortSignal.timeout(ms)` arms a timer: it schedules its own abort on the
+    // promise-task queue (`smelt_spawn_promise_task` + `smelt_sleep_ms`). Its
+    // RESULT is a signal and mentions nothing async, so the timer prelude's
+    // demand analysis — which keyed on `AsyncOp` rvalues — did not see it, and a
+    // program whose only timer is a timeout signal emitted both calls against a
+    // prelude that defined neither: E0425 twice, in a crate that otherwise
+    // compiled. The program below is that isolate; it has no other async
+    // surface at all.
+    let source = source_for(
+        r#"
+const timed = AbortSignal.timeout(5);
+const aborted = timed.aborted;
+"#,
+    );
+
+    assert!(
+        source.contains("async fn smelt_sleep_ms(")
+            && source.contains("fn smelt_spawn_promise_task("),
+        "a timeout signal must bring the timer helpers it calls\n{source}"
+    );
+    assert!(
+        source.contains("smelt_abort_timeout_reason"),
+        "the scheduled abort must fire with the spec's TimeoutError reason\n{source}"
+    );
+}
+
+#[test]
 fn lowers_numeric_truthy_condition_inside_callback() {
     // A non-boolean numeric value used as a callback condition (the common
     // `(value, index) => index ? a : b` index-guard idiom) lowers to an

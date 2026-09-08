@@ -1,5 +1,14 @@
 # `x instanceof <concrete host class>` does not narrow, and the fallback answers a wrong value
 
+**STATUS: part (1) FIXED (round 10), re-verified round 16.** All four spellings
+below now agree with Node 22, and a six-shape narrowing sweep agrees too. Part
+(2) — the erased method-read fallback — is still open, and round 16 found it
+cannot be a STATIC blocker as this note proposes: at the emit site the receiver
+carries no marker statically. See
+`blocker-logs/standards-narrowing-sweep-and-nullish-stringify.md` for the
+re-run, the two implementable shapes, and an unrelated systemic find alongside
+it.
+
 Found while scoping the `Blob`/`File` upgrade (standards item 2), 2026-09-07.
 Not fixed in that round; recorded here with the repro and the fix shape.
 
