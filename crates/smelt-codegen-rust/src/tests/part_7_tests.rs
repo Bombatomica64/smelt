@@ -6711,10 +6711,10 @@ fn abort_signal_timeout_carries_the_timer_helpers_it_calls() {
     // compiled. The program below is that isolate; it has no other async
     // surface at all.
     let source = source_for(
-        r#"
+        r"
 const timed = AbortSignal.timeout(5);
 const aborted = timed.aborted;
-"#,
+",
     );
 
     assert!(

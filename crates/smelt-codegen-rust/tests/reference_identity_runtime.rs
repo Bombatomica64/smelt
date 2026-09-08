@@ -34,7 +34,7 @@
 //!    `Object.is(NaN, NaN)` is `true` while `NaN === NaN` is `false`, and
 //!    `Object.is(-0, 0)` is `false` while `-0 === 0` is `true`. The two are
 //!    different HIR operators over one identity helper, and routing `===`
-//!    through SameValue's numeric arm would silently invert both.
+//!    through `SameValue`'s numeric arm would silently invert both.
 //! 4. **Structural comparison still works** where JavaScript uses it:
 //!    `toEqual` compares contents, so the derived `PartialEq` those types keep
 //!    must stay reachable from the deep matchers.

@@ -120,11 +120,10 @@ fn run_fixture(source: &str, crate_name: &str) -> (bool, String) {
     if std::env::var_os("SMELT_KEEP_RUNTIME_SCRATCH").is_none() {
         drop(std::fs::remove_dir_all(&root));
     }
-    let outcome = match emitted {
+    match emitted {
         Ok(outcome) => outcome,
         Err(payload) => std::panic::resume_unwind(payload),
-    };
-    outcome
+    }
 }
 
 /// Assert the generated suite passes.
