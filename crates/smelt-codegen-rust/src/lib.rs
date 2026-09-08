@@ -5383,10 +5383,17 @@ fn emit_source_with_free_function_router(
     if needs_crypto_random_values || needs_crypto_digest {
         crypto_prelude::emit(
             &mut writer,
-            needs_crypto_random_values,
-            needs_crypto_digest,
-            needs_byte_array,
-            needs_unknown,
+            crypto_prelude::CryptoDemand {
+                // A fill helper names its byte carrier in its signature, so it
+                // is emitted only when the crate emits that carrier too.
+                fill_concrete_view: needs_crypto_random_values && needs_byte_array,
+                fill_erased_view: needs_crypto_random_values && needs_unknown,
+                digest: needs_crypto_digest.then_some(if needs_unknown {
+                    crypto_prelude::DigestThrow::Branded
+                } else {
+                    crypto_prelude::DigestThrow::Message
+                }),
+            },
         );
     }
     if needs_event_emitter {

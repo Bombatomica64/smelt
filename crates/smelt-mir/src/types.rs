@@ -1410,7 +1410,7 @@ pub enum Rvalue {
         /// Byte-view receiver.
         bytes: Operand,
     },
-    /// Apply a WebCrypto operation.
+    /// Apply a `WebCrypto` operation.
     ///
     /// No receiver operand: the `crypto` namespace holds no state a program can
     /// observe, so the call is its arguments (see `smelt_hir::CryptoOp`).

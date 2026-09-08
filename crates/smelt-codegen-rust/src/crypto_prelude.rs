@@ -35,25 +35,48 @@
 
 use crate::rust::CodeWriter;
 
+/// How the digest helper reports an unrecognized algorithm name.
+///
+/// The spec's `NotSupportedError` is branded so a source `catch` can read
+/// `error.name`, which needs the erased carrier to brand it ON. A crate without
+/// one has no erased value for a `catch` to inspect anyway, so the message is
+/// all there is to carry.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DigestThrow {
+    /// Brand the error record, so `error.name` reads `"NotSupportedError"`.
+    Branded,
+    /// Carry the message alone.
+    Message,
+}
+
+/// Which `WebCrypto` helpers a generated crate needs emitted.
+///
+/// Each field names the helper it causes rather than the source feature that
+/// implied it, so the AND-ing of "the program calls this" with "the crate has
+/// that carrier" happens once, at the call site where both are known.
+#[derive(Clone, Copy, Debug)]
+pub struct CryptoDemand {
+    /// Emit the fill helper over the concrete `SmeltUint8Array`.
+    pub fill_concrete_view: bool,
+    /// Emit the fill helper over the erased byte-backed host record.
+    pub fill_erased_view: bool,
+    /// Emit the digest helper, reporting a bad name this way.
+    pub digest: Option<DigestThrow>,
+}
+
 /// Emit the `WebCrypto` helpers a generated crate uses.
 ///
-/// Both halves are gated separately by the caller, so a program that only calls
-/// `randomUUID` emits neither and carries neither hash crate nor `getrandom`.
-pub fn emit(
-    writer: &mut CodeWriter,
-    needs_random_values: bool,
-    needs_digest: bool,
-    needs_byte_array: bool,
-    needs_unknown: bool,
-) {
-    if needs_random_values && needs_byte_array {
+/// Every helper is gated, so a program that only calls `randomUUID` emits none
+/// of them and carries neither hash crate nor `getrandom`.
+pub fn emit(writer: &mut CodeWriter, demand: CryptoDemand) {
+    if demand.fill_concrete_view {
         emit_random_values(writer);
     }
-    if needs_random_values && needs_unknown {
+    if demand.fill_erased_view {
         emit_random_values_erased(writer);
     }
-    if needs_digest {
-        emit_digest(writer, needs_unknown);
+    if let Some(throw) = demand.digest {
+        emit_digest(writer, throw);
     }
 }
 
@@ -123,7 +146,7 @@ fn emit_random_values_erased(writer: &mut CodeWriter) {
         "fn smelt_crypto_random_values_erased(view: SmeltUnknown) -> SmeltUnknown",
         |fn_writer| {
             fn_writer.line("let SmeltUnknown::Object(map) = &view else { return view };");
-            fn_writer.line(&format!(
+            fn_writer.line(format!(
                 "let Some(SmeltUnknown::Array(values)) = map.get(\"{key}\") else {{ return view }};",
                 key = smelt_stdlib::runtime_symbols::byte_buffer::BYTES_KEY,
             ));
@@ -135,7 +158,7 @@ fn emit_random_values_erased(writer: &mut CodeWriter) {
             fn_writer.line(
                 "let encoded: Vec<SmeltUnknown> = buffer.iter().map(|byte| SmeltUnknown::Number(f64::from(*byte))).collect();",
             );
-            fn_writer.line(&format!(
+            fn_writer.line(format!(
                 "map.insert(\"{key}\".to_owned(), SmeltUnknown::Array(SmeltArray::new(encoded.clone())));",
                 key = smelt_stdlib::runtime_symbols::byte_buffer::BYTES_KEY,
             ));
@@ -167,7 +190,7 @@ fn emit_random_values_erased(writer: &mut CodeWriter) {
 /// value; the spec's `ArrayBuffer` and a `Uint8Array` over it differ only in a
 /// view-vs-storage distinction the modeled surface does not observe (the same
 /// call `Blob.arrayBuffer()` already makes).
-fn emit_digest(writer: &mut CodeWriter, needs_unknown: bool) {
+fn emit_digest(writer: &mut CodeWriter, throw: DigestThrow) {
     writer.line("/// `crypto.subtle.digest(algorithm, data)`: hash bytes by algorithm name.");
     writer.line("#[allow(dead_code)]");
     writer.block(
@@ -184,11 +207,11 @@ fn emit_digest(writer: &mut CodeWriter, needs_unknown: bool) {
                 ("sha-384", "sha2::Sha384"),
                 ("sha-512", "sha2::Sha512"),
             ] {
-                fn_writer.line(&format!(
+                fn_writer.line(format!(
                     "if name == \"{spelling}\" {{ let mut hasher = {hasher}::new(); hasher.update(data); return Ok(SmeltUint8Array::from_bytes(hasher.finalize().to_vec())); }}"
                 ));
             }
-            fn_writer.line(&format!("Err({})", digest_unsupported_expr(needs_unknown)));
+            fn_writer.line(format!("Err({})", digest_unsupported_expr(throw)));
         },
     );
     writer.blank_line();
@@ -201,14 +224,17 @@ fn emit_digest(writer: &mut CodeWriter, needs_unknown: bool) {
 /// branded error record a source `catch` can inspect, and without it the
 /// message alone is all there is to carry (the same choice
 /// `form_data_prelude`'s body reader makes).
-fn digest_unsupported_expr(needs_unknown: bool) -> String {
-    if needs_unknown {
-        crate::thrown::throw_expr(&crate::thrown::error_payload_record_expr(
-            "NotSupportedError",
-            "\"Unrecognized algorithm name\"",
-        ))
-    } else {
-        "Box::<dyn ::std::error::Error>::from(\"NotSupportedError: Unrecognized algorithm name\")"
-            .to_owned()
+fn digest_unsupported_expr(throw: DigestThrow) -> String {
+    match throw {
+        DigestThrow::Branded => crate::thrown::throw_expr(
+            &crate::thrown::error_payload_record_expr(
+                "NotSupportedError",
+                "\"Unrecognized algorithm name\"",
+            ),
+        ),
+        DigestThrow::Message => {
+            "Box::<dyn ::std::error::Error>::from(\"NotSupportedError: Unrecognized algorithm name\")"
+                .to_owned()
+        }
     }
 }

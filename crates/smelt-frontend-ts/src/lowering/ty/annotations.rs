@@ -3514,6 +3514,11 @@ return_ty: function.return_ty,
         smelt_stdlib::typescript_stdlib_class(class_name)
     }
 
+    /// Return the stdlib class a type name denotes, keeping only the MATCH pair.
+    ///
+    /// Narrower than the general lookup above: a caller that only cares whether
+    /// a name is a regex match result (or its groups record) gets `None` for
+    /// every other stdlib class, so it need not re-filter.
     pub(in crate::lowering) fn match_stdlib_class(
         &self,
         name: smelt_hir::Symbol,

@@ -1600,6 +1600,11 @@ impl ModuleBuilder<'_> {
         Ok(())
     }
 
+    /// Lower one statement of a callback body into `block`.
+    ///
+    /// The active statement block is swapped for `block` around the lowering
+    /// and restored afterwards, so nested callbacks each append to their own
+    /// block rather than to whichever one was current when lowering started.
     pub(in crate::lowering) fn for_each_callback_statement(
         &mut self,
         statement: &Statement<'_>,
