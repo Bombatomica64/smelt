@@ -750,24 +750,43 @@ impl FunctionEmitter<'_> {
                             })
                             .ok_or_else(|| EmitError::new("optional record field is unknown"))
                     }
-                    Some(Type::Class { name, .. }) => {
+                    // The read's type is the field type of *this*
+                    // instantiation, so the record's type arguments have to be
+                    // substituted into it: `status?: T` off an
+                    // `InitLike<f64>` receiver is an `Option<f64>`, and the
+                    // generated struct's field is rendered at exactly that
+                    // type. Reporting the declaration-time `T` instead made
+                    // callers treat an already-concrete field as erased and
+                    // coerce `SmeltUnknown` into `f64` (E0308). This is the
+                    // same substitution `structural_record_fields` performs;
+                    // the lookup order (class, then interface) is kept as it
+                    // was.
+                    Some(Type::Class { name, args }) => {
                         let field_ty = if let Some(class) =
                             self.mir.classes.iter().find(|class| class.name == *name)
                         {
-                            crate::classes::effective_class_fields(self.mir, class)
-                                .into_iter()
-                                .find(|class_field| class_field.name == *field)
-                                .map(|class_field| class_field.ty)
+                            self.substitute_record_field_type_params(
+                                &class.type_params,
+                                args,
+                                crate::classes::effective_class_fields(self.mir, class),
+                            )
+                            .into_iter()
+                            .find(|class_field| class_field.name == *field)
+                            .map(|class_field| class_field.ty)
                         } else if let Some(interface) = self
                             .mir
                             .interfaces
                             .iter()
                             .find(|interface| interface.name == *name)
                         {
-                            crate::classes::effective_interface_fields(self.mir, interface)
-                                .into_iter()
-                                .find(|interface_field| interface_field.name == *field)
-                                .map(|interface_field| interface_field.ty)
+                            self.substitute_record_field_type_params(
+                                &interface.type_params,
+                                args,
+                                crate::classes::effective_interface_fields(self.mir, interface),
+                            )
+                            .into_iter()
+                            .find(|interface_field| interface_field.name == *field)
+                            .map(|interface_field| interface_field.ty)
                         } else {
                             None
                         };
