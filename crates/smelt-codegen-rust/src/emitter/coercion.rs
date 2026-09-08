@@ -2210,6 +2210,21 @@ impl FunctionEmitter<'_> {
             if kind == smelt_hir::UnknownKind::Null {
                 return Ok(format!("{text}.is_none()"));
             }
+            // A CONCRETE payload answers the tag question by its own type: an
+            // `Option<SmeltList<..>>` is an array exactly when it is present,
+            // and is never a string, a number or a function. The runtime
+            // pattern is not just unnecessary there, it does not compile —
+            // `matches!(smelt_value, SmeltUnknown::Array(_))` against a
+            // `&SmeltList<SmeltUnknown>` is an E0308, which is what
+            // `Array.isArray(values)` on an `Optional<T[]>` emitted (seen in
+            // es-toolkit's `pullAllWith`).
+            if let Some(answer) = self.concrete_type_answers_tag(inner, kind) {
+                return Ok(if answer {
+                    format!("{text}.is_some()")
+                } else {
+                    "false".to_owned()
+                });
+            }
             // A concrete-union `Option` payload is a tagged enum, so the present
             // value is narrowed against its `SmeltUnion…` variants rather than
             // erased `SmeltUnknown` tags.
@@ -2394,6 +2409,53 @@ impl FunctionEmitter<'_> {
         let unknown_ty = self.type_id(Type::Unknown)?;
         let text = self.value_at_type(value, unknown_ty)?;
         Ok(format!("smelt_structured_clone({text})"))
+    }
+
+    /// The runtime tag a CONCRETE type always has, when it has one.
+    ///
+    /// `Some(true)`/`Some(false)` is a compile-time answer to "would a value of
+    /// this type report this tag": a `SmeltList` is always an array and never a
+    /// string, so neither question needs a runtime pattern. `None` means the
+    /// type cannot answer — it is erased (`Unknown`), polymorphic
+    /// (`TypeParam`), a union whose arms disagree, or itself optional, and the
+    /// caller has to keep whatever runtime check it would have emitted.
+    ///
+    /// `Object` follows `tag_check_raw`'s own reading of `typeof`: it is true
+    /// for arrays and every object-shaped value, which is what JavaScript
+    /// answers.
+    fn concrete_type_answers_tag(
+        &self,
+        ty: TypeId,
+        kind: smelt_hir::UnknownKind,
+    ) -> Option<bool> {
+        use smelt_hir::UnknownKind;
+        let is = |actual: UnknownKind| Some(kind == actual);
+        match self.mir.types.get(ty)? {
+            Type::String => is(UnknownKind::String),
+            Type::Bool => is(UnknownKind::Bool),
+            Type::Int | Type::Float => is(UnknownKind::Number),
+            Type::Function(_) => is(UnknownKind::Function),
+            Type::Future(_) => Some(matches!(
+                kind,
+                UnknownKind::Promise | UnknownKind::Object
+            )),
+            Type::List(_) | Type::Tuple(_) => Some(matches!(
+                kind,
+                UnknownKind::Array | UnknownKind::Object
+            )),
+            Type::Dict(_, _) | Type::JsMap(_, _) | Type::Set(_) | Type::Class { .. } => {
+                is(UnknownKind::Object)
+            }
+            // Not decidable from the type alone.
+            Type::Unknown
+            | Type::TypeParam { .. }
+            | Type::Union(_)
+            | Type::Optional(_)
+            | Type::None
+            | Type::Never
+            | Type::Generator { .. }
+            | Type::GeneratorResult { .. } => None,
+        }
     }
 
     /// Emits a runtime tag check for already-rendered `SmeltUnknown` text.
