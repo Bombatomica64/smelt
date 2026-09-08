@@ -595,7 +595,7 @@ fn classify_line(line: &str, in_prelude_helper: bool) -> Category {
 ///
 /// See [`classify_line`] rule 2 for the rationale behind each marker.
 fn is_legitimate_boundary_line(line: &str) -> bool {
-    const BOUNDARY_MARKERS: [&str; 22] = [
+    const BOUNDARY_MARKERS: [&str; 23] = [
         "SmeltUnknown::Function",
         "SmeltUnknown::Promise",
         // A JavaScript SYMBOL value. `Symbol()` mints a value whose whole
@@ -746,6 +746,28 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // the classification; the helper call is the same boundary, now spelled
         // once. Proven in `erased_property_read_is_a_boundary` below.
         "smelt_get_unknown_field(",
+        // An error record's `cause` slot. ES2022 types it `cause?: unknown`,
+        // and that spelling is the canonical source-level dynamic boundary: the
+        // value is whatever the program chose to attach to the error, so it is
+        // the thrown-value channel's payload seen from the error object rather
+        // than program storage with a knowable shape. No concrete type,
+        // generated union arm, or scoped generic can carry it — the same
+        // reasoning that keeps `smelt_throw`/`smelt_thrown_value` a boundary
+        // above, and the reason the slot is declared `Type::Unknown` at exactly
+        // one place (`ERROR_MARKER_FIELDS` in
+        // `smelt-frontend-ts/src/lowering/decls/super_call.rs`, whose docstring
+        // spells out why the other three `Error` slots must NOT erase).
+        //
+        // Deliberately narrow: the marker is the field-shaped text `cause:
+        // SmeltUnknown`, so it matches the slot's declaration and the value
+        // written into it and nothing else. An erased local, an erased
+        // parameter, or a `Vec<SmeltUnknown>` next to it stays avoidable, which
+        // is what `error_cause_slot_is_a_boundary` below proves. Without this
+        // rule every `class X extends Error` carried two avoidable lines it can
+        // never remove (the injected slot in each constructor's `this`
+        // literal), which kept `Error` subclasses out of the zero-erasure
+        // examples corpus.
+        "cause: SmeltUnknown",
     ];
 
     // A JavaScript update-expression (`x++`/`++x`) used as a value snapshots its
@@ -1008,6 +1030,41 @@ mod tests {
             classify_line(storage, false),
             Category::AvoidableErasure,
             "ordinary erased storage must stay avoidable"
+        );
+    }
+
+    /// An error record's `cause` slot is a boundary.
+    ///
+    /// `cause?: unknown` is the source-level `unknown` spelling itself, so the
+    /// slot and the value written into it are a genuine dynamic edge. The
+    /// marker is field-shaped, so ordinary erased storage and an erased
+    /// parameter beside it stay avoidable — it does not widen to every line
+    /// that happens to mention a cause.
+    #[test]
+    fn error_cause_slot_is_a_boundary() {
+        let slot = "    cause: SmeltUnknown,";
+        assert_eq!(
+            classify_line(slot, false),
+            Category::LegitimateBoundary,
+            "the ES2022 `cause?: unknown` slot is the canonical source-level unknown"
+        );
+        let written = "    let mut this: Self = HTTPException { name: String::new(), message: String::new(), stack: None::<String>, cause: SmeltUnknown::Null, status: 0.0 };";
+        assert_eq!(
+            classify_line(written, false),
+            Category::LegitimateBoundary,
+            "the value written into the cause slot is the same boundary as the slot"
+        );
+        let storage = "    let causes: Vec<SmeltUnknown> = Vec::new();";
+        assert_eq!(
+            classify_line(storage, false),
+            Category::AvoidableErasure,
+            "ordinary erased storage must stay avoidable"
+        );
+        let parameter = "fn describe(cause_of: SmeltUnknown) -> String {";
+        assert_eq!(
+            classify_line(parameter, false),
+            Category::AvoidableErasure,
+            "an erased parameter whose name merely contains `cause` must stay avoidable"
         );
     }
 
