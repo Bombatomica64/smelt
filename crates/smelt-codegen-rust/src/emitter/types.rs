@@ -573,7 +573,14 @@ impl FunctionEmitter<'_> {
     /// Returns whether a type is supported by the current JSON serializer path.
     pub(super) fn is_json_serializable_type(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
-            Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::Unknown) => true,
+            // A TYPE PARAMETER stringifies through the erased boundary, exactly
+            // as `Unknown` does: `JSON.stringify(x)` on a generic `x: T` is
+            // legal JavaScript for every instantiation, and the generated code
+            // erases the value first (see `json_needs_erasure`). Rejecting it
+            // made a generic helper that serializes its argument a blocker for
+            // the whole crate.
+            Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::Unknown)
+            | Some(Type::TypeParam { .. }) => true,
             Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => {
                 self.is_json_serializable_type(*item)
             }
@@ -640,7 +647,7 @@ impl FunctionEmitter<'_> {
     /// rules (own enumerable properties only, so a host object is `{}`).
     pub(super) fn json_needs_erasure(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
-            Some(Type::Union(_)) => true,
+            Some(Type::Union(_) | Type::TypeParam { .. }) => true,
             Some(Type::Class { name, .. }) => self.is_host_object_class(*name),
             _ => false,
         }
@@ -1267,6 +1274,13 @@ impl FunctionEmitter<'_> {
                 if self.stdlib_class_of_symbol(*name)? == Some(smelt_stdlib::StdlibClass::Response)
                 {
                     return Ok(RustType::raw("SmeltResponse"));
+                }
+                // A body HANDLE is the generated body type itself: the
+                // modeled `ReadableStream` is that handle and nothing else.
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::ReadableStream)
+                {
+                    return Ok(RustType::raw("SmeltBody"));
                 }
                 if let Some(codec_type) = match self.stdlib_class_of_symbol(*name)? {
                     Some(smelt_stdlib::StdlibClass::TextEncoder) => Some("SmeltTextEncoder"),

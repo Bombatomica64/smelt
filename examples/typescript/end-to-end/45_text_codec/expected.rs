@@ -1541,7 +1541,7 @@ fn smelt_abort_method(object: SmeltObject, method: &str) -> SmeltUnknown { let m
 
 /// The synthesized host method a member read resolves to, if the object
 /// carries a host marker and has no OWN member of that name.
-fn smelt_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if object.contains_key(name) { return None; } if (object.contains_key("__smelt_abortcontroller") || object.contains_key("__smelt_abortsignal")) && matches!(name, "abort" | "addEventListener" | "removeEventListener" | "dispatchEvent" | "throwIfAborted") { return Some(smelt_abort_method(object.clone(), name)); } None }
+fn smelt_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if object.contains_key(name) { return None; } if (object.contains_key("__smelt_abortcontroller") || object.contains_key("__smelt_abortsignal")) && matches!(name, "abort" | "addEventListener" | "removeEventListener" | "dispatchEvent" | "throwIfAborted") { return Some(smelt_abort_method(object.clone(), name)); } if let Some(found) = smelt_text_encoder_host_method(object, name) { return Some(found); } if let Some(found) = smelt_text_decoder_host_method(object, name) { return Some(found); } None }
 
 pub enum SmeltUnknown {
     Null,
@@ -1845,7 +1845,7 @@ fn smelt_get_array_field(values: &SmeltArray, field: &str) -> SmeltUnknown {
 /// Read a property off any erased value (JS `value.field`).
 fn smelt_get_unknown_field(value: &SmeltUnknown, field: &str) -> SmeltUnknown {
     match value {
-        SmeltUnknown::Object(map) => match smelt_get_object_field(map, field) { SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },
+        SmeltUnknown::Object(map) => match smelt_host_method(map, field).unwrap_or_else(|| smelt_get_object_field(map, field)) { SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },
         SmeltUnknown::Array(values) => smelt_get_array_field(values, field),
         SmeltUnknown::String(marker) if &**marker == "__smelt_proto:object" => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined),
         SmeltUnknown::Function(function) => match smelt_function_value_property(function, field) { SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },
@@ -2838,6 +2838,15 @@ impl IntoSmeltUnknown for SmeltTextEncoder { fn into_smelt_unknown(self) -> Smel
 /// that did not come from an erasure still recovers correctly.
 impl SmeltFromUnknown for SmeltTextEncoder { fn smelt_from_unknown(value: SmeltUnknown) -> Self { smelt_restore_host_origin::<Self>(&value).unwrap_or_else(|| Self::new()) } }
 
+/// The modeled member of an erased `TextEncoder` record, resolved at run time.
+///
+/// Same dynamic boundary as the sibling host resolvers: the receiver is a
+/// marker-bearing record, so the member is decided by the marker and the
+/// member NAME at run time. A program reaches this only by erasing the codec
+/// on purpose; answering `undefined`, which is what a plain property read
+/// does, made `(encoder as any).encode('ab')` a null rather than the bytes.
+fn smelt_text_encoder_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if !object.contains_key("__smelt_textencoder") || name != "encode" { return None; } let encoder = <SmeltTextEncoder as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(object.clone())); Some(SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let input = args.first().cloned().map_or_else(String::new, smelt_property_key); Ok(encoder.encode(&input).into_smelt_unknown()) }))) }
+
 /// A WHATWG `TextDecoder`: a UTF-8 decoder with a JS reference identity.
 #[derive(Clone)]
 pub struct SmeltTextDecoder {
@@ -2876,6 +2885,15 @@ impl IntoSmeltUnknown for SmeltTextDecoder { fn into_smelt_unknown(self) -> Smel
 /// Lossless: the record carries everything the value is, so a record
 /// that did not come from an erasure still recovers correctly.
 impl SmeltFromUnknown for SmeltTextDecoder { fn smelt_from_unknown(value: SmeltUnknown) -> Self { smelt_restore_host_origin::<Self>(&value).unwrap_or_else(|| Self::new()) } }
+
+/// The modeled member of an erased `TextDecoder` record, resolved at run time.
+///
+/// Same dynamic boundary as the sibling host resolvers: the receiver is a
+/// marker-bearing record, so the member is decided by the marker and the
+/// member NAME at run time. A program reaches this only by erasing the codec
+/// on purpose; answering `undefined`, which is what a plain property read
+/// does, made `(encoder as any).encode('ab')` a null rather than the bytes.
+fn smelt_text_decoder_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if !object.contains_key("__smelt_textdecoder") || name != "decode" { return None; } let decoder = <SmeltTextDecoder as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(object.clone())); Some(SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let bytes = args.first().cloned().map_or_else(SmeltUint8Array::new, <SmeltUint8Array as SmeltFromUnknown>::smelt_from_unknown); Ok(SmeltUnknown::String(decoder.decode(&bytes).into())) }))) }
 
 // @smelt:prelude-end — generated program below
 fn main() {

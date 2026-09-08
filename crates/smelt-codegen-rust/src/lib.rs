@@ -1381,10 +1381,18 @@ fn emit_source_with_free_function_router(
         // Pay-for-use. Only the six classes whose state is not a record retain
         // their live value, so a program that erases none of them must not carry
         // the registry — sixteen example goldens grew by it before this gate.
+        // `Headers`, `URLSearchParams` and `FormData` joined the list in round
+        // 18: their records round-trip STRUCTURALLY, but a member resolved off
+        // an erased view (`smelt_host_method`) has to act on the SAME value, so
+        // they retain their origin too — a `set` through an erased view is
+        // visible on the concrete value the program still holds.
         if needs_text_encoder
             || needs_text_decoder
             || needs_event_emitter
             || needs_http_server
+            || needs_headers
+            || needs_url_search_params
+            || needs_form_data
         {
             // Host values whose state is NOT representable as a record.
             //
@@ -3173,7 +3181,28 @@ fn emit_source_with_free_function_router(
         // spy resolves the same member the program would have called.
         writer.line("/// The synthesized host method a member read resolves to, if the object");
         writer.line("/// carries a host marker and has no OWN member of that name.");
-        writer.line("fn smelt_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if object.contains_key(name) { return None; } if (object.contains_key(\"__smelt_abortcontroller\") || object.contains_key(\"__smelt_abortsignal\")) && matches!(name, \"abort\" | \"addEventListener\" | \"removeEventListener\" | \"dispatchEvent\" | \"throwIfAborted\") { return Some(smelt_abort_method(object.clone(), name)); } None }");
+        // Each modeled host class with an erasure adapter contributes its own
+        // resolver, and only when its prelude is emitted at all: the fetch
+        // types are pay-for-use, so a crate that never mentions `Headers`
+        // carries neither `SmeltHeaders` nor its resolver.
+        let mut class_resolvers = String::new();
+        for (enabled, resolver) in [
+            (needs_headers, "smelt_headers_host_method"),
+            (
+                needs_url_search_params,
+                "smelt_url_search_params_host_method",
+            ),
+            (needs_form_data, "smelt_form_data_host_method"),
+            (needs_text_encoder, "smelt_text_encoder_host_method"),
+            (needs_text_decoder, "smelt_text_decoder_host_method"),
+        ] {
+            if enabled {
+                class_resolvers.push_str(&format!(
+                    "if let Some(found) = {resolver}(object, name) {{ return Some(found); }} "
+                ));
+            }
+        }
+        writer.line(format!("fn smelt_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> {{ if object.contains_key(name) {{ return None; }} if (object.contains_key(\"__smelt_abortcontroller\") || object.contains_key(\"__smelt_abortsignal\")) && matches!(name, \"abort\" | \"addEventListener\" | \"removeEventListener\" | \"dispatchEvent\" | \"throwIfAborted\") {{ return Some(smelt_abort_method(object.clone(), name)); }} {class_resolvers}None }}"));
         writer.blank_line();
         writer.block("pub enum SmeltUnknown", |unknown_writer| {
             unknown_writer.line("Null,");
@@ -4014,7 +4043,14 @@ fn emit_source_with_free_function_router(
         writer.line("/// Read a property off any erased value (JS `value.field`).");
         writer.line("fn smelt_get_unknown_field(value: &SmeltUnknown, field: &str) -> SmeltUnknown {");
         writer.line("    match value {");
-        writer.line("        SmeltUnknown::Object(map) => match smelt_get_object_field(map, field) { SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },");
+        // A marker-bearing host record resolves its MODELED MEMBERS first.
+        // `smelt_host_method` answers `None` for a record with an own key of
+        // that name, so an own property still wins as JavaScript's own-property
+        // lookup does; what changes is that `(headers as any).get` is the
+        // header list's `get` rather than `undefined`. The sibling erased-read
+        // path in `place.rs` already asked; this one did not, so the same read
+        // answered differently depending on which spelling reached it.
+        writer.line("        SmeltUnknown::Object(map) => match smelt_host_method(map, field).unwrap_or_else(|| smelt_get_object_field(map, field)) { SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },");
         writer.line("        SmeltUnknown::Array(values) => smelt_get_array_field(values, field),");
         writer.line("        SmeltUnknown::String(marker) if &**marker == \"__smelt_proto:object\" => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined),");
         writer.line("        SmeltUnknown::Function(function) => match smelt_function_value_property(function, field) { SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },");

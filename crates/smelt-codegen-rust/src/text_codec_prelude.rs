@@ -94,6 +94,18 @@ pub fn emit_encoder(writer: &mut CodeWriter, needs_unknown: bool) {
     });
     writer.blank_line();
     emit_codec_erasure(writer, needs_unknown, "SmeltTextEncoder", "__smelt_textencoder");
+    if needs_unknown {
+        writer.line("/// The modeled member of an erased `TextEncoder` record, resolved at run time.");
+        writer.line("///");
+        writer.line("/// Same dynamic boundary as the sibling host resolvers: the receiver is a");
+        writer.line("/// marker-bearing record, so the member is decided by the marker and the");
+        writer.line("/// member NAME at run time. A program reaches this only by erasing the codec");
+        writer.line("/// on purpose; answering `undefined`, which is what a plain property read");
+        writer.line("/// does, made `(encoder as any).encode('ab')` a null rather than the bytes.");
+        writer.line("fn smelt_text_encoder_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if !object.contains_key(\"__smelt_textencoder\") || name != \"encode\" { return None; } let encoder = <SmeltTextEncoder as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(object.clone())); Some(SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let input = args.first().cloned().map_or_else(String::new, smelt_property_key); Ok(encoder.encode(&input).into_smelt_unknown()) }))) }");
+        writer.blank_line();
+    }
+
 }
 
 /// Emit the `SmeltTextDecoder` runtime type.
@@ -145,6 +157,18 @@ pub fn emit_decoder(writer: &mut CodeWriter, needs_unknown: bool) {
     });
     writer.blank_line();
     emit_codec_erasure(writer, needs_unknown, "SmeltTextDecoder", "__smelt_textdecoder");
+    if needs_unknown {
+        writer.line("/// The modeled member of an erased `TextDecoder` record, resolved at run time.");
+        writer.line("///");
+        writer.line("/// Same dynamic boundary as the sibling host resolvers: the receiver is a");
+        writer.line("/// marker-bearing record, so the member is decided by the marker and the");
+        writer.line("/// member NAME at run time. A program reaches this only by erasing the codec");
+        writer.line("/// on purpose; answering `undefined`, which is what a plain property read");
+        writer.line("/// does, made `(encoder as any).encode('ab')` a null rather than the bytes.");
+        writer.line("fn smelt_text_decoder_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if !object.contains_key(\"__smelt_textdecoder\") || name != \"decode\" { return None; } let decoder = <SmeltTextDecoder as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(object.clone())); Some(SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let bytes = args.first().cloned().map_or_else(SmeltUint8Array::new, <SmeltUint8Array as SmeltFromUnknown>::smelt_from_unknown); Ok(SmeltUnknown::String(decoder.decode(&bytes).into())) }))) }");
+        writer.blank_line();
+    }
+
 }
 
 /// Emit the byte-view struct and its comparisons.

@@ -5040,6 +5040,12 @@ impl<'mir> FunctionEmitter<'mir> {
                                 // `string | File` pair -- nothing in a form is
                                 // an erased record.
                                 | smelt_stdlib::StdlibClass::FormData
+                                // A body HANDLE is the concrete `SmeltBody`.
+                                // It is the one modeled class with no readable
+                                // members, but it is still a real Rust value:
+                                // presence, and being passed back to a
+                                // constructor, are what it answers.
+                                | smelt_stdlib::StdlibClass::ReadableStream
                                 // The text codecs and the concrete byte view
                                 // are generated Rust types too. The byte view
                                 // is reached only through its synthetic class

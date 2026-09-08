@@ -351,6 +351,7 @@ fn end_to_end_examples_match_expected_outputs() -> TestResult {
         "57_reassigned_method",
         "58_absent_value_stringify",
         "59_ambient_response_init",
+        "60_response_body_handle",
     ] {
         verify_end_to_end_example(name)?;
     }

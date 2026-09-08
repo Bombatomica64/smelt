@@ -388,6 +388,16 @@ impl FunctionEmitter<'_> {
         strict_nullish: bool,
         inner: TypeId,
     ) -> Result<String, EmitError> {
+        // A CONCRETE payload can never hold a nullish tag, so the comparison is
+        // presence and nothing else: `res.body === null` on an
+        // `Option<SmeltBody>` is `res.body.is_none()`. Matching `SmeltUnknown`
+        // patterns against such a payload does not even type-check, which is
+        // what a body handle (`StdlibClass::ReadableStream`) hit first.
+        if self.static_tag_check(inner, smelt_hir::UnknownKind::Null) == Some(false)
+            && self.static_tag_check(inner, smelt_hir::UnknownKind::Undefined) == Some(false)
+        {
+            return Ok(format!("{option_text}.is_none()"));
+        }
         let pattern = if strict_nullish {
             if matches!(singleton, Operand::Const(Constant::Undefined)) {
                 "SmeltUnknown::Undefined"

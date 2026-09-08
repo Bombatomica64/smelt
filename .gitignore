@@ -273,3 +273,6 @@ third_party/es-toolkit-src/
 # standards-ambient-init-dictionaries.md records the ResponseInit/RequestInit
 # generated-struct design and the Hono stop it moved
 !blocker-logs/standards-ambient-init-dictionaries.md
+# standards-erased-host-members.md records the runtime member resolution on
+# erased host records
+!blocker-logs/standards-erased-host-members.md

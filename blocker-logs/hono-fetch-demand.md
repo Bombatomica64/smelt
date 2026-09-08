@@ -279,3 +279,45 @@ stream has nothing to implement here.
 
 Re-probe after `ResponseInit` lands; the next stop is either the next standards
 family or the Hono stream's, and this log gets whichever it is.
+
+## Found by standards (round 18): an inline object literal against a const-bound arrow's parameter is not hinted
+
+Handed to the Hono stream because it is general lowering, not fetch types: it
+costs erasure at every struct-typed argument written inline against an arrow,
+whatever the struct is.
+
+An object literal passed straight to a parameter whose callee is a **const-bound
+arrow with a required parameter** does not receive the parameter's type hint. It
+is built as a `SmeltRecord<String, SmeltUnknown>` — erasing every value on the
+way in — and then converted to the struct:
+
+```ts
+interface Opts { status?: number; label?: string }
+
+// (1) plain function: hinted. Builds `Opts { status: Some(8.0), .. }`.
+function showFn(opts: Opts): string { return `${opts.status}`; }
+showFn({ status: 8 });
+
+// (2) const-bound arrow, OPTIONAL parameter: hinted. Also builds the struct.
+const showOptional = (opts?: Opts): string => `${opts?.status}`;
+showOptional({ status: 7 });
+
+// (3) const-bound arrow, REQUIRED parameter: NOT hinted.
+const showRequired = (opts: Opts): string => `${opts.status}`;
+showRequired({ status: 8 });
+// let _t5: SmeltRecord<String, SmeltUnknown> = SmeltRecord::from([("status", SmeltUnknown::Number(8.0)), ..]);
+// (_t4)({ let smelt_record_map = _t5.clone(); Opts { status: smelt_record_map.get("status")…cloned().map(…) } })
+```
+
+(1) and (2) are what (3) should look like. The closure-call path does ask for a
+hint — `function.params.get(index)` in `stdlib/call_dispatch.rs`, feeding
+`argument_with_hint` — so the hint is either not present in the callee's
+resolved function type for that shape, or it is dropped before the object
+literal is lowered; (2) working makes "no hint at all for closure calls" the
+wrong explanation.
+
+Found while writing `59_ambient_response_init`, whose forwarding helper is
+exactly shape (3). The fixture binds its init to an annotated const at that one
+call site to keep the examples corpus at zero avoidable erasure, with a comment
+pointing here — so a fix can un-bind it and the golden will show the
+improvement.
