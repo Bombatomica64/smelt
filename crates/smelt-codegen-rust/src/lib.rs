@@ -7462,7 +7462,30 @@ pub(crate) fn record_field_unknown_text(mir: &Mir, value_text: &str, ty: TypeId)
                 "SmeltUnknown::Object(SmeltObject::new({value_text}.into_iter().map(|(key, value)| (key, {item_text})).collect()))"
             )
         }
-        Some(Type::Dict(_, _) | Type::JsMap(_, _) | Type::Tuple(_) | Type::Class { .. }) => {
+        // A tuple erases ELEMENT-WISE to a JS array, like every other structural
+        // shape above it. It was grouped with the shapes that have an
+        // `IntoSmeltUnknown` impl, but a Rust tuple has none — the prototype
+        // carrier for `RegExpRouter#buildAllMatchers`, whose return type is
+        // `[RegExp, HandlerParamsSet<T>[][], …]`, asked for
+        // `(value).into_smelt_unknown()` and got "no method named
+        // `into_smelt_unknown` found for tuple" (H29, second half).
+        //
+        // The value is bound once: `value_text` is an arbitrary expression here,
+        // and indexing it per element would evaluate it once per element.
+        Some(Type::Tuple(items)) => {
+            let elements = items
+                .iter()
+                .enumerate()
+                .map(|(index, item)| {
+                    record_field_unknown_text(mir, &format!("smelt_tuple.{index}"), *item)
+                })
+                .collect::<Result<Vec<_>, _>>()?
+                .join(", ");
+            format!(
+                "{{ let smelt_tuple = {value_text}; SmeltUnknown::Array(vec![{elements}].into()) }}"
+            )
+        }
+        Some(Type::Dict(_, _) | Type::JsMap(_, _) | Type::Class { .. }) => {
             format!("({value_text}).into_smelt_unknown()")
         }
         Some(Type::Function(_)) => "SmeltUnknown::Null".to_owned(),

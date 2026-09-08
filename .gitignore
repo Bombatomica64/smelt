@@ -260,3 +260,4 @@ third_party/es-toolkit-src/
 !blocker-logs/clippy-all-targets-gate.md
 !blocker-logs/hono-h36-static-tag-check.md
 !blocker-logs/hono-h29-generic-class-bounds.md
+!blocker-logs/hono-h29b-tuple-erasure.md
