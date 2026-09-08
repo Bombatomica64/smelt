@@ -2515,7 +2515,7 @@ impl FunctionEmitter<'_> {
     /// union, `never` — return `None` and keep the runtime match. So does any
     /// shape this cannot answer confidently, and an erased class, which really
     /// is represented as a `SmeltUnknown` at run time.
-    fn static_tag_check(&self, ty: TypeId, kind: smelt_hir::UnknownKind) -> Option<bool> {
+    pub(super) fn static_tag_check(&self, ty: TypeId, kind: smelt_hir::UnknownKind) -> Option<bool> {
         use smelt_hir::UnknownKind as Kind;
 
         if self.is_erased_class_type(ty) {

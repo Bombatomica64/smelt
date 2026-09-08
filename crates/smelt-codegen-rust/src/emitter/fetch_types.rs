@@ -378,6 +378,16 @@ impl FunctionEmitter<'_> {
             smelt_hir::RequestOp::Method => format!("{receiver}.method()"),
             smelt_hir::RequestOp::Headers => format!("{receiver}.headers()"),
             smelt_hir::RequestOp::BodyUsed => format!("{receiver}.body_used()"),
+            // The body HANDLE, or `None` when there is no body. A handle
+            // read SHARES the body — the same `Rc` payload and the same
+            // `bodyUsed` cell — so handing it to a constructor is the spec's
+            // "the body is shared" and not a copy. `Empty` is the spec's
+            // `null`: `new Response(null).body` is `null` while
+            // `new Response("").body` is a stream, and the payload keeps the
+            // two apart.
+            smelt_hir::RequestOp::Body => format!(
+                "{{ let smelt_body = {receiver}.body(); if smelt_body.is_empty() {{ None }} else {{ Some(smelt_body) }} }}"
+            ),
             smelt_hir::RequestOp::Clone => format!("{receiver}.tee()"),
             smelt_hir::RequestOp::Signal => format!("smelt_request_signal({receiver}.id())"),
             // Same handle-clone-into-the-block shape as `Response::text`; see
@@ -444,6 +454,13 @@ impl FunctionEmitter<'_> {
         if self.is_request_class_type(body_ty)? {
             return Ok(format!("{body_text}.body()"));
         }
+        // A body HANDLE at the body position is passed straight through: it
+        // already IS a `SmeltBody`, and sharing it is what the spec says
+        // `new Response(other.body, init)` does. Checked before the payload
+        // conversions below because a handle needs none of them.
+        if self.is_readable_stream_class_type(body_ty)? {
+            return Ok(body_text.to_owned());
+        }
         // A `Blob` at the body position contributes its BYTES, and its `type`
         // becomes the body's content type — which is what makes
         // `new Response(blob).headers.get("content-type")` answer the blob's
@@ -509,6 +526,16 @@ impl FunctionEmitter<'_> {
             smelt_hir::ResponseOp::StatusText => format!("{receiver}.status_text()"),
             smelt_hir::ResponseOp::Headers => format!("{receiver}.headers()"),
             smelt_hir::ResponseOp::BodyUsed => format!("{receiver}.body_used()"),
+            // The body HANDLE, or `None` when there is no body. A handle
+            // read SHARES the body — the same `Rc` payload and the same
+            // `bodyUsed` cell — so handing it to a constructor is the spec's
+            // "the body is shared" and not a copy. `Empty` is the spec's
+            // `null`: `new Response(null).body` is `null` while
+            // `new Response("").body` is a stream, and the payload keeps the
+            // two apart.
+            smelt_hir::ResponseOp::Body => format!(
+                "{{ let smelt_body = {receiver}.body(); if smelt_body.is_empty() {{ None }} else {{ Some(smelt_body) }} }}"
+            ),
             smelt_hir::ResponseOp::Clone => format!("{receiver}.tee()"),
             // `text()` answers a promise, so it is a future here, and the
             // future is fallible because a second read is the spec's
@@ -622,6 +649,15 @@ impl FunctionEmitter<'_> {
             return Ok(false);
         };
         Ok(self.stdlib_class_of_symbol(*name)? == Some(smelt_stdlib::StdlibClass::Request))
+    }
+
+    /// Return whether a type names the modeled `ReadableStream` body handle.
+    pub(super) fn is_readable_stream_class_type(&self, ty: TypeId) -> Result<bool, EmitError> {
+        let Some(Type::Class { name, .. }) = self.mir.types.get(ty) else {
+            return Ok(false);
+        };
+        Ok(self.stdlib_class_of_symbol(*name)?
+            == Some(smelt_stdlib::StdlibClass::ReadableStream))
     }
 
     /// Return whether a type names the generated `SmeltHeaders` runtime type.

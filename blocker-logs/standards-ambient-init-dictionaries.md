@@ -112,7 +112,7 @@ named neither the source line nor the reason. It is a named blocker now, with a
 file and a message, which is why the stop moved from the emitter into the check
 phase.
 
-**This is a design question for the next round, and it is small.** Smelt already
+**Accepted and implemented in round 18 — see the section at the bottom.** Smelt already
 models a response's body internally as a `SmeltBody` handle, and
 `body_conversion_text` already accepts "a `Request` at the body position" by
 taking its handle. The same treatment for `Response.body` needs one modeled
@@ -141,3 +141,82 @@ binds its init to an annotated const at that one call site. It is a
 hint-propagation gap in the closure-call path rather than anything about init
 dictionaries, and it is worth its own item: it costs erasure at every
 struct-typed argument written inline against an arrow.
+
+---
+
+# Round 18: `Response.body` is the body handle
+
+The ruling was the proposal above: model the stream as the HANDLE, a class with
+no readable members, typed `Optional` for the spec's `null`.
+
+## What it is
+
+`StdlibClass::ReadableStream`, backed by the generated `SmeltBody`, reached only
+from `Response.body` / `Request.body` (`ResponseOp::Body` / `RequestOp::Body`)
+and consumed only by a constructor's body position. Its whole surface:
+
+| | |
+| --- | --- |
+| `if (res.body)`, `res.body === null` | presence — `Option::is_none` |
+| `new Response(res.body, init)` | the handle passes straight through, SHARING the payload and the `bodyUsed` cell |
+| `res.bodyUsed` | already modeled, unchanged |
+| anything else (`getReader`, `pipeTo`, `tee`, async iteration) | not modeled |
+
+`Empty` is the spec's `null`: `new Response(null).body` is `null` while
+`new Response("").body` is a stream, and the payload variant keeps the two
+apart, so the read answers `None` for the first and `Some(handle)` for the
+second. Both are in the fixture.
+
+Typing it as the body's TEXT was rejected for exactly that pair: `if (res.body)`
+would answer `false` for an empty-string body where JavaScript answers `true`.
+
+Three things had to follow the class:
+
+* **The Rust type text.** `Class(ReadableStream)` renders `SmeltBody`, and the
+  class joins the set that `is_erased_class_type` calls concrete — it is the one
+  modeled class with no readable members, but it is still a real Rust value.
+* **A nullish comparison against a CONCRETE payload.** `res.body === null`
+  emitted `x.as_ref().is_some_and(|value| matches!(value, SmeltUnknown::Null))`,
+  which does not type-check against an `Option<SmeltBody>` — a concrete payload
+  can never hold a nullish tag, so the comparison is presence and nothing else.
+  Fixed for every concrete payload, not just this one.
+* **`JSON.stringify` of a generic.** Not related to bodies, but it was the next
+  stop the crate reached and it is one rule: a TYPE PARAMETER stringifies
+  through the erased boundary exactly as `Unknown` does (legal JavaScript for
+  every instantiation), and it was rejected outright, so a generic helper that
+  serializes its argument blocked the whole crate.
+
+Fixture `60_response_body_handle` has the `http-exception.ts:68` shape — a
+carried response's body re-wrapped under a new status, keeping its headers —
+byte-identical to Node 22, including that the re-wrapped body reads back the
+CARRIED response's own bytes.
+
+## Where the Hono build stops now, verbatim
+
+```
+Error: EmitError { message: "`new Headers(init)` initializer type is not modeled: SmeltUnknown (initializer `smelt_headers_init` in `#new_response` at /home/user/smelt/third_party/hono/src/context.ts:17416..18721)" }
+```
+
+That span is `context.ts:612`, `#newResponse`'s own body — the site round 15
+cleared for a union of `StatusCode | ResponseInit | Response` where
+`ResponseInit` was the AMBIENT one. Hono's is its own GENERIC
+`interface ResponseInit<T extends StatusCode>`, and `arg.headers` is erased
+again there, so the union-arm dispatch is declining for a reason the generic arm
+introduces. It is the same family as round 15's fix rather than a new one, and
+it is the next thing to look at on this line.
+
+Two gaps found on the way, both recorded rather than fixed:
+
+* **`super(options?.message)` panics.** `Error`'s `message` is a `string` and
+  `new Error(undefined).message` is `""`, but the super-call assigns the
+  optional argument straight into the field: the generated code is
+  `this.message = value.expect("optional value was absent after narrowing")`,
+  which panics for `new Boom(418, { res })`. It is exactly Hono's
+  `HTTPException` constructor, so it is the next RUNTIME failure on this path
+  once the build gets through.
+* **`Error.cause` counts as avoidable erasure.** A subclass of `Error` carries
+  `cause?: unknown` — the canonical dynamic boundary — and its struct
+  initializer (`cause: SmeltUnknown::Null`) is classified avoidable, which
+  keeps any `Error` subclass out of the zero-erasure examples corpus. That is
+  why the fixture uses a plain class. Reclassifying it needs the boundary test
+  the policy asks for, in `classify_line`.

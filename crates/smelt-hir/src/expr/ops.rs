@@ -396,6 +396,15 @@ pub enum RequestOp {
     Headers,
     /// `bodyUsed`: whether a reader has consumed the body.
     BodyUsed,
+    /// `body`: the body HANDLE, or absent when there is no body.
+    ///
+    /// The spec's `body` is a `ReadableStream | null`, and Smelt models the
+    /// stream as the handle itself (`StdlibClass::ReadableStream`): present or
+    /// absent, passable back to a constructor, and nothing else. `null` is the
+    /// "no body" case — `new Response(null).body` is `null` while
+    /// `new Response("").body` is a stream — which the payload distinguishes,
+    /// so the read answers an `Optional`.
+    Body,
     /// `text()`: the body decoded as UTF-8. Async, and consumes the body.
     Text,
     /// `formData()`: the body parsed as a form. Async, and consumes the body.
@@ -439,6 +448,15 @@ pub enum ResponseOp {
     Headers,
     /// `bodyUsed`: whether a reader has consumed the body.
     BodyUsed,
+    /// `body`: the body HANDLE, or absent when there is no body.
+    ///
+    /// The spec's `body` is a `ReadableStream | null`, and Smelt models the
+    /// stream as the handle itself (`StdlibClass::ReadableStream`): present or
+    /// absent, passable back to a constructor, and nothing else. `null` is the
+    /// "no body" case — `new Response(null).body` is `null` while
+    /// `new Response("").body` is a stream — which the payload distinguishes,
+    /// so the read answers an `Optional`.
+    Body,
     /// `text()`: the body decoded as UTF-8. Async, and consumes the body.
     Text,
     /// `formData()`: the body parsed as a form. Async, and consumes the body.

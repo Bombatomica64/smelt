@@ -1023,9 +1023,14 @@ impl FunctionEmitter<'_> {
             return Err(EmitError::new("JSON stringify destination must be string"));
         }
         if !self.is_json_serializable_type(self.operand_ty(value)?) {
-            return Err(EmitError::new(
-                "JSON stringify value must be JSON-serializable",
-            ));
+            // The blocker names the TYPE and the enclosing function: this
+            // message is what a whole-crate build prints, and on its own it
+            // gave a reader no way to find the call site.
+            return Err(EmitError::new(format!(
+                "JSON stringify value must be JSON-serializable, got {} (in `{}`)",
+                self.type_text_with_impl_trait(self.operand_ty(value)?, false)?,
+                self.symbol_name(self.function.name).unwrap_or("<unnamed>"),
+            )));
         }
         let value_ty = self.operand_ty(value)?;
         let value_text = if self.json_needs_erasure(value_ty) {

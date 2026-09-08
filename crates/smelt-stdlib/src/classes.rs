@@ -57,6 +57,23 @@ pub enum StdlibClass {
     /// `node:http` `ServerResponse`: the response half of one exchange, and the
     /// only modeled class with settable members (`res.statusCode = 200`).
     ServerResponse,
+    /// WHATWG `ReadableStream`, as it appears at `Response.body` /
+    /// `Request.body`: the BODY HANDLE itself, backed by the generated
+    /// `SmeltBody`.
+    ///
+    /// The stream's own surface (`getReader`, `pipeTo`, `tee`, async iteration)
+    /// is deliberately absent — a member call on one is a named blocker — and
+    /// what IS modeled is the whole of what the idiom needs: a body is present
+    /// or absent (`if (res.body)`, `res.body === null`), it can be handed back
+    /// to a constructor (`new Response(res.body, init)`, which SHARES the
+    /// handle exactly as passing the response itself does), and `bodyUsed`
+    /// reports whether it has been read.
+    ///
+    /// Typing it as the body's TEXT was considered and rejected: `if (res.body)`
+    /// would then answer `false` for an empty-STRING body, where JavaScript
+    /// answers `true` because a stream object exists either way. Presence is
+    /// exactly what the handle can answer honestly.
+    ReadableStream,
     /// WHATWG `TextEncoder`, backed by the generated concrete `SmeltTextEncoder`
     /// runtime type. The spec fixes its encoding at UTF-8, so the value carries
     /// only a JS reference identity and its `encoding` data property.
@@ -296,6 +313,7 @@ pub fn typescript_stdlib_class(name: &str) -> Option<StdlibClass> {
         "IncomingMessage" => Some(StdlibClass::IncomingMessage),
         "ServerResponse" => Some(StdlibClass::ServerResponse),
         "FormData" => Some(StdlibClass::FormData),
+        "ReadableStream" => Some(StdlibClass::ReadableStream),
         "TextEncoder" => Some(StdlibClass::TextEncoder),
         "TextDecoder" => Some(StdlibClass::TextDecoder),
         BYTE_ARRAY_CLASS_NAME => Some(StdlibClass::ByteArray),

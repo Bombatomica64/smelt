@@ -647,7 +647,7 @@ impl ModuleBuilder<'_> {
             // is missing, and the modeled ways to move a body still work --
             // `await res.text()`, or passing the response itself at the body
             // position, which takes its handle.
-            "body" => None,
+            "body" => Some(ResponseOp::Body),
             _ => return Ok(None),
         };
         let Ok(receiver) = self.expression(&member.object, body) else {
@@ -664,12 +664,9 @@ impl ModuleBuilder<'_> {
         if !self.is_response_type(receiver_ty) {
             return Ok(None);
         }
-        let Some(op) = op else {
-            return Err(SmeltError::unsupported(
-                span,
-                "`Response.body` is a ReadableStream, which is not modeled; use `await response.text()`, or pass the response itself as the body",
-            ));
-        };
+        // Every remaining name in the match above resolves to an operation;
+        // the `Option` exists only so the receiver's type is checked first.
+        let Some(op) = op else { return Ok(None) };
         let ty = self.response_op_result_type(op);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::ResponseOp {
@@ -697,6 +694,31 @@ impl ModuleBuilder<'_> {
             && !self.user_class_shadows("Response")
     }
 
+    /// The modeled `ReadableStream` class: a body HANDLE.
+    ///
+    /// `Response.body` and `Request.body` are the only sites that produce one,
+    /// and passing it back to a constructor is the only thing that consumes
+    /// one — see `StdlibClass::ReadableStream` for why the stream's own surface
+    /// is deliberately absent.
+    pub(in crate::lowering) fn readable_stream_type(&mut self) -> smelt_hir::TypeId {
+        let name = self.intern_type_name("ReadableStream");
+        self.ctx.krate.types.intern(Type::Class {
+            name,
+            args: Vec::new(),
+        })
+    }
+
+    /// The `Optional<ReadableStream>` a `body` read answers.
+    ///
+    /// Optional because the spec's `body` is `ReadableStream | null`: a body
+    /// built from nothing (`new Response()`, `new Response(null)`, a GET
+    /// request) has none, while a body built from the empty string has one.
+    /// The payload distinguishes those, so `if (res.body)` is presence.
+    fn body_handle_type(&mut self) -> smelt_hir::TypeId {
+        let stream_ty = self.readable_stream_type();
+        self.ctx.krate.types.intern(Type::Optional(stream_ty))
+    }
+
     /// The HIR type a `Response` operation answers.
     ///
     /// Each is the member's exact source type, so no caller has to re-narrow:
@@ -709,6 +731,7 @@ impl ModuleBuilder<'_> {
             ResponseOp::Ok | ResponseOp::BodyUsed => self.ctx.krate.types.intern(Type::Bool),
             ResponseOp::StatusText => self.ctx.krate.types.intern(Type::String),
             ResponseOp::Headers => self.headers_type(),
+            ResponseOp::Body => self.body_handle_type(),
             ResponseOp::Clone => self.response_type(),
             ResponseOp::Text => {
                 let string_ty = self.ctx.krate.types.intern(Type::String);
@@ -876,7 +899,7 @@ impl ModuleBuilder<'_> {
             // Same as `Response.body` above: a `ReadableStream` Smelt does not
             // model, named rather than erased into a field read that does not
             // compile.
-            "body" => None,
+            "body" => Some(RequestOp::Body),
             _ => return Ok(None),
         };
         let Ok(receiver) = self.expression(&member.object, body) else {
@@ -891,12 +914,9 @@ impl ModuleBuilder<'_> {
         if !self.is_request_type(receiver_ty) {
             return Ok(None);
         }
-        let Some(op) = op else {
-            return Err(SmeltError::unsupported(
-                span,
-                "`Request.body` is a ReadableStream, which is not modeled; use `await request.text()`, or pass the request itself as the body",
-            ));
-        };
+        // Every remaining name in the match above resolves to an operation;
+        // the `Option` exists only so the receiver's type is checked first.
+        let Some(op) = op else { return Ok(None) };
         let ty = self.request_op_result_type(op);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::RequestOp {
@@ -930,6 +950,7 @@ impl ModuleBuilder<'_> {
             RequestOp::Url | RequestOp::Method => self.ctx.krate.types.intern(Type::String),
             RequestOp::BodyUsed => self.ctx.krate.types.intern(Type::Bool),
             RequestOp::Headers => self.headers_type(),
+            RequestOp::Body => self.body_handle_type(),
             RequestOp::Clone => self.request_type(),
             // The signal is the erased abort record, the same value
             // `new AbortController().signal` is — so `request.signal.aborted`
