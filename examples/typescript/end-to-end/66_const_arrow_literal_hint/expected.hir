@@ -1,4 +1,4 @@
-module examples/typescript/end-to-end/65_const_arrow_literal_hint/input.ts (ModuleId(0))
+module examples/typescript/end-to-end/66_const_arrow_literal_hint/input.ts (ModuleId(0))
   body BodyId(5)
   items
     interface Opts fields [Public status?: Optional<Float>, Public label?: Optional<String>] methods []
