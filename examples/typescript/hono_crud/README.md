@@ -52,16 +52,13 @@ crate named `hono_crud` into `./dist-smelt`:
 cargo run --bin smelt -- --manifest-path examples/typescript/hono_crud/Smelt.toml build
 ```
 
-## Why a second showcase
+## Why Hono
 
-This example is the Hono counterpart of `express_crud`: the same domain, the same
-layering and the same hand-written validation, expressed against a `fetch`-based
-framework instead of Express' middleware chain. The interesting difference for
-Smelt is not the app but the dependency. Express ships as JavaScript with
-separate `@types/express` declarations, so Smelt reads its types and models the
-runtime; Hono is written in TypeScript and publishes its own sources, so Smelt
-transpiles the framework itself — generics, routers, `Context`, the whole tree —
-as ordinary input alongside this app. That makes `hono_crud` the smallest honest
-end-to-end test of "transpile the library too" rather than "model the library".
-The campaign notes for that work live in `blocker-logs/hono-campaign-plan.md` on
-the Hono integration branch.
+The interesting part for Smelt is not the app but the dependency. Most Node web
+frameworks ship as JavaScript with separate type declarations, so a transpiler
+can only read their types and model the runtime. Hono is written in TypeScript
+and publishes its own sources, so Smelt transpiles the framework itself —
+generics, routers, `Context`, the whole tree — as ordinary input alongside this
+app. That makes `hono_crud` the smallest honest end-to-end test of "transpile
+the library too" rather than "model the library". The campaign notes for that
+work live in `blocker-logs/hono-campaign-plan.md` on the Hono integration branch.
