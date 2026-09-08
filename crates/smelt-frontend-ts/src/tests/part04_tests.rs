@@ -5594,22 +5594,42 @@ const objectPatternMatches = patterns.delimiter.test(text);
     let module = module(&ctx, module_id)?;
     let body = module_body(&ctx, module)?;
 
+    // `test` lowers to one of TWO nodes, and which one depends on whether the
+    // receiver's flags are readable at the call site. The three spellings that
+    // carry their own flags -- a literal, and a `RegExp(..)` built with no flags
+    // argument -- are pure predicates and lower to `is_match`. The two that
+    // reach the regex through a name (a `const`, an object field) cannot know
+    // whether the VALUE is global, so they keep the stateful spelling and run
+    // the runtime's own `test`.
+    //
+    // Neither answer is `RegexExec`: building a match object to compare it
+    // against `null` is what this replaced.
+    let stateless = body
+        .exprs
+        .iter()
+        .filter(|expr| {
+            matches!(
+                expr.kind,
+                ExprKind::RegexIsMatch {
+                    op: smelt_hir::RegexMatchOp::Search,
+                    ..
+                }
+            )
+        })
+        .count();
+    let stateful = body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(expr.kind, ExprKind::RegexTest { .. }))
+        .count();
+    let exec = body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(expr.kind, ExprKind::RegexExec { .. }))
+        .count();
     ensure!(
-        body.exprs
-            .iter()
-            .filter(|expr| {
-                matches!(
-                    expr.kind,
-                    ExprKind::RegexExec { .. }
-                        | ExprKind::RegexIsMatch {
-                            op: smelt_hir::RegexMatchOp::Search,
-                            ..
-                        }
-                )
-            })
-            .count()
-            == 5,
-        "expected RegExp.test lowering",
+        stateless == 3 && stateful == 2 && exec == 0,
+        "expected RegExp.test lowering: {stateless} is_match, {stateful} test, {exec} exec",
     );
     Ok(())
 }

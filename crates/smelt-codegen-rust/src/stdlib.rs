@@ -131,6 +131,13 @@ fn rvalue_needs_regex(rvalue: &Rvalue, _mir: &Mir) -> bool {
             | Rvalue::RegexSplit { .. }
             | Rvalue::RegexFind { .. }
             | Rvalue::RegexExec { .. }
+            // `regex.test(haystack)` is the one RegExp operation whose RESULT
+            // type mentions nothing regex-shaped -- it is a `bool` -- so a
+            // program whose only regex use is a `test` still needs the
+            // `SmeltRegExp` runtime and the `fancy_regex` crate its `test`
+            // compiles through. Omitting it emitted `SmeltRegExp::new(..)`
+            // against an empty prelude.
+            | Rvalue::RegexTest { .. }
             | Rvalue::RegexMatchAll { .. }
             | Rvalue::StringSplit { .. }
     )

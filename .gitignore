@@ -257,3 +257,9 @@ third_party/es-toolkit-src/
 !blocker-logs/hono-h34-union-valued-record.md
 !blocker-logs/hono-h35-union-index-write.md
 !blocker-logs/hono-h27-double-optional-dict-read.md
+# abort-signal-reason-and-statics.md records the AbortSignal reason/statics inventory diffed against Node
+!blocker-logs/abort-signal-reason-and-statics.md
+# top-level-try-await-tail.md documents the module-top-level try/await tail fix
+!blocker-logs/top-level-try-await-tail.md
+# regex-literal-test-erases-match.md documents the RegExp.prototype.test erasure fix
+!blocker-logs/regex-literal-test-erases-match.md
