@@ -15,8 +15,11 @@
     "hono": "^4.13.0"
   },
   "devDependencies": {
-    "@types/node": "^22.10.0",
-    "typescript": "^5.7.2",
+    "@types/node": "^26.5.0",
+    "typescript": "^7.0.2",
     "vitest": "^3.2.7"
+  },
+  "engines": {
+    "node": ">=24"
   }
 }

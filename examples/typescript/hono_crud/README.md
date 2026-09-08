@@ -5,7 +5,7 @@ Smelt showcase input: the source a competent engineer would actually write for a
 CRUD service on a modern `fetch`-based framework, which Smelt should transpile
 into a working axum server.
 
-Persistence is Node's built-in `node:sqlite` driver (Node 22+) used directly with
+Persistence is Node's built-in `node:sqlite` driver (Node 24 or newer) used directly with
 plain SQL — no ORM and no extra database dependency. Every statement is a prepared
 statement; no value is interpolated into SQL.
 
