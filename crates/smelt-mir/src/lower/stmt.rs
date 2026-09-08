@@ -130,12 +130,16 @@ impl LoweringCtx<'_> {
                 Ok(())
             }
             HirStmt::Assign { target, value } => {
-                let place = self.lower_place(*target)?;
+                let (place, writebacks) = self.lower_place(*target)?;
                 let lowered_value = self.lower_expr(*value)?;
                 self.block_mut()?.statements.push(Statement::AssignPlace {
                     place,
                     value: Rvalue::Use(lowered_value),
                 });
+                // A projected receiver (`a.b[i] = v`) was copied into a
+                // temporary to root the place; commit it back or the write is
+                // lost for every value representation. See `PlaceWritebacks`.
+                self.write_back_place_receivers(writebacks)?;
                 Ok(())
             }
             HirStmt::Expr(expr) => {
@@ -533,12 +537,13 @@ impl LoweringCtx<'_> {
         self.loops.pop();
 
         self.current_block = latch;
-        let place = self.lower_place(update_target)?;
+        let (place, writebacks) = self.lower_place(update_target)?;
         let value = self.lower_expr(update_value)?;
         self.block_mut()?.statements.push(Statement::AssignPlace {
             place,
             value: Rvalue::Use(value),
         });
+        self.write_back_place_receivers(writebacks)?;
         if self.block()?.terminator.is_none() {
             self.set_terminator(Terminator::Goto(header))?;
         }

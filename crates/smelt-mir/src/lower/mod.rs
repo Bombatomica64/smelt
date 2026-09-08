@@ -117,6 +117,31 @@ type MutationWriteback = Option<(Place, LocalId)>;
 /// Lowered collection mutation receiver and its optional writeback.
 type LoweredMutationReceiver = (Operand, MutationWriteback);
 
+/// Copies of PROJECTED assignment receivers that a place write must commit back,
+/// outermost first.
+///
+/// A MIR place is rooted at a local, so `a.b[i] = v` materializes `a.b` into a
+/// temporary and writes through that. Whether the write reaches `a` then depends
+/// on the receiver's REPRESENTATION: a Smelt collection handle (`SmeltList`,
+/// `SmeltRecord`, a reference class) shares its storage across clones, so the
+/// write lands in the original, while a value representation (a plain
+/// `HashMap`/`Vec` field, a value-class struct) is deep-copied and the write is
+/// silently lost -- with no rustc error, because the generated code type-checks
+/// perfectly. MIR cannot tell the two apart: which Rust type a `Dict`/`List`
+/// becomes is a codegen representation choice.
+///
+/// So the assignment path does what the collection-mutation path already does
+/// (`lower_mutation_receiver`): it records the projection it copied and stores
+/// the temporary back through it once the write has been emitted. Correct for
+/// both representations -- committing a handle stores an equal handle, and
+/// committing a value commits the copy -- and it needs no answer to the
+/// representation question. Nested receivers (`a.b.c[i] = v`) push one entry per
+/// level and are replayed INNERMOST FIRST, so each level commits into a base
+/// that is itself still live.
+///
+/// See `blocker-logs/hono-h31-projected-receiver-writeback.md`.
+type PlaceWritebacks = Vec<(Place, LocalId)>;
+
 
 /// Synthetic MIR helper types shared by every body lowered in one run.
 ///
