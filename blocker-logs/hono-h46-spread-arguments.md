@@ -345,3 +345,92 @@ another. Rounds 18-20 shipped spread work three times on an incomplete picture
 of these paths -- once breaking the es-toolkit gate, once giving back the hono
 row -- and the cost of a fourth was not worth the partial credit. The gates were
 not run against it either, since it was never a candidate to commit.
+
+---
+
+## Round 22: half (b) works, and it breaks remeda. Not shipped.
+
+The acceptance criterion was met and the cause of the dropped element was found.
+Then the corpus gate said no. Recording both, because the second is the reason
+this family should stop being attempted as a patch.
+
+### It was not the seventh site
+
+The ruling named `CallbackExprKind::MethodCall`'s collection in
+`callbacks/closures.rs`. It is not that, and it is not in the frontend at all.
+Instrumented rather than guessed: probes in the under-application path and the
+method path showed the method path firing with `expanded=2`, so HIR received
+BOTH arguments. The drop happened in MIR.
+
+`crates/smelt-mir/src/lower/expr.rs`, the `ExprKind::Index` arm:
+
+```rust
+if matches!(self.krate.types.get(expr.ty), Some(Type::Optional(_))) {
+    ... Rvalue::OptionalIndex ...
+}
+```
+
+An optional RESULT type is taken as proof the read can miss -- true for `xs[i]`
+on a list, where `Option<T>` means "index may be out of range". A TUPLE read is
+not that: its index is a constant field position that always exists, and an
+`Optional` result is the ELEMENT's own declared type. So `args.1` on
+`(String, Option<Init>)` asked "is this slot present?" of a slot that is always
+present, and answered `None`. MIR showed it exactly: `%4[0]` for element 0
+(`String`) beside `%6 = copy %4?.[1]` for element 1.
+
+Guarding that arm on the receiver not being a tuple (with a constant index --
+a VARIABLE tuple index must keep the optional route, since codegen's
+`tuple_index` rejects a non-constant) produced the acceptance criterion:
+
+```rust
+move |closure_arg_0: String, closure_arg_1: Option<Init>| {
+    let args: (String, Option<Init>) = (closure_arg_0.clone(), closure_arg_1.clone());
+    let __smelt_spread: (String, Option<Init>) = args.clone();
+    this.inner(__smelt_spread.0.clone(), __smelt_spread.1.clone())
+```
+
+A runtime fixture over the `context.ts:658` shape printed all four lines
+correctly, with and without the `Parameters<F>` cast:
+`data=first init=present` / `data=second init=<none>` / `a/1` / `b/2`.
+
+### Then remeda stopped transpiling
+
+`EmitError: "tuple index must be a non-negative constant integer"`, 0 files
+emitted. Isolated by reverting one change at a time:
+
+| tree | remeda |
+| --- | --- |
+| frontend sites 1-4 + MIR fix | **fails** |
+| frontend sites 1-4, no MIR fix | **fails** |
+| MIR fix alone, no frontend sites | passes (391 files) |
+
+So the MIR fix is safe and it is the FRONTEND expansion that breaks remeda.
+
+### Why, and why it is a design question rather than a bug
+
+Typing a rest binding as a tuple is only sound when the binding is used ONLY in
+spreads. `args` is an ordinary value: source is free to write `args[i]`,
+`args.length`, `args.map(..)`, or pass it on as a list. remeda does something of
+that kind, and a tuple has no answer for a variable index -- which is precisely
+the error, raised from codegen's tuple-index path.
+
+So half (b) as ruled -- "a rest parameter whose contextual type gives its width
+is a tuple" -- is true about TypeScript's `Parameters<F>` and false as a
+lowering rule, unless it is conditioned on how the binding is USED. That
+condition is a use-site analysis over the closure body: tuple if every use is a
+spread, list otherwise. It is not a fifth site to patch; it is a new fact to
+compute, and it wants to be ruled on before it is built.
+
+Note also that the MIR fix, though correct in principle, has no demonstrable
+trigger without the expansion: a hand-written tuple with an optional element
+read by constant index (`slot[1]` on `[string, number | undefined]`) emits
+`slot.clone().1.clone()` identically before and after. So it is not shippable on
+its own either -- it would be an untested change whose only known witness is a
+feature that cannot land yet.
+
+### State
+
+Nothing from this round is committed. The working tree is back to the merged
+head, verified: es-toolkit transpiles and runs 1055/4, remeda transpiles 391
+files, the hono slice is 7. The fixture built for the acceptance criterion was
+removed with the rest, since it fails without the expansion.
