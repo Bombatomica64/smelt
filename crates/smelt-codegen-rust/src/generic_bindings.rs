@@ -889,6 +889,7 @@ mod tests {
                 })
                 .collect(),
             origin: HirOrigin::Body(smelt_hir::BodyId(id)),
+            absent: smelt_mir::AbsentSpelling::Undefined,
             is_async: false,
             is_generator: false,
             is_test: false,

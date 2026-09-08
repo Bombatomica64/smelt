@@ -127,8 +127,9 @@ almost certainly imported from the Python side, where `Optional` in an f-string
 is a different question — but even Python renders `None` as `"None"`, not as
 `""`, so no profile wants the current answer.
 
-**It needs a decision before it can be fixed, which is why it is recorded
-rather than patched here.** Smelt's `Type::Optional` and
+**FIXED in round 17 — see the section at the bottom for the ruling that was
+applied and what each spelling now prints.** The paragraph below is the
+question as it was asked. Smelt's `Type::Optional` and
 `SmeltUnknown::Null`/`Type::None` conflate JavaScript's `null` and `undefined`,
 and the two stringify differently (`"null"` vs `"undefined"`). Three options:
 
@@ -148,3 +149,63 @@ every corpus moves, so it needs the full golden regeneration plus the
 es-toolkit and remeda suites in the same commit. Some currently-failing
 generated tests may start passing; a handful may start failing on assertions
 written against the empty string.
+
+---
+
+## Fixed (round 17): the spelling comes from the body's language
+
+The ruling was neither of the two options above: **reuse the mechanism round 2
+built for `console.log`.** An absent value's word is decided during MIR
+lowering from the source language of the body, not guessed in codegen — a crate
+can hold TypeScript and Python modules at once, and they disagree.
+
+`MirFunction::absent` (and `MirClosure::absent`) now carries an
+`AbsentSpelling`, set once per body in the two lowering constructors from the
+body's own file, exactly as `BuiltinFn::ConsoleLog` already carried it per call
+site. `AbsentSpelling` gained `null_text()` alongside `text()`, because the two
+words are distinguishable wherever the value still has its runtime tag:
+
+| | JavaScript | Python |
+| --- | --- | --- |
+| `text()` — an absent value with no tag left | `undefined` | `None` |
+| `null_text()` — an explicit `SmeltUnknown::Null`, or a `Type::None` value | `null` | `None` |
+
+Six emit sites changed, all of which answered the empty string before:
+
+| site | shape |
+| --- | --- |
+| `emitter/types.rs` | `String(x)` on an optional primitive |
+| `emitter/call_runtime.rs` | `+` with an optional right-hand side |
+| `emitter/strings.rs` `js_string_coercion_match_text` | the erased coercion's `Null` arm (its `Undefined` arm was already right) |
+| `emitter/strings.rs` | a `Type::None` operand |
+| `emitter/strings.rs` | an `Optional<String>` operand |
+| `emitter/strings.rs` | an `Optional<erased>` operand, and the optional-primitive/structured catch-all that rendered `${maybeNumber}` as nothing |
+
+`Array.prototype.join` was deliberately left alone: `[null, undefined, 1].join(",")`
+is `",,1"` in JavaScript, so the empty string is the RIGHT answer there, and two
+of the sites that looked like the same bug are that rule.
+
+Measured, against Node 22 (fixture `58_absent_value_stringify`):
+
+| source | Node | Smelt now | before |
+| --- | --- | --- | --- |
+| `String(undefined as string \| undefined)` | `undefined` | `undefined` | `""` |
+| `${maybeString}` absent | `undefined` | `undefined` | `""` |
+| `${maybeNumber}` absent | `undefined` | `undefined` | `""` |
+| `${nothing}` where the type IS `null` | `null` | `null` | `""` |
+| `"p:" + undefined` | `p:undefined` | `p:undefined` | `p:` |
+| `${maybeString}` present | the value | the value | the value |
+
+**The one imprecision that remains, deliberately:** a value ANNOTATED
+`string | null` prints `undefined`, because TypeScript's `null` and `undefined`
+both intern to one absent type and this layer cannot tell the two annotations
+apart. It is the same limitation `console.log` documents, and the ruling keeps
+`Type::None` conflated on purpose — the proper split is `Type::Null`, tracked
+as D1 in the es-toolkit plan. A value whose type IS `null` still prints `null`,
+because that type survives on its own.
+
+Three inline codegen tests were pinning the old (wrong) text and now pin the
+new one; each carries a comment saying so, since a reader will otherwise read
+them as a regression. No corpus output moved: es-toolkit 1055/4 unchanged with
+the ratchet at +0, remeda 1789 passed at +0, radash 84 passed, and no example
+golden shifted — which is also why the fixture had to be written from scratch.

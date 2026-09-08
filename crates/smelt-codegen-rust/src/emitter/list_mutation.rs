@@ -845,9 +845,11 @@ impl FunctionEmitter<'_> {
             Some(Type::Unknown | Type::Union(_) | Type::Never | Type::TypeParam { .. }) => {
                 let left_key = Self::js_string_coercion_match_text(
                     &self.erase_concrete_union_text("left.clone()", element_ty),
+                    self.absent_spelling(),
                 );
                 let right_key = Self::js_string_coercion_match_text(
                     &self.erase_concrete_union_text("right.clone()", element_ty),
+                    self.absent_spelling(),
                 );
                 Ok(Some(format!(
                     "{list_text}.sort_by(|left, right| ({left_key}).cmp(&({right_key})))"

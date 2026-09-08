@@ -963,7 +963,15 @@ impl FunctionEmitter<'_> {
                                 Some(Type::Bool | Type::Int | Type::Float | Type::String)
                             ) =>
                         {
-                            format!("&{rhs_text}.unwrap_or_default().to_string()")
+                            // Concatenating an ABSENT optional appends the
+                            // language's absent word: `"" + undefined` is
+                            // `"undefined"` in JavaScript, which is also what a
+                            // `${maybeValue}` interpolation lowers to here.
+                            // `unwrap_or_default()` appended nothing.
+                            format!(
+                                "&{rhs_text}.map_or_else(|| {:?}.to_owned(), |value| value.to_string())",
+                                self.absent_spelling().text(),
+                            )
                         }
                         _ => format!("&{rhs_text}.to_string()"),
                     };

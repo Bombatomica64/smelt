@@ -186,6 +186,11 @@ pub struct MirClosure {
     /// identity (`===`). The `ItemId` index is crate-unique, so it is a safe
     /// accessor key across all references.
     pub function_item_key: Option<usize>,
+    /// How this closure body's source language spells an absent value.
+    ///
+    /// See `MirFunction::absent`. A closure body is emitted through its own
+    /// synthesized `MirFunction`, so the spelling has to travel with it.
+    pub absent: AbsentSpelling,
 }
 
 /// One explicit MIR closure capture.
@@ -349,6 +354,16 @@ pub struct MirFunction {
     pub blocks: Vec<BasicBlock>,
     /// Entry block ID.
     pub entry: BlockId,
+    /// How this body's SOURCE LANGUAGE spells an absent value.
+    ///
+    /// Same rule, and the same reason, as `BuiltinFn::ConsoleLog`'s own field:
+    /// stringifying an `Optional` that holds nothing is `undefined` in
+    /// JavaScript and `None` in Python, and the disagreement is not observable
+    /// from the operand or its type. It is carried per BODY rather than per
+    /// node because a body comes from exactly one source file while the sites
+    /// that need the answer -- `String(x)`, a template interpolation, a `+`
+    /// concatenation -- are ordinary rvalues that no one would widen for it.
+    pub absent: AbsentSpelling,
 }
 
 impl MirFunction {
@@ -381,6 +396,10 @@ impl MirFunction {
                 span,
             }],
             entry: BlockId(0),
+            // Overwritten by lowering from the body's own file; the default is
+            // the TypeScript-shaped answer, matching `absent_spelling`'s own
+            // fallback for a synthesized span with no source module.
+            absent: AbsentSpelling::Undefined,
         }
     }
 
@@ -596,6 +615,23 @@ impl AbsentSpelling {
     pub const fn text(self) -> &'static str {
         match self {
             Self::Undefined => "undefined",
+            Self::None => "None",
+        }
+    }
+
+    /// The word this language prints for an explicit NULL value.
+    ///
+    /// JavaScript distinguishes the two — `String(null)` is `"null"` while
+    /// `String(undefined)` is `"undefined"` — and Python has only one absent
+    /// value, so both words are `None` there. The distinction is observable
+    /// wherever the value still carries its runtime tag
+    /// (`SmeltUnknown::Null` vs `SmeltUnknown::Undefined`); a typed `Optional`
+    /// has erased it and uses [`Self::text`], which is the common case in
+    /// TypeScript (`find`, `Map.get`, an optional property, `?.`).
+    #[must_use]
+    pub const fn null_text(self) -> &'static str {
+        match self {
+            Self::Undefined => "null",
             Self::None => "None",
         }
     }

@@ -5198,7 +5198,19 @@ impl<'mir> FunctionEmitter<'mir> {
     /// interned (`camelCase` -> `camel_case`), so this is the *generated* name,
     /// not the one the source wrote. Use [`Self::symbol_source_name`] whenever
     /// the answer is compared against a JavaScript key.
-    pub(super) fn symbol_name(&self, symbol: Symbol) -> Result<&str, EmitError> {
+     /// How the source language of the body being emitted spells an absent value.
+    ///
+    /// Decided during MIR lowering from the body's own file (`MirFunction::
+    /// absent`), because a crate can mix TypeScript and Python modules and the
+    /// two disagree: stringifying an `Optional` that holds nothing is
+    /// `undefined` in JavaScript and `None` in Python. Every site that renders
+    /// an absent or null value as text asks here rather than hard-coding a
+    /// word.
+    pub(super) fn absent_spelling(&self) -> AbsentSpelling {
+        self.function.absent
+    }
+
+   pub(super) fn symbol_name(&self, symbol: Symbol) -> Result<&str, EmitError> {
         self.mir
             .symbols
             .get(symbol)
