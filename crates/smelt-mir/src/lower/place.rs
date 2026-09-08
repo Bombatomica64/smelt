@@ -13,7 +13,7 @@ use smelt_hir::{ExprId, ExprKind};
 use crate::{Constant, GlobalProjection, Operand, Place};
 
 use super::context::LoweringCtx;
-use super::{LowerError, PlaceWritebacks};
+use super::{LoweredPlace, LoweredPlaceBase, LowerError, PlaceWritebacks};
 
 impl LoweringCtx<'_> {
     /// Lowers an lvalue expression to a MIR place for assignment targets.
@@ -28,7 +28,7 @@ impl LoweringCtx<'_> {
     pub(super) fn lower_place(
         &mut self,
         expr_id: ExprId,
-    ) -> Result<(Place, PlaceWritebacks), LowerError> {
+    ) -> Result<LoweredPlace, LowerError> {
         let expr = self.hir_expr(expr_id)?.clone();
         match &expr.kind {
             ExprKind::Local(local) => {
@@ -176,7 +176,7 @@ impl LoweringCtx<'_> {
         &mut self,
         receiver: ExprId,
         span: smelt_hir::Span,
-    ) -> Result<(crate::LocalId, PlaceWritebacks), LowerError> {
+    ) -> Result<LoweredPlaceBase, LowerError> {
         let receiver_expr = self.hir_expr(receiver)?.clone();
         // The transparent wrappers (`TypeAssert`, `UnknownCast`) are deliberately
         // NOT here. `bucket![0] = 9` roots at the local `bucket`, whose declared
@@ -249,7 +249,7 @@ impl LoweringCtx<'_> {
         &mut self,
         receiver: ExprId,
         span: smelt_hir::Span,
-    ) -> Result<(crate::LocalId, PlaceWritebacks), LowerError> {
+    ) -> Result<LoweredPlaceBase, LowerError> {
         let (base, mut writebacks) = self.place_base_local(receiver, span)?;
         let receiver_ty = self.hir_expr(receiver)?.ty;
         let Some(smelt_hir::Type::Optional(inner)) = self.krate.types.get(receiver_ty) else {
