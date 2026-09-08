@@ -273,3 +273,75 @@ option value — particularly when the diagnosis is the durable part.
 es-toolkit is unaffected either way: its customizer carries an explicit rest
 annotation and takes the annotated-list branch, so none of sites 1-3 fire for
 it. Verified by the full gate below rather than by reading.
+
+---
+
+## Round 21: site 4 implemented, arity fixed, one element still dropped
+
+Site 4 is the right site and the fix works as far as the closure signature. It
+is **not committed**, because the call it produces drops an argument, and a
+dropped argument is the same silent-wrong-answer class this family exists to
+remove. Recording the exact state so the next attempt starts from it rather than
+from the diagnosis.
+
+### What landed in the working tree (then reverted)
+
+A shared predicate, `contextual_rest_expansion(arrow, contextual_function)`,
+answers one question — "does this rest binding cover a statically known set of
+contextual parameters?" — and all four sites ask it, because they have to agree:
+
+| site | change |
+| --- | --- |
+| 1 `arrow_callback_param_types_with_hint` | push one type per covered parameter instead of one `List<union>` |
+| 2 `arrow_function_expression_with_hint` | `rest = None` when expanded, so the tail is not repacked |
+| 3 `arrow_callback_from_params` (compact IR) | rest binding typed as the tuple over the covered parameters |
+| 4 `closure_body_expr_from_parts` (fallback) | one closure parameter local per covered type, then `let args = (p0, p1, …)` binding the rest name to the tuple |
+
+`Pattern` had to be added to the module's `smelt_hir` imports for the `Stmt::Let`
+that binds the tuple.
+
+### What it produced
+
+Before (one parameter wearing the wrong type, whole binding to parameter 0):
+
+```rust
+move |closure_arg_0: Option<Init>, _arg0: Option<Init>| {
+    let _smelt_tmp_2: String = this.inner(closure_arg_0.clone(), None::<Init>);
+```
+
+After — the contextual arity, the right types, the spread expanded:
+
+```rust
+move |closure_arg_0: String, closure_arg_1: Option<Init>| {
+    let __smelt_spread: (String, Option<Init>) = args.clone();
+    let _smelt_tmp_7: String = this.inner(__smelt_spread.0.clone(), _smelt_tmp_6.clone());
+```
+
+### The remaining defect, located
+
+`_smelt_tmp_6` is `let _smelt_tmp_6: Option<Init> = None;` — a synthesized
+default, not `__smelt_spread.1`. So the second tuple element never reaches the
+callee and `init` is dropped.
+
+It is **not** the expansion: an `eprintln!` in `spread_argument_elements`
+reports `items=2 optional=false`, so the choke point emits both elements. Nor is
+it the `Parameters<Respond>` cast — removing the cast (`this.inner(...args)`)
+gives byte-identical output. So a CONSUMER between the choke point and the call
+takes the first expanded argument and synthesizes a typed `None` for the rest.
+
+The `Literal::None`-at-the-parameter-type shape is the signature of the
+under-application synthesis, and `inner(data: string, init?: Init)` has
+`required_params = 1`, which is exactly the condition that path tests. The
+candidate not yet ruled out is that `this.inner(..)` inside a closure body is
+collected by a **seventh** argument site —
+`CallbackExprKind::MethodCall`'s own collection in `callbacks/closures.rs` —
+rather than by the method path routed in round 19. That is where to look first.
+
+### Why it was not shipped
+
+The arity half is a strict improvement and the diff is clean, but shipped
+together with a dropped argument it would trade one silent wrong answer for
+another. Rounds 18-20 shipped spread work three times on an incomplete picture
+of these paths -- once breaking the es-toolkit gate, once giving back the hono
+row -- and the cost of a fourth was not worth the partial credit. The gates were
+not run against it either, since it was never a candidate to commit.
