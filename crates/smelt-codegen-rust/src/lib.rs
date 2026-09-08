@@ -5041,7 +5041,7 @@ fn emit_source_with_free_function_router(
                 "#[derive(Clone, Debug, Default{interface_partial_eq_derive})]"
             ));
         }
-        let phantom_args = interface
+        let interface_param_idents = interface
             .type_params
             .iter()
             .map(|param| {
@@ -5050,8 +5050,8 @@ fn emit_source_with_free_function_router(
                     .map(|param_name| RustIdent::new(param_name).into_string())
                     .ok_or_else(|| EmitError::new("interface type parameter has unknown symbol"))
             })
-            .collect::<Result<Vec<_>, _>>()?
-            .join(", ");
+            .collect::<Result<Vec<_>, _>>()?;
+        let phantom_args = interface_param_idents.join(", ");
         let scoped_type_params = interface
             .type_params
             .iter()
@@ -5092,6 +5092,7 @@ fn emit_source_with_free_function_router(
                 &fields,
                 &phantom_args,
                 &scoped_type_params,
+                &interface_param_idents,
             )?;
             emit_debug_impl_for_storage_type(&mut writer, &name, &impl_generics, &type_params);
         }
@@ -5424,6 +5425,16 @@ fn emit_source_with_free_function_router(
             .iter()
             .map(|param| param.name)
             .collect::<HashSet<_>>();
+        let class_param_idents = class
+            .type_params
+            .iter()
+            .map(|param| {
+                mir.symbols
+                    .get(param.name)
+                    .map(|param_name| RustIdent::new(param_name).into_string())
+                    .ok_or_else(|| EmitError::new("class type parameter has unknown symbol"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         let has_function_field = fields
             .iter()
             .any(|field| type_contains_function(mir, field.ty));
@@ -5437,8 +5448,27 @@ fn emit_source_with_free_function_router(
             type_supports_partial_eq(mir, &context, field.ty, &mut Vec::new())
         });
         let partial_eq_derive = if supports_partial_eq { ", PartialEq" } else { "" };
+        // A GENERIC value class cannot use these derives at all. Every one of
+        // them generates an impl bounded by its own trait and nothing more
+        // (`impl<T: Clone> Clone`, `impl<T: Default> Default`, …), which is not
+        // enough as soon as a field's type is another generated class: those
+        // carry the full generated bound set
+        // (`Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static`,
+        // see `class_impl_generics_text`). Hono's
+        // `struct TrieRouter<T> { root: Node<T> }` reported "the trait
+        // `Clone`/`Default`/`IntoSmeltUnknown`/`SmeltFromUnknown` is not
+        // implemented for `T`" once per derive (H29).
+        //
+        // The bounds are NOT moved onto the struct declaration: a bounded
+        // declaration propagates to every generated type that mentions this one,
+        // and that cascade is why the concrete-union emitter keeps its `pub enum`
+        // bare and spells out each impl with the bound set it needs. Same choice
+        // here — the impls are emitted by hand just below with `impl_generics`.
+        let is_generic = !class.type_params.is_empty();
         if has_function_field {
             writer.line("#[derive(Clone)]");
+            writer.line("#[allow(dead_code)]");
+        } else if is_generic {
             writer.line("#[allow(dead_code)]");
         } else if needs_serde_json && class_is_json_serializable(mir, class) {
             writer.line(format!(
@@ -5447,34 +5477,29 @@ fn emit_source_with_free_function_router(
         } else {
             writer.line(format!("#[derive(Clone, Debug, Default{partial_eq_derive})]"));
         }
+        // The field types are kept as text as well: a hand-written `Clone` or
+        // `PartialEq` bounds them in a `where` clause, which is the exact
+        // requirement its body has (see the derive-gating comment above).
+        let mut field_type_texts = Vec::with_capacity(fields.len());
         for field in &fields {
+            let field_type_text = FunctionEmitter::type_text_for_with_scoped_type_params(
+                mir,
+                &context,
+                field.ty,
+                &TypeSubstitution::lexical(&scoped_type_params),
+            )?;
             field_lines.push(format!(
-                "{}: {},",
+                "{}: {field_type_text},",
                 RustIdent::new(
                     mir.symbols
                         .get(field.name)
                         .ok_or_else(|| EmitError::new("field has unknown symbol"))?
                 ),
-                FunctionEmitter::type_text_for_with_scoped_type_params(
-                    mir,
-                    &context,
-                    field.ty,
-                    &TypeSubstitution::lexical(&scoped_type_params),
-                )?
             ));
+            field_type_texts.push(field_type_text);
         }
         if !class.type_params.is_empty() {
-            let phantom_args = class
-                .type_params
-                .iter()
-                .map(|param| {
-                    mir.symbols
-                        .get(param.name)
-                        .map(|param_name| RustIdent::new(param_name).into_string())
-                        .ok_or_else(|| EmitError::new("class type parameter has unknown symbol"))
-                })
-                .collect::<Result<Vec<_>, _>>()?
-                .join(", ");
+            let phantom_args = class_param_idents.join(", ");
             field_lines.push(format!(
                 "_smelt_phantom: ::std::marker::PhantomData<({phantom_args})>,"
             ));
@@ -5484,30 +5509,79 @@ fn emit_source_with_free_function_router(
                 block_writer.line(field_line);
             }
         });
-        if has_function_field {
-            let phantom_args = class
-                .type_params
-                .iter()
-                .map(|param| {
-                    mir.symbols
-                        .get(param.name)
-                        .map(|param_name| RustIdent::new(param_name).into_string())
-                        .ok_or_else(|| EmitError::new("class type parameter has unknown symbol"))
-                })
-                .collect::<Result<Vec<_>, _>>()?
-                .join(", ");
+        if has_function_field || is_generic {
+            let phantom_args = class_param_idents.join(", ");
+            // Derive-equivalent bounds, plus the field-type `where` clause the
+            // emitter adds. See `derive_generics_text` for why both are needed.
+            let default_generics = if is_generic {
+                derive_generics_text(&class_param_idents, "Default")
+            } else {
+                impl_generics.clone()
+            };
             emit_default_impl_for_storage_type(
                 &mut writer,
                 mir,
                 &context,
                 &name,
-                &impl_generics,
+                &default_generics,
                 &type_params,
                 &fields,
                 &phantom_args,
                 &scoped_type_params,
+                &class_param_idents,
             )?;
-            emit_debug_impl_for_storage_type(&mut writer, &name, &impl_generics, &type_params);
+            // `Debug` names the struct and stops, so it needs no bound at all.
+            let debug_generics = if is_generic {
+                type_params.clone()
+            } else {
+                impl_generics.clone()
+            };
+            emit_debug_impl_for_storage_type(&mut writer, &name, &debug_generics, &type_params);
+        }
+        // A generic value class also loses its `Clone` and `PartialEq` derives
+        // for the same reason, so those are spelled out too. The callback case
+        // keeps `#[derive(Clone)]` (its `dyn Fn` field is an `Rc`, and it has no
+        // `PartialEq` to begin with), so this is the generic case only.
+        //
+        // Both bound their FIELD TYPES in a `where` clause rather than bounding
+        // `T`. That is the exact requirement of a field-by-field body, and it is
+        // the only formulation that is right for both shapes at once:
+        // `Ok<T> { value: T }` needs `T: Clone` (so a union deriving `Clone`
+        // over an `Ok<T>` arm can still satisfy it), while
+        // `TrieRouter<T> { root: Node<T> }` needs `Node<T>: Clone`, which pulls
+        // the whole generated bound set — a requirement of `Node`, not of
+        // `TrieRouter`, and one only its own use sites can discharge.
+        if is_generic && !has_function_field {
+            let field_names = fields
+                .iter()
+                .map(|field| {
+                    mir.symbols
+                        .get(field.name)
+                        .map(|field_name| RustIdent::new(field_name).into_string())
+                        .ok_or_else(|| EmitError::new("field has unknown symbol"))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            emit_clone_impl_for_value_class(
+                &mut writer,
+                &name,
+                &type_params,
+                &type_params,
+                &field_names,
+                &field_type_texts,
+                &class_param_idents,
+                true,
+            );
+            if supports_partial_eq {
+                emit_partial_eq_impl_for_value_class(
+                    &mut writer,
+                    &name,
+                    &type_params,
+                    &type_params,
+                    &field_names,
+                    &field_type_texts,
+                    &class_param_idents,
+                );
+            }
         }
         if !class.static_fields.is_empty() {
             writer.block(
@@ -6511,7 +6585,7 @@ fn emit_reference_record_storage(
     let has_function_field = fields
         .iter()
         .any(|field| type_contains_function(mir, field.ty));
-    let phantom_args = type_param_names
+    let record_param_idents = type_param_names
         .iter()
         .map(|param| {
             mir.symbols
@@ -6519,8 +6593,8 @@ fn emit_reference_record_storage(
                 .map(|param_name| RustIdent::new(param_name).into_string())
                 .ok_or_else(|| EmitError::new("record type parameter has unknown symbol"))
         })
-        .collect::<Result<Vec<_>, _>>()?
-        .join(", ");
+        .collect::<Result<Vec<_>, _>>()?;
+    let phantom_args = record_param_idents.join(", ");
 
     // The handle newtype. `#[derive(Clone)]` is intentionally NOT used: a derived
     // clone would require `Inner: Clone` and clone the cell contents. We hand-
@@ -6530,9 +6604,27 @@ fn emit_reference_record_storage(
         "struct {name}{type_params}(::std::rc::Rc<::std::cell::RefCell<{inner_name}{type_args}>>);"
     ));
 
-    // The inner record. Debug/Default are derived unless a callback field blocks
-    // the derives, matching the value-struct rules.
-    if has_function_field {
+    // The inner record. `Debug`/`Default` are derived only when the record is
+    // NON-GENERIC and no callback field blocks the derives.
+    //
+    // A derive on a generic struct generates `impl<T: Debug> Debug` /
+    // `impl<T: Default> Default` — its own bound and nothing more. That is not
+    // enough whenever a field's type is another generated class, because those
+    // carry the full generated bound set
+    // (`Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static`, see
+    // `class_impl_generics_text`). Hono's `SmartRouterInner<T>` holds a
+    // `SmeltList<Router<T>>` and `NodeInner<T>` a `SmeltRecord<String, Node<T>>`,
+    // so `derive(Default)` demanded `Router<T>: Default` with only `T: Default`
+    // in scope: "the trait `Clone`/`Default`/`IntoSmeltUnknown`/
+    // `SmeltFromUnknown` is not implemented for `T`" (H29).
+    //
+    // The bounds do NOT go on the struct declaration: a bounded declaration
+    // propagates to every type that mentions it — starting with the handle
+    // newtype whose field is `Rc<RefCell<Inner<T>>>` — and that cascade is why
+    // the concrete-union emitter keeps its `pub enum` declaration bare and
+    // hand-writes each impl with the bound set it needs. Same choice here, and
+    // both hand-written impls already exist for the callback case.
+    if has_function_field || !type_params.is_empty() {
         writer.line("#[allow(dead_code)]");
         writer.block(
             format!("struct {inner_name}{type_params}"),
@@ -6540,18 +6632,33 @@ fn emit_reference_record_storage(
                 emit_reference_inner_fields(block_writer, mir, context, fields, &scoped_type_params, &phantom_args);
             },
         );
+        // Per-trait bounds, for the reason the value-class site spells out:
+        // `Default`'s body constructs each field's default explicitly and so
+        // needs only what a derive asked (`T: Default`, for a bare `T` field),
+        // and `Debug` names the struct and stops, so it needs no bound. Handing
+        // either the full generated set would over-constrain the impl and break
+        // consumers that can only prove the derive-equivalent bound.
+        let (default_generics, debug_generics) = if type_params.is_empty() {
+            (impl_generics.clone(), impl_generics.clone())
+        } else {
+            (
+                derive_generics_text(&record_param_idents, "Default"),
+                type_params.clone(),
+            )
+        };
         emit_default_impl_for_storage_type(
             writer,
             mir,
             context,
             &inner_name,
-            impl_generics,
+            &default_generics,
             type_args,
             fields,
             &phantom_args,
             &scoped_type_params,
+            &record_param_idents,
         )?;
-        emit_debug_impl_for_storage_type(writer, &inner_name, impl_generics, type_args);
+        emit_debug_impl_for_storage_type(writer, &inner_name, &debug_generics, type_args);
     } else {
         writer.line("#[derive(Debug, Default)]");
         writer.line("#[allow(dead_code)]");
@@ -6776,24 +6883,55 @@ fn emit_default_impl_for_storage_type(
     fields: &[smelt_mir::MirField],
     phantom_args: &str,
     scoped_type_params: &HashSet<smelt_hir::Symbol>,
+    type_param_idents: &[String],
 ) -> Result<(), EmitError> {
+    // Each field's default expression is computed ONCE and used twice: for the
+    // body, and to decide the impl's `where` clause.
+    //
+    // The clause has to follow the body rather than the field list. Most field
+    // defaults are spelled out and need nothing of their type — a callback field
+    // gets a constructed no-op closure, and `Rc<dyn Fn(..)>` is not `Default`, so
+    // naming every field type demanded something false. The defaults that DELEGATE
+    // (`Default::default()` for a bare `T`, `Node::default()` for a
+    // reference-class field) are exactly the ones whose type must be `Default`,
+    // and those cannot be covered by bounding `T` either:
+    // `impl<T: Default> Default for TrieRouter<T>` could not prove
+    // `Node<T>: Default`, whose own impl carries the full generated bound set.
+    let mut field_defaults = Vec::with_capacity(fields.len());
+    for field in fields {
+        let field_name =
+            RustIdent::new(mir.symbols.get(field.name).unwrap_or("field")).into_string();
+        let default_value = FunctionEmitter::default_value_for_with_scoped_type_params(
+            mir,
+            context,
+            field.ty,
+            &TypeSubstitution::lexical(scoped_type_params),
+        )
+        .unwrap_or_else(|_| "Default::default()".to_owned());
+        let field_type_text = FunctionEmitter::type_text_for_with_scoped_type_params(
+            mir,
+            context,
+            field.ty,
+            &TypeSubstitution::lexical(scoped_type_params),
+        )?;
+        field_defaults.push((field_name, field_type_text, default_value));
+    }
+    let delegating_field_types = field_defaults
+        .iter()
+        .filter(|(_, _, default_value)| default_expression_delegates(default_value))
+        .map(|(_, field_type_text, _)| field_type_text.clone())
+        .collect::<Vec<_>>();
+    let where_clause = if impl_generics.is_empty() {
+        String::new()
+    } else {
+        trait_where_clause_for_field_types(&delegating_field_types, "Default", type_param_idents)
+    };
     writer.block(
-        format!("impl{impl_generics} Default for {name}{type_args}"),
+        format!("impl{impl_generics} Default for {name}{type_args}{where_clause}"),
         |impl_writer| {
             impl_writer.block("fn default() -> Self", |fn_writer| {
                 fn_writer.block("Self", |self_writer| {
-                    for field in fields {
-                        let field_name =
-                            RustIdent::new(mir.symbols.get(field.name).unwrap_or("field"))
-                                .into_string();
-                        let default_value =
-                            FunctionEmitter::default_value_for_with_scoped_type_params(
-                                mir,
-                                context,
-                                field.ty,
-                                &TypeSubstitution::lexical(scoped_type_params),
-                            )
-                            .unwrap_or_else(|_| "Default::default()".to_owned());
+                    for (field_name, _, default_value) in &field_defaults {
                         self_writer.line(format!("{field_name}: {default_value},"));
                     }
                     if !phantom_args.is_empty() {
@@ -6804,6 +6942,21 @@ fn emit_default_impl_for_storage_type(
         },
     );
     Ok(())
+}
+
+/// Whether a rendered field default resolves through the field type's `Default`.
+///
+/// `Default::default()` (a bare type parameter) and `Type::default()` (a
+/// generated class) both do; a spelled-out constructor such as
+/// `SmeltList::new(Vec::<T>::new())` or a no-op closure does not. Only the
+/// former need the field type bounded on the impl.
+///
+/// The call can be NESTED — a promise field defaults to
+/// `SmeltFuture::resolved(SmeltUnion9::M0(Default::default()))`, whose `T:
+/// Default` requirement reaches the impl through the field type all the same —
+/// so the whole expression is searched rather than only its tail.
+fn default_expression_delegates(default_value: &str) -> bool {
+    default_value.contains("default()")
 }
 
 /// Emits a conservative `Debug` impl for storage structs that contain callbacks.
@@ -6829,6 +6982,149 @@ fn emit_debug_impl_for_storage_type(
                     ));
                 },
             );
+        },
+    );
+}
+
+/// Build ` where <field type>: Trait, …` for a field-by-field impl.
+///
+/// A field-by-field body needs exactly one thing: every field's type implements
+/// the trait. Bounding the FIELD TYPES says that and nothing else, where
+/// bounding `T` says either too little (a `T`-typed field) or too much (a field
+/// whose type is another generated class, which needs the whole generated bound
+/// set). Duplicate field types are emitted once; an empty list yields no clause.
+fn trait_where_clause_for_field_types(
+    field_type_texts: &[String],
+    bound: &str,
+    type_param_idents: &[String],
+) -> String {
+    let mut seen = Vec::new();
+    for field_type_text in field_type_texts {
+        // A field type that mentions no type parameter is decided already:
+        // `where String: Clone` is noise, and if such a bound were unsatisfied
+        // the impl body would report it directly. Only a type whose
+        // satisfiability depends on `T` needs saying.
+        if !mentions_type_param(field_type_text, type_param_idents) {
+            continue;
+        }
+        if !seen.contains(field_type_text) {
+            seen.push(field_type_text.clone());
+        }
+    }
+    if seen.is_empty() {
+        return String::new();
+    }
+    let clauses = seen
+        .iter()
+        .map(|field_type_text| format!("{field_type_text}: {bound}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(" where {clauses}")
+}
+
+/// Render `<T: Bound, …>` — the bound `#[derive(Bound)]` would have imposed.
+///
+/// Used together with a field-type `where` clause, never instead of it. The
+/// clause alone is not enough: a field default can require the bound through an
+/// expression the field's TYPE does not mention, as a promise field defaulting
+/// to `SmeltFuture::resolved(SmeltUnion9::M0(Default::default()))` does when the
+/// union renders without its argument. Since a derive would have imposed exactly
+/// this bound, adding it can never leave a consumer worse off than the derive it
+/// replaces.
+fn derive_generics_text(type_param_idents: &[String], bound: &str) -> String {
+    if type_param_idents.is_empty() {
+        return String::new();
+    }
+    let params = type_param_idents
+        .iter()
+        .map(|ident| format!("{ident}: {bound}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("<{params}>")
+}
+
+/// Whether a rendered type mentions one of these type parameters as a whole
+/// identifier, so `T` matches in `Node<T>` but not inside `Trie` or `TABLE`.
+fn mentions_type_param(type_text: &str, type_param_idents: &[String]) -> bool {
+    type_param_idents.iter().any(|ident| {
+        type_text
+            .match_indices(ident.as_str())
+            .any(|(at, matched)| {
+                let before = type_text[..at].chars().next_back();
+                let after = type_text[at + matched.len()..].chars().next();
+                let boundary = |ch: Option<char>| {
+                    ch.is_none_or(|ch| !ch.is_alphanumeric() && ch != '_')
+                };
+                boundary(before) && boundary(after)
+            })
+    })
+}
+
+/// Emit a field-by-field `Clone` for a generic value class.
+///
+/// `#[derive(Clone)]` would generate `impl<T: Clone> Clone`, whose single bound
+/// cannot satisfy a field whose type is another generated class — those carry
+/// the full generated bound set (see `class_impl_generics_text`). The impl is
+/// spelled out with bare parameters plus a field-type `where` clause instead.
+fn emit_clone_impl_for_value_class(
+    writer: &mut CodeWriter,
+    name: &str,
+    impl_generics: &str,
+    type_args: &str,
+    field_names: &[String],
+    field_type_texts: &[String],
+    type_param_idents: &[String],
+    has_phantom: bool,
+) {
+    let where_clause = trait_where_clause_for_field_types(field_type_texts, "Clone", type_param_idents);
+    writer.block(
+        format!("impl{impl_generics} Clone for {name}{type_args}{where_clause}"),
+        |impl_writer| {
+            impl_writer.block("fn clone(&self) -> Self", |fn_writer| {
+                fn_writer.block(name, |init_writer| {
+                    for field_name in field_names {
+                        init_writer.line(format!("{field_name}: self.{field_name}.clone(),"));
+                    }
+                    if has_phantom {
+                        init_writer.line("_smelt_phantom: ::std::marker::PhantomData,");
+                    }
+                });
+            });
+        },
+    );
+}
+
+/// Emit a field-by-field `PartialEq` for a generic value class.
+///
+/// The `Clone` reasoning above applies unchanged: a derived `PartialEq` carries
+/// only `T: PartialEq`, which a generated-class field does not satisfy. The
+/// phantom field is skipped — `PhantomData` compares equal to itself and says
+/// nothing about the value.
+fn emit_partial_eq_impl_for_value_class(
+    writer: &mut CodeWriter,
+    name: &str,
+    impl_generics: &str,
+    type_args: &str,
+    field_names: &[String],
+    field_type_texts: &[String],
+    type_param_idents: &[String],
+) {
+    let where_clause = trait_where_clause_for_field_types(field_type_texts, "PartialEq", type_param_idents);
+    writer.block(
+        format!("impl{impl_generics} PartialEq for {name}{type_args}{where_clause}"),
+        |impl_writer| {
+            impl_writer.block("fn eq(&self, other: &Self) -> bool", |fn_writer| {
+                if field_names.is_empty() {
+                    fn_writer.line("true");
+                    return;
+                }
+                let comparisons = field_names
+                    .iter()
+                    .map(|field_name| format!("self.{field_name} == other.{field_name}"))
+                    .collect::<Vec<_>>()
+                    .join(" && ");
+                fn_writer.line(comparisons);
+            });
         },
     );
 }
@@ -7190,7 +7486,30 @@ pub(crate) fn record_field_unknown_text(mir: &Mir, value_text: &str, ty: TypeId)
                 "SmeltUnknown::Object(SmeltObject::new({value_text}.into_iter().map(|(key, value)| (key, {item_text})).collect()))"
             )
         }
-        Some(Type::Dict(_, _) | Type::JsMap(_, _) | Type::Tuple(_) | Type::Class { .. }) => {
+        // A tuple erases ELEMENT-WISE to a JS array, like every other structural
+        // shape above it. It was grouped with the shapes that have an
+        // `IntoSmeltUnknown` impl, but a Rust tuple has none — the prototype
+        // carrier for `RegExpRouter#buildAllMatchers`, whose return type is
+        // `[RegExp, HandlerParamsSet<T>[][], …]`, asked for
+        // `(value).into_smelt_unknown()` and got "no method named
+        // `into_smelt_unknown` found for tuple" (H29, second half).
+        //
+        // The value is bound once: `value_text` is an arbitrary expression here,
+        // and indexing it per element would evaluate it once per element.
+        Some(Type::Tuple(items)) => {
+            let elements = items
+                .iter()
+                .enumerate()
+                .map(|(index, item)| {
+                    record_field_unknown_text(mir, &format!("smelt_tuple.{index}"), *item)
+                })
+                .collect::<Result<Vec<_>, _>>()?
+                .join(", ");
+            format!(
+                "{{ let smelt_tuple = {value_text}; SmeltUnknown::Array(vec![{elements}].into()) }}"
+            )
+        }
+        Some(Type::Dict(_, _) | Type::JsMap(_, _) | Type::Class { .. }) => {
             format!("({value_text}).into_smelt_unknown()")
         }
         Some(Type::Function(_)) => "SmeltUnknown::Null".to_owned(),

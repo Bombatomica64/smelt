@@ -448,7 +448,7 @@ fn list_slice_borrows_its_receiver_instead_of_cloning_it() {
     // remeda's `chunk` is the real-world case -- that makes a linear algorithm
     // quadratic. See `benchmarks/FINDINGS.md`.
     let source = source_for(
-        r#"
+        r"
 export function chunkNumbers(data: number[], size: number): number[][] {
   const chunks = Math.ceil(data.length / size);
   const result: number[][] = [];
@@ -458,7 +458,7 @@ export function chunkNumbers(data: number[], size: number): number[][] {
   }
   return result;
 }
-"#,
+",
     );
 
     // The slice still lowers to the same borrow-based iterator pipeline...
@@ -1025,10 +1025,10 @@ if (direct instanceof Headers) {
 #[test]
 fn host_value_erasure_stamps_the_registry_marker() {
     let source = source_for(
-        r#"
+        r"
 const enc: unknown = new TextEncoder();
 console.log(enc instanceof TextEncoder);
-"#,
+",
     );
 
     // The adapter, not the declared-field record builder.
@@ -1105,18 +1105,18 @@ console.log(erased instanceof Server);
 #[test]
 fn the_host_origin_registry_is_pay_for_use() {
     let without = source_for(
-        r#"
+        r"
 const value: unknown = { a: 1 };
 console.log(value);
-"#,
+",
     );
     assert!(!without.contains("SMELT_HOST_ORIGINS"), "{without}");
 
     let with = source_for(
-        r#"
+        r"
 const enc: unknown = new TextEncoder();
 console.log(enc);
-"#,
+",
     );
     assert!(with.contains("SMELT_HOST_ORIGINS"), "{with}");
 }
@@ -1132,10 +1132,10 @@ console.log(enc);
 #[test]
 fn runtime_typed_host_classes_are_not_reflectively_constructible() {
     let source = source_for(
-        r#"
+        r"
 const value: unknown = new TextEncoder();
 console.log(value);
-"#,
+",
     );
 
     let table = source

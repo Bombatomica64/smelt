@@ -112,7 +112,7 @@ fn run_fixture(source: &str, crate_name: &str) {
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn url_reads_back_the_whatwg_serialization() {
-    let source = r#"
+    let source = r"
 import { test, expect } from 'vitest';
 
 test('a bare origin gains its root path', () => {
@@ -130,14 +130,14 @@ test('url is a string, so string methods apply to it', () => {
   expect(request.url.indexOf(':')).toBe(5);
   expect(request.url.startsWith('https://')).toBe(true);
 });
-"#;
+";
     run_fixture(source, "request_url_runtime");
 }
 
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn the_method_is_normalized_for_exactly_the_specs_list() {
-    let source = r#"
+    let source = r"
 import { test, expect } from 'vitest';
 
 test('the default method is GET', () => {
@@ -156,14 +156,14 @@ test('a method outside the list keeps its written case', () => {
   expect(new Request('https://a.test/p', { method: 'patch' }).method).toBe('patch');
   expect(new Request('https://a.test/p', { method: 'weird' }).method).toBe('weird');
 });
-"#;
+";
     run_fixture(source, "request_method_runtime");
 }
 
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn a_request_body_behaves_like_a_response_body() {
-    let source = r#"
+    let source = r"
 import { test, expect } from 'vitest';
 
 test('reading the body yields its text and marks it used', async () => {
@@ -199,6 +199,6 @@ test('clone() reads independently of the original', async () => {
   expect(copy.bodyUsed).toBe(false);
   expect(await copy.text()).toBe('twice');
 });
-"#;
+";
     run_fixture(source, "request_body_runtime");
 }

@@ -182,11 +182,11 @@ fn url_search_params_runtime_is_pay_for_use_and_declares_its_dependency() {
 #[test]
 fn response_member_emits_a_concrete_method_call() {
     let source = source_for(
-        r#"
+        r"
 export function statusOf(response: Response): number {
   return response.status;
 }
-"#,
+",
     );
     assert!(source.contains(".status()"), "{source}");
     assert!(

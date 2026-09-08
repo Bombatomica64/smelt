@@ -188,7 +188,7 @@ fn assert_specialized_parity(source: &str, fixture_name: &str) -> ParityResult {
     let expected = run_python(&python, &source_path)?;
     let manifest = PythonSpecializer::new(backend).specialize(&PythonSpecializationRequest {
         smelt_version: "parity-test".to_owned(),
-        python_executable: python.clone(),
+        python_executable: python,
         project_root: project.path().to_path_buf(),
         modules: vec![PythonModule {
             name: "fixture".to_owned(),

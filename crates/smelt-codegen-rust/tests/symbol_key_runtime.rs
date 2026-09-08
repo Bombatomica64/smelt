@@ -200,22 +200,14 @@ test("the getSymbols idiom keeps enumerable symbol keys", () => {
     run_fixture(source, "smelt_symbol_key_property_is_enumerable");
 }
 
-#[test]
-#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
-fn a_folded_symbol_key_and_a_runtime_derived_key_name_one_property() {
-    // The regression remeda's `groupByProp` "by Symbol" tests caught. A
-    // module-level `const KEY = Symbol("k")` is one symbol for the program's
-    // lifetime, so the frontend folds `{ [KEY]: v }` to a static member key --
-    // and the generated Rust derived a DIFFERENT key when the same symbol
-    // arrived at `obj[prop]` through an erased parameter. The literal's property
-    // was then invisible to every dynamic read of the very symbol that wrote it,
-    // with no diagnostic: `groupByProp` grouped nothing.
-    //
-    // Both halves now derive the key through `smelt_stdlib::symbol_keys`, so
-    // this holds for each kind of symbol whose identity is fixed (unique bound
-    // once, registry) and in both directions: a folded write read dynamically,
-    // and a dynamic write read through the folded key.
-    let source = r#"
+/// The symbol-key agreement fixture program, hoisted out of its test function.
+///
+/// Emitting and running a generated crate is slow enough that the test is
+/// `#[ignore]`d, so the program stays ONE fixture rather than being split
+/// into several Rust tests that would each pay that cost again. Hoisting it
+/// to a `const` keeps the single run and keeps the function short; the
+/// reasoning for what the program proves stays on the test itself.
+const SYMBOL_KEY_AGREEMENT_SOURCE: &str = r#"
 import { test, expect } from "vitest";
 
 const UNIQUE = Symbol("u");
@@ -283,5 +275,21 @@ test("the grouping idiom that regressed groups by a symbol prop", () => {
   expect(output.dog.length).toBe(1);
 });
 "#;
-    run_fixture(source, "smelt_symbol_key_folded_and_runtime_agree");
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_folded_symbol_key_and_a_runtime_derived_key_name_one_property() {
+    // The regression remeda's `groupByProp` "by Symbol" tests caught. A
+    // module-level `const KEY = Symbol("k")` is one symbol for the program's
+    // lifetime, so the frontend folds `{ [KEY]: v }` to a static member key --
+    // and the generated Rust derived a DIFFERENT key when the same symbol
+    // arrived at `obj[prop]` through an erased parameter. The literal's property
+    // was then invisible to every dynamic read of the very symbol that wrote it,
+    // with no diagnostic: `groupByProp` grouped nothing.
+    //
+    // Both halves now derive the key through `smelt_stdlib::symbol_keys`, so
+    // this holds for each kind of symbol whose identity is fixed (unique bound
+    // once, registry) and in both directions: a folded write read dynamically,
+    // and a dynamic write read through the folded key.
+    run_fixture(SYMBOL_KEY_AGREEMENT_SOURCE, "smelt_symbol_key_folded_and_runtime_agree");
 }

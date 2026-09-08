@@ -262,7 +262,7 @@ fn a_write_through_a_record_global_is_shared_across_functions() {
     // `number | undefined`, so a `=== undefined` guard on it is a comparison
     // the type system has already ruled out; leaning on it would be testing
     // Smelt's handling of unsound source rather than this feature.
-    let source = r#"
+    let source = r"
 import { test, expect } from 'vitest';
 
 let cache: Record<string, number> = {};
@@ -289,7 +289,7 @@ test('a write from one function is visible from another', () => {
   expect(load('b')).toBe(2);
   expect(size()).toBe(2);
 });
-"#;
+";
     run_fixture(source, "global_write_through_shared");
 }
 
@@ -299,7 +299,7 @@ fn a_repeated_write_through_a_global_replaces_the_earlier_value() {
     // Accumulation across many writes, which is what a cache actually does: if
     // each write landed on a fresh copy, `size()` would stay at 1 and the
     // earlier keys would vanish.
-    let source = r#"
+    let source = r"
 import { test, expect } from 'vitest';
 
 let cache: Record<string, number> = {};
@@ -332,7 +332,7 @@ test('writes accumulate rather than replacing the container', () => {
   expect(load('x')).toBe(1);
   expect(load('z')).toBe(3);
 });
-"#;
+";
     run_fixture(source, "global_write_through_repeated");
 }
 
@@ -344,7 +344,7 @@ fn a_write_through_a_global_evaluates_its_key_before_borrowing_the_cell() {
     // `borrow_mut()`, this would be a `RefCell` double-borrow panic at runtime
     // -- not a compile error, which is why it needs an executing fixture. The
     // emitter hoists both operands above the borrow; this is what proves it.
-    let source = r#"
+    let source = r"
 import { test, expect } from 'vitest';
 
 let cache: Record<string, number> = {};
@@ -372,7 +372,7 @@ test('the key and value may read the global being written', () => {
   expect(load('k1')).toBe(101);
   expect(load('k0')).toBe(100);
 });
-"#;
+";
     run_fixture(source, "global_write_through_self_reading_key");
 }
 
@@ -383,7 +383,7 @@ fn a_field_write_through_a_record_global_is_shared_across_functions() {
     // drift apart: `GlobalProjection::Field` and `::Index` are separate arms in
     // both the frontend and the emitter, and only a fixture per arm catches one
     // of them regressing alone.
-    let source = r#"
+    let source = r"
 import { test, expect } from 'vitest';
 
 let flags: Record<string, boolean> = {};
@@ -406,6 +406,6 @@ test('a field write from one function is visible from another', () => {
   disable();
   expect(isReady()).toBe(false);
 });
-"#;
+";
     run_fixture(source, "global_field_write_through_shared");
 }

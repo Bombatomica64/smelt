@@ -23,7 +23,7 @@ def render(value: int) -> str:
     return str(value)
 "#;
 
-const PROPERTY_SOURCE: &str = r#"
+const PROPERTY_SOURCE: &str = r"
 class Model:
     _value: int
 
@@ -37,7 +37,7 @@ class Model:
     @value.setter
     def value(self, value: int) -> None:
         self._value = value
-"#;
+";
 
 const METACLASS_SOURCE: &str = r#"
 class Meta(type):

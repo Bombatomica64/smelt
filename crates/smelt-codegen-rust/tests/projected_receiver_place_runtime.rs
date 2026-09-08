@@ -230,23 +230,14 @@ test("an index write through a definite assertion is kept", () => {
     run_fixture(source, "smelt_projected_receiver_optional_write");
 }
 
-#[test]
-#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
-fn a_write_through_a_projected_value_receiver_lands_in_the_original() {
-    // H31: the family with NO rustc error at all. A MIR place is rooted at a
-    // local, so `this.children[key] = child` copies `this.children` into a
-    // temporary and writes through that. For a Smelt collection HANDLE the copy
-    // shares storage and the write lands; for a VALUE representation -- a plain
-    // `HashMap`/`Vec` field, a value-class struct -- it is a deep copy, so the
-    // write went nowhere and the program printed a different answer than Node
-    // while compiling perfectly. The receiver is now committed back through its
-    // own place, so both representations agree.
-    //
-    // Two levels of nesting are the point: `this.branches[b].leaves[k] = leaf`
-    // copies `this.branches[b]` (itself rooted in a copy of `this.branches`),
-    // so the inner level has to commit before the outer one or the outer store
-    // writes back a stale value.
-    let source = r#"
+/// The projected-value-receiver fixture program, hoisted out of its test
+/// function.
+///
+/// Emitting and running a generated crate is slow enough that the test is
+/// `#[ignore]`d, so the program stays one fixture; hoisting it to a `const`
+/// keeps the single run and keeps the function short. The reasoning for what
+/// the program proves stays on the test itself.
+const PROJECTED_VALUE_RECEIVER_SOURCE: &str = r#"
 import { test, expect } from "vitest";
 
 class Leaf {
@@ -326,5 +317,22 @@ test("a write through a projected local receiver is kept", () => {
   expect(outer.a["j"]).toBe(6);
 });
 "#;
-    run_fixture(source, "smelt_projected_value_receiver_write");
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_write_through_a_projected_value_receiver_lands_in_the_original() {
+    // H31: the family with NO rustc error at all. A MIR place is rooted at a
+    // local, so `this.children[key] = child` copies `this.children` into a
+    // temporary and writes through that. For a Smelt collection HANDLE the copy
+    // shares storage and the write lands; for a VALUE representation -- a plain
+    // `HashMap`/`Vec` field, a value-class struct -- it is a deep copy, so the
+    // write went nowhere and the program printed a different answer than Node
+    // while compiling perfectly. The receiver is now committed back through its
+    // own place, so both representations agree.
+    //
+    // Two levels of nesting are the point: `this.branches[b].leaves[k] = leaf`
+    // copies `this.branches[b]` (itself rooted in a copy of `this.branches`),
+    // so the inner level has to commit before the outer one or the outer store
+    // writes back a stale value.
+    run_fixture(PROJECTED_VALUE_RECEIVER_SOURCE, "smelt_projected_value_receiver_write");
 }

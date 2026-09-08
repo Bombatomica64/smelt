@@ -199,7 +199,7 @@ fn listen_binds_before_it_returns_and_reports_its_port() {
     // the port is what the client builds its URL from. The port itself varies,
     // so what is asserted is that it exists, is in range, and is gone after
     // `close`.
-    let source = r#"
+    let source = r"
 import { createServer } from 'node:http';
 
 const server = createServer((req, res) => {
@@ -213,7 +213,7 @@ console.log(before);
 console.log(bound > 0 && bound < 65536);
 server.close();
 console.log(server.address() ?? -1);
-"#;
+";
     assert_program_output(
         source,
         "http_listen_runtime",
@@ -229,7 +229,7 @@ fn a_body_reaches_the_handler_through_the_emitter_inheritance() {
     // The listeners are registered at the END of the handler on purpose --
     // the body is delivered after the handler returns, so registering last
     // must still see every byte.
-    let source = r#"
+    let source = r"
 import { createServer } from 'node:http';
 
 const server = createServer((req, res) => {
@@ -253,7 +253,7 @@ const got = await fetch(`http://127.0.0.1:${port}/g`);
 console.log(await got.text());
 
 server.close();
-"#;
+";
     // The GET sees ZERO `data` events, not one empty chunk: Node emits `data`
     // only for bytes that exist.
     assert_program_output(
@@ -266,7 +266,7 @@ server.close();
 #[test]
 #[ignore = "slow: emits, compiles and runs a generated server crate; run in CI via --ignored"]
 fn header_writes_replace_case_insensitively_and_write_head_merges() {
-    let source = r#"
+    let source = r"
 import { createServer } from 'node:http';
 
 const server = createServer((req, res) => {
@@ -293,7 +293,7 @@ console.log(answer.headers.get('content-type'));
 console.log(answer.headers.get('x-kept'));
 console.log(await answer.text());
 server.close();
-"#;
+";
     assert_program_output(
         source,
         "http_headers_runtime",
@@ -310,7 +310,7 @@ fn a_throwing_handler_ends_the_program_as_it_does_in_node() {
     // serving entirely. Answering 500 would let a generated program keep
     // running where the original had died, turning a crash into a stream of
     // quiet failures.
-    let source = r#"
+    let source = r"
 import { createServer } from 'node:http';
 
 const server = createServer((req, res) => {
@@ -332,7 +332,7 @@ console.log(await good.text());
 await fetch(`http://127.0.0.1:${port}/boom`);
 console.log('unreachable');
 server.close();
-"#;
+";
     let (stdout, stderr) = run_failing_program(source, "http_throwing_runtime");
     assert_eq!(
         stdout, "200\nfine\n",
@@ -350,7 +350,7 @@ fn a_request_carries_its_method_url_and_lower_cased_headers() {
     // `req.headers` is a plain lower-cased object, not a `Headers`: it is
     // indexed, and it has no `get`. Sending the name in mixed case proves the
     // lower-casing is the runtime's and not the client's.
-    let source = r#"
+    let source = r"
 import { createServer } from 'node:http';
 
 const server = createServer((req, res) => {
@@ -371,7 +371,7 @@ const answer = await fetch(`http://127.0.0.1:${port}/path?query=1`, {
 });
 console.log(await answer.text());
 server.close();
-"#;
+";
     assert_program_output(
         source,
         "http_request_parts_runtime",

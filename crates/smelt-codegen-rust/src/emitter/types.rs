@@ -1732,6 +1732,22 @@ impl FunctionEmitter<'_> {
                 "None::<{}>",
                 self.rust_type(self.flatten_optional_inner(*inner), false, substitution)?
             )),
+            // A list default annotates its element type, and that annotation has
+            // to be spelled through THIS substitution. The unscoped
+            // `default_value` arm this would otherwise fall through to reaches
+            // for `type_text_with_impl_trait`, which rebuilds a substitution from
+            // the CURRENT FUNCTION's type parameters — and there is no current
+            // function here: `default_value_for_with_scoped_type_params` hosts
+            // itself on `functions[0]` purely to have an emitter, so a class type
+            // parameter is not in that scope and erased to `SmeltUnknown`.
+            // Hono's `struct SmartRouterInner<T> { _routers: SmeltList<Router<T>> }`
+            // got `SmeltList::new(Vec::<Router<SmeltUnknown>>::new())` in a
+            // `Default for SmartRouterInner<T>` impl (E0308). Latent until H29
+            // started emitting these impls for generic classes.
+            Type::List(item) => Ok(format!(
+                "SmeltList::new(Vec::<{}>::new())",
+                self.rust_type(*item, false, substitution)?
+            )),
             Type::Function(function) => {
                 // An erased-unknown-rest function type renders as the concrete
                 // `SmeltErasedFunction` struct (see `rust_type`),

@@ -177,23 +177,28 @@ pub(crate) fn verify_example_dumps(name: &str, example: &Path, input: &Path) -> 
     let input_path = input.strip_prefix(workspace_root)?;
     let input_arg = utf8_path(input_path)?;
 
-    let expected_hir = fs::read_to_string(example.join("expected.hir"))?;
-    let actual_hir = smelt(&["dump-hir", &input_arg])?;
-    ensure_eq(
-        &actual_hir,
-        &expected_hir,
-        format!("HIR mismatch for {name}"),
-    )?;
-
-    let expected_mir = fs::read_to_string(example.join("expected.mir"))?;
-    let actual_mir = smelt(&["dump-mir", &input_arg])?;
-    ensure_eq(
-        &actual_mir,
-        &expected_mir,
-        format!("MIR mismatch for {name}"),
-    )?;
+    ensure_dump_matches("HIR", name, &example.join("expected.hir"), "dump-hir", &input_arg)?;
+    ensure_dump_matches("MIR", name, &example.join("expected.mir"), "dump-mir", &input_arg)?;
 
     Ok(())
+}
+
+/// Compares one `smelt dump-*` output against its committed golden.
+///
+/// The HIR and MIR halves of `verify_example_dumps` were the same three lines
+/// twice over, which also put `expected_hir`/`expected_mir` and
+/// `actual_hir`/`actual_mir` in one scope — four bindings distinguished only by
+/// a three-letter suffix. One helper says it once.
+fn ensure_dump_matches(
+    kind: &str,
+    name: &str,
+    golden_path: &Path,
+    dump_command: &str,
+    input_arg: &str,
+) -> TestResult {
+    let golden = fs::read_to_string(golden_path)?;
+    let dumped = smelt(&[dump_command, input_arg])?;
+    ensure_eq(&dumped, &golden, format!("{kind} mismatch for {name}"))
 }
 
 /// Returns the absolute path to a Python end-to-end example fixture.

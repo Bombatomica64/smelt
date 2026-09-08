@@ -527,7 +527,7 @@ fn node_next_input_extensions(extension: &str) -> &'static [&'static str] {
 ///
 /// An extensionless specifier gets the usual per-language extension and
 /// directory-index candidates. A specifier that already carries a JavaScript
-/// output extension additionally gets its NodeNext input candidates (see
+/// output extension additionally gets its `NodeNext` input candidates (see
 /// [`NODE_NEXT_INPUT_EXTENSIONS`]), so `./app.js` finds `./app.ts`.
 fn manifest_import_candidates(base: &Path) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
@@ -924,7 +924,7 @@ mod tests {
         drop(fs::remove_dir_all(root));
     }
 
-    /// NodeNext output extensions map to their TypeScript inputs.
+    /// `NodeNext` output extensions map to their TypeScript inputs.
     #[test]
     fn node_next_specifiers_map_to_typescript_inputs() {
         assert_eq!(node_next_input_extensions("js"), &["ts", "d.ts"]);
@@ -942,7 +942,7 @@ mod tests {
         assert!(candidates.contains(&PathBuf::from("/tmp/pkg/app.d.ts")));
     }
 
-    /// A NodeNext `./dep.js` import resolves to `dep.ts` in the dependency closure.
+    /// A `NodeNext` `./dep.js` import resolves to `dep.ts` in the dependency closure.
     #[test]
     fn collects_node_next_javascript_specifier_dependencies() {
         let unique = SystemTime::now()
@@ -961,7 +961,7 @@ mod tests {
         .expect("write importer");
         fs::write(&dependency, "export const createApp = () => 1;\n").expect("write dependency");
 
-        let roots = vec![read_manifest_source(importer.clone()).expect("read importer")];
+        let roots = vec![read_manifest_source(importer).expect("read importer")];
         let sources = dependency_closure(roots, &[], Path::new(".")).expect("collect closure");
 
         assert!(
@@ -998,7 +998,7 @@ mod tests {
         )
         .expect("write excluded");
 
-        let roots = vec![read_manifest_source(importer.clone()).expect("read importer")];
+        let roots = vec![read_manifest_source(importer).expect("read importer")];
         let excludes = vec!["src/client/**".to_owned()];
         let sources = dependency_closure(roots, &excludes, root).expect("collect closure");
 
@@ -1028,7 +1028,7 @@ mod tests {
         )
         .expect("write helper");
 
-        let roots = vec![read_manifest_source(importer.clone()).expect("read importer")];
+        let roots = vec![read_manifest_source(importer).expect("read importer")];
         let excludes = vec!["src/client/**".to_owned()];
         let sources = dependency_closure(roots, &excludes, root).expect("collect closure");
 

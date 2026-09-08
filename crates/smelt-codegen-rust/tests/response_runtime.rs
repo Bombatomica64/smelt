@@ -122,7 +122,7 @@ fn run_fixture(source: &str, crate_name: &str) {
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn the_status_line_carries_the_specs_defaults() {
-    let source = r#"
+    let source = r"
 import { test, expect } from 'vitest';
 
 test('a bare Response is 200 with an empty reason phrase', () => {
@@ -148,14 +148,14 @@ test('ok is derived from the status, not stored', () => {
   expect(new Response('a', { status: 404 }).ok).toBe(false);
   expect(new Response('a', { status: 500 }).ok).toBe(false);
 });
-"#;
+";
     run_fixture(source, "response_status_runtime");
 }
 
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn a_body_is_single_use() {
-    let source = r#"
+    let source = r"
 import { test, expect } from 'vitest';
 
 test('reading the body yields its text and marks it used', async () => {
@@ -180,14 +180,14 @@ test('a second read throws a TypeError', async () => {
   }
   expect(caught).toBe('threw');
 });
-"#;
+";
     run_fixture(source, "response_body_use_runtime");
 }
 
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn clone_tees_the_body_but_assignment_shares_it() {
-    let source = r#"
+    let source = r"
 import { test, expect } from 'vitest';
 
 test('clone() reads independently of the original', async () => {
@@ -206,7 +206,7 @@ test('assigning a response shares one body', async () => {
   expect(await alias.text()).toBe('shared');
   expect(original.bodyUsed).toBe(true);
 });
-"#;
+";
     run_fixture(source, "response_clone_runtime");
 }
 
@@ -256,7 +256,7 @@ test('mutating the reached list is visible on the response', () => {
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn a_response_used_as_an_init_copies_its_status_line_and_headers() {
-    let source = r#"
+    let source = r"
 import { test, expect } from 'vitest';
 
 test('the init response supplies status, statusText and headers', async () => {
@@ -293,6 +293,6 @@ test('a bare init response contributes the spec defaults', async () => {
   expect(made.statusText).toBe('');
   expect(await made.text()).toBe('b');
 });
-"#;
+";
     run_fixture(source, "response_init_from_response_runtime");
 }
