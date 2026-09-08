@@ -26,6 +26,19 @@ pub(in crate::lowering) enum CallArg<'a> {
     Source(&'a Argument<'a>),
     /// One element of an expanded tuple spread, already lowered.
     Lowered(smelt_hir::ExprId),
+    /// A spread whose width is not statically known, left for the caller's own
+    /// variadic handling.
+    ///
+    /// A spread of a LIST cannot be distributed positionally -- its length is a
+    /// runtime value -- but it is not an error either: a rest-parameter list
+    /// spread into a callee that absorbs it was lowering, and passing at
+    /// runtime, long before this module existed (es-toolkit's `isEqualWith`
+    /// spreads a customizer's `...args` into a function-typed parameter, and
+    /// its suite was green on that shape). Turning it into a blocker broke a
+    /// working corpus. So the shape is handed back UNEXPANDED and the caller
+    /// lowers it exactly as it did before, which is the behaviour that was
+    /// already correct.
+    UnexpandedSpread(&'a oxc::ast::ast::SpreadElement<'a>),
 }
 
 impl ModuleBuilder<'_> {
@@ -54,8 +67,13 @@ impl ModuleBuilder<'_> {
         for argument in arguments {
             match argument {
                 Argument::SpreadElement(spread) => {
-                    for element in self.spread_argument_elements(spread, body)? {
-                        expanded.push(CallArg::Lowered(element));
+                    match self.spread_argument_elements(spread, body)? {
+                        Some(elements) => {
+                            for element in elements {
+                                expanded.push(CallArg::Lowered(element));
+                            }
+                        }
+                        None => expanded.push(CallArg::UnexpandedSpread(spread)),
                     }
                 }
                 _ => expanded.push(CallArg::Source(argument)),
@@ -89,6 +107,11 @@ impl ModuleBuilder<'_> {
                 self.argument_with_hint(argument, body, hint)
             }
             CallArg::Lowered(expr) => Ok(expr),
+            // The pre-existing reading: lower the operand as ONE argument and
+            // let the caller's variadic handling take it from there. This is
+            // deliberately not the `Source` arm, so the assertion above still
+            // catches a path that never came through `expanded_call_arguments`.
+            CallArg::UnexpandedSpread(spread) => self.expression(&spread.argument, body),
         }
     }
 
@@ -126,25 +149,19 @@ impl ModuleBuilder<'_> {
         &mut self,
         spread: &oxc::ast::ast::SpreadElement<'_>,
         body: &mut Body,
-    ) -> Result<Vec<smelt_hir::ExprId>, SmeltError> {
+    ) -> Result<Option<Vec<smelt_hir::ExprId>>, SmeltError> {
         let span = self.span(spread.span.start, spread.span.end);
         let operand = self.expression(&spread.argument, body)?;
         let operand_ty = Self::expr_ty(body, operand);
         let resolved = self.type_param_constraint_or_self(operand_ty);
         let tuple_ty = match self.ctx.krate.types.get(resolved).cloned() {
             Some(Type::Tuple(_)) => resolved,
-            _ => {
-                return Err(SmeltError::unsupported(
-                    span,
-                    "a spread of a value without a statically known width into a fixed-arity call is not lowered yet: only a tuple has the element count the callee's parameters need",
-                ));
-            }
+            // Not statically widthed: hand it back unexpanded rather than
+            // rejecting it. See `CallArg::UnexpandedSpread`.
+            _ => return Ok(None),
         };
         let Some(Type::Tuple(items)) = self.ctx.krate.types.get(tuple_ty).cloned() else {
-            return Err(SmeltError::unsupported(
-                span,
-                "spread operand lost its tuple type between resolution and expansion",
-            ));
+            return Ok(None);
         };
 
         let spread_name = self.intern_source_name("__smelt_spread");
@@ -174,7 +191,6 @@ impl ModuleBuilder<'_> {
                 span,
             }));
         }
-        Ok(expanded)
+        Ok(Some(expanded))
     }
-
 }
