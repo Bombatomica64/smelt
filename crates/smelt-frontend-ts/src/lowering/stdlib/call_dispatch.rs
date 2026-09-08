@@ -301,7 +301,7 @@ impl<'builder> ModuleBuilder<'builder> {
                 let mut args = Vec::new();
                 for (index, argument) in call.arguments.iter().enumerate() {
                     if let Argument::SpreadElement(spread) = argument {
-                        let _ = self.expression(&spread.argument, body)?;
+                        args.extend(self.tuple_spread_arguments(spread, body)?);
                         continue;
                     }
                     let lowered = self.argument(argument, body)?;
@@ -2472,8 +2472,17 @@ impl<'builder> ModuleBuilder<'builder> {
                 span: self.span(call.span.start, call.span.end),
             })));
         }
+        // A tuple spread distributes positionally here too: this is the path a
+        // FUNCTION-TYPED FIELD callee takes (`router.add(...routes[i])` in
+        // hono's smart router), and treating the spread as one argument put the
+        // whole tuple in parameter 0 and let the emitter pad the rest with
+        // defaults.
         let mut args = Vec::new();
         for arg in &call.arguments {
+            if let Argument::SpreadElement(spread) = arg {
+                args.extend(self.tuple_spread_arguments(spread, body)?);
+                continue;
+            }
             args.push(self.argument(arg, body)?);
         }
         let (function_ty, function) =
@@ -4093,6 +4102,111 @@ impl<'builder> ModuleBuilder<'builder> {
         fixed_score * 100 + rest_score
     }
 
+    /// Expand `f(...tuple)` into one argument per tuple element.
+    ///
+    /// A spread argument to a FIXED-ARITY callee used to be lowered for its
+    /// side effects and then thrown away (`let _ = self.expression(..)`),
+    /// contributing no argument at all. The call was then built with whatever
+    /// arguments remained and the arity gap filled with defaults, so
+    /// `sink(...triple)` became `sink(String::new(), String::new(), 0.0)` --
+    /// every argument a default, the tuple never read, and the result COMPILED.
+    /// A silent wrong answer is the worst outcome available here, which is why
+    /// the non-tuple case below is a blocker rather than a best effort.
+    ///
+    /// A tuple has a statically known width, so the spread distributes
+    /// positionally: element `i` becomes argument `i`, each at the element's own
+    /// type. The operand is lowered ONCE and indexed, so a spread of a call
+    /// result (`f(...g())`) evaluates `g()` a single time.
+    ///
+    /// A spread of a LIST has no static arity, so there is no positional
+    /// expansion to emit and it stays a named blocker. Its home is the
+    /// packed-vector call path (`ClosureCallSpread`), which an erased callee
+    /// already takes; a fixed-arity callee has nowhere to put a runtime-length
+    /// argument list.
+    fn tuple_spread_arguments(
+        &mut self,
+        spread: &oxc::ast::ast::SpreadElement<'_>,
+        body: &mut Body,
+    ) -> Result<Vec<smelt_hir::ExprId>, SmeltError> {
+        let span = self.span(spread.span.start, spread.span.end);
+        let operand = self.expression(&spread.argument, body)?;
+        let operand_ty = Self::expr_ty(body, operand);
+        let Some(Type::Tuple(items)) = self
+            .ctx
+            .krate
+            .types
+            .get(self.type_param_constraint_or_self(operand_ty))
+            .cloned()
+        else {
+            return Err(SmeltError::unsupported(
+                span,
+                "a spread of a non-tuple value into a fixed-arity call is not lowered yet: only a tuple has the statically known width the callee's parameters need",
+            ));
+        };
+        // A tuple index must reach codegen as a constant INTEGER: the emitter
+        // renders it as a Rust field access (`.0`, `.1`), which has no runtime
+        // index to compute, and rejects anything it cannot read as a constant.
+        // Bind the spread operand to a local before indexing it. Each element
+        // is a separate argument expression, and an expression reused in HIR is
+        // re-materialized per use, so indexing the operand directly evaluated it
+        // once PER ELEMENT -- `f(...g())` would call `g()` as many times as the
+        // tuple is wide, and `routes[i]` re-read the list three times. One
+        // binding makes the operand evaluate exactly once, which is what the
+        // source spelling means.
+        let spread_name = self.intern_source_name("__smelt_spread");
+        let operand_local = self.capture_bind_value(operand, operand_ty, spread_name, span, body);
+        let index_ty = self.ctx.krate.types.intern(Type::Int);
+        let mut expanded = Vec::with_capacity(items.len());
+        for (offset, item_ty) in items.iter().enumerate() {
+            let receiver = body.push_expr(Expr {
+                kind: ExprKind::Local(operand_local),
+                ty: operand_ty,
+                span,
+            });
+            let index = body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Int(i64::try_from(offset).unwrap_or(i64::MAX))),
+                ty: index_ty,
+                span,
+            });
+            expanded.push(body.push_expr(Expr {
+                kind: ExprKind::Index { receiver, index },
+                ty: *item_ty,
+                span,
+            }));
+        }
+        Ok(expanded)
+    }
+
+    /// Lower a call's arguments with every tuple spread expanded positionally.
+    ///
+    /// `f(a, ...triple, b)` supplies five arguments, not three: a spread of a
+    /// tuple contributes one argument per element, each at the element's own
+    /// type. The operand is lowered ONCE and indexed, so `f(...g())` evaluates
+    /// `g()` a single time.
+    ///
+    /// A spread of anything without a statically known width -- a list, an
+    /// erased value -- is a named blocker. Its home is the packed-vector call
+    /// path (`ClosureCallSpread`), which an erased callee already takes; a
+    /// fixed-arity callee has nowhere to put a runtime-length argument list, and
+    /// guessing is what produced the default-padded call this replaces.
+    fn spread_arguments_positionally(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        fixed_param_count: usize,
+        body: &mut Body,
+    ) -> Result<Vec<smelt_hir::ExprId>, SmeltError> {
+        let mut args = Vec::with_capacity(fixed_param_count);
+        for argument in &call.arguments {
+            if let Argument::SpreadElement(spread) = argument {
+                args.extend(self.tuple_spread_arguments(spread, body)?);
+                continue;
+            }
+            args.push(self.argument(argument, body)?);
+        }
+        args.truncate(fixed_param_count);
+        Ok(args)
+    }
+
     /// Reject fixed tuple-rest overloads for variable-length spread tails.
     ///
     /// A call such as `fn(head, ...values)` cannot select an overload whose
@@ -5070,6 +5184,27 @@ impl<'builder> ModuleBuilder<'builder> {
                 span: self.span(call.span.start, call.span.end),
             })));
         }
+        // Spreads are resolved BEFORE the arity checks below, because
+        // `supplied_arg_count` counts a spread as a single argument: a
+        // `sink(...triple)` looked like one argument for three parameters and
+        // took the shortfall branch, which returned an EMPTY argument list that
+        // the emitter then padded with `default_value(..)` per parameter. So
+        // `sink(...triple)` became `sink(String::new(), String::new(), 0.0)` --
+        // every argument a default, the tuple never read, and it COMPILED. A
+        // silent wrong answer is the worst outcome available here.
+        //
+        // A tuple spread has a statically known width, so it distributes
+        // positionally and the call's real arity is known after expansion.
+        // Anything else has no static arity and is a named blocker rather than
+        // a guess.
+        if rest.is_none() && call.arguments.iter().any(Argument::is_spread) {
+            let args = self.spread_arguments_positionally(call, fixed_param_count, body)?;
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::ClosureCall { callee, args },
+                ty: call_return_ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
         let required_arg_count = defaults
             .iter()
             .take(fixed_param_count)
@@ -5093,16 +5228,7 @@ impl<'builder> ModuleBuilder<'builder> {
                 "closure call argument count does not match closure parameters",
             ));
         }
-        if rest.is_none() && call.arguments.iter().any(Argument::is_spread) {
-            return Ok(Some(body.push_expr(Expr {
-                kind: ExprKind::ClosureCall {
-                    callee,
-                    args: Vec::new(),
-                },
-                ty: call_return_ty,
-                span: self.span(call.span.start, call.span.end),
-            })));
-        }
+
         let mut args = call
             .arguments
             .iter()
@@ -5643,10 +5769,24 @@ impl<'builder> ModuleBuilder<'builder> {
         // Fixed parameters are those before a rest slot; a rest signature keeps
         // its trailing `List` parameter out of the fixed range.
         let fixed_param_count = function.rest.unwrap_or(function.params.len());
+        // Lower every supplied argument FIRST, expanding a tuple spread into one
+        // argument per element. The loop below is positional -- it pairs
+        // argument `index` with parameter `index` -- so a spread has to have
+        // become its elements before it runs. Treating the spread as a single
+        // argument is what made `sink(...triple)` pair the whole tuple with
+        // parameter 0 and synthesize typed `None` for the other two.
+        let mut supplied = Vec::with_capacity(arguments.len());
+        for argument in arguments {
+            if let Argument::SpreadElement(spread) = argument {
+                supplied.extend(self.tuple_spread_arguments(spread, body)?);
+                continue;
+            }
+            supplied.push(self.argument(argument, body)?);
+        }
         let mut args = Vec::with_capacity(function.params.len());
         for index in 0..fixed_param_count {
-            if let Some(argument) = arguments.get(index) {
-                args.push(self.argument(argument, body)?);
+            if let Some(argument) = supplied.get(index).copied() {
+                args.push(argument);
             } else {
                 // Missing optional parameter: synthesize a typed `None` carrying
                 // the parameter's declared type so the closure call stays typed.
@@ -5663,11 +5803,7 @@ impl<'builder> ModuleBuilder<'builder> {
             }
         }
         if let Some(rest_index) = function.rest {
-            let rest_args = arguments
-                .iter()
-                .skip(rest_index)
-                .map(|argument| self.argument(argument, body))
-                .collect::<Result<Vec<_>, _>>()?;
+            let rest_args = supplied.get(rest_index..).unwrap_or_default().to_vec();
             let rest_param_ty = function
                 .params
                 .get(rest_index)

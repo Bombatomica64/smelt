@@ -29,7 +29,7 @@ use smelt_hir::{
 /// rather than an expression: an inherent Rust method cannot be assigned, and
 /// there is no source expression to point at.
 #[derive(Clone, Copy)]
-enum ClassFieldInit<'a> {
+pub(in crate::lowering) enum ClassFieldInit<'a> {
     /// A declared field's `= <expr>` initializer.
     Expression(&'a Expression<'a>),
     /// A reassigned method's own body, lowered as a function value.
