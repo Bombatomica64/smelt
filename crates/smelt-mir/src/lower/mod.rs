@@ -202,6 +202,13 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
         krate.symbols.clone(),
         krate.names.clone(),
     );
+    // Carry FileId -> path across the HIR/MIR boundary so a later diagnostic
+    // can name its source file; see `Mir::file_paths`.
+    mir.file_paths = krate
+        .modules
+        .iter()
+        .map(|module| (module.source.file, module.source.path.clone()))
+        .collect();
     let helpers = HelperTypes {
         none: mir.types.intern(Type::None),
         loop_index_ty: mir.types.intern(Type::Float),

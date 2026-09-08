@@ -13949,3 +13949,48 @@ export function pick(parts: string[], index: number): string | null {
         "the raw string must not be handed back at `bool`: {source}"
     );
 }
+
+/// An array literal whose destination is an OPTIONAL tuple renders a Rust
+/// tuple, not a homogeneous `vec![..]`.
+///
+/// The tuple arm renders a literal into a Rust tuple when the destination is
+/// one, but an optional destination has to reach it through the
+/// `Type::Optional` recursion, and `Type::Tuple` was missing from that arm's
+/// list. The literal then fell through to the `vec![..]` fallback, which infers
+/// its element type from the FIRST element and rejects the rest -- hono's
+/// `Matcher<T> = [RegExp, HandlerData<T>[][], StaticMap<T>]`, returned as
+/// `Matcher<T> | null`, reported it as "expected SmeltRegExp, found
+/// SmeltList<SmeltUnknown>" on element 2.
+#[test]
+fn an_array_literal_at_an_optional_tuple_renders_a_tuple() {
+    let source = source_for(
+        r"
+type Triple = [string, number[], boolean];
+
+export function build(label: string, flag: boolean): Triple | null {
+  if (!flag) {
+    return null;
+  }
+  return [label, [1, 2], flag];
+}
+",
+    );
+
+    // The enabling condition: the destination really is an optional tuple, so
+    // the literal has to travel through the `Optional` recursion to reach the
+    // tuple rendering.
+    assert!(
+        source.contains("-> Option<(String, SmeltList<f64>, bool)>"),
+        "the return really must be an optional tuple: {source}"
+    );
+    assert!(
+        source.contains("Some((label.clone(),"),
+        "an array literal at an optional tuple must render `Some((..))`: {source}"
+    );
+    // The homogeneous fallback would have annotated a Vec of one element type,
+    // which is what could not hold the heterogeneous elements.
+    assert!(
+        !source.contains("let smelt_list_items: Vec<String> = vec![label.clone()"),
+        "the literal must not go through the homogeneous Vec fallback: {source}"
+    );
+}
