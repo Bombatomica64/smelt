@@ -2743,7 +2743,7 @@ impl Default for SmeltUnion3 {
 // @smelt:prelude-end — generated program below
 fn main() {
     let _smelt_tmp_2: SmeltUnion3 = SmeltUnion3::M1(3000.0);
-    let _smelt_tmp_3: f64 = match _smelt_tmp_2.into_smelt_unknown() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => { let smelt_value = value; let smelt_text = smelt_value.trim(); if smelt_text.is_empty() { 0.0 } else { smelt_text.parse::<f64>().unwrap_or(f64::NAN) } }, SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null => 0.0, SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN };
+    let _smelt_tmp_3: f64 = match _smelt_tmp_2.clone().into_smelt_unknown() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => { let smelt_value = value; let smelt_text = smelt_value.trim(); if smelt_text.is_empty() { 0.0 } else { smelt_text.parse::<f64>().unwrap_or(f64::NAN) } }, SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null => 0.0, SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN };
     let port: f64 = _smelt_tmp_3;
     let _smelt_tmp_4: String = "America/Santiago".to_owned();
     let zone: String = _smelt_tmp_4;

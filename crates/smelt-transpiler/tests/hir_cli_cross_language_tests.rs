@@ -341,6 +341,7 @@ fn end_to_end_examples_match_expected_outputs() -> TestResult {
         "46_blob_file",
         "47_module_const_host_value",
         "48_form_data",
+        "49_sibling_method_call",
     ] {
         verify_end_to_end_example(name)?;
     }

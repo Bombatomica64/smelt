@@ -1,5 +1,5 @@
 {
-  "files_scanned": 47,
+  "files_scanned": 48,
   "total": 16381,
   "category_totals": {
     "legitimate-boundary": 165,
@@ -2906,7 +2906,7 @@
     },
     {
       "category": "legitimate-boundary",
-      "shape": "let _smelt_tmp_N: fN = match _smelt_tmp_N.into_smelt_unknown() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => { let smelt_value = value; let smelt_text = smelt_value.trim(); if smelt_text.is_empty() { N.N } else { smelt_text.parse::<fN>().unwrap_or(fN::NAN) } }, SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null => N.N, SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN };",
+      "shape": "let _smelt_tmp_N: fN = match _smelt_tmp_N.clone().into_smelt_unknown() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"S\") { Some(SmeltUnknown::Number(value)) => value, _ => fN::NAN }, SmeltUnknown::String(value) => { let smelt_value = value; let smelt_text = smelt_value.trim(); if smelt_text.is_empty() { N.N } else { smelt_text.parse::<fN>().unwrap_or(fN::NAN) } }, SmeltUnknown::Bool(value) => if value { N.N } else { N.N }, SmeltUnknown::Null => N.N, SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => fN::NAN };",
       "occurrences": 11,
       "files": 1,
       "example": "examples/typescript/end-to-end/30_nullish_union_join/expected.rs:2746"

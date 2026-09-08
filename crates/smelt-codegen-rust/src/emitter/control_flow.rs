@@ -698,6 +698,33 @@ impl FunctionEmitter<'_> {
                         let index_ty = self.operand_ty(index)?;
                         let index_text = self.operand_text(index)?;
                         let key_text = self.property_key_to_string_text(&index_text, index_ty)?;
+                        // A CONCRETE union stores a tagged `SmeltUnion…` enum, so
+                        // it is not a `&mut SmeltUnknown` and cannot be handed to
+                        // the erased keyed-write helper — this arm matched
+                        // `Type::Union(_)` and passed the enum straight through
+                        // (`expected &mut SmeltUnknown, found &mut SmeltUnion164`,
+                        // 360 of the hono router slice's errors).
+                        //
+                        // This is H26's rule on the WRITE path, and a write needs
+                        // one more step than a read: cross the boundary adapter
+                        // OUT, mutate the erased view, then cross back IN and
+                        // commit the result to the place. Mutating a copy without
+                        // committing it would drop the write silently, which is the
+                        // failure this whole family is about — so the write-back is
+                        // the point, not a detail.
+                        //
+                        // A union with no generated enum still renders as
+                        // `SmeltUnknown` and keeps the direct call below.
+                        if self.concrete_union_members(base_ty).is_some() {
+                            let union_text = self.union_type_text(base_ty)?;
+                            let erased = self
+                                .erase_concrete_union_text(&self.local_value_text(*base)?, base_ty);
+                            out.push_str(&format!(
+                                "    {{ let smelt_key = {key_text}; let smelt_value = {rendered_value}; let mut smelt_erased = {erased}; smelt_index_assign(&mut smelt_erased, smelt_key, smelt_value); {} = {union_text}::from_smelt_unknown(smelt_erased); }}\n",
+                                self.local_mut_value_text(*base)?
+                            ));
+                            return Ok(());
+                        }
                         out.push_str(&format!(
                             "    {{ let smelt_key = {key_text}; let smelt_value = {rendered_value}; smelt_index_assign(&mut {}, smelt_key, smelt_value); }}\n",
                             self.local_mut_value_text(*base)?
@@ -1781,6 +1808,46 @@ impl FunctionEmitter<'_> {
             return self.emit_block(self.block(then_join)?, out);
         }
 
+        // Each arm is a SELF-CONTAINED region: no path out of either one falls
+        // through to a shared continuation, so there is no join to find and each
+        // can simply be emitted in full inside its own arm.
+        //
+        // This is the same reconstruction as the
+        // `block_eventually_terminates(then) && block_eventually_terminates(else_)`
+        // arm above, asked with the predicate that can see through a loop. That
+        // arm cannot fire when either region contains one, because a loop header
+        // is a `Switch` whose body edge cycles back and
+        // `block_eventually_terminates` scores a back edge as "does not
+        // terminate" — so `if (cond) { for (…) {…} return }` followed by a
+        // continuation missed every structured case and fell into the fallback
+        // below.
+        //
+        // The fallback below emits only each block's OWN statements and drops
+        // both terminators, which deletes everything reachable through them. In
+        // Hono's `RegExpRouter#add` that silently deleted the entire tail of the
+        // method: the then-branch had no statements of its own (its content
+        // hangs off a `Call` terminator), so it emitted as `if cond { }` with the
+        // continuation moved into the `else`, losing two loop nests, the
+        // `#insertPath` calls and the middleware writes. Nothing reported it —
+        // the E0308 that surfaced was only the function then falling off its own
+        // end.
+        //
+        // So this arm sits immediately before that fallback: it can only claim
+        // shapes whose code was previously discarded.
+        if self.block_never_falls_through(then.id, &mut BlockIdSet::default())?
+            && self.block_never_falls_through(else_.id, &mut BlockIdSet::default())?
+        {
+            let branch_declared = self.declared_locals_snapshot();
+            out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+            self.emit_block(then, out)?;
+            out.push_str("    } else {\n");
+            self.restore_declared_locals(branch_declared.clone());
+            self.emit_block(else_, out)?;
+            out.push_str("    }\n");
+            self.restore_declared_locals(branch_declared);
+            return Ok(());
+        }
+
         let branch_declared = self.declared_locals_snapshot();
         out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
         for statement in &then.statements {
@@ -1863,6 +1930,74 @@ impl FunctionEmitter<'_> {
 
         visiting.remove(&block_id);
         self.termination_cache.borrow_mut().insert(block_id, result);
+        Ok(result)
+    }
+
+    /// Return true when no path out of `block_id` ever FALLS OUT of the region
+    /// it starts — every path either returns, throws, or loops forever.
+    ///
+    /// This is [`Self::block_eventually_terminates`] with one difference, and
+    /// the difference is the whole point: a back edge answers `true` here
+    /// instead of `false`. `block_eventually_terminates` asks "does control
+    /// reach a `return`?", and for that question a cycle it cannot prove exits
+    /// must answer `false`. The question asked HERE is "does control escape this
+    /// region and rejoin a continuation?", and a path that goes round a loop has
+    /// not escaped — it is still inside the region, so it says nothing either
+    /// way and must not veto the answer.
+    ///
+    /// That distinction matters because `block_eventually_terminates` requires
+    /// BOTH arms of a `Switch` to terminate, so a single loop anywhere in a
+    /// region — a loop header IS a `Switch` whose body edge cycles back —
+    /// poisons the whole region to `false`. A `for` loop that ends in `return`
+    /// is exactly that shape, and it is the ordinary way to write an early-exit
+    /// branch.
+    ///
+    /// A region with a genuinely infinite loop also answers `true`, which is
+    /// correct for this question: control never reaches the continuation either
+    /// way.
+    fn block_never_falls_through(
+        &self,
+        block_id: smelt_mir::BlockId,
+        visiting: &mut BlockIdSet,
+    ) -> Result<bool, EmitError> {
+        // A back edge: this path is still inside the region, so it neither
+        // escapes nor terminates. Neutral, which for an `&&`-fold is `true`.
+        if !visiting.insert(block_id) {
+            return Ok(true);
+        }
+        let block = self.block(block_id)?;
+        let result = match &block.terminator {
+            Some(Terminator::Return(_) | Terminator::Throw(_) | Terminator::Unreachable) => true,
+            Some(
+                Terminator::Goto(target)
+                | Terminator::Call { target, .. }
+                | Terminator::Await { target, .. },
+            ) => self.block_never_falls_through(*target, visiting)?,
+            Some(Terminator::Switch {
+                then_block,
+                else_block,
+                ..
+            }) => {
+                self.block_never_falls_through(*then_block, visiting)?
+                    && self.block_never_falls_through(*else_block, visiting)?
+            }
+            Some(Terminator::Match { arms, default, .. }) => {
+                let default_escapes = match default {
+                    Some(target) => self.block_never_falls_through(*target, visiting)?,
+                    None => false,
+                };
+                default_escapes
+                    && arms.iter().try_fold(true, |all, arm| {
+                        Ok::<bool, EmitError>(
+                            all && self.block_never_falls_through(arm.target, visiting)?,
+                        )
+                    })?
+            }
+            // No terminator: control runs off the end of the block into the
+            // continuation, which IS falling through.
+            None => false,
+        };
+        visiting.remove(&block_id);
         Ok(result)
     }
 

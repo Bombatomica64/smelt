@@ -56,6 +56,13 @@ block, so the question is whether MIR has the statements at all.
 
 ## H33 — a TypeScript `private` method is called through a stub that returns null
 
+> **Superseded — see `hono-h33-sibling-method-call.md`.** The bug below is real
+> and is fixed, but the diagnosis in this section is wrong on one point:
+> privacy is NOT the axis. A plain PUBLIC sibling method call reproduces it
+> identically, so the family is every `this.sibling(..)` call written inside a
+> class method body, not the `private` spelling. `#stash` appeared to fix it
+> only because `#`-names take a different dispatch arm entirely.
+
 Found twice while working on H25 and H28, and reproduced in 27 lines:
 
 ```ts

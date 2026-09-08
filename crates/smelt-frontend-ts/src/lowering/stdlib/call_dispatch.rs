@@ -2839,27 +2839,46 @@ impl<'builder> ModuleBuilder<'builder> {
         {
             return false;
         }
-        // A union receiver has no *single* method item — `resolve_method`
-        // deliberately returns `ItemId(u32::MAX)` for it, because dispatch
-        // happens per tagged-union arm rather than through one function. The
-        // item-id test below therefore rejects a perfectly concrete union, and
-        // the caller then lowers the call as a callable *field* read, routing it
-        // through the erased `SmeltUnknown` call ABI: the receiver is converted
-        // with `into_smelt_unknown`, the method looked up as a dynamic object
-        // field, and invoked dynamically — even though every arm is a class with
-        // that method and the emitter can already match the tag and call it
-        // (`union_method_text`).
+        // An `ItemId` answers this question when there is one, but its ABSENCE
+        // does not answer it: `resolve_method` returns `ItemId(u32::MAX)` for
+        // several receivers that do declare the method perfectly concretely, and
+        // for each of them the caller would then lower the call as a callable
+        // *field* read — routing it through the erased `SmeltUnknown` call ABI
+        // (the receiver converted with `into_smelt_unknown`, the method looked
+        // up as a dynamic object field and invoked dynamically) even though the
+        // emitter can dispatch it directly.
         //
-        // So a union whose every arm declares the method counts as concrete
-        // here, exactly as it does on the callback path.
-        if matches!(
-            self.ctx.krate.types.get(receiver_ty),
-            Some(Type::Union(_))
-        ) {
-            return self.receiver_declares_method(receiver_ty, method);
-        }
-        self.resolve_method(receiver_ty, method, member.span)
+        // Two receiver kinds reach that state, and the failure is worse for the
+        // second:
+        //
+        //   * a UNION has no *single* method item by design — dispatch happens
+        //     per tagged-union arm rather than through one function
+        //     (`union_method_text`), so every arm declaring the method is what
+        //     makes it concrete;
+        //   * a class whose own body is STILL BEING LOWERED has no registered
+        //     class item yet, so `class_by_symbol` misses and `resolve_method`
+        //     falls to `in_progress_class_method_return`, which types the call
+        //     but has no item to name. That is every `this.sibling(..)` call
+        //     written inside a class method body. Reading it as a callable field
+        //     did not merely erase the call, it LOST it: the class has no such
+        //     struct field, so the emitter answered the read with a method-value
+        //     stub (`Rc::new(|_| Ok(SmeltUnknown::Null))`), the call returned
+        //     `null`, and the method body never ran — with no diagnostic, in a
+        //     shape as ordinary as a class calling its own helper.
+        //
+        // So the item id is consulted first and the declaration second: whether
+        // the receiver DECLARES the method is the question being asked, and
+        // `receiver_declares_method` answers it for both kinds from the
+        // registries that are populated before any method body is lowered. The
+        // genuine callable-storage fields that must stay closure calls are
+        // already excluded by `receiver_has_callable_storage_field` above.
+        if self
+            .resolve_method(receiver_ty, method, member.span)
             .is_ok_and(|(_, item)| item.0 != u32::MAX)
+        {
+            return true;
+        }
+        self.receiver_declares_method(receiver_ty, method)
     }
 
     /// Return true when a class or inherited base explicitly stores a callable
