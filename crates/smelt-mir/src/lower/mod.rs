@@ -142,6 +142,22 @@ type LoweredMutationReceiver = (Operand, MutationWriteback);
 /// See `blocker-logs/hono-h31-projected-receiver-writeback.md`.
 type PlaceWritebacks = Vec<(Place, LocalId)>;
 
+/// A lowered assignment target: the place to write, and the receiver copies that
+/// write must commit back afterwards.
+///
+/// The pair is what [`LoweringCtx::lower_place`] hands its callers, and the two
+/// halves are useless apart: writing the place without replaying the writebacks
+/// is exactly the silently-lost write H31 fixed.
+type LoweredPlace = (Place, PlaceWritebacks);
+
+/// A place ROOT: the local a projection is rooted at, and the receiver copies
+/// reaching that root left behind.
+///
+/// Same contract as [`LoweredPlace`] one level down -- the root is a local, so
+/// callers can hand it straight to `Place::Field`/`Place::Index` -- and it is
+/// what `place_base_local` and `narrowed_receiver_base` return.
+type LoweredPlaceBase = (LocalId, PlaceWritebacks);
+
 
 /// Synthetic MIR helper types shared by every body lowered in one run.
 ///

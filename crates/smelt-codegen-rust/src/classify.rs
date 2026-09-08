@@ -23,7 +23,14 @@
 //! - any source path writes an instance field on a class-typed binding after
 //!   construction (`obj.<field> = …` or `obj[key] = …`), or
 //! - `this` (a method's `self`) is captured by a closure (the escaping-`this`
-//!   case that needs a shareable handle).
+//!   case that needs a shareable handle), or
+//! - it INHERITS from a reference class (see [`close_over_heritage`]).
+//!
+//! The heritage rule is not a heuristic: a subclass's instances are the same
+//! JavaScript objects as its base's, so identity and mutation semantics cannot
+//! differ between them -- and Smelt re-emits every inherited method body into the
+//! subclass's own `impl`, so a subclass emitted by value would carry bodies that
+//! read `self.0.borrow().field` against a struct that has no field `0`.
 //!
 //! Pure aliasing without any mutation (`const b = a;` where neither `a` nor `b`
 //! is ever mutated) is intentionally NOT a trigger: a value class that is only
@@ -89,6 +96,9 @@ pub(crate) fn reference_classes(mir: &Mir) -> HashSet<Symbol> {
         collect_field_mutation_triggers(mir, function, &mut references);
         collect_self_capture_triggers(mir, function, &mut references);
     }
+    // Before the index-store deviation below, so that deviation still has the
+    // final say for a class that carries a dynamic index signature.
+    close_over_heritage(mir, &mut references);
     // V1 deviation: a class with a dynamic index-signature store
     // (`[key: string]: T`) keeps its existing by-value struct emission. Its
     // keyed access routes through the synthesized `__smelt_index_store` field
@@ -99,6 +109,41 @@ pub(crate) fn reference_classes(mir: &Mir) -> HashSet<Symbol> {
     // regression from prior behavior.
     references.retain(|name| !class_has_index_store(mir, *name));
     references
+}
+
+/// Add every class that inherits from a reference class.
+///
+/// A trigger fires on the class whose FIELD is written, which is the class that
+/// declares it -- so a subclass that only inherits mutated state is never named
+/// by one. It is still the same kind of object: Smelt re-emits each inherited
+/// method body into the subclass's own `impl`, and those bodies were written
+/// against the base's representation. Hono's
+/// `class<T> extends RegExpRouter<T>` in `prepared-router.ts` is the shape:
+/// `RegExpRouter` is a reference class, so the anonymous subclass's inherited
+/// bodies read `self.0.borrow()._tries`, while the subclass itself was emitted
+/// as a value struct -- `no field 0 on __smelt_anon_class_3050<T>` (E0609 x9 in
+/// the router slice, and H30 in `blocker-logs/hono-phase2-generated-rust.md`).
+///
+/// Only DOWNWARD, along `MirClass::base`: a base's own storage is a separate
+/// struct, and lifting a base because a subclass was lifted would pay the
+/// handle's cost for objects that never need it. Iterated to a fixed point so a
+/// chain of any depth closes, and bounded by the class count so a cyclic
+/// `base` chain (which the frontend rejects) cannot spin here.
+fn close_over_heritage(mir: &Mir, references: &mut HashSet<Symbol>) {
+    for _ in 0..mir.classes.len() {
+        let mut changed = false;
+        for class in &mir.classes {
+            if let Some(base) = class.base
+                && references.contains(&base)
+                && references.insert(class.name)
+            {
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
 }
 
 /// Return whether a class carries a synthesized dynamic index-signature store.

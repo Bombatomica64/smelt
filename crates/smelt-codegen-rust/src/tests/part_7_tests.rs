@@ -13233,3 +13233,111 @@ console.log(flattenAll([1, [2, [3]]], 2).length);
         );
     }
 }
+
+/// H30a: a subclass of a reference class is itself a reference class.
+///
+/// A classification trigger fires on the class that DECLARES the mutated field,
+/// so a subclass that only inherits mutated state is never named by one. It is
+/// still the same kind of object, and Smelt re-emits every inherited method body
+/// into the subclass's own `impl` -- bodies written against the base's handle
+/// representation. Hono's `class<T> extends RegExpRouter<T>` was emitted as a
+/// value struct carrying inherited bodies that read `self.0.borrow()._tries`:
+/// `no field 0 on __smelt_anon_class_3050<T>` (E0609 x9 on the router slice).
+#[test]
+fn a_subclass_of_a_reference_class_is_a_reference_class() {
+    let source = source_for(
+        r"
+class Store {
+  entries: Record<string, number> = {};
+
+  put(key: string, value: number): void {
+    this.entries[key] = value;
+  }
+}
+
+class CountingStore extends Store {
+  reads = 0;
+
+  total(): number {
+    let sum = 0;
+    for (const key of Object.keys(this.entries)) {
+      sum += this.entries[key];
+    }
+    return sum;
+  }
+}
+
+const store = new CountingStore();
+store.put('a', 2);
+console.log(store.total());
+",
+    );
+
+    // The base really is lifted, so the subclass assertion is about propagation
+    // and not about a shape that was never a handle.
+    assert!(
+        source.contains("struct Store(::std::rc::Rc<::std::cell::RefCell<StoreInner>>)"),
+        "the base class is not a reference class here, so nothing propagates:\n{source}"
+    );
+    assert!(
+        source.contains(
+            "struct CountingStore(::std::rc::Rc<::std::cell::RefCell<CountingStoreInner>>)"
+        ),
+        "a subclass of a reference class was emitted by value:\n{source}"
+    );
+    // And the inherited state is reached through the handle in the subclass's
+    // own methods, which is what failed to compile before.
+    assert!(
+        source.contains("self.0.borrow().entries"),
+        "the inherited field is not read through the subclass's handle:\n{source}"
+    );
+}
+
+/// H30b: a method VALUE read off a reference class captures the handle.
+///
+/// Reading a method as a value (`this.match`, passed on as a callback) captures
+/// a receiver. For a value class that capture re-instantiates the struct field
+/// by field; a reference class has exactly one field -- the `Rc<RefCell<..>>` --
+/// so the rebuild could not be spelled at all (`struct PatternRouter<SmeltUnknown>
+/// has no field named _routes`, E0560/E0609). Cloning the handle is also the only
+/// capture with the right meaning: a method read off an object is bound to THAT
+/// object, and a rebuild would hand the closure a copy whose mutations no one
+/// ever sees.
+#[test]
+fn a_method_value_of_a_reference_class_captures_the_handle() {
+    let source = source_for(
+        r"
+type Handler = (key: string) => number;
+
+class Counter {
+  hits: Record<string, number> = {};
+
+  bump(key: string): number {
+    this.hits[key] = 1;
+    return 1;
+  }
+
+  handler(): Handler {
+    return this.bump;
+  }
+}
+
+const counter = new Counter();
+const bump = counter.handler();
+console.log(bump('a'));
+",
+    );
+
+    assert!(
+        source.contains("struct Counter(::std::rc::Rc<::std::cell::RefCell<CounterInner>>)"),
+        "the class under test is not a reference class:\n{source}"
+    );
+    assert!(
+        source.contains("let smelt_receiver = self.clone();"),
+        "the method value did not capture the handle:\n{source}"
+    );
+    assert!(
+        !source.contains("let smelt_receiver = Counter {"),
+        "the method value still rebuilds the struct field by field:\n{source}"
+    );
+}

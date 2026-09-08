@@ -2709,6 +2709,18 @@ impl FunctionEmitter<'_> {
 
     /// Emits a concrete clone of `self` without relying on generic `Clone` bounds.
     fn self_struct_clone_text(&self, class: Symbol) -> Result<String, EmitError> {
+        // A REFERENCE class has exactly one field -- the `Rc<RefCell<Inner>>`
+        // handle -- so the field-by-field rebuild below cannot spell it
+        // (`struct PatternRouter<SmeltUnknown> has no field named _routes`,
+        // E0560/E0609 in the router slice). `self.clone()` is also the only
+        // spelling with the right MEANING: a method read off an object is bound
+        // to THAT object, and cloning the handle shares its cell, where a
+        // rebuild would hand the closure a copy whose mutations no one sees.
+        // This is the same receiver capture `class_proto` uses for the
+        // prototype table.
+        if self.context.is_reference_class(class) {
+            return Ok("self.clone()".to_owned());
+        }
         let Some(class_item) = self.mir.classes.iter().find(|item| item.name == class) else {
             return Ok("(*self).clone()".to_owned());
         };

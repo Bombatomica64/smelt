@@ -496,10 +496,21 @@ impl FunctionEmitter<'_> {
                         };
                         let base_text = self.local_value_text(*base)?;
                         let default_value = self.default_value(*value_ty)?;
+                        // A missing key answers `undefined`, which only a value
+                        // type that RENDERS as `SmeltUnknown` can hold. A union
+                        // with a generated enum (`SmeltUnionNNNN`) does not: the
+                        // record's Rust value type is that enum, so answering
+                        // `SmeltUnknown::Undefined` was `expected SmeltUnion127,
+                        // found SmeltUnknown` (9 of the router slice's errors).
+                        // It falls to the same `unwrap_or(default)` every other
+                        // concrete value type uses, whose union arm
+                        // `default_value` already emits. A union WITHOUT a
+                        // generated enum still renders as `SmeltUnknown` and
+                        // still answers `undefined`.
                         let value_is_unknownish = matches!(
                             self.mir.types.get(*value_ty),
                             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-                        );
+                        ) && self.concrete_union_members(*value_ty).is_none();
                         if (self.dict_uses_smelt_record(*key_ty)
                             || self.dict_uses_js_key_map(*key_ty))
                             && value_is_unknownish
@@ -535,7 +546,18 @@ impl FunctionEmitter<'_> {
                         ))
                     }
                     Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => {
-                        self.unknown_index_text(&self.local_value_text(*base)?, index)
+                        // A concrete generated union is not a `SmeltUnknown`, so
+                        // the runtime-narrowing `match` below cannot scrutinise
+                        // it directly: it goes through the union's
+                        // `IntoSmeltUnknown` boundary adapter first, exactly as
+                        // the INDEX operand of the same read already does.
+                        // Without it the arms read `expected SmeltUnion127,
+                        // found SmeltUnknown` (6 of the router slice's errors).
+                        let base_text = self.erase_concrete_union_text(
+                            &self.local_value_text(*base)?,
+                            base_ty,
+                        );
+                        self.unknown_index_text(&base_text, index)
                     }
                     Some(Type::Tuple(items)) => {
                         let tuple_index = self.tuple_index(index, items.len())?;
