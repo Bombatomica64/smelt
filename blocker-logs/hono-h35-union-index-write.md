@@ -61,7 +61,11 @@ is confined to leaf extraction.
 The exact lowering is a per-arm keyed insert — `match &mut results { M0(v) =>
 v.insert(key, <value at M0's value type>), M1(v) => … }` — which never leaves
 the typed world. It needs the value operand re-rendered once per arm, so it is a
-separate change; numbered **H40**. Shipping the round-trip first is a strict
+separate change; numbered **H40**. (Round 17: H40 is WITHDRAWN -- implemented,
+measured at 9 -> 81 slice errors, reverted. See
+`hono-h40-per-arm-keyed-insert.md`; the per-arm insert cannot compile for arms
+the written value does not inhabit, and the round-trip is the faithful lowering
+rather than an approximation of it.) Shipping the round-trip first is a strict
 improvement over code that did not compile at all, and it does not stand in
 H40's way.
 
