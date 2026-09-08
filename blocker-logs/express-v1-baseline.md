@@ -130,3 +130,11 @@ Three more findings, each a silent false green rather than a blocker:
 
 Items 1, 3 and 4 are honesty fixes and should land first, so every later
 probe number is real. Item 5 is an ordinary lowering bug.
+
+## Retired (2026-09-08)
+
+The Express reference app (`examples/typescript/express_crud/`) is removed: Hono is TypeScript and
+transpiles as source, so the Hono todos CRUD (`examples/typescript/hono_crud/`, PR #254) is the
+v1 showcase and the honest-blocker acceptance corpus from here on. The Express mapped-package tier
+described in section "Where the campaign starts" is not scheduled. The measurements above stay as
+the record of the false greens that started the standards tier.
