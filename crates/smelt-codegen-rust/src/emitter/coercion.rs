@@ -621,6 +621,22 @@ impl FunctionEmitter<'_> {
         if matches!(self.mir.types.get(target), Some(Type::Function(_))) {
             return self.default_value(target);
         }
+        // A value asked for at `bool` is a TRUTHINESS test — the same rule
+        // `value_at_type_text` states, reached here because this operand entry
+        // point has its own arms and then falls through to the raw operand.
+        // A `&&` chain whose middle operand is a string is the case that found
+        // it: `nextP === undefined && p && …` lowers the chain's value into a
+        // `bool` local, and the branch handed back `p.clone()` (E0308, hono's
+        // trie-router `insert`). Stated last so it only catches the
+        // fallthrough; every arm above already answered for its own shape.
+        if matches!(self.mir.types.get(target), Some(Type::Bool))
+            && !matches!(
+                self.mir.types.get(source_ty),
+                Some(Type::Bool | Type::Unknown | Type::TypeParam { .. })
+            )
+        {
+            return self.value_truthy_text(&operand_text, source_ty);
+        }
         self.operand_text(operand)
     }
 

@@ -13884,3 +13884,40 @@ export function reset(key: string): number {
         "the concrete record must not be yielded into an erased slot: {tail:.200}"
     );
 }
+
+/// A non-boolean operand asked for at `bool` is a truthiness test, at the
+/// OPERAND entry point of the coercion as well as the text one.
+///
+/// `value_at_type` has its own arms and then falls through to the raw operand,
+/// so a coercion it had no arm for handed the value back unchanged. A `&&`
+/// chain whose middle operand is a string is the case that found it: hono's
+/// trie-router `insert` writes
+/// `getPattern(p, nextP) || (nextP === undefined && p && …)`, whose chain value
+/// lands in a `bool` local, and the branch emitted `p.clone()` (E0308).
+#[test]
+fn a_string_operand_at_bool_is_a_truthiness_test() {
+    let source = source_for(
+        r"
+export function pick(parts: string[], index: number): string | null {
+  const p: string = parts[index];
+  const nextP: string | undefined = parts[index + 1];
+  return nextP === undefined && p && p.indexOf('*') === p.length - 1 ? p : null;
+}
+",
+    );
+
+    // The enabling condition: the chain's value really is held in a `bool`
+    // local, which is what makes the branch a coercion to `bool` at all.
+    assert!(
+        source.contains("let _smelt_tmp_6: bool = if"),
+        "the `&&` chain must lower its value into a bool local: {source}"
+    );
+    assert!(
+        source.contains("!(p.clone()).is_empty()"),
+        "a string in a boolean position must test truthiness: {source}"
+    );
+    assert!(
+        !source.contains("bool = if _smelt_tmp_5 { p.clone() }"),
+        "the raw string must not be handed back at `bool`: {source}"
+    );
+}
