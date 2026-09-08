@@ -1293,6 +1293,7 @@ impl FunctionEmitter<'_> {
             Rvalue::RegexExec { regex, haystack } => {
                 self.regex_exec_text(regex, haystack, dest_ty)
             }
+            Rvalue::RegexTest { regex, haystack } => self.regex_test_text(regex, haystack),
             Rvalue::RegexMatchAll { regex, haystack } => {
                 self.regex_match_all_text(regex, haystack, dest_ty)
             }

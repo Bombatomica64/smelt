@@ -5353,8 +5353,14 @@ fn emit_source_with_free_function_router(
                 fn_writer.line("let regex = self.compiled();");
                 fn_writer.line("let start = if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow() } else { 0 };");
                 fn_writer.line("let suffix = haystack.get(start..).unwrap_or(\"\");");
-                fn_writer.line("let captures = regex.captures(suffix).ok().flatten()?;");
-                fn_writer.line("let matched = captures.get(0)?;");
+                // A FAILED search on a stateful regex resets `lastIndex` to 0,
+                // which is what makes `/a/g` over "aa" answer true, true,
+                // false and then true AGAIN: the third call exhausts the string
+                // and rewinds, so the fourth starts over. Returning `None`
+                // without the reset left the regex permanently exhausted, so
+                // every later call answered false.
+                fn_writer.line("let Some(captures) = regex.captures(suffix).ok().flatten() else { if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow_mut() = 0; } return None; };");
+                fn_writer.line("let Some(matched) = captures.get(0) else { if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow_mut() = 0; } return None; };");
                 fn_writer.line("if self.has_flag('y') && matched.start() != 0 { *self.last_index.borrow_mut() = 0; return None; }");
                 fn_writer.line("if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow_mut() = start + matched.end(); }");
                 fn_writer.line("Some(SmeltMatch::from_captures(&regex, &captures, start + matched.start(), haystack))");

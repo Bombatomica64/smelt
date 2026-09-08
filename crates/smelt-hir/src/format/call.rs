@@ -403,6 +403,9 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::RegexFind { pattern, haystack } => {
             format!("regex_find {}, {}", expr_ref(*pattern), expr_ref(*haystack))
         }
+        ExprKind::RegexTest { regex, haystack } => {
+            format!("regex_test {} {}", expr_ref(*regex), expr_ref(*haystack))
+        }
         ExprKind::RegexExec { regex, haystack } => {
             format!("regex_exec {}, {}", expr_ref(*regex), expr_ref(*haystack))
         }

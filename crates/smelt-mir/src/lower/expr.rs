@@ -906,6 +906,18 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
+            ExprKind::RegexTest { regex, haystack } => {
+                let regex_operand = self.lower_expr(*regex)?;
+                let haystack_operand = self.lower_expr(*haystack)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::RegexTest {
+                        regex: regex_operand,
+                        haystack: haystack_operand,
+                    },
+                )?
+            }
             ExprKind::RegexExec { regex, haystack } => {
                 let regex_operand = self.lower_expr(*regex)?;
                 let haystack_operand = self.lower_expr(*haystack)?;

@@ -333,6 +333,10 @@ impl ExprKind {
                 pattern: f(pattern)?,
                 haystack: f(haystack)?,
             },
+            Self::RegexTest { regex, haystack } => Self::RegexTest {
+                regex: f(regex)?,
+                haystack: f(haystack)?,
+            },
             Self::RegexExec { regex, haystack } => Self::RegexExec {
                 regex: f(regex)?,
                 haystack: f(haystack)?,

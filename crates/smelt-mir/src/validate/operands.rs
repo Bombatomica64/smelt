@@ -731,7 +731,7 @@ impl Rvalue {
                 visit(pattern);
                 visit(haystack);
             }
-            Self::RegexExec { regex, haystack } => {
+            Self::RegexExec { regex, haystack } | Self::RegexTest { regex, haystack } => {
                 visit(regex);
                 visit(haystack);
             }
@@ -1649,7 +1649,7 @@ impl Rvalue {
                 visit(pattern);
                 visit(haystack);
             }
-            Self::RegexExec { regex, haystack } => {
+            Self::RegexExec { regex, haystack } | Self::RegexTest { regex, haystack } => {
                 visit(regex);
                 visit(haystack);
             }

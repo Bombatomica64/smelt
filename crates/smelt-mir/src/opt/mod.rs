@@ -447,7 +447,7 @@ fn rewrite_rvalue(
             rewrite_operand_except(pattern, aliases, dest)
                 | rewrite_operand_except(haystack, aliases, dest)
         }
-        Rvalue::RegexExec { regex, haystack } => {
+        Rvalue::RegexExec { regex, haystack } | Rvalue::RegexTest { regex, haystack } => {
             rewrite_operand_except(regex, aliases, dest)
                 | rewrite_operand_except(haystack, aliases, dest)
         }

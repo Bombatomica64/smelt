@@ -384,6 +384,7 @@ impl LoweringCtx<'_> {
             | ExprKind::HeadersNew { .. }
             | ExprKind::HeadersOp { .. }
             | ExprKind::RegexExec { .. }
+            | ExprKind::RegexTest { .. }
             | ExprKind::RegexMatchAll { .. }
             | ExprKind::StringCharAt { .. }
             | ExprKind::StringCharCodeAt { .. }

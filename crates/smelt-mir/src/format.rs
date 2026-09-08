@@ -781,6 +781,13 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 operand_text(haystack)
             )
         }
+        Rvalue::RegexTest { regex, haystack } => {
+            format!(
+                "regex_test {} {}",
+                operand_text(regex),
+                operand_text(haystack)
+            )
+        }
         Rvalue::RegexExec { regex, haystack } => {
             format!(
                 "regex_exec {}, {}",

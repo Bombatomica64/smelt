@@ -1168,6 +1168,14 @@ pub enum Rvalue {
         /// String value to search.
         haystack: Operand,
     },
+    /// `regex.test(haystack)` on a concrete `RegExp` receiver, answering a
+    /// `bool` (see `smelt_hir::ExprKind::RegexTest`).
+    RegexTest {
+        /// `RegExp` value.
+        regex: Operand,
+        /// String value to search.
+        haystack: Operand,
+    },
     /// Return every match index from JavaScript `String.prototype.matchAll`.
     RegexMatchAll {
         /// `RegExp` value.

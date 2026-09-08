@@ -345,6 +345,7 @@ fn end_to_end_examples_match_expected_outputs() -> TestResult {
         "50_union_arm_narrowing",
         "51_web_crypto",
         "53_top_level_try_tail",
+        "54_regex_test_predicate",
     ] {
         verify_end_to_end_example(name)?;
     }

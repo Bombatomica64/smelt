@@ -603,6 +603,24 @@ impl FunctionEmitter<'_> {
         Ok(call)
     }
 
+    /// Converts `regex.test(haystack)` on a concrete receiver to a `bool`.
+    ///
+    /// `SmeltRegExp::test` is the runtime's own method and already carries the
+    /// stateful semantics: it runs the same search `exec` does, so a `/g` or
+    /// `/y` receiver reads and advances its `lastIndex`. What it does NOT do is
+    /// build a match object — which is what the previous lowering did, and then
+    /// erased that object to `SmeltUnknown` purely to compare it against
+    /// `null`, at two avoidable erasures per call site.
+    pub(super) fn regex_test_text(
+        &self,
+        regex: &Operand,
+        haystack: &Operand,
+    ) -> Result<String, EmitError> {
+        let regex_text = self.regexp_operand_text(regex)?;
+        let haystack_text = self.string_like_operand_text(haystack, "regex test")?;
+        Ok(format!("{regex_text}.test(&{haystack_text})"))
+    }
+
     /// Converts JavaScript `String.prototype.matchAll` to concrete match results.
     ///
     /// Mirrors [`Self::regex_exec_text`]: `match_all_indices` yields typed

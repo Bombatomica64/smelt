@@ -2734,8 +2734,8 @@ impl SmeltRegExp {
         let regex = self.compiled();
         let start = if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow() } else { 0 };
         let suffix = haystack.get(start..).unwrap_or("");
-        let captures = regex.captures(suffix).ok().flatten()?;
-        let matched = captures.get(0)?;
+        let Some(captures) = regex.captures(suffix).ok().flatten() else { if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow_mut() = 0; } return None; };
+        let Some(matched) = captures.get(0) else { if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow_mut() = 0; } return None; };
         if self.has_flag('y') && matched.start() != 0 { *self.last_index.borrow_mut() = 0; return None; }
         if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow_mut() = start + matched.end(); }
         Some(SmeltMatch::from_captures(&regex, &captures, start + matched.start(), haystack))

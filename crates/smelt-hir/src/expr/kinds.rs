@@ -373,6 +373,18 @@ pub enum ExprKind {
         regex: ExprId,
         haystack: ExprId,
     },
+    /// `regex.test(haystack)` on a CONCRETE `RegExp` receiver.
+    ///
+    /// Answers a `bool` directly. Distinct from [`Self::RegexIsMatch`], which
+    /// takes a pattern STRING and is a pure predicate: this one is the stateful
+    /// spelling, so a `/g` or `/y` receiver reads and advances its `lastIndex`
+    /// exactly as `exec` does. Distinct from [`Self::RegexExec`] because the
+    /// answer is the boolean, not the match — building a match object and then
+    /// erasing it to compare against `null` is what this replaced.
+    RegexTest {
+        regex: ExprId,
+        haystack: ExprId,
+    },
     RegexMatchAll {
         regex: ExprId,
         haystack: ExprId,
