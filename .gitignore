@@ -250,3 +250,4 @@ third_party/es-toolkit-src/
 # erasure test lives in a tier rather than the invariant-bound examples corpus.
 !blocker-logs/standards-round11-progress.md
 !blocker-logs/hono-h31-projected-receiver-writeback.md
+!blocker-logs/hono-h25-method-parameter-abi.md

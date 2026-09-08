@@ -919,7 +919,7 @@ impl FunctionEmitter<'_> {
                         return self.list_concat_text(receiver, first_rest);
                     }
                     let class_type_params = self.callee_class_type_params(function);
-                    let arg_values = rest
+                    let mut rendered_args = rest
                         .iter()
                         .enumerate()
                         .map(|(index, arg)| {
@@ -930,6 +930,24 @@ impl FunctionEmitter<'_> {
                                 return self.operand_text(arg);
                             };
                             let target_ty = self.function_local_decl(function, param)?.ty;
+                            // A method's parameters carry the SAME ABI as every
+                            // other callee's. A parameter the callee mutates in
+                            // place is emitted `&mut T`
+                            // (`parameter_needs_mutable_reference_in`, the very
+                            // predicate that decided the signature), so the
+                            // argument is a mutable borrow -- passing a value
+                            // was `expected &mut SmeltList<_>, found
+                            // SmeltList<_>` at every call to Hono's
+                            // `#pushHandlerSets`, 400 of the router slice's 498
+                            // errors. Every other callee kind already asks this
+                            // question; only this arm never did.
+                            if self.parameter_needs_mutable_reference_in(function, param) {
+                                return self.mutable_reference_argument_text(
+                                    arg,
+                                    target_ty,
+                                    Some(&class_type_params),
+                                );
+                            }
                             self.callee_generic_argument_text(
                                 arg,
                                 function,
@@ -937,8 +955,34 @@ impl FunctionEmitter<'_> {
                                 &class_type_params,
                             )
                         })
-                        .collect::<Result<Vec<_>, _>>()?
-                        .join(", ");
+                        .collect::<Result<Vec<_>, _>>()?;
+                    // A parameter the call OMITS is padded with its default, the
+                    // way the static-method and free-function arms already pad
+                    // theirs: `#pushHandlerSets(sets, node, method, params)`
+                    // leaves the trailing `params?: Record<string, string>`
+                    // unwritten, and TypeScript's optional parameter is
+                    // `Option<T>` here, whose default is `None`. Without this
+                    // the call was short by one argument (`takes 5 arguments but
+                    // 4 were supplied`, 19 more of the slice's errors).
+                    //
+                    // A by-reference parameter is skipped rather than padded:
+                    // `&mut T` has no value-shaped default to invent, and such a
+                    // parameter is only reachable through an explicit argument.
+                    // Same rule, same reason, as `indirect_call_args_text`.
+                    for (index, param) in function
+                        .params
+                        .iter()
+                        .enumerate()
+                        .skip(rest.len().saturating_add(1))
+                    {
+                        if self.parameter_needs_mutable_reference_in(function, *param) {
+                            break;
+                        }
+                        let target_ty = self.function_local_decl(function, *param)?.ty;
+                        let _ = index;
+                        rendered_args.push(self.default_value(target_ty)?);
+                    }
+                    let arg_values = rendered_args.join(", ");
                     return if arg_values.is_empty() {
                         Ok(format!(
                             "{receiver_text}.{method_name}(){}",
