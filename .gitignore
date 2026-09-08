@@ -251,3 +251,4 @@ third_party/es-toolkit-src/
 !blocker-logs/standards-round11-progress.md
 !blocker-logs/hono-h31-projected-receiver-writeback.md
 !blocker-logs/hono-h25-method-parameter-abi.md
+!blocker-logs/hono-h30-reference-class-heritage.md
