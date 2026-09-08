@@ -181,6 +181,22 @@ pub struct HostObject {
     /// `new Float32Array(arrayBuffer)` see two elements where
     /// `new Uint8Array(arrayBuffer)` sees eight.
     pub element: Option<TypedArrayElement>,
+    /// Whether the record's METHODS are bound by a runtime helper rather than
+    /// being members of the record itself.
+    ///
+    /// `false` for the identity-only host objects, where a record carrying the
+    /// marker is the whole value: `new WeakMap()` has nothing a bare marker
+    /// record fails to answer.
+    ///
+    /// `true` where the marker record is only the identity half and a subsystem
+    /// owns the behaviour — `AbortController`'s `abort()` and `AbortSignal`'s
+    /// `addEventListener` are bound by `smelt_abort_method` when the field is
+    /// READ, not stored in the record. Such an identity must never be built
+    /// reflectively from its class name alone (`new (proto.constructor)()`,
+    /// which es-toolkit's `clone` uses): the record would answer `instanceof`
+    /// correctly and then have no state for any of those methods to act on.
+    /// [`reflectively_constructible`] is that question.
+    pub helper_backed_methods: bool,
 }
 
 /// Concise constructor for a host-object registry entry.
@@ -192,6 +208,7 @@ const fn host(class_name: &'static str, marker: &'static str) -> HostObject {
         to_string_tag: class_name,
         byte_buffer: None,
         element: None,
+        helper_backed_methods: false,
     }
 }
 
@@ -214,6 +231,7 @@ const fn byte_buffer(
         to_string_tag,
         byte_buffer: Some(role),
         element,
+        helper_backed_methods: false,
     }
 }
 
@@ -235,6 +253,7 @@ const fn typed_array(
         to_string_tag: class_name,
         byte_buffer: Some(ByteBufferRole::View),
         element: Some(element),
+        helper_backed_methods: false,
     }
 }
 
@@ -247,6 +266,25 @@ const fn boxed(class_name: &'static str, marker: &'static str) -> HostObject {
         to_string_tag: class_name,
         byte_buffer: None,
         element: None,
+        helper_backed_methods: false,
+    }
+}
+
+/// Concise constructor for an identity whose METHODS a subsystem owns.
+///
+/// See [`HostObject::helper_backed_methods`]. The record is the identity half
+/// only, so it belongs in this registry — `instanceof`, the spec tag and the
+/// enumeration filters all want it — while reflective construction from the
+/// class name alone must not stand in for the surface.
+const fn helper_backed(class_name: &'static str, marker: &'static str) -> HostObject {
+    HostObject {
+        class_name,
+        marker,
+        is_boxed_primitive: false,
+        to_string_tag: class_name,
+        byte_buffer: None,
+        element: None,
+        helper_backed_methods: true,
     }
 }
 
@@ -257,6 +295,16 @@ const fn boxed(class_name: &'static str, marker: &'static str) -> HostObject {
 /// host identity here automatically wires it into the frontend construction
 /// helper, the `instanceof` lowering, and the runtime host-marker registry.
 pub const HOST_OBJECTS: &[HostObject] = &[
+    // `AbortController` and `AbortSignal`. Their markers used to be answered
+    // from a hand-written subsystem table inside the `instanceof` lowering,
+    // which meant the registry did not know these identities existed: the
+    // enumeration filters left `__smelt_abortcontroller` and
+    // `__smelt_abort_listeners` visible to `for...in`, where Node shows no own
+    // keys at all. They are registry entries now, and
+    // `helper_backed_methods` is what keeps reflective construction from
+    // building a signal with no listener list.
+    helper_backed("AbortController", "__smelt_abortcontroller"),
+    helper_backed("AbortSignal", "__smelt_abortsignal"),
     byte_buffer(
         "ArrayBuffer",
         "__smelt_arraybuffer",
@@ -436,6 +484,21 @@ pub fn host_object_by_class(class_name: &str) -> Option<&'static HostObject> {
 #[must_use]
 pub fn host_object_marker(class_name: &str) -> Option<&'static str> {
     host_object_by_class(class_name).map(|entry| entry.marker)
+}
+
+/// Return whether `new (proto.constructor)()` may build this identity's record.
+///
+/// Reflective construction has only a class NAME to work from, so for a host
+/// class it builds a record carrying that class's marker. That is right for an
+/// identity-only host object and wrong for one whose behaviour a subsystem owns
+/// (see [`HostObject::helper_backed_methods`]): the record would answer
+/// `instanceof` and then have no state behind any of its methods.
+///
+/// Answers `true` for a name that is not in this registry at all, so a caller
+/// deciding about some other kind of class is unaffected.
+#[must_use]
+pub fn reflectively_constructible(class_name: &str) -> bool {
+    host_object_by_class(class_name).is_none_or(|entry| !entry.helper_backed_methods)
 }
 
 /// Every host-object identity marker key, for the runtime host-marker registry.
