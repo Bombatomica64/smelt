@@ -126,3 +126,93 @@ Two things to fix, in order of value:
 * `cause: SmeltUnknown` is now a legitimate boundary in `classify_line`
   (`cause?: unknown` is the canonical source-level `unknown`), which is what
   lets an `Error` subclass live in the zero-erasure examples corpus at all.
+
+
+---
+
+# Round 20 follow-up: the cause was upstream of the alias, and (b) rejects valid code
+
+## What actually dropped `BaseMime`
+
+Round 19 read the symptom right (`Class(BaseMime)` erasing the whole
+`ResponseHeadersInit` union) and the mechanism right (nominal stand-in ->
+erased member -> non-concrete union), but the CAUSE was one level further up:
+`src/utils/mime.ts` was never in the crate.
+
+`typescript_import_statements` (`crates/smelt-transpiler/src/manifest.rs`)
+buffered a multi-line import until a line ended with `;`. Hono is formatted
+without semicolons, so that line never comes and the buffer swallowed the rest
+of the file. Measured on `src/context.ts`: 3 of its 6 import statements were
+scanned — everything after the multi-line `import type { ... } from './types'`
+was lost, including `./utils/mime` (type-only) AND `./utils/html` (a value
+import). Those modules never entered the dependency closure, so their aliases
+were never predeclared, so `BaseMime` had nothing to resolve against.
+
+Fixed, with `a_multiline_import_without_semicolons_does_not_swallow_later_imports`
+pinning Hono's own header shape.
+
+## The alias itself
+
+`typeof <binding>` now resolves to the type of the value it names (const item,
+module binding, or function signature). `keyof T` was already `string` and an
+indexed access over a `Dict` was already its value type, so the query was the
+only missing link; `(typeof mimes)[keyof typeof mimes]` is now `string`, in the
+same file or across modules. Fixture `65_typeof_keyof_alias_union`.
+
+## Item 1(b) as written rejects valid TypeScript — three measured cases
+
+"An unresolved type reference must never lower to a nominal `Type::Class`; it
+is a named blocker naming the alias" was implemented and measured against the
+corpora. It rejects programs `tsc` accepts, in three distinct ways:
+
+1. **A cyclic type-only import of a class that IS in the crate.** Hono's
+   `src/types.ts` does `import type { Context } from './context'` while
+   `context.ts` imports `types.ts`; `types.ts` lowers first, so at the
+   reference the class is not registered yet even though it will be. The
+   blocker fires 7x on `Context`/`HonoBase` in `src/types.ts` alone. The
+   whole-crate alias PREPASS covers type aliases but not classes/interfaces,
+   which is why aliases survive this and classes do not.
+2. **A types-only external package.** remeda's
+   `internal/types/UpsertProp.ts` imports `Simplify` from `type-fest`, which is
+   not a crate module at all and never will be. Blocking it stops remeda at the
+   first such file.
+3. **The documented `[sources] exclude` contract.** The compat overlays state
+   that "type-only imports and `export type` re-exports from an excluded module
+   stay free — excluding a module removes its implementation, not its type
+   surface". A blanket blocker withdraws that guarantee, so every exclude would
+   have to grow a type-shim.
+
+So the fallback stays, and the guard is NOT landed. The narrow form that would
+be safe — and would still have caught `BaseMime` — is: blocker only when the
+specifier is RELATIVE, resolves to a file that is in the manifest's source set,
+is not excluded, and declares nothing of that name. That needs a crate-wide
+"module is in the source set" fact in `HirCtx` (the per-module export table
+cannot answer it, because a cyclic import has not recorded its exports yet).
+Cheap to build in the existing prepass; it is a decision for the next round
+rather than something to slip in, since it changes what the corpora accept.
+
+## Hono's whole-crate stop now
+
+`smelt build` on `third_party/hono` at the pinned ref with the committed
+compat overlay:
+
+    Error: Custom { kind: InvalidData, error: "…/src/utils/crypto.ts:\n[\n
+      ManifestDiagnostic { file: \"…/src/utils/crypto.ts\",
+        category: UnsupportedLowering, code: \"smelt::unsupported-ts\",
+        message: \"JSON.stringify() value must be JSON-serializable
+          (got Some(Union([TypeId(29), TypeId(196), TypeId(197), TypeId(531),
+          TypeId(533)])))\" } ]" }
+
+Two things to note. The stop moved forward twice this round: at this merge head
+it was `src/utils/cookie.ts` (`unresolved identifier crypto`, `atob`), which is
+what the head answers with these changes reverted; the closure fix pulls in the
+modules that were previously dropped, which both reveals more of the crate and
+reorders what is reached first. And `context.ts:612` is no longer the stop —
+but that is not yet proof the Headers erasure is gone, because the frontend now
+aborts before the emitter runs. Probing `src/context.ts` as its own entry is
+NOT a valid check either: with a single-file entry the closure is 12 modules and
+`utils/mime.ts` is legitimately absent, so the probe reproduces the erasure by
+construction.
+
+That JSON.stringify blocker also prints raw `TypeId`s instead of the union's
+member types, which is the same "name the culprit" problem this note is about.
