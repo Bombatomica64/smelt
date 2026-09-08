@@ -1,0 +1,139 @@
+module examples/typescript/end-to-end/67_compound_bitwise_assignment/input.ts (ModuleId(0))
+  body BodyId(1)
+  items
+    fn constant_time_equal_string owner Module
+  locals
+    %0 let out: Float
+    %1 let mask: Float
+    %2 let shifted: Float
+    %3 let signed: Float
+    %4 let unsigned: Float
+    %5 let rest: Float
+    %6 let flipped: Float
+    %7 const values: List<Float>
+    %8 let hash: Float
+    %9 const value: Float
+  exprs
+    #0: Float = 5.0
+    #1: Float = 3.0
+    #2: Float = BitXor #0, #1
+    #3: Float = %0
+    #4: Float = 8.0
+    #5: Float = BitOr #3, #4
+    #6: Float = %0
+    #7: None = @1(console_log)
+    #8: None = call #7(#6)
+    #9: Float = 255.0
+    #10: Float = %1
+    #11: Float = 15.0
+    #12: Float = BitAnd #10, #11
+    #13: Float = %1
+    #14: None = @2(console_log)
+    #15: None = call #14(#13)
+    #16: Float = 1.0
+    #17: Float = %2
+    #18: Float = 4.0
+    #19: Float = Shl #17, #18
+    #20: Float = %2
+    #21: None = @3(console_log)
+    #22: None = call #21(#20)
+    #23: Float = 16.0
+    #24: Float = Neg #23
+    #25: Float = %3
+    #26: Float = 2.0
+    #27: Float = Shr #25, #26
+    #28: Float = %3
+    #29: None = @4(console_log)
+    #30: None = call #29(#28)
+    #31: Float = 16.0
+    #32: Float = Neg #31
+    #33: Float = %4
+    #34: Float = 28.0
+    #35: Float = UShr #33, #34
+    #36: Float = %4
+    #37: None = @5(console_log)
+    #38: None = call #37(#36)
+    #39: Float = 17.0
+    #40: Float = %5
+    #41: Float = 5.0
+    #42: Float = Rem #40, #41
+    #43: Float = %5
+    #44: None = @6(console_log)
+    #45: None = call #44(#43)
+    #46: Float = 6.0
+    #47: Float = %6
+    #48: Float = 3.0
+    #49: Float = BitXor #47, #48
+    #50: Float = %6
+    #51: None = @7(console_log)
+    #52: None = call #51(#50)
+    #53: Float = 1.0
+    #54: Float = 2.0
+    #55: Float = 3.0
+    #56: Float = 4.0
+    #57: List<Float> = [#53, #54, #55, #56]
+    #58: Float = 0.0
+    #59: List<Float> = %7
+    #60: Float = %8
+    #61: Float = %9
+    #62: Float = BitOr #60, #61
+    #63: Float = %8
+    #64: None = @8(console_log)
+    #65: None = call #64(#63)
+    #66: String = "abc"
+    #67: String = "abc"
+    #68: fn(String, String) -> Bool = @0(constant_time_equal_string)
+    #69: Bool = call #68(#66, #67)
+    #70: None = @9(console_log)
+    #71: None = call #70(#69)
+    #72: String = "abc"
+    #73: String = "abd"
+    #74: fn(String, String) -> Bool = @0(constant_time_equal_string)
+    #75: Bool = call #74(#72, #73)
+    #76: None = @10(console_log)
+    #77: None = call #76(#75)
+    #78: String = "abc"
+    #79: String = "abcd"
+    #80: fn(String, String) -> Bool = @0(constant_time_equal_string)
+    #81: Bool = call #80(#78, #79)
+    #82: None = @11(console_log)
+    #83: None = call #82(#81)
+  stmts
+    s0: let %0: Float = #2
+    s1: #3 = #5
+    s2: #8
+    s3: let %1: Float = #9
+    s4: #10 = #12
+    s5: #15
+    s6: let %2: Float = #16
+    s7: #17 = #19
+    s8: #22
+    s9: let %3: Float = #24
+    s10: #25 = #27
+    s11: #30
+    s12: let %4: Float = #32
+    s13: #33 = #35
+    s14: #38
+    s15: let %5: Float = #39
+    s16: #40 = #42
+    s17: #45
+    s18: let %6: Float = #46
+    s19: #47 = #49
+    s20: #52
+    s21: let %7: List<Float> = #57
+    s22: let %8: Float = #58
+    s23: #60 = #62
+    s24: for %9 in #59 BlockId(1)
+    s25: #65
+    s26: #71
+    s27: #77
+    s28: #83
+
+interned types
+  t0 = Float
+  t1 = List<Float>
+  t2 = String
+  t3 = Bool
+  t4 = fn(String, String) -> Bool
+  t5 = None
+  t6 = fn(String, String) -> Bool

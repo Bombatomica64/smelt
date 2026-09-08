@@ -1845,15 +1845,35 @@ impl ModuleBuilder<'_> {
                 let right = self.callback_expression(&assign.right, params, body)?;
                 let value = match assign.operator {
                     AssignmentOperator::Assign => right,
+                    // The same set the statement path lowers (see
+                    // `assignment_parts` in `stmt/assignments.rs`): every
+                    // compound operator that has a `BinOp` is `x = x op y`, and
+                    // a captured accumulator inside a callback (`hash |= ...`)
+                    // must not be a blocker where the same line outside one is
+                    // not.
                     AssignmentOperator::Addition
                     | AssignmentOperator::Subtraction
                     | AssignmentOperator::Multiplication
-                    | AssignmentOperator::Division => {
+                    | AssignmentOperator::Division
+                    | AssignmentOperator::Remainder
+                    | AssignmentOperator::ShiftLeft
+                    | AssignmentOperator::ShiftRight
+                    | AssignmentOperator::ShiftRightZeroFill
+                    | AssignmentOperator::BitwiseAnd
+                    | AssignmentOperator::BitwiseOR
+                    | AssignmentOperator::BitwiseXOR => {
                         let op = match assign.operator {
                             AssignmentOperator::Addition => BinOp::Add,
                             AssignmentOperator::Subtraction => BinOp::Sub,
                             AssignmentOperator::Multiplication => BinOp::Mul,
                             AssignmentOperator::Division => BinOp::Div,
+                            AssignmentOperator::Remainder => BinOp::Rem,
+                            AssignmentOperator::ShiftLeft => BinOp::Shl,
+                            AssignmentOperator::ShiftRight => BinOp::Shr,
+                            AssignmentOperator::ShiftRightZeroFill => BinOp::UShr,
+                            AssignmentOperator::BitwiseAnd => BinOp::BitAnd,
+                            AssignmentOperator::BitwiseOR => BinOp::BitOr,
+                            AssignmentOperator::BitwiseXOR => BinOp::BitXor,
                             other => {
                                 return Err(SmeltError::unsupported(
                                     self.span(assign.span.start, assign.span.end),

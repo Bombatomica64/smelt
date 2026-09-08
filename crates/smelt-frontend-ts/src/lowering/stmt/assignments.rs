@@ -2204,15 +2204,40 @@ impl ModuleBuilder<'_> {
                     span,
                 })
             }
+            // Every compound assignment whose operator has a `BinOp` is the
+            // same rule: `x op= y` is `x = x op y`, and the operator's own
+            // semantics — JS int32 truncation for the bitwise and shift forms,
+            // string concatenation for `+=` — come from the identical `BinOp`
+            // the BINARY path lowers, so there is nothing per-operator to
+            // decide here. Only `%=` and the six bitwise/shift forms were
+            // missing, which is why Hono's `out |= aChar ^ bChar`
+            // (`utils/buffer.ts`, constant-time string compare) was a blocker
+            // while `out = out | (aChar ^ bChar)` next to it was not.
+            // `**=` stays out because `BinOp` has no exponentiation arm; the
+            // binary `**` lowers through its own path.
             AssignmentOperator::Addition
             | AssignmentOperator::Subtraction
             | AssignmentOperator::Multiplication
-            | AssignmentOperator::Division => {
+            | AssignmentOperator::Division
+            | AssignmentOperator::Remainder
+            | AssignmentOperator::ShiftLeft
+            | AssignmentOperator::ShiftRight
+            | AssignmentOperator::ShiftRightZeroFill
+            | AssignmentOperator::BitwiseAnd
+            | AssignmentOperator::BitwiseOR
+            | AssignmentOperator::BitwiseXOR => {
                 let op = match assign.operator {
                     AssignmentOperator::Addition => BinOp::Add,
                     AssignmentOperator::Subtraction => BinOp::Sub,
                     AssignmentOperator::Multiplication => BinOp::Mul,
                     AssignmentOperator::Division => BinOp::Div,
+                    AssignmentOperator::Remainder => BinOp::Rem,
+                    AssignmentOperator::ShiftLeft => BinOp::Shl,
+                    AssignmentOperator::ShiftRight => BinOp::Shr,
+                    AssignmentOperator::ShiftRightZeroFill => BinOp::UShr,
+                    AssignmentOperator::BitwiseAnd => BinOp::BitAnd,
+                    AssignmentOperator::BitwiseOR => BinOp::BitOr,
+                    AssignmentOperator::BitwiseXOR => BinOp::BitXor,
                     other => {
                         return Err(SmeltError::unsupported(
                             self.span(assign.span.start, assign.span.end),
