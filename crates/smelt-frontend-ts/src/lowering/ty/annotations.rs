@@ -1821,6 +1821,15 @@ return_ty: function.return_ty,
             .as_ref()
             .map(|args| args.params.iter().collect::<Vec<_>>())
             .unwrap_or_default();
+        // An ambient fetch init dictionary becomes a real interface, so a
+        // parameter typed by one is a generated struct rather than an erased
+        // record. Asked before the table below because it declines for a name
+        // the source declares itself, which the table cannot express.
+        if let Some(init_ty) = self.ambient_init_interface_type(&name_text)
+            && args.is_empty()
+        {
+            return Ok(init_ty);
+        }
         match (name_text.as_str(), args.as_slice()) {
             ("RegExp", []) => Ok(self.regexp_type()),
             // `BodyInit` is a UNION, not an opaque class. Leaving it opaque made
@@ -3707,4 +3716,169 @@ return_ty: function.return_ty,
             _ => None,
         }
     }
+
+    /// Materialize an ambient fetch INIT dictionary as a real interface.
+    ///
+    /// `ResponseInit` and `RequestInit` are lib.d.ts dictionaries: bags of
+    /// optional keys with no methods and no identity. Round 4 modeled them as
+    /// opaque classes, so a value of one arrived as an erased record and every
+    /// key was read through a checked cast. That made `init.headers` a
+    /// `SmeltUnknown` at a `new Headers(..)` site — the full Hono crate's stop
+    /// — and worse, the cast tried to recover a `Headers` from a plain record
+    /// literal and answered an EMPTY header list: a silent wrong value.
+    ///
+    /// They are declared here instead, as an interface with the spec's optional
+    /// typed keys, so a parameter typed by one is a real generated struct: its
+    /// fields read with their own types, an object literal at the call site
+    /// converts into it through the ordinary record-to-struct adapter, and
+    /// `headers` keeps the union WHATWG gives it (`HeadersInit`) rather than
+    /// being narrowed to the `Headers` arm alone.
+    ///
+    /// A source declaration of the same name always wins: Hono declares its own
+    /// `interface ResponseInit<T extends StatusCode>` and refers to the ambient
+    /// one as `globalThis.ResponseInit` precisely to escape it. The source probe
+    /// is the same one `source_contains_class` uses for the sibling shadowing
+    /// question, because a declaration later in the file must win over a
+    /// reference earlier in it.
+    fn ambient_init_interface_type(&mut self, name_text: &str) -> Option<smelt_hir::TypeId> {
+        let bare = name_text.strip_prefix("globalThis.").unwrap_or(name_text);
+        let keys: &[(&str, AmbientInitKey)] = match bare {
+            "ResponseInit" => &[
+                ("status", AmbientInitKey::Number),
+                ("statusText", AmbientInitKey::Text),
+                ("headers", AmbientInitKey::HeadersInit),
+            ],
+            "RequestInit" => &[
+                ("method", AmbientInitKey::Text),
+                ("headers", AmbientInitKey::HeadersInit),
+                ("body", AmbientInitKey::Text),
+                ("signal", AmbientInitKey::AbortSignal),
+            ],
+            _ => return None,
+        };
+        // A source declaration of the BARE name wins for the bare spelling —
+        // Hono declares its own `interface ResponseInit<T extends StatusCode>`
+        // and must keep it. The `globalThis.`-qualified spelling is the source
+        // asking for the AMBIENT one by name, which is exactly why Hono writes
+        // it at the site that forwards an init to the constructor, so a local
+        // declaration cannot shadow that.
+        if bare == name_text && self.source_declares_type(bare) {
+            return None;
+        }
+        let name = self.intern_type_name(name_text);
+        let ty = self.ctx.krate.types.intern(Type::Class {
+            name,
+            args: Vec::new(),
+        });
+        // Declared once per crate: a second reference finds the interface and
+        // reuses it, which also keeps the emitted struct single.
+        if self.find_interface(name).is_some() {
+            return Some(ty);
+        }
+        let span = self.span(0, 0);
+        let fields = keys
+            .iter()
+            .map(|(key, kind)| {
+                let field_ty = match kind {
+                    AmbientInitKey::Number => self.ctx.krate.types.intern(Type::Float),
+                    AmbientInitKey::Text => self.ctx.krate.types.intern(Type::String),
+                    AmbientInitKey::HeadersInit => self.headers_init_type(),
+                    AmbientInitKey::AbortSignal => {
+                        let signal = self.intern_type_name("AbortSignal");
+                        self.ctx.krate.types.intern(Type::Class {
+                            name: signal,
+                            args: Vec::new(),
+                        })
+                    }
+                };
+                let optional_ty = self.ctx.krate.types.intern(Type::Optional(field_ty));
+                Field {
+                    name: self.intern_source_name(key),
+                    ty: optional_ty,
+                    visibility: Visibility::Public,
+                    optional: true,
+                    span,
+                }
+            })
+            .collect::<Vec<_>>();
+        let item = self.ctx.krate.push_item(Item::Interface(smelt_hir::Interface {
+            name,
+            span,
+            type_params: Vec::new(),
+            extends: Vec::new(),
+            fields,
+            methods: Vec::new(),
+        }));
+        self.interfaces.register_lowered(crate::lowering::state::interface_registry::LoweredInterface {
+            name,
+            name_text: name_text.to_owned(),
+            item,
+            extends: Vec::new(),
+            call_signatures: Vec::new(),
+            construct_signatures: Vec::new(),
+            index_value_ty: None,
+        });
+        Some(ty)
+    }
+
+    /// The `HeadersInit` union: a pair list, a record, or a `Headers`.
+    ///
+    /// WHATWG spells the constructor's argument as a union and so does every
+    /// init dictionary that carries headers, so the arms stay a union here. The
+    /// construction site dispatches on them (see `headers_conversion_text`);
+    /// narrowing this to the `Headers` arm alone is what made a record literal
+    /// recover as an empty header list.
+    fn headers_init_type(&mut self) -> smelt_hir::TypeId {
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let pair_ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Tuple(vec![string_ty, string_ty]));
+        let pair_list_ty = self.ctx.krate.types.intern(Type::List(pair_ty));
+        let record_ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Dict(string_ty, string_ty));
+        let headers_ty = self.headers_type();
+        self.ctx
+            .krate
+            .types
+            .intern(Type::Union(vec![pair_list_ty, record_ty, headers_ty]))
+    }
+
+    /// Whether the source text declares a type of this name.
+    ///
+    /// The same textual probe as [`Self::source_contains_class`], and for the
+    /// same reason: a declaration can appear after the reference that needs to
+    /// know about it, so the interface registry is not yet populated when the
+    /// question is asked.
+    fn source_declares_type(&self, name: &str) -> bool {
+        [
+            format!("interface {name}"),
+            format!("type {name}"),
+            format!("class {name}"),
+            format!("enum {name}"),
+        ]
+        .iter()
+        .any(|needle| self.source.contains(needle.as_str()))
+    }
+
+}
+
+/// The typed shape of one ambient init key.
+///
+/// Small closed set rather than a `TypeId` per key, because the type has to be
+/// interned against the live crate while the key table stays a `const`.
+#[derive(Clone, Copy)]
+enum AmbientInitKey {
+    /// A `number` key (`status`).
+    Number,
+    /// A `string` key (`statusText`, `method`, the modeled `body` arm).
+    Text,
+    /// The `HeadersInit` union.
+    HeadersInit,
+    /// An `AbortSignal` (`RequestInit.signal`).
+    AbortSignal,
 }

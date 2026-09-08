@@ -1,0 +1,149 @@
+interface globalThis.ResponseInit
+
+fn status_of (FuncId(0)) -> String
+  locals
+    %0 param init: globalThis.ResponseInit
+    %1 user response: Response
+    %2 temp: Response
+    %3 temp: Float
+    %4 temp: String
+    %5 temp: String
+    %6 temp: Headers
+    %7 temp: Optional<String>
+    %8 temp: String
+    %9 temp: String
+  bb0:
+    %2 = response_new body="body" status=copy %0.field1 status_text=copy %0.field2 headers=copy %0.field4
+    %1 = move %2
+    %3 = response_status copy %1
+    %4 = "" + move %3
+    %5 = move %4 + " "
+    %6 = response_headers move %1
+    %7 = headers_get move %6, "content-type"
+    %8 = move %7 ?? "none"
+    %9 = move %5 + move %8
+    return move %9
+
+fn main (FuncId(1)) -> None
+  locals
+    %0 user create_response_instance: fn(Optional<String>, Optional<globalThis.ResponseInit>) -> Response
+    %1 user created_init: globalThis.ResponseInit
+    %2 user with_init: Response
+    %3 user bare: Response
+    %4 user pairs: List<(String, String)>
+    %5 user request: Request
+    %6 temp: fn(Optional<String>, Optional<globalThis.ResponseInit>) -> Response
+    %7 temp: Dict<String, String>
+    %8 temp: globalThis.ResponseInit
+    %9 temp: Response
+    %10 temp: Float
+    %11 temp: None
+    %12 temp: String
+    %13 temp: None
+    %14 temp: Headers
+    %15 temp: Optional<String>
+    %16 temp: String
+    %17 temp: None
+    %18 temp: Response
+    %19 temp: Float
+    %20 temp: None
+    %21 temp: Headers
+    %22 temp: Optional<String>
+    %23 temp: String
+    %24 temp: None
+    %25 temp: Dict<String, String>
+    %26 temp: globalThis.ResponseInit
+    %27 temp: String
+    %28 temp: None
+    %29 temp: (String, String)
+    %30 temp: List<(String, String)>
+    %31 temp: globalThis.ResponseInit
+    %32 temp: String
+    %33 temp: None
+    %34 temp: List<String>
+    %35 temp: List<List<String>>
+    %36 temp: Headers
+    %37 temp: globalThis.ResponseInit
+    %38 temp: String
+    %39 temp: None
+    %40 temp: Dict<String, String>
+    %41 temp: Request
+    %42 temp: String
+    %43 temp: None
+    %44 temp: Headers
+    %45 temp: Optional<String>
+    %46 temp: String
+    %47 temp: None
+  bb0:
+    %6 = closure ClosureId(0) []
+    %0 = move %6
+    %7 = {"x-a": "1"}
+    %8 = {"status": 201.0, "statusText": "Created", "headers": move %7}
+    %1 = move %8
+    %9 = closure_call copy %0("hi", move %1)
+    %2 = move %9
+    %10 = response_status copy %2
+    %11 = call @console_log(move %10) -> bb1
+  bb1:
+    %12 = response_status_text copy %2
+    %13 = call @console_log(move %12) -> bb2
+  bb2:
+    %14 = response_headers move %2
+    %15 = headers_get move %14, "x-a"
+    %16 = move %15 ?? "none"
+    %17 = call @console_log(move %16) -> bb3
+  bb3:
+    %18 = closure_call move %0()
+    %3 = move %18
+    %19 = response_status copy %3
+    %20 = call @console_log(move %19) -> bb4
+  bb4:
+    %21 = response_headers move %3
+    %22 = headers_get move %21, "x-a"
+    %23 = move %22 ?? "none"
+    %24 = call @console_log(move %23) -> bb5
+  bb5:
+    %25 = {"content-type": "text/plain"}
+    %26 = {"status": 202.0, "headers": move %25}
+    %27 = call fn0(move %26) -> bb6
+  bb6:
+    %28 = call @console_log(move %27) -> bb7
+  bb7:
+    %29 = ("content-type", "text/html")
+    %30 = [move %29]
+    %4 = move %30
+    %31 = {"status": 203.0, "headers": move %4}
+    %32 = call fn0(move %31) -> bb8
+  bb8:
+    %33 = call @console_log(move %32) -> bb9
+  bb9:
+    %34 = ["content-type", "application/json"]
+    %35 = [move %34]
+    %36 = headers_new move %35
+    %37 = {"status": 206.0, "headers": move %36}
+    %38 = call fn0(move %37) -> bb10
+  bb10:
+    %39 = call @console_log(move %38) -> bb11
+  bb11:
+    %40 = {"x-b": "2"}
+    %41 = request_new input="http://example.test/x" method="POST" headers=move %40 body="payload"
+    %5 = move %41
+    %42 = request_method copy %5
+    %43 = call @console_log(move %42) -> bb12
+  bb12:
+    %44 = request_headers move %5
+    %45 = headers_get move %44, "x-b"
+    %46 = move %45 ?? "none"
+    %47 = call @console_log(move %46) -> bb13
+  bb13:
+    return none
+
+closure ClosureId(0) -> Response
+  locals
+    %0 param body: Optional<String>
+    %1 param init: Optional<globalThis.ResponseInit>
+    %2 temp: Response
+  bb0:
+    %2 = response_new body=copy %0 status=copy %1.field1 status_text=copy %1.field2 headers=copy %1.field4
+    return copy %2
+

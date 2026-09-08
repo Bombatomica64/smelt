@@ -414,13 +414,20 @@ impl FunctionEmitter<'_> {
             (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::Int | Type::Float) => {
                 Ok(format!("{operand_text}.to_string()"))
             }
+            // `String(x)` on an absent optional is the language's absent WORD,
+            // not the empty string. `unwrap_or_default()` answered `""`, so
+            // `String(undefined)` printed nothing where Node prints
+            // `undefined`.
             (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::Optional(inner))
                 if matches!(
                     self.mir.types.get(*inner),
                     Some(Type::Bool | Type::Int | Type::Float | Type::String)
                 ) =>
             {
-                Ok(format!("{operand_text}.unwrap_or_default().to_string()"))
+                Ok(format!(
+                    "{operand_text}.map_or_else(|| {:?}.to_owned(), |value| value.to_string())",
+                    self.absent_spelling().text(),
+                ))
             }
             (smelt_hir::PrimitiveCastOp::ToString, Type::String, _) => {
                 self.string_like_operand_text(operand, "String")
