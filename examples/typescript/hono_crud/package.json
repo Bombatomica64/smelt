@@ -1,0 +1,22 @@
+{
+  "name": "hono-crud",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A small Hono 4 + node:sqlite todo CRUD API used as a Smelt showcase input",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "vitest run",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.14.0",
+    "hono": "^4.13.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2",
+    "vitest": "^3.2.7"
+  }
+}
