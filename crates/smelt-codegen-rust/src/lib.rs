@@ -494,6 +494,21 @@ fn needs_timer_helpers(mir: &Mir) -> bool {
         return true;
     }
     stdlib::rvalues(mir).any(|value| {
+        // `AbortSignal.timeout(ms)` is the one non-`AsyncOp` that arms a timer:
+        // it schedules its own abort on the promise-task queue
+        // (`smelt_spawn_promise_task` + `smelt_sleep_ms`). Its result type is a
+        // signal and mentions nothing async, so a program whose only timer is a
+        // timeout signal emitted both calls against a prelude that defined
+        // neither — E0425 twice, in a crate that otherwise compiled.
+        if matches!(
+            value,
+            Rvalue::AbortSignalOp {
+                op: smelt_hir::AbortSignalOp::Timeout,
+                ..
+            }
+        ) {
+            return true;
+        }
         matches!(
             value,
             Rvalue::AsyncOp {
