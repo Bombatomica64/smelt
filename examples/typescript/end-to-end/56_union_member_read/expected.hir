@@ -1,0 +1,134 @@
+module examples/typescript/end-to-end/56_union_member_read/input.ts (ModuleId(0))
+  body BodyId(3)
+  items
+    interface InitLike fields [Public headers?: Optional<Headers>, Public status?: Optional<Float>] methods []
+    fn header_of owner Module
+    type StatusOrInit = Float | InitLike | Response
+    fn status_header_of owner Module
+    fn status_of owner Module
+  locals
+    %0 const init: InitLike
+  exprs
+    #0: String = "headers"
+    #1: String = "x-a"
+    #2: String = "from-init"
+    #3: List<String> = [#1, #2]
+    #4: List<List<String>> = [#3]
+    #5: Headers = headers_new #4
+    #6: InitLike = {#0: #5}
+    #7: InitLike = %0
+    #8: String = "x-a"
+    #9: fn(InitLike | Response, String) -> String = @2(header_of)
+    #10: String = call #9(#7, #8)
+    #11: None = @7(console_log)
+    #12: None = call #11(#10)
+    #13: String = "body"
+    #14: String = "x-a"
+    #15: String = "from-response"
+    #16: Dict<String, String> = {#14: #15}
+    #17: Response = response_new body=#13 headers=#16
+    #18: String = "x-a"
+    #19: fn(InitLike | Response, String) -> String = @2(header_of)
+    #20: String = call #19(#17, #18)
+    #21: None = @8(console_log)
+    #22: None = call #21(#20)
+    #23: String = "status"
+    #24: Float = 204.0
+    #25: Dict<String, Float> = {#23: #24}
+    #26: String = "x-a"
+    #27: fn(InitLike | Response, String) -> String = @2(header_of)
+    #28: String = call #27(#25, #26)
+    #29: None = @9(console_log)
+    #30: None = call #29(#28)
+    #31: String = "headers"
+    #32: String = "x-b"
+    #33: String = "init"
+    #34: List<String> = [#32, #33]
+    #35: List<List<String>> = [#34]
+    #36: Headers = headers_new #35
+    #37: Dict<String, Headers> = {#31: #36}
+    #38: fn(Float | InitLike | Response) -> String = @3(status_header_of)
+    #39: String = call #38(#37)
+    #40: None = @10(console_log)
+    #41: None = call #40(#39)
+    #42: String = "body"
+    #43: String = "x-b"
+    #44: String = "response"
+    #45: Dict<String, String> = {#43: #44}
+    #46: Response = response_new body=#42 headers=#45
+    #47: fn(Float | InitLike | Response) -> String = @3(status_header_of)
+    #48: String = call #47(#46)
+    #49: None = @11(console_log)
+    #50: None = call #49(#48)
+    #51: String = "status"
+    #52: Float = 201.0
+    #53: Dict<String, Float> = {#51: #52}
+    #54: fn(Float | InitLike | Response) -> String = @3(status_header_of)
+    #55: String = call #54(#53)
+    #56: None = @12(console_log)
+    #57: None = call #56(#55)
+    #58: Float = 204.0
+    #59: fn(Float | InitLike | Response) -> String = @3(status_header_of)
+    #60: String = call #59(#58)
+    #61: None = @13(console_log)
+    #62: None = call #61(#60)
+    #63: String = "status"
+    #64: Float = 201.0
+    #65: Dict<String, Float> = {#63: #64}
+    #66: fn(Float | InitLike | Response) -> Float = @4(status_of)
+    #67: Float = call #66(#65)
+    #68: None = @14(console_log)
+    #69: None = call #68(#67)
+    #70: String = "body"
+    #71: Response = response_new body=#70
+    #72: fn(Float | InitLike | Response) -> Float = @4(status_of)
+    #73: Float = call #72(#71)
+    #74: None = @15(console_log)
+    #75: None = call #74(#73)
+    #76: Float = 418.0
+    #77: fn(Float | InitLike | Response) -> Float = @4(status_of)
+    #78: Float = call #77(#76)
+    #79: None = @16(console_log)
+    #80: None = call #79(#78)
+  stmts
+    s0: let %0: InitLike = #6
+    s1: #12
+    s2: #22
+    s3: #30
+    s4: #41
+    s5: #50
+    s6: #57
+    s7: #62
+    s8: #69
+    s9: #75
+    s10: #80
+
+interned types
+  t0 = Float
+  t1 = InitLike
+  t2 = Response
+  t3 = Float | InitLike | Response
+  t4 = Unknown
+  t5 = Optional<Unknown>
+  t6 = List<Optional<Unknown>>
+  t7 = InitLike | Response
+  t8 = String
+  t9 = fn(InitLike | Response, String) -> String
+  t10 = fn(Float | InitLike | Response) -> String
+  t11 = fn(Float | InitLike | Response) -> Float
+  t12 = Headers
+  t13 = Optional<Headers>
+  t14 = Optional<Float>
+  t15 = None
+  t16 = Bool
+  t17 = Optional<String>
+  t18 = List<String>
+  t19 = List<List<String>>
+  t20 = fn(InitLike | Response, String) -> String
+  t21 = Dict<String, String>
+  t22 = Unknown | Optional<Float>
+  t23 = Dict<String, Float>
+  t24 = Unknown | Optional<Headers>
+  t25 = Dict<String, Headers>
+  t26 = fn(Float | InitLike | Response) -> String
+  t27 = fn(Float | InitLike | Response) -> Float

@@ -73,9 +73,53 @@ impl FunctionEmitter<'_> {
                     "SmeltHeaders::from_pairs({init_text}.to_vec().into_iter().filter_map(|smelt_pair| {{ let smelt_pair = smelt_pair.to_vec(); Some((smelt_pair.first()?.clone(), smelt_pair.get(1)?.clone())) }}).collect::<Vec<(String, String)>>())"
                 ))
             }
+            // A union initializer. `HeadersInit` IS a union in the spec
+            // (`Headers | string[][] | Record<string, string>`), so source that
+            // keeps it as one — Hono's `ResponseHeadersInit`, or the join of an
+            // init arm's `headers` with a `Response` arm's — hands `new Headers`
+            // a value whose ARM is decided at runtime while every arm's
+            // conversion is decided statically. A generated union is a tagged
+            // enum, so matching it recovers the arm and runs that arm's own
+            // conversion, which is what a hand-writing Rust team would do.
+            // Erasing the union to `SmeltUnknown` and inspecting the tag would
+            // answer the same question with the static type thrown away, and
+            // `SmeltHeaders` has no erased constructor to fall back to.
+            Some(Type::Union(_)) if self.concrete_union_members(init_ty).is_some() => {
+                let members: Vec<TypeId> = self
+                    .concrete_union_members(init_ty)
+                    .unwrap_or_default()
+                    .to_vec();
+                let union = union::union_name(init_ty);
+                let arms = members
+                    .iter()
+                    .enumerate()
+                    .map(|(index, member)| {
+                        let converted =
+                            self.headers_conversion_text("smelt_headers_init", *member)?;
+                        Ok(format!("{union}::M{index}(smelt_headers_init) => {converted}"))
+                    })
+                    .collect::<Result<Vec<_>, EmitError>>()?;
+                Ok(format!("match {init_text} {{ {} }}", arms.join(", ")))
+            }
+            // An initializer that may be absent. WHATWG's constructor takes
+            // `HeadersInit?`, and `new Headers(undefined)` is the empty header
+            // list — the same answer the no-argument spelling gives — so the
+            // absent arm is a modeled case rather than a blocker. This is the
+            // shape a `headers?:` init key arrives in when the source narrowed
+            // it by truthiness without Smelt proving the narrowing.
+            Some(&Type::Optional(inner)) => {
+                let converted = self.headers_conversion_text("smelt_headers_init", inner)?;
+                Ok(format!(
+                    "match {init_text} {{ Some(smelt_headers_init) => {converted}, None => SmeltHeaders::new() }}"
+                ))
+            }
+            // A blocker names the function it stopped in: this message is what
+            // a whole-crate build prints, and a bare type name gave a reader no
+            // way to find the call site in a corpus with dozens of them.
             _ => Err(EmitError::new(format!(
-                "`new Headers(init)` initializer type is not modeled: {}",
-                self.type_text_with_impl_trait(init_ty, false)?
+                "`new Headers(init)` initializer type is not modeled: {} (initializer `{init_text}` in `{}`)",
+                self.type_text_with_impl_trait(init_ty, false)?,
+                self.symbol_name(self.function.name).unwrap_or("<unnamed>"),
             ))),
         }
     }
