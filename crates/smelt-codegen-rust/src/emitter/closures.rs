@@ -475,6 +475,10 @@ impl FunctionEmitter<'_> {
                 locals: closure_locals,
                 blocks: closure.blocks.clone(),
                 entry: closure.entry,
+                // The closure body's own source language, carried from MIR: a
+                // callback that stringifies an absent value has to spell it the
+                // way its own file's language does.
+                absent: closure.absent,
             };
             let mut emitter = FunctionEmitter::new(self.mir, self.context, &function)?;
             // The closure is emitted inline inside the enclosing function, so

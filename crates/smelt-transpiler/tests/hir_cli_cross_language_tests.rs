@@ -349,6 +349,8 @@ fn end_to_end_examples_match_expected_outputs() -> TestResult {
         "55_headers_init_union",
         "56_union_member_read",
         "57_reassigned_method",
+        "58_absent_value_stringify",
+        "59_ambient_response_init",
     ] {
         verify_end_to_end_example(name)?;
     }

@@ -610,8 +610,13 @@ function label(prefix: string, value: string | undefined): string {
 ",
     );
 
+    // The ABSENT arm appends the language's absent word, not nothing:
+    // `"p" + undefined` is `"pundefined"` in JavaScript. `unwrap_or_default()`
+    // (which this test used to pin) appended the empty string.
     assert!(
-        source.contains("prefix.clone() + &value.clone().unwrap_or_default()"),
+        source.contains(
+            "prefix.clone() + &value.clone().unwrap_or_else(|| \"undefined\".to_owned())"
+        ),
         "{source}"
     );
 }
@@ -1140,8 +1145,11 @@ const result = lastSeparator("a,b", { separator: "," });
 "#,
     );
 
+    // Same property as before — the narrowed optional is extracted rather than
+    // passed as an `Option` — with the absent arm's word updated by the
+    // nullish-stringify fix.
     assert!(
-        source.contains("map_or_else(String::new"),
+        source.contains("map_or_else(|| \"undefined\".to_owned()"),
         "narrowed optional dynamic string values must be extracted for string methods"
     );
 }
@@ -1546,8 +1554,11 @@ export function firstLower(words: string[]): string {
 ",
     );
 
+    // The load-bearing half is that the option is UNWRAPPED rather than routed
+    // through the erased extraction match; the absent arm's word changed with
+    // the nullish-stringify fix (`String(undefined)` is `"undefined"`).
     assert!(
-        source.contains("first.unwrap_or_default()"),
+        source.contains("first.map_or_else(|| \"undefined\".to_owned()"),
         "concrete Option<String> source was not unwrapped for string coercion: {source}"
     );
     assert!(

@@ -380,3 +380,66 @@ console.log(contentTypeOf([["content-type", "text/html"]]));
         "the literal must not round-trip through the erased boundary:\n{source}"
     );
 }
+
+/// An erased `BodyInit` body dispatches at run time instead of being refused.
+///
+/// `BodyInit` is a union whose unmodeled arms are host classes, so a
+/// `body?: BodyInit | null | undefined` parameter — Hono's own
+/// `createResponseInstance` signature — erases, and the whole constructor call
+/// used to be a build-time blocker including for the string every real caller
+/// passes. The arms are distinguishable at run time by tag and only there, so
+/// the conversion dispatches on the tag: a string is text, a nullish value is
+/// the empty body, and an unmodeled arm throws naming itself rather than
+/// putting wrong bytes in the body.
+#[test]
+fn an_erased_body_init_dispatches_on_the_runtime_tag() {
+    let source = source_for(
+        r#"
+const make = (body?: BodyInit | null | undefined): Response => new Response(body);
+const filled = make("hi");
+const empty = make();
+"#,
+    );
+
+    assert!(
+        source.contains("SmeltUnknown::String(value) => SmeltBody::from_text("),
+        "a string arm must become a text body:\n{source}"
+    );
+    assert!(
+        source.contains("SmeltUnknown::Null | SmeltUnknown::Undefined => SmeltBody::empty()"),
+        "a nullish arm must become the empty body:\n{source}"
+    );
+    assert!(
+        source.contains("body arm is not modeled yet"),
+        "an unmodeled arm must name itself at run time:\n{source}"
+    );
+}
+
+/// An ambient init dictionary is emitted as a struct with typed optional fields.
+///
+/// The negative assertion is the point: an erased record was what made
+/// `init.headers` a `SmeltUnknown`, and what made the checked cast recover an
+/// EMPTY header list from a record literal.
+#[test]
+fn an_ambient_response_init_is_a_typed_struct() {
+    let source = source_for(
+        r#"
+const make = (init?: globalThis.ResponseInit): Response => new Response("b", init);
+const made = make({ status: 201, headers: { "x-a": "1" } });
+const status = made.status;
+"#,
+    );
+
+    assert!(
+        source.contains("struct globalThis_ResponseInit"),
+        "the ambient init must be emitted as a struct:\n{source}"
+    );
+    assert!(
+        source.contains("status: Option<f64>") && source.contains("status_text: Option<String>"),
+        "the init's scalar keys must be typed options:\n{source}"
+    );
+    assert!(
+        !source.contains("smelt_get_unknown_field(&init"),
+        "an init key must not be read through the erased boundary:\n{source}"
+    );
+}

@@ -738,10 +738,15 @@ impl FunctionEmitter<'_> {
     /// `scrutinee_text` must be an owned `SmeltUnknown` expression (the match
     /// arms consume string payloads). The mapping mirrors JS primitive string
     /// coercion; structured values use the platform object placeholder.
-    pub(super) fn js_string_coercion_match_text(scrutinee_text: &str) -> String {
+    pub(super) fn js_string_coercion_match_text(
+        scrutinee_text: &str,
+        absent: AbsentSpelling,
+    ) -> String {
         let error_arm = Self::js_error_to_string_arm_text();
+        let null_text = absent.null_text();
+        let undefined_text = absent.text();
         format!(
-            "match {scrutinee_text} {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_regexp\") => smelt_regexp_literal(&value), {error_arm}SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}"
+            "match {scrutinee_text} {{ SmeltUnknown::Null => \"{null_text}\".to_owned(), SmeltUnknown::Undefined => \"{undefined_text}\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_regexp\") => smelt_regexp_literal(&value), {error_arm}SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}"
         )
     }
 
@@ -767,19 +772,31 @@ impl FunctionEmitter<'_> {
             Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
                 let text = self
                     .erase_concrete_union_text(&self.operand_text(operand)?, self.operand_ty(operand)?);
-                Ok(Self::js_string_coercion_match_text(&text))
+                Ok(Self::js_string_coercion_match_text(&text, self.absent_spelling()))
             }
             Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)? => {
                 Ok(Self::regexp_literal_text(&self.operand_text(operand)?))
             }
-            Some(Type::None | Type::Never) => Ok("String::new()".to_owned()),
+            // A value the source spelled `null` stringifies as the WORD, not as
+            // the empty string: `String(null)` is `"null"` in JavaScript and
+            // `str(None)` is `"None"` in Python. `Never` is unreachable code and
+            // keeps the empty placeholder.
+            Some(Type::None) => Ok(format!("{:?}.to_owned()", self.absent_spelling().null_text())),
+            Some(Type::Never) => Ok("String::new()".to_owned()),
             Some(Type::List(_) | Type::Set(_) | Type::Dict(_, _) | Type::Class { .. }) => {
                 Ok("\"[object Object]\".to_owned()".to_owned())
             }
             Some(Type::JsMap(_, _)) => Ok("\"[object Map]\".to_owned()".to_owned()),
-            Some(Type::Optional(inner)) if self.mir.types.get(*inner) == Some(&Type::String) => Ok(
-                format!("{}.unwrap_or_default()", self.operand_text(operand)?),
-            ),
+            // An ABSENT optional stringifies as the language's absent word, not
+            // as the empty string: `unwrap_or_default()` answered `""` for
+            // every `${maybeString}` in the corpus.
+            Some(Type::Optional(inner)) if self.mir.types.get(*inner) == Some(&Type::String) => {
+                Ok(format!(
+                    "{}.unwrap_or_else(|| {:?}.to_owned())",
+                    self.operand_text(operand)?,
+                    self.absent_spelling().text(),
+                ))
+            }
             Some(Type::Optional(inner))
                 if matches!(
                     self.mir.types.get(*inner),
@@ -792,13 +809,40 @@ impl FunctionEmitter<'_> {
                 // string-coercion match.
                 let scrutinee = self.erase_concrete_union_text("value", *inner);
                 let error_arm = Self::js_error_to_string_arm_text();
+                // The absent arm carries no runtime tag, so it takes the
+                // language's absent word; the present arms still distinguish
+                // `null` from `undefined`, which the tag does know.
+                let absent_text = self.absent_spelling().text();
+                let null_text = self.absent_spelling().null_text();
                 Ok(format!(
-                    "{text}.map_or_else(String::new, |value| match {scrutinee} {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), {error_arm}SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }})"
+                    "{text}.map_or_else(|| \"{absent_text}\".to_owned(), |value| match {scrutinee} {{ SmeltUnknown::Null => \"{null_text}\".to_owned(), SmeltUnknown::Undefined => \"{absent_text}\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), {error_arm}SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }})"
                 ))
             }
-            Some(Type::Tuple(_) | Type::Optional(_) | Type::Future(_)) => {
-                Ok("String::new()".to_owned())
+            // An optional PRIMITIVE stringifies its value or the absent word.
+            // This is the `${maybeNumber}` / `${maybeFlag}` shape, and it used
+            // to fall into the placeholder below and render nothing at all.
+            Some(Type::Optional(inner))
+                if matches!(
+                    self.mir.types.get(*inner),
+                    Some(Type::Bool | Type::Int | Type::Float)
+                ) =>
+            {
+                Ok(format!(
+                    "{}.map_or_else(|| {:?}.to_owned(), |value| value.to_string())",
+                    self.operand_text(operand)?,
+                    self.absent_spelling().text(),
+                ))
             }
+            // An optional whose payload is a structured value keeps the empty
+            // placeholder for the PRESENT arm — JavaScript renders a list as
+            // its joined elements and an object as `[object Object]`, neither of
+            // which this seam models yet — but the absent arm is the word.
+            Some(Type::Optional(_)) => Ok(format!(
+                "{}.map_or_else(|| {:?}.to_owned(), |_| String::new())",
+                self.operand_text(operand)?,
+                self.absent_spelling().text(),
+            )),
+            Some(Type::Tuple(_) | Type::Future(_)) => Ok("String::new()".to_owned()),
             Some(Type::Function(_) | Type::Generator { .. } | Type::GeneratorResult { .. })
             | None => {
                 Ok("String::new()".to_owned())
