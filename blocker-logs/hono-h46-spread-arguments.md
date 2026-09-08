@@ -157,7 +157,7 @@ every spread a `Lowered` entry, so a `Source` spread reaching `lower_call_arg`
 means some path built its `CallArg`s another way — which is exactly the bug
 class — and it trips in test builds.
 
-### `Option<tuple>`: written, then withdrawn as unreachable
+### `Option<tuple>`: withdrawn in round 19, REINSTATED in round 20 (the withdrawal was wrong)
 
 The ruling was that spreading `undefined`/`null` throws a branded `TypeError`,
 and that is right about JavaScript. It is **not implementable as a distinct
@@ -173,6 +173,24 @@ Both were tried in the runtime fixture. The throw, the `== null` test and the
 `error_object_from_message("TypeError", ..)` call were written and working, then
 removed rather than shipped as a branch no test can reach. `Option<tuple>` is
 now the same named blocker as a list spread, with the reason at the emit site.
+
+**Correction (round 20).** The claim above -- that nothing reaches the optional
+arm -- was wrong, and it cost the hono row. The two shapes I tested (a cast, and
+a list element read in a small fixture) do resolve the optional first, but
+hono's `router.add(...routes[i])` does NOT: `#routes?: [string, string, T][]`
+makes the element read `Option<(String, String, T)>`, which reaches the arm
+directly. Round 19's `UnexpandedSpread` fix therefore sent it down the
+unexpanded path and the `String` vs `(String, String, T)` row came back --
+which my round-19 report did not catch, because I asserted "slice 7, unchanged
+by this commit" WITHOUT re-measuring after the un-regression. Same class of
+error as the stale-build claim earlier in that round.
+
+Round 20 reinstates the arm: an `Option<tuple>` has a statically known width, so
+it expands, unwrapping first, with an absent operand throwing a branded
+`TypeError` through the ordinary throw route (`error_object_from_message`, so
+`error.name` answers `TypeError`). A LIST spread remains `UnexpandedSpread`,
+which is what keeps es-toolkit on its previous path. Both are verified below
+from a clean `dist-smelt` rather than asserted.
 
 ### A pre-existing gap this exposed, worth its own item
 
@@ -192,3 +210,66 @@ received, across a named top-level function, a leading fixed argument before a
 spread, a closure, a method, a spread of a call result (asserting `evaluations:
 1`, since indexing the operand directly used to re-evaluate it per element), and
 a list element read. Runtime, because the broken lowering compiled.
+
+---
+
+## Half (b), round 20: the chain is four sites deep, not one
+
+The ruling was to find the third site and land the tuple-typed rest with the
+arity it implies. I found the third **and a fourth**, got the spread expanding,
+and stopped short of landing because the closure signature it produces is wrong.
+Recording the map so the next attempt starts where this one ended.
+
+The target shape (`context.ts:658`, reduced):
+
+```ts
+type Respond = (data: string, init?: Init) => string;
+respond: Respond = (...args) => this.inner(...(args as Parameters<Respond>));
+```
+
+### The chain
+
+| # | site | what it decides | state |
+| --- | --- | --- | --- |
+| 1 | `arrow_callback_param_types_with_hint` (`callbacks/body_lowering.rs`) | the closure's parameter TYPES: pushes ONE `List<union>` for a contextual rest | changed and reverted |
+| 2 | `arrow_function_expression_with_hint`, the `rest` binding | whether the closure is variadic: `arrow.params.rest.map(\|_\| items.len())` marks it a rest even after expansion, which repacks the tail | changed and reverted |
+| 3 | `arrow_callback_from_params`' non-list rest branch (`callbacks/classify.rs`) | the rest BINDING: `ListLit` of the individual `Param(i)`, typed `List<item>` where it should be the tuple | changed and reverted |
+| 4 | the **non-callback fallback** closure lowering | the closure's actual parameter LOCALS for this shape | not reached |
+
+Sites 1-3 were changed together and the spread did start expanding —
+`this.inner(__smelt_spread.0.clone(), …)` instead of binding the whole `args` to
+parameter 0. But the emitted signature was
+
+```rust
+move |closure_arg_0: Option<Init>, _arg0: Option<Init>| {
+```
+
+Both parameters typed `Option<Init>`, the first of which should be `String`, and
+the second named `_arg0` — the emitter's PADDING name, not a real parameter.
+
+### Why site 4 is the one that matters
+
+`callback_expr_to_closure_with_return_ty` does build one local per parameter
+type, so had this shape gone through it the arity would have been right. The
+`_arg0` padding says it did not: the arrow's body is `this.inner(..)`, a
+statically-resolvable method call that the compact callback IR does not model,
+so classification fails and `arrow_function_expression_with_hint` falls through
+to the full closure-body lowering — which builds the closure's params from the
+ARROW's own AST, where there is exactly one binding (the rest). Widening the
+type list without widening that param construction is what produced a
+one-parameter closure wearing two parameters' types.
+
+The comment in `arrow_function_expression_with_hint` describes that fallback and
+why it exists; what it does not do is carry the expansion. That is the fix.
+
+### Why it was reverted rather than shipped
+
+The intermediate state emits a closure whose signature does not match its
+declared field type, on the same corpus this family already broke once. Round 19
+regressed the es-toolkit gate by generalising from an incomplete picture of
+these paths, so shipping a fourth guess in the same area was not worth the
+option value — particularly when the diagnosis is the durable part.
+
+es-toolkit is unaffected either way: its customizer carries an explicit rest
+annotation and takes the annotated-list branch, so none of sites 1-3 fire for
+it. Verified by the full gate below rather than by reading.

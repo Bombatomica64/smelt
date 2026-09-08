@@ -11,7 +11,7 @@
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use oxc::ast::ast::Argument;
-use smelt_hir::{Body, Expr, ExprKind, Literal, Type};
+use smelt_hir::{BinOp, Body, Expr, ExprKind, Literal, Span, Stmt, Type};
 
 /// One argument of a call, after spreads have been interpreted.
 ///
@@ -154,8 +154,17 @@ impl ModuleBuilder<'_> {
         let operand = self.expression(&spread.argument, body)?;
         let operand_ty = Self::expr_ty(body, operand);
         let resolved = self.type_param_constraint_or_self(operand_ty);
-        let tuple_ty = match self.ctx.krate.types.get(resolved).cloned() {
-            Some(Type::Tuple(_)) => resolved,
+        let (tuple_ty, optional) = match self.ctx.krate.types.get(resolved).cloned() {
+            Some(Type::Tuple(_)) => (resolved, false),
+            // An OPTIONAL tuple still has a statically known width, so it
+            // expands -- it just has to be unwrapped first. Hono reaches this
+            // with `router.add(...routes[i])`, where the element read of an
+            // optional private field is `Option<(String, String, T)>`.
+            Some(Type::Optional(inner))
+                if matches!(self.ctx.krate.types.get(inner), Some(Type::Tuple(_))) =>
+            {
+                (inner, true)
+            }
             // Not statically widthed: hand it back unexpanded rather than
             // rejecting it. See `CallArg::UnexpandedSpread`.
             _ => return Ok(None),
@@ -166,7 +175,12 @@ impl ModuleBuilder<'_> {
 
         let spread_name = self.intern_source_name("__smelt_spread");
         let operand_local = self.capture_bind_value(operand, operand_ty, spread_name, span, body);
-        let receiver_ty = operand_ty;
+        let receiver_ty = if optional {
+            self.throw_when_spread_operand_is_absent(operand_local, operand_ty, span, body);
+            tuple_ty
+        } else {
+            operand_ty
+        };
 
         let index_ty = self.ctx.krate.types.intern(Type::Int);
         let mut expanded = Vec::with_capacity(items.len());
@@ -192,5 +206,69 @@ impl ModuleBuilder<'_> {
             }));
         }
         Ok(Some(expanded))
+    }
+
+    /// Emit `if (spread == null) throw new TypeError(..)` before an optional
+    /// tuple spread is indexed.
+    ///
+    /// Spreading `undefined` or `null` is a `TypeError` in JavaScript, so the
+    /// absent arm throws through the ordinary throw route and is catchable
+    /// exactly like a source `throw`. Per-element defaults would be the silent
+    /// wrong answer this whole family is about.
+    ///
+    /// `error_object_from_message` builds it with the `TypeError` class name, so
+    /// `error.name` answers `TypeError` and `instanceof TypeError` holds --
+    /// the same record a source `throw new TypeError(..)` produces.
+    fn throw_when_spread_operand_is_absent(
+        &mut self,
+        operand_local: smelt_hir::LocalId,
+        operand_ty: smelt_hir::TypeId,
+        span: Span,
+        body: &mut Body,
+    ) {
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let operand = body.push_expr(Expr {
+            kind: ExprKind::Local(operand_local),
+            ty: operand_ty,
+            span,
+        });
+        let none = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::None),
+            ty: operand_ty,
+            span,
+        });
+        // `== null` is the one comparison true for BOTH `undefined` and `null`,
+        // which is exactly the pair that cannot be spread. `StrictEq` would miss
+        // an arm.
+        let absent = body.push_expr(Expr {
+            kind: ExprKind::BinOp {
+                op: BinOp::Eq,
+                lhs: operand,
+                rhs: none,
+            },
+            ty: bool_ty,
+            span,
+        });
+        let message = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String(
+                "spread of an absent value is not iterable".to_owned(),
+            )),
+            ty: string_ty,
+            span,
+        });
+        let error = self.error_object_from_message(Some(message), "TypeError", span, body);
+        let throw_block = body.push_block(span);
+        body.push_stmt_to_block(throw_block, Stmt::Throw(error));
+        let stmt = Stmt::If {
+            cond: absent,
+            then_block: throw_block,
+            else_block: None,
+        };
+        if let Some(block) = self.current_statement_block {
+            body.push_stmt_to_block(block, stmt);
+        } else {
+            body.push_stmt(stmt);
+        }
     }
 }
