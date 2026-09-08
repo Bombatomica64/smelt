@@ -8,6 +8,7 @@ mod state;
 mod stdlib;
 mod stdlib_dispatch;
 mod support;
+mod union_member_read;
 mod ty;
 use std::{
     collections::{HashMap, HashSet},

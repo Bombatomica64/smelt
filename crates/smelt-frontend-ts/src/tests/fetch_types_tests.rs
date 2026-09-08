@@ -1635,3 +1635,102 @@ const pending = request('http://example.test');
     );
     Ok(())
 }
+
+/// A member read on a union dispatches on the arms instead of erasing.
+///
+/// The two properties that matter are the two the old lowering lost: the read
+/// is a per-arm chain rather than one field access on an erased receiver, and
+/// each arm gets the node ITS type reads the member with — a struct field on
+/// the interface arm, a `ResponseOp` on the `Response` arm. Neither is visible
+/// at runtime (both spellings answer the same header), which is why this is
+/// pinned in the HIR.
+#[test]
+fn a_union_member_read_dispatches_on_the_arms() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+interface InitLike { headers?: Headers }
+function headersOf(arg: InitLike | Response): Headers | undefined {
+  return arg.headers;
+}
+"),
+        &mut ctx,
+    )?;
+    let lowered = module(&ctx, module_id)?;
+    let function = named_function_item(&ctx, lowered, "headers_of")?;
+    let body = function_body(&ctx, function)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Conditional { .. })),
+        "the read must become a per-arm chain",
+    );
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            expr.kind,
+            ExprKind::ResponseOp {
+                op: smelt_hir::ResponseOp::Headers,
+                ..
+            }
+        )),
+        "the `Response` arm must read through its runtime accessor",
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Field { .. })),
+        "the interface arm must read its declared field",
+    );
+    ensure!(
+        !body
+            .exprs
+            .iter()
+            .any(|expr| matches!(ctx.krate.types.get(expr.ty), Some(Type::Unknown))),
+        "no part of the read may be erased",
+    );
+    Ok(())
+}
+
+/// `typeof x === 'object'` keeps a union's object arms.
+///
+/// The guard proves the value is one of the object-kinded arms, which is
+/// strictly more than "some runtime value". Narrowing to `Unknown` here is
+/// what erased Hono's `typeof arg === 'object' && arg.headers` inside its own
+/// guard.
+#[test]
+fn a_typeof_object_guard_keeps_the_object_arms() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+interface InitLike { status?: number }
+function statusOf(arg: number | InitLike | Response): number {
+  if (typeof arg === 'object') {
+    return arg.status ?? -1;
+  }
+  return arg;
+}
+"),
+        &mut ctx,
+    )?;
+    let lowered = module(&ctx, module_id)?;
+    let function = named_function_item(&ctx, lowered, "status_of")?;
+    let body = function_body(&ctx, function)?;
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            expr.kind,
+            ExprKind::ResponseOp {
+                op: smelt_hir::ResponseOp::Status,
+                ..
+            }
+        )),
+        "the guarded read must reach the `Response` arm's accessor",
+    );
+    ensure!(
+        !body
+            .exprs
+            .iter()
+            .any(|expr| matches!(ctx.krate.types.get(expr.ty), Some(Type::Unknown))),
+        "the guard must not erase the receiver",
+    );
+    Ok(())
+}

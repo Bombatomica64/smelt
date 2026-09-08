@@ -602,6 +602,25 @@ impl ModuleBuilder<'_> {
                 ),
             ));
         }
+        // A tagged-union receiver reads the member off its ARM instead of
+        // erasing the union to look the property up at runtime. Asked here,
+        // after every modeled-receiver handler has refused, because a union's
+        // arms are read through those same rules one arm at a time — and it
+        // answers `None` for any union it cannot fully dispatch, which keeps
+        // the erased fallback below as the only other outcome. See
+        // `lowering::union_member_read`.
+        if !is_assignment_target
+            && !member.optional
+            && let Some(expr) = self.union_member_read(
+                receiver,
+                access_receiver_ty,
+                field,
+                self.span(member.span.start, member.span.end),
+                body,
+            )?
+        {
+            return Ok(expr);
+        }
         let field_ty = match self.class_field_type(access_receiver_ty, field) {
             Ok(field_ty) => field_ty,
             // A JavaScript array is an exotic object: besides its elements it can

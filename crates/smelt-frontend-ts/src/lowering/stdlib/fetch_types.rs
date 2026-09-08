@@ -638,7 +638,7 @@ impl ModuleBuilder<'_> {
     /// `status` is `number`, `ok`/`bodyUsed` are `boolean`, `statusText` is
     /// `string`, `headers` is a `Headers`, `clone()` is a `Response`, and
     /// `text()` is a `Promise<string>` — a future, because it is `async`.
-    fn response_op_result_type(&mut self, op: ResponseOp) -> smelt_hir::TypeId {
+    pub(in crate::lowering) fn response_op_result_type(&mut self, op: ResponseOp) -> smelt_hir::TypeId {
         match op {
             ResponseOp::Status => self.ctx.krate.types.intern(Type::Float),
             ResponseOp::Ok | ResponseOp::BodyUsed => self.ctx.krate.types.intern(Type::Bool),

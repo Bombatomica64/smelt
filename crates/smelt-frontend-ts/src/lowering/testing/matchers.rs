@@ -2152,10 +2152,60 @@ impl ModuleBuilder<'_> {
                     })
             }
             "undefined" => self.ctx.krate.types.intern(Type::None),
-            "object" => self.ctx.krate.types.intern(Type::Unknown),
+            // `typeof x === 'object'` on a UNION keeps the object-kinded arms
+            // rather than erasing the value. Answering `Unknown` here threw
+            // away everything the union knew — Hono's
+            // `typeof arg === 'object' && arg.headers`, on
+            // `StatusCode | ResponseInit | Response`, left `arg` erased inside
+            // its own guard, so the member read became a runtime property
+            // lookup and every consumer downstream saw `SmeltUnknown`. The
+            // guard PROVES the value is one of the object arms, which is
+            // strictly more than "some runtime value".
+            //
+            // A union with no object arm (or a non-union receiver) still
+            // answers `Unknown`: there is nothing more precise to say, and a
+            // tagged runtime value is the honest type for it.
+            "object" => self
+                .typeof_object_arms(name, body)
+                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown)),
             _ => return None,
         };
         Some((name.to_owned(), ty))
+    }
+
+    /// The object-kinded arms of a union local, as proven by
+    /// `typeof local === 'object'`.
+    ///
+    /// `None` when the local is not a union, or when no arm is object-kinded —
+    /// both cases where the caller has nothing better than the erased boundary
+    /// to narrow to.
+    ///
+    /// An `Optional` wrapper is dropped rather than retained: the absent value
+    /// of an `x?: T` parameter is `undefined`, whose `typeof` is `"undefined"`,
+    /// so the guard excludes it. A `T | null` spelling is a union WITH a `None`
+    /// arm instead, and that arm is retained — `typeof null === "object"` in
+    /// JavaScript.
+    fn typeof_object_arms(&mut self, name: &str, body: &Body) -> Option<smelt_hir::TypeId> {
+        let local = self.scope.lookup(name)?;
+        let local_ty = self
+            .narrowed_type(name)
+            .unwrap_or_else(|| Self::local_ty(body, local));
+        let inner = match self.ctx.krate.types.get(local_ty).cloned() {
+            Some(Type::Optional(inner)) => inner,
+            _ => local_ty,
+        };
+        let Some(Type::Union(items)) = self.ctx.krate.types.get(inner).cloned() else {
+            return None;
+        };
+        let retained = items
+            .into_iter()
+            .filter(|item| self.type_matches_typeof(*item, "object"))
+            .collect::<Vec<_>>();
+        match retained.as_slice() {
+            [] => None,
+            [single] => Some(*single),
+            _ => Some(self.ctx.krate.types.intern(Type::Union(retained))),
+        }
     }
 
     /// Return the local type proven by excluding one `typeof` kind.
