@@ -189,17 +189,33 @@ impl FunctionEmitter<'_> {
     /// The stored value is hoisted to a temporary so the block evaluates to the
     /// stored value, letting `++`/`+=` compose as expressions. Copy primitives
     /// use `Cell::set`; strings replace the `RefCell<String>` contents.
-    pub(super) fn global_set_text(&self, global: u32, value: &Operand) -> Result<String, EmitError> {
+    ///
+    /// The value is STORED at the global's declared type and the block's result
+    /// is then produced at `dest_ty`, which are not always the same type. In
+    /// JavaScript `x = v` evaluates to `v`, so the assignment can be consumed
+    /// somewhere that erased it — a `Record<string, RegExp>` global assigned
+    /// where the surrounding expression is typed `unknown` yielded the concrete
+    /// record into a `SmeltUnknown` slot (2 errors in the hono slice). Coercing
+    /// the trailing value separately keeps the store precise while letting the
+    /// expression's own type decide what the block hands back; where the two
+    /// agree the coercion renders nothing.
+    pub(super) fn global_set_text(
+        &self,
+        global: u32,
+        value: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
         let name = crate::global_static_name(self.mir, global);
         let ty = self.global_ty(global)?;
         let value_text = self.value_at_type(value, ty)?;
+        let result_text = self.value_at_type_text("smelt_global_value", ty, dest_ty)?;
         if Self::global_uses_copy_cell(self.mir.types.get(ty)) {
             Ok(format!(
-                "{{ let smelt_global_value = {value_text}; {name}.with(|value| value.set(smelt_global_value)); smelt_global_value }}"
+                "{{ let smelt_global_value = {value_text}; {name}.with(|value| value.set(smelt_global_value)); {result_text} }}"
             ))
         } else {
             Ok(format!(
-                "{{ let smelt_global_value = {value_text}; {name}.with(|value| *value.borrow_mut() = smelt_global_value.clone()); smelt_global_value }}"
+                "{{ let smelt_global_value = {value_text}; {name}.with(|value| *value.borrow_mut() = smelt_global_value.clone()); {result_text} }}"
             ))
         }
     }

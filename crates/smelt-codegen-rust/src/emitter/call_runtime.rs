@@ -1920,7 +1920,7 @@ impl FunctionEmitter<'_> {
             Rvalue::HttpGetText { url } => self.http_get_text(url),
             Rvalue::GlobalGet { global } => self.global_get_text(*global),
             Rvalue::GlobalSet { global, value: stored } => {
-                self.global_set_text(*global, stored)
+                self.global_set_text(*global, stored, dest_ty)
             }
             Rvalue::DateNow => {
                 // `Date.now()` shares the timer timeline: real wall time plus the

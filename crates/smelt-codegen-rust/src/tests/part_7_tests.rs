@@ -13843,3 +13843,44 @@ export class Picker {
         "an unassigned sibling must NOT become a field: {source}"
     );
 }
+
+/// A mutable global's assignment STORES at the global's declared type but
+/// yields the assignment expression's own type, which need not be the same.
+///
+/// In JavaScript `x = v` evaluates to `v`, so an assignment can be consumed
+/// somewhere that erased it. Hono's `wildcardRegExpCache = createNullObject()`
+/// assigns a declared `unknown` into a `Record<string, RegExp>` global: the
+/// store recovers the concrete record, but the expression is typed `unknown`,
+/// and the block handed the concrete record back into a `SmeltUnknown` slot --
+/// 2 errors in the hono slice.
+#[test]
+fn a_global_assignment_yields_the_expressions_own_type() {
+    let source = source_for(
+        r"
+declare function createNullObject(): unknown;
+let cache: Record<string, number> = {};
+export function reset(key: string): number {
+  cache = createNullObject();
+  return cache[key];
+}
+",
+    );
+
+    // The enabling condition: the store really does recover the concrete
+    // record, so the trailing value starts out at the global's type.
+    let store = "*value.borrow_mut() = smelt_global_value.clone());";
+    let at = source
+        .find(store)
+        .unwrap_or_else(|| panic!("no mutable-global store was emitted: {source}"));
+    let tail = &source[at + store.len()..];
+
+    // What the block hands back is erased, not the bare record.
+    assert!(
+        tail.trim_start().starts_with("{ let smelt_record = smelt_global_value.clone();"),
+        "a global assignment consumed as `unknown` must erase its result: {tail:.200}"
+    );
+    assert!(
+        !tail.trim_start().starts_with("smelt_global_value }"),
+        "the concrete record must not be yielded into an erased slot: {tail:.200}"
+    );
+}
