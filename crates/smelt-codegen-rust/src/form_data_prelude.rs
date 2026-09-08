@@ -422,6 +422,11 @@ fn emit_traits(writer: &mut CodeWriter, needs_unknown: bool) {
     writer.line("/// Erase a form for a dynamic boundary.");
     writer.block("impl IntoSmeltUnknown for SmeltFormData", |impl_writer| {
         impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
+            // Retain the live form under the record's id, so an erased view is
+            // a view of the SAME form: an `append` through one has to be
+            // visible on the value the program still holds, and a method
+            // resolved off the record (`smelt_host_method`) acts on it.
+            fn_writer.line("smelt_register_host_origin(self.id, self.clone());");
             fn_writer.line(
                 "let pairs: Vec<SmeltUnknown> = self.entries_in_order().into_iter().map(|(name, value)| { let erased_value = match value { SmeltFormDataValue::Text(text) => SmeltUnknown::String(text.into()), SmeltFormDataValue::File(file) => file.into_smelt_unknown() }; SmeltUnknown::Array(Vec::from([SmeltUnknown::String(name.into()), erased_value]).into()) }).collect();",
             );
@@ -431,11 +436,32 @@ fn emit_traits(writer: &mut CodeWriter, needs_unknown: bool) {
         });
     });
     writer.blank_line();
+    writer.line("/// The modeled members of an erased `FormData` record, resolved at run time.");
+    writer.line("///");
+    writer.line("/// **Dynamic boundary.** The receiver is a marker-bearing record, so the");
+    writer.line("/// member it carries is decided by the record's marker and the member NAME,");
+    writer.line("/// both of which are runtime values here — a program reaches this only by");
+    writer.line("/// erasing the value on purpose (`as any`, an `any`-typed field), since every");
+    writer.line("/// ordinary spelling keeps its type through narrowing. Answering `undefined`");
+    writer.line("/// instead, which is what a plain property read does, was a silent wrong");
+    writer.line("/// value: `(headers as any).get('a')` gave `null` where Node gives the header.");
+    writer.line("///");
+    writer.line("/// The recovered value is the SAME one the record was erased from (the origin");
+    writer.line("/// registry), so a mutating member is observed by the holder of the concrete");
+    writer.line("/// value. Only the synchronous members are here; the async body readers are");
+    writer.line("/// not, and they keep the erased read's `undefined`.");
+    writer.line("fn smelt_form_data_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if !object.contains_key(\"__smelt_formdata\") { return None; } if !matches!(name, \"get\" | \"getAll\" | \"has\" | \"set\" | \"append\" | \"delete\" | \"keys\" | \"values\" | \"entries\") { return None; } let form = <SmeltFormData as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(object.clone())); let method = name.to_owned(); Some(SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let arg = |index: usize| args.get(index).cloned().map_or_else(String::new, smelt_property_key); let entry_value = |value: SmeltFormDataValue| match value { SmeltFormDataValue::Text(text) => SmeltUnknown::String(text.into()), SmeltFormDataValue::File(file) => file.into_smelt_unknown() }; Ok(match method.as_str() { \"get\" => form.get(&arg(0)).map_or(SmeltUnknown::Null, entry_value), \"getAll\" => SmeltUnknown::Array(form.get_all(&arg(0)).into_iter().map(entry_value).collect::<Vec<_>>().into()), \"has\" => SmeltUnknown::Bool(form.has(&arg(0))), \"set\" => { form.set(&arg(0), SmeltFormDataValue::Text(arg(1))); SmeltUnknown::Undefined }, \"append\" => { form.append(&arg(0), SmeltFormDataValue::Text(arg(1))); SmeltUnknown::Undefined }, \"delete\" => { form.delete(&arg(0)); SmeltUnknown::Undefined }, \"keys\" => SmeltUnknown::Array(form.keys().into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>().into()), \"values\" => SmeltUnknown::Array(form.values().into_iter().map(entry_value).collect::<Vec<_>>().into()), _ => SmeltUnknown::Array(form.entries_in_order().into_iter().map(|(entry_name, value)| SmeltUnknown::Array(Vec::from([SmeltUnknown::String(entry_name.into()), entry_value(value)]).into())).collect::<Vec<_>>().into()), }) }))) }");
+    writer.blank_line();
     writer.line("/// Rebuild a form from an erased value.");
     writer.block("impl SmeltFromUnknown for SmeltFormData", |impl_writer| {
         impl_writer.block(
             "fn smelt_from_unknown(value: SmeltUnknown) -> Self",
             |fn_writer| {
+                // The retained origin first; the structural rebuild below is
+                // for a record that did not come from an erasure.
+                fn_writer.line(
+                    "if let Some(origin) = smelt_restore_host_origin::<Self>(&value) { return origin; }",
+                );
                 fn_writer
                     .line("let SmeltUnknown::Object(map) = value else { return Self::new() };");
                 fn_writer.line(

@@ -739,14 +739,26 @@ impl FunctionEmitter<'_> {
     /// arms consume string payloads). The mapping mirrors JS primitive string
     /// coercion; structured values use the platform object placeholder.
     pub(super) fn js_string_coercion_match_text(
+        &self,
         scrutinee_text: &str,
         absent: AbsentSpelling,
     ) -> String {
         let error_arm = Self::js_error_to_string_arm_text();
         let null_text = absent.null_text();
+        // A `URLSearchParams` overrides `toString` in the spec: `String(params)`
+        // and `${params}` are its QUERY STRING, not `[object Object]`. The
+        // erased record narrows back to the concrete list (the origin registry,
+        // else its own pairs) and answers `to_text()`, so the encoding rule
+        // lives in one place. Gated on the params prelude being emitted at all:
+        // the fetch types are pay-for-use, and this match is not.
+        let params_arm = if crate::stdlib::needs_url_search_params_runtime(self.mir) {
+            "SmeltUnknown::Object(value) if value.contains_key(\"__smelt_urlsearchparams\") => <SmeltUrlSearchParams as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(value)).to_text(),"
+        } else {
+            ""
+        };
         let undefined_text = absent.text();
         format!(
-            "match {scrutinee_text} {{ SmeltUnknown::Null => \"{null_text}\".to_owned(), SmeltUnknown::Undefined => \"{undefined_text}\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_regexp\") => smelt_regexp_literal(&value), {error_arm}SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}"
+            "match {scrutinee_text} {{ {params_arm} SmeltUnknown::Null => \"{null_text}\".to_owned(), SmeltUnknown::Undefined => \"{undefined_text}\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_regexp\") => smelt_regexp_literal(&value), {error_arm}SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}"
         )
     }
 
@@ -772,7 +784,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
                 let text = self
                     .erase_concrete_union_text(&self.operand_text(operand)?, self.operand_ty(operand)?);
-                Ok(Self::js_string_coercion_match_text(&text, self.absent_spelling()))
+                Ok(self.js_string_coercion_match_text(&text, self.absent_spelling()))
             }
             Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)? => {
                 Ok(Self::regexp_literal_text(&self.operand_text(operand)?))

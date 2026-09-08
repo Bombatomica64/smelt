@@ -218,6 +218,9 @@ fn emit_params_traits(writer: &mut CodeWriter, needs_unknown: bool) {
         "impl IntoSmeltUnknown for SmeltUrlSearchParams",
         |impl_writer| {
             impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
+                // Same identity retention as `SmeltHeaders`: an erased view of
+                // a parameter list is a view of the SAME list.
+                fn_writer.line("smelt_register_host_origin(self.id, self.clone());");
                 fn_writer.line(
                     "let pairs: Vec<SmeltUnknown> = self.entries_in_order().into_iter().map(|(name, value)| SmeltUnknown::Array(Vec::from([SmeltUnknown::String(name.into()), SmeltUnknown::String(value.into())]).into())).collect();",
                 );
@@ -232,6 +235,22 @@ fn emit_params_traits(writer: &mut CodeWriter, needs_unknown: bool) {
         },
     );
     writer.blank_line();
+    writer.line("/// The modeled members of an erased `URLSearchParams` record, resolved at run time.");
+    writer.line("///");
+    writer.line("/// **Dynamic boundary.** The receiver is a marker-bearing record, so the");
+    writer.line("/// member it carries is decided by the record's marker and the member NAME,");
+    writer.line("/// both of which are runtime values here — a program reaches this only by");
+    writer.line("/// erasing the value on purpose (`as any`, an `any`-typed field), since every");
+    writer.line("/// ordinary spelling keeps its type through narrowing. Answering `undefined`");
+    writer.line("/// instead, which is what a plain property read does, was a silent wrong");
+    writer.line("/// value: `(headers as any).get('a')` gave `null` where Node gives the header.");
+    writer.line("///");
+    writer.line("/// The recovered value is the SAME one the record was erased from (the origin");
+    writer.line("/// registry), so a mutating member is observed by the holder of the concrete");
+    writer.line("/// value. Only the synchronous members are here; the async body readers are");
+    writer.line("/// not, and they keep the erased read's `undefined`.");
+    writer.line("fn smelt_url_search_params_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if !object.contains_key(\"__smelt_urlsearchparams\") { return None; } if !matches!(name, \"get\" | \"getAll\" | \"has\" | \"set\" | \"append\" | \"delete\" | \"toString\" | \"keys\" | \"values\" | \"entries\" | \"sort\") { return None; } let params = <SmeltUrlSearchParams as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(object.clone())); let method = name.to_owned(); Some(SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let arg = |index: usize| args.get(index).cloned().map_or_else(String::new, smelt_property_key); Ok(match method.as_str() { \"get\" => params.get(&arg(0)).map_or(SmeltUnknown::Null, |value| SmeltUnknown::String(value.into())), \"getAll\" => SmeltUnknown::Array(params.get_all(&arg(0)).into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>().into()), \"has\" => SmeltUnknown::Bool(params.has(&arg(0))), \"set\" => { params.set(&arg(0), &arg(1)); SmeltUnknown::Undefined }, \"append\" => { params.append(&arg(0), &arg(1)); SmeltUnknown::Undefined }, \"delete\" => { params.delete(&arg(0)); SmeltUnknown::Undefined }, \"toString\" => SmeltUnknown::String(params.to_text().into()), \"keys\" => SmeltUnknown::Array(params.keys().into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>().into()), \"values\" => SmeltUnknown::Array(params.values().into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>().into()), \"entries\" => SmeltUnknown::Array(params.entries_in_order().into_iter().map(|(entry_name, value)| SmeltUnknown::Array(Vec::from([SmeltUnknown::String(entry_name.into()), SmeltUnknown::String(value.into())]).into())).collect::<Vec<_>>().into()), _ => { params.sort(); SmeltUnknown::Undefined }, }) }))) }");
+    writer.blank_line();
     writer.line("/// Rebuild a parameter list from an erased value.");
     writer.block(
         "impl SmeltFromUnknown for SmeltUrlSearchParams",
@@ -239,6 +258,13 @@ fn emit_params_traits(writer: &mut CodeWriter, needs_unknown: bool) {
             impl_writer.block("fn smelt_from_unknown(value: SmeltUnknown) -> Self", |fn_writer| {
                 fn_writer.line(
                     "if let SmeltUnknown::String(query) = &value { return Self::from_query(query); }",
+                );
+                // The retained origin first: a record that came from an
+                // erasure in this thread narrows back to the same object, which
+                // is what JavaScript does. The structural rebuild below is for a
+                // record that did NOT (hand-built, or rebuilt from JSON).
+                fn_writer.line(
+                    "if let Some(origin) = smelt_restore_host_origin::<Self>(&value) { return origin; }",
                 );
                 fn_writer.line("let SmeltUnknown::Object(map) = value else { return Self::new() };");
                 fn_writer.line(
@@ -419,6 +445,12 @@ fn emit_traits(writer: &mut CodeWriter, needs_unknown: bool) {
         impl_writer.block(
             "fn into_smelt_unknown(self) -> SmeltUnknown",
             |fn_writer| {
+                // Retain the live value under the record's id, so narrowing
+                // the erased value back — or resolving a METHOD off it through
+                // `smelt_host_method` — reaches the SAME header list rather
+                // than a copy rebuilt from the pairs. A `set` through an erased
+                // view has to be visible on the value the program still holds.
+                fn_writer.line("smelt_register_host_origin(self.id, self.clone());");
                 fn_writer.line(
                     "let pairs: Vec<SmeltUnknown> = self.entries_sorted().into_iter().map(|(name, value)| SmeltUnknown::Array(Vec::from([SmeltUnknown::String(name.into()), SmeltUnknown::String(value.into())]).into())).collect();",
                 );
@@ -429,11 +461,36 @@ fn emit_traits(writer: &mut CodeWriter, needs_unknown: bool) {
         );
     });
     writer.blank_line();
+    writer.line("/// The modeled members of an erased `Headers` record, resolved at run time.");
+    writer.line("///");
+    writer.line("/// **Dynamic boundary.** The receiver is a marker-bearing record, so the");
+    writer.line("/// member it carries is decided by the record's marker and the member NAME,");
+    writer.line("/// both of which are runtime values here — a program reaches this only by");
+    writer.line("/// erasing the value on purpose (`as any`, an `any`-typed field), since every");
+    writer.line("/// ordinary spelling keeps its type through narrowing. Answering `undefined`");
+    writer.line("/// instead, which is what a plain property read does, was a silent wrong");
+    writer.line("/// value: `(headers as any).get('a')` gave `null` where Node gives the header.");
+    writer.line("///");
+    writer.line("/// The recovered value is the SAME one the record was erased from (the origin");
+    writer.line("/// registry), so a mutating member is observed by the holder of the concrete");
+    writer.line("/// value. Only the synchronous members are here; the async body readers are");
+    writer.line("/// not, and they keep the erased read's `undefined`.");
+    writer.line("fn smelt_headers_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if !object.contains_key(\"__smelt_headers\") { return None; } if !matches!(name, \"get\" | \"has\" | \"set\" | \"append\" | \"delete\" | \"keys\" | \"values\" | \"entries\" | \"getSetCookie\") { return None; } let headers = <SmeltHeaders as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(object.clone())); let method = name.to_owned(); Some(SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let arg = |index: usize| args.get(index).cloned().map_or_else(String::new, smelt_property_key); Ok(match method.as_str() { \"get\" => headers.get(&arg(0)).map_or(SmeltUnknown::Null, |value| SmeltUnknown::String(value.into())), \"has\" => SmeltUnknown::Bool(headers.has(&arg(0))), \"set\" => { headers.set(&arg(0), &arg(1)); SmeltUnknown::Undefined }, \"append\" => { headers.append(&arg(0), &arg(1)); SmeltUnknown::Undefined }, \"delete\" => { headers.delete(&arg(0)); SmeltUnknown::Undefined }, \"keys\" => SmeltUnknown::Array(headers.keys().into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>().into()), \"values\" => SmeltUnknown::Array(headers.values().into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>().into()), \"entries\" => SmeltUnknown::Array(headers.entries_sorted().into_iter().map(|(entry_name, value)| SmeltUnknown::Array(Vec::from([SmeltUnknown::String(entry_name.into()), SmeltUnknown::String(value.into())]).into())).collect::<Vec<_>>().into()), _ => SmeltUnknown::Array(headers.get_set_cookie().into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>().into()), }) }))) }");
+    writer.blank_line();
     writer.line("/// Rebuild a header list from an erased value.");
     writer.block("impl SmeltFromUnknown for SmeltHeaders", |impl_writer| {
         impl_writer.block(
             "fn smelt_from_unknown(value: SmeltUnknown) -> Self",
             |fn_writer| {
+                // The retained origin first: a record that came from an erasure
+                // in this thread narrows back to the SAME header list, which is
+                // what JavaScript does and what makes a `set` through an erased
+                // view visible on the value the program still holds. The
+                // structural rebuild below is for a record that did not come
+                // from an erasure (hand-built, or rebuilt from JSON).
+                fn_writer.line(
+                    "if let Some(origin) = smelt_restore_host_origin::<Self>(&value) { return origin; }",
+                );
                 fn_writer.line("let SmeltUnknown::Object(map) = value else { return Self::new() };");
                 fn_writer.line(
                     "let Some(SmeltUnknown::Array(pairs)) = map.get(\"entries\") else { return Self::new() };",
