@@ -13576,3 +13576,56 @@ console.log(bump('a'));
         "the method value still rebuilds the struct field by field:\n{source}"
     );
 }
+
+#[test]
+fn a_generic_class_spells_its_derived_impls_instead_of_deriving_them() {
+    // H29. `#[derive(Clone)]` on a generic struct generates `impl<T: Clone>` —
+    // its own bound and nothing more. That cannot satisfy a field whose type is
+    // another generated class, because those carry the full generated bound set,
+    // so hono's `class TrieRouter<T> { root: Node<T> }` reported "the trait
+    // `Clone`/`Default`/`IntoSmeltUnknown`/`SmeltFromUnknown` is not implemented
+    // for `T`" once per derive.
+    //
+    // The impls are spelled out with a field-type `where` clause: that is the
+    // exact requirement of a field-by-field body, where bounding `T` says either
+    // too little or too much.
+    let source = source_for(
+        r"
+class Leaf<T> {
+  items: T[] = [];
+}
+class Trunk<T> {
+  leaf: Leaf<T> = new Leaf<T>();
+}
+export function hold<T>(trunk: Trunk<T>): Trunk<T> {
+  return trunk;
+}
+",
+    );
+
+    // The enabling condition: the class really is generic, which is the shape the
+    // derives could not bound.
+    assert!(
+        source.contains("struct Trunk<T>"),
+        "the fixture must produce a generic class: {source}"
+    );
+    assert!(
+        !source.contains("#[derive(Clone, Debug, Default, PartialEq)]\n#[allow(dead_code)]\nstruct Trunk<T>"),
+        "a generic value class must not rely on the derives: {source}"
+    );
+    for spelled in [
+        "impl<T> Clone for Trunk<T>",
+        "impl<T> PartialEq for Trunk<T>",
+    ] {
+        assert!(
+            source.contains(spelled),
+            "expected a spelled-out `{spelled}` impl: {source}"
+        );
+    }
+    // `Default` keeps the bound a derive would have imposed, so a consumer that
+    // can only prove `T: Default` is no worse off than before.
+    assert!(
+        source.contains("impl<T: Default> Default for Trunk<T>"),
+        "a generic value class keeps derive-equivalent `Default` bounds: {source}"
+    );
+}
