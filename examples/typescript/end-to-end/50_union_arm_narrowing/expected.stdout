@@ -1,0 +1,8 @@
+doc:doc text:text
+doc:doc text:text
+doc:doc
+note.txt text/plain 2
+not a file
+absent is not a file
+file note.txt
+text plain

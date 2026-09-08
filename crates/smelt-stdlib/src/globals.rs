@@ -76,6 +76,7 @@ pub fn is_javascript_global_builtin(name: &str) -> bool {
         | "TextEncoder" | "TextDecoder" | "URL" | "URLSearchParams" | "Blob"
         | "File" | "FormData" | "Headers" | "Request" | "Response" | "Buffer"
         | "AbortController" | "AbortSignal" | "Event" | "EventTarget"
+        | "crypto"
     )
 }
 
@@ -140,9 +141,13 @@ pub fn global_is_absent(name: &str) -> bool {
 /// lowers — [`is_javascript_global_builtin`] plus the absent-in-non-DOM denylist —
 /// rather than a separate literal "present" list, so the compile-time answer to
 /// `"X" in globalThis` cannot drift from what Smelt can lower. Per the plan,
-/// `structuredClone` and `crypto` are *not* answered `Present` here: they are
+/// `structuredClone` and `fetch` are *not* answered `Present` here: they are
 /// runtime functions whose probes may only fold once a deterministic runtime
 /// implementation exists, so they stay [`Unknown`](GlobalPresence::Unknown).
+/// `crypto` left that list when the `WebCrypto` surface landed — the OBJECT is
+/// unconditionally there in the target profile, which is all `"crypto" in
+/// globalThis` asks; whether a particular member of it is modeled is a
+/// different question, answered by [`crate::host_modules`].
 #[must_use]
 pub fn global_member_presence(name: &str) -> GlobalPresence {
     if NON_DOM_ABSENT_GLOBALS.contains(&name) {
@@ -150,7 +155,7 @@ pub fn global_member_presence(name: &str) -> GlobalPresence {
     }
     // Runtime-capability functions are gated on real deterministic runtime
     // support landing (plan section 7); until then their probe must not fold.
-    if matches!(name, "structuredClone" | "crypto" | "fetch") {
+    if matches!(name, "structuredClone" | "fetch") {
         return GlobalPresence::Unknown;
     }
     if is_javascript_global_builtin(name) {
@@ -215,7 +220,7 @@ mod tests {
     /// Unrecognized names and runtime-gated capabilities stay unknown.
     #[test]
     fn unmodeled_members_are_unknown() {
-        for name in ["DocumentFragment", "__feature", "structuredClone", "crypto"] {
+        for name in ["DocumentFragment", "__feature", "structuredClone", "fetch"] {
             assert_eq!(global_member_presence(name), GlobalPresence::Unknown, "{name}");
         }
     }

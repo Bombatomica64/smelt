@@ -95,6 +95,11 @@ impl<'a> oxc::ast_visit::Visit<'a> for ReadNameCollector {
     }
 }
 
+/// The names a module's statements assign to, and how deeply.
+///
+/// One pass collects all three sets so a module-level binding's treatment --
+/// a reassigned cell, a write THROUGH a cell, or a nested write the lowering
+/// still refuses -- is decided from the whole module rather than per statement.
 struct MutatedNameCollector {
     /// Names observed as an assignment or update target.
     names: HashSet<String>,
@@ -3548,6 +3553,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
+    /// Return whether an initializer reads a MEMBER of something.
+    ///
+    /// Looks through the wrappers that do not change what the expression reads
+    /// -- parentheses, `as`, `satisfies` -- so a member read does not stop
+    /// being recognized because the source annotated it.
     pub(super) fn is_member_access_initializer(init: &Expression<'_>) -> bool {
         match init {
             Expression::StaticMemberExpression(_) | Expression::ComputedMemberExpression(_) => true,
@@ -4022,6 +4032,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
         Some(ObjectConst { entries, ty })
     }
 
+    /// Return the object literal a module-level `const` is initialized with.
+    ///
+    /// Looks through the annotation wrappers, so a literal does not stop being
+    /// recognized because the source wrote `as const` or `satisfies T` on it.
     pub(super) fn object_const_initializer<'a>(
         expression: &'a Expression<'a>,
     ) -> Option<&'a oxc::ast::ast::ObjectExpression<'a>> {

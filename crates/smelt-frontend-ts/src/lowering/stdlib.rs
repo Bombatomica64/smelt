@@ -2,6 +2,7 @@
 
 mod blob;
 mod buffer;
+mod crypto;
 pub(in crate::lowering) mod call_dispatch;
 mod collections;
 mod fetch_types;

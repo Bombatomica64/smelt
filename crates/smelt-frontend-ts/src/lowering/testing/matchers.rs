@@ -2805,6 +2805,22 @@ impl ModuleBuilder<'_> {
             .narrowed_type(local_name)
             .unwrap_or_else(|| Self::local_ty(body, local));
         let class_name = class.name.as_str();
+        // `instanceof` PROVES the value is present: `null instanceof File` and
+        // `undefined instanceof File` are both `false` in JavaScript, so no
+        // absent value can reach the true branch. That is what lets an OPTIONAL
+        // union narrow to the arm itself rather than to an optional of it —
+        // `form.get(name) instanceof File` gives `File`, not
+        // `File | undefined`.
+        //
+        // The unwrap is HERE and not in `filtered_union_members`, which several
+        // guards share, because only this guard proves presence.
+        // `typeof x !== "string"` does not: `typeof undefined` is
+        // `"undefined"`, which is also not `"string"`, so that guard's filter
+        // has to keep the optional it was given.
+        let ty = match self.ctx.krate.types.get(ty) {
+            Some(Type::Optional(inner)) => *inner,
+            _ => ty,
+        };
         if let Some(retained) = self.filtered_union_members(ty, |member| {
             matches!(
                 member,

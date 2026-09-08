@@ -45,7 +45,7 @@ pub use host_modules::{
 pub use host_object::{
     ByteBufferRole, HOST_OBJECTS, HostObject, TypedArrayElement, byte_buffer_host_objects,
     byte_buffer_role, host_object_by_class, host_object_marker, host_object_markers,
-    typed_array_element, typed_array_host_objects,
+    reflectively_constructible, typed_array_element, typed_array_host_objects,
 };
 pub use recognition::{
     CallRecognition, MethodRecognition, TYPESCRIPT_CALLS, TYPESCRIPT_METHODS,

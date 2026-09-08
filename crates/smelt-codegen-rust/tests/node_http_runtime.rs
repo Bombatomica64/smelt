@@ -121,10 +121,20 @@ fn assert_program_output(source: &str, crate_name: &str, expected: &str) {
     let target_dir = root.join("target");
     std::fs::create_dir_all(&crate_dir).expect("create crate dir");
     std::fs::create_dir_all(&target_dir).expect("create target dir");
-    emit_program(source, crate_name, &crate_dir);
-    let stdout = run_generated_program(&crate_dir, &target_dir);
-    assert_eq!(stdout, expected, "generated node:http program output");
-    drop(std::fs::remove_dir_all(&root));
+    let outcome = std::panic::catch_unwind(|| {
+        emit_program(source, crate_name, &crate_dir);
+        let stdout = run_generated_program(&crate_dir, &target_dir);
+        assert_eq!(stdout, expected, "generated node:http program output");
+    });
+    // Removed on the FAILURE path too -- the root holds a whole nested cargo
+    // target directory, and one leaked per failing case is what fills `/tmp`.
+    // `SMELT_KEEP_RUNTIME_SCRATCH=1` keeps it for a debugging session.
+    if std::env::var_os("SMELT_KEEP_RUNTIME_SCRATCH").is_none() {
+        drop(std::fs::remove_dir_all(&root));
+    }
+    if let Err(payload) = outcome {
+        std::panic::resume_unwind(payload);
+    }
 }
 
 /// Emit and run a program expected to FAIL, answering its stdout and stderr.
@@ -138,37 +148,47 @@ fn run_failing_program(source: &str, crate_name: &str) -> (String, String) {
     let target_dir = root.join("target");
     std::fs::create_dir_all(&crate_dir).expect("create crate dir");
     std::fs::create_dir_all(&target_dir).expect("create target dir");
-    emit_program(source, crate_name, &crate_dir);
-    // `cargo run` reports the program's own exit code, so a build failure and a
-    // deliberate `exit(1)` would look alike. Build first and run the binary
-    // directly, and the two stay distinguishable.
-    let build = Command::new(env!("CARGO"))
-        .arg("build")
-        .arg("--quiet")
-        .arg("--manifest-path")
-        .arg(crate_dir.join("Cargo.toml"))
-        .env("CARGO_TARGET_DIR", &target_dir)
-        .env("RUSTFLAGS", "-Awarnings")
-        .output()
-        .expect("spawn cargo build");
-    assert!(
-        build.status.success(),
-        "generated node:http program did not compile:\n{}",
-        String::from_utf8_lossy(&build.stderr)
-    );
-    let output = Command::new(target_dir.join("debug").join(crate_name))
-        .output()
-        .expect("run generated program");
-    assert!(
-        !output.status.success(),
-        "the program was expected to end with a failure status"
-    );
-    let result = (
-        String::from_utf8_lossy(&output.stdout).into_owned(),
-        String::from_utf8_lossy(&output.stderr).into_owned(),
-    );
-    drop(std::fs::remove_dir_all(&root));
-    result
+    let outcome = std::panic::catch_unwind(|| {
+        emit_program(source, crate_name, &crate_dir);
+        // `cargo run` reports the program's own exit code, so a build failure and a
+        // deliberate `exit(1)` would look alike. Build first and run the binary
+        // directly, and the two stay distinguishable.
+        let build = Command::new(env!("CARGO"))
+            .arg("build")
+            .arg("--quiet")
+            .arg("--manifest-path")
+            .arg(crate_dir.join("Cargo.toml"))
+            .env("CARGO_TARGET_DIR", &target_dir)
+            .env("RUSTFLAGS", "-Awarnings")
+            .output()
+            .expect("spawn cargo build");
+        assert!(
+            build.status.success(),
+            "generated node:http program did not compile:\n{}",
+            String::from_utf8_lossy(&build.stderr)
+        );
+        let output = Command::new(target_dir.join("debug").join(crate_name))
+            .output()
+            .expect("run generated program");
+        assert!(
+            !output.status.success(),
+            "the program was expected to end with a failure status"
+        );
+        (
+            String::from_utf8_lossy(&output.stdout).into_owned(),
+            String::from_utf8_lossy(&output.stderr).into_owned(),
+        )
+    });
+    // Removed on the FAILURE path too -- the root holds a whole nested cargo
+    // target directory, and one leaked per failing case is what fills `/tmp`.
+    // `SMELT_KEEP_RUNTIME_SCRATCH=1` keeps it for a debugging session.
+    if std::env::var_os("SMELT_KEEP_RUNTIME_SCRATCH").is_none() {
+        drop(std::fs::remove_dir_all(&root));
+    }
+    match outcome {
+        Ok(result) => result,
+        Err(payload) => std::panic::resume_unwind(payload),
+    }
 }
 
 #[test]

@@ -47,6 +47,26 @@ pub(crate) fn backend_dependencies(mir: &Mir) -> Vec<BackendDependency> {
     if needs_http_server_runtime(mir) {
         deps.push(BackendDependency::Hyper);
     }
+    // WebCrypto, one crate per member rather than one per surface: the three
+    // members share a namespace and nothing else, so a program that only asks
+    // for a UUID must not carry two hash crates to get it.
+    if any_rvalue_needs(mir, |rvalue| {
+        matches!(
+            rvalue,
+            Rvalue::CryptoOp {
+                op: smelt_hir::CryptoOp::RandomUuid,
+                ..
+            }
+        )
+    }) {
+        deps.push(BackendDependency::Uuid);
+    }
+    if needs_crypto_random_values_runtime(mir) {
+        deps.push(BackendDependency::GetRandom);
+    }
+    if needs_crypto_digest_runtime(mir) {
+        deps.push(BackendDependency::Sha);
+    }
     deps
 }
 
@@ -252,6 +272,40 @@ pub(crate) fn needs_url_search_params_runtime(mir: &Mir) -> bool {
         .all()
         .iter()
         .any(|ty| is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::UrlSearchParams))
+}
+
+/// Returns true when generated Rust needs the `getRandomValues` fill helper.
+///
+/// Keyed on the OPERATION rather than on a type, unlike the value surfaces:
+/// `crypto` is a namespace with no modeled type, so there is nothing in the
+/// type table to look for and a call is the only evidence.
+pub(crate) fn needs_crypto_random_values_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| {
+        matches!(
+            rvalue,
+            Rvalue::CryptoOp {
+                op: smelt_hir::CryptoOp::GetRandomValues,
+                ..
+            }
+        )
+    })
+}
+
+/// Returns true when generated Rust needs the `subtle.digest` helper.
+///
+/// Separate from [`needs_crypto_random_values_runtime`] because the two pull
+/// different crates: a program that only hashes must not carry `getrandom`, and
+/// one that only fills a view must not carry `sha1`/`sha2`.
+pub(crate) fn needs_crypto_digest_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| {
+        matches!(
+            rvalue,
+            Rvalue::CryptoOp {
+                op: smelt_hir::CryptoOp::Digest,
+                ..
+            }
+        )
+    })
 }
 
 /// Returns true when generated Rust needs the `SmeltFormData` type.

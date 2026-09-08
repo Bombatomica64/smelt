@@ -1318,6 +1318,20 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
+            ExprKind::CryptoOp { op, args } => {
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::CryptoOp {
+                        op: *op,
+                        args: arg_operands,
+                    },
+                )?
+            }
             ExprKind::FormDataNew => {
                 self.assign_temp(expr.ty, expr.span, Rvalue::FormDataNew)?
             }

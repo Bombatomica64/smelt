@@ -141,11 +141,20 @@ pub fn reflected_construct_kind(class_name: &str) -> Option<&'static str> {
     {
         return None;
     }
-    // `FormData` and `ReadableStream` carry a marker for identity but have no
-    // modeled surface at all — not even a runtime type for the registry to
-    // recognize — so they need naming here. The same reasoning applies: a
-    // marker record must not stand in for a surface that does not exist.
-    if matches!(class_name, "FormData" | "ReadableStream") {
+    // `ReadableStream` carries a marker for identity but has no modeled surface
+    // at all — not even a runtime type for the registry to recognize — so it
+    // needs naming here. The same reasoning applies: a marker record must not
+    // stand in for a surface that does not exist.
+    if class_name == "ReadableStream" {
+        return None;
+    }
+    // The host-object registry's own answer to the same question, for the
+    // identities whose METHODS a subsystem owns rather than the record:
+    // reflectively building an `AbortSignal` from its name alone would produce
+    // a record with no listener list for `addEventListener` to append to. Asked
+    // of the registry rather than named here, so a new such identity cannot
+    // silently become reflectively constructible.
+    if !smelt_stdlib::reflectively_constructible(class_name) {
         return None;
     }
     smelt_stdlib::host_object_marker(class_name).and_then(|marker| marker.strip_prefix("__smelt_"))

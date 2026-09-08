@@ -108,23 +108,26 @@ fn host_instance_markers(class_name: &str) -> Option<Vec<&'static str>> {
     // The markers owned by a SUBSYSTEM rather than by the host-object registry.
     //
     // `host_object_markers()` deliberately excludes these — the runtime tracks
-    // dates, regexps, maps, sets and abort controllers through their own
-    // helpers, and the `for...in` filter must not treat them as host records.
-    // But `instanceof` asks a different question, and for that question they
-    // are no different from a registry marker: the erasure stamps the key, so
-    // an erased value's identity is recoverable from it.
+    // dates, regexps, maps and sets through their own helpers, and the
+    // `for...in` filter must not treat them as host records. But `instanceof`
+    // asks a different question, and for that question they are no different
+    // from a registry marker: the erasure stamps the key, so an erased value's
+    // identity is recoverable from it.
     //
-    // Naming them here rather than at five separate `if class_name == ".."`
+    // Naming them here rather than at four separate `if class_name == ".."`
     // arms is what lets ONE probe below serve every class. Each arm that
     // remains does so because it asks something OTHER than marker presence,
     // and says which.
+    //
+    // `AbortController`/`AbortSignal` used to be here too. They are registry
+    // entries now (`HostObject::helper_backed_methods`), so the branch above
+    // answers for them and their internal keys are hidden from `for...in` like
+    // every other host record's.
     let subsystem = match class_name {
         "Date" => "__smelt_date",
         "RegExp" => "__smelt_regexp",
         "Map" => "__smelt_map",
         "Set" => "__smelt_set",
-        "AbortController" => "__smelt_abortcontroller",
-        "AbortSignal" => "__smelt_abortsignal",
         _ => return None,
     };
     Some(vec![subsystem])
@@ -2827,6 +2830,15 @@ impl FunctionEmitter<'_> {
         let class_name = self.symbol_name(class)?;
         if let Some(check) =
             self.concrete_union_class_check(&self.operand_text(value)?, value_ty, class)
+        {
+            return Ok(check);
+        }
+        // The same union one optional deep. Asked here, before the marker probe
+        // below, because that probe treats any `Optional` operand as erased and
+        // would emit a `SmeltUnknown::Object` pattern against an
+        // `Option<SmeltUnion…>`.
+        if let Some(check) =
+            self.optional_union_class_check(&self.operand_text(value)?, value_ty, class)
         {
             return Ok(check);
         }

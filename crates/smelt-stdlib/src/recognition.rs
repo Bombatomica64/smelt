@@ -142,6 +142,19 @@ pub const TYPESCRIPT_CALLS: &[CallRecognition] = &[
     static_call("Buffer", "alloc", RuleId::TsBufferStatic),
     static_call("Buffer", "concat", RuleId::TsBufferStatic),
     static_call("Buffer", "isBuffer", RuleId::TsBufferStatic),
+    // WebCrypto. `crypto` is an ambient global AND a `node:crypto` export, so
+    // both spellings appear: the dotted forms for the global object, and the
+    // free forms for `import { randomUUID } from "node:crypto"`, whose modeled
+    // export is recognized at its USE site (see `createServer` above).
+    static_call("crypto", "randomUUID", RuleId::TsCryptoRandomUuid),
+    static_call("crypto", "getRandomValues", RuleId::TsCryptoGetRandomValues),
+    // A DOTTED receiver: `crypto.subtle` is the namespace and `digest` the
+    // member. Receivers here are matched against the whole dotted path a chain
+    // of identifier member reads spells, so a nested namespace needs no shape
+    // of its own in this table.
+    static_call("crypto.subtle", "digest", RuleId::TsCryptoDigest),
+    free("randomUUID", RuleId::TsCryptoRandomUuid),
+    free("getRandomValues", RuleId::TsCryptoGetRandomValues),
 ];
 
 /// TypeScript receiver-method spellings keyed by known receiver type.

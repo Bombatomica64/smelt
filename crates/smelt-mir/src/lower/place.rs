@@ -379,6 +379,7 @@ impl LoweringCtx<'_> {
             | ExprKind::FormDataNew
             | ExprKind::UrlSearchParamsOp { .. }
             | ExprKind::FormDataOp { .. }
+            | ExprKind::CryptoOp { .. }
             | ExprKind::HeadersNew { .. }
             | ExprKind::HeadersOp { .. }
             | ExprKind::RegexExec { .. }

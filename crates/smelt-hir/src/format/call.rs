@@ -647,6 +647,19 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             format!("byte_array_{op_name} {}", expr_ref(*bytes))
         }
         ExprKind::FormDataNew => "form_data_new".to_owned(),
+        ExprKind::CryptoOp { op, args } => {
+            let op_name = crypto_op_name(*op);
+            let args_text = args
+                .iter()
+                .map(|arg| expr_ref(*arg))
+                .collect::<Vec<_>>()
+                .join(", ");
+            if args_text.is_empty() {
+                format!("crypto_{op_name}")
+            } else {
+                format!("crypto_{op_name} {args_text}")
+            }
+        }
         ExprKind::FormDataOp { op, form, args } => {
             let op_name = form_data_op_name(*op);
             let args_text = args
@@ -1328,6 +1341,7 @@ const fn response_op_name(op: crate::expr::ResponseOp) -> &'static str {
     }
 }
 
+/// The dump spelling of a runtime-backed async operation and its arguments.
 fn async_op_text(op: AsyncOp, args: &[ExprId]) -> String {
     let op_name = match op {
         AsyncOp::All => "async_all",
@@ -1402,7 +1416,15 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
     }
 }
 
-/// The compact dump name of a `Blob`/`File` member.
+/// Return the dump spelling of a `WebCrypto` member.
+const fn crypto_op_name(op: crate::expr::CryptoOp) -> &'static str {
+    match op {
+        crate::expr::CryptoOp::RandomUuid => "random_uuid",
+        crate::expr::CryptoOp::GetRandomValues => "get_random_values",
+        crate::expr::CryptoOp::Digest => "digest",
+    }
+}
+
 /// The dump spelling of a `FormData` operation.
 const fn form_data_op_name(op: crate::expr::FormDataOp) -> &'static str {
     match op {
@@ -1419,6 +1441,7 @@ const fn form_data_op_name(op: crate::expr::FormDataOp) -> &'static str {
     }
 }
 
+/// The compact dump name of a `Blob`/`File` member.
 const fn blob_op_name(op: crate::expr::BlobOp) -> &'static str {
     match op {
         crate::expr::BlobOp::Size => "size",

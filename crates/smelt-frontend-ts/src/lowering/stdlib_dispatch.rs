@@ -64,6 +64,28 @@ pub(super) fn call_rule(call: &CallExpression<'_>) -> Option<RuleId> {
     }
 }
 
+/// Return the dotted namespace path an expression spells, when it is one.
+///
+/// A namespace path is an identifier (`Math`), or a chain of static member
+/// reads rooted at one (`crypto.subtle`). Anything else — a call, an index, an
+/// optional chain, `this` — is not a namespace and answers `None`, so a
+/// receiver that has to be *evaluated* can never be mistaken for a name in the
+/// recognition table.
+///
+/// Computed and private members are excluded by construction:
+/// [`Expression::StaticMemberExpression`] is only the `a.b` spelling, and
+/// `a["b"]` and `a.#b` are different AST nodes.
+fn namespace_path(expr: &Expression<'_>) -> Option<String> {
+    match expr {
+        Expression::Identifier(identifier) => Some(identifier.name.as_str().to_owned()),
+        Expression::StaticMemberExpression(member) => {
+            let object = namespace_path(&member.object)?;
+            Some(format!("{object}.{}", member.property.name.as_str()))
+        }
+        _ => None,
+    }
+}
+
 /// Return the pure Math operation for a static `Math.*` call, excluding non-foldable APIs.
 #[must_use]
 pub(super) fn pure_math_call(call: &CallExpression<'_>) -> Option<PureMathCall> {
@@ -107,8 +129,14 @@ pub(super) fn pure_math_call(call: &CallExpression<'_>) -> Option<PureMathCall> 
 /// Return the rule matching a static member call.
 fn static_member_rule(member: &oxc::ast::ast::StaticMemberExpression<'_>) -> Option<RuleId> {
     let property = member.property.name.as_str();
-    if let Expression::Identifier(object) = &member.object
-        && let Some(rule) = smelt_stdlib::typescript_call_rule(Some(&object.name), property)
+    // The receiver is the whole DOTTED namespace path, not just an identifier.
+    // `Math.random()` and `crypto.subtle.digest(..)` are the same shape at
+    // different depths, so the path is spelled once here and the recognition
+    // table names the depth it wants (`"crypto.subtle"`). Resolving it here
+    // rather than adding a nested-namespace shape to the table is what keeps a
+    // second level from being a new kind of entry.
+    if let Some(path) = namespace_path(&member.object)
+        && let Some(rule) = smelt_stdlib::typescript_call_rule(Some(&path), property)
     {
         return Some(rule);
     }

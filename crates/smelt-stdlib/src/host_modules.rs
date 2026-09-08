@@ -147,8 +147,27 @@ const HTTP_CLIENT_REASON: &str =
 /// Reason text shared by the `node:sqlite` surface.
 const SQLITE_REASON: &str = "the node:sqlite database surface is not implemented yet";
 
-/// Reason text shared by the `WebCrypto` surface.
-const CRYPTO_REASON: &str = "the node:crypto surface is not implemented yet";
+/// Reason text for the `WebCrypto` members that are still declared.
+///
+/// The three keyless members are modeled (`randomUUID`, `getRandomValues`,
+/// `subtle.digest`). What is left all takes a `CryptoKey`: `importKey` has to
+/// model JWK/raw/PKCS8 key material and the algorithm identifiers that go with
+/// it, and `sign`/`verify` are meaningless without it. That is a key-management
+/// surface rather than three more calls, so it stays declared and Hono's
+/// jwt/jwk middleware stays excluded honestly rather than half working.
+const CRYPTO_KEY_REASON: &str =
+    "the WebCrypto key surface (subtle.importKey/sign/verify) is not implemented yet";
+
+/// Reason text for the `node:crypto` members outside `WebCrypto`.
+///
+/// `createHash` and `randomBytes` are Node's own pre-`WebCrypto` spellings of
+/// what `subtle.digest` and `getRandomValues` now do. They are declared rather
+/// than aliased onto those rules because their shapes differ in ways a caller
+/// observes: `createHash` answers a stateful, chainable `Hash` object with its
+/// own `update`/`digest("hex")` encoding surface, and `randomBytes` answers a
+/// `Buffer` and has a callback form.
+const CRYPTO_NODE_REASON: &str =
+    "the node:crypto createHash/randomBytes surface is not implemented yet; use crypto.subtle.digest and crypto.getRandomValues";
 
 /// Reason text shared by the `node:path` surface.
 ///
@@ -184,12 +203,23 @@ pub const HOST_MODULES: &[HostModule] = &[
     HostModule {
         specifiers: &["node:crypto", "crypto"],
         exports: &[
-            declared_value("randomUUID", CRYPTO_REASON),
-            declared_value("getRandomValues", CRYPTO_REASON),
-            declared_value("subtle", CRYPTO_REASON),
-            declared_value("createHash", CRYPTO_REASON),
-            declared_value("randomBytes", CRYPTO_REASON),
+            modeled_value("randomUUID"),
+            modeled_value("getRandomValues"),
+            // `subtle` is modeled as a NAMESPACE, not as a value: the only way
+            // to reach it is `subtle.digest(..)`, whose whole dotted spelling
+            // is one recognized call. Reading `subtle` itself, or calling a
+            // member that is not `digest`, does not resolve to this and reports
+            // the key-surface blocker.
+            modeled_value("subtle"),
+            declared_value("createHash", CRYPTO_NODE_REASON),
+            declared_value("randomBytes", CRYPTO_NODE_REASON),
+            declared_value("importKey", CRYPTO_KEY_REASON),
+            declared_value("sign", CRYPTO_KEY_REASON),
+            declared_value("verify", CRYPTO_KEY_REASON),
         ],
+        // The three modeled members each pull their own crate, and each is
+        // reported by its own rule (`RuleId::backend_dependency`) so a program
+        // that only calls `randomUUID` gets `uuid` and neither hash crate.
         dependencies: &[],
     },
     HostModule {

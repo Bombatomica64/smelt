@@ -184,6 +184,19 @@ pub enum RuleId {
     /// TypeScript `FormData` projection (`keys`, `values`, `entries`,
     /// `forEach`).
     TsFormDataProjection,
+    /// TypeScript `crypto.randomUUID()`.
+    TsCryptoRandomUuid,
+    /// TypeScript `crypto.getRandomValues(view)`.
+    TsCryptoGetRandomValues,
+    /// TypeScript `crypto.subtle.digest(algorithm, data)`.
+    ///
+    /// Its own rule rather than a member of a shared `subtle` rule: `digest` is
+    /// the one `SubtleCrypto` method with no key, so it is the only one whose
+    /// whole input is the algorithm name and the bytes. The key-taking members
+    /// (`importKey`/`sign`/`verify`) stay declared in
+    /// [`crate::host_modules`], and giving them a rule here before they have a
+    /// lowering would make a blocker look like a mapping.
+    TsCryptoDigest,
     /// TypeScript `TextEncoder.prototype.encode`.
     TsTextEncoderEncode,
     /// TypeScript `TextDecoder.prototype.decode`.
@@ -324,6 +337,9 @@ impl RuleId {
             | Self::PyRandomRandom
             | Self::PyRandomRandInt
             | Self::PyRandomChoice => Some(BackendDependency::Rand),
+            Self::TsCryptoRandomUuid => Some(BackendDependency::Uuid),
+            Self::TsCryptoGetRandomValues => Some(BackendDependency::GetRandom),
+            Self::TsCryptoDigest => Some(BackendDependency::Sha),
             Self::TsFetch | Self::PyRequestsGet => Some(BackendDependency::Reqwest),
             Self::TsDateNow
             | Self::TsDateToIsoString
@@ -462,6 +478,9 @@ impl RuleId {
             Self::TsFormDataRead => "FormData read method",
             Self::TsFormDataMutation => "FormData mutation method",
             Self::TsFormDataProjection => "FormData projection method",
+            Self::TsCryptoRandomUuid => "crypto.randomUUID",
+            Self::TsCryptoGetRandomValues => "crypto.getRandomValues",
+            Self::TsCryptoDigest => "crypto.subtle.digest",
             Self::TsTextEncoderEncode => "TextEncoder.encode",
             Self::TsTextDecoderDecode => "TextDecoder.decode",
             Self::TsBlobRead => "Blob property read",

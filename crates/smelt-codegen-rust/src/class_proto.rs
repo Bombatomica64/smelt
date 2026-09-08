@@ -237,14 +237,17 @@ fn method_adapter_text(
          move |smelt_args: Vec<SmeltUnknown>| {{ let _ = &smelt_args; \
          let smelt_result = {call}; Ok({result}) }} }}"
     );
-    let Some(identity) = identity else {
+    // Renamed rather than shadowed: the unwrapped value is what the identity
+    // link takes, and `shadow_unrelated` reads a same-name rebind here as a
+    // second, unrelated binding.
+    let Some(identity_key) = identity else {
         return Ok(format!(
             "SmeltUnknown::Function(::std::rc::Rc::new({body}))"
         ));
     };
     Ok(format!(
         "{{ let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({body}); \
-         smelt_link_function_identity_key(&smelt_method, {identity}); SmeltUnknown::Function(smelt_method) }}"
+         smelt_link_function_identity_key(&smelt_method, {identity_key}); SmeltUnknown::Function(smelt_method) }}"
     ))
 }
 

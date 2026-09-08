@@ -11,6 +11,7 @@ use super::{
     RequestOp as RequestOpKind, ResponseOp as ResponseOpKind,
     UnknownKind, UriTranscodeOp,
     UrlField,
+    CryptoOp as CryptoOpKind,
     FormDataOp as FormDataOpKind,
     UrlSearchParamsOp as UrlSearchParamsOpKind,
     BlobOp as BlobOpKind, ByteArrayOp as ByteArrayOpKind, TextDecoderOp as TextDecoderOpKind,
@@ -502,6 +503,16 @@ pub enum ExprKind {
         /// The `URLSearchParams` receiver.
         params: ExprId,
         /// Operation arguments (name, or name and value).
+        args: Vec<ExprId>,
+    },
+    /// A `WebCrypto` call (`crypto.randomUUID()`, `crypto.getRandomValues(view)`,
+    /// `crypto.subtle.digest(algorithm, data)`).
+    ///
+    /// No receiver operand: see [`CryptoOpKind`].
+    CryptoOp {
+        /// Which operation this call performs.
+        op: CryptoOpKind,
+        /// Operation arguments, in source order.
         args: Vec<ExprId>,
     },
     /// `new FormData()`.
