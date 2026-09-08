@@ -208,11 +208,19 @@ fn method_adapter_text(
 ) -> Result<String, EmitError> {
     let mut args = Vec::new();
     for (index, param) in function.params.iter().skip(1).enumerate() {
-        let _local = local_decl(function, *param)
+        let local = local_decl(function, *param)
             .ok_or_else(|| EmitError::new("class method parameter has no local declaration"))?;
-        args.push(format!(
-            "SmeltFromUnknown::smelt_from_unknown(smelt_args.get({index}).cloned().unwrap_or(SmeltUnknown::Undefined))"
-        ));
+        // The parameter's TYPE decides how it is recovered. This used to reach
+        // for the blanket `SmeltFromUnknown` regardless — the declaration was
+        // fetched and discarded — which does not compile for a parameter type
+        // that has no such impl. See `record_field_from_unknown_text`.
+        args.push(crate::record_field_from_unknown_text(
+            mir,
+            &format!(
+                "smelt_args.get({index}).cloned().unwrap_or(SmeltUnknown::Undefined)"
+            ),
+            local.ty,
+        )?);
     }
     // A throwing method returns `Result<_, Box<dyn Error>>`; the erased
     // callback's own return type is the same `Result`, so the `?` propagates

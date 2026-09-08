@@ -40,7 +40,42 @@ impl FunctionEmitter<'_> {
         Ok(self.type_text(left)? == self.type_text(right)?)
     }
 
-    /// Converts an operand to Rust text, wrapping into `SmeltUnknown` when needed.
+    /// Render a collected container's target type so it names what the element
+    /// mappers above it actually produce.
+    ///
+    /// The four map-and-collect arms in this module build each entry by coercing
+    /// it to the target's key/value type, and coercion treats a `TypeParam`
+    /// target as ERASED (`target_is_erased`, below). Rendering the container
+    /// through the ordinary lexical substitution does the opposite: it keeps a
+    /// type parameter that is in the CALLER's scope. The two disagreed, and the
+    /// disagreement surfaced as a `FromIterator` failure rather than as a
+    /// type-parameter bug:
+    ///
+    /// ```text
+    /// // findMiddleware<T>(middleware: Record<string, T[]>, …), called from
+    /// // RegExpRouter<T>::add — the callee erased its own T in its signature
+    /// … .map(|(key, value)| (key.clone(), /* value erased to SmeltList<SmeltUnknown> */))
+    ///   .collect::<SmeltRecord<String, SmeltList<T>>>()
+    /// //                                          ^ kept the CALLER's T
+    /// ```
+    ///
+    /// Erased rendering is what the entries are, and it is identical to lexical
+    /// rendering for a target that mentions no type parameter, so this needs no
+    /// condition.
+    ///
+    /// On `SmeltUnknown`: this can write `SmeltUnknown` into a turbofish where
+    /// the lexical spelling said `T`, but it does not erase anything new. The
+    /// entry mappers above already coerced each key and value to the erased
+    /// target; the annotation is only being made to agree with the values that
+    /// are actually in the iterator. The dynamic boundary is the callee that
+    /// did not lift its own type parameter — decided before this function is
+    /// reached — not this annotation. Where the callee IS generic the target
+    /// mentions no type parameter and the rendering is unchanged.
+    fn collected_container_type_text(&self, target: TypeId) -> Result<String, EmitError> {
+        self.rust_type(target, false, &TypeSubstitution::erased())
+            .map(RustType::into_string)
+    }
+
     /// Converts an operand to Rust text, wrapping into `SmeltUnknown` when needed.
     pub(super) fn value_at_type(
         &self,
@@ -472,7 +507,7 @@ impl FunctionEmitter<'_> {
                 self.value_at_type_text("index as i64", int_ty, *target_key)?
             };
             let value_text = self.value_at_type_text("value", *source_item, *target_value)?;
-            let target_text = self.type_text_with_impl_trait(target, false)?;
+            let target_text = self.collected_container_type_text(target)?;
             return Ok(format!(
                 "{}.into_iter().enumerate().map(|(index, value)| ({key_text}, {value_text})).collect::<{target_text}>()",
                 self.operand_text(operand)?
@@ -527,7 +562,7 @@ impl FunctionEmitter<'_> {
             };
             let mapped_value_text =
                 self.value_at_type_text("value", *source_value, *target_value)?;
-            let target_text = self.type_text_with_impl_trait(target, false)?;
+            let target_text = self.collected_container_type_text(target)?;
             return Ok(format!(
                 "{}.into_iter().map(|(key, value)| ({key_text}, {mapped_value_text})).collect::<{target_text}>()",
                 self.operand_text(operand)?
@@ -1090,7 +1125,7 @@ impl FunctionEmitter<'_> {
                 self.value_at_type_text("index as i64", int_ty, *target_key)?
             };
             let item_text = self.value_at_type_text("value", *source_item, *target_value)?;
-            let target_text = self.type_text_with_impl_trait(target, false)?;
+            let target_text = self.collected_container_type_text(target)?;
             return Ok(format!(
                 "{value_text}.into_iter().enumerate().map(|(index, value)| ({key_text}, {item_text})).collect::<{target_text}>()"
             ));
@@ -1116,7 +1151,7 @@ impl FunctionEmitter<'_> {
             };
             let mapped_value_text =
                 self.value_at_type_text("value", *source_value, *target_value)?;
-            let target_text = self.type_text_with_impl_trait(target, false)?;
+            let target_text = self.collected_container_type_text(target)?;
             return Ok(format!(
                 "{value_text}.into_iter().map(|(key, value)| ({key_text}, {mapped_value_text})).collect::<{target_text}>()"
             ));

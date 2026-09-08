@@ -7427,6 +7427,52 @@ fn emit_record_from_smelt_unknown_impl(
     Ok(())
 }
 
+/// Recovers a value of type `ty` from a `SmeltUnknown` expression.
+///
+/// The mirror of [`record_field_unknown_text`], and it exists for the same
+/// reason: a Rust TUPLE has no `SmeltFromUnknown` impl, so the blanket
+/// `SmeltFromUnknown::smelt_from_unknown(…)` an erased adapter reaches for does
+/// not compile against a tuple parameter. `RegExpRouter#add`'s
+/// `HandlerWithMetadata<T> = [T, Record<string, number>]` parameter reported
+/// "the trait `SmeltFromUnknown` is not implemented for
+/// `(T, SmeltRecord<String, f64>)`".
+///
+/// A tuple is recovered ELEMENT-WISE from the erased array it was written as,
+/// recursing so a tuple of tuples works too. Everything else keeps the blanket
+/// impl, which is what its type provides.
+///
+/// The `panic!` on a non-array matches the spelling the emitter's other
+/// tuple-extraction sites already use, rather than inventing a second answer for
+/// the same impossible input.
+pub(crate) fn record_field_from_unknown_text(
+    mir: &Mir,
+    value_text: &str,
+    ty: TypeId,
+) -> Result<String, EmitError> {
+    let Some(Type::Tuple(items)) = mir.types.get(ty) else {
+        return Ok(format!(
+            "SmeltFromUnknown::smelt_from_unknown({value_text})"
+        ));
+    };
+    let elements = items
+        .iter()
+        .enumerate()
+        .map(|(index, item)| {
+            record_field_from_unknown_text(
+                mir,
+                &format!(
+                    "smelt_tuple_values.get({index}).cloned().unwrap_or(SmeltUnknown::Undefined)"
+                ),
+                *item,
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .join(", ");
+    Ok(format!(
+        "(if let SmeltUnknown::Array(smelt_tuple_values) = {value_text} {{ ({elements}) }} else {{ panic!(\"unknown is not tuple\") }})"
+    ))
+}
+
 /// Renders a generated record field as a `SmeltUnknown` expression.
 pub(crate) fn record_field_unknown_text(mir: &Mir, value_text: &str, ty: TypeId) -> Result<String, EmitError> {
     Ok(match mir.types.get(ty) {
