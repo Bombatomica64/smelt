@@ -1253,19 +1253,25 @@ impl ModuleBuilder<'_> {
             // Name the offending type. Without it the diagnostic says only that
             // SOMETHING in a possibly deep union/record is not serializable,
             // which is the least actionable form of a true statement.
+            // Name the type, and for a union name the ARM that is not
+            // serializable: interned ids ("Union([TypeId(29), TypeId(196), …])")
+            // say only that something somewhere is wrong, which is the least
+            // actionable form of a true statement, and for a union they hide
+            // the one member that has to change.
+            let unserializable = self.first_unserializable_member(value_ty);
             return Err(SmeltError::unsupported(
                 self.span(argument.span().start, argument.span().end),
-                format!(
-                    "JSON.stringify() value must be JSON-serializable (got {:?}{})",
-                    self.ctx.krate.types.get(value_ty),
-                    match self.ctx.krate.types.get(value_ty) {
-                        Some(Type::Class { name, .. }) => format!(
-                            ", class `{}`",
-                            self.ctx.krate.symbols.get(*name).unwrap_or("<unknown>")
-                        ),
-                        _ => String::new(),
-                    }
-                ),
+                match unserializable {
+                    Some(member) if member != value_ty => format!(
+                        "JSON.stringify() value must be JSON-serializable: `{}` is not, in {}",
+                        smelt_hir::type_display(&self.ctx.krate, member),
+                        Self::argument_type_summary(&self.ctx.krate, value_ty),
+                    ),
+                    _ => format!(
+                        "JSON.stringify() value must be JSON-serializable: `{}` is not",
+                        Self::argument_type_summary(&self.ctx.krate, value_ty),
+                    ),
+                },
             ));
         }
         let ty = self.ctx.krate.types.intern(Type::String);
@@ -1951,7 +1957,7 @@ impl ModuleBuilder<'_> {
 
     /// Return whether a HIR type can be serialized by the JSON mapping.
     fn is_json_serializable_type(&mut self, ty: smelt_hir::TypeId) -> bool {
-        self.is_json_serializable_type_inner(ty, &mut Vec::new())
+        self.is_json_serializable_type_inner(ty, &mut Vec::new(), false)
     }
 
     /// Return whether a HIR type can be serialized without recursing forever.
@@ -1959,6 +1965,7 @@ impl ModuleBuilder<'_> {
         &mut self,
         ty: smelt_hir::TypeId,
         seen: &mut Vec<smelt_hir::Symbol>,
+        nested: bool,
     ) -> bool {
         let Some(ty_kind) = self.ctx.krate.types.get(ty).cloned() else {
             return false;
@@ -1971,17 +1978,17 @@ impl ModuleBuilder<'_> {
             | Type::Unknown
             | Type::TypeParam { .. } => true,
             Type::List(item) | Type::Set(item) | Type::Optional(item) => {
-                self.is_json_serializable_type_inner(item, seen)
+                self.is_json_serializable_type_inner(item, seen, true)
             }
             Type::Tuple(items) => items
                 .iter()
-                .all(|item| self.is_json_serializable_type_inner(*item, seen)),
+                .all(|item| self.is_json_serializable_type_inner(*item, seen, true)),
             Type::Union(items) => items
                 .iter()
-                .all(|item| self.is_json_serializable_type_inner(*item, seen)),
+                .all(|item| self.is_json_serializable_type_inner(*item, seen, true)),
             Type::Dict(key, value) | Type::JsMap(key, value) => {
                 matches!(self.ctx.krate.types.get(key), Some(Type::String))
-                    && self.is_json_serializable_type_inner(value, seen)
+                    && self.is_json_serializable_type_inner(value, seen, true)
             }
             Type::Class { name, args } => {
                 // A HOST OBJECT serializes as `{}`: none of its state is an own
@@ -1999,30 +2006,125 @@ impl ModuleBuilder<'_> {
                     .get(name)
                     .or_else(|| self.ctx.krate.symbols.get(name))
                     .is_some_and(|class_name| {
-                        smelt_stdlib::host_object_marker(class_name).is_some()
+                        // The CONCRETE byte view (`TextEncoder.encode`'s result)
+                        // erases to the same byte-backed host record a
+                        // `new Uint8Array(..)` does, so it serializes the same
+                        // way: as its element indices
+                        // (`JSON.stringify(new TextEncoder().encode("hi"))` is
+                        // `{"0":104,"1":105}`). Rejecting it here made every
+                        // program that serializes encoded bytes a blocker even
+                        // though the value crosses the boundary cleanly.
+                        class_name == smelt_stdlib::BYTE_ARRAY_CLASS_NAME
+                            || smelt_stdlib::host_object_marker(class_name).is_some()
                     })
                 {
                     return true;
                 }
-                self.json_class_fields(name, &args).is_some_and(|fields| {
-                    if seen.contains(&name) {
+                if seen.contains(&name) {
+                    // A RECURSIVE shape is serializable exactly when its
+                    // non-recursive parts are: `JSON.stringify` walks a value,
+                    // not a type, and the walk terminates on the value. Hono's
+                    // `JSONObject`/`JSONValue`/`JSONArray` triangle is the
+                    // canonical example, and answering "unserializable" for the
+                    // recursion point made the whole JSON type family
+                    // unserializable.
+                    return true;
+                }
+                // A nominal class standing for a TYPE ALIAS is that alias:
+                // resolve the alias path rather than judging the stand-in. A
+                // recursive alias cannot be expanded at its recursion point, so
+                // it arrives here as a nominal class — `JSONObject` inside
+                // `JSONValue` is exactly that — and asking whether the alias's
+                // own lowered shape is serializable answers the real question.
+                if let Some(alias) = self.find_type_alias(name).cloned() {
+                    seen.push(name);
+                    let serializable = self.is_json_serializable_type_inner(alias.ty, seen, true);
+                    seen.pop();
+                    if serializable {
                         return true;
                     }
+                }
+                self.json_class_fields(name, &args).is_some_and(|fields| {
                     seen.push(name);
                     let serializable = fields
                         .iter()
-                        .all(|field| self.is_json_serializable_type_inner(field.ty, seen));
+                        .all(|field| self.is_json_serializable_type_inner(field.ty, seen, true));
                     seen.pop();
                     serializable
                 })
             }
             Type::None => true,
+            // A FUNCTION-valued member is serializable: `JSON.stringify` drops
+            // a function-valued property and writes `null` for one in an array
+            // — `{a: () => 1, b: 1}` is `{"b":1}` and `[() => 1]` is `[null]`.
+            // Rejecting it made every JSON type family that admits one
+            // unserializable as a whole, which is most of them: Hono's
+            // `InvalidJSONValue` is `undefined | symbol | ((...args) => unknown)`
+            // and appears in `JSONObject`'s index value.
+            //
+            // The TOP-LEVEL argument stays a blocker: `JSON.stringify(fn)`
+            // evaluates to `undefined`, not to a string, so a program that
+            // serializes a bare function is doing something the `string` return
+            // type does not describe and deserves to be told.
+            Type::Function(_) => nested,
             Type::Never
-            | Type::Function(_)
             | Type::Future(_)
             | Type::Generator { .. }
             | Type::GeneratorResult { .. } => false,
         }
+    }
+
+    /// A short description of the argument's type for a diagnostic.
+    ///
+    /// A union of JSON value types expands to thousands of characters once its
+    /// arms are printed — Hono's `JSONValue` alone renders past 8 KB — and a
+    /// message that long is unreadable whether or not it is accurate. So the
+    /// culprit is named exactly and its container only by shape: `a union of 14
+    /// members`, or the type itself when it is small enough to print.
+    fn argument_type_summary(krate: &smelt_hir::Crate, ty: smelt_hir::TypeId) -> String {
+        /// The longest type text worth inlining in one diagnostic line.
+        const MAX_TYPE_TEXT: usize = 120;
+        if let Some(Type::Union(members)) = krate.types.get(ty) {
+            let count = members.len();
+            let text = smelt_hir::type_display(krate, ty);
+            if text.len() > MAX_TYPE_TEXT {
+                return format!("a union of {count} members");
+            }
+            return format!("`{text}`");
+        }
+        let text = smelt_hir::type_display(krate, ty);
+        if text.len() > MAX_TYPE_TEXT {
+            return "the argument's type".to_owned();
+        }
+        format!("`{text}`")
+    }
+
+    /// The innermost member of `ty` that blocks serialization, if any.
+    ///
+    /// Walks the same shapes [`Self::is_json_serializable_type`] accepts and
+    /// answers the first leaf it rejects, so a diagnostic can name the arm of a
+    /// union (or the item of a list) rather than the whole type. Returns `ty`
+    /// itself when the type is unserializable as a whole and has no narrower
+    /// culprit, and `None` when it is serializable.
+    fn first_unserializable_member(
+        &mut self,
+        ty: smelt_hir::TypeId,
+    ) -> Option<smelt_hir::TypeId> {
+        if self.is_json_serializable_type(ty) {
+            return None;
+        }
+        let members = match self.ctx.krate.types.get(ty).cloned()? {
+            Type::Union(items) | Type::Tuple(items) => items,
+            Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item) => {
+                vec![item]
+            }
+            Type::Dict(_, value) | Type::JsMap(_, value) => vec![value],
+            _ => return Some(ty),
+        };
+        members
+            .into_iter()
+            .find_map(|member| self.first_unserializable_member(member))
+            .or(Some(ty))
     }
 
     /// Return fields for class-like TypeScript types that can map to JSON objects.

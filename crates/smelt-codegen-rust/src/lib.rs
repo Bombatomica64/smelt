@@ -6579,7 +6579,7 @@ fn emit_unknown_serde_impls(writer: &mut CodeWriter) {
                     // because JSON has no NaN or Infinity.
                     match_writer.line("Self::Number(value) => if !value.is_finite() { serializer.serialize_none() } else if *value == value.trunc() && value.abs() < 1e21 { serializer.serialize_i64(*value as i64) } else { serializer.serialize_f64(*value) },");
                     match_writer.line("Self::String(value) => serializer.serialize_str(value),");
-                    match_writer.line("Self::Symbol(value) => serializer.serialize_str(value),");
+                    match_writer.line("Self::Symbol(_) => serializer.serialize_none(),");
                     match_writer.line("Self::Array(values) => serde::Serialize::serialize(&*values.values.borrow(), serializer),");
                     // `JSON.stringify` serializes an object's OWN ENUMERABLE
                     // properties, in order. That is the same rule `for...in`
@@ -6598,8 +6598,26 @@ fn emit_unknown_serde_impls(writer: &mut CodeWriter) {
                     //   emitted as `null` (`{a: undefined, b: 1}` is `{"b":1}`).
                     //   Inside an ARRAY `undefined` still serializes as `null`,
                     //   which the `Self::Undefined` arm above already does.
-                    match_writer.line("Self::Object(values) => { use serde::ser::SerializeMap as _; let entries = values.iter().filter(|(key, value)| !matches!(value, Self::Undefined) && smelt_is_for_in_object_key(values, key)).collect::<Vec<_>>(); let mut map = serializer.serialize_map(Some(entries.len()))?; for (key, value) in &entries { map.serialize_entry(key, value)?; } map.end() },");
-                    match_writer.line("Self::Function(_) => serializer.serialize_str(\"function () { [native code] }\"),");
+                    // A byte-backed host record serializes as its OWN
+                    // enumerable properties, which for an element-typed view
+                    // are its indices: `JSON.stringify(new Uint8Array([1,2]))`
+                    // is `{"0":1,"1":2}` in Node, not `{}`. Byte storage and a
+                    // `DataView` have no indexed properties of their own and
+                    // stay `{}`, which is the same answer the own-key filter
+                    // below already gives — so one helper
+                    // (`smelt_host_buffer_own_elements`) decides it for every
+                    // byte-backed shape, and `Object.keys`, `for...in` and this
+                    // serializer cannot drift apart.
+                    match_writer.line(format!(
+                        "Self::Object(values) => {{ use serde::ser::SerializeMap as _; if let Some(elements) = {own_elements}(self) {{ let mut map = serializer.serialize_map(Some(elements.len()))?; for (index, element) in elements.iter().enumerate() {{ map.serialize_entry(&index.to_string(), element)?; }} return map.end(); }} let entries = values.iter().filter(|(key, value)| !matches!(value, Self::Undefined | Self::Function(_) | Self::Symbol(_)) && smelt_is_for_in_object_key(values, key)).collect::<Vec<_>>(); let mut map = serializer.serialize_map(Some(entries.len()))?; for (key, value) in &entries {{ map.serialize_entry(key, value)?; }} map.end() }},",
+                        own_elements = smelt_stdlib::runtime_symbols::byte_buffer::OWN_ELEMENTS,
+                    ));
+                    // A function or symbol VALUE is not JSON: inside an array
+                    // it is `null` and as a property it is omitted (the Object
+                    // arm's filter below drops it). Serializing the native-code
+                    // string, or a symbol's description, invented data that
+                    // JavaScript never writes.
+                    match_writer.line("Self::Function(_) => serializer.serialize_none(),");
                     match_writer.line("Self::Promise(_) => serializer.serialize_str(\"[object Promise]\"),");
                 });
             },

@@ -1889,6 +1889,36 @@ return_ty: function.return_ty,
             // construction. The arms are the spec's, in the spec's order; the
             // ones Smelt does not model yet are their host classes, which is
             // what makes them erase honestly rather than disappear.
+            // `ArrayBufferView` is the spec's name for "one of the byte
+            // views", and Smelt models each of those concretely (its own host
+            // identity, element type and marker; see
+            // `smelt_stdlib::host_object`). So the reference is a UNION of
+            // them, exactly as `BodyInit` below is a union of its arms — not an
+            // opaque nominal class, which erases and, as an erased union
+            // member, made every union containing it non-concrete. Hono's
+            // `crypto.ts` hands `JSON.stringify` a
+            // `string | boolean | number | JSONValue | ArrayBufferView | ArrayBuffer`,
+            // and this arm is what makes that union serializable: a view
+            // serializes as its element indices, byte storage as `{}`, which is
+            // what JavaScript does.
+            //
+            // A source declaration of the name wins, the same way the ambient
+            // init dictionaries defer to one.
+            ("ArrayBufferView", []) if !self.source_declares_type("ArrayBufferView") => {
+                let mut members = Vec::new();
+                for view in smelt_stdlib::TYPED_ARRAY_CLASS_NAMES
+                    .iter()
+                    .copied()
+                    .chain(["DataView"])
+                {
+                    let name = self.intern_type_name(view);
+                    members.push(self.ctx.krate.types.intern(Type::Class {
+                        name,
+                        args: Vec::new(),
+                    }));
+                }
+                Ok(self.ctx.krate.types.intern(Type::Union(members)))
+            }
             ("BodyInit", []) => {
                 let string_ty = self.ctx.krate.types.intern(Type::String);
                 let none_ty = self.ctx.krate.types.intern(Type::None);

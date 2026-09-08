@@ -576,7 +576,7 @@ impl FunctionEmitter<'_> {
             // A TYPE PARAMETER stringifies through the erased boundary, exactly
             // as `Unknown` does: `JSON.stringify(x)` on a generic `x: T` is
             // legal JavaScript for every instantiation, and the generated code
-            // erases the value first (see `json_needs_erasure`). Rejecting it
+            // erases the value first (`json_stringify_text` always does). Rejecting it
             // made a generic helper that serializes its argument a blocker for
             // the whole crate.
             Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::Unknown)
@@ -605,6 +605,15 @@ impl FunctionEmitter<'_> {
                 // emitter erases such a value first, and the erased carrier's
                 // `Serialize` is what renders the empty object.
                 if self.is_host_object_class(*name) {
+                    return true;
+                }
+                // The concrete byte view erases to the same byte-backed host
+                // record a `new Uint8Array(..)` does, so the erased carrier's
+                // `Serialize` renders it identically — as its element indices.
+                // The frontend's matching arm says the same thing.
+                if self.symbol_name(*name).is_ok_and(|class_name| {
+                    class_name == smelt_stdlib::BYTE_ARRAY_CLASS_NAME
+                }) {
                     return true;
                 }
                 if let Some(class) = self.mir.classes.iter().find(|class| class.name == *name) {
@@ -636,21 +645,6 @@ impl FunctionEmitter<'_> {
     pub(super) fn is_host_object_class(&self, name: smelt_hir::Symbol) -> bool {
         self.symbol_name(name)
             .is_ok_and(|class_name| smelt_stdlib::host_object_marker(class_name).is_some())
-    }
-
-    /// Return whether a type reaches JSON only through the erased carrier.
-    ///
-    /// A union and a host-object class have no Rust `Serialize` of their own —
-    /// a union is not one Rust type, and a host object's runtime type is a
-    /// concrete struct whose fields are internal slots. Both cross into JSON
-    /// through `SmeltUnknown`, whose `Serialize` implements the JavaScript
-    /// rules (own enumerable properties only, so a host object is `{}`).
-    pub(super) fn json_needs_erasure(&self, ty: TypeId) -> bool {
-        match self.mir.types.get(ty) {
-            Some(Type::Union(_) | Type::TypeParam { .. }) => true,
-            Some(Type::Class { name, .. }) => self.is_host_object_class(*name),
-            _ => false,
-        }
     }
 
     /// Converts a blocking HTTP GET operation to Rust text.

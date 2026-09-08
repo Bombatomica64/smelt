@@ -792,11 +792,11 @@ impl FunctionEmitter<'_> {
                 // set `Object.keys` reports above.
                 smelt_hir::DictProjectionOp::Values => Ok(format!(
                     "match {dict_text} {{ SmeltUnknown::Object(map) => {elements}(&SmeltUnknown::Object(map.clone())).unwrap_or_else(|| map.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").map(|(_, value)| value).collect()), SmeltUnknown::Array(values) => values.own_entries().into_iter().map(|(_, value)| value).collect(), _ => Vec::new() }}",
-                    elements = smelt_stdlib::runtime_symbols::byte_buffer::ELEMENTS,
+                    elements = smelt_stdlib::runtime_symbols::byte_buffer::OWN_ELEMENTS,
                 )),
                 smelt_hir::DictProjectionOp::Entries => Ok(format!(
                     "match {dict_text} {{ SmeltUnknown::Object(map) => {elements}(&SmeltUnknown::Object(map.clone())).map_or_else(|| map.clone().into_iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").collect::<Vec<_>>(), |values| values.into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect::<Vec<_>>()), SmeltUnknown::Array(values) => values.own_entries(), _ => Vec::new() }}",
-                    elements = smelt_stdlib::runtime_symbols::byte_buffer::ELEMENTS,
+                    elements = smelt_stdlib::runtime_symbols::byte_buffer::OWN_ELEMENTS,
                 )),
             };
         }
@@ -1032,12 +1032,22 @@ impl FunctionEmitter<'_> {
                 self.symbol_name(self.function.name).unwrap_or("<unnamed>"),
             )));
         }
+        // Serialize through the erased carrier, ALWAYS. `JSON.stringify` is
+        // specified by ECMA-262, not by serde: an integral number has no
+        // fraction (`1`, not `1.0`), a non-finite number is `null`, an
+        // `undefined` property is omitted, key order is insertion order, and a
+        // byte-backed view serializes as its element indices. Every one of
+        // those rules already lives in `Serialize for SmeltUnknown`, so routing
+        // the value through it is what makes one rule decide the output for
+        // every shape — including a UNION, whose arm is only known at run time
+        // and whose per-arm answer is exactly its tag's arm in that impl.
+        //
+        // Serializing a concretely typed value directly was serde's format,
+        // not JavaScript's: `JSON.stringify({a: 1})` printed `{"a":1.0}` for
+        // every integral number in the crate, in records, lists, class
+        // instances and nested objects alike.
         let value_ty = self.operand_ty(value)?;
-        let value_text = if self.json_needs_erasure(value_ty) {
-            self.erase_value_text(&self.operand_text(value)?, value_ty)?
-        } else {
-            self.operand_text(value)?
-        };
+        let value_text = self.erase_value_text(&self.operand_text(value)?, value_ty)?;
         Ok(format!(
             "serde_json::to_string(&{value_text}).expect(\"JSON serialization failed\")"
         ))

@@ -991,6 +991,15 @@ fn smelt_host_buffer_raw_bytes(value: &SmeltUnknown) -> Option<Vec<SmeltUnknown>
 /// view's own width, not its raw bytes. Byte-addressed storage decodes as its
 /// bytes, which is what `new Uint8Array(dataView)` wants.
 fn smelt_host_buffer_elements(value: &SmeltUnknown) -> Option<Vec<SmeltUnknown>> { let SmeltUnknown::Object(map) = value else { return None; }; let marker = smelt_host_buffer_marker(map)?; let bytes = smelt_host_buffer_raw_bytes(value)?; let Some((kind, width)) = smelt_host_buffer_element_kind(marker) else { return Some(bytes); }; Some((0..bytes.len() / width).map(|index| smelt_host_buffer_decode_element(kind, &bytes, index * width)).collect()) }
+/// A byte-backed host record's OWN ENUMERABLE property values.
+///
+/// Own indexed properties belong to an ELEMENT-TYPED view and to nothing
+/// else: byte storage (`ArrayBuffer`) and a `DataView` address their bytes
+/// through accessors, so `Object.keys` / `for...in` / `JSON.stringify` see no
+/// properties on them at all, exactly as Node does. The array-like face
+/// above (`ELEMENTS`) answers a different question and must keep decoding
+/// storage as bytes for iteration and `new Uint8Array(dataView)`.
+fn smelt_host_buffer_own_elements(value: &SmeltUnknown) -> Option<Vec<SmeltUnknown>> { let SmeltUnknown::Object(map) = value else { return None; }; let marker = smelt_host_buffer_marker(map)?; if smelt_host_buffer_element_kind(marker).is_none() { return Some(Vec::new()); } smelt_host_buffer_elements(value) }
 /// A byte-backed host record's own enumerable keys: its element indices.
 ///
 /// `None` for values that are not byte-backed. A typed array's own properties
@@ -998,7 +1007,7 @@ fn smelt_host_buffer_elements(value: &SmeltUnknown) -> Option<Vec<SmeltUnknown>>
 /// `buffer` are prototype accessors and never enumerate — so
 /// `Object.keys(new Uint8Array(1))` is `['0']` and a deep-equality walk over
 /// two views compares elements rather than internal storage keys.
-fn smelt_host_buffer_index_keys(value: &SmeltUnknown) -> Option<Vec<String>> { let count = smelt_host_buffer_elements(value)?.len(); Some((0..count).map(|index| index.to_string()).collect()) }
+fn smelt_host_buffer_index_keys(value: &SmeltUnknown) -> Option<Vec<String>> { let count = smelt_host_buffer_own_elements(value)?.len(); Some((0..count).map(|index| index.to_string()).collect()) }
 /// The same own-key set, for a byte-backed record reached through the
 /// structural `SmeltRecord` ABI rather than as a tagged `SmeltUnknown`.
 ///
@@ -1009,7 +1018,7 @@ fn smelt_host_buffer_record_index_keys(record: &SmeltRecord<String, SmeltUnknown
 /// The decoded elements of a byte-backed record reached through the
 /// structural `SmeltRecord` ABI. Backs `Object.values`/`Object.entries` over a
 /// view, which pair with the index keys above.
-fn smelt_host_buffer_record_elements(record: &SmeltRecord<String, SmeltUnknown>) -> Option<Vec<SmeltUnknown>> { smelt_host_buffer_elements(&SmeltUnknown::Object(SmeltObject::from_unknown_record(record.clone()))) }
+fn smelt_host_buffer_record_elements(record: &SmeltRecord<String, SmeltUnknown>) -> Option<Vec<SmeltUnknown>> { smelt_host_buffer_own_elements(&SmeltUnknown::Object(SmeltObject::from_unknown_record(record.clone()))) }
 /// Slice a byte-backed host record into a fresh record of the same host kind.
 ///
 /// `None` for values that are not byte-backed, so `.slice()`/`.subarray()` on

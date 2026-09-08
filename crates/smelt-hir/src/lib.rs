@@ -88,7 +88,7 @@ pub use expr::{
     StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, UnaryOp,
     UnknownKind, UriTranscodeOp, UrlField, bin_op_text,
 };
-pub use format::format_compact;
+pub use format::{format_compact, type_display};
 pub use ids::{
     BlockId, BodyId, ExprId, FileId, ItemId, LocalId, ModuleId, PatternId, Span, StmtId, Symbol,
     TypeId,

@@ -351,6 +351,20 @@ fn emit_record(writer: &mut CodeWriter) {
         elements = symbols::ELEMENTS,
     ));
 
+    writer.line("/// A byte-backed host record's OWN ENUMERABLE property values.");
+    writer.line("///");
+    writer.line("/// Own indexed properties belong to an ELEMENT-TYPED view and to nothing");
+    writer.line("/// else: byte storage (`ArrayBuffer`) and a `DataView` address their bytes");
+    writer.line("/// through accessors, so `Object.keys` / `for...in` / `JSON.stringify` see no");
+    writer.line("/// properties on them at all, exactly as Node does. The array-like face");
+    writer.line("/// above (`ELEMENTS`) answers a different question and must keep decoding");
+    writer.line("/// storage as bytes for iteration and `new Uint8Array(dataView)`.");
+    writer.line(format!(
+        "fn {own_elements}(value: &SmeltUnknown) -> Option<Vec<SmeltUnknown>> {{ let SmeltUnknown::Object(map) = value else {{ return None; }}; let marker = smelt_host_buffer_marker(map)?; if smelt_host_buffer_element_kind(marker).is_none() {{ return Some(Vec::new()); }} {elements}(value) }}",
+        own_elements = symbols::OWN_ELEMENTS,
+        elements = symbols::ELEMENTS,
+    ));
+
     writer.line("/// A byte-backed host record's own enumerable keys: its element indices.");
     writer.line("///");
     writer.line("/// `None` for values that are not byte-backed. A typed array's own properties");
@@ -359,9 +373,9 @@ fn emit_record(writer: &mut CodeWriter) {
     writer.line("/// `Object.keys(new Uint8Array(1))` is `['0']` and a deep-equality walk over");
     writer.line("/// two views compares elements rather than internal storage keys.");
     writer.line(format!(
-        "fn {index_keys}(value: &SmeltUnknown) -> Option<Vec<String>> {{ let count = {elements}(value)?.len(); Some((0..count).map(|index| index.to_string()).collect()) }}",
+        "fn {index_keys}(value: &SmeltUnknown) -> Option<Vec<String>> {{ let count = {own_elements}(value)?.len(); Some((0..count).map(|index| index.to_string()).collect()) }}",
         index_keys = symbols::INDEX_KEYS,
-        elements = symbols::ELEMENTS,
+        own_elements = symbols::OWN_ELEMENTS,
     ));
 
     writer.line("/// The same own-key set, for a byte-backed record reached through the");
@@ -380,9 +394,9 @@ fn emit_record(writer: &mut CodeWriter) {
     writer.line("/// structural `SmeltRecord` ABI. Backs `Object.values`/`Object.entries` over a");
     writer.line("/// view, which pair with the index keys above.");
     writer.line(format!(
-        "fn {record_elements}(record: &SmeltRecord<String, SmeltUnknown>) -> Option<Vec<SmeltUnknown>> {{ {elements}(&SmeltUnknown::Object(SmeltObject::from_unknown_record(record.clone()))) }}",
+        "fn {record_elements}(record: &SmeltRecord<String, SmeltUnknown>) -> Option<Vec<SmeltUnknown>> {{ {own_elements}(&SmeltUnknown::Object(SmeltObject::from_unknown_record(record.clone()))) }}",
         record_elements = symbols::RECORD_ELEMENTS,
-        elements = symbols::ELEMENTS,
+        own_elements = symbols::OWN_ELEMENTS,
     ));
 }
 

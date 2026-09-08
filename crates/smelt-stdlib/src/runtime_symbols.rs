@@ -256,6 +256,24 @@ pub mod byte_buffer {
     /// or *converted* element-by-element.
     pub const CONSTRUCT: &str = "smelt_host_buffer_construct";
 
+    /// A byte-backed host record's OWN ENUMERABLE property values, or `None`
+    /// for values that are not byte-backed.
+    ///
+    /// Own indexed properties exist for an ELEMENT-TYPED view and for nothing
+    /// else: `Object.keys(new Uint8Array([1]))` is `['0']`, while
+    /// `Object.keys(new ArrayBuffer(2))` and
+    /// `Object.keys(new DataView(new ArrayBuffer(2)))` are both `[]` — byte
+    /// storage and a `DataView` address bytes through accessors, so they have no
+    /// indexed properties of their own. [`ELEMENTS`] cannot answer this: it is
+    /// the ARRAY-LIKE face (iteration, spread, `Array.from`) and deliberately
+    /// decodes byte storage as its bytes.
+    ///
+    /// Distinguishing the two faces is what makes `Object.keys`,
+    /// `Object.values`, `for...in` and `JSON.stringify` agree with Node for
+    /// every byte-backed shape; before this existed a buffer enumerated its
+    /// bytes and a view serialized as `{}`.
+    pub const OWN_ELEMENTS: &str = "smelt_host_buffer_own_elements";
+
     /// A byte-backed host record's own enumerable keys — its element indices — or
     /// `None` for values that are not byte-backed.
     ///

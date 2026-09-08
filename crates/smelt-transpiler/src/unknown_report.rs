@@ -595,7 +595,7 @@ fn classify_line(line: &str, in_prelude_helper: bool) -> Category {
 ///
 /// See [`classify_line`] rule 2 for the rationale behind each marker.
 fn is_legitimate_boundary_line(line: &str) -> bool {
-    const BOUNDARY_MARKERS: [&str; 23] = [
+    const BOUNDARY_MARKERS: [&str; 24] = [
         "SmeltUnknown::Function",
         "SmeltUnknown::Promise",
         // A JavaScript SYMBOL value. `Symbol()` mints a value whose whole
@@ -768,6 +768,23 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // literal), which kept `Error` subclasses out of the zero-erasure
         // examples corpus.
         "cause: SmeltUnknown",
+        // Handing a value to the JSON serializer. `JSON.stringify` is specified
+        // by ECMA-262, not by serde: an integral number has no fraction, a
+        // non-finite number is `null`, an `undefined`/function/symbol property
+        // is omitted, key order is insertion order, and a byte view serializes
+        // as its element indices. Every one of those rules lives in
+        // `Serialize for SmeltUnknown`, so the emitter erases the value at this
+        // one call site and lets that impl decide — for a union, whose arm is
+        // only known at run time, it is the ONLY place the per-arm answer can
+        // be decided at all.
+        //
+        // That makes the erasure an explicit boundary adapter into the "JSON
+        // value" boundary the policy names, not program storage: the tagged
+        // value exists for the duration of one call and is never read back as
+        // data. The marker is the adapter call itself (`serde_json::to_string(&`),
+        // so a `Vec<SmeltUnknown>` or an erased local NEXT to it stays
+        // avoidable — proven by `json_serializer_argument_is_a_boundary`.
+        "serde_json::to_string(&",
     ];
 
     // A JavaScript update-expression (`x++`/`++x`) used as a value snapshots its
@@ -1065,6 +1082,34 @@ mod tests {
             classify_line(parameter, false),
             Category::AvoidableErasure,
             "an erased parameter whose name merely contains `cause` must stay avoidable"
+        );
+    }
+
+    /// Erasing a value to hand it to the JSON serializer is a boundary.
+    ///
+    /// `JSON.stringify`'s output is ECMA-262's, and every one of its rules
+    /// lives in `Serialize for SmeltUnknown`, so the value crosses at this call
+    /// and nowhere else. Ordinary erased storage beside it stays avoidable, so
+    /// the marker does not widen to every line that mentions serde.
+    #[test]
+    fn json_serializer_argument_is_a_boundary() {
+        let stringify = "    _smelt_tmp_3 = serde_json::to_string(&SmeltUnknown::Number(4.0 as f64)).expect(\"JSON serialization failed\");";
+        assert_eq!(
+            classify_line(stringify, false),
+            Category::LegitimateBoundary,
+            "the JSON serializer's argument is the JSON value boundary"
+        );
+        let storage = "    let payloads: Vec<SmeltUnknown> = Vec::new();";
+        assert_eq!(
+            classify_line(storage, false),
+            Category::AvoidableErasure,
+            "ordinary erased storage must stay avoidable"
+        );
+        let parse = "    let parsed: SmeltUnknown = serde_json::from_str(text).unwrap_or(SmeltUnknown::Null);";
+        assert_eq!(
+            classify_line(parse, false),
+            Category::AvoidableErasure,
+            "the marker is the stringify argument, not every serde call"
         );
     }
 

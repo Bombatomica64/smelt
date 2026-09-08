@@ -1045,6 +1045,15 @@ fn smelt_host_buffer_raw_bytes(value: &SmeltUnknown) -> Option<Vec<SmeltUnknown>
 /// view's own width, not its raw bytes. Byte-addressed storage decodes as its
 /// bytes, which is what `new Uint8Array(dataView)` wants.
 fn smelt_host_buffer_elements(value: &SmeltUnknown) -> Option<Vec<SmeltUnknown>> { let SmeltUnknown::Object(map) = value else { return None; }; let marker = smelt_host_buffer_marker(map)?; let bytes = smelt_host_buffer_raw_bytes(value)?; let Some((kind, width)) = smelt_host_buffer_element_kind(marker) else { return Some(bytes); }; Some((0..bytes.len() / width).map(|index| smelt_host_buffer_decode_element(kind, &bytes, index * width)).collect()) }
+/// A byte-backed host record's OWN ENUMERABLE property values.
+///
+/// Own indexed properties belong to an ELEMENT-TYPED view and to nothing
+/// else: byte storage (`ArrayBuffer`) and a `DataView` address their bytes
+/// through accessors, so `Object.keys` / `for...in` / `JSON.stringify` see no
+/// properties on them at all, exactly as Node does. The array-like face
+/// above (`ELEMENTS`) answers a different question and must keep decoding
+/// storage as bytes for iteration and `new Uint8Array(dataView)`.
+fn smelt_host_buffer_own_elements(value: &SmeltUnknown) -> Option<Vec<SmeltUnknown>> { let SmeltUnknown::Object(map) = value else { return None; }; let marker = smelt_host_buffer_marker(map)?; if smelt_host_buffer_element_kind(marker).is_none() { return Some(Vec::new()); } smelt_host_buffer_elements(value) }
 /// A byte-backed host record's own enumerable keys: its element indices.
 ///
 /// `None` for values that are not byte-backed. A typed array's own properties
@@ -1052,7 +1061,7 @@ fn smelt_host_buffer_elements(value: &SmeltUnknown) -> Option<Vec<SmeltUnknown>>
 /// `buffer` are prototype accessors and never enumerate — so
 /// `Object.keys(new Uint8Array(1))` is `['0']` and a deep-equality walk over
 /// two views compares elements rather than internal storage keys.
-fn smelt_host_buffer_index_keys(value: &SmeltUnknown) -> Option<Vec<String>> { let count = smelt_host_buffer_elements(value)?.len(); Some((0..count).map(|index| index.to_string()).collect()) }
+fn smelt_host_buffer_index_keys(value: &SmeltUnknown) -> Option<Vec<String>> { let count = smelt_host_buffer_own_elements(value)?.len(); Some((0..count).map(|index| index.to_string()).collect()) }
 /// The same own-key set, for a byte-backed record reached through the
 /// structural `SmeltRecord` ABI rather than as a tagged `SmeltUnknown`.
 ///
@@ -1063,7 +1072,7 @@ fn smelt_host_buffer_record_index_keys(record: &SmeltRecord<String, SmeltUnknown
 /// The decoded elements of a byte-backed record reached through the
 /// structural `SmeltRecord` ABI. Backs `Object.values`/`Object.entries` over a
 /// view, which pair with the index keys above.
-fn smelt_host_buffer_record_elements(record: &SmeltRecord<String, SmeltUnknown>) -> Option<Vec<SmeltUnknown>> { smelt_host_buffer_elements(&SmeltUnknown::Object(SmeltObject::from_unknown_record(record.clone()))) }
+fn smelt_host_buffer_record_elements(record: &SmeltRecord<String, SmeltUnknown>) -> Option<Vec<SmeltUnknown>> { smelt_host_buffer_own_elements(&SmeltUnknown::Object(SmeltObject::from_unknown_record(record.clone()))) }
 /// Slice a byte-backed host record into a fresh record of the same host kind.
 ///
 /// `None` for values that are not byte-backed, so `.slice()`/`.subarray()` on
@@ -2648,10 +2657,10 @@ impl serde::Serialize for SmeltUnknown {
             Self::Bool(value) => serializer.serialize_bool(*value),
             Self::Number(value) => if !value.is_finite() { serializer.serialize_none() } else if *value == value.trunc() && value.abs() < 1e21 { serializer.serialize_i64(*value as i64) } else { serializer.serialize_f64(*value) },
             Self::String(value) => serializer.serialize_str(value),
-            Self::Symbol(value) => serializer.serialize_str(value),
+            Self::Symbol(_) => serializer.serialize_none(),
             Self::Array(values) => serde::Serialize::serialize(&*values.values.borrow(), serializer),
-            Self::Object(values) => { use serde::ser::SerializeMap as _; let entries = values.iter().filter(|(key, value)| !matches!(value, Self::Undefined) && smelt_is_for_in_object_key(values, key)).collect::<Vec<_>>(); let mut map = serializer.serialize_map(Some(entries.len()))?; for (key, value) in &entries { map.serialize_entry(key, value)?; } map.end() },
-            Self::Function(_) => serializer.serialize_str("function () { [native code] }"),
+            Self::Object(values) => { use serde::ser::SerializeMap as _; if let Some(elements) = smelt_host_buffer_own_elements(self) { let mut map = serializer.serialize_map(Some(elements.len()))?; for (index, element) in elements.iter().enumerate() { map.serialize_entry(&index.to_string(), element)?; } return map.end(); } let entries = values.iter().filter(|(key, value)| !matches!(value, Self::Undefined | Self::Function(_) | Self::Symbol(_)) && smelt_is_for_in_object_key(values, key)).collect::<Vec<_>>(); let mut map = serializer.serialize_map(Some(entries.len()))?; for (key, value) in &entries { map.serialize_entry(key, value)?; } map.end() },
+            Self::Function(_) => serializer.serialize_none(),
             Self::Promise(_) => serializer.serialize_str("[object Promise]"),
         }
     }
@@ -3966,7 +3975,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_16 = closure_arg_1.clone().get_header(&"x-set-first".to_owned());
     _smelt_tmp_17 = _smelt_tmp_16.clone().clone().unwrap_or("".to_owned());
     _smelt_tmp_18 = SmeltRecord::from([("method".to_owned(), _smelt_tmp_10.clone()), ("url".to_owned(), _smelt_tmp_11.clone()), ("body".to_owned(), (*smelt_capture_received.borrow()).clone()), ("status".to_owned(), _smelt_tmp_13.clone()), ("sentType".to_owned(), _smelt_tmp_15.clone()), ("kept".to_owned(), _smelt_tmp_17.clone())]);
-    _smelt_tmp_19 = serde_json::to_string(&_smelt_tmp_18.clone()).expect("JSON serialization failed");
+    _smelt_tmp_19 = serde_json::to_string(&{ let smelt_record = _smelt_tmp_18.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, SmeltUnknown::String(value.into()))).collect())) }).expect("JSON serialization failed");
     _smelt_tmp_20 = closure_arg_1.clone().end(Some(_smelt_tmp_19.clone()));
     ()
     } else {
@@ -3982,7 +3991,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_16 = closure_arg_1.clone().get_header(&"x-set-first".to_owned());
     _smelt_tmp_17 = _smelt_tmp_16.clone().clone().unwrap_or("".to_owned());
     _smelt_tmp_18 = SmeltRecord::from([("method".to_owned(), _smelt_tmp_10.clone()), ("url".to_owned(), _smelt_tmp_11.clone()), ("body".to_owned(), (*smelt_capture_received.borrow()).clone()), ("status".to_owned(), _smelt_tmp_13.clone()), ("sentType".to_owned(), _smelt_tmp_15.clone()), ("kept".to_owned(), _smelt_tmp_17.clone())]);
-    _smelt_tmp_19 = serde_json::to_string(&_smelt_tmp_18.clone()).expect("JSON serialization failed");
+    _smelt_tmp_19 = serde_json::to_string(&{ let smelt_record = _smelt_tmp_18.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, SmeltUnknown::String(value.into()))).collect())) }).expect("JSON serialization failed");
     _smelt_tmp_20 = closure_arg_1.clone().end(Some(_smelt_tmp_19.clone()));
     ()
     }
