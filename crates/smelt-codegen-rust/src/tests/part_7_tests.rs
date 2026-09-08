@@ -7267,7 +7267,7 @@ function pick(opts: { flag?: boolean | number }): boolean {
         "flag should keep its concrete-union storage: {source}"
     );
     assert!(
-        source.contains("match flag.into_smelt_unknown()"),
+        source.contains("match flag.clone().into_smelt_unknown()"),
         "a concrete-union operand must be erased before the truthiness match: {source}"
     );
 }
@@ -7318,6 +7318,80 @@ export function pick(keys: Array<string | number>, i: number): string | number {
     assert!(
         !source.contains(".cloned().unwrap_or(SmeltUnknown::Undefined)"),
         "concrete-union element default must not be the erased undefined: {source}"
+    );
+}
+
+#[test]
+fn recovers_concrete_union_tuple_arms_by_arity() {
+    // Two tuple arms of different length carry the SAME runtime tag
+    // (`SmeltUnknown::Array`), so recovery on the tag alone always chose the
+    // first arm: `['y', 2, true]` came back as the 2-tuple with its third
+    // element silently dropped, and `.length` answered 2 where Node answers 3.
+    //
+    // A tuple's arity is part of its type, so it is the discriminant. This is
+    // the tuple counterpart of the class arm's field-presence guard.
+    let source = source_for(
+        r"
+type Pair = [string, number];
+type Triple = [string, number, boolean];
+export function put(table: Record<string, Pair | Triple>): void {
+  table['b'] = ['y', 2, true];
+}
+",
+    );
+
+    assert!(source.contains("pub enum SmeltUnion"), "{source}");
+    // The enabling condition: both arms really do share the `Array` runtime tag,
+    // so the tag test alone must NOT be the whole guard. That tag-only spelling
+    // is exactly what chose the wrong arm, so asserting its absence is what
+    // makes this test non-vacuous.
+    assert!(
+        !source.contains("if matches!(value, SmeltUnknown::Array(_)) { return"),
+        "a tag-only guard cannot separate two Array-tagged tuple arms: {source}"
+    );
+    assert!(
+        source.contains("smelt_arms.len() == 2"),
+        "the 2-tuple arm must be guarded by its arity: {source}"
+    );
+}
+
+#[test]
+fn erasing_a_concrete_union_for_inspection_does_not_move_it() {
+    // `into_smelt_unknown` takes `self` by value and `SmeltUnion…` is not
+    // `Copy`, so erasing a concrete union in order to INSPECT it moved out of
+    // the source place. Reading the same local twice — once indexed, once for
+    // `.length` — then emitted `first.into_smelt_unknown()` at both sites and
+    // the second was a use-after-move (E0382).
+    let source = source_for(
+        r"
+type Pair = [string, number];
+type Triple = [string, number, boolean];
+export function read(table: Record<string, Pair | Triple>): string {
+  const first = table['a'];
+  return first[0] + ',' + first.length;
+}
+",
+    );
+
+    assert!(source.contains("pub enum SmeltUnion"), "{source}");
+    // The enabling condition: the local really is erased at TWO sites, which is
+    // what made the move observable — one erasure could never fail to compile.
+    let erasures_of_first = source
+        .match_indices("into_smelt_unknown()")
+        .filter(|(at, _)| {
+            source[..*at]
+                .trim_end_matches('.')
+                .trim_end_matches(".clone()")
+                .ends_with("first")
+        })
+        .count();
+    assert_eq!(
+        erasures_of_first, 2,
+        "the union local must be erased at both inspection sites: {source}"
+    );
+    assert!(
+        !source.contains("first.into_smelt_unknown()"),
+        "erasing a union place for inspection must not move it: {source}"
     );
 }
 

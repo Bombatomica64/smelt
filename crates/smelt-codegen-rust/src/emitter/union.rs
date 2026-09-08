@@ -230,14 +230,27 @@ impl FunctionEmitter<'_> {
     /// operations (string coercion, structural `match`/`matches!`, `typeof`,
     /// property-key stringification) are emitted against `SmeltUnknown`. The
     /// generated `into_smelt_unknown()` conversion projects the tagged enum back
-    /// to the erased value those operations expect. `value_text` must be an
-    /// owned expression (the conversion consumes `self`).
+    /// to the erased value those operations expect.
+    ///
+    /// The projection is cloned first because every caller erases a value in
+    /// order to INSPECT it, and inspecting must not consume the source.
+    /// `into_smelt_unknown` takes `self` by value, so erasing a place read moved
+    /// out of it: `const first = table['a']` read twice — once indexed, once for
+    /// `.length` — emitted `first.into_smelt_unknown()` at both sites and the
+    /// second was a use-after-move (E0382). A `SmeltUnion…` is not `Copy`, and
+    /// the source expression is a place read as often as it is a temporary, so
+    /// the clone belongs here rather than at each call site. Cloning a
+    /// temporary is redundant but harmless; moving a place is a hard error.
     pub(super) fn erase_concrete_union_text(&self, value_text: &str, ty: TypeId) -> String {
-        if self.concrete_union_members(ty).is_some() {
-            format!("{value_text}.into_smelt_unknown()")
-        } else {
-            value_text.to_owned()
+        if self.concrete_union_members(ty).is_none() {
+            return value_text.to_owned();
         }
+        // A caller that already owns a clone needs no second one; `.clone().clone()`
+        // is not what a hand-writing Rust team would produce.
+        if value_text.ends_with(".clone()") {
+            return format!("{value_text}.into_smelt_unknown()");
+        }
+        format!("{value_text}.clone().into_smelt_unknown()")
     }
 
     /// Wrap a concrete value in the matching variant of a target union.
@@ -633,22 +646,26 @@ impl FunctionEmitter<'_> {
         order
     }
 
-    /// Build a structural key-presence guard that separates `member` from the
-    /// arms it shares a runtime tag with, if its declared shape allows one.
+    /// Build a structural guard that separates `member` from the arms it shares
+    /// a runtime tag with, if its declared shape allows one.
     ///
-    /// Only a class knows its own field names in MIR; a record is
-    /// `Dict(String, V)` and states no keys, so there is nothing to test and
-    /// this returns `None` for it. The guard asserts every field this arm
-    /// declares that at least one same-tag sibling does not.
+    /// Two shapes carry enough static evidence to discriminate:
+    ///
+    /// * a TUPLE states its arity, so a length test decides — used when no
+    ///   same-tag sibling has the same arity;
+    /// * a CLASS states its field names, so key presence decides — the guard
+    ///   asserts every field this arm declares that at least one same-tag
+    ///   sibling does not.
+    ///
+    /// Everything else returns `None`: a record is `Dict(String, V)` and states
+    /// no keys, a list states no length, so there is nothing to test. Those arms
+    /// still recover on the tag alone, which is all their type supports.
     fn union_member_structural_guard(
         &self,
         member: TypeId,
         members: &[TypeId],
         index: usize,
     ) -> Option<String> {
-        let Some(Type::Class { name, .. }) = self.mir.types.get(member) else {
-            return None;
-        };
         let tag = self.union_member_unknown_pattern(member);
         let siblings = members
             .iter()
@@ -661,6 +678,33 @@ impl FunctionEmitter<'_> {
         if siblings.is_empty() {
             return None;
         }
+        // A TUPLE's arity is part of its type, so when tag-sharing siblings
+        // disagree on length the length IS the discriminant — the same kind of
+        // static evidence the class branch below gets from field names.
+        //
+        // Without this, `Pair | Triple` (both `[string, number, ...]`, so both
+        // tagged `SmeltUnknown::Array`) recovered on the tag alone: the first
+        // arm won every time, and `table['b'] = ['y', 2, true]` came back as the
+        // 2-tuple with its third element silently dropped —
+        // `['y',2,true].length` answered 2 where Node answers 3, with nothing
+        // reported. Only emitted when no tag-sharing sibling has the same
+        // arity, so the check is decisive rather than merely narrowing.
+        if let Some(Type::Tuple(items)) = self.mir.types.get(member) {
+            let arity = items.len();
+            let ambiguous = siblings.iter().any(|sibling| {
+                matches!(self.mir.types.get(*sibling), Some(Type::Tuple(other)) if other.len() == arity)
+            });
+            return if ambiguous {
+                None
+            } else {
+                Some(format!(
+                    "(matches!(&value, SmeltUnknown::Array(smelt_arms) if smelt_arms.len() == {arity}))"
+                ))
+            };
+        }
+        let Some(Type::Class { name, .. }) = self.mir.types.get(member) else {
+            return None;
+        };
         let fields = self
             .mir
             .classes

@@ -254,3 +254,4 @@ third_party/es-toolkit-src/
 !blocker-logs/hono-h28-h33-tail-branch-and-private-methods.md
 !blocker-logs/hono-h33-sibling-method-call.md
 !blocker-logs/hono-h28-dropped-branch-region.md
+!blocker-logs/hono-h34-union-valued-record.md
