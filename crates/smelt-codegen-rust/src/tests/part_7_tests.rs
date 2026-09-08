@@ -13737,3 +13737,48 @@ export function use(bag: Bag): string {
         "a tuple parameter must be recovered element-wise: {source}"
     );
 }
+
+/// A getter that can throw is emitted returning `Result`, so reading the
+/// property has to propagate with `?` like any other fallible call.
+///
+/// Without the `?` the read hands its consumer the `Result` itself. The first
+/// thing done to a read value is usually `.clone()`, and `Box<dyn Error>` is
+/// not `Clone`, so this surfaced as `E0599` on the `Result` rather than as a
+/// type mismatch naming the property -- 1 error in the hono slice, on a
+/// throwing `get activeRouter()` spread into an object.
+#[test]
+fn a_throwing_getter_read_propagates_with_question_mark() {
+    let source = source_for(
+        r"
+export class Holder {
+  tag: unknown = 0;
+  private inner: string = 'a';
+  private get active(): string {
+    if (this.inner === '') {
+      throw new Error('empty');
+    }
+    return this.inner;
+  }
+  spread(): unknown {
+    return { ...this.active };
+  }
+}
+",
+    );
+
+    // The enabling condition: the getter really is emitted as fallible. If this
+    // stops holding the assertion below would pass for the wrong reason.
+    assert!(
+        source
+            .contains("fn __smelt_get_active(&self) -> Result<String, Box<dyn std::error::Error>>"),
+        "a throwing getter must be emitted returning Result: {source}"
+    );
+    assert!(
+        source.contains("self.__smelt_get_active()?"),
+        "a throwing getter read must propagate with `?`: {source}"
+    );
+    assert!(
+        !source.contains("self.__smelt_get_active().clone()"),
+        "a throwing getter read must not clone the Result: {source}"
+    );
+}
