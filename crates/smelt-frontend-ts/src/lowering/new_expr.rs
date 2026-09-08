@@ -2334,15 +2334,31 @@ impl ModuleBuilder<'_> {
                     || self.ctx.krate.types.get(else_ty) == Some(&Type::Unknown)
                 {
                     self.ctx.krate.types.intern(Type::Unknown)
-                } else if self.declared_class_type(then_ty) && self.declared_class_type(else_ty) {
-                    // Two *declared* classes have no common Rust struct, but they
-                    // do have a concrete common representation: the generated
-                    // tagged union. Without this arm both branches fall into the
-                    // string-compatible test below — `is_string_compatible_type`
-                    // accepts any `Type::Class`, because that variant also spells
-                    // an opaque unresolved name — and the conditional unifies to
-                    // `String`, emitting a `String` local that the class values
-                    // are then assigned into. That output does not compile.
+                } else if self.declared_class_type(then_ty) || self.declared_class_type(else_ty) {
+                    // A *declared* class arm has no common Rust shape with
+                    // anything but itself, and it does have a concrete join: the
+                    // generated tagged union. Every closer answer has already
+                    // been tried above — same type, numeric, `None`, a function
+                    // pair, a union that already contains the other arm — so
+                    // reaching here with a declared class means the two arms are
+                    // genuinely two members, which is what TypeScript types
+                    // `c ? a : b` as.
+                    //
+                    // Without this arm the branches fall into the
+                    // string-compatible test below, and that test accepts ANY
+                    // `Type::Class` — the variant also spells an opaque
+                    // unresolved name — so the conditional unified to `String`
+                    // and emitted a `String` local that the class values were
+                    // then assigned into. `flag ? new Doc("d") : "text"` at a
+                    // `string | Doc` return type produced
+                    // `let mut _smelt_tmp: String;` and `_smelt_tmp = <Doc>`,
+                    // which does not compile.
+                    //
+                    // This used to require BOTH arms to be declared classes,
+                    // which fixed `Doc : Other` and left `Doc : "text"` — the
+                    // commoner shape, since a union of a class and a primitive
+                    // is how an optional-payload result is usually spelled —
+                    // still unifying to `String`.
                     self.ctx
                         .krate
                         .types

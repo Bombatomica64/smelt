@@ -342,6 +342,7 @@ fn end_to_end_examples_match_expected_outputs() -> TestResult {
         "47_module_const_host_value",
         "48_form_data",
         "49_web_crypto",
+        "50_union_arm_narrowing",
     ] {
         verify_end_to_end_example(name)?;
     }

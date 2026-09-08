@@ -12707,6 +12707,79 @@ const r = use1(pick(true));
     );
 }
 
+/// A conditional with ONE declared-class branch unifies to the union too.
+///
+/// The sibling test above required BOTH branches to be declared classes, and
+/// that is what the rule required as well — so `flag ? new Doc() : "text"` at a
+/// `string | Doc` type still fell into the string-compatible test, still
+/// unified to `String`, and still emitted `let mut _smelt_tmp: String;` with a
+/// `Doc` assigned into it. That is the commoner shape of the two: a union of a
+/// class and a primitive is how a "value or message" result is usually spelled.
+///
+/// Every closer unification is tried before this arm is reached, so a declared
+/// class here means the two branches are genuinely two union members.
+#[test]
+fn conditional_over_a_class_and_a_string_unifies_to_a_union() {
+    let source = source_for(
+        r#"
+class Doc { name(): string { return "d"; } }
+function pick(flag: boolean): string | Doc { return flag ? new Doc() : "text"; }
+function show(value: string | Doc): string {
+  return typeof value === "string" ? value : value.name();
+}
+const r = show(pick(true));
+"#,
+    );
+
+    let pick_body = source
+        .split("fn pick(")
+        .nth(1)
+        .and_then(|rest| rest.split("\nfn ").next())
+        .unwrap_or_else(|| panic!("expected a generated `pick`:\n{source}"));
+    assert!(
+        !pick_body.contains("let mut _smelt_tmp_1: String;"),
+        "a class branch must not be assigned into a `String` local:\n{source}"
+    );
+    assert!(
+        pick_body.contains("::M0(") && pick_body.contains("::M1("),
+        "each branch must be wrapped into its own union arm:\n{source}"
+    );
+}
+
+/// `instanceof` narrows an OPTIONAL union by matching the arm under `Some`.
+///
+/// `form.get(name)` is `string | File | null`, so `entry instanceof File` asks
+/// about an `Option<SmeltUnion…>`. The marker probe claimed it — every
+/// `Optional` operand counted as dynamic — and emitted a `SmeltUnknown::Object`
+/// pattern against a value of that type, which does not compile. The union arm
+/// answers it now, one optional deep: an absent value is simply not one of the
+/// accepted patterns, which is also the right answer, since `null instanceof
+/// File` is `false` in JavaScript.
+#[test]
+fn instanceof_narrows_an_optional_union_through_its_arm() {
+    let source = source_for(
+        r#"
+const form = new FormData();
+form.append("doc", new File(["hi"], "note.txt"));
+const entry = form.get("doc");
+if (entry instanceof File) {
+  console.log(entry.name);
+} else {
+  console.log("not a file");
+}
+"#,
+    );
+
+    assert!(
+        !source.contains("Some(SmeltUnknown::Object(value))"),
+        "an optional union must not be probed as an erased record:\n{source}"
+    );
+    assert!(
+        source.contains("matches!(entry.clone(), Some(SmeltUnion"),
+        "the check must match the union arm under `Some`:\n{source}"
+    );
+}
+
 /// An unannotated arrow passed to a *generic* function is contextually typed
 /// from the instantiation its sibling arguments imply, not from the callee's
 /// raw type parameters.

@@ -476,27 +476,74 @@ impl FunctionEmitter<'_> {
         union_ty: TypeId,
         class: Symbol,
     ) -> Option<String> {
-        let members = self.concrete_union_members(union_ty)?;
-        let union_enum_name = union_name(union_ty);
-        let patterns = members
-            .iter()
-            .enumerate()
-            .filter(|(_, member)| {
-                matches!(
-                    self.mir.types.get(**member),
-                    Some(Type::Class {
-                        name: class_symbol,
-                        ..
-                    }) if *class_symbol == class
-                )
-            })
-            .map(|(index, _)| format!("{union_enum_name}::M{index}(_)"))
-            .collect::<Vec<_>>();
+        let patterns = self.concrete_union_class_patterns(union_ty, class)?;
         Some(if patterns.is_empty() {
             "false".to_owned()
         } else {
             format!("matches!({value_text}, {})", patterns.join(" | "))
         })
+    }
+
+    /// Emit the same test for an OPTIONAL union.
+    ///
+    /// `null instanceof File` is `false` in JavaScript, so an absent value is
+    /// simply not one of the accepted patterns: the check is the arm patterns
+    /// wrapped in `Some(..)`, which answers `false` for `None` by construction.
+    ///
+    /// Its own method rather than a flag on the check above, because the
+    /// patterns are the same and only their context differs — and because this
+    /// shape had no answer at all before. `form.get(name) instanceof File` is
+    /// `Optional<string | File>`, and the marker probe that claimed it emitted
+    /// `matches!(x.clone(), Some(SmeltUnknown::Object(value)) if ..)` against a
+    /// value of type `Option<SmeltUnion…>`, which does not compile.
+    pub(super) fn optional_union_class_check(
+        &self,
+        value_text: &str,
+        optional_ty: TypeId,
+        class: Symbol,
+    ) -> Option<String> {
+        let Some(&Type::Optional(inner)) = self.mir.types.get(optional_ty) else {
+            return None;
+        };
+        let patterns = self.concrete_union_class_patterns(inner, class)?;
+        Some(if patterns.is_empty() {
+            "false".to_owned()
+        } else {
+            format!(
+                "matches!({value_text}, {})",
+                patterns
+                    .iter()
+                    .map(|pattern| format!("Some({pattern})"))
+                    .collect::<Vec<_>>()
+                    .join(" | ")
+            )
+        })
+    }
+
+    /// The generated-union arm patterns that satisfy `instanceof <class>`.
+    ///
+    /// Empty when no arm is that class, which is a real `false` rather than a
+    /// missing answer — the union cannot hold one. `None` only when the type is
+    /// not a concrete generated union at all.
+    fn concrete_union_class_patterns(&self, union_ty: TypeId, class: Symbol) -> Option<Vec<String>> {
+        let members = self.concrete_union_members(union_ty)?;
+        let union_enum_name = union_name(union_ty);
+        Some(
+            members
+                .iter()
+                .enumerate()
+                .filter(|(_, member)| {
+                    matches!(
+                        self.mir.types.get(**member),
+                        Some(Type::Class {
+                            name: class_symbol,
+                            ..
+                        }) if *class_symbol == class
+                    )
+                })
+                .map(|(index, _)| format!("{union_enum_name}::M{index}(_)"))
+                .collect::<Vec<_>>(),
+        )
     }
 
     /// Return the `SmeltUnknown` variant pattern a concrete member reconstructs from.

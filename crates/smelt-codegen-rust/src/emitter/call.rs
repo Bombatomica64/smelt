@@ -2833,6 +2833,15 @@ impl FunctionEmitter<'_> {
         {
             return Ok(check);
         }
+        // The same union one optional deep. Asked here, before the marker probe
+        // below, because that probe treats any `Optional` operand as erased and
+        // would emit a `SmeltUnknown::Object` pattern against an
+        // `Option<SmeltUnion…>`.
+        if let Some(check) =
+            self.optional_union_class_check(&self.operand_text(value)?, value_ty, class)
+        {
+            return Ok(check);
+        }
         // A host constructor this crate REASSIGNS (`globalThis.File = class File
         // extends Blob {}`) lives in an override slot, and `instanceof` reads the
         // binding — so the check has to read the slot too. The static marker
