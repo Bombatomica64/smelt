@@ -347,6 +347,7 @@ fn end_to_end_examples_match_expected_outputs() -> TestResult {
         "53_top_level_try_tail",
         "54_regex_test_predicate",
         "55_headers_init_union",
+        "56_union_member_read",
     ] {
         verify_end_to_end_example(name)?;
     }
