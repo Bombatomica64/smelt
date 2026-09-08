@@ -209,6 +209,32 @@ Option 1 is the recommendation. Per CLAUDE.md's refactoring-timing rule this is
 an architecture pass and waits for the feature phase to stabilise: **it goes
 immediately after the Hono crate first compiles, as its own round.**
 
+### Folded in (round 18): the tuple-list variance pair
+
+The slice's remaining `SmeltList<(T, SmeltRecord<String, f64>)>` vs
+`SmeltList<(SmeltUnknown, ...)>` pair (`main.rs:5638` and `:7117`, two
+instantiations of one statement) is the SAME root cause, reached from the other
+side, and is folded in here rather than numbered separately.
+
+Diagnosed in round 18: the destination is
+`SmeltList<(T, SmeltRecord<String, f64>)>` in `RegExpRouter<T>::_build_matcher`,
+whose `impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>`
+means `current_function_has_type_param(T)` is TRUE -- `T` is genuinely in scope
+and spellable. The value is an `extract_value_text` recovery from an erased
+value, and it rebuilt the tuple's first element as `SmeltUnknown` instead of
+recovering it as `T`.
+
+So where the round-15 nested-collect case had the ANNOTATION erased while the
+entries kept `T`, this has the RECOVERY erased while the destination keeps `T`.
+Same disagreement, opposite direction. Both disappear once a render position's
+erasure is decided once and used by every side of it, which is what H42 is; a
+separate fix for this pair would be the same 218-call-site threading under a
+different number.
+
+Nothing to do here until H42 runs. Counted in H42's scope: 4 slice errors from
+the nested collect plus these 2, so **6 of the slice's 8 remaining errors are
+H42**.
+
 ### The imprecision H41a leaves in the meantime
 
 Because `collected_container_type_text` erases unconditionally, a callee that IS
