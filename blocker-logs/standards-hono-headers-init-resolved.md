@@ -82,3 +82,151 @@ field and index reads currently require a local receiver
 already clear before round 11 and this abort is not new either. It is a general
 lowering family — a field or index read whose receiver is not a local — and it
 belongs to the Hono stream, not to the fetch types.
+
+---
+
+# Reopened 2026-09-08: a FIFTH shape, and it was real
+
+The coordinator reopened this with the site the four verified shapes missed:
+`src/context.ts:617`, inside
+`#newResponse(data, arg?: StatusCode | ResponseOrInit, headers?)`:
+
+```ts
+if (typeof arg === 'object' && arg.headers) {
+  for (const [key, value] of new Headers(arg.headers)) { ... }
+}
+```
+
+`arg` is `StatusCode | ResponseInit | Response` — a number, Hono's OWN
+`ResponseInit` interface (`headers?: ResponseHeadersInit`, where
+`ResponseHeadersInit = [string, string][] | Record<string, string> | Headers`),
+and `Response`. So `arg.headers` is the join of `ResponseHeadersInit |
+undefined` with `Response`'s `Headers`, and `new Headers(..)` must accept that
+join.
+
+The whole-crate build stopped, verbatim:
+
+```
+Error: EmitError { message: "`new Headers(init)` initializer type is not modeled: SmeltUnknown" }
+```
+
+## Half of it is fixed: the constructor now dispatches on the arms
+
+Two initializer shapes were missing from `headers_conversion_text`, and both
+are modeled now (`crates/smelt-codegen-rust/src/emitter/fetch_types.rs`):
+
+* **A union initializer.** `HeadersInit` is a union in WHATWG's own IDL, so
+  source that keeps it as one hands the constructor a value whose ARM the
+  runtime picks while every arm's CONVERSION stays statically known. A
+  generated union is a tagged enum, so the emitter matches it and runs each
+  arm's own conversion:
+
+  ```rust
+  match init.clone() {
+      SmeltUnion5::M0(v) => SmeltHeaders::from_pairs(v.to_vec().into_iter().map(..).collect::<Vec<(String, String)>>()),
+      SmeltUnion5::M1(v) => SmeltHeaders::from_pairs(v.iter().map(..).collect::<Vec<(String, String)>>()),
+      SmeltUnion5::M2(v) => SmeltHeaders::from_pairs(v.entries_sorted()),
+  }
+  ```
+
+  Erasing the union to `SmeltUnknown` and re-reading its tag would answer the
+  same question with the static type thrown away, and `SmeltHeaders` has no
+  erased constructor to recover it with — which is why the blocker existed
+  rather than a silent fallback.
+* **An absent initializer.** WHATWG's constructor takes `HeadersInit?` and
+  `new Headers(undefined)` is the empty header list, the same answer the
+  no-argument spelling gives. An `Optional` init (what a `headers?:` key
+  arrives as when the source narrowed it by truthiness and Smelt did not prove
+  the narrowing) now emits
+  `match init { Some(v) => <conversion>, None => SmeltHeaders::new() }`.
+
+Fixture `examples/typescript/end-to-end/55_headers_init_union` covers both plus
+copy independence and the two-values-per-name read, byte-identical to Node 22;
+`headers_constructor_dispatches_on_a_union_initializer` and
+`headers_constructor_accepts_an_absent_initializer` pin the emitted shape,
+including the negative (no erased boundary).
+
+## What Hono is actually waiting on: a field read on a union erases
+
+With the constructor fixed, the Hono site stops at the SAME message, and the
+`SmeltUnknown` in it is not the constructor's fault. It is `arg.headers`.
+
+A field read whose base is a tagged union is emitted today by erasing the whole
+union and looking the property up at runtime:
+
+```rust
+// arg: SmeltUnion2 (InitLike | Response)
+smelt_get_unknown_field(&arg.clone().into_smelt_unknown(), "headers")
+```
+
+typed `SmeltUnknown` (`place_ty`'s `Place::Field` arm falls to `Unknown` for a
+union base, and `place_text` handles a union base in the same arm as
+`Type::Unknown`). Every consumer downstream then sees an erased value — which
+is what hands `new Headers` a `SmeltUnknown` no arm-dispatch can help with.
+
+So the demand's "dispatch on the static arms, never an erased fallback" needs
+one more piece, and it is a general erasure fix rather than a fetch-types one:
+**a field read on a tagged union should dispatch on the arms**, the way a
+METHOD call on a union already does (`union_method_text`).
+
+### Why it has to be a FRONTEND desugaring, not a codegen arm
+
+The obvious placement — teach `place_text`/`place_ty` a union arm — cannot
+work, and the reason is worth recording:
+
+* **Codegen cannot render every arm's read.** `Response.headers` is not a
+  struct field read at all: the frontend lowers it to a dedicated
+  `response_headers` HIR op (`response_property_read`), and the same is true of
+  the `Request`/`URL`/`RegExp`/text-codec/`Blob` members. Only the frontend
+  knows which node an arm's member read becomes, so only the frontend can build
+  the arms.
+* **Codegen cannot intern the join.** `place_ty` must name the type of what it
+  renders, and the emitter can only FIND interned types (`find_type_id`), not
+  add them. The join of the arms' field types generally is not in the table.
+  The frontend interns types freely, and `class_field_type` already computes
+  exactly this join for its `Type::Union` arm.
+
+### The shape the desugaring wants
+
+In `static_member_with_absent_fallback`, when the receiver's type is a concrete
+union and the member resolves on at least one arm:
+
+1. Result type: the join `class_field_type` already computes, with `undefined`
+   folded in for any arm that does not carry the member (reading `.headers` off
+   a number is `undefined` in JavaScript, not an error — this is what keeps the
+   `StatusCode` arm from forcing a narrowing proof).
+2. One arm per union member: project the receiver to the arm type (a
+   `TypeAssert` whose type is the arm — `project_union_value_text` already
+   emits `match u { M{i}(v) => v, _ => unreachable!() }` for it, and round 10's
+   `instanceof` narrowing rides the same path), then lower the member read on
+   the projected value through the ordinary `static_member` machinery, so each
+   arm gets its own correct node for free.
+3. Chain the arms on tag checks the emitter already renders statically:
+   `UnknownIs(kind)` becomes `concrete_union_tag_check` (a `matches!` over the
+   arms of that JS kind) and a class check becomes
+   `concrete_union_class_check`. The one arm with no runtime check available
+   (a plain interface, e.g. `ResponseInit`) goes last as the `else`.
+
+That is a self-contained item, it kills a whole erasure class rather than one
+call site (every `u.field` on a union in every corpus), and Hono's
+`context.ts:617` falls out of it: `arg.headers` becomes
+`Optional<ResponseHeadersInit | Headers>`, which the constructor arm added
+above already dispatches on.
+
+## Adjacent gap found while writing the fixture
+
+A nested array literal assigned into a union's TUPLE-list arm erases:
+
+```ts
+type Init = [string, string][] | Record<string, string> | Headers;
+declare function f(init: Init): void;
+f([["content-type", "text/html"]]);   // string[][] to TypeScript
+```
+
+emits `SmeltUnion5::from_smelt_unknown(SmeltUnknown::Array(vec![..]))` — the
+literal is `List<List<String>>`, the arm is `List<(String, String)>`, and
+`inject_union_value_text` has no element-wise list→tuple conversion for the
+injection, so it round-trips through the erased boundary. Annotating the value
+(`const pairs: [string, string][] = ..`) lowers it as a tuple list and injects
+statically, which is what the fixture does. It matters for Hono: an inline
+`{ headers: [['a','b']] }` init object hits the erasing path.

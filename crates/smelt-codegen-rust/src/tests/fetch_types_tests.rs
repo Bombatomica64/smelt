@@ -66,6 +66,70 @@ const copy = new Headers(source);
     );
 }
 
+/// A union initializer dispatches on the arm, with no erasure in between.
+///
+/// `HeadersInit` is a union in WHATWG's IDL, so source that keeps it as one
+/// hands the constructor a value whose arm the runtime picks and whose
+/// conversion the compiler picks. A generated union is a tagged enum, so both
+/// halves stay static: the emitted code matches the enum and runs each arm's
+/// own conversion. The negative assertion is the point of the test — erasing
+/// the union to `SmeltUnknown` to re-inspect its tag would answer the same
+/// question with the type thrown away, and `SmeltHeaders` has no erased
+/// constructor to recover it with.
+#[test]
+fn headers_constructor_dispatches_on_a_union_initializer() {
+    let source = source_for(
+        r#"
+type HeadersInitUnion = [string, string][] | Record<string, string> | Headers;
+function contentTypeOf(init: HeadersInitUnion): string {
+  return new Headers(init).get("content-type") ?? "none";
+}
+const pairs: [string, string][] = [["content-type", "text/html"]];
+console.log(contentTypeOf(pairs));
+"#,
+    );
+    assert!(
+        source.contains("::M0(smelt_headers_init)")
+            && source.contains("::M1(smelt_headers_init)")
+            && source.contains("::M2(smelt_headers_init)"),
+        "each union arm must get its own conversion:\n{source}"
+    );
+    assert!(
+        source.contains("smelt_headers_init.entries_sorted()"),
+        "the `Headers` arm must copy the source pairs:\n{source}"
+    );
+    assert!(
+        !source.contains("SmeltHeaders::from_smelt_unknown"),
+        "a union initializer must not route through the erased boundary:\n{source}"
+    );
+}
+
+/// An absent initializer is the empty header list, not a blocker.
+///
+/// WHATWG's constructor takes `HeadersInit?` and `new Headers(undefined)` is
+/// the empty list — the same answer the no-argument spelling gives — so an
+/// optional init key needs no narrowing proof to be lowered.
+#[test]
+fn headers_constructor_accepts_an_absent_initializer() {
+    let source = source_for(
+        r#"
+interface InitLike { headers?: Record<string, string> }
+function firstHeader(init: InitLike): string {
+  return new Headers(init.headers).get("a") ?? "none";
+}
+console.log(firstHeader({ headers: { a: "1" } }));
+"#,
+    );
+    assert!(
+        source.contains("None => SmeltHeaders::new()"),
+        "an absent initializer must build an empty header list:\n{source}"
+    );
+    assert!(
+        source.contains("Some(smelt_headers_init) => SmeltHeaders::from_pairs("),
+        "a present initializer must keep its own conversion:\n{source}"
+    );
+}
+
 /// The mutating operations emit the matching runtime methods.
 #[test]
 fn headers_mutations_emit_their_runtime_methods() {
