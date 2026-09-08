@@ -315,12 +315,50 @@ pub(crate) fn needs_blob_runtime(mir: &Mir) -> bool {
         let Type::Class { name, .. } = ty else {
             return false;
         };
-        mir.names
-            .get(*name)
-            .or_else(|| mir.symbols.get(*name))
-            .and_then(smelt_stdlib::typescript_stdlib_class)
+        stdlib_class_of_class_symbol(mir, *name)
             .is_some_and(smelt_stdlib::StdlibClass::is_blob_runtime_type)
     })
+}
+
+/// Resolve a class symbol to its shared stdlib class identity, if any.
+///
+/// The one place that answers "is this `Type::Class` a modeled host class",
+/// so the pay-for-use gates, the type resolver and the member emitters cannot
+/// disagree about it.
+///
+/// Declines for a name the SOURCE declares as a class. A program that writes
+/// its own `class File extends Blob` owns that name: the crate emits a real
+/// `File` struct, `Type::Class { File }` means that struct, and the modeled
+/// host class of the same spelling is not in play. Without the check the two
+/// halves of one statement disagreed -- the declaration's type came from this
+/// resolver (`SmeltBlob`) while the constructor came from the class item
+/// (`File::new(..)`), which is `error[E0308]` in the generated crate -- and the
+/// pay-for-use gate pulled in a runtime type the crate never uses.
+///
+/// A named class EXPRESSION never reaches this check: its name is bound only
+/// inside the class's own body, so the frontend gives it its own type symbol
+/// (`host_shadowing_class_expression_name`) rather than taking the spelling
+/// away from the host class.
+///
+/// Interfaces are deliberately NOT consulted. A source `interface Headers`
+/// declares a shape over the host value rather than replacing it, and the
+/// ambient `ResponseInit`/`RequestInit` interfaces resolve through here on
+/// purpose.
+pub(crate) fn stdlib_class_of_class_symbol(
+    mir: &Mir,
+    name: smelt_hir::Symbol,
+) -> Option<smelt_stdlib::StdlibClass> {
+    if mir.classes.iter().any(|class| class.name == name) {
+        return None;
+    }
+    // The RENDERING decides this, not the recorded original name: a class
+    // expression that took an internal type symbol keeps the source spelling as
+    // its original name so reflection can answer `File`, and asking the
+    // original name here would hand that class the host runtime type again.
+    mir.symbols
+        .get(name)
+        .or_else(|| mir.names.get(name))
+        .and_then(smelt_stdlib::typescript_stdlib_class)
 }
 
 /// Returns true when a type names the WHATWG `Headers` class.
@@ -337,11 +375,7 @@ fn is_stdlib_class(mir: &Mir, ty: &Type, class: smelt_stdlib::StdlibClass) -> bo
     let Type::Class { name, .. } = ty else {
         return false;
     };
-    mir.names
-        .get(*name)
-        .or_else(|| mir.symbols.get(*name))
-        .and_then(smelt_stdlib::typescript_stdlib_class)
-        == Some(class)
+    stdlib_class_of_class_symbol(mir, *name) == Some(class)
 }
 
 /// Returns true when a MIR rvalue uses Unicode normalization APIs.

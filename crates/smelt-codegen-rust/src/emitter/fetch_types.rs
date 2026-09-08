@@ -548,11 +548,15 @@ impl FunctionEmitter<'_> {
     }
 
     /// Resolve a class symbol to its shared stdlib class identity, if any.
+    ///
+    /// Delegates to `crate::stdlib::stdlib_class_of_class_symbol`, which is the
+    /// one place that answers this for the pay-for-use gates and the emitters
+    /// alike -- including the source-shadowing rule documented there.
     pub(super) fn stdlib_class_of_symbol(
         &self,
         name: Symbol,
     ) -> Result<Option<smelt_stdlib::StdlibClass>, EmitError> {
-        Ok(smelt_stdlib::typescript_stdlib_class(self.symbol_name(name)?))
+        Ok(crate::stdlib::stdlib_class_of_class_symbol(self.mir, name))
     }
     /// Render a scalar init key, falling back to the spec's default.
     ///

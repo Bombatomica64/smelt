@@ -5559,22 +5559,6 @@ function make(parser: Parser): ValueSetter {
         ),
         "{source}"
     );
-    assert!(!source.contains("\"symbol\".to_owned()"), "{source}");
-    // Exactly one copy of the table: the helper's own body.
-    assert_eq!(
-        source
-            .matches("SmeltUnknown::Symbol(_) => \"symbol\"")
-            .count(),
-        1,
-        "{source}"
-    );
-    // The site reads the value by shared reference rather than cloning it. The
-    // callback parameter is already spelled `&SmeltUnknown`, so it is passed
-    // through instead of being borrowed a second time.
-    assert!(
-        source.contains("smelt_typeof(closure_arg_0).to_owned()"),
-        "{source}"
-    );
 }
 
 #[test]
@@ -5731,6 +5715,22 @@ function mapType(values: unknown[]): string[] {
         source.contains(
             "SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Promise(_) => \"object\""
         ),
+        "{source}"
+    );
+    assert!(!source.contains("\"symbol\".to_owned()"), "{source}");
+    // Exactly one copy of the table: the helper's own body.
+    assert_eq!(
+        source
+            .matches("SmeltUnknown::Symbol(_) => \"symbol\"")
+            .count(),
+        1,
+        "{source}"
+    );
+    // The site reads the value by shared reference rather than cloning it. The
+    // callback parameter is already spelled `&SmeltUnknown`, so it is passed
+    // through instead of being borrowed a second time.
+    assert!(
+        source.contains("smelt_typeof(closure_arg_0).to_owned()"),
         "{source}"
     );
 }
