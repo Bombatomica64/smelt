@@ -3,6 +3,33 @@
 use super::*;
 
 impl FunctionEmitter<'_> {
+    /// Name the source site of the function currently being emitted.
+    ///
+    /// An `EmitError` raised deep in emission used to identify itself only by
+    /// the enclosing function's NAME, which is `<unnamed>` for every closure.
+    /// A blocker inside a callback therefore said nothing about where it was,
+    /// and pinning one in a corpus the size of Hono meant bisecting the
+    /// manifest's `exclude` list one directory at a time.
+    ///
+    /// MIR is flattened and carries no per-statement spans, but the entry
+    /// BLOCK has one, and `Mir::file_paths` preserves `FileId -> path`, so a
+    /// file and byte offset are recoverable. That is block granularity, not
+    /// statement granularity -- enough to name the function in the source,
+    /// which is what a reader needs to find it.
+    pub(super) fn current_function_site(&self) -> String {
+        let name = self.symbol_name(self.function.name).unwrap_or("<unnamed>");
+        let Some(block) = self.function.blocks.first() else {
+            return format!("`{name}`");
+        };
+        let span = block.span;
+        match self.mir.file_paths.get(&span.file) {
+            Some(path) => format!("`{name}` at {path}:{}..{}", span.start, span.end),
+            // A synthesized function (a generic instantiation, a closure the
+            // emitter built) has no source file of its own.
+            None => format!("`{name}` at byte {}..{}", span.start, span.end),
+        }
+    }
+
     /// The `thread_local!` slot identifier for a host constructor's override
     /// state (`SMELT_HOST_OVERRIDE_<NAME>`).
     fn host_override_slot_ident(&self, class: Symbol) -> Result<String, EmitError> {

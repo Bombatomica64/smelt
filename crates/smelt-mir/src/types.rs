@@ -3,6 +3,8 @@
 //! This module defines the fundamental types and structures used in the MIR representation,
 //! including functions, basic blocks, locals, and various statements and expressions.
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 use smelt_hir::{BodyId, PropertyLookup, Span, Symbol, TypeId, Visibility};
 
@@ -48,6 +50,17 @@ pub struct Mir {
     /// in the crate. `Rvalue::GlobalGet`/`Rvalue::GlobalSet` reference entries by
     /// index, and codegen emits one thread-local cell per entry.
     pub globals: Vec<MirGlobal>,
+    /// Source path of every file the crate was lowered from, keyed by the
+    /// [`smelt_hir::FileId`] its spans carry.
+    ///
+    /// MIR is flattened, so once lowering is done a diagnostic has a span but
+    /// no way to say WHICH file it points into. Every `Span` carries a
+    /// `FileId`, and the HIR crate's modules carry `FileId -> path`, so this
+    /// preserves that one mapping across the boundary. It exists so an
+    /// `EmitError` can name its site: before it, a codegen blocker in a closure
+    /// could only report `<unnamed>`, and pinning one in a corpus the size of
+    /// Hono took a manifest-level bisection.
+    pub file_paths: HashMap<smelt_hir::FileId, String>,
     /// Type interner for interned types.
     pub types: smelt_hir::TypeInterner,
     /// Symbol interner for interned identifiers.
@@ -89,7 +102,7 @@ pub enum MirGlobalInit {
 impl Mir {
     /// Creates a new empty MIR crate with the given type and symbol interners.
     #[must_use]
-    pub const fn new(
+    pub fn new(
         types: smelt_hir::TypeInterner,
         symbols: smelt_hir::SymbolInterner,
         names: smelt_hir::OriginalNameTable,
@@ -100,6 +113,7 @@ impl Mir {
             interfaces: Vec::new(),
             closures: Vec::new(),
             globals: Vec::new(),
+            file_paths: HashMap::new(),
             types,
             symbols,
             names,
