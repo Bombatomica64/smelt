@@ -23,15 +23,17 @@ function contentTypeOf(init: HeadersInitUnion): string {
   return new Headers(init).get("content-type") ?? "none";
 }
 
-// The pair-list arm's own spelling is a TUPLE list, so the argument carries the
-// annotation: a bare `[["a", "b"]]` literal is `string[][]` to TypeScript, and
-// injecting THAT into the tuple arm is a separate coercion that still erases —
-// recorded in `blocker-logs/standards-hono-headers-init-resolved.md`.
-const htmlPairs: HeaderPairs = [["content-type", "text/html"]];
-
+// A BARE nested literal is `string[][]` to TypeScript while the arm's own
+// spelling is a tuple list, so the literal is built at the arm's element type
+// rather than erased into an array the union reconstructs at runtime.
 console.log(contentTypeOf({ "Content-Type": "text/plain" }));
-console.log(contentTypeOf(htmlPairs));
+console.log(contentTypeOf([["content-type", "text/html"]]));
 console.log(contentTypeOf(new Headers([["Content-Type", "application/json"]])));
+
+// The annotated spelling of the same value reaches the same arm by an exact
+// member match instead.
+const htmlPairs: HeaderPairs = [["content-type", "text/html"]];
+console.log(contentTypeOf(htmlPairs));
 
 // The same union, reached through an optional init key. `headers` is absent in
 // the second call, so the constructor answers an empty header list.
@@ -46,6 +48,9 @@ function firstHeader(init: InitLike): string {
 
 console.log(firstHeader({ headers: { a: "1", b: "2" } }));
 console.log(firstHeader({}));
+// The inline shape Hono writes: a nested literal as an init object's key,
+// whose declared type is the union.
+console.log(firstHeader({ headers: [["a", "3"]] }));
 
 // A copy is a distinct object: writing through the copy must not touch the
 // source, which is what the spec's fill algorithm over the source's iteration

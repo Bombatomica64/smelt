@@ -1,8 +1,8 @@
 {
   "files_scanned": 745,
-  "total": 74608,
+  "total": 74560,
   "category_totals": {
-    "avoidable-erasure": 32491,
+    "avoidable-erasure": 32443,
     "legitimate-boundary": 39422,
     "runtime-prelude": 2695
   },
@@ -3772,13 +3772,6 @@
       "occurrences": 24,
       "files": 5,
       "example": "third_party/es-toolkit/dist-smelt/src/cloneDeep_spec.rs:691"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "let _smelt_tmp_N: Option<SmeltUnionN> = Some(SmeltUnionN::from_smelt_unknown(SmeltUnknown::Array(vec![SmeltUnknown::String(\"S\".into()), SmeltUnknown::String(\"S\".into())].into())));",
-      "occurrences": 24,
-      "files": 3,
-      "example": "third_party/es-toolkit/dist-smelt/src/trimEnd_spec.rs:166"
     },
     {
       "category": "avoidable-erasure",
@@ -8612,13 +8605,6 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "let _smelt_tmp_N: Option<SmeltUnionN> = Some(SmeltUnionN::from_smelt_unknown(SmeltUnknown::Array(vec![SmeltUnknown::String(\"S\".into()), SmeltUnknown::String(\"S\".into()), SmeltUnknown::String(\"S\".into()), SmeltUnknown::String(\"S\".into()), SmeltUnknown::String(\"S\".into()), SmeltUnknown::String(\"S\".into()), SmeltUnknown::String(\"S\".into()), SmeltUnknown::String(\"S\".into())].into())));",
-      "occurrences": 9,
-      "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/trim_spec.rs:26"
-    },
-    {
-      "category": "avoidable-erasure",
       "shape": "let _smelt_tmp_N: SmeltList<SmeltList<SmeltUnknown>> = combinations_N(_smelt_tmp_N, N.N)?;",
       "occurrences": 9,
       "files": 1,
@@ -9477,13 +9463,6 @@
       "occurrences": 8,
       "files": 1,
       "example": "third_party/es-toolkit/dist-smelt/src/limitAsync_spec.rs:97"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "let _smelt_tmp_N: Option<SmeltUnionN> = Some(SmeltUnionN::from_smelt_unknown(SmeltUnknown::Array(vec![SmeltUnknown::String(\"S\".into()), SmeltUnknown::String(\"S\".into()), SmeltUnknown::String(\"S\".into())].into())));",
-      "occurrences": 8,
-      "files": 2,
-      "example": "third_party/es-toolkit/dist-smelt/src/trimEnd_spec.rs:196"
     },
     {
       "category": "avoidable-erasure",
@@ -10352,13 +10331,6 @@
       "occurrences": 7,
       "files": 1,
       "example": "third_party/es-toolkit/dist-smelt/src/cloneDeep_spec.rs:1060"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "let _smelt_tmp_N: Option<SmeltUnionN> = Some(SmeltUnionN::from_smelt_unknown(SmeltUnknown::Array(vec![SmeltUnknown::String(\"S\".into()), SmeltUnknown::String(\"S\".into()), SmeltUnknown::String(\"S\".into()), SmeltUnknown::String(\"S\".into()), SmeltUnknown::String(\"S\".into()), SmeltUnknown::String(\"S\".into())].into())));",
-      "occurrences": 7,
-      "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/trim_spec.rs:140"
     },
     {
       "category": "avoidable-erasure",

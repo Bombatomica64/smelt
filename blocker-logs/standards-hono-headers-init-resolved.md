@@ -257,9 +257,10 @@ and `src/helper/proxy/index.ts:58`/`:175`. Nothing about `Headers` or unions is
 missing there; it wants the callback-parameter typing work, which is the
 `callback-generics` stream rather than this one.
 
-## Adjacent gap found while writing the fixture
+## The adjacent gap the fixture found, now closed
 
-A nested array literal assigned into a union's TUPLE-list arm erases:
+A bare nested array literal injected into a union's TUPLE-list arm used to
+round-trip through the erased boundary:
 
 ```ts
 type Init = [string, string][] | Record<string, string> | Headers;
@@ -267,10 +268,32 @@ declare function f(init: Init): void;
 f([["content-type", "text/html"]]);   // string[][] to TypeScript
 ```
 
-emits `SmeltUnion5::from_smelt_unknown(SmeltUnknown::Array(vec![..]))` — the
-literal is `List<List<String>>`, the arm is `List<(String, String)>`, and
-`inject_union_value_text` has no element-wise list→tuple conversion for the
-injection, so it round-trips through the erased boundary. Annotating the value
-(`const pairs: [string, string][] = ..`) lowers it as a tuple list and injects
-statically, which is what the fixture does. It matters for Hono: an inline
-`{ headers: [['a','b']] }` init object hits the erasing path.
+emitted `SmeltUnion5::from_smelt_unknown(SmeltUnknown::Array(vec![..]))` — the
+literal is `List<List<String>>`, the arm is `List<(String, String)>`, so it was
+not an exact member and the list-literal emitter's union destination fell
+straight to erasure. Two conversions and a lost type for a value whose arm the
+compiler knows.
+
+A list literal whose destination is a union is now built AT the arm's element
+type and wrapped in the variant
+(`union_collection_arm_for_list_literal`, claimed in `Rvalue::List`):
+
+```rust
+SmeltUnion5::M0(SmeltList::from({
+    let smelt_list_items: Vec<(String, String)> =
+        vec![{ let smelt_tuple_values = pair.to_vec(); (…get(0)…, …get(1)…) }];
+    smelt_list_items
+}))
+```
+
+Only a UNIQUE collection arm is claimed — the same uniqueness rule
+`inject_union_value_text` uses — because with two list arms the literal's own
+element types cannot say which was meant, and erasure is then the honest
+answer. A `List` arm accepts any element type (the elements coerce into it); a
+`Tuple` arm has to match the literal's arity.
+
+It mattered for Hono, and for the corpora: es-toolkit avoidable erasure
+32491 → 32443 (−48). Fixture `55_headers_init_union` now carries both the bare
+literal and the inline `{ headers: [['a','b']] }` init-object shape Hono
+writes, alongside the annotated spelling that reaches the same arm by exact
+member match.

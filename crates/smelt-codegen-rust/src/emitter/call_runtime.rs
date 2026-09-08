@@ -633,6 +633,32 @@ impl FunctionEmitter<'_> {
                         return Ok(format!("Some({inner_text})"));
                     }
                 }
+                // A list literal whose destination is a UNION belongs in the
+                // arm that holds a collection, built at that arm's element
+                // type. Falling through to the erasure below turned
+                // `f([["a", "b"]])` — where the parameter is
+                // `[string, string][] | Record<string, string> | Headers`, the
+                // shape WHATWG spells `HeadersInit` — into an erased array the
+                // union then reconstructed at runtime
+                // (`SmeltUnion5::from_smelt_unknown(SmeltUnknown::Array(..))`),
+                // which is two conversions and a lost type for a value whose
+                // arm the compiler knows. TypeScript infers `string[][]` for a
+                // bare nested literal, so the arm's own tuple spelling is
+                // reached by coercing the elements, not by erasing them.
+                //
+                // Only a UNIQUE collection arm is claimed, the same rule
+                // `inject_union_value_text` uses: with two list arms the
+                // literal's own element types cannot say which was meant, and
+                // erasure is the honest answer.
+                if let Some((index, arm_ty)) =
+                    self.union_collection_arm_for_list_literal(dest_ty, items.len())
+                {
+                    let inner = self.rvalue_text_for_dest(value, arm_ty)?;
+                    return Ok(format!(
+                        "{}::M{index}({inner})",
+                        union::union_name(dest_ty)
+                    ));
+                }
                 if matches!(
                     self.mir.types.get(dest_ty),
                     Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
