@@ -7,6 +7,11 @@
 pub enum StdlibClass {
     /// JavaScript `Date`, represented by timestamp and date helper operations.
     Date,
+    /// WHATWG `Headers`, backed by the generated concrete `SmeltHeaders`
+    /// runtime type (a case-insensitive, insertion-ordered header multi-map).
+    /// Reads keep their exact types: `get` is `string | null`, `has` is a
+    /// boolean, `getSetCookie` is a string list.
+    Headers,
     /// JavaScript `Map`, represented by dictionary HIR values.
     Map,
     /// Synthetic `RegExp` match result (`RegExp.exec` / `String.matchAll`),
@@ -24,6 +29,213 @@ pub enum StdlibClass {
     RegExp,
     /// JavaScript `Set`, represented by set HIR values.
     Set,
+    /// WHATWG `URLSearchParams`, backed by the generated concrete
+    /// `SmeltUrlSearchParams` runtime type (an ordered, case-sensitive
+    /// name/value pair list with `application/x-www-form-urlencoded`
+    /// serialization).
+    UrlSearchParams,
+    /// WHATWG `Response`, backed by the generated concrete `SmeltResponse`
+    /// runtime type (a status line, a `SmeltHeaders`, and a single-use
+    /// `SmeltBody`).
+    Response,
+    /// WHATWG `Request`, backed by the generated concrete `SmeltRequest`
+    /// runtime type (a serialized URL, a method, a `SmeltHeaders`, and the same
+    /// single-use `SmeltBody` a response holds).
+    Request,
+    /// `node:events` `EventEmitter`, backed by the generated concrete
+    /// `SmeltEventEmitter` runtime type (an insertion-ordered listener list).
+    EventEmitter,
+    /// `node:http` `Server`, backed by the generated concrete `SmeltHttpServer`
+    /// runtime type (a request handler, a bound address, and a shutdown
+    /// signal).
+    HttpServer,
+    /// `node:http` `IncomingMessage`: the request half of one exchange. Holds
+    /// an emitter by COMPOSITION rather than by inheritance, so `req.on('data',
+    /// ..)` is the same operation on the same listener list that a plain
+    /// `EventEmitter` receiver gets.
+    IncomingMessage,
+    /// `node:http` `ServerResponse`: the response half of one exchange, and the
+    /// only modeled class with settable members (`res.statusCode = 200`).
+    ServerResponse,
+    /// WHATWG `TextEncoder`, backed by the generated concrete `SmeltTextEncoder`
+    /// runtime type. The spec fixes its encoding at UTF-8, so the value carries
+    /// only a JS reference identity and its `encoding` data property.
+    TextEncoder,
+    /// WHATWG `TextDecoder`, backed by the generated concrete `SmeltTextDecoder`
+    /// runtime type (an encoding label plus the reference identity).
+    TextDecoder,
+    /// A concrete byte view: the value `TextEncoder.encode` answers, backed by
+    /// the generated `SmeltUint8Array` runtime type (a shared `Vec<u8>` with a
+    /// JS reference identity).
+    ///
+    /// Reached only through the reserved synthetic name
+    /// [`BYTE_ARRAY_CLASS_NAME`], never through the source spelling
+    /// `Uint8Array`. That separation is deliberate: the eleven typed-array
+    /// VIEWS are still byte-backed host records (`host_object.rs`), because a
+    /// view's identity carries an element type, a byte offset, and a shared
+    /// `ArrayBuffer` that reflective construction reads back at runtime. A
+    /// source `Uint8Array` annotation therefore keeps its erased meaning, and a
+    /// concrete byte view crosses into it through the ordinary
+    /// `IntoSmeltUnknown` boundary adapter. Converting the whole view family to
+    /// concrete Rust is recorded as demand, not done here.
+    ByteArray,
+    /// WHATWG `Blob`, backed by the generated concrete `SmeltBlob` runtime type
+    /// (immutable bytes, a MIME type, and optional `File` metadata).
+    Blob,
+    /// WHATWG `File`. Backed by the SAME `SmeltBlob` runtime type: the spec's
+    /// `File` is a `Blob` plus exactly two data properties (`name`,
+    /// `lastModified`), so a file is a blob whose name is present. Rust has no
+    /// inheritance, and modeling the subtype as an optional-name blob is what
+    /// makes `file instanceof Blob` free and what the erased record already
+    /// does — it stamps `__smelt_file` on top of `__smelt_blob` rather than
+    /// carrying a second shape.
+    File,
+}
+
+impl StdlibClass {
+    /// Return whether values of this class carry a `node:events` listener list.
+    ///
+    /// This is the "has an emitter" test that replaced "is the emitter" once
+    /// `IncomingMessage` gained one: Node's `IncomingMessage` extends
+    /// `EventEmitter`, so `req.on('data', ..)` must reach the same operation as
+    /// `emitter.on('data', ..)`. Answering it from the registry — rather than
+    /// from a name comparison at each dispatch site — is what keeps the
+    /// frontend's method dispatch, the result typing, and codegen's receiver
+    /// rendering agreeing about which receivers are emitters.
+    #[must_use]
+    pub const fn has_event_emitter(self) -> bool {
+        matches!(self, Self::EventEmitter | Self::IncomingMessage)
+    }
+
+    /// Return whether values of this class cross the dynamic boundary through
+    /// their runtime type's OWN `IntoSmeltUnknown` adapter.
+    ///
+    /// True for every class backed by a generated runtime type that keeps its
+    /// state somewhere other than declared fields — behind a shared cell, in a
+    /// closure, in a byte vector. That is the whole set of them, and the reason
+    /// they need their own adapter is that the generic struct erasure reads
+    /// DECLARED FIELDS and stamps `__smelt_class`: for a prelude type it finds
+    /// no fields, so it produces a record with no state and no host identity.
+    ///
+    /// This drives two things that must not disagree. The emitter routes an
+    /// erasure of such a value to `.into_smelt_unknown()` instead of the
+    /// declared-field builder, and `instance_of_text` answers `instanceof` on
+    /// an erased value through the marker that same adapter stamps. Both used
+    /// to consult their own hand-maintained lists of class names, which is how
+    /// the two came apart for the six classes that had neither.
+    #[must_use]
+    pub const fn erases_through_adapter(self) -> bool {
+        matches!(
+            self,
+            Self::Headers
+                | Self::UrlSearchParams
+                | Self::Response
+                | Self::Request
+                | Self::Blob
+                | Self::File
+                | Self::RegExp
+                | Self::Match
+                | Self::ByteArray
+                | Self::TextEncoder
+                | Self::TextDecoder
+                | Self::EventEmitter
+                | Self::HttpServer
+                | Self::IncomingMessage
+                | Self::ServerResponse
+        )
+    }
+
+    /// Return whether a REFLECTED `new <this class>()` may build a marker
+    /// record instead of running the class's own constructor.
+    ///
+    /// Reflected construction — `new (Object.getPrototypeOf(x).constructor)()`,
+    /// which es-toolkit's `clone` uses — has only a class NAME to work from, so
+    /// for a host class it builds a record carrying that class's identity
+    /// marker. That is right for a class whose values ARE records, and wrong
+    /// for one backed by a generated runtime type: the record would answer
+    /// `instanceof` correctly and then silently fail every method called on it.
+    ///
+    /// `Blob` and `File` are the exception among the runtime-typed classes, and
+    /// deliberately: `blob_prelude` emits a reflected constructor that shares
+    /// `smelt_blob_record` with the erasure, so the record it builds is exactly
+    /// the one a real blob erases to and the two cannot drift.
+    ///
+    /// Asking the registry replaces two hand-maintained exclusion lists in
+    /// `reflection_prelude`, which is how five of the six classes registered in
+    /// round 11 would otherwise have silently become reflectively constructible
+    /// as records the moment they gained a marker.
+    #[must_use]
+    pub const fn reflects_to_marker_record(self) -> bool {
+        !self.erases_through_adapter() || matches!(self, Self::Blob | Self::File)
+    }
+
+    /// Return whether an ERASED value can be converted BACK into this class's
+    /// concrete Rust representation.
+    ///
+    /// The other half of [`Self::erases_through_adapter`], and deliberately a
+    /// separate question: erasing needs only `IntoSmeltUnknown`, while
+    /// recovering needs a `SmeltFromUnknown` that can honestly produce a value.
+    /// Conflating them is what made the round-10 narrowing rule exclude classes
+    /// whose `instanceof` was perfectly answerable.
+    ///
+    /// It is what lets `x instanceof Headers` NARROW an erased `x`: the
+    /// narrowing is emitted exactly where it can be materialized, so the rule
+    /// stays general — "there is a sound checked cast for this class" — rather
+    /// than becoming a list of spellings. A class without a recovery keeps its
+    /// erased type across the guard, because inventing a conversion for it
+    /// would be guessing at a representation.
+    ///
+    /// `HttpServer` is the one class that erases but does NOT recover. A server
+    /// is a live listening socket with a handler closure and a tokio shutdown
+    /// sender; a record cannot describe one, and the origin registry only helps
+    /// for a record that came from an erasure in this same thread. Rather than
+    /// fabricate a server that is not listening, narrowing one stays a named
+    /// blocker — the honest answer, and the same reason its `instanceof` is
+    /// still worth answering: identity is knowable where reconstruction is not.
+    ///
+    /// `Blob` and `File` both answer true and share one adapter, since they
+    /// share one runtime type (see [`Self::File`]).
+    #[must_use]
+    pub const fn narrows_from_erased(self) -> bool {
+        self.erases_through_adapter() && !matches!(self, Self::HttpServer)
+    }
+
+    /// Return whether values of this class are the generated `SmeltBlob` type.
+    ///
+    /// `Blob` and `File` share one Rust representation (see [`Self::File`]), and
+    /// several sites — the emitted Rust type, the erasure adapter, the
+    /// pay-for-use gate — need "is this the blob runtime type" rather than
+    /// "which of the two spellings is it". Asking the registry keeps those
+    /// sites from each re-deriving the pairing.
+    #[must_use]
+    pub const fn is_blob_runtime_type(self) -> bool {
+        matches!(self, Self::Blob | Self::File)
+    }
+
+    /// The string parameters a listener for `event` receives, when this class
+    /// publishes a known schema for it.
+    ///
+    /// A plain `EventEmitter`'s events are open — any name, any listener
+    /// signature — which is the dynamic boundary its listener store is built
+    /// on. A MODELED class is different: `IncomingMessage` emits exactly the
+    /// events `node:http` documents, and `data` always carries one chunk while
+    /// `end` always carries nothing. That is static knowledge, so the source's
+    /// own listener keeps a real parameter type (`(chunk: string) => void`)
+    /// instead of taking an erased value and coercing it by hand. Only the
+    /// registration adapter still erases, and it is the boundary either way.
+    ///
+    /// `None` means "no schema" and the listener stays erased, which is the
+    /// answer for every event of a plain emitter and for the events of a
+    /// modeled class whose payload is not a string (`error` carries an error
+    /// object; nothing reads it yet, so nothing claims to know its shape).
+    #[must_use]
+    pub fn event_listener_string_params(self, event: &str) -> Option<usize> {
+        match (self, event) {
+            (Self::IncomingMessage, "data") => Some(1),
+            (Self::IncomingMessage, "end" | "close") => Some(0),
+            _ => None,
+        }
+    }
 }
 
 /// Reserved synthetic class name for a `RegExp` match result value.
@@ -36,6 +248,15 @@ pub const MATCH_CLASS_NAME: &str = "__SmeltMatch";
 /// Reserved synthetic class name for `matchResult.groups` named-group access.
 pub const MATCH_GROUPS_CLASS_NAME: &str = "__SmeltMatchGroups";
 
+/// Reserved synthetic class name for a concrete byte view.
+///
+/// `TextEncoder.encode` answers a value of this class. The name is not writable
+/// in user TypeScript (double-underscore prefix), so it never collides with a
+/// source class, and — unlike the spelling `Uint8Array` — it never collides with
+/// the byte-backed host record the typed-array views still use. See
+/// [`StdlibClass::ByteArray`].
+pub const BYTE_ARRAY_CLASS_NAME: &str = "__SmeltUint8Array";
+
 /// Return the stdlib class modeled by a TypeScript class type name.
 ///
 /// Codegen consults this instead of comparing class symbol names inline so
@@ -44,12 +265,30 @@ pub const MATCH_GROUPS_CLASS_NAME: &str = "__SmeltMatchGroups";
 pub fn typescript_stdlib_class(name: &str) -> Option<StdlibClass> {
     match name {
         "Date" => Some(StdlibClass::Date),
+        "Headers" => Some(StdlibClass::Headers),
         "Map" => Some(StdlibClass::Map),
         MATCH_CLASS_NAME => Some(StdlibClass::Match),
         MATCH_GROUPS_CLASS_NAME => Some(StdlibClass::MatchGroups),
         "MatchFnResult" => Some(StdlibClass::MatchFnResult),
         "RegExp" => Some(StdlibClass::RegExp),
         "Set" => Some(StdlibClass::Set),
+        "URLSearchParams" => Some(StdlibClass::UrlSearchParams),
+        "Response" => Some(StdlibClass::Response),
+        "Request" => Some(StdlibClass::Request),
+        "EventEmitter" => Some(StdlibClass::EventEmitter),
+        // The `node:http` names as the module exports them, so a source that
+        // annotates its handler (`(req: IncomingMessage, res: ServerResponse)`)
+        // resolves to the same modeled classes the untyped handler is given.
+        // A user class of the same name shadows these, as it does for every
+        // other entry here.
+        "Server" => Some(StdlibClass::HttpServer),
+        "IncomingMessage" => Some(StdlibClass::IncomingMessage),
+        "ServerResponse" => Some(StdlibClass::ServerResponse),
+        "TextEncoder" => Some(StdlibClass::TextEncoder),
+        "TextDecoder" => Some(StdlibClass::TextDecoder),
+        BYTE_ARRAY_CLASS_NAME => Some(StdlibClass::ByteArray),
+        "Blob" => Some(StdlibClass::Blob),
+        "File" => Some(StdlibClass::File),
         _ => None,
     }
 }
@@ -101,6 +340,10 @@ mod tests {
     #[test]
     fn recognizes_stdlib_class_names() {
         assert_eq!(typescript_stdlib_class("Date"), Some(StdlibClass::Date));
+        assert_eq!(
+            typescript_stdlib_class("Headers"),
+            Some(StdlibClass::Headers)
+        );
         assert_eq!(typescript_stdlib_class("Map"), Some(StdlibClass::Map));
         assert_eq!(
             typescript_stdlib_class(MATCH_CLASS_NAME),
@@ -116,6 +359,10 @@ mod tests {
         );
         assert_eq!(typescript_stdlib_class("RegExp"), Some(StdlibClass::RegExp));
         assert_eq!(typescript_stdlib_class("Set"), Some(StdlibClass::Set));
+        assert_eq!(
+            typescript_stdlib_class("URLSearchParams"),
+            Some(StdlibClass::UrlSearchParams)
+        );
     }
 
     /// User class names never resolve to a stdlib identity.

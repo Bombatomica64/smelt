@@ -102,7 +102,32 @@ fn host_instance_markers(class_name: &str) -> Option<Vec<&'static str>> {
         .filter(|entry| entry.class_name == class_name || entry.to_string_tag == class_name)
         .map(|entry| entry.marker)
         .collect::<Vec<_>>();
-    (!markers.is_empty()).then_some(markers)
+    if !markers.is_empty() {
+        return Some(markers);
+    }
+    // The markers owned by a SUBSYSTEM rather than by the host-object registry.
+    //
+    // `host_object_markers()` deliberately excludes these — the runtime tracks
+    // dates, regexps, maps, sets and abort controllers through their own
+    // helpers, and the `for...in` filter must not treat them as host records.
+    // But `instanceof` asks a different question, and for that question they
+    // are no different from a registry marker: the erasure stamps the key, so
+    // an erased value's identity is recoverable from it.
+    //
+    // Naming them here rather than at five separate `if class_name == ".."`
+    // arms is what lets ONE probe below serve every class. Each arm that
+    // remains does so because it asks something OTHER than marker presence,
+    // and says which.
+    let subsystem = match class_name {
+        "Date" => "__smelt_date",
+        "RegExp" => "__smelt_regexp",
+        "Map" => "__smelt_map",
+        "Set" => "__smelt_set",
+        "AbortController" => "__smelt_abortcontroller",
+        "AbortSignal" => "__smelt_abortsignal",
+        _ => return None,
+    };
+    Some(vec![subsystem])
 }
 
 impl FunctionEmitter<'_> {
@@ -228,6 +253,10 @@ impl FunctionEmitter<'_> {
                     "SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>({body}) }}))"
                 ))
             }
+            smelt_hir::AsyncOp::ExitDrain => Ok(format!(
+                "SmeltFuture::from_future(Box::pin(async move {{ {exit_drain}().await; Ok::<_, Box<dyn std::error::Error>>(()) }}))",
+                exit_drain = smelt_stdlib::runtime_symbols::timers::RUN_UNTIL_EXIT,
+            )),
             smelt_hir::AsyncOp::Sleep => {
                 let Some(duration) = args.first() else {
                     return Err(EmitError::new("async sleep requires a duration operand"));
@@ -528,6 +557,34 @@ impl FunctionEmitter<'_> {
                     self.operand_text(timeout)?
                 ))
             }
+            smelt_hir::AsyncOp::HttpFetch => {
+                let Some(url) = args.first() else {
+                    return Err(EmitError::new("async fetch requires a URL operand"));
+                };
+                // `fetch(request)` — which `fetch(url, init)` is defined to be —
+                // carries a method, a header list and a body, so it needs the
+                // full client rather than the one-line GET.
+                if self.is_request_class_type(self.operand_ty(url)?)? {
+                    return self.http_fetch_request_text(url);
+                }
+                if !matches!(
+                    self.mir.types.get(self.operand_ty(url)?),
+                    Some(Type::String)
+                ) {
+                    return Err(EmitError::new("async fetch URL must be a string"));
+                }
+                // The response is assembled from the parts the transport
+                // actually reports, so nothing is invented: the status and its
+                // canonical reason phrase, every response header in order, and
+                // the body as RAW BYTES. Bytes rather than text is deliberate —
+                // `SmeltBody::from_text` would stamp an implied
+                // `text/plain;charset=UTF-8`, and a fetched response's content
+                // type belongs to the server, not to how Smelt read it.
+                Ok(format!(
+                    "SmeltFuture::from_future(Box::pin(async move {{                      let smelt_http = reqwest::get({}).await.expect(\"HTTP request failed\");                      let smelt_status = f64::from(smelt_http.status().as_u16());                      let smelt_reason = smelt_http.status().canonical_reason().unwrap_or_default().to_owned();                      let smelt_pairs: Vec<(String, String)> = smelt_http.headers().iter().map(|(smelt_name, smelt_value)| (smelt_name.as_str().to_owned(), smelt_value.to_str().unwrap_or_default().to_owned())).collect();                      let smelt_bytes = smelt_http.bytes().await.expect(\"HTTP response body read failed\").to_vec();                      Ok::<_, Box<dyn std::error::Error>>(SmeltResponse::from_parts(smelt_status, smelt_reason, SmeltHeaders::from_pairs(smelt_pairs), SmeltBody::from_bytes(smelt_bytes))) }}))",
+                    self.operand_text(url)?
+                ))
+            }
             smelt_hir::AsyncOp::HttpGetText => {
                 let Some(url) = args.first() else {
                     return Err(EmitError::new("async HTTP GET requires a URL operand"));
@@ -702,10 +759,10 @@ impl FunctionEmitter<'_> {
     /// Converts a function call to its Rust text representation.
     pub(super) fn call_text(&self, callee: &Callee, args: &[Operand]) -> Result<String, EmitError> {
         match callee {
-            Callee::Builtin(BuiltinFn::ConsoleLog) => {
+            Callee::Builtin(BuiltinFn::ConsoleLog { absent }) => {
                 let rendered_args = args
                     .iter()
-                    .map(|arg| self.console_arg_text(arg))
+                    .map(|arg| self.console_arg_text(arg, *absent))
                     .collect::<Result<Vec<_>, _>>()?;
                 if rendered_args.is_empty() {
                     Ok("{ println!(); }".to_owned())
@@ -724,9 +781,12 @@ impl FunctionEmitter<'_> {
                 }
             }
             Callee::Builtin(BuiltinFn::ConsoleWrite | BuiltinFn::ConsoleErrorWrite) => {
+                // `process.stdout.write` takes a string, so the optional arm is
+                // unreachable from here; the TypeScript spelling is the right
+                // default for a write that only comes from that surface.
                 let (format_spec, value) = args
                     .first()
-                    .map(|argument| self.console_arg_text(argument))
+                    .map(|argument| self.console_arg_text(argument, AbsentSpelling::Undefined))
                     .transpose()?
                     .unwrap_or_else(|| ("{}", "\"\"".to_owned()));
                 let macro_name = if matches!(callee, Callee::Builtin(BuiltinFn::ConsoleWrite)) {
@@ -755,6 +815,33 @@ impl FunctionEmitter<'_> {
                     crate::thrown::JSON_PARSE_FN,
                     self.operand_text(text)?
                 ))
+            }
+            Callee::Builtin(BuiltinFn::UriDecode(op)) => {
+                let value = args.first().ok_or_else(|| {
+                    EmitError::new("a URI decoder takes one string argument")
+                })?;
+                let adapter = match op {
+                    smelt_hir::UriTranscodeOp::Decode => crate::thrown::DECODE_URI_FN,
+                    smelt_hir::UriTranscodeOp::DecodeComponent => {
+                        crate::thrown::DECODE_URI_COMPONENT_FN
+                    }
+                    // Only the decoders are fallible, so only they become a
+                    // callee; `is_fallible` in the frontend is what guarantees
+                    // it, and this arm exists so a change there is a compile
+                    // error here rather than a wrong adapter.
+                    smelt_hir::UriTranscodeOp::Encode
+                    | smelt_hir::UriTranscodeOp::EncodeComponent => {
+                        return Err(EmitError::new(
+                            "internal: an infallible URI encoder reached the fallible call path",
+                        ));
+                    }
+                };
+                // The trailing `?` is what marks the call fallible to
+                // `emit_throwing_call_terminator`, which renders the
+                // `Ok(Ok(v)) / Ok(Err(e))` shape binding the caught `URIError`
+                // and jumping to the handler's catch block.
+                let value_text = self.string_like_operand_text(value, "URI decoder input")?;
+                Ok(format!("{adapter}({value_text}.as_str())?"))
             }
             Callee::Static(func) => {
                 let function = self
@@ -1132,6 +1219,29 @@ impl FunctionEmitter<'_> {
                     None => self.indirect_call_args_text(function, args)?,
                 };
                 let suffix = if function.may_throw { "?" } else { "" };
+                // A callee read out of a `RefCell` — a reference class's
+                // function-typed field, or a shared closure capture — renders as
+                // `recv.0.borrow().f.clone()`. The `Ref` guard that read creates
+                // lives to the END of the enclosing statement, so calling it in
+                // place holds the borrow while the callee runs; a class-field
+                // arrow's whole purpose is to `borrow_mut()` that same cell, so
+                // the call panicked with "already borrowed". Binding the callable
+                // in its own `let` drops the guard before the call.
+                if self.operand_reads_through_ref_cell(indirect_callee) {
+                    // CLONED out of the guard, not moved out of it. A shared
+                    // closure capture renders as `(*cell.borrow())`, whose
+                    // `Rc<dyn Fn ..>` is not `Copy`, so binding it directly was
+                    // a move out of a `Ref` deref — E0507, and the es-toolkit
+                    // probe crate did not compile at all (`flatten`'s recursive
+                    // capture). Cloning an `Rc` bumps a refcount, the `let`
+                    // still drops the guard before the call, and a callee text
+                    // that is already an owned clone (a reference class's
+                    // function-typed field, `recv.0.borrow().f.clone()`) only
+                    // pays one more refcount.
+                    return Ok(format!(
+                        "{{ let smelt_callable = ::std::clone::Clone::clone(&{callee_text}); (smelt_callable)({rendered_args}){suffix} }}"
+                    ));
+                }
                 Ok(format!("({callee_text})({rendered_args}){suffix}"))
             }
         }
@@ -1162,7 +1272,7 @@ impl FunctionEmitter<'_> {
         // absent handler (the resolved value still evaluates).
         if self.mir.types.get(self.operand_ty(callback)?) == Some(&Type::Unknown) {
             return Ok(format!(
-                "{{ let smelt_callable = match ({callback_text}).clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; match smelt_callable {{ Some(smelt_function) => (smelt_function)(vec![IntoSmeltUnknown::into_smelt_unknown({arg_expr})]).unwrap_or_else(|error| panic!(\"{{}}\", error)), None => {{ let _ = {arg_expr}; SmeltUnknown::Undefined }} }} }}"
+                "{{ let smelt_callable = match ({callback_text}).clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; match smelt_callable {{ Some(smelt_function) => (smelt_function)(vec![IntoSmeltUnknown::into_smelt_unknown({arg_expr})]).unwrap_or_else(|error| smelt_panic_throw(error)), None => {{ let _ = {arg_expr}; SmeltUnknown::Undefined }} }} }}"
             ));
         }
         if let Some(Type::Function(function)) = self.mir.types.get(self.operand_ty(callback)?) {
@@ -1655,7 +1765,7 @@ impl FunctionEmitter<'_> {
         let raw_call = if function.may_throw {
             if unwrap_errors {
                 format!(
-                    "(smelt_function)({rendered_args}).unwrap_or_else(|error| panic!(\"{{}}\", error))"
+                    "(smelt_function)({rendered_args}).unwrap_or_else(|error| smelt_panic_throw(error))"
                 )
             } else {
                 format!("(smelt_function)({rendered_args})?")
@@ -2418,7 +2528,7 @@ impl FunctionEmitter<'_> {
         if let Some(stripped) = call_text.strip_suffix('?')
             && !self.body_can_propagate_error()
         {
-            call_text = format!("{stripped}.unwrap_or_else(|error| panic!(\"{{}}\", error))");
+            call_text = format!("{stripped}.unwrap_or_else(|error| smelt_panic_throw(error))");
         }
         call_text = self.wrap_native_async_call_text(callee, call_text)?;
         // The emitted return, not the declared one. A monomorphized generic
@@ -2483,11 +2593,14 @@ impl FunctionEmitter<'_> {
     pub(super) fn call_source_ty(&self, callee: &Callee) -> Result<TypeId, EmitError> {
         let source_ty = match callee {
             Callee::Builtin(
-                BuiltinFn::ConsoleLog | BuiltinFn::ConsoleWrite | BuiltinFn::ConsoleErrorWrite,
+                BuiltinFn::ConsoleLog { .. } | BuiltinFn::ConsoleWrite | BuiltinFn::ConsoleErrorWrite,
             ) => self.none_ty,
             // `JSON.parse` yields a dynamic JavaScript value; the destination's
             // own type drives the ordinary coercion from the erased carrier.
             Callee::Builtin(BuiltinFn::JsonParse) => return self.type_id(Type::Unknown),
+            // A decoder answers a `String`, not an erased value -- the whole
+            // point of keeping the typed runtime helper behind the adapter.
+            Callee::Builtin(BuiltinFn::UriDecode(_)) => return self.type_id(Type::String),
             Callee::Static(func) => {
                 let function = self
                     .mir
@@ -2518,16 +2631,23 @@ impl FunctionEmitter<'_> {
     pub(super) fn console_arg_text(
         &self,
         operand: &Operand,
+        absent: AbsentSpelling,
     ) -> Result<(&'static str, String), EmitError> {
-        if self.operand_ty(operand)? == self.none_ty {
+        let ty = self.operand_ty(operand)?;
+        if ty == self.none_ty {
             Ok(("{}", "\"null\"".to_owned()))
         } else if matches!(
-            self.mir.types.get(self.operand_ty(operand)?),
-            Some(Type::List(_) | Type::Dict(_, _) | Type::Tuple(_) | Type::Optional(_))
+            self.mir.types.get(ty),
+            Some(Type::List(_) | Type::Dict(_, _) | Type::Tuple(_))
         ) {
             Ok(("{:?}", self.operand_text(operand)?))
+        } else if matches!(self.mir.types.get(ty), Some(Type::Optional(_))) {
+            // An `Optional<T>` prints the value INSIDE it, never the Rust
+            // wrapper. `{:?}` on an `Option` put `Some("ada")` / `None` into
+            // program output, which is a shape no JavaScript runtime prints.
+            Ok(("{}", self.console_optional_text(operand, absent)?))
         } else if matches!(
-            self.mir.types.get(self.operand_ty(operand)?),
+            self.mir.types.get(ty),
             Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::Unknown)
         ) {
             // These render through their own `Display` impl (`SmeltUnknown`
@@ -2538,9 +2658,96 @@ impl FunctionEmitter<'_> {
             // has no Rust `Display` impl, so `{}` would fail to compile (E0277).
             // Erase to the runtime `SmeltUnknown` form, which does implement
             // `Display`, matching how the same values stringify everywhere else.
-            let ty = self.operand_ty(operand)?;
             Ok(("{}", self.erase_value_text(&self.operand_text(operand)?, ty)?))
         }
+    }
+
+    /// Render an `Optional<T>` console argument as a `String` expression.
+    ///
+    /// The present arm renders the inner value the way `console.log` renders
+    /// that type on its own, so the wrapper is invisible: a `string | undefined`
+    /// holding `"ada"` prints `ada`, and a `number[] | undefined` holding
+    /// `[1, 2]` prints through the container's `{:?}`.
+    ///
+    /// # Why the absent arm prints `undefined`
+    ///
+    /// TypeScript's `null` and `undefined` both intern to `Type::None` (see the
+    /// annotation lowering for `TSNullKeyword`/`TSUndefinedKeyword`), so
+    /// `string | null` and `string | undefined` are the *same*
+    /// `Optional(String)` here. Node prints `null` for the first and
+    /// `undefined` for the second, and this layer cannot tell them apart, so
+    /// one word has to be chosen and it is wrong for the other spelling.
+    ///
+    /// `undefined` is chosen because it is what nearly every operation that
+    /// *produces* an `Optional` in TypeScript returns: `find`, `pop`,
+    /// `Map.get`, an optional property or parameter, an index read, `?.`, and
+    /// `process.env.X`. `null` arrives mostly from annotations spelled `T |
+    /// null` (and from `headers.get`), and a value annotated as plain `null`
+    /// keeps printing `null` through the `Type::None` branch above. The
+    /// end-to-end fixture `33_console_optional_value` pins this against Node
+    /// 22, whose `find()` miss prints `undefined`.
+    ///
+    /// Printing the right word for both spellings needs a distinct
+    /// `Type::Undefined` carried down from the annotation — a type-table
+    /// change, not a console change.
+    fn console_optional_text(
+        &self,
+        operand: &Operand,
+        absent: AbsentSpelling,
+    ) -> Result<String, EmitError> {
+        let ty = self.operand_ty(operand)?;
+        let Some(&Type::Optional(inner)) = self.mir.types.get(ty) else {
+            return Err(EmitError::new(
+                "console optional rendering requires an optional operand",
+            ));
+        };
+        let present = self.console_value_text("value", inner, absent)?;
+        Ok(format!(
+            "match &{} {{ Some(value) => {present}, None => {:?}.to_owned() }}",
+            self.operand_text(operand)?,
+            absent.text()
+        ))
+    }
+
+    /// Render `value_text` of type `ty` as a `String` expression, console-style.
+    ///
+    /// The same three cases as [`Self::console_arg_text`], but producing an
+    /// owned `String` rather than a format-spec pair, so it can be used inside a
+    /// match arm. `value_text` names a *reference* to the value.
+    fn console_value_text(
+        &self,
+        value_text: &str,
+        ty: TypeId,
+        absent: AbsentSpelling,
+    ) -> Result<String, EmitError> {
+        if ty == self.none_ty {
+            return Ok("\"null\".to_owned()".to_owned());
+        }
+        if matches!(
+            self.mir.types.get(ty),
+            Some(Type::List(_) | Type::Dict(_, _) | Type::Tuple(_))
+        ) {
+            return Ok(format!("format!(\"{{:?}}\", {value_text})"));
+        }
+        if matches!(
+            self.mir.types.get(ty),
+            Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::Unknown)
+        ) {
+            return Ok(format!("format!(\"{{}}\", {value_text})"));
+        }
+        // A nested optional recurses, so `Array<string | undefined>`'s element
+        // prints its own inner value rather than a wrapper.
+        if let Some(&Type::Optional(inner)) = self.mir.types.get(ty) {
+            let present = self.console_value_text(value_text, inner, absent)?;
+            return Ok(format!(
+                "match {value_text} {{ Some(value) => {present}, None => {:?}.to_owned() }}",
+                absent.text()
+            ));
+        }
+        // Every remaining non-`Display` type takes the same erasure route the
+        // top-level argument takes.
+        let erased = self.erase_value_text(&format!("{value_text}.clone()"), ty)?;
+        Ok(format!("format!(\"{{}}\", {erased})"))
     }
 
     /// Converts a match scrutinee operand to its Rust text representation.
@@ -2551,6 +2758,22 @@ impl FunctionEmitter<'_> {
     /// implementation for a runtime tag check. With today's concrete class
     /// lowering, the operand type is statically known, so codegen emits a
     /// boolean after the operand has already been evaluated by MIR lowering.
+    /// Whether an `instanceof` operand's identity is a RUNTIME fact.
+    ///
+    /// True for the erased shapes — `unknown`, an unscoped type parameter, a
+    /// union, an optional — whose storage does not settle which class the value
+    /// belongs to, so the answer has to come from an identity marker on the
+    /// value itself. False for concrete storage, where the type settles it.
+    ///
+    /// Shared by the per-class arms and by the marker probe they fall through
+    /// to, so an arm cannot decline an operand the probe would have answered.
+    fn instanceof_operand_is_dynamic(&self, value_ty: TypeId) -> bool {
+        matches!(
+            self.mir.types.get(value_ty),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
+        )
+    }
+
     pub(super) fn instance_of_text(
         &self,
         value: &Operand,
@@ -2615,92 +2838,26 @@ impl FunctionEmitter<'_> {
                 "matches!({value_text}.clone(), SmeltUnknown::Object(value) if {marker_probe})"
             ));
         }
-        if class_name == "Date"
-            && matches!(
-                self.mir.types.get(value_ty),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
-            )
-        {
-            let value_text = self.operand_text(value)?;
-            if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
-                return Ok(format!(
-                    "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"__smelt_date\"))"
-                ));
-            }
-            return Ok(format!(
-                "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_date\"))"
-            ));
-        }
-        // A concrete `SmeltRegExp` answers `instanceof RegExp` through the typed
-        // path; an erased one recovers its identity from the `__smelt_regexp`
-        // marker its erasure stamps, exactly like the Date arm above. Without this
-        // arm the check was `false` for any `unknown`-typed regex, so es-toolkit
-        // `cloneDeepWithImpl` skipped its `valueToClone instanceof RegExp` branch
-        // and fell through to the generic `Object.create(getPrototypeOf(x))` path,
-        // which produced an object with no `source`/`flags` at all.
-        if class_name == "RegExp"
-            && matches!(
-                self.mir.types.get(value_ty),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
-            )
-        {
-            let value_text = self.operand_text(value)?;
-            if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
-                return Ok(format!(
-                    "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"__smelt_regexp\"))"
-                ));
-            }
-            return Ok(format!(
-                "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_regexp\"))"
-            ));
-        }
+        // A concrete source `Map`/`Set` is unconditionally an instance of its own
+        // class, and any OTHER concrete operand carries no such identity. Those
+        // are static answers about storage, which is why the two keep an arm; the
+        // dynamic case falls through to the shared marker probe below, where
+        // `__smelt_map` / `__smelt_set` answer it like any other identity marker.
         if class_name == "Map" {
-            // A concrete source `Map` (`JsMap`) is unconditionally `instanceof
-            // Map`. An erased operand recovers Map identity through the
-            // `__smelt_map` marker its erasure stamps.
             if matches!(self.mir.types.get(value_ty), Some(Type::JsMap(_, _))) {
                 return Ok("true".to_owned());
             }
-            if matches!(
-                self.mir.types.get(value_ty),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
-            ) {
-                let value_text = self.operand_text(value)?;
-                if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
-                    return Ok(format!(
-                        "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"__smelt_map\"))"
-                    ));
-                }
-                return Ok(format!(
-                    "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_map\"))"
-                ));
+            if !self.instanceof_operand_is_dynamic(value_ty) {
+                return Ok("false".to_owned());
             }
-            // Any other concrete operand carries no Map identity.
-            return Ok("false".to_owned());
         }
         if class_name == "Set" {
-            // A concrete source `Set` is unconditionally `instanceof Set`. An
-            // erased operand recovers Set identity through the `__smelt_set`
-            // marker its erasure stamps. Mirrors the `Map` arm above.
             if matches!(self.mir.types.get(value_ty), Some(Type::Set(_))) {
                 return Ok("true".to_owned());
             }
-            if matches!(
-                self.mir.types.get(value_ty),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
-            ) {
-                let value_text = self.operand_text(value)?;
-                if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
-                    return Ok(format!(
-                        "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"__smelt_set\"))"
-                    ));
-                }
-                return Ok(format!(
-                    "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_set\"))"
-                ));
+            if !self.instanceof_operand_is_dynamic(value_ty) {
+                return Ok("false".to_owned());
             }
-            // Any other concrete operand carries no Set identity.
-            return Ok("false".to_owned());
         }
         if class_name == "ArrayBuffer"
             && matches!(
@@ -2717,6 +2874,20 @@ impl FunctionEmitter<'_> {
             return Ok(format!(
                 "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_arraybuffer\"))"
             ));
+        }
+        // A CONCRETE blob answers both spellings statically: it always is a
+        // `Blob`, and it is a `File` exactly when its optional name is present
+        // (the two share one Rust type — see `blob_prelude`). Without these arms
+        // the marker probe below would be handed a `SmeltBlob` where it expects
+        // a `SmeltUnknown`.
+        if smelt_stdlib::typescript_stdlib_class(class_name)
+            .is_some_and(smelt_stdlib::StdlibClass::is_blob_runtime_type)
+            && self.is_blob_class_type(value_ty)?
+        {
+            if class_name == "File" {
+                return Ok(format!("{}.is_file()", self.operand_text(value)?));
+            }
+            return Ok("true".to_owned());
         }
         if class_name == "Blob"
             && matches!(
@@ -2789,17 +2960,13 @@ impl FunctionEmitter<'_> {
         // filter. (`ArrayBuffer`/`Blob`/`Number` are already handled by dedicated
         // branches above; sourcing them here too is harmless since those
         // short-circuit first.)
-        let abort_marker = match class_name {
-            "AbortController" => Some(vec!["__smelt_abortcontroller"]),
-            "AbortSignal" => Some(vec!["__smelt_abortsignal"]),
-            _ => host_instance_markers(class_name),
-        };
-        if let Some(markers) = abort_marker {
-            let value_is_dynamic = matches!(
-                self.mir.types.get(value_ty),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
-            );
-            if value_is_dynamic || self.is_erased_class_type(value_ty) {
+        // The shared identity probe. `host_instance_markers` answers for every
+        // class whose identity survives erasure — the host-object registry and
+        // the subsystem-owned markers alike — so this one arm replaces what used
+        // to be a separate `if class_name == ".."` block per class, and a class
+        // that gains a marker is answered here without touching this function.
+        if let Some(markers) = host_instance_markers(class_name) {
+            if self.instanceof_operand_is_dynamic(value_ty) || self.is_erased_class_type(value_ty) {
                 let value_text = self.operand_text(value)?;
                 let probe = markers
                     .iter()
@@ -2816,11 +2983,35 @@ impl FunctionEmitter<'_> {
                 ));
             }
         }
-        let result = match self.mir.types.get(value_ty) {
-            Some(Type::Class { name, .. }) => self.class_extends_or_equals(*name, class),
-            _ => false,
-        };
-        Ok(result.to_string())
+        // Nothing above recognized the pair. For a CONCRETE operand that is a
+        // real static answer: the class hierarchy settles whether the operand's
+        // class is or extends the target.
+        if let Some(Type::Class { name, .. }) = self.mir.types.get(value_ty) {
+            return Ok(self.class_extends_or_equals(*name, class).to_string());
+        }
+        // For a DYNAMIC operand it is not, and round 10 made that a blocker
+        // rather than a `false` fold, because folding silently deleted the
+        // branch: `const x: unknown = new TextEncoder(); if (x instanceof
+        // TextEncoder)` became `if false` with no diagnostic.
+        //
+        // Every modeled class now carries an identity marker and erases through
+        // its own adapter, so the probe above answers all of them and nothing
+        // modeled reaches here any more. The blocker stays as the honest answer
+        // for a target that is modeled but has no marker — the state no class is
+        // in today, and the state a NEW modeled class starts in before its
+        // erasure adapter is written. Keeping it makes that omission a build
+        // error instead of a deleted branch.
+        if self.instanceof_operand_is_dynamic(value_ty)
+            && smelt_stdlib::typescript_stdlib_class(class_name).is_some()
+        {
+            return Err(EmitError::new(format!(
+                "`instanceof {class_name}` on a dynamically-typed value is not modeled: \
+                 `{class_name}` values carry no identity marker on an erased value, so the \
+                 check cannot be answered at runtime. A modeled class needs a host-object \
+                 registry marker and an `IntoSmeltUnknown` that stamps it."
+            )));
+        }
+        Ok("false".to_owned())
     }
 
     /// Render a method call through a stored callable field when the receiver's
@@ -2865,7 +3056,23 @@ impl FunctionEmitter<'_> {
             })
             .collect::<Result<Vec<_>, _>>()?
             .join(", ");
-        let call = if rendered_args.is_empty() {
+        // A reference class keeps its declared fields inside the shared cell, so
+        // the callable field is read through `.0.borrow()` exactly as
+        // `place_text` reads any other declared field of one. Without this the
+        // call named a field the handle newtype does not have (E0609). The
+        // `.clone()` on the read is what ends the borrow guard before the call
+        // runs, which matters here more than anywhere: the closure being called
+        // is precisely the one that borrows the same cell to mutate the
+        // instance.
+        let call = if self.is_reference_class_type(receiver_ty) {
+            // The `Ref` guard from `.0.borrow()` lives to the end of the
+            // enclosing statement, and the callable being read is typically the
+            // class-field arrow that mutates that very cell ("already
+            // borrowed"). Bind it first so the guard drops before the call.
+            format!(
+                "{{ let smelt_callable = {receiver_text}.0.borrow().{method_name}.clone(); (smelt_callable)({rendered_args}) }}"
+            )
+        } else if rendered_args.is_empty() {
             format!("({receiver_text}.{method_name}.clone())()")
         } else {
             format!("({receiver_text}.{method_name}.clone())({rendered_args})")

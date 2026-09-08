@@ -58,7 +58,7 @@ impl FunctionEmitter<'_> {
                     if self.body_can_propagate_error() {
                         format!("{call}?")
                     } else {
-                        format!("{call}.unwrap_or_else(|error| panic!(\"{{}}\", error))")
+                        format!("{call}.unwrap_or_else(|error| smelt_panic_throw(error))")
                     }
                 } else {
                     call
@@ -108,7 +108,7 @@ impl FunctionEmitter<'_> {
         // deep-copying it a second time.
         let callee_text = &cloned_value_text(callee_text);
         format!(
-            "{{ let smelt_function_value = {callee_text}; let smelt_call_args: Vec<SmeltUnknown> = Into::into({args_expr}); let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (smelt_function)(smelt_call_args).unwrap_or_else(|error| panic!(\"{{}}\", error)) }} else {{ SmeltUnknown::Null }} }}"
+            "{{ let smelt_function_value = {callee_text}; let smelt_call_args: Vec<SmeltUnknown> = Into::into({args_expr}); let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (smelt_function)(smelt_call_args).unwrap_or_else(|error| smelt_panic_throw(error)) }} else {{ SmeltUnknown::Null }} }}"
         )
     }
 
@@ -139,18 +139,29 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         }
 
+        // Keyed by the literal's EXACT key text, because that is a JavaScript
+        // property name: case-sensitive, and never case-folded. Keying by
+        // `sanitize_ident` instead silently dropped every camelCase field --
+        // `{ plain: 1, camelCase: "a" }` against `interface Shape { plain?:
+        // number; camelCase?: string }` emitted `Shape { plain: Some(1.0),
+        // camel_case: None }`, so the program printed `undefined` where Node
+        // prints `a`. The field side is what has two spellings (see
+        // `symbol_source_name`), and it is the side that must be translated.
         let mut literal_entries = HashMap::new();
         for (entry_key, value) in entries {
             let Operand::Const(Constant::String(key_text)) = entry_key else {
                 return Ok(None);
             };
-            literal_entries.insert(sanitize_ident(key_text), value);
+            literal_entries.insert(key_text.as_str(), value);
         }
 
         let mut field_text = Vec::new();
         for field in fields {
+            // Two spellings of one field: the source name matches the literal
+            // key, the rendered name is the Rust struct field.
+            let source_name = self.symbol_source_name(field.name)?;
             let field_name = sanitize_ident(self.symbol_name(field.name)?);
-            let value = if let Some(entry_value) = literal_entries.get(&field_name) {
+            let value = if let Some(entry_value) = literal_entries.get(source_name) {
                 self.value_at_type(entry_value, field.ty)?
             } else if matches!(self.mir.types.get(field.ty), Some(Type::Optional(_))) {
                 self.default_value(field.ty)?
@@ -360,9 +371,9 @@ impl FunctionEmitter<'_> {
                     self.restore_declared_locals(declared);
                     format!("{{ {catch_text} }}")
                 } else if cleanup.is_some() {
-                    format!("{{ {cleanup_text} panic!(\"{{}}\", error) }}")
+                    format!("{{ {cleanup_text} smelt_panic_throw({}) }}", crate::thrown::throw_expr("error"))
                 } else {
-                    "panic!(\"{}\", error)".to_owned()
+                    format!("smelt_panic_throw({})", crate::thrown::throw_expr("error"))
                 };
                 // A generator whose declared return type is erased (`unknown`)
                 // pins every protocol channel to `SmeltUnknown` (see the
@@ -447,8 +458,13 @@ impl FunctionEmitter<'_> {
                 } else {
                     "return value"
                 };
+                // `SmeltGeneratorCommand::Throw` carries the thrown VALUE (a
+                // `SmeltUnknown`), not an error-channel box, so it enters the
+                // panic route through `smelt_throw` -- which is also what keeps
+                // the payload's class across the unwind.
+                let thrown_error = crate::thrown::throw_expr("error");
                 let consume_outer_sent = format!(
-                    "{{ let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command {{ SmeltGeneratorCommand::Next(_) => {{}}, SmeltGeneratorCommand::Return(value) => {return_command}, SmeltGeneratorCommand::Throw(error) => panic!(\"{{}}\", error) }} }}"
+                    "{{ let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command {{ SmeltGeneratorCommand::Next(_) => {{}}, SmeltGeneratorCommand::Return(value) => {return_command}, SmeltGeneratorCommand::Throw(error) => smelt_panic_throw({thrown_error}) }} }}"
                 );
                 match self.mir.types.get(generator_ty) {
                     Some(Type::Generator {
@@ -1005,6 +1021,62 @@ impl FunctionEmitter<'_> {
                 method,
                 args,
             } => self.union_method_text(receiver, *method, args, dest_ty),
+            Rvalue::UrlSearchParamsNew { init } => {
+                self.url_search_params_new_text(init.as_ref())
+            }
+            Rvalue::UrlSearchParamsOp { op, params, args } => {
+                self.url_search_params_op_text(*op, params, args, dest_ty)
+            }
+            Rvalue::TextEncoderNew => Ok("SmeltTextEncoder::new()".to_owned()),
+            Rvalue::TextDecoderNew { label } => self.text_decoder_new_text(label.as_ref()),
+            Rvalue::TextEncoderOp { op, encoder, args } => {
+                self.text_encoder_op_text(*op, encoder, args, dest_ty)
+            }
+            Rvalue::TextDecoderOp { op, decoder, args } => {
+                self.text_decoder_op_text(*op, decoder, args, dest_ty)
+            }
+            Rvalue::ByteArrayOp { op, bytes } => self.byte_array_op_text(*op, bytes, dest_ty),
+            Rvalue::EventEmitterNew => Ok("SmeltEventEmitter::new()".to_owned()),
+            Rvalue::EventEmitterOp { op, emitter, args } => {
+                self.event_emitter_op_text(*op, emitter, args)
+            }
+            Rvalue::HttpCreateServer { handler } => self.http_create_server_text(handler),
+            Rvalue::HttpServerOp { op, server, args } => {
+                self.http_server_op_text(*op, server, args)
+            }
+            Rvalue::IncomingMessageOp { op, message } => {
+                self.incoming_message_op_text(*op, message, dest_ty)
+            }
+            Rvalue::ServerResponseOp { op, response, args } => {
+                self.server_response_op_text(*op, response, args)
+            }
+            Rvalue::RequestNew {
+                input,
+                method,
+                headers,
+                body,
+            } => self.request_new_text(input, method.as_ref(), headers.as_ref(), body.as_ref()),
+            Rvalue::RequestOp { op, request, args } => {
+                self.request_op_text(*op, request, args)
+            }
+            Rvalue::ResponseNew {
+                body,
+                status,
+                status_text,
+                headers,
+            } => self.response_new_text(
+                body.as_ref(),
+                status.as_ref(),
+                status_text.as_ref(),
+                headers.as_ref(),
+            ),
+            Rvalue::ResponseOp { op, response, args } => {
+                self.response_op_text(*op, response, args)
+            }
+            Rvalue::HeadersNew { init } => self.headers_new_text(init.as_ref()),
+            Rvalue::HeadersOp { op, headers, args } => {
+                self.headers_op_text(*op, headers, args, dest_ty)
+            }
             Rvalue::OptionalCoalesce { optional, fallback } => {
                 self.optional_coalesce_text(optional, fallback, dest_ty)
             }
@@ -1137,7 +1209,7 @@ impl FunctionEmitter<'_> {
             }
             Rvalue::StringCase { op, operand } => self.string_case_text(*op, operand, dest_ty),
             Rvalue::StringNormalize { form, operand } => self.string_normalize_text(*form, operand),
-            Rvalue::UriEncode { operand } => self.uri_encode_text(operand),
+            Rvalue::UriTranscode { op, operand } => self.uri_transcode_text(*op, operand),
             Rvalue::StringLocaleCompare { left, right } => {
                 self.string_locale_compare_text(left, right)
             }
@@ -1190,7 +1262,8 @@ impl FunctionEmitter<'_> {
                 pattern,
                 haystack,
                 callback,
-            } => self.regex_replace_callback_text(*op, pattern, haystack, callback),
+                args,
+            } => self.regex_replace_callback_text(*op, pattern, haystack, callback, args),
             Rvalue::RegexReplaceFirstMatchUppercase { pattern, haystack } => {
                 self.regex_replace_first_match_uppercase_text(pattern, haystack)
             }
@@ -1365,7 +1438,7 @@ impl FunctionEmitter<'_> {
                     let rendered_args = self.indirect_call_args_text(&function, args)?;
                     let raw_call = if function.may_throw {
                         format!(
-                            "(smelt_function)({rendered_args}).unwrap_or_else(|error| panic!(\"{{}}\", error))"
+                            "(smelt_function)({rendered_args}).unwrap_or_else(|error| smelt_panic_throw(error))"
                         )
                     } else {
                         format!("(smelt_function)({rendered_args})")
@@ -1535,6 +1608,21 @@ impl FunctionEmitter<'_> {
                     format!("{callee_text}.call({args_text})")
                 } else if self.callee_is_borrowed_function_handle(callee)? {
                     format!("{callee_text}({args_text})")
+                } else if self.operand_reads_through_ref_cell(callee) {
+                    // The callee was read out of a `RefCell` (a reference
+                    // class's function-typed field, or a shared closure
+                    // capture), and that read's guard lives to the end of the
+                    // enclosing statement. Calling it in place therefore runs
+                    // the callee while the cell is borrowed, and a class-field
+                    // arrow's body mutates that same cell ("already borrowed").
+                    // Binding the callable drops the guard before the call, and
+                    // it is CLONED rather than moved: a shared capture renders
+                    // as `(*cell.borrow())`, and an `Rc<dyn Fn ..>` moved out of
+                    // a `Ref` deref is E0507. Twin of the same binding in
+                    // `call.rs`.
+                    format!(
+                        "{{ let smelt_callable = ::std::clone::Clone::clone(&{callee_text}); (smelt_callable)({args_text}) }}"
+                    )
                 } else {
                     format!("({callee_text})({args_text})")
                 };
@@ -1557,7 +1645,7 @@ impl FunctionEmitter<'_> {
                                 format!("{call_text}?")
                             } else {
                                 format!(
-                                    "{call_text}.unwrap_or_else(|error| panic!(\"{{}}\", error))"
+                                    "{call_text}.unwrap_or_else(|error| smelt_panic_throw(error))"
                                 )
                             }
                         } else {
@@ -1930,30 +2018,8 @@ impl FunctionEmitter<'_> {
                 blob_type,
                 name,
                 last_modified,
-            } => {
-                let parts_text = self.operand_text(parts)?;
-                let type_text = self.operand_text(blob_type)?;
-                let name_text = match name {
-                    Some(name_operand) => {
-                        format!("Some(({}).clone())", self.operand_text(name_operand)?)
-                    }
-                    None => "None".to_owned(),
-                };
-                let last_modified_text = match last_modified {
-                    Some(last_modified_operand) => {
-                        format!(
-                            "Some(({}) as f64)",
-                            self.operand_text(last_modified_operand)?
-                        )
-                    }
-                    None => "None".to_owned(),
-                };
-                Ok(format!(
-                    "{blob_record_from_parts}(({parts_text}).clone(), ({type_text}).clone(), {name_text}, {last_modified_text})",
-                    blob_record_from_parts =
-                        smelt_stdlib::runtime_symbols::host::BLOB_RECORD_FROM_PARTS,
-                ))
-            }
+            } => self.blob_new_text(parts, blob_type, name.as_ref(), last_modified.as_ref()),
+            Rvalue::BlobOp { op, blob, args } => self.blob_op_text(*op, blob, args, dest_ty),
             Rvalue::HostConstruct { class_name, args } => {
                 self.host_construct_text(class_name, args, dest_ty)
             }
@@ -2080,19 +2146,13 @@ impl FunctionEmitter<'_> {
         {
             return self.type_id(Type::Unknown);
         }
-        // A `String` receiver's builtin fields have concrete Rust types; keep
-        // this in sync with `string_field_text` so a caller coercing the field
-        // read does not treat the concrete result as an erased `SmeltUnknown`
-        // (e.g. `.length` is an `i64`, not a `SmeltUnknown::Number`).
+        // A `String` receiver's builtin fields have concrete Rust types. The
+        // text and the type are decided together by `string_field_read` so a
+        // caller coercing the read cannot treat an already concrete value as an
+        // erased `SmeltUnknown` (e.g. `.length` is an `i64`, not a
+        // `SmeltUnknown::Number`).
         if matches!(self.mir.types.get(receiver_ty), Some(Type::String)) {
-            return match self.symbol_name(field)? {
-                "source" => self.type_id(Type::String),
-                "global" | "ignoreCase" | "ignore_case" | "multiline" => {
-                    self.type_id(Type::Bool)
-                }
-                "length" => self.type_id(Type::Int),
-                _ => self.type_id(Type::Unknown),
-            };
+            return Ok(self.string_field_read("", field)?.1);
         }
         // Likewise for a concrete `RegExp` receiver (see `regexp_field_text`).
         if let Some(Type::Class { name, .. }) = self.mir.types.get(receiver_ty)
@@ -2474,7 +2534,7 @@ impl FunctionEmitter<'_> {
                     | "throwIfAborted"
             ) {
                 return Ok(format!(
-                    "match {scrutinee} {{ SmeltUnknown::Object(map) if smelt_host_method(&map, {field_name:?}).is_some() => smelt_host_method(&map, {field_name:?}).unwrap_or(SmeltUnknown::Undefined), SmeltUnknown::Object(map) => match map.get({field_name:?}).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Object(mut getter) if getter.contains_key(\"__smelt_get\") => match getter.remove(\"__smelt_get\") {{ Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| panic!(\"{{}}\", error)), _ => SmeltUnknown::Null }}, value => value }}, _ => SmeltUnknown::Null }}"
+                    "match {scrutinee} {{ SmeltUnknown::Object(map) if smelt_host_method(&map, {field_name:?}).is_some() => smelt_host_method(&map, {field_name:?}).unwrap_or(SmeltUnknown::Undefined), SmeltUnknown::Object(map) => match map.get({field_name:?}).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Object(mut getter) if getter.contains_key(\"__smelt_get\") => match getter.remove(\"__smelt_get\") {{ Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| smelt_panic_throw(error)), _ => SmeltUnknown::Null }}, value => value }}, _ => SmeltUnknown::Null }}"
                 ));
             }
             // Every receiver shape through the ONE prelude read chain
@@ -2508,6 +2568,9 @@ impl FunctionEmitter<'_> {
         {
             return self.regexp_field_text(receiver_text, field);
         }
+        if self.is_url_search_params_class_type(receiver_ty)? {
+            return self.url_search_params_field_text(receiver_text, field);
+        }
         // A `SmeltMatch`/`MatchGroups` receiver reached through an optional chain
         // (e.g. `withoutSeparator?.groups.result`) must keep its typed match
         // accessor: a named-group read routes through `named_group_owned` rather
@@ -2534,6 +2597,21 @@ impl FunctionEmitter<'_> {
         };
         if let Some(method_text) = self.class_method_reference_text(receiver_text, *name, field)? {
             return Ok(method_text);
+        }
+        // A REFERENCE class is an `Rc<RefCell<Inner>>` handle, so its fields are
+        // reached through the handle, never as tuple-struct fields of the handle
+        // itself. The ordinary place path already knows this
+        // (`place_is_reference_class_field`); this path did not, so a field read
+        // through an optional chain on such a class emitted
+        // `handle.field.clone()` and the generated crate failed to compile
+        // (E0609). It was unreachable until an assignment through an
+        // optional-typed receiver stopped being rejected in MIR.
+        if self.is_reference_class_type(receiver_ty) && self.class_has_named_field(receiver_ty, field)
+        {
+            return Ok(format!(
+                "{receiver_text}.0.borrow().{}.clone()",
+                sanitize_ident(self.symbol_name(field)?)
+            ));
         }
         Ok(format!(
             "{receiver_text}.{}.clone()",
@@ -2668,12 +2746,56 @@ impl FunctionEmitter<'_> {
         receiver_text: &str,
         field: Symbol,
     ) -> Result<String, EmitError> {
+        Ok(self.string_field_read(receiver_text, field)?.0)
+    }
+
+    /// A `String` receiver's builtin field read, as Rust text PAIRED with the
+    /// static type of that text.
+    ///
+    /// The two must be decided together. When they were decided separately, the
+    /// text said `i64` and the type lookup said `Unknown`, so a caller coercing
+    /// the read ran the erased `SmeltUnknown` ToString match over an `i64`
+    /// expression — `` `${s.length}` `` inside a callback body did not compile.
+    /// Every reader of either half now goes through here: `string_field_text`,
+    /// [`Self::field_access_type`], `place_ty`, and the erasing coercion path.
+    ///
+    /// `.length` is a JavaScript Number, so its natural Rust spelling depends on
+    /// which numeric type the program actually interned: the type table is fixed
+    /// before emission and cannot be extended, and naming a type it does not
+    /// hold is what the divergence above was made of. `Int` is preferred when
+    /// present (it is what a character count is), then `Float`; a program that
+    /// interned neither — one that only ever stringifies the length — gets the
+    /// runtime-tagged number, which is a real boundary rather than a
+    /// convenience: there is no numeric type in that program to carry it.
+    pub(super) fn string_field_read(
+        &self,
+        receiver_text: &str,
+        field: Symbol,
+    ) -> Result<(String, TypeId), EmitError> {
+        let unknown_ty = self.type_id(Type::Unknown)?;
         Ok(match self.symbol_name(field)? {
-            "source" => format!("{receiver_text}.clone()"),
-            "global" | "ignoreCase" | "ignore_case" | "multiline" => "false".to_owned(),
-            "constructor" => "SmeltUnknown::Null".to_owned(),
-            "length" => format!("({receiver_text}.chars().count() as i64)"),
-            _ => "SmeltUnknown::Null".to_owned(),
+            "source" => (
+                format!("{receiver_text}.clone()"),
+                self.type_id(Type::String)?,
+            ),
+            "global" | "ignoreCase" | "ignore_case" | "multiline" => {
+                match self.existing_type_id(Type::Bool) {
+                    Some(bool_ty) => ("false".to_owned(), bool_ty),
+                    None => ("SmeltUnknown::Bool(false)".to_owned(), unknown_ty),
+                }
+            }
+            "constructor" => ("SmeltUnknown::Null".to_owned(), unknown_ty),
+            "length" => {
+                let count = format!("{receiver_text}.chars().count()");
+                if let Some(int_ty) = self.existing_type_id(Type::Int) {
+                    (format!("({count} as i64)"), int_ty)
+                } else if let Some(float_ty) = self.existing_type_id(Type::Float) {
+                    (format!("({count} as f64)"), float_ty)
+                } else {
+                    (format!("SmeltUnknown::Number({count} as f64)"), unknown_ty)
+                }
+            }
+            _ => ("SmeltUnknown::Null".to_owned(), unknown_ty),
         })
     }
 

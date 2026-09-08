@@ -146,6 +146,46 @@ impl<'mir> FunctionEmitter<'mir> {
         Ok(names)
     }
 
+    /// The closing text of an async `main`'s runtime scope.
+    const ASYNC_MAIN_RUNTIME_EPILOGUE: &'static str = "})\n";
+
+    /// The runtime an async `main` runs its body on.
+    ///
+    /// # Why not `#[tokio::main]`
+    ///
+    /// That attribute builds a MULTI-THREADED, work-stealing runtime, and
+    /// everything Smelt generates is `Rc`-based: a closure's captured state, a
+    /// modeled object's shared cell, a promise's result cell. None of it is
+    /// `Send`, so nothing generated can be spawned onto such a runtime at all —
+    /// a `node:http` request handler least of all, since it captures whatever
+    /// the surrounding program had.
+    ///
+    /// A single-threaded loop is also what the source language actually has. A
+    /// TypeScript program ported to Rust that silently gained parallel handler
+    /// execution would be a different program: two requests could observe each
+    /// other's half-written state through exactly the shared cells that model
+    /// JavaScript's mutable objects. So the current-thread runtime is the
+    /// faithful shape, not a workaround for a missing bound.
+    ///
+    /// The `LocalSet` is the other half: it is what makes `spawn_local`
+    /// available, and `spawn_local` is how a listening server keeps accepting
+    /// while the program's own body carries on. Both are emitted for EVERY
+    /// async `main` rather than only for programs that serve — two runtime
+    /// shapes for one language is the special case this codebase refuses.
+    fn async_main_runtime_prologue(can_throw: bool) -> String {
+        // A runtime that cannot be built is not a program error the source can
+        // handle, but a throwing `main` can still report it in the ordinary
+        // channel rather than panicking.
+        let build = if can_throw {
+            ".build()?"
+        } else {
+            ".build().expect(\"tokio runtime\")"
+        };
+        format!(
+            "let smelt_runtime = tokio::runtime::Builder::new_current_thread().enable_all(){build};\nlet smelt_local = tokio::task::LocalSet::new();\nsmelt_local.block_on(&smelt_runtime, async move {{\n"
+        )
+    }
+
     /// Emits a free function definition.
     pub(crate) fn emit(&mut self, out: &mut String) -> Result<(), EmitError> {
         let name = self.symbol_name(self.function.name)?;
@@ -157,20 +197,28 @@ impl<'mir> FunctionEmitter<'mir> {
             }
         }
         if !self.function.is_test && name == "main" && self.function.return_ty == self.none_ty {
+            // An async module body ends by running the event loop until the
+            // program may exit, and that drain is lowered as the body's last
+            // statement rather than wrapped around it here -- see
+            // `module_init`'s `append_module_exit_drain`. So this emission
+            // supplies only the runtime the body runs on.
+            // The signature depends only on whether the body can throw, and
+            // the runtime scope only on whether it is async. They used to be
+            // entangled because an async `main` carried a `#[tokio::main]`
+            // attribute; it now builds its own runtime inside the body, so the
+            // two questions are answered separately.
             if self.function.can_throw {
-                if self.function.is_async {
-                    out.push_str(
-                        "#[tokio::main]\nasync fn main() -> Result<(), Box<dyn std::error::Error>> {\n",
-                    );
-                } else {
-                    out.push_str("fn main() -> Result<(), Box<dyn std::error::Error>> {\n");
-                }
-            } else if self.function.is_async {
-                out.push_str("#[tokio::main]\nasync fn main() {\n");
+                out.push_str("fn main() -> Result<(), Box<dyn std::error::Error>> {\n");
             } else {
                 out.push_str("fn main() {\n");
             }
+            if self.function.is_async {
+                out.push_str(&Self::async_main_runtime_prologue(self.function.can_throw));
+            }
             self.emit_body(out)?;
+            if self.function.is_async {
+                out.push_str(Self::ASYNC_MAIN_RUNTIME_EPILOGUE);
+            }
             out.push_str("}\n");
             return Ok(());
         }
@@ -249,7 +297,7 @@ impl<'mir> FunctionEmitter<'mir> {
             } else {
                 out.push_str("    let mut smelt_generator = smelt_generator;\n");
                 let completion = if self.function.can_throw {
-                "value.unwrap_or_else(|error| panic!(\"{}\", error))"
+                "value.unwrap_or_else(|error| smelt_panic_throw(error))"
                 } else {
                     "value"
                 };
@@ -1964,7 +2012,7 @@ impl<'mir> FunctionEmitter<'mir> {
             } else {
                 out.push_str("    let mut smelt_generator = smelt_generator;\n");
                 let completion = if self.function.can_throw {
-                    "value.unwrap_or_else(|error| panic!(\"{}\", error))"
+                    "value.unwrap_or_else(|error| smelt_panic_throw(error))"
                 } else {
                     "value"
                 };
@@ -1974,6 +2022,16 @@ impl<'mir> FunctionEmitter<'mir> {
             if self.method_owner_is_reference_class() {
                 self.emit_shared_parameter_preludes(out)?;
             }
+            // A method body needs the same function-scope declarations a free
+            // function body gets. MIR locals are function-scoped while generated
+            // Rust branch bodies are lexically scoped, so a temporary first
+            // assigned inside one `if` arm and assigned again in the sibling arm
+            // (or read after the branch) has to be declared OUTSIDE the branch.
+            // Methods skipped this and emitted an inline `let mut` in the first
+            // arm instead, so the sibling assignment referred to a name that was
+            // out of scope: E0425 by the thousand in a branchy method (Hono's
+            // routers), with no diagnostic anywhere before rustc.
+            self.emit_mutable_local_preludes(out)?;
             self.emit_block(self.entry_block()?, out)?;
         }
         out.push_str("    }\n");
@@ -2293,9 +2351,43 @@ impl<'mir> FunctionEmitter<'mir> {
                     Ok(format!("{}.clone()", self.place_text(place)?))
                 }
             }
-            Operand::Move(place) => self.place_text(place),
+            Operand::Move(place) => {
+                // A value that lives in a shared capture cell is read as
+                // `(*smelt_capture_x.borrow())`, a place behind a `Ref` guard.
+                // Rust cannot MOVE out of that, so a move operand over such a
+                // place has to clone — the same answer the `Copy` arm above
+                // gives, for the same reason (the cell keeps owning the value).
+                // A `Copy` scalar and a non-cloneable type are excluded exactly
+                // as they are there.
+                if self.place_reads_through_shared_capture(place)
+                    && !self.place_type_is_copy_scalar(place)?
+                    && !self.type_contains_noncloneable(self.place_ty(place)?)
+                    && !matches!(
+                        self.mir.types.get(self.place_ty(place)?),
+                        Some(Type::Function(_))
+                    )
+                {
+                    return Ok(cloned_value_text(&self.place_text(place)?));
+                }
+                self.place_text(place)
+            }
             Operand::Const(constant) => Ok(constant_text(constant)),
         }
+    }
+
+    /// Whether reading `place` projects out of a shared closure-capture cell.
+    ///
+    /// A local captured by reference from a sibling closure is stored in an
+    /// `Rc<RefCell<T>>` and every read of it renders as
+    /// `(*smelt_capture_x.borrow())`, including a field or index projection off
+    /// it, whose base is that same local. Such a read borrows; it does not own.
+    pub(super) fn place_reads_through_shared_capture(&self, place: &Place) -> bool {
+        let root = match place {
+            Place::Local(local) => *local,
+            Place::Field { base, .. } | Place::Index { base, .. } => *base,
+            Place::Global { .. } => return false,
+        };
+        self.local_uses_shared_capture_storage(root) && self.is_local_declared(root)
     }
 
     /// Whether a place reads a scalar that lowers to a `Copy` Rust type.
@@ -2644,7 +2736,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Some(Type::Future(_))
         );
         let call_value = if source.may_throw && !source_returns_future {
-            format!("{call}.unwrap_or_else(|error| panic!(\"{{}}\", error))")
+            format!("{call}.unwrap_or_else(|error| smelt_panic_throw(error))")
         } else {
             call
         };
@@ -3080,7 +3172,7 @@ impl<'mir> FunctionEmitter<'mir> {
         let call_value = if source_function.may_throw && target_function.may_throw {
             format!("{call}?")
         } else if source_function.may_throw {
-            format!("{call}.unwrap_or_else(|error| panic!(\"{{}}\", error))")
+            format!("{call}.unwrap_or_else(|error| smelt_panic_throw(error))")
         } else {
             call
         };
@@ -3297,7 +3389,7 @@ impl<'mir> FunctionEmitter<'mir> {
         } else if source.may_throw && !source_returns_future && target_function.may_throw {
             format!("{call}?")
         } else if source.may_throw && !source_returns_future {
-            format!("{call}.unwrap_or_else(|error| panic!(\"{{}}\", error))")
+            format!("{call}.unwrap_or_else(|error| smelt_panic_throw(error))")
         } else {
             call
         };
@@ -3902,7 +3994,7 @@ impl<'mir> FunctionEmitter<'mir> {
         } else if source.may_throw && !source_returns_future && target_function.may_throw {
             format!("{call_text}?")
         } else if source.may_throw && !source_returns_future {
-            format!("{call_text}.unwrap_or_else(|error| panic!(\"{{}}\", error))")
+            format!("{call_text}.unwrap_or_else(|error| smelt_panic_throw(error))")
         } else {
             call_text
         };
@@ -4772,6 +4864,22 @@ impl<'mir> FunctionEmitter<'mir> {
         self.is_reference_class_type(base_ty) && self.class_has_named_field(base_ty, *field)
     }
 
+    /// Returns whether reading `operand` holds a `RefCell` borrow guard.
+    ///
+    /// Two shapes read through a cell: a declared field of a reference class
+    /// (`recv.0.borrow().f.clone()`) and a shared closure capture
+    /// (`(*smelt_capture_x.borrow())`). Both guards live to the end of the
+    /// enclosing statement, so a caller that would run arbitrary code in that
+    /// same statement — invoking the value it just read — must bind the read to
+    /// a local first.
+    pub(super) fn operand_reads_through_ref_cell(&self, operand: &Operand) -> bool {
+        let place = match operand {
+            Operand::Copy(place) | Operand::Move(place) => place,
+            Operand::Const(_) => return false,
+        };
+        self.place_is_reference_class_field(place) || self.place_reads_through_shared_capture(place)
+    }
+
     /// Returns whether an index read already produces an owned value.
     ///
     /// `place_text`'s `Place::Index` arm lowers almost every receiver shape to an
@@ -4921,6 +5029,30 @@ impl<'mir> FunctionEmitter<'mir> {
                             smelt_stdlib::StdlibClass::RegExp
                                 | smelt_stdlib::StdlibClass::Match
                                 | smelt_stdlib::StdlibClass::MatchGroups
+                                // A WHATWG `Headers` is the concrete
+                                // `SmeltHeaders` runtime type, so it never
+                                // erases: that is the whole point of modeling
+                                // the fetch types as real Rust values.
+                                | smelt_stdlib::StdlibClass::Headers
+                                | smelt_stdlib::StdlibClass::UrlSearchParams
+                                // The text codecs and the concrete byte view
+                                // are generated Rust types too. The byte view
+                                // is reached only through its synthetic class
+                                // name, so the source spelling `Uint8Array`
+                                // keeps its erased byte-backed-record meaning.
+                                | smelt_stdlib::StdlibClass::TextEncoder
+                                | smelt_stdlib::StdlibClass::TextDecoder
+                                | smelt_stdlib::StdlibClass::ByteArray
+                                // `Blob`/`File` are the concrete `SmeltBlob`.
+                                | smelt_stdlib::StdlibClass::Blob
+                                | smelt_stdlib::StdlibClass::File
+                                // Likewise `Response`: a concrete
+                                // `SmeltResponse`, never an erased record.
+                                | smelt_stdlib::StdlibClass::Response
+                                | smelt_stdlib::StdlibClass::Request
+                                // An emitter is a concrete listener list, not
+                                // an erased record.
+                                | smelt_stdlib::StdlibClass::EventEmitter
                         )
                     )
                 }) {
@@ -5055,8 +5187,12 @@ impl<'mir> FunctionEmitter<'mir> {
             .map_or(Ok("SmeltUnknown::Null"), Ok)
     }
 
-    /// Gets the string name of a symbol.
-    /// Gets the string name of a symbol.
+    /// Gets the Rust-facing rendering of a symbol.
+    ///
+    /// A source name that is not a valid Rust spelling is case-folded when it is
+    /// interned (`camelCase` -> `camel_case`), so this is the *generated* name,
+    /// not the one the source wrote. Use [`Self::symbol_source_name`] whenever
+    /// the answer is compared against a JavaScript key.
     pub(super) fn symbol_name(&self, symbol: Symbol) -> Result<&str, EmitError> {
         self.mir
             .symbols
@@ -5175,6 +5311,8 @@ fn place_reads_local(place: &Place, local: LocalId) -> bool {
             base: candidate, ..
         } => *candidate == local,
         Place::Index { base, index, .. } => *base == local || operand_uses_local(index, local),
+        // No base local, but the index operand still observes one.
+        Place::Global { projection, .. } => global_projection_reads_local(projection, local),
     }
 }
 
@@ -5184,6 +5322,23 @@ pub(super) fn assignment_place_reads_local(place: &Place, local: LocalId) -> boo
         Place::Local(_) => false,
         Place::Field { base, .. } => *base == local,
         Place::Index { base, index, .. } => *base == local || operand_uses_local(index, local),
+        Place::Global { projection, .. } => global_projection_reads_local(projection, local),
+    }
+}
+
+/// Return whether a mutable-global projection observes a specific local.
+///
+/// A field projection names a symbol and reads nothing; an index projection
+/// carries an operand that is evaluated before the cell is borrowed, and that
+/// operand can name a local. Answering `false` for it would let the emitter
+/// treat the local as dead at the write.
+fn global_projection_reads_local(
+    projection: &smelt_mir::GlobalProjection,
+    local: LocalId,
+) -> bool {
+    match projection {
+        smelt_mir::GlobalProjection::Field(_) => false,
+        smelt_mir::GlobalProjection::Index { index, .. } => operand_uses_local(index, local),
     }
 }
 
@@ -5336,6 +5491,34 @@ pub(super) fn rvalue_uses_local(value: &Rvalue, local: LocalId) -> bool {
         // and presence probes take no operands. Missing this arm would let the
         // `_ => false` fallthrough elide a closure whose only use is the write.
         Rvalue::HostGlobalWrite { value: stored, .. } => operand_uses_local(stored, local),
+        // An `EventEmitter` operation reads its receiver and every argument. The
+        // listener argument of `on`/`once`/`off` is almost always a closure temp
+        // whose ONLY use is this rvalue, so without this arm the `_ => false`
+        // fallthrough elides the closure's own statement and the emitted code
+        // references an undeclared temporary.
+        Rvalue::EventEmitterOp { emitter, args, .. } => {
+            operand_uses_local(emitter, local)
+                || args
+                    .iter()
+                    .any(|operand| operand_uses_local(operand, local))
+        }
+        // The `node:http` operations, for the same reason: `createServer`'s
+        // handler and `listen`'s listening callback are closure temps whose
+        // ONLY use is the rvalue that consumes them.
+        Rvalue::HttpCreateServer { handler } => operand_uses_local(handler, local),
+        Rvalue::HttpServerOp { server, args, .. } => {
+            operand_uses_local(server, local)
+                || args
+                    .iter()
+                    .any(|operand| operand_uses_local(operand, local))
+        }
+        Rvalue::IncomingMessageOp { message, .. } => operand_uses_local(message, local),
+        Rvalue::ServerResponseOp { response, args, .. } => {
+            operand_uses_local(response, local)
+                || args
+                    .iter()
+                    .any(|operand| operand_uses_local(operand, local))
+        }
         // A Vitest mock construction reads its wrapped implementation (often a
         // closure temp whose ONLY use is this rvalue — missing this arm elides
         // that closure's declaration); the matcher queries read the mock and

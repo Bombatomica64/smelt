@@ -79,16 +79,22 @@ use std::{
 
 use crate::{rust::erased_string, type_substitution::TypeSubstitution};
 use smelt_hir::{AsyncOp, BodyId, Type, TypeId};
-use smelt_mir::{HirOrigin, Mir, MirClassProtocol, MirFunction, Rvalue};
+use smelt_mir::{HirOrigin, Mir, MirClassProtocol, MirFunction, MirGlobalInit, Rvalue};
 
 mod asymmetric_matcher_prelude;
 mod builtin_member_prelude;
 mod byte_buffer_prelude;
+mod event_emitter_prelude;
+mod host_value_erasure;
+mod blob_prelude;
+mod fetch_types_prelude;
+mod text_codec_prelude;
 pub(crate) mod class_proto;
 pub(crate) mod classes;
 pub(crate) mod classify;
 pub(crate) mod deps;
 mod function_object_prelude;
+mod http_server_prelude;
 // Increment 3 of the callback-generics plan made the last dormant entry point
 // live: the safety valve consults `collect_bindings` and `TypeParamBinding`
 // directly, so the module no longer needs a `dead_code` expectation.
@@ -467,11 +473,29 @@ fn needs_math_round(mir: &Mir) -> bool {
 /// synthesized closure body (e.g. the first-class `setTimeout` value form),
 /// and the prelude must still define the timer queue for it.
 fn needs_timer_helpers(mir: &Mir) -> bool {
+    // An async module body ends by running the event loop to idle, which is the
+    // timer helpers' own run-until-idle entry, so a program whose top level is
+    // async needs them even when it arms no timer of its own -- for instance a
+    // top-level `await fetch(..)`, whose op is not in the list below.
+    if mir.functions.iter().any(|function| {
+        function.is_async
+            && !function.is_test
+            && mir.symbols.get(function.name) == Some("main")
+    }) {
+        return true;
+    }
+    // A `node:http` server registers a live handle with the exit drain, which
+    // is emitted with the timer helpers. The handle accounting has to exist
+    // wherever the server does, whether or not the program also has a timer.
+    if stdlib::needs_http_server_runtime(mir) {
+        return true;
+    }
     stdlib::rvalues(mir).any(|value| {
         matches!(
             value,
             Rvalue::AsyncOp {
                 op: AsyncOp::Sleep
+                    | AsyncOp::ExitDrain
                     | AsyncOp::Resolve
                     | AsyncOp::Reject
                     | AsyncOp::SetTimeout
@@ -539,6 +563,19 @@ fn emit_source_with_free_function_router(
     let needs_regex =
         stdlib::backend_dependencies(mir).contains(&smelt_stdlib::BackendDependency::Regex);
     let needs_unknown = stdlib::needs_unknown_type(mir);
+    // The fetch types are pay-for-use: a crate that never mentions `Headers`
+    // carries none of `SmeltHeaders`.
+    let needs_headers = stdlib::needs_headers_runtime(mir);
+    let needs_url_search_params = stdlib::needs_url_search_params_runtime(mir);
+    let needs_response = stdlib::needs_response_runtime(mir);
+    let needs_request = stdlib::needs_request_runtime(mir);
+    let needs_event_emitter = stdlib::needs_event_emitter_runtime(mir);
+    let needs_http_server = stdlib::needs_http_server_runtime(mir);
+    let needs_body = stdlib::needs_body_runtime(mir);
+    let needs_text_encoder = stdlib::needs_text_encoder_runtime(mir);
+    let needs_text_decoder = stdlib::needs_text_decoder_runtime(mir);
+    let needs_byte_array = stdlib::needs_byte_array_runtime(mir);
+    let needs_blob = stdlib::needs_blob_runtime(mir);
     let needs_smelt_list = stdlib::needs_smelt_list(mir);
     let needs_erased_function = needs_erased_function_runtime(mir);
     let needs_date_now = stdlib::needs_date_now_runtime(mir);
@@ -599,6 +636,14 @@ fn emit_source_with_free_function_router(
         writer.line("#[global_allocator]");
         writer.line("static SMELT_GLOBAL_ALLOCATOR: ::mimalloc::MiMalloc = ::mimalloc::MiMalloc;");
         writer.blank_line();
+    }
+    // The panic route is the error channel for every generated body that cannot
+    // propagate a `Result`, and both of its ends -- the throw adapter and the
+    // `catch_unwind` recovery helpers -- are needed wherever a `try` or a
+    // non-propagating fallible call is emitted. One predicate covers both; see
+    // `stdlib::needs_panic_route`.
+    if stdlib::needs_panic_route(mir) {
+        thrown::emit_panic_route_support(&mut writer, needs_unknown);
     }
     if needs_date_now {
         emit_runtime_gate(&mut writer, PreludeGate::DateNow)?;
@@ -746,7 +791,18 @@ fn emit_source_with_free_function_router(
     // identity when later erased to `SmeltUnknown`). Emit it standalone only in
     // that regex-without-list case so list-using programs keep byte-identical
     // output. `needs_smelt_list` already subsumes `needs_unknown`.
-    if needs_regex && !needs_smelt_list {
+    // The text codecs join that list: each of the three types carries a JS
+    // reference identity, so a program that only encodes a string still mints
+    // ids.
+    if (needs_regex
+        || needs_headers
+        || needs_url_search_params
+        || needs_byte_array
+        || needs_text_encoder
+        || needs_text_decoder
+        || needs_blob)
+        && !needs_smelt_list
+    {
         emit_runtime_gate(&mut writer, PreludeGate::ObjectIdentity)?;
     }
     if needs_smelt_list {
@@ -1300,6 +1356,64 @@ fn emit_source_with_free_function_router(
         writer.line("    SMELT_FUNCTION_ORIGINS.with(|origins| origins.borrow().get(&smelt_erased_function_key(function)).and_then(|origin| origin.downcast_ref::<T>()).cloned())");
         writer.line("}");
         writer.blank_line();
+        // Pay-for-use. Only the six classes whose state is not a record retain
+        // their live value, so a program that erases none of them must not carry
+        // the registry — sixteen example goldens grew by it before this gate.
+        if needs_text_encoder
+            || needs_text_decoder
+            || needs_event_emitter
+            || needs_http_server
+        {
+            // Host values whose state is NOT representable as a record.
+            //
+            // `Headers` and `Blob` round-trip structurally: their erased record
+            // carries the header pairs or the bytes, so `SmeltFromUnknown` can
+            // rebuild an equal value from it. The text codecs, the `node:events`
+            // emitter and the three `node:http` types cannot — their state is
+            // closures, cells and a tokio shutdown sender — so there is nothing to
+            // rebuild FROM.
+            //
+            // What JavaScript does there is not rebuild anything: erasing a value
+            // and narrowing it back yields the SAME object, so
+            // `const x: unknown = emitter; (x as EventEmitter).on(..)` reaches the
+            // same listener list. This registry is how the generated runtime keeps
+            // that promise: the erasure retains the live value under the erased
+            // record's object id, and `SmeltFromUnknown` hands that value back.
+            //
+            // Keyed on the JavaScript object id, not on an `Rc` address, so unlike
+            // the sibling callable registries it needs no address-reuse guard: ids
+            // are minted monotonically by `smelt_next_object_id` and are never
+            // reused within a thread. Entries are never removed, for the same
+            // reason as the callable registries — there is no drop hook — and the
+            // growth is one entry per host value that crosses the boundary.
+            writer.line("thread_local! {");
+            writer.line("    /// Live host values reachable from their erased records, by object id.");
+            writer.line("    static SMELT_HOST_ORIGINS: ::std::cell::RefCell<::std::collections::HashMap<usize, Box<dyn ::std::any::Any>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
+            writer.line("}");
+            writer.blank_line();
+            writer.line("/// Retain a host value so its erased record can hand back the same object.");
+            writer.line("///");
+            writer.line("/// Call this from the value's `IntoSmeltUnknown`, with the id the erased");
+            writer.line("/// record is built with, so the record and the retained value agree.");
+            writer.line("#[allow(dead_code)]");
+            writer.line("fn smelt_register_host_origin<T: Clone + 'static>(id: usize, value: T) {");
+            writer.line("    SMELT_HOST_ORIGINS.with(|origins| { origins.borrow_mut().insert(id, Box::new(value)); });");
+            writer.line("}");
+            writer.blank_line();
+            writer.line("/// Recover the host value an erased record was made from.");
+            writer.line("///");
+            writer.line("/// `None` for a record that did not come from an erasure — a hand-built");
+            writer.line("/// object carrying the marker, or one that crossed a process boundary. Each");
+            writer.line("/// caller decides what that means for its own type rather than being given");
+            writer.line("/// a fabricated value here.");
+            writer.line("#[allow(dead_code)]");
+            writer.line("fn smelt_restore_host_origin<T: Clone + 'static>(value: &SmeltUnknown) -> Option<T> {");
+            writer.line("    let SmeltUnknown::Object(map) = value else { return None };");
+            writer.line("    SMELT_HOST_ORIGINS.with(|origins| origins.borrow().get(&map.id).and_then(|origin| origin.downcast_ref::<T>()).cloned())");
+            writer.line("}");
+            writer.blank_line();
+        }
+
         // A JavaScript "callable object" (a function with attached own
         // properties, e.g. remeda's `map(cb)` carrying `.lazy`/`.lazyArgs`)
         // erases to `SmeltUnknown::Object { __smelt_call, ...props }`. When such
@@ -2045,10 +2159,20 @@ fn emit_source_with_free_function_router(
         // `__smelt_proto:`-prefixed entries hold members INHERITED from a
         // prototype (`Object.create(proto)`), so they are never own keys — JS
         // `Object.keys` / `for...in` own-key enumeration must skip them.
-        writer.line("fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { if smelt_object_has_host_marker(object) { return false; } !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && key != \"__smelt_map\" && key != \"__smelt_set\" && !(object.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\" | \"lastIndex\")) && !(object.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\" | \"stack\")) && !(object.contains_key(\"__smelt_arguments\") && matches!(key, \"__smelt_arguments\" | \"length\")) }");
+        //
+        // A symbol-keyed property is skipped for a stronger reason: in
+        // JavaScript a symbol key NEVER appears in string-key enumeration
+        // (`Object.keys`, `Object.values`, `Object.entries`, `for...in`,
+        // `JSON.stringify`), only in `Object.getOwnPropertySymbols` and
+        // `Reflect.ownKeys`. Every storage spelling of a symbol key shares the
+        // `__smelt_symbol` stem (`smelt_stdlib::symbol_keys::SYMBOL_KEY_STEM`) —
+        // the opaque `__smelt_symbol:<description>` form, the folded registry and
+        // unique member names, and the well-known keys — so one prefix test
+        // covers all of them.
+        writer.line("fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { if smelt_object_has_host_marker(object) { return false; } !key.starts_with(\"__smelt_symbol\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && key != \"__smelt_map\" && key != \"__smelt_set\" && !(object.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\" | \"lastIndex\")) && !(object.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\" | \"stack\")) && !(object.contains_key(\"__smelt_arguments\") && matches!(key, \"__smelt_arguments\" | \"length\")) }");
         writer
             .line("/// Return whether a record key is visible to JavaScript `for...in` iteration.");
-        writer.line("fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> bool { if smelt_record_has_host_marker(record) { return false; } !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && !(record.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\" | \"lastIndex\")) && !(record.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\" | \"stack\")) && !(record.contains_key(\"__smelt_arguments\") && matches!(key, \"__smelt_arguments\" | \"length\")) }");
+        writer.line("fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> bool { if smelt_record_has_host_marker(record) { return false; } !key.starts_with(\"__smelt_symbol\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && !(record.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\" | \"lastIndex\")) && !(record.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\" | \"stack\")) && !(record.contains_key(\"__smelt_arguments\") && matches!(key, \"__smelt_arguments\" | \"length\")) }");
         // `for...in` walks the PROTOTYPE CHAIN; `Object.keys` does not. The two
         // therefore cannot share one key list. Inherited members live behind the
         // `__smelt_proto:` prefix, which the own-key filters above exclude — right
@@ -2090,8 +2214,8 @@ fn emit_source_with_free_function_router(
         writer.line("///");
         writer.line("/// Drops `__smelt_proto:` / `__smelt_method:` / `__smelt_class` keys (inherited");
         writer.line("/// members, prototype methods and class provenance are not own properties) and");
-        writer.line("/// restores a `__smelt_symbol:` key to its `SmeltUnknown::Symbol` tag.");
-        writer.line("fn smelt_own_js_map_entries<V: Clone>(map: &SmeltJsMap<SmeltUnknown, V>) -> Vec<(SmeltUnknown, V)> { map.iter().filter_map(|(key, value)| { let SmeltUnknown::String(text) = &key else { return Some((key, value)); }; let text = text.to_string(); if text.starts_with(\"__smelt_proto:\") || text.starts_with(\"__smelt_method:\") || text == \"__smelt_class\" { return None; } if let Some(description) = text.strip_prefix(\"__smelt_symbol:\") { return Some((SmeltUnknown::Symbol(description.into()), value)); } Some((key, value)) }).collect() }");
+        writer.line("/// restores any symbol key to its `SmeltUnknown::Symbol` tag.");
+        writer.line("fn smelt_own_js_map_entries<V: Clone>(map: &SmeltJsMap<SmeltUnknown, V>) -> Vec<(SmeltUnknown, V)> { map.iter().filter_map(|(key, value)| { let SmeltUnknown::String(text) = &key else { return Some((key, value)); }; let text = text.to_string(); if text.starts_with(\"__smelt_proto:\") || text.starts_with(\"__smelt_method:\") || text == \"__smelt_class\" { return None; } if let Some(symbol) = smelt_own_symbol_key_value(&text) { return Some((symbol, value)); } Some((key, value)) }).collect() }");
         writer.blank_line();
         writer.line("/// Every key JavaScript `for...in` yields for a `SmeltJsMap` backing.");
         writer.line("///");
@@ -3339,43 +3463,80 @@ fn emit_source_with_free_function_router(
             // (`smelt_reflected_construct`, always emitted) builds `Blob`/`File`
             // through this helper, so it cannot be gated on the crate spelling a
             // `new Blob(...)` itself.
-            writer.line("/// Build the modeled host `Blob`/`File` record for `new Blob(...)` / `new File(...)`.");
+            writer.line("/// Concatenate an erased `BlobPart` array into the bytes it contributes.");
             writer.line("///");
-            writer.line("/// Concatenates BlobPart contents (strings verbatim; nested Blob/File records");
-            writer.line("/// contribute their stored `content`; other parts stringify like JavaScript)");
-            writer.line("/// and stores the UTF-8 byte length as `size`. Passing a file name stamps the");
-            writer.line("/// `__smelt_file` marker on top of `__smelt_blob`, so `file instanceof Blob`");
-            writer.line("/// observes the host subtype relationship; `lastModified` defaults to `0.0`");
-            writer.line("/// for determinism instead of the wall clock.");
+            writer.line("/// A `BlobPart` is `Blob | BufferSource | string` — a heterogeneous host");
+            writer.line("/// union whose arm is a runtime fact — which is why the parts array is");
+            writer.line("/// erased and walked here. Strings contribute their UTF-8 bytes; a nested");
+            writer.line("/// `Blob`/`File` record contributes its stored `content`; a byte-backed");
+            writer.line("/// host record (`Uint8Array`, `ArrayBuffer`, `DataView`, ...) contributes");
+            writer.line("/// its raw `bytes`, which the pre-byte-backed version stringified and so");
+            writer.line("/// corrupted; anything else stringifies the way JavaScript does.");
+            writer.line("///");
+            writer.line("/// Shared by `new Blob(..)` (through `SmeltBlob::from_parts_unknown`) and by");
+            writer.line("/// the reflected host construction below, so a directly-constructed blob and");
+            writer.line("/// a reflectively-constructed one cannot disagree about their bytes.");
+            writer.line("fn smelt_blob_parts_bytes(parts: SmeltUnknown) -> Vec<u8> {");
+            writer.line("    let mut bytes: Vec<u8> = Vec::new();");
+            writer.line("    if let SmeltUnknown::Array(items) = parts {");
+            writer.line("        for item in items.iter() {");
+            writer.line("            match item {");
+            writer.line("                SmeltUnknown::String(text) => bytes.extend_from_slice(text.as_bytes()),");
+            writer.line("                SmeltUnknown::Object(map) if map.contains_key(\"__smelt_blob\") => {");
+            writer.line("                    if let Some(SmeltUnknown::String(text)) = map.get(\"content\") { bytes.extend_from_slice(text.as_bytes()); }");
+            writer.line("                }");
+            writer.line("                SmeltUnknown::Object(map) if matches!(map.get(\"bytes\"), Some(SmeltUnknown::Array(_))) => {");
+            writer.line("                    if let Some(SmeltUnknown::Array(elements)) = map.get(\"bytes\") {");
+            writer.line("                        for element in elements.iter() { if let SmeltUnknown::Number(value) = element { bytes.push(value as u8); } }");
+            writer.line("                    }");
+            writer.line("                }");
+            writer.line("                other => bytes.extend_from_slice(other.to_string().as_bytes()),");
+            writer.line("            }");
+            writer.line("        }");
+            writer.line("    }");
+            writer.line("    bytes");
+            writer.line("}");
+            writer.blank_line();
+            writer.line("/// The ERASED form of a blob: the one definition of the record shape.");
+            writer.line("///");
+            writer.line("/// Called both by the reflected constructor below (through");
+            writer.line("/// `smelt_blob_record_from_parts`) and by `impl IntoSmeltUnknown for");
+            writer.line("/// SmeltBlob`, so a concrete blob crossing a dynamic boundary and a");
+            writer.line("/// reflectively-constructed one are the same record. `content` is the");
+            writer.line("/// UTF-8 decoding of the bytes, which is what every existing consumer of an");
+            writer.line("/// erased blob reads; the concrete `SmeltBlob` is the value that carries");
+            writer.line("/// the bytes losslessly.");
+            writer.line("///");
+            writer.line("/// A file name stamps `__smelt_file` on top of `__smelt_blob`, so");
+            writer.line("/// `file instanceof Blob` observes the host subtype relationship.");
+            writer.line("fn smelt_blob_record(id: usize, bytes: &[u8], blob_type: &str, file_name: Option<String>, last_modified: f64) -> SmeltUnknown {");
+            writer.line("    let content = String::from_utf8_lossy(bytes).into_owned();");
+            writer.line("    let record = Vec::from([");
+            writer.line("        (\"__smelt_blob\".to_owned(), SmeltUnknown::Bool(true)),");
+            writer.line("        (\"type\".to_owned(), SmeltUnknown::String(blob_type.to_owned().into())),");
+            writer.line("        (\"size\".to_owned(), SmeltUnknown::Number(bytes.len() as f64)),");
+            writer.line("        (\"content\".to_owned(), SmeltUnknown::String(content.into())),");
+            writer.line("    ]);");
+            writer.line("    let record = SmeltObject::with_id(id, record);");
+            writer.line("    if let Some(name) = file_name {");
+            writer.line("        record.insert(\"__smelt_file\".to_owned(), SmeltUnknown::Bool(true));");
+            writer.line("        record.insert(\"name\".to_owned(), SmeltUnknown::String(name.into()));");
+            writer.line("        record.insert(\"lastModified\".to_owned(), SmeltUnknown::Number(last_modified));");
+            writer.line("    }");
+            writer.line("    SmeltUnknown::Object(record)");
+            writer.line("}");
+            writer.blank_line();
+            writer.line("/// Build the erased `Blob`/`File` record for the reflected constructor.");
+            writer.line("///");
+            writer.line("/// Kept separate from the concrete `SmeltBlob` so a crate that reflects over");
+            writer.line("/// host constructors but never names a blob does not carry the blob type.");
+            writer.line("/// `lastModified` defaults to `0.0` for determinism instead of the wall clock.");
             writer.line(format!(
                 "fn {}(parts: SmeltUnknown, blob_type: String, file_name: Option<String>, last_modified: Option<f64>) -> SmeltUnknown {{",
                 smelt_stdlib::runtime_symbols::host::BLOB_RECORD_FROM_PARTS,
             ));
-            writer.line("    let mut content = String::new();");
-            writer.line("    if let SmeltUnknown::Array(items) = parts {");
-            writer.line("        for item in items.iter() {");
-            writer.line("            match item {");
-            writer.line("                SmeltUnknown::String(text) => content.push_str(&text),");
-            writer.line("                SmeltUnknown::Object(map) if map.contains_key(\"__smelt_blob\") => {");
-            writer.line("                    if let Some(SmeltUnknown::String(text)) = map.get(\"content\") { content.push_str(&text); }");
-            writer.line("                }");
-            writer.line("                other => content.push_str(&other.to_string()),");
-            writer.line("            }");
-            writer.line("        }");
-            writer.line("    }");
-            writer.line("    let record = Vec::from([");
-            writer.line("        (\"__smelt_blob\".to_owned(), SmeltUnknown::Bool(true)),");
-            writer.line("        (\"type\".to_owned(), SmeltUnknown::String(blob_type.into())),");
-            writer.line("        (\"size\".to_owned(), SmeltUnknown::Number(content.len() as f64)),");
-            writer.line("        (\"content\".to_owned(), SmeltUnknown::String(content.into())),");
-            writer.line("    ]);");
-            writer.line("    let record = SmeltObject::new(record);");
-            writer.line("    if let Some(name) = file_name {");
-            writer.line("        record.insert(\"__smelt_file\".to_owned(), SmeltUnknown::Bool(true));");
-            writer.line("        record.insert(\"name\".to_owned(), SmeltUnknown::String(name.into()));");
-            writer.line("        record.insert(\"lastModified\".to_owned(), SmeltUnknown::Number(last_modified.unwrap_or(0.0)));");
-            writer.line("    }");
-            writer.line("    SmeltUnknown::Object(record)");
+            writer.line("    let bytes = smelt_blob_parts_bytes(parts);");
+            writer.line("    smelt_blob_record(smelt_next_object_id(), &bytes, &blob_type, file_name, last_modified.unwrap_or(0.0))");
             writer.line("}");
             writer.blank_line();
         }
@@ -3414,31 +3575,9 @@ fn emit_source_with_free_function_router(
         writer.line("    }");
         writer.line("}");
         writer.blank_line();
-        // The property key a SYMBOL value indexes.
-        //
-        // A well-known symbol (`Symbol.iterator`, `Symbol.toStringTag`, ...) is a
-        // constant of the language, so `obj[Symbol.iterator]` and a declared
-        // `[Symbol.iterator]` member must name ONE member. The frontend folds the
-        // static key spelling through `smelt_stdlib::well_known_symbols`; this is
-        // the runtime half of that same table, for the spelling that only exists
-        // as a value at compile time (a `const s = Symbol.iterator` alias handed
-        // through an erased slot, a symbol read out of `Object.getOwnPropertySymbols`).
-        // Every other symbol — unique `Symbol('d')`, registry `Symbol.for('d')` —
-        // keeps the generic `__smelt_symbol:<description>` storage form, which is
-        // what makes it a key distinct from its own description string.
-        writer.line("/// The property key a symbol value indexes.");
-        {
-            let well_known_arms = smelt_stdlib::well_known_symbols::spelling_key_pairs()
-                .into_iter()
-                .fold(String::new(), |mut arms, (spelling, key)| {
-                    use ::std::fmt::Write as _;
-                    let _ = write!(arms, "{spelling:?} => {key:?}.to_owned(), ");
-                    arms
-                });
-            writer.line(format!(
-                "fn smelt_symbol_property_key(description: &str) -> String {{ match description {{ {well_known_arms}other => format!(\"__smelt_symbol:{{other}}\") }} }}"
-            ));
-        }
+        // The runtime half of the symbol-value/property-key correspondence the
+        // frontend folds statically; see `emit_symbol_key_derivation`.
+        emit_symbol_key_derivation(&mut writer);
         writer.blank_line();
         // JavaScript property-key coercion: `obj[key]` stringifies whatever `key`
         // is. Lives in the prelude because it was previously emitted as a full
@@ -3650,7 +3789,7 @@ fn emit_source_with_free_function_router(
         writer.line("    let smelt_field_value = match map.get(field) { Some(value) => Some(value), None => match map.get(&format!(\"__smelt_proto:{field}\")) { Some(value) => Some(value), None => map.get(&format!(\"__smelt_method:{field}\")) } };");
         writer.line("    match smelt_field_value.unwrap_or(SmeltUnknown::Undefined) {");
         writer.line("        SmeltUnknown::Object(getter) if getter.contains_key(\"__smelt_get\") => match getter.get(\"__smelt_get\") {");
-        writer.line("            Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| panic!(\"{}\", error)),");
+        writer.line("            Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| smelt_panic_throw(error)),");
         writer.line("            _ => SmeltUnknown::Null,");
         writer.line("        },");
         writer.line("        value => value,");
@@ -4123,7 +4262,7 @@ fn emit_source_with_free_function_router(
             writer.line("        });");
             writer.line("        if due.is_empty() { break; }");
             writer.line("        for timer in due {");
-            writer.line("            (&mut *timer.callback.borrow_mut())().unwrap_or_else(|error| panic!(\"{}\", error));");
+            writer.line("            (&mut *timer.callback.borrow_mut())().unwrap_or_else(|error| smelt_panic_throw(error));");
             writer.line("            // Re-arm repeating `setInterval` timers for their next period. The");
             writer.line("            // next fire is scheduled `period` ms from the current virtual time, so");
             writer.line("            // it is strictly in the future and cannot re-fire within this drain pass.");
@@ -4240,6 +4379,7 @@ fn emit_source_with_free_function_router(
             writer.line("    if SMELT_RACE_DEPTH.with(::std::cell::Cell::get) == 0 { tokio::task::yield_now().await; }");
             writer.line("}");
             writer.blank_line();
+            emit_exit_drain_support(&mut writer);
             // `Promise.race` on the virtual clock. Every generated promise value
             // is a spin-loop future that, when polled, advances virtual time by
             // at most one timer step and then yields. So within a single poll
@@ -4397,11 +4537,17 @@ fn emit_source_with_free_function_router(
         // The exception-payload ABI sits right after `Display for SmeltUnknown`
         // because `SmeltThrown`'s own `Display` falls back to it for non-error
         // payloads.
-        thrown::emit_thrown_payload_support(&mut writer);
+        thrown::emit_thrown_payload_support(&mut writer, stdlib::needs_panic_route(mir));
         // The fallible `JSON.parse` adapter reports through that same channel,
         // so it follows the ABI it depends on.
         if needs_serde_json && stdlib::needs_json_parse_runtime(mir) {
             thrown::emit_json_parse_support(&mut writer);
+        }
+        // The URI decoders report through the same channel, so they follow the
+        // same ABI dependency. They need no Serde, only the payload support
+        // emitted just above.
+        if stdlib::needs_uri_decode_runtime(mir) {
+            thrown::emit_uri_decode_support(&mut writer);
         }
         writer.blank_line();
         writer.line("impl Eq for SmeltUnknown {}");
@@ -5187,6 +5333,45 @@ fn emit_source_with_free_function_router(
         writer.blank_line();
         emit_smelt_match(&mut writer, needs_unknown);
     }
+    if needs_headers {
+        fetch_types_prelude::emit(&mut writer, needs_unknown);
+    }
+    if needs_url_search_params {
+        fetch_types_prelude::emit_url_search_params(&mut writer, needs_unknown);
+    }
+    // `SmeltBody` is emitted before `SmeltResponse` because the response holds
+    // one by value; both are gated on a type that HAS a body being present.
+    if needs_body {
+        fetch_types_prelude::emit_body(&mut writer, needs_unknown);
+    }
+    if needs_response {
+        fetch_types_prelude::emit_response(&mut writer, needs_unknown);
+    }
+    if needs_request {
+        fetch_types_prelude::emit_request(&mut writer, needs_unknown);
+    }
+    // The byte view is emitted before the codecs and the blob, which mention it
+    // in their signatures.
+    if needs_byte_array {
+        text_codec_prelude::emit_byte_array(&mut writer, needs_unknown);
+    }
+    if needs_blob {
+        blob_prelude::emit(&mut writer, needs_unknown);
+    }
+    if needs_text_encoder {
+        text_codec_prelude::emit_encoder(&mut writer, needs_unknown);
+    }
+    if needs_text_decoder {
+        text_codec_prelude::emit_decoder(&mut writer, needs_unknown);
+    }
+    if needs_event_emitter {
+        event_emitter_prelude::emit(&mut writer);
+    }
+    // After the emitter, which `SmeltIncomingMessage` composes, and after
+    // `SmeltHeaders`, whose insertion-ordered pairs `writeHead` merges.
+    if needs_http_server {
+        http_server_prelude::emit(&mut writer);
+    }
     for class in &mir.classes {
         let name = class_name_text(mir, class)?;
         if !emitted_class_names.insert(name.clone()) {
@@ -5371,7 +5556,7 @@ fn emit_source_with_free_function_router(
     // `RefCell` form because a `.to_owned()` initializer cannot be `const`.
     if !mir.globals.is_empty() {
         out.push('\n');
-        out.push_str(&emit_mutable_globals(mir)?);
+        out.push_str(&emit_mutable_globals(mir, &context)?);
     }
 
     let mut has_emitted_root_function = false;
@@ -5727,6 +5912,70 @@ fn insert_after_crate_header(mut root: String, text: &str) -> String {
 /// The runtime used to push the replacement verbatim, so `'\\$&'` — the whole
 /// point of a pattern like `escapeRegExp`'s — inserted the two characters `$&`
 /// instead of the matched text.
+/// Emit the live-handle counter and the event loop's exit drain.
+///
+/// # Why the exit drain is not `sleep(0)`
+///
+/// It was, and that made every async program's last act "drain the microtask
+/// queue and the due timers, then return". Node does that too — and then keeps
+/// going while a REFERENCED HANDLE is open. A listening `http.Server` is such a
+/// handle, which is the whole reason `createServer(..).listen(3000)` serves in
+/// Node rather than exiting immediately. With the drain spelled as `sleep(0)`,
+/// the generated program returned from `main` the instant the queue was empty
+/// and the server task was dropped mid-flight.
+///
+/// A mid-program `await sleep(0)` must NOT wait on handles — it would never
+/// return while a server was up — so the two cannot be the same operation.
+/// Hence [`smelt_hir::AsyncOp::ExitDrain`], which is what the module body's
+/// last statement lowers to.
+///
+/// The counter lives here rather than in the `node:http` prelude because the
+/// drain that reads it is emitted for EVERY async program, while the server
+/// prelude is emitted only for programs that serve. Anything else that gains a
+/// process-keeping handle later (a listening socket, a watched file) increments
+/// the same counter.
+fn emit_exit_drain_support(writer: &mut CodeWriter) {
+    writer.line("thread_local! {");
+    writer.line("    /// Open handles that keep the program alive, in Node's sense.");
+    writer.line("    static SMELT_LIVE_HANDLES: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) };");
+    writer.line("}");
+    writer.line("/// Register a handle that must keep the program from exiting.");
+    writer.line("#[allow(dead_code)]");
+    writer.line("fn smelt_retain_handle() { SMELT_LIVE_HANDLES.with(|handles| handles.set(handles.get().saturating_add(1))); }");
+    writer.line("/// Release a handle registered by `smelt_retain_handle`.");
+    writer.line("#[allow(dead_code)]");
+    writer.line("fn smelt_release_handle() { SMELT_LIVE_HANDLES.with(|handles| handles.set(handles.get().saturating_sub(1))); }");
+    writer.line("/// Run the event loop until the program is allowed to exit.");
+    writer.line("///");
+    writer.line("/// First the ordinary run-until-idle drain, then Node's ref'd-handle");
+    writer.line("/// rule: stay alive while any handle is open. Polling (rather than a");
+    writer.line("/// notification) is deliberate -- this loop runs once, at the very end of");
+    writer.line("/// the program, and only while a handle really is open, so its cost is a");
+    writer.line("/// wakeup every few milliseconds in a process that is otherwise just");
+    writer.line("/// serving.");
+    writer.line("#[allow(dead_code)]");
+    writer.block(
+        format!(
+            "async fn {exit_drain}()",
+            exit_drain = smelt_stdlib::runtime_symbols::timers::RUN_UNTIL_EXIT,
+        ),
+        |fn_writer| {
+            fn_writer.line(format!(
+                "{sleep_ms}(0.0).await;",
+                sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
+            ));
+            fn_writer.block(
+                "while SMELT_LIVE_HANDLES.with(::std::cell::Cell::get) > 0",
+                |loop_writer| {
+                    loop_writer
+                        .line("tokio::time::sleep(::std::time::Duration::from_millis(5)).await;");
+                },
+            );
+        },
+    );
+    writer.blank_line();
+}
+
 fn emit_regex_substitution(writer: &mut CodeWriter) {
     writer.line("/// Expand one JavaScript replacement pattern against a match (ECMA-262 `GetSubstitution`).");
     writer.line("///");
@@ -5775,6 +6024,76 @@ fn emit_regex_substitution(writer: &mut CodeWriter) {
     writer.line("}");
 }
 
+/// Emits the runtime symbol-value ⇄ property-key correspondence.
+///
+/// A symbol is a value and a property key at once, and the two spellings have to
+/// agree: a computed key the frontend folded statically (`{ [KEY]: 1 }`,
+/// `class C { get [KEY]() {} }`) and a key the generated code derives from an
+/// erased symbol value (`obj[prop]` where `prop` arrived through a
+/// `SmeltUnknown` slot) must name the SAME record entry. That is why the
+/// derivation is owned by `smelt_stdlib::symbol_keys` and rendered here rather
+/// than invented twice: a well-known symbol is a language constant, a registry
+/// `Symbol.for('d')` is interned by description, and a unique `Symbol('d')`
+/// carries the source offset of the binding that created it — each folds to an
+/// identifier-safe synthetic member name (a symbol key can also name a *class*
+/// member, which has to be spellable as a Rust identifier), and every other
+/// spelling keeps the generic `__smelt_symbol:<description>` form so a symbol
+/// key never collides with the plain string key of its own description.
+///
+/// Three functions come out of it:
+///
+/// * `smelt_symbol_key_escape` / `smelt_symbol_key_unescape` — the reversible
+///   identifier encoding (`_<hex>_` for every non-alphanumeric character), so a
+///   folded key can be read back as the description it came from;
+/// * `smelt_symbol_property_key` — the key a symbol value indexes; and
+/// * `smelt_folded_symbol_key_spelling` — its inverse, which is what
+///   `Object.getOwnPropertySymbols`, `Reflect.ownKeys` and erased-Map
+///   enumeration hand back to the program as a symbol.
+fn emit_symbol_key_derivation(writer: &mut CodeWriter) {
+    let well_known_arms = smelt_stdlib::well_known_symbols::spelling_key_pairs()
+        .into_iter()
+        .fold(String::new(), |mut arms, (spelling, key)| {
+            use ::std::fmt::Write as _;
+            let _ = write!(arms, "{spelling:?} => {key:?}.to_owned(), ");
+            arms
+        });
+    let registry_prefix = smelt_stdlib::symbol_keys::REGISTRY_SYMBOL_PREFIX;
+    let unique_prefix = smelt_stdlib::symbol_keys::UNIQUE_SYMBOL_PREFIX;
+    let opaque_prefix = smelt_stdlib::symbol_keys::OPAQUE_SYMBOL_PREFIX;
+    let offset_separator = smelt_stdlib::symbol_keys::UNIQUE_OFFSET_SEPARATOR;
+    writer.line("/// An identifier-safe, reversible encoding of a symbol description.");
+    writer.line(
+        "fn smelt_symbol_key_escape(text: &str) -> String { let mut escaped = String::with_capacity(text.len()); for ch in text.chars() { if ch.is_ascii_alphanumeric() { escaped.push(ch); } else { escaped.push('_'); escaped.push_str(&format!(\"{:x}\", u32::from(ch))); escaped.push('_'); } } escaped }",
+    );
+    writer.blank_line();
+    writer.line("/// Decodes `smelt_symbol_key_escape`; a malformed escape passes through.");
+    writer.line(
+        "fn smelt_symbol_key_unescape(escaped: &str) -> String { let mut decoded = String::with_capacity(escaped.len()); let mut rest = escaped; while let Some(index) = rest.find('_') { decoded.push_str(&rest[..index]); let tail = &rest[index + 1..]; let Some((hex, remainder)) = tail.split_once('_') else { decoded.push('_'); decoded.push_str(tail); return decoded; }; match u32::from_str_radix(hex, 16).ok().and_then(char::from_u32) { Some(ch) => decoded.push(ch), None => { decoded.push('_'); decoded.push_str(hex); decoded.push('_'); } } rest = remainder; } decoded.push_str(rest); decoded }",
+    );
+    writer.blank_line();
+    writer.line("/// The property key a symbol value indexes.");
+    writer.line(format!(
+        "fn smelt_symbol_property_key(description: &str) -> String {{ match description {{ {well_known_arms}other => {{ if let Some(registry) = other.strip_prefix(\"Symbol.for(\").and_then(|rest| rest.strip_suffix(')')) {{ return format!(\"{registry_prefix}{{}}\", smelt_symbol_key_escape(registry)); }} let unique = other.rsplit_once('@').filter(|(_, offset)| !offset.is_empty() && offset.bytes().all(|byte| byte.is_ascii_digit())).and_then(|(head, offset)| head.strip_prefix(\"Symbol(\").and_then(|rest| rest.strip_suffix(')')).map(|unique| (unique, offset))); match unique {{ Some((unique, offset)) => format!(\"{unique_prefix}{{}}{offset_separator}{{offset}}\", smelt_symbol_key_escape(unique)), None => format!(\"{opaque_prefix}{{other}}\") }} }} }} }}"
+    ));
+    writer.blank_line();
+    writer.line("/// The symbol value spelling a folded symbol key came from.");
+    writer.line(format!(
+        "fn smelt_folded_symbol_key_spelling(key: &str) -> Option<String> {{ if let Some(escaped) = key.strip_prefix({unique_prefix:?}) {{ let (description, offset) = escaped.rsplit_once({offset_separator:?})?; return Some(format!(\"Symbol({{}})@{{offset}}\", smelt_symbol_key_unescape(description))); }} let escaped = key.strip_prefix({registry_prefix:?})?; Some(format!(\"Symbol.for({{}})\", smelt_symbol_key_unescape(escaped))) }}"
+    ));
+    writer.blank_line();
+    // `Object.getOwnPropertySymbols` reports the symbols a program itself put on
+    // an object: the opaque form and the two folded forms. A well-known key is
+    // deliberately NOT one of them here — Smelt also writes
+    // `__smelt_symbol_iterator` onto erased iterables as part of their
+    // representation, and reporting that as a source symbol would invent a
+    // property the source never wrote. `smelt_key_symbol_value` is the wider
+    // view, for `Reflect.ownKeys`, where the well-known table already applied.
+    writer.line("/// The symbol value a program-written symbol key denotes.");
+    writer.line(format!(
+        "fn smelt_own_symbol_key_value(key: &str) -> Option<SmeltUnknown> {{ if let Some(description) = key.strip_prefix({opaque_prefix:?}) {{ return Some(SmeltUnknown::Symbol(description.into())); }} smelt_folded_symbol_key_spelling(key).map(|spelling| SmeltUnknown::Symbol(spelling.into())) }}"
+    ));
+}
+
 /// Emits the `Reflect.ownKeys` projection and the storage-key → symbol inverse.
 ///
 /// `Reflect.ownKeys(o)` answers *every* own key: the string keys in JavaScript's
@@ -5807,7 +6126,7 @@ fn emit_own_keys_projection(writer: &mut CodeWriter) {
         });
     writer.line("/// The symbol value a stored property key denotes, if it is a symbol key.");
     writer.line(format!(
-        "fn smelt_key_symbol_value(key: &str) -> Option<SmeltUnknown> {{ if let Some(description) = key.strip_prefix(\"__smelt_symbol:\") {{ return Some(SmeltUnknown::Symbol(description.into())); }} match key {{ {well_known_arms}_ => None }} }}"
+        "fn smelt_key_symbol_value(key: &str) -> Option<SmeltUnknown> {{ if let Some(description) = key.strip_prefix(\"__smelt_symbol:\") {{ return Some(SmeltUnknown::Symbol(description.into())); }} if let Some(spelling) = smelt_folded_symbol_key_spelling(key) {{ return Some(SmeltUnknown::Symbol(spelling.into())); }} match key {{ {well_known_arms}_ => None }} }}"
     ));
     writer.blank_line();
     writer.line("/// `Reflect.ownKeys` over a string-keyed record: string keys, then symbol keys.");
@@ -5998,11 +6317,33 @@ fn emit_unknown_serde_impls(writer: &mut CodeWriter) {
                     match_writer.line("Self::Null => serializer.serialize_none(),");
                     match_writer.line("Self::Undefined => serializer.serialize_none(),");
                     match_writer.line("Self::Bool(value) => serializer.serialize_bool(*value),");
-                    match_writer.line("Self::Number(value) => serializer.serialize_f64(*value),");
+                    // ECMA-262 `JSON.stringify` renders a number with the
+                    // JavaScript number-to-string algorithm, not Rust's float
+                    // formatting: an integral value has no fraction (`1`, not
+                    // `1.0`), `-0` is `0`, and a non-finite number is `null`
+                    // because JSON has no NaN or Infinity.
+                    match_writer.line("Self::Number(value) => if !value.is_finite() { serializer.serialize_none() } else if *value == value.trunc() && value.abs() < 1e21 { serializer.serialize_i64(*value as i64) } else { serializer.serialize_f64(*value) },");
                     match_writer.line("Self::String(value) => serializer.serialize_str(value),");
                     match_writer.line("Self::Symbol(value) => serializer.serialize_str(value),");
                     match_writer.line("Self::Array(values) => serde::Serialize::serialize(&*values.values.borrow(), serializer),");
-                    match_writer.line("Self::Object(values) => serde::Serialize::serialize(&values.iter().filter(|(key, _)| key != \"__smelt_class\" && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\")).collect::<::std::collections::HashMap<_, _>>(), serializer),");
+                    // `JSON.stringify` serializes an object's OWN ENUMERABLE
+                    // properties, in order. That is the same rule `for...in`
+                    // uses, so both read one predicate
+                    // (`smelt_is_for_in_object_key`) rather than keeping two
+                    // lists of internal keys that can drift apart. Three
+                    // consequences, each matching Node:
+                    //
+                    // * a HOST OBJECT serializes as `{}` — its state lives in
+                    //   internal slots, not in properties, so the marker and
+                    //   the slots must not appear (`JSON.stringify(new
+                    //   Headers([["a","b"]]))` is `{}`);
+                    // * key order is INSERTION order, which the previous
+                    //   `HashMap` collect destroyed;
+                    // * a property whose value is `undefined` is OMITTED, not
+                    //   emitted as `null` (`{a: undefined, b: 1}` is `{"b":1}`).
+                    //   Inside an ARRAY `undefined` still serializes as `null`,
+                    //   which the `Self::Undefined` arm above already does.
+                    match_writer.line("Self::Object(values) => { use serde::ser::SerializeMap as _; let entries = values.iter().filter(|(key, value)| !matches!(value, Self::Undefined) && smelt_is_for_in_object_key(values, key)).collect::<Vec<_>>(); let mut map = serializer.serialize_map(Some(entries.len()))?; for (key, value) in &entries { map.serialize_entry(key, value)?; } map.end() },");
                     match_writer.line("Self::Function(_) => serializer.serialize_str(\"function () { [native code] }\"),");
                     match_writer.line("Self::Promise(_) => serializer.serialize_str(\"[object Promise]\"),");
                 });
@@ -6962,38 +7303,76 @@ pub(crate) fn sanitize_ident(name: &str) -> String {
 /// (`f64`/`i64`/`bool`) use a `const`-initialized [`std::cell::Cell`]; strings
 /// use a [`std::cell::RefCell`] with the non-const initializer form because a
 /// `.to_owned()` initializer cannot appear in a `const` block.
-fn emit_mutable_globals(mir: &Mir) -> Result<String, EmitError> {
+fn emit_mutable_globals(mir: &Mir, context: &EmitContext) -> Result<String, EmitError> {
     let mut writer = CodeWriter::new();
     writer.line("thread_local! {");
     for (index, global) in mir.globals.iter().enumerate() {
         let name = global_static_name(mir, compact_index(index, "global index")?);
-        let init = emitter::literals::constant_text(&global.init);
+        // The cell's initial value. A constant is emitted inline; an expression
+        // initializer is a CALL to the nullary function the frontend
+        // synthesized from it, which is emitted like any other function. A
+        // `thread_local!` initializer is an arbitrary expression evaluated once
+        // per thread on first access, so a call is as legal there as a literal
+        // — and that timing is exactly JavaScript's "module state is
+        // initialized before any consumer runs", per generated test thread.
+        let init = match &global.init {
+            MirGlobalInit::Constant(constant) => emitter::literals::constant_text(constant),
+            MirGlobalInit::Call(func_id) => {
+                let function = mir
+                    .functions
+                    .get(usize::try_from(func_id.0).unwrap_or(usize::MAX))
+                    .ok_or_else(|| {
+                        EmitError::new(
+                            "mutable global initializer references an unknown function",
+                        )
+                    })?;
+                let function_name = context
+                    .function_names
+                    .get(&function.id)
+                    .cloned()
+                    .map_or_else(
+                        || {
+                            Ok::<String, EmitError>(sanitize_ident(
+                                mir.symbols.get(function.name).ok_or_else(|| {
+                                    EmitError::new("mutable global initializer has no name")
+                                })?,
+                            ))
+                        },
+                        Ok,
+                    )?;
+                format!("{function_name}()")
+            }
+        };
+        // A Copy primitive uses `Cell`, which needs no borrow bookkeeping and
+        // can be `const`-initialized from a literal. Everything else — a
+        // `String`, a record, a list, a map — is not `Copy`, so its cell is a
+        // `RefCell`; an owned or computed initializer cannot be `const` either.
+        let is_constant_init = matches!(global.init, MirGlobalInit::Constant(_));
         match mir.types.get(global.ty) {
-            Some(Type::String) => {
-                // `init` is already the owned-string expression (`"…".to_owned()`),
-                // which cannot appear in a `const` block, hence the non-const form.
+            Some(Type::Float | Type::Int | Type::Bool) if is_constant_init => {
+                let rust_ty = match mir.types.get(global.ty) {
+                    Some(Type::Float) => "f64",
+                    Some(Type::Int) => "i64",
+                    _ => "bool",
+                };
                 writer.line(format!(
-                    "    static {name}: ::std::cell::RefCell<String> = ::std::cell::RefCell::new({init});"
+                    "    static {name}: ::std::cell::Cell<{rust_ty}> = const {{ ::std::cell::Cell::new({init}) }};"
                 ));
             }
-            Some(Type::Float) => {
+            Some(Type::Float | Type::Int | Type::Bool) => {
+                let rust_ty = match mir.types.get(global.ty) {
+                    Some(Type::Float) => "f64",
+                    Some(Type::Int) => "i64",
+                    _ => "bool",
+                };
                 writer.line(format!(
-                    "    static {name}: ::std::cell::Cell<f64> = const {{ ::std::cell::Cell::new({init}) }};"
-                ));
-            }
-            Some(Type::Int) => {
-                writer.line(format!(
-                    "    static {name}: ::std::cell::Cell<i64> = const {{ ::std::cell::Cell::new({init}) }};"
-                ));
-            }
-            Some(Type::Bool) => {
-                writer.line(format!(
-                    "    static {name}: ::std::cell::Cell<bool> = const {{ ::std::cell::Cell::new({init}) }};"
+                    "    static {name}: ::std::cell::Cell<{rust_ty}> = ::std::cell::Cell::new({init});"
                 ));
             }
             _ => {
-                return Err(EmitError::new(
-                    "mutable global has a non-primitive type; only Float/Int/Bool/String are supported",
+                let value_ty = FunctionEmitter::type_text_for_with_context(mir, context, global.ty)?;
+                writer.line(format!(
+                    "    static {name}: ::std::cell::RefCell<{value_ty}> = ::std::cell::RefCell::new({init});"
                 ));
             }
         }

@@ -548,6 +548,45 @@ Type::Optional(_)) => {
                     span: self.expression_span(source),
                 }))
             }
+            // A UNION of record-like arms. `for...in` yields property NAMES, and
+            // every arm here spells its own names with the same key type, so the
+            // projection is the same operation whichever arm the value holds at
+            // run time — there is nothing to narrow. Hono's `HeaderRecord` is
+            // three `Record<..., ...>` arms and `for (const k in headers)` was
+            // rejected outright; the arms differ only in their VALUE types,
+            // which this loop never reads (`headers[k]` is a separate,
+            // union-typed expression).
+            Some(Type::Union(arms))
+                if !arms.is_empty()
+                    && arms.iter().all(|arm| {
+                        matches!(
+                            self.ctx.krate.types.get(*arm),
+                            Some(Type::Dict(key, _))
+                                if self.ctx.krate.types.get(*key) == Some(&Type::String)
+                        )
+                    }) =>
+            {
+                let key_ty = self.ctx.krate.types.intern(Type::String);
+                let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let dict_ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
+                object = body.push_expr(Expr {
+                    kind: ExprKind::UnknownCast {
+                        value: object,
+                        target: dict_ty,
+                    },
+                    ty: dict_ty,
+                    span: self.expression_span(source),
+                });
+                let list_ty = self.ctx.krate.types.intern(Type::List(key_ty));
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::DictProjection {
+                        op: DictProjectionOp::ForInKeys,
+                        dict: object,
+                    },
+                    ty: list_ty,
+                    span: self.expression_span(source),
+                }))
+            }
             _ => Err(SmeltError::unsupported(
                 self.expression_span(source),
                 "for...in is only lowered for record-like objects",

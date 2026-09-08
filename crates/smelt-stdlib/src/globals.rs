@@ -110,7 +110,29 @@ pub enum GlobalPresence {
 /// set explicit means everything else recognized is derived as present, instead
 /// of maintaining a parallel hand-written "present" list that could drift from
 /// the recognition registry.
-const NON_DOM_ABSENT_GLOBALS: &[&str] = &["window", "self", "document"];
+const NON_DOM_ABSENT_GLOBALS: &[&str] = &[
+    "window",
+    "self",
+    "document",
+    // The DOM `EventTarget` surface hung off the global object. Node exposes
+    // none of these three at global scope, and they are one surface: a set with
+    // only `addEventListener` in it would answer `"dispatchEvent" in globalThis`
+    // with `Unknown` for a name that is absent for exactly the same reason.
+    "addEventListener",
+    "removeEventListener",
+    "dispatchEvent",
+];
+
+/// Whether the non-DOM profile declares `name` absent from the global object.
+///
+/// Reading or calling such a name is not a Smelt gap and not an erasable no-op:
+/// it is a program that *runs* and throws `ReferenceError: name is not defined`,
+/// exactly as Node does. Lowering it to a throw is what keeps the call path and
+/// the [`global_member_presence`] feature-probe path answering consistently.
+#[must_use]
+pub fn global_is_absent(name: &str) -> bool {
+    NON_DOM_ABSENT_GLOBALS.contains(&name)
+}
 
 /// Classify a candidate global member name for the non-DOM Node-compatible profile.
 ///
@@ -169,8 +191,24 @@ mod tests {
     /// DOM-only globals are absent so `"X" in globalThis` folds false.
     #[test]
     fn dom_only_globals_are_absent() {
-        for name in ["window", "self", "document"] {
+        for name in [
+            "window",
+            "self",
+            "document",
+            "addEventListener",
+            "removeEventListener",
+            "dispatchEvent",
+        ] {
             assert_eq!(global_member_presence(name), GlobalPresence::Absent, "{name}");
+            assert!(global_is_absent(name), "{name} should report absent");
+        }
+    }
+
+    /// A global that exists in the profile is not reported absent.
+    #[test]
+    fn present_globals_are_not_absent() {
+        for name in ["Map", "Set", "Promise", "process", "globalThis"] {
+            assert!(!global_is_absent(name), "{name} should not report absent");
         }
     }
 

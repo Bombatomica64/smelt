@@ -577,7 +577,22 @@ impl FunctionEmitter<'_> {
                 matches!(self.mir.types.get(*key), Some(Type::String))
                     && self.is_json_serializable_type(*value)
             }
+            // JSON has no `undefined`, and `JSON.stringify(null)` is `null`.
+            Some(Type::None) => true,
+            // A union is serializable when every arm is. This is what lets a
+            // `BodyInit` (`string | ArrayBuffer | Blob | FormData |
+            // URLSearchParams | ReadableStream | null`) be stringified at all.
+            Some(Type::Union(items)) => items
+                .iter()
+                .all(|item| self.is_json_serializable_type(*item)),
             Some(Type::Class { name, .. }) => {
+                // A host object serializes as `{}` — none of its state is an own
+                // enumerable property (see the frontend's matching arm). The
+                // emitter erases such a value first, and the erased carrier's
+                // `Serialize` is what renders the empty object.
+                if self.is_host_object_class(*name) {
+                    return true;
+                }
                 if let Some(class) = self.mir.classes.iter().find(|class| class.name == *name) {
                     crate::classes::effective_class_fields(self.mir, class)
                         .iter()
@@ -599,11 +614,43 @@ impl FunctionEmitter<'_> {
         }
     }
 
+    /// Return whether a class symbol names a registered host object.
+    ///
+    /// The registry is the shared one (`smelt_stdlib::host_object_marker`), so
+    /// the frontend's serializability rule and this one cannot disagree about
+    /// which classes have no own enumerable properties.
+    pub(super) fn is_host_object_class(&self, name: smelt_hir::Symbol) -> bool {
+        self.symbol_name(name)
+            .is_ok_and(|class_name| smelt_stdlib::host_object_marker(class_name).is_some())
+    }
+
+    /// Return whether a type reaches JSON only through the erased carrier.
+    ///
+    /// A union and a host-object class have no Rust `Serialize` of their own —
+    /// a union is not one Rust type, and a host object's runtime type is a
+    /// concrete struct whose fields are internal slots. Both cross into JSON
+    /// through `SmeltUnknown`, whose `Serialize` implements the JavaScript
+    /// rules (own enumerable properties only, so a host object is `{}`).
+    pub(super) fn json_needs_erasure(&self, ty: TypeId) -> bool {
+        match self.mir.types.get(ty) {
+            Some(Type::Union(_)) => true,
+            Some(Type::Class { name, .. }) => self.is_host_object_class(*name),
+            _ => false,
+        }
+    }
+
     /// Converts a blocking HTTP GET operation to Rust text.
     /// Gets the type of a place.
     pub(super) fn place_ty(&self, place: &Place) -> Result<TypeId, EmitError> {
         match place {
             Place::Local(local) => Ok(self.local_decl(*local)?.ty),
+            // `Place::Global` is only ever an assignment target, and the
+            // assignment path reads the global's declared type directly rather
+            // than asking for a place type. Reaching here means a global place
+            // was used as a value, which is a compiler bug.
+            Place::Global { .. } => Err(EmitError::new(
+                "internal: a mutable-global place has no read type",
+            )),
             Place::Field { base, field } => {
                 let base_ty = self.local_decl(*base)?.ty;
                 // A `.length` read on a CONCRETE collection (typed list or set)
@@ -618,6 +665,17 @@ impl FunctionEmitter<'_> {
                         == Some(smelt_stdlib::FieldRule::TsLength)
                 {
                     return self.type_id(Type::Float);
+                }
+                // Likewise for a `String` base: `place::field_read_text` routes
+                // it to `string_field_text`, which renders `.length` as a
+                // character count and `.source` as a `String`. Reporting
+                // `Unknown` here made callers coerce an ALREADY concrete
+                // expression as if it were erased -- a `${s.length}`
+                // interpolation ran the `SmeltUnknown` ToString match over an
+                // `i64` and did not compile. `string_field_read` decides the
+                // text and the type together; ask it for the type.
+                if matches!(self.mir.types.get(base_ty), Some(Type::String)) {
+                    return Ok(self.string_field_read("", *field)?.1);
                 }
                 if let Some((_, descriptor)) = self.descriptor_for_field(base_ty, *field) {
                     return Ok(descriptor.read_ty);
@@ -635,6 +693,13 @@ impl FunctionEmitter<'_> {
                 // (which only knows user classes/interfaces) would erase the
                 // read to `Unknown` and make callers re-coerce an already
                 // concrete value.
+                // `URLSearchParams.size` is the one data property the spec
+                // defines on a concrete params value; it is a number.
+                if self.is_url_search_params_class_type(base_ty)?
+                    && self.symbol_name(*field)? == "size"
+                {
+                    return self.type_id(Type::Float);
+                }
                 if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
                     && self.is_regexp_class_symbol(*name)?
                 {
@@ -1178,6 +1243,56 @@ impl FunctionEmitter<'_> {
                 if self.is_match_class_symbol(*name)? {
                     return Ok(RustType::raw("SmeltMatch"));
                 }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::Headers)
+                {
+                    return Ok(RustType::raw("SmeltHeaders"));
+                }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::UrlSearchParams)
+                {
+                    return Ok(RustType::raw("SmeltUrlSearchParams"));
+                }
+                if self.stdlib_class_of_symbol(*name)? == Some(smelt_stdlib::StdlibClass::Response)
+                {
+                    return Ok(RustType::raw("SmeltResponse"));
+                }
+                if let Some(codec_type) = match self.stdlib_class_of_symbol(*name)? {
+                    Some(smelt_stdlib::StdlibClass::TextEncoder) => Some("SmeltTextEncoder"),
+                    Some(smelt_stdlib::StdlibClass::TextDecoder) => Some("SmeltTextDecoder"),
+                    Some(smelt_stdlib::StdlibClass::ByteArray) => Some("SmeltUint8Array"),
+                    _ => None,
+                } {
+                    return Ok(RustType::raw(codec_type));
+                }
+                // `Blob` and `File` are one Rust type: a file is a blob whose
+                // name is present.
+                if self
+                    .stdlib_class_of_symbol(*name)?
+                    .is_some_and(smelt_stdlib::StdlibClass::is_blob_runtime_type)
+                {
+                    return Ok(RustType::raw("SmeltBlob"));
+                }
+                if self.stdlib_class_of_symbol(*name)? == Some(smelt_stdlib::StdlibClass::Request) {
+                    return Ok(RustType::raw("SmeltRequest"));
+                }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::EventEmitter)
+                {
+                    return Ok(RustType::raw("SmeltEventEmitter"));
+                }
+                if let Some(http_type) = match self.stdlib_class_of_symbol(*name)? {
+                    Some(smelt_stdlib::StdlibClass::HttpServer) => Some("SmeltHttpServer"),
+                    Some(smelt_stdlib::StdlibClass::IncomingMessage) => {
+                        Some("SmeltIncomingMessage")
+                    }
+                    Some(smelt_stdlib::StdlibClass::ServerResponse) => {
+                        Some("SmeltServerResponse")
+                    }
+                    _ => None,
+                } {
+                    return Ok(RustType::raw(http_type));
+                }
                 if !self.mir.classes.iter().any(|class| class.name == *name)
                     && !self
                         .mir
@@ -1429,6 +1544,82 @@ impl FunctionEmitter<'_> {
             Type::TypeParam { .. } | Type::Union(_) => Ok(self.null_value_text()),
             Type::Class { name, .. } if self.is_regexp_class_symbol(*name)? => {
                 Ok("SmeltRegExp::new(String::new(), String::new())".to_owned())
+            }
+            Type::Class { name, .. }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::Headers) =>
+            {
+                Ok("SmeltHeaders::new()".to_owned())
+            }
+            Type::Class { name, .. }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::UrlSearchParams) =>
+            {
+                Ok("SmeltUrlSearchParams::new()".to_owned())
+            }
+            Type::Class { name, .. }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::Response) =>
+            {
+                Ok("SmeltResponse::new()".to_owned())
+            }
+            Type::Class { name, .. }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::TextEncoder) =>
+            {
+                Ok("SmeltTextEncoder::new()".to_owned())
+            }
+            // An empty, untyped blob: a blob with no bytes is a value the type
+            // can hold.
+            Type::Class { name, .. }
+                if self
+                    .stdlib_class_of_symbol(*name)?
+                    .is_some_and(smelt_stdlib::StdlibClass::is_blob_runtime_type) =>
+            {
+                Ok("SmeltBlob::new()".to_owned())
+            }
+            Type::Class { name, .. }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::TextDecoder) =>
+            {
+                Ok("SmeltTextDecoder::new()".to_owned())
+            }
+            // An empty byte view, which is what `new Uint8Array(0)` is: a view
+            // with no bytes is a value the type can hold, unlike a server
+            // without a handler.
+            Type::Class { name, .. }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::ByteArray) =>
+            {
+                Ok("SmeltUint8Array::new()".to_owned())
+            }
+            Type::Class { name, .. }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::EventEmitter) =>
+            {
+                Ok("SmeltEventEmitter::new()".to_owned())
+            }
+            // A `ServerResponse` has a default — a fresh 200 with nothing set —
+            // for the same reason a `Response` does. A `Server` and an
+            // `IncomingMessage` deliberately do NOT: a server without a handler
+            // and a request without a method are not values their types can
+            // hold, so a default for either would be an invented object rather
+            // than an empty one.
+            Type::Class { name, .. }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::ServerResponse) =>
+            {
+                Ok("SmeltServerResponse::new()".to_owned())
+            }
+            Type::Class { name, .. }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::Request) =>
+            {
+                // No `Request::new()`: the spec has no default request, because
+                // a request without a URL is not a value the type can hold.
+                // `about:blank` is the one URL the platform treats as "no
+                // document", so it is what an unreachable default uses.
+                Ok("SmeltRequest::from_parts(\"about:blank\", \"GET\".to_owned(), SmeltHeaders::new(), SmeltBody::empty())".to_owned())
             }
             Type::Class { name, .. } if self.is_match_class_symbol(*name)? => {
                 Ok("SmeltMatch::default()".to_owned())

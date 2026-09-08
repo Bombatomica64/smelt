@@ -15,7 +15,8 @@ use crate::{EmitError, compact_index, id_index, sanitize_ident};
 use literals::{operand_local, operand_mutation_root};
 use smelt_hir::{FileId, PropertyLookup, Span, Symbol, Type, TypeId};
 use smelt_mir::{
-    BasicBlock, BuiltinFn, Callee, Constant, FuncId, HirOrigin, LocalDecl, LocalId, LocalKind, Mir,
+    AbsentSpelling, BasicBlock, BuiltinFn, Callee, Constant, FuncId, HirOrigin, LocalDecl,
+    LocalId, LocalKind, Mir,
     MirClass, MirClosure, MirDescriptor, MirField, MirFunction, MirListSpliceItem, NegativeIndex,
     Operand, Place, Rvalue, Statement, Terminator,
 };
@@ -107,7 +108,11 @@ mod construct;
 mod control_flow_match;
 mod core;
 mod dict_entry_update;
+mod blob;
+mod fetch_types;
+mod text_codec;
 mod host_interop;
+mod http_server;
 mod list;
 mod list_mutation;
 mod list_ordering;
@@ -150,7 +155,7 @@ pub(crate) struct EmitContext {
     /// Whether emitted native tests must isolate virtual timer runtime state.
     needs_timer_helpers: bool,
     /// Rust function names keyed by MIR function ID.
-    function_names: HashMap<FuncId, String>,
+    pub(crate) function_names: HashMap<FuncId, String>,
     /// Emitted parameter types keyed by Rust function name.
     function_param_types: HashMap<String, Vec<TypeId>>,
     /// Emitted return types keyed by Rust function name.

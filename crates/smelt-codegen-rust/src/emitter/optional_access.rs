@@ -368,8 +368,14 @@ impl FunctionEmitter<'_> {
                     self.value_at_type_text(&coalesced, *inner, dest_ty)
                 }
             }
-            Some(Type::None) => self.operand_text(fallback),
-            _ => self.operand_text(optional),
+            // A left operand that is statically nullish selects the fallback, and
+            // one that is statically non-nullish selects itself. Either way the
+            // surviving arm still has to arrive at the destination type: the join
+            // of `string | undefined` with `3000` is `string | number`, so the
+            // selected arm is lifted into that union instead of being emitted at
+            // its own type under the union's declaration.
+            Some(Type::None) => self.value_at_type(fallback, dest_ty),
+            _ => self.value_at_type(optional, dest_ty),
         }
     }
 

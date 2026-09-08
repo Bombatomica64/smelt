@@ -22,6 +22,35 @@ pub enum TypeScriptReceiverKind {
     Map,
     /// A source `Set<T>` value.
     Set,
+    /// A WHATWG `Headers` value.
+    Headers,
+    /// A WHATWG `URLSearchParams` value.
+    UrlSearchParams,
+    /// A WHATWG `Response` value.
+    Response,
+    /// A WHATWG `Request` value.
+    Request,
+    /// A `node:events` `EventEmitter` value.
+    EventEmitter,
+    /// A `node:http` `Server` value.
+    HttpServer,
+    /// A `node:http` `ServerResponse` value.
+    ///
+    /// `IncomingMessage` has no receiver kind of its own: every method on it is
+    /// an emitter method, so it dispatches through
+    /// [`TypeScriptReceiverKind::EventEmitter`] and its non-method members
+    /// (`method`, `url`, `headers`) are property reads rather than calls.
+    ServerResponse,
+    /// A WHATWG `TextEncoder` value.
+    TextEncoder,
+    /// A WHATWG `TextDecoder` value.
+    TextDecoder,
+    /// A WHATWG `Blob` or `File` value.
+    ///
+    /// One receiver kind for both spellings: a `File` IS a `Blob` in the spec
+    /// and shares its whole method surface, so keying the methods on two kinds
+    /// would duplicate every entry to say the same thing.
+    Blob,
 }
 
 /// Receiver-method call shape recognized after a frontend knows the receiver type.
@@ -43,6 +72,13 @@ pub struct MethodRecognition {
 pub const TYPESCRIPT_CALLS: &[CallRecognition] = &[
     free("fetch", RuleId::TsFetch),
     free("structuredClone", RuleId::TsStructuredClone),
+    // `createServer` from `node:http`. A modeled host-module export is
+    // recognized at its USE site rather than at its binding (see
+    // `classify_pending_host_imports`), which is why the module's only free
+    // function appears in this table alongside the real globals. The dispatch
+    // site still refuses a `createServer` that resolves to a source function,
+    // so a program with its own is unaffected.
+    free("createServer", RuleId::TsHttpCreateServer),
     // `Object(value)` — the boxing call, not the `Object.*` statics. Recognized
     // here as a free call because the callee is a bare `Object` identifier.
     free("Object", RuleId::TsObjectBox),
@@ -138,6 +174,222 @@ pub const TYPESCRIPT_METHODS: &[MethodRecognition] = &[
         TypeScriptReceiverKind::Set,
         "entries",
         RuleId::TsSetProjection,
+    ),
+    method(TypeScriptReceiverKind::Headers, "get", RuleId::TsHeadersGet),
+    method(TypeScriptReceiverKind::Headers, "has", RuleId::TsHeadersHas),
+    method(
+        TypeScriptReceiverKind::Headers,
+        "set",
+        RuleId::TsHeadersMutation,
+    ),
+    method(
+        TypeScriptReceiverKind::Headers,
+        "append",
+        RuleId::TsHeadersMutation,
+    ),
+    method(
+        TypeScriptReceiverKind::Headers,
+        "delete",
+        RuleId::TsHeadersMutation,
+    ),
+    method(
+        TypeScriptReceiverKind::Headers,
+        "keys",
+        RuleId::TsHeadersProjection,
+    ),
+    method(
+        TypeScriptReceiverKind::Headers,
+        "values",
+        RuleId::TsHeadersProjection,
+    ),
+    method(
+        TypeScriptReceiverKind::Headers,
+        "entries",
+        RuleId::TsHeadersProjection,
+    ),
+    method(
+        TypeScriptReceiverKind::Headers,
+        "getSetCookie",
+        RuleId::TsHeadersProjection,
+    ),
+    method(
+        TypeScriptReceiverKind::UrlSearchParams,
+        "get",
+        RuleId::TsUrlSearchParamsRead,
+    ),
+    method(
+        TypeScriptReceiverKind::UrlSearchParams,
+        "getAll",
+        RuleId::TsUrlSearchParamsRead,
+    ),
+    method(
+        TypeScriptReceiverKind::UrlSearchParams,
+        "has",
+        RuleId::TsUrlSearchParamsRead,
+    ),
+    method(
+        TypeScriptReceiverKind::UrlSearchParams,
+        "set",
+        RuleId::TsUrlSearchParamsMutation,
+    ),
+    method(
+        TypeScriptReceiverKind::UrlSearchParams,
+        "append",
+        RuleId::TsUrlSearchParamsMutation,
+    ),
+    method(
+        TypeScriptReceiverKind::UrlSearchParams,
+        "delete",
+        RuleId::TsUrlSearchParamsMutation,
+    ),
+    method(
+        TypeScriptReceiverKind::UrlSearchParams,
+        "sort",
+        RuleId::TsUrlSearchParamsMutation,
+    ),
+    // The text codecs. `encode`/`decode` are also ordinary user method names,
+    // so — like every entry in this table — recognition is receiver-typed: the
+    // pair only fires once the receiver has lowered to the modeled class.
+    method(
+        TypeScriptReceiverKind::TextEncoder,
+        "encode",
+        RuleId::TsTextEncoderEncode,
+    ),
+    method(
+        TypeScriptReceiverKind::TextDecoder,
+        "decode",
+        RuleId::TsTextDecoderDecode,
+    ),
+    // The `Blob`/`File` surface. `text`/`slice`/`bytes` are ordinary user
+    // method names, so — like every entry here — the pair only fires once the
+    // receiver has lowered to the modeled class.
+    method(TypeScriptReceiverKind::Blob, "text", RuleId::TsBlobBodyRead),
+    method(
+        TypeScriptReceiverKind::Blob,
+        "arrayBuffer",
+        RuleId::TsBlobBodyRead,
+    ),
+    method(TypeScriptReceiverKind::Blob, "bytes", RuleId::TsBlobBodyRead),
+    method(TypeScriptReceiverKind::Blob, "slice", RuleId::TsBlobSlice),
+    method(
+        TypeScriptReceiverKind::UrlSearchParams,
+        "keys",
+        RuleId::TsUrlSearchParamsProjection,
+    ),
+    method(
+        TypeScriptReceiverKind::UrlSearchParams,
+        "values",
+        RuleId::TsUrlSearchParamsProjection,
+    ),
+    method(
+        TypeScriptReceiverKind::UrlSearchParams,
+        "entries",
+        RuleId::TsUrlSearchParamsProjection,
+    ),
+    method(
+        TypeScriptReceiverKind::UrlSearchParams,
+        "toString",
+        RuleId::TsUrlSearchParamsToString,
+    ),
+    method(
+        TypeScriptReceiverKind::Response,
+        "text",
+        RuleId::TsResponseBodyRead,
+    ),
+    method(
+        TypeScriptReceiverKind::Response,
+        "clone",
+        RuleId::TsResponseClone,
+    ),
+    method(
+        TypeScriptReceiverKind::Request,
+        "text",
+        RuleId::TsRequestBodyRead,
+    ),
+    method(
+        TypeScriptReceiverKind::Request,
+        "clone",
+        RuleId::TsRequestClone,
+    ),
+    method(
+        TypeScriptReceiverKind::EventEmitter,
+        "on",
+        RuleId::TsEventEmitterRegister,
+    ),
+    method(
+        TypeScriptReceiverKind::EventEmitter,
+        "addListener",
+        RuleId::TsEventEmitterRegister,
+    ),
+    method(
+        TypeScriptReceiverKind::EventEmitter,
+        "once",
+        RuleId::TsEventEmitterRegister,
+    ),
+    method(
+        TypeScriptReceiverKind::EventEmitter,
+        "off",
+        RuleId::TsEventEmitterRemove,
+    ),
+    method(
+        TypeScriptReceiverKind::EventEmitter,
+        "removeListener",
+        RuleId::TsEventEmitterRemove,
+    ),
+    method(
+        TypeScriptReceiverKind::EventEmitter,
+        "removeAllListeners",
+        RuleId::TsEventEmitterRemove,
+    ),
+    method(
+        TypeScriptReceiverKind::EventEmitter,
+        "emit",
+        RuleId::TsEventEmitterEmit,
+    ),
+    method(
+        TypeScriptReceiverKind::EventEmitter,
+        "listenerCount",
+        RuleId::TsEventEmitterRead,
+    ),
+    method(
+        TypeScriptReceiverKind::HttpServer,
+        "listen",
+        RuleId::TsHttpServerListen,
+    ),
+    method(
+        TypeScriptReceiverKind::HttpServer,
+        "close",
+        RuleId::TsHttpServerClose,
+    ),
+    method(
+        TypeScriptReceiverKind::HttpServer,
+        "address",
+        RuleId::TsHttpServerAddress,
+    ),
+    method(
+        TypeScriptReceiverKind::ServerResponse,
+        "setHeader",
+        RuleId::TsServerResponseHeader,
+    ),
+    method(
+        TypeScriptReceiverKind::ServerResponse,
+        "getHeader",
+        RuleId::TsServerResponseHeader,
+    ),
+    method(
+        TypeScriptReceiverKind::ServerResponse,
+        "writeHead",
+        RuleId::TsServerResponseWriteHead,
+    ),
+    method(
+        TypeScriptReceiverKind::ServerResponse,
+        "write",
+        RuleId::TsServerResponseWrite,
+    ),
+    method(
+        TypeScriptReceiverKind::ServerResponse,
+        "end",
+        RuleId::TsServerResponseEnd,
     ),
 ];
 

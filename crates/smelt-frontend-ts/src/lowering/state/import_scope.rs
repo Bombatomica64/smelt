@@ -21,7 +21,7 @@
 //! imports, so a name can be in both sets. That is the existing behaviour and
 //! this struct preserves it rather than tightening it.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// Source-name provenance for one module being lowered.
 #[derive(Debug, Default)]
@@ -37,6 +37,14 @@ pub(in crate::lowering) struct ImportScope {
     test_builtins: HashSet<String>,
     /// Local names bound to `tz` from the `@date-fns/tz` package.
     date_fns_timezone_factories: HashSet<String>,
+    /// Value imports whose module is neither a source file nor an implemented
+    /// host-module export, mapped to the blocker message their first *use*
+    /// must report.
+    ///
+    /// Importing such a name is free (a type-only or unused import must not
+    /// fail); reading it as a value is the blocker, which is why the message is
+    /// stored here instead of being raised at the import statement.
+    unresolved_value_imports: HashMap<String, String>,
     /// Local names statically known to alias the ambient global object.
     ///
     /// Populated for `const g = globalThis;` style bindings so that global-path
@@ -100,6 +108,25 @@ impl ImportScope {
     /// Return whether a name is a `@date-fns/tz` timezone factory.
     pub(in crate::lowering) fn is_date_fns_timezone_factory(&self, name: &str) -> bool {
         self.date_fns_timezone_factories.contains(name)
+    }
+
+    /// Record a value import that has no modeled runtime surface.
+    ///
+    /// `blocker` is the message [`Self::unresolved_value_import`] hands to the
+    /// diagnostic raised where the name is first used as a value.
+    pub(in crate::lowering) fn mark_unresolved_value_import(
+        &mut self,
+        local: String,
+        blocker: String,
+    ) {
+        self.unresolved_value_imports.insert(local, blocker);
+    }
+
+    /// Return the blocker message for a value import with no runtime surface.
+    pub(in crate::lowering) fn unresolved_value_import(&self, name: &str) -> Option<&str> {
+        self.unresolved_value_imports
+            .get(name)
+            .map(String::as_str)
     }
 
     /// Record a local statically known to alias the ambient global object.

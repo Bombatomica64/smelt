@@ -64,13 +64,21 @@ impl ModuleBuilder<'_> {
                         "callback block declarations require simple bindings",
                     ));
                 };
-                let Some(init) = &declarator.init else {
-                    return Err(SmeltError::unsupported(
-                        self.span(declarator.span.start, declarator.span.end),
-                        "callback block declarations require initializers",
-                    ));
+                // `let x;` holds `undefined` in JavaScript — it is not a
+                // missing initializer, it is an initializer spelled by
+                // omission. MIR's `HirStmt::Let` lowering already encodes
+                // exactly this rule for module and function bodies
+                // (`Operand::Const(Constant::Undefined)`); this path simply
+                // never applied it, so an ordinary `let res: T | undefined`
+                // inside an inlined callback blocked. Answering `undefined`
+                // here makes the two paths agree rather than adding a rule.
+                let value = match &declarator.init {
+                    Some(init) => self.callback_expression(init, params, body)?,
+                    None => CallbackExpr {
+                        kind: CallbackExprKind::Literal(Literal::None),
+                        ty: self.ctx.krate.types.intern(Type::None),
+                    },
                 };
-                let value = self.callback_expression(init, params, body)?;
                 let prior = params.insert(binding.name.as_str(), value);
                 let result = self.callback_block_expression(rest, params, body);
                 if let Some(prior) = prior {
@@ -842,6 +850,10 @@ impl ModuleBuilder<'_> {
     }
 
     /// Bind names from a callback parameter pattern to callback expressions.
+    ///
+    /// The parameter itself is the root projection; every pattern below it
+    /// projects off that root, so the work is delegated to
+    /// [`Self::bind_callback_pattern_value`], which recurses.
     pub(in crate::lowering) fn bind_callback_param_pattern<'a>(
         &mut self,
         pattern: &'a BindingPattern<'a>,
@@ -849,19 +861,42 @@ impl ModuleBuilder<'_> {
         param_ty: smelt_hir::TypeId,
         params: &mut HashMap<&'a str, CallbackExpr>,
     ) -> Result<(), SmeltError> {
+        let root = CallbackExpr {
+            kind: CallbackExprKind::Param(param_index),
+            ty: param_ty,
+        };
+        self.bind_callback_pattern_value(pattern, root, params)
+    }
+
+    /// Bind every name a binding pattern introduces to a projection of `value`.
+    ///
+    /// Destructuring is nothing but projection: `([[, route]]) => route` binds
+    /// `route` to `param[0][1]`, and `({ a: { b } }) => b` binds `b` to
+    /// `param.a.b`. The compact callback IR already carries recursive
+    /// `Index`/`Field` nodes with a boxed receiver, and both lower through the
+    /// ordinary expression path, so nesting needs no new node kind: each level
+    /// wraps the projection built so far and recurses with the projected type.
+    /// Only a shape whose *type* cannot be resolved in the compact IR is
+    /// reported, so the caller retries through full closure-body lowering
+    /// rather than typing a binding as its container.
+    ///
+    /// A `...rest` element is deliberately not bound here: the compact IR has no
+    /// node for the tail of a list. An unreferenced rest costs nothing, and a
+    /// referenced one already fails as an unresolved callback identifier, which
+    /// is one of the messages retried through closure-body lowering.
+    fn bind_callback_pattern_value<'a>(
+        &mut self,
+        pattern: &'a BindingPattern<'a>,
+        value: CallbackExpr,
+        params: &mut HashMap<&'a str, CallbackExpr>,
+    ) -> Result<(), SmeltError> {
         match pattern {
             BindingPattern::BindingIdentifier(binding) => {
-                params.insert(
-                    binding.name.as_str(),
-                    CallbackExpr {
-                        kind: CallbackExprKind::Param(param_index),
-                        ty: param_ty,
-                    },
-                );
+                params.insert(binding.name.as_str(), value);
                 Ok(())
             }
             BindingPattern::ArrayPattern(array) => {
-                let item_tys = match self.ctx.krate.types.get(param_ty) {
+                let item_tys = match self.ctx.krate.types.get(value.ty) {
                     Some(Type::Tuple(items)) => items.clone(),
                     Some(Type::List(item)) => vec![*item; array.elements.len()],
                     _ => Vec::new(),
@@ -870,26 +905,15 @@ impl ModuleBuilder<'_> {
                     let Some(element_pattern) = element else {
                         continue;
                     };
-                    let item_ty = item_tys.get(item_index).copied().unwrap_or(param_ty);
-                    let BindingPattern::BindingIdentifier(binding) = element_pattern else {
-                        return Err(SmeltError::unsupported(
-                            self.span(element_pattern.span().start, element_pattern.span().end),
-                            "nested callback parameter destructuring needs closure-body lowering",
-                        ));
-                    };
-                    params.insert(
-                        binding.name.as_str(),
-                        CallbackExpr {
-                            kind: CallbackExprKind::Index {
-                                receiver: Box::new(CallbackExpr {
-                                    kind: CallbackExprKind::Param(param_index),
-                                    ty: param_ty,
-                                }),
-                                index: item_index,
-                            },
-                            ty: item_ty,
+                    let item_ty = item_tys.get(item_index).copied().unwrap_or(value.ty);
+                    let item = CallbackExpr {
+                        kind: CallbackExprKind::Index {
+                            receiver: Box::new(value.clone()),
+                            index: item_index,
                         },
-                    );
+                        ty: item_ty,
+                    };
+                    self.bind_callback_pattern_value(element_pattern, item, params)?;
                 }
                 Ok(())
             }
@@ -911,15 +935,9 @@ impl ModuleBuilder<'_> {
                             ));
                         }
                     };
-                    let BindingPattern::BindingIdentifier(binding) = &property.value else {
-                        return Err(SmeltError::unsupported(
-                            self.span(property.value.span().start, property.value.span().end),
-                            "nested callback parameter destructuring needs closure-body lowering",
-                        ));
-                    };
                     let field = self.intern_source_name(field_text);
                     // A destructured field's type is the FIELD's type. Falling
-                    // back to the parameter's own type here silently mistyped
+                    // back to the receiver's own type here silently mistyped
                     // every shape not listed below: `arrays.map(({ length }) =>
                     // length)` over `T[][]` typed `length` as `T[]`, so the
                     // callback claimed to return a list and the emitter
@@ -927,9 +945,11 @@ impl ModuleBuilder<'_> {
                     // field type genuinely cannot be resolved in the compact
                     // IR, report it so the caller retries through full
                     // closure-body lowering instead of inventing a type.
-                    let field_ty = match self.ctx.krate.types.get(param_ty) {
-                        Some(Type::Dict(_, value) | Type::JsMap(_, value)) => *value,
-                        Some(Type::Class { .. }) => self.class_field_type(param_ty, field)?,
+                    let field_ty = match self.ctx.krate.types.get(value.ty) {
+                        Some(Type::Dict(_, field_value) | Type::JsMap(_, field_value)) => {
+                            *field_value
+                        }
+                        Some(Type::Class { .. }) => self.class_field_type(value.ty, field)?,
                         // `length` is carried by every list and string, and it
                         // is a number rather than the receiver's own type.
                         Some(Type::List(_) | Type::String) if field_text == "length" => {
@@ -937,7 +957,7 @@ impl ModuleBuilder<'_> {
                         }
                         // An erased receiver answers a field read at runtime, so
                         // the binding really is `unknown` -- that is the field's
-                        // own type here, not the parameter's leaking through.
+                        // own type here, not the receiver's leaking through.
                         // This is also the only shape the closure-body fallback
                         // handles WORSE than the compact IR: it binds the
                         // destructured name to `Default::default()` instead of
@@ -953,19 +973,14 @@ impl ModuleBuilder<'_> {
                             ));
                         }
                     };
-                    params.insert(
-                        binding.name.as_str(),
-                        CallbackExpr {
-                            kind: CallbackExprKind::Field {
-                                receiver: Box::new(CallbackExpr {
-                                    kind: CallbackExprKind::Param(param_index),
-                                    ty: param_ty,
-                                }),
-                                field,
-                            },
-                            ty: field_ty,
+                    let field_value = CallbackExpr {
+                        kind: CallbackExprKind::Field {
+                            receiver: Box::new(value.clone()),
+                            field,
                         },
-                    );
+                        ty: field_ty,
+                    };
+                    self.bind_callback_pattern_value(&property.value, field_value, params)?;
                 }
                 Ok(())
             }
@@ -1955,6 +1970,16 @@ impl ModuleBuilder<'_> {
             Expression::StaticMemberExpression(member) => {
                 self.collect_expression_capture_names(&member.object, param_names, captures);
             }
+            // An ES private field (`this.#status`) is a member expression like
+            // any other: the RECEIVER is an ordinary expression that may name a
+            // captured binding, and `this` is the only receiver the language
+            // allows here. Leaving it out of the walk left `this` uncaptured, so
+            // the closure body resolved `this` to whatever the enclosing scope
+            // offered — the arrow's first parameter — and the read was typed
+            // against that parameter.
+            Expression::PrivateFieldExpression(member) => {
+                self.collect_expression_capture_names(&member.object, param_names, captures);
+            }
             Expression::ComputedMemberExpression(member) => {
                 self.collect_expression_capture_names(&member.object, param_names, captures);
                 self.collect_expression_capture_names(&member.expression, param_names, captures);
@@ -2070,7 +2095,9 @@ impl ModuleBuilder<'_> {
                         captures,
                     );
                 }
-                ChainElement::PrivateFieldExpression(_) => {}
+                ChainElement::PrivateFieldExpression(member) => {
+                    self.collect_expression_capture_names(&member.object, param_names, captures);
+                }
             },
             Expression::UpdateExpression(update) => {
                 self.collect_simple_assignment_target_capture_names(
@@ -2174,6 +2201,13 @@ impl ModuleBuilder<'_> {
             SimpleAssignmentTarget::StaticMemberExpression(member) => {
                 self.collect_expression_capture_names(&member.object, param_names, captures);
             }
+            // `this.#count++` writes through a private field; see the
+            // `Expression::PrivateFieldExpression` arm of
+            // [`Self::collect_expression_capture_names`] for why the receiver
+            // must be walked.
+            SimpleAssignmentTarget::PrivateFieldExpression(member) => {
+                self.collect_expression_capture_names(&member.object, param_names, captures);
+            }
             SimpleAssignmentTarget::ComputedMemberExpression(member) => {
                 self.collect_expression_capture_names(&member.object, param_names, captures);
                 self.collect_expression_capture_names(&member.expression, param_names, captures);
@@ -2201,6 +2235,14 @@ impl ModuleBuilder<'_> {
                 self.collect_expression_capture_names(&member.expression, param_names, captures);
             }
             AssignmentTarget::StaticMemberExpression(member) => {
+                self.collect_expression_capture_names(&member.object, param_names, captures);
+            }
+            // `this.#status = value` inside a class-field arrow: the write
+            // destination's receiver is a capture like any other. Missing it
+            // dropped the write entirely -- see the
+            // `Expression::PrivateFieldExpression` arm of
+            // [`Self::collect_expression_capture_names`].
+            AssignmentTarget::PrivateFieldExpression(member) => {
                 self.collect_expression_capture_names(&member.object, param_names, captures);
             }
             _ => {}

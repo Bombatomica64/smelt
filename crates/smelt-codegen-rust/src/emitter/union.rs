@@ -382,6 +382,39 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         };
         let source_name = union_name(source);
+        // `await` over `T | Promise<T>`: every arm becomes a future of the same
+        // awaited type, the promise arms as themselves and the value arms as an
+        // already-resolved handle. Falling through to the single-member
+        // projection below would pick the promise arm and `unreachable!` the
+        // value arm, which is a wrong value for exactly the half of the union
+        // that needs no waiting -- Hono's `await this.#dispatch(..)` on
+        // `Response | Promise<Response>` is that shape.
+        if let Some(&Type::Future(awaited)) = self.mir.types.get(target)
+            && source_members.iter().all(|member| {
+                *member == target
+                    || *member == awaited
+                    || matches!(self.mir.types.get(*member), Some(Type::Future(inner)) if *inner == awaited)
+            })
+        {
+            let arms = source_members
+                .iter()
+                .enumerate()
+                .map(|(index, member)| {
+                    if *member == awaited {
+                        let awaited_text = self.type_text_with_impl_trait(awaited, false)?;
+                        Ok(format!(
+                            "{source_name}::M{index}(value) => SmeltFuture::<{awaited_text}>::resolved(value)"
+                        ))
+                    } else {
+                        Ok(format!("{source_name}::M{index}(value) => value"))
+                    }
+                })
+                .collect::<Result<Vec<_>, EmitError>>()?;
+            return Ok(Some(format!(
+                "match {value_text} {{ {} }}",
+                arms.join(", ")
+            )));
+        }
         if let Some(target_members) = self.concrete_union_members(target) {
             let target_name = union_name(target);
             let arms = source_members
@@ -508,9 +541,25 @@ impl FunctionEmitter<'_> {
     /// erased values, which keeps every leaf as it arrived -- is preferred over
     /// one that would retype. That makes "no arm matched" resolve to keeping the
     /// erased value rather than to rewriting it.
-    pub(super) fn union_from_smelt_unknown_body(
+    /// Build the `from_smelt_unknown` body with the enum's own type parameters
+    /// spellable.
+    ///
+    /// A member that mentions one of them cannot be rebuilt field by field here:
+    /// the recovery is written against concrete field types, and `T` has none
+    /// until the enum is instantiated. It delegates to that member's own
+    /// `SmeltFromUnknown` instead, which the enum's `impl` bound already
+    /// requires of every declared parameter — so `ResponseInit<T>` recovers
+    /// through `ResponseInit`'s implementation with `T`'s recovery inside it,
+    /// rather than through a field-by-field rebuild that assumed
+    /// `Option<SmeltUnknown>` where the struct declares `Option<T>` (E0308).
+    /// Members that mention no parameter keep the field-by-field recovery
+    /// unchanged, so every non-generic union emits exactly the bytes it did --
+    /// a non-generic union declares no parameters, so `substitution.spells`
+    /// answers `false` for every member and this reduces to the original body.
+    pub(super) fn union_from_smelt_unknown_body_in_scope(
         &self,
         members: &[TypeId],
+        substitution: &TypeSubstitution<'_>,
     ) -> Result<String, EmitError> {
         let order = self.union_recovery_order(members);
         let mut body = String::new();
@@ -518,7 +567,17 @@ impl FunctionEmitter<'_> {
             let Some(&member) = members.get(index) else {
                 continue;
             };
-            let extracted = self.extract_value_text("value", member)?;
+            let mut member_params = Vec::new();
+            self.collect_union_type_params(member, &mut member_params)?;
+            let extracted = if member_params
+                .iter()
+                .any(|param| substitution.spells(*param))
+            {
+                let member_text = self.rust_type(member, false, substitution)?.into_string();
+                format!("<{member_text} as SmeltFromUnknown>::smelt_from_unknown(value)")
+            } else {
+                self.extract_value_text("value", member)?
+            };
             if Some(position) == order.len().checked_sub(1) {
                 body.push_str(&format!("        Self::M{index}({extracted})\n"));
             } else {
@@ -801,10 +860,25 @@ pub(crate) fn emit_union_definitions(
             )
         };
         let target = emitter.union_type_text(type_id)?;
+        // Render the members in the enum's OWN type-parameter environment. The
+        // default environment is the first function's lexical scope, which does
+        // not declare the union's parameters, so a member mentioning one erased
+        // it: `type ResponseOrInit<T> = ResponseInit<T> | Response` emitted
+        // `enum SmeltUnion4<T> { M0(ResponseInit<SmeltUnknown>), M1(SmeltResponse) }`
+        // -- `T` declared and used by nothing (E0392), the argument the MIR type
+        // carried discarded, and `T` uninferable at any construction site
+        // (E0282). `declaration_generics` is derived from exactly these
+        // parameters, so spelling them here is what makes the declaration and its
+        // members agree. This closes the "known gap" recorded on
+        // `FunctionEmitter::rust_type`.
+        let member_scope: ::std::collections::HashSet<Symbol> = params.iter().copied().collect();
+        let member_substitution = crate::type_substitution::TypeSubstitution::callee_emission(&member_scope);
         output.push_str("#[derive(Clone)]\n");
         output.push_str(&format!("pub enum {name}{declaration_generics} {{\n"));
         for (member_index, member) in members.iter().enumerate() {
-            let member_text = emitter.type_text_with_impl_trait(*member, false)?;
+            let member_text = emitter
+                .rust_type(*member, false, &member_substitution)?
+                .into_string();
             output.push_str(&format!("    M{member_index}({member_text}),\n"));
         }
         output.push_str("}\n");
@@ -838,7 +912,9 @@ pub(crate) fn emit_union_definitions(
         output.push_str("        }\n    }\n}\n");
         output.push_str(&format!("impl{impl_generics} {target} {{\n"));
         output.push_str("    fn from_smelt_unknown(value: SmeltUnknown) -> Self {\n");
-        output.push_str(&emitter.union_from_smelt_unknown_body(members)?);
+        output.push_str(
+            &emitter.union_from_smelt_unknown_body_in_scope(members, &member_substitution)?,
+        );
         output.push_str("    }\n}\n");
         output.push_str(&format!("impl{impl_generics} PartialEq for {target} {{\n"));
         output.push_str("    fn eq(&self, other: &Self) -> bool {\n");

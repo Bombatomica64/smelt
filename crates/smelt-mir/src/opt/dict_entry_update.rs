@@ -334,7 +334,10 @@ fn key_is_borrow_safe(
         Some(Place::Local(local)) => *local != base && *local != current && *local != stored_dest,
         // A field or index projection reads some other local's interior, which
         // may share a store with the container; decline rather than guess.
-        Some(Place::Field { .. } | Place::Index { .. }) => false,
+        // A global-rooted place is not a read at all (it only ever appears as
+        // an assignment target), so it cannot legitimately be an index operand;
+        // declining keeps the fusion from firing on a shape it never modelled.
+        Some(Place::Field { .. } | Place::Index { .. } | Place::Global { .. }) => false,
     }
 }
 

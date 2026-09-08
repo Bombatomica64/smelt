@@ -209,7 +209,8 @@ impl ExprKind {
                 form,
                 operand: f(operand)?,
             },
-            Self::UriEncode { operand } => Self::UriEncode {
+            Self::UriTranscode { op, operand } => Self::UriTranscode {
+                op,
                 operand: f(operand)?,
             },
             Self::ObjectToStringTag { operand } => Self::ObjectToStringTag {
@@ -310,11 +311,13 @@ impl ExprKind {
                 pattern,
                 haystack,
                 callback,
+                args,
             } => Self::RegexReplaceCallback {
                 op,
                 pattern: f(pattern)?,
                 haystack: f(haystack)?,
                 callback: f(callback)?,
+                args,
             },
             Self::RegexReplaceFirstMatchUppercase { pattern, haystack } => {
                 Self::RegexReplaceFirstMatchUppercase {
@@ -398,6 +401,188 @@ impl ExprKind {
                 right: f(right)?,
             },
             Self::SetProjection { op, set } => Self::SetProjection { op, set: f(set)? },
+            Self::EventEmitterNew => Self::EventEmitterNew,
+            Self::EventEmitterOp { op, emitter, args } => {
+                let emitter = f(emitter)?;
+                let mut mapped = Vec::with_capacity(args.len());
+                for arg in args {
+                    mapped.push(f(arg)?);
+                }
+                Self::EventEmitterOp {
+                    op,
+                    emitter,
+                    args: mapped,
+                }
+            }
+            Self::HttpCreateServer { handler } => Self::HttpCreateServer {
+                handler: f(handler)?,
+            },
+            Self::HttpServerOp { op, server, args } => {
+                let server = f(server)?;
+                let mut mapped = Vec::with_capacity(args.len());
+                for arg in args {
+                    mapped.push(f(arg)?);
+                }
+                Self::HttpServerOp {
+                    op,
+                    server,
+                    args: mapped,
+                }
+            }
+            Self::IncomingMessageOp { op, message } => Self::IncomingMessageOp {
+                op,
+                message: f(message)?,
+            },
+            Self::ServerResponseOp { op, response, args } => {
+                let response = f(response)?;
+                let mut mapped = Vec::with_capacity(args.len());
+                for arg in args {
+                    mapped.push(f(arg)?);
+                }
+                Self::ServerResponseOp {
+                    op,
+                    response,
+                    args: mapped,
+                }
+            }
+            Self::RequestNew {
+                input,
+                method,
+                headers,
+                body,
+            } => Self::RequestNew {
+                input: f(input)?,
+                method: match method {
+                    Some(method) => Some(f(method)?),
+                    None => None,
+                },
+                headers: match headers {
+                    Some(headers) => Some(f(headers)?),
+                    None => None,
+                },
+                body: match body {
+                    Some(body) => Some(f(body)?),
+                    None => None,
+                },
+            },
+            Self::RequestOp { op, request, args } => {
+                let request = f(request)?;
+                let mut mapped = Vec::with_capacity(args.len());
+                for arg in args {
+                    mapped.push(f(arg)?);
+                }
+                Self::RequestOp {
+                    op,
+                    request,
+                    args: mapped,
+                }
+            }
+            Self::ResponseNew {
+                body,
+                status,
+                status_text,
+                headers,
+            } => Self::ResponseNew {
+                body: match body {
+                    Some(body) => Some(f(body)?),
+                    None => None,
+                },
+                status: match status {
+                    Some(status) => Some(f(status)?),
+                    None => None,
+                },
+                status_text: match status_text {
+                    Some(status_text) => Some(f(status_text)?),
+                    None => None,
+                },
+                headers: match headers {
+                    Some(headers) => Some(f(headers)?),
+                    None => None,
+                },
+            },
+            Self::ResponseOp { op, response, args } => {
+                let response = f(response)?;
+                let mut mapped = Vec::with_capacity(args.len());
+                for arg in args {
+                    mapped.push(f(arg)?);
+                }
+                Self::ResponseOp {
+                    op,
+                    response,
+                    args: mapped,
+                }
+            }
+            Self::TextEncoderNew => Self::TextEncoderNew,
+            Self::TextDecoderNew { label } => Self::TextDecoderNew {
+                label: match label {
+                    Some(label) => Some(f(label)?),
+                    None => None,
+                },
+            },
+            Self::TextEncoderOp { op, encoder, args } => {
+                let encoder = f(encoder)?;
+                let mut mapped = Vec::with_capacity(args.len());
+                for arg in args {
+                    mapped.push(f(arg)?);
+                }
+                Self::TextEncoderOp {
+                    op,
+                    encoder,
+                    args: mapped,
+                }
+            }
+            Self::TextDecoderOp { op, decoder, args } => {
+                let decoder = f(decoder)?;
+                let mut mapped = Vec::with_capacity(args.len());
+                for arg in args {
+                    mapped.push(f(arg)?);
+                }
+                Self::TextDecoderOp {
+                    op,
+                    decoder,
+                    args: mapped,
+                }
+            }
+            Self::ByteArrayOp { op, bytes } => Self::ByteArrayOp {
+                op,
+                bytes: f(bytes)?,
+            },
+            Self::UrlSearchParamsNew { init } => Self::UrlSearchParamsNew {
+                init: match init {
+                    Some(init) => Some(f(init)?),
+                    None => None,
+                },
+            },
+            Self::UrlSearchParamsOp { op, params, args } => {
+                let params = f(params)?;
+                let mut mapped = Vec::with_capacity(args.len());
+                for arg in args {
+                    mapped.push(f(arg)?);
+                }
+                Self::UrlSearchParamsOp {
+                    op,
+                    params,
+                    args: mapped,
+                }
+            }
+            Self::HeadersNew { init } => Self::HeadersNew {
+                init: match init {
+                    Some(init) => Some(f(init)?),
+                    None => None,
+                },
+            },
+            Self::HeadersOp { op, headers, args } => {
+                let headers = f(headers)?;
+                let mut mapped = Vec::with_capacity(args.len());
+                for arg in args {
+                    mapped.push(f(arg)?);
+                }
+                Self::HeadersOp {
+                    op,
+                    headers,
+                    args: mapped,
+                }
+            }
             Self::ListConcat { left, right } => Self::ListConcat {
                 left: f(left)?,
                 right: f(right)?,
@@ -701,6 +886,18 @@ impl ExprKind {
                 path: f(path)?,
                 text: f(text)?,
             },
+            Self::BlobOp { op, blob, args } => {
+                let blob = f(blob)?;
+                let mut mapped = Vec::with_capacity(args.len());
+                for arg in args {
+                    mapped.push(f(arg)?);
+                }
+                Self::BlobOp {
+                    op,
+                    blob,
+                    args: mapped,
+                }
+            }
             Self::BlobFromParts {
                 parts,
                 blob_type,

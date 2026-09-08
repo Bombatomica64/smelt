@@ -5,7 +5,10 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::{Callee, LocalId, Mir, MirFunction, Operand, Place, Rvalue, Statement, Terminator};
+use crate::{
+    Callee, GlobalProjection, LocalId, Mir, MirFunction, Operand, Place, Rvalue, Statement,
+    Terminator,
+};
 use smelt_hir::Type;
 
 mod dict_default_insert_elision;
@@ -226,6 +229,9 @@ fn mutated_locals(function: &MirFunction) -> HashSet<LocalId> {
                     Place::Index { base, .. } => {
                         locals.insert(*base);
                     }
+                    // The write target is a `thread_local!` cell, so no local
+                    // is written through this place.
+                    Place::Global { .. } => {}
                 },
                 // The fused entry update writes through its container, so the
                 // container is mutated and must never become a copy-propagation
@@ -515,6 +521,113 @@ fn rewrite_rvalue(
                 | rewrite_operand_except(right, aliases, dest)
         }
         Rvalue::SetProjection { set, .. } => rewrite_operand_except(set, aliases, dest),
+        Rvalue::EventEmitterNew => false,
+        Rvalue::EventEmitterOp { emitter, args, .. } => {
+            let mut rewritten = rewrite_operand_except(emitter, aliases, dest);
+            for arg in args {
+                rewritten |= rewrite_operand_except(arg, aliases, dest);
+            }
+            rewritten
+        }
+        Rvalue::HttpCreateServer { handler } => rewrite_operand_except(handler, aliases, dest),
+        Rvalue::HttpServerOp { server, args, .. } => {
+            let mut rewritten = rewrite_operand_except(server, aliases, dest);
+            for arg in args {
+                rewritten |= rewrite_operand_except(arg, aliases, dest);
+            }
+            rewritten
+        }
+        Rvalue::IncomingMessageOp { message, .. } => {
+            rewrite_operand_except(message, aliases, dest)
+        }
+        Rvalue::ServerResponseOp { response, args, .. } => {
+            let mut rewritten = rewrite_operand_except(response, aliases, dest);
+            for arg in args {
+                rewritten |= rewrite_operand_except(arg, aliases, dest);
+            }
+            rewritten
+        }
+        Rvalue::RequestNew {
+            input,
+            method,
+            headers,
+            body,
+        } => {
+            let mut rewritten = rewrite_operand_except(input, aliases, dest);
+            for operand in [method, headers, body] {
+                if let Some(operand) = operand.as_mut() {
+                    rewritten |= rewrite_operand_except(operand, aliases, dest);
+                }
+            }
+            rewritten
+        }
+        Rvalue::RequestOp { request, args, .. } => {
+            let mut rewritten = rewrite_operand_except(request, aliases, dest);
+            for arg in args {
+                rewritten |= rewrite_operand_except(arg, aliases, dest);
+            }
+            rewritten
+        }
+        Rvalue::ResponseNew {
+            body,
+            status,
+            status_text,
+            headers,
+        } => {
+            let mut rewritten = false;
+            for operand in [body, status, status_text, headers] {
+                if let Some(operand) = operand.as_mut() {
+                    rewritten |= rewrite_operand_except(operand, aliases, dest);
+                }
+            }
+            rewritten
+        }
+        Rvalue::ResponseOp { response, args, .. } => {
+            let mut rewritten = rewrite_operand_except(response, aliases, dest);
+            for arg in args {
+                rewritten |= rewrite_operand_except(arg, aliases, dest);
+            }
+            rewritten
+        }
+        Rvalue::TextEncoderNew => false,
+        Rvalue::TextDecoderNew { label } => label
+            .as_mut()
+            .is_some_and(|label| rewrite_operand_except(label, aliases, dest)),
+        Rvalue::TextEncoderOp { encoder, args, .. } => {
+            let mut rewritten = rewrite_operand_except(encoder, aliases, dest);
+            for arg in args {
+                rewritten |= rewrite_operand_except(arg, aliases, dest);
+            }
+            rewritten
+        }
+        Rvalue::TextDecoderOp { decoder, args, .. } => {
+            let mut rewritten = rewrite_operand_except(decoder, aliases, dest);
+            for arg in args {
+                rewritten |= rewrite_operand_except(arg, aliases, dest);
+            }
+            rewritten
+        }
+        Rvalue::ByteArrayOp { bytes, .. } => rewrite_operand_except(bytes, aliases, dest),
+        Rvalue::UrlSearchParamsNew { init } => init
+            .as_mut()
+            .is_some_and(|init| rewrite_operand_except(init, aliases, dest)),
+        Rvalue::UrlSearchParamsOp { params, args, .. } => {
+            let mut rewritten = rewrite_operand_except(params, aliases, dest);
+            for arg in args {
+                rewritten |= rewrite_operand_except(arg, aliases, dest);
+            }
+            rewritten
+        }
+        Rvalue::HeadersNew { init } => init
+            .as_mut()
+            .is_some_and(|init| rewrite_operand_except(init, aliases, dest)),
+        Rvalue::HeadersOp { headers, args, .. } => {
+            let mut rewritten = rewrite_operand_except(headers, aliases, dest);
+            for arg in args {
+                rewritten |= rewrite_operand_except(arg, aliases, dest);
+            }
+            rewritten
+        }
         Rvalue::ListConcat { left, right } => {
             rewrite_operand_except(left, aliases, dest)
                 | rewrite_operand_except(right, aliases, dest)
@@ -861,6 +974,13 @@ fn rewrite_rvalue(
             rewrite_operand_except(path, aliases, dest)
                 | rewrite_operand_except(text, aliases, dest)
         }
+        Rvalue::BlobOp { blob, args, .. } => {
+            let mut rewritten = rewrite_operand_except(blob, aliases, dest);
+            for arg in args {
+                rewritten |= rewrite_operand_except(arg, aliases, dest);
+            }
+            rewritten
+        }
         Rvalue::BlobFromParts {
             parts,
             blob_type,
@@ -944,7 +1064,7 @@ fn rewrite_rvalue(
         | Rvalue::NumericUnaryFunc { operand, .. }
         | Rvalue::StringCase { operand, .. }
         | Rvalue::StringNormalize { operand, .. }
-        | Rvalue::UriEncode { operand }
+        | Rvalue::UriTranscode { operand, .. }
         | Rvalue::ObjectToStringTag { operand }
         | Rvalue::StructuredClone { operand }
         | Rvalue::StringTrim { operand, .. }
@@ -997,6 +1117,12 @@ fn rewrite_place(place: &mut Place, aliases: &HashMap<LocalId, LocalId>) -> bool
             *local = resolved;
             changed
         }
+        // No base local to resolve, but the index operand can still name an
+        // aliased local and must be rewritten with everything else.
+        Place::Global { projection, .. } => match projection {
+            GlobalProjection::Field(_) => false,
+            GlobalProjection::Index { index, .. } => rewrite_operand(index, aliases),
+        },
         Place::Index { base, index, .. } => {
             let resolved = resolve_alias(aliases, *base);
             let changed = resolved != *base;

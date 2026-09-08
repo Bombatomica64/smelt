@@ -2186,6 +2186,22 @@ impl ModuleBuilder<'_> {
             && !self.concrete_type_requires_never_value(hint)
         {
             hint
+        } else if !self.erased_or_union_surface(ty)
+            && !self.erased_or_union_surface(fallback_ty)
+            && !self.concrete_type_requires_never_value(ty)
+            && !self.concrete_type_requires_never_value(fallback_ty)
+        {
+            // TypeScript types `a ?? b` as `NonNullable<typeof a> | typeof b`.
+            // When both arms are concrete and unrelated — `process.env.PORT ??
+            // 3000` is `string | number` — the join is that union. Asserting the
+            // fallback into the left arm's type instead would emit
+            // `let port: String = 3000.0;`, which is the left arm's type carrying
+            // the right arm's value. Erased/`never` surfaces keep the existing
+            // boundary-adapter behaviour above and below this branch.
+            self.ctx
+                .krate
+                .types
+                .intern(Type::Union(vec![ty, fallback_ty]))
         } else if self.erased_or_union_surface(ty)
             || self.erased_or_union_surface(fallback_ty)
             || !self.concrete_type_requires_never_value(ty)
@@ -3474,14 +3490,18 @@ impl ModuleBuilder<'_> {
         };
         let field = self.intern_source_name(field_name);
         let field_ty = self.class_field_type(hint, field).ok()?;
-        if matches!(&property.value, Expression::ObjectExpression(_))
-            && matches!(
-                self.ctx.krate.types.get(field_ty),
-                Some(Type::Class { .. } | Type::Optional(_))
-            )
-        {
-            return None;
-        }
+        // A nested object literal gets the field's type as its own hint, class
+        // and optional-class fields included. This used to be refused, which
+        // left `{ inner: { count: 7 } }` against `interface Outer { inner?:
+        // Config }` lowering the inner literal with no hint: it became a
+        // `Dict`, the outer literal could then not be built as a struct either
+        // (its field was not assignable), and both ends went through the erased
+        // `SmeltRecord` reconstruction. The struct path can build the nested
+        // value directly -- `Outer { inner: Some(Config { count: Some(7.0) }) }`
+        // -- so the refusal cost avoidable erasure at every nesting level for
+        // nothing. `contextual_record_literal_type` already unwraps `Optional`
+        // and still declines any literal it cannot construct, so the decision
+        // stays where it belongs rather than being pre-empted here.
         Some(field_ty)
     }
 
@@ -4281,7 +4301,6 @@ impl ModuleBuilder<'_> {
         if fields.is_empty() || fields.iter().any(|field| !field.optional) {
             return None;
         }
-        let mut needs_structural_adapter = false;
         for (key, value) in entries {
             let key_expr = body
                 .exprs
@@ -4295,10 +4314,23 @@ impl ModuleBuilder<'_> {
             if !self.contextual_record_field_assignable(actual, expected) {
                 return None;
             }
-            needs_structural_adapter |=
-                !self.contextual_record_field_directly_assignable(actual, expected);
         }
-        needs_structural_adapter.then_some(candidate)
+        // Every entry is assignable, so the literal IS the struct and takes the
+        // struct's type.
+        //
+        // This used to be gated on at least one field needing the backend's
+        // structural adapter (`needs_structural_adapter.then_some(candidate)`),
+        // which had it backwards: a literal needing no adaptation is the easiest
+        // one to build directly, and declining it sent the literal down the
+        // erased path instead. `const c: Config = {}` for
+        // `interface Config { label?: string }` built a
+        // `SmeltRecord<String, SmeltUnknown>` and then reconstructed `Config`
+        // out of it — reading three keys per field and funnelling every
+        // `SmeltUnknown` tag through `to_string()`, which is harmless for
+        // `label?: string` and turns a `count?: number` into its decimal text.
+        // Pure avoidable erasure plus a latent wrong-value coercion, for the
+        // shape a hand-writing Rust team would spell `Config { label: None }`.
+        Some(candidate)
     }
 
     /// Return whether a contextual field can be assigned without record adaptation.

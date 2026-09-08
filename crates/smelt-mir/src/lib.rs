@@ -682,9 +682,17 @@ export function countBy<T, K extends PropertyKey>(
         assert!(!output.contains("%2[copy %4] = "), "{output}");
     }
 
+    /// Where an entry-read/compute/write-back triple sits, and what it writes.
+    ///
+    /// The block holding the triple, the index of its first statement within
+    /// that block, and the container local the write-back targets. Named
+    /// because the bare tuple reads as three anonymous positions at every use
+    /// site.
+    type EntryTripleSite = (BlockId, usize, LocalId);
+
     /// The block index and statement index of the entry-read/compute/write-back
     /// triple `DictEntryUpdate` looks for, plus the container it writes.
-    fn find_entry_triple(function: &MirFunction) -> Option<(BlockId, usize, LocalId)> {
+    fn find_entry_triple(function: &MirFunction) -> Option<EntryTripleSite> {
         function.blocks.iter().find_map(|block| {
             block.statements.iter().enumerate().find_map(|(index, _)| {
                 let [

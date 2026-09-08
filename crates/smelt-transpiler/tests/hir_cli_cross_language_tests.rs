@@ -323,6 +323,23 @@ fn end_to_end_examples_match_expected_outputs() -> TestResult {
         "27_optional_chains",
         "28_regex_match_result",
         "29_callable_object",
+        "30_nullish_union_join",
+        "31_headers_fetch_type",
+        "32_url_search_params",
+        "33_console_optional_value",
+        "34_optional_field_interface_literal",
+        "35_top_level_await",
+        "36_floating_promise_drained",
+        "38_interface_literal_key_spellings",
+        "39_module_scope_reassignment",
+        "40_computed_method_over_known_members",
+        "41_symbol_keyed_class_members",
+        "42_module_arrow_shared_capture",
+        "43_await_value_or_promise_union",
+        "44_node_http_echo",
+        "45_text_codec",
+        "46_blob_file",
+        "47_module_const_host_value",
     ] {
         verify_end_to_end_example(name)?;
     }

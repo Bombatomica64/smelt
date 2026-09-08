@@ -4,8 +4,8 @@ use super::*;
 fn lowers_imported_unknown_calls_inside_unannotated_block_arrow() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r#"
-import { importDefault } from "@strapi/utils";
+        ts!(r"
+declare const importDefault: (file: string) => unknown;
 
 const loadJsFile = (file: string) => {
   try {
@@ -15,7 +15,7 @@ const loadJsFile = (file: string) => {
     return {};
   }
 };
-"#),
+"),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
@@ -79,7 +79,7 @@ fn lowers_lodash_predicate_factories_as_array_callbacks() -> Result<(), String> 
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
         ts!(r#"
-import _ from "lodash";
+declare const _: any;
 import { has } from "lodash/fp";
 
 type Item = { id?: string | null };
@@ -705,13 +705,11 @@ fn lowers_node_process_env_cwd_and_require_surface() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
         ts!(r#"
-import path from "path";
-
 const envPath = process.env.ENV_PATH;
 const mode = process.env.NODE_ENV || "development";
-const configDir = path.resolve(process.cwd(), "config");
+const configDir = process.cwd();
 const interactive = process.stdout.isTTY;
-const pkg = require(path.resolve(configDir, "package.json"));
+const pkg = require("./package.json");
 const resolved = require.resolve("pkg");
 "#),
         &mut ctx,
@@ -863,6 +861,15 @@ const sameOrigin = new URL(adminAbsoluteUrl).origin === new URL(adminAbsoluteUrl
     Ok(())
 }
 
+/// Every `URLSearchParams` constructor spelling lowers to the modeled type.
+///
+/// This test used to assert the opposite: that each constructor produced an
+/// erased record whose only field was `size`. That record held no parameters, so
+/// `params.get(..)` answered `undefined` and `toString()` was unavailable. The
+/// constructor is now the concrete modeled class (see
+/// `tests/fetch_types_tests.rs` for its types and
+/// `smelt-codegen-rust/tests/fetch_types_runtime.rs` for its semantics), and
+/// what this test keeps is the coverage of the four initializer spellings.
 #[test]
 fn lowers_url_search_params_constructor_size() -> Result<(), String> {
     let mut ctx = HirCtx::new();
@@ -876,21 +883,16 @@ const object = new URLSearchParams({ hello: "world" });
 "#),
         &mut ctx,
     )?;
-    let size_keys = ctx
+    let constructed = ctx
         .krate
         .bodies
         .iter()
         .flat_map(|body| body.exprs.iter())
-        .filter(|expr| {
-            matches!(
-                &expr.kind,
-                ExprKind::Literal(Literal::String(value)) if value == "size"
-            )
-        })
+        .filter(|expr| matches!(&expr.kind, ExprKind::UrlSearchParamsNew { .. }))
         .count();
     ensure!(
-        size_keys == 5,
-        "expected URLSearchParams constructors to carry size"
+        constructed == 5,
+        "expected every URLSearchParams constructor to lower to the modeled type, got {constructed}"
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
@@ -5008,6 +5010,130 @@ type BigIntLiterals = 1n | 2n | 3n;
 }
 
 #[test]
+fn lowers_all_four_uri_transcoding_globals_called_and_as_values() -> Result<(), String> {
+    // Only `encodeURI` was modeled. `encodeURIComponent`, `decodeURI` and
+    // `decodeURIComponent` were rejected as `unresolved identifier` whether
+    // called or passed as a value, even though all four are ECMA-262 §19.2.6
+    // and differ only in which character set they treat as structure. Hono's
+    // `utils/url.ts` needs all of the shapes below.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+type Coder = (value: string) => string;
+
+const apply = (value: string, coder: Coder): string => coder(value);
+
+export const encoded = (value: string): string => encodeURI(value);
+export const encodedComponent = (value: string): string => encodeURIComponent(value);
+export const decoded = (value: string): string => decodeURI(value);
+export const decodedComponent = (value: string): string => decodeURIComponent(value);
+
+export const viaValue = (value: string): string => apply(value, decodeURI);
+
+// A module const aliasing a global under a shorter name — the shape that
+// reported `exported const expression references unresolved const`, because
+// the exported-const path demanded a foldable LITERAL and a function is not
+// one.
+export const decodeURIComponent_ = decodeURIComponent;
+export const viaAlias = (value: string): string => apply(value, decodeURIComponent_);
+"),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    // Each variant must be distinguishable in the IR: one node with a wrong
+    // `op` would compile and produce a plausible but wrong string.
+    let ops = ctx
+        .krate
+        .bodies
+        .iter()
+        .flat_map(|body| body.exprs.iter())
+        .filter_map(|expr| match expr.kind {
+            smelt_hir::ExprKind::UriTranscode { op, .. } => Some(op),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    for expected in [
+        smelt_hir::UriTranscodeOp::Encode,
+        smelt_hir::UriTranscodeOp::EncodeComponent,
+        smelt_hir::UriTranscodeOp::Decode,
+        smelt_hir::UriTranscodeOp::DecodeComponent,
+    ] {
+        ensure!(
+            ops.contains(&expected),
+            "expected a UriTranscode node for {expected:?}, saw {ops:?}",
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn lowers_truthiness_guard_over_a_union_of_object_arms() -> Result<(), String> {
+    // Only seven values are falsy in JavaScript and none of them is an object,
+    // so a union whose every arm is an object has no falsy inhabitant. The
+    // truthiness lowering knew that for a single object type but not for a
+    // union of them, and rejected the guard: "condition expression must be
+    // boolean or optional (got Some(Union(..)))". Hono's router
+    // `Result<T> = [[T, ParamIndexMap][], ParamStash] | [[T, Params][]]` is the
+    // shape; a non-nullishable one now folds to the constant `true`, and the
+    // optional form keeps the presence test.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+type Slots = [string, string] | [string];
+
+export function reached(value: Slots): string {
+  if (value) {
+    return 'truthy';
+  }
+  return 'falsy';
+}
+
+export function reachedOptional(value: Slots | undefined): string {
+  if (value) {
+    return 'present';
+  }
+  return 'absent';
+}
+"),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_tuple_elements_that_are_ordinary_types() -> Result<(), String> {
+    // `TSTupleElement` inherits every `TSType` variant, so a tuple element that
+    // is not one of the tuple-only forms (optional, rest, named member) is an
+    // ordinary type. The tuple-element lowering used to enumerate its own
+    // subset of those variants and reject the rest — an INTERSECTION element
+    // was refused ("tuple element type is not lowered yet: TSIntersectionType")
+    // even though `ts_type_to_hir` had lowered intersections for a long time.
+    // The rest-parameter tuple below is the shape Hono's `types.ts` writes for
+    // its middleware-plus-handler overloads.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+interface Named { name: string }
+interface Tagged { tag: number }
+
+type Pair = [Named & Tagged, Named];
+
+export function first(pair: Pair): string {
+  return pair[0].name;
+}
+
+export function apply(...handlers: [Named & Tagged, Named]): number {
+  return handlers[0].tag;
+}
+"),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_top_level_arrow_const_used_by_later_function() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -5336,18 +5462,28 @@ const init = () => {
     Ok(())
 }
 
+/// `node:path` is a declared surface, so `path.join`/`path.resolve` block.
+///
+/// This test used to assert that these calls *lowered*. They did, to an empty
+/// string literal — a wrong value with no diagnostic. The stub is gone and the
+/// reason now names the module; `host_module_tests.rs` carries the rest of the
+/// coverage for this surface.
 #[test]
-fn lowers_node_path_join_and_resolve_static_calls() -> Result<(), String> {
+fn node_path_join_and_resolve_static_calls_block() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    lower_ok(
+    let errors = lowering_errors(
         ts!(r"
 import path from 'path';
 
 const configPath = path.join('/tmp', '.strapi-updater.json');
-const resourcePath = path.resolve(__dirname, '../resources/key.pub');
+const resourcePath = path.resolve('/srv', '../resources/key.pub');
 "),
         &mut ctx,
     )?;
+    ensure!(
+        errors.iter().any(|error| error.message.contains("node:path")),
+        "path.join/path.resolve must block on the declared node:path surface: {errors:?}",
+    );
     Ok(())
 }
 
@@ -5498,7 +5634,7 @@ fn does_not_route_validation_test_methods_as_regexp() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r"
-import { yup } from '@strapi/utils';
+declare const yup: any;
 
 const schema = yup
   .string()
@@ -6253,7 +6389,7 @@ fn lowers_lodash_for_each_collection_callback() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r"
-import _ from 'lodash';
+import _ from './lodash-compat';
 
 function register(routes: any) {
   _.forEach(routes, (router) => {
@@ -6272,7 +6408,7 @@ fn lowers_strapi_register_routes_lodash_for_each_shape() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r"
-import _ from 'lodash';
+import _ from './lodash-compat';
 
 const createRouteScopeGenerator = (namespace: string) => (route: any) => {
   const prefix = namespace.endsWith('::') ? namespace : `${namespace}.`;
@@ -6311,7 +6447,7 @@ fn lowers_yup_test_and_await_opaque_async_surfaces() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r"
-import { yup } from '@strapi/utils';
+declare const yup: any;
 
 const schema = yup.mixed().test(() => false);
 const arraySchema = yup.array().of(
@@ -6376,7 +6512,7 @@ fn lowers_top_level_destructured_module_globals_in_functions() -> Result<(), Str
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r"
-import { contentTypes as contentTypesUtils } from '@strapi/utils';
+declare const contentTypesUtils: any;
 
 const {
   CREATED_AT_ATTRIBUTE,
@@ -6401,7 +6537,7 @@ fn lowers_lodash_has_path_predicates() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r"
-import _ from 'lodash';
+import _ from './lodash-compat';
 
 function addOptions(schema: any) {
   if (!_.has(schema, 'options.draftAndPublish')) {
@@ -6438,7 +6574,7 @@ fn lowers_external_static_member_new_expressions() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r"
-import { errors } from '@strapi/utils';
+declare const errors: any;
 
 function fail(): never {
   throw new errors.ValidationError('invalid');
@@ -6472,9 +6608,6 @@ fn lowers_node_dirname_buffer_and_error_call_surface() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r"
-import { resolve } from 'path';
-
-const keyPath = resolve(__dirname, '../key.pub');
 const [signature, content] = Buffer.from('encoded', 'base64').toString().split('\n');
 const empty = Buffer.alloc(0);
 const payload = Buffer.alloc(3);
@@ -6588,7 +6721,7 @@ fn lowers_imported_value_alias_const_references() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r"
-import { createId } from '@paralleldrive/cuid2';
+declare const createId: any;
 
 export const createDocumentId = createId;
 
@@ -6663,10 +6796,20 @@ function createFetch() {
     assert_unsupported_ts(&errors, "is not a modeled property of a function value")
 }
 
+/// A `node:http` server built through the erased import surface is a blocker.
+///
+/// This module (a Koa-style server factory) used to lower silently: `http` was
+/// an unresolved value import, so `http.createServer({}, listener)` became a
+/// dynamic lookup on a value nothing builds and the crate listened on no port.
+/// `node:http` is now a declared-but-unimplemented host module, so the *use* of
+/// `createServer` is reported instead. The qualified type surface
+/// (`interface Server extends http.Server`, `http.RequestListener` annotations)
+/// still resolves; only the runtime value blocks.
 #[test]
-fn lowers_function_expression_captures_and_qualified_interface_extends() -> Result<(), String> {
+fn qualified_node_http_server_factory_reports_the_unimplemented_surface()
+-> Result<(), String> {
     let mut ctx = HirCtx::new();
-    lower_ok(
+    let errors = lowering_errors(
         ts!(r"
 import http from 'http';
 
@@ -6694,7 +6837,11 @@ function create(koaApp: any) {
 "),
         &mut ctx,
     )?;
-    Ok(())
+    assert_category(
+        &errors,
+        "declared but not implemented",
+        smelt_stdlib::DiagnosticCategory::MissingStdlib,
+    )
 }
 
 #[test]
@@ -7208,7 +7355,7 @@ fn lowers_strapi_async_map_with_options() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r"
-import { async } from '@strapi/utils';
+import { async } from './async-utils';
 
 async function run(batch: Array<{ documentId: string; locale: string }>) {
   const discardDraft = async (entry: { documentId: string; locale: string }) => entry.documentId;
@@ -7262,7 +7409,7 @@ fn lowers_new_from_destructured_import_object_member() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r"
-import { errors } from '@strapi/utils';
+declare const errors: any;
 
 const { ValidationError } = errors;
 
@@ -7721,7 +7868,7 @@ fn lowers_imported_static_string_split_helper() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r#"
-import _ from "lodash";
+import _ from "./lodash-compat";
 
 export const run = (value: string) => _.split(value, '/');
 "#),
@@ -7736,7 +7883,7 @@ fn lowers_imported_static_array_join_helper() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r#"
-import _ from "lodash";
+import _ from "./lodash-compat";
 
 export const run = (values: string[]) => _.join(values, '/');
 "#),
@@ -7780,11 +7927,11 @@ const keysDeep = (obj: object): string[] =>
 fn lowers_imported_static_array_concat_helper() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
-import _ from "lodash";
+        ts!(r"
+declare const _: any;
 
 export const run = (left: string[], right: string[]) => _.concat(left, right);
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7795,12 +7942,12 @@ export const run = (left: string[], right: string[]) => _.concat(left, right);
 fn lowers_imported_static_array_concat_helper_with_erased_right() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
-import _ from "lodash";
+        ts!(r"
+declare const _: any;
 
 declare const right: unknown;
 export const run = (left: string[]) => _.concat(left, right);
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7811,13 +7958,13 @@ export const run = (left: string[]) => _.concat(left, right);
 fn lowers_array_concat_with_erased_left_and_concrete_list_right() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
-import _ from "lodash";
+        ts!(r"
+declare const _: any;
 
 declare const left: unknown[];
 declare const right: string[];
 export const run = () => _.concat(left, right);
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7898,11 +8045,11 @@ export class StrapiIDSchema extends yup.MixedSchema {
 fn lowers_imported_static_member_as_array_callback() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
-import _ from "lodash";
+        ts!(r"
+declare const _: any;
 
 export const run = (value: object) => Object.values(value).every(_.isFunction);
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7928,11 +8075,11 @@ export const run = (values: string[]) => values.map(providers.condition.get);
 fn lowers_imported_prop_factory_as_array_callback() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
-import _ from "lodash/fp";
+        ts!(r"
+declare const _: any;
 
 export const run = (values: Array<{ result: unknown }>) => values.map(_.prop('result'));
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -7943,12 +8090,12 @@ export const run = (values: Array<{ result: unknown }>) => values.map(_.prop('re
 fn lowers_imported_functional_map_factory() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!(r#"
-import _ from "lodash/fp";
+        ts!(r"
+declare const _: any;
 
 const pickResults = _.map(_.prop('result'));
 export const run = (values: Array<{ result: unknown }>) => pickResults(values).filter(_.isObject);
-"#),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -9346,3 +9493,202 @@ export function pick(cond: boolean, xs: number[], y: number): number {
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
+
+/// Calling a global the non-DOM profile declares absent lowers to a THROW,
+/// not to a blocker and not to an erased no-op.
+///
+/// Hono's `hono-base.ts` calls `addEventListener` (under its own `@ts-ignore`),
+/// which Node does not define. JavaScript answers a name that is not defined
+/// with `ReferenceError`, so the program is correct and it is the *call* that
+/// throws — reporting a blocker would refuse a valid program, and erasing the
+/// call to a no-op would silently skip the registration.
+#[test]
+fn absent_global_call_lowers_to_a_throw() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export const listen = (): void => {
+  addEventListener("fetch", () => undefined);
+};
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+
+    // Some body in the crate must throw the ReferenceError message.
+    let throws_reference_error = ctx.krate.bodies.iter().any(|body| {
+        body.stmts.iter().any(|stmt| match stmt {
+            Stmt::Throw(expr) => matches!(
+                body.exprs.get(expr.0 as usize).map(|expr| &expr.kind),
+                Some(ExprKind::Literal(Literal::String(text)))
+                    if text == "ReferenceError: addEventListener is not defined"
+            ),
+            _ => false,
+        })
+    });
+    ensure!(
+        throws_reference_error,
+        "an absent global must lower to a thrown ReferenceError naming it",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// A global the profile *does* have is untouched by the absent-global path.
+///
+/// The negative half matters: the absent set drives both this lowering and the
+/// `"X" in globalThis` fold, so a name wrongly added to it would start throwing
+/// at runtime instead of merely answering a probe differently.
+#[test]
+fn present_global_call_does_not_throw() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+export const now = (): number => Date.now();
+"),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    let throws = ctx.krate.bodies.iter().any(|body| {
+        body.stmts
+            .iter()
+            .any(|stmt| matches!(stmt, Stmt::Throw(_)))
+    });
+    ensure!(!throws, "a present global must not lower to a throw");
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// A self-referential class keeps its whole field set and its constructor arity.
+///
+/// `children: Node2[]` and `parent?: Node2` both mention `Node2` inside
+/// `Node2`, so lowering the field types requires the class to already be
+/// resolvable while it is still being built. Nothing pinned this shape before,
+/// which is why a report of radash's `class Person { friends: Person[] = [];
+/// self?: Person }` emitting a field-less struct could not be checked against a
+/// test. (That report did not reproduce — see
+/// `blocker-logs/radash-self-referential-class.md` — and this fixture exists so
+/// the next such claim is answered by a run rather than by an argument.)
+#[test]
+fn self_referential_class_keeps_fields_and_constructor_arity() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+export class Node2 {
+  children: Node2[] = [];
+  parent?: Node2;
+  label: string;
+  constructor(label: string) {
+    this.label = label;
+  }
+}
+"),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+
+    let class = ctx
+        .krate
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Item::Class(class) if ctx.krate.symbols.get(class.name) == Some("Node2") => Some(class),
+            _ => None,
+        })
+        .ok_or_else(|| "class Node2 was not lowered".to_owned())?;
+
+    let field_names = class
+        .fields
+        .iter()
+        .filter_map(|field| ctx.krate.symbols.get(field.name))
+        .collect::<Vec<_>>();
+    for expected in ["children", "parent", "label"] {
+        ensure!(
+            field_names.contains(&expected),
+            "self-referential class lost field `{expected}`; got {field_names:?}",
+        );
+    }
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// `let x;` inside an inlined callback block holds `undefined`, as in JavaScript.
+///
+/// A declaration with no initializer is not a *missing* initializer — it is one
+/// spelled by omission, and MIR's `HirStmt::Let` lowering already encodes that
+/// rule for module and function bodies. The callback-inlining path never
+/// applied it, so an ordinary `let res: T | undefined` inside a callback
+/// blocked with "callback block declarations require initializers". This
+/// fixture pins the two paths agreeing.
+#[test]
+fn a_callback_block_declaration_without_an_initializer_defaults_to_undefined()
+-> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+export const pick = (values: number[]): number => {
+  return values.reduce((accumulator: number, item: number): number => {
+    let chosen: number | undefined;
+    chosen = item > accumulator ? item : accumulator;
+    return chosen;
+  }, 0);
+};
+"),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// A forward-referenced module callable returning `never` stubs to a THROW.
+///
+/// The stub builder answers a default value of the declared return type, and
+/// `never` has no value to answer: a function declared `never` cannot return.
+/// Emitting a throw is the only honest body. Before this, `never` fell through
+/// to "return type needs a supported default value" — a blocker on a shape the
+/// absent-global lowering itself produces.
+#[test]
+fn a_forward_referenced_never_returning_callable_stubs_to_a_throw() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+export const boom = (): never => {
+  throw new Error('unreachable');
+};
+
+export const callBoom = (): void => {
+  boom();
+};
+"),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// A union return type stubs to `undefined` when the union admits it.
+///
+/// `T | undefined` is the common shape, and JavaScript would answer
+/// `undefined`, so the stub does too rather than picking an arbitrary arm.
+#[test]
+fn a_forward_referenced_union_returning_callable_stubs_to_undefined() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+export const maybe = (flag: boolean): string | undefined => {
+  return flag ? 'yes' : undefined;
+};
+
+export const callMaybe = (): void => {
+  maybe(true);
+};
+"),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+

@@ -413,6 +413,20 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.url_field_expression(member, body)? {
             return Ok(expr);
         }
+        // A `Response` data property. Placed with the other modeled-receiver
+        // reads and gated on the receiver's lowered type, so `x.status` on
+        // anything else falls through to the ordinary field paths.
+        if let Some(expr) = self.response_property_read(member, body)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.request_property_read(member, body)? {
+            return Ok(expr);
+        }
+        // `req.method`/`req.url`/`req.headers` and `res.statusCode`, gated the
+        // same way on the receiver's lowered type.
+        if let Some(expr) = self.http_property_read(member, body)? {
+            return Ok(expr);
+        }
         // The exemption an assignment target carries follows the whole target
         // chain: in `fn.prop.inner = value` the base `fn.prop` is read only to
         // locate the slot the (discarded) write targets, so rejecting it would
@@ -439,6 +453,28 @@ impl ModuleBuilder<'_> {
             );
         let access_receiver_ty = self.optional_receiver_inner_type(receiver_ty);
         let field = self.intern_source_name(member.property.name.as_str());
+        // The text-codec and `Blob`/`File` data properties. Placed AFTER the
+        // receiver is lowered, and reusing that receiver, because `length`,
+        // `size`, `type` and `name` are members of almost every value: a
+        // pre-receiver probe would lower the receiver a second time on every
+        // miss, which duplicates its side effects.
+        //
+        // Skipped for an assignment TARGET. Every member both handlers model is
+        // read-only in the spec, so a write to one is not a modeled operation
+        // and must fall through to the ordinary (discarded) write path — a read
+        // expression cannot be assigned to, and claiming one aborted MIR
+        // lowering of es-toolkit's `isBlob` spec, whose `class File extends
+        // Blob` writes `this.name`.
+        if !is_assignment_target {
+            if let Some(expr) =
+                self.text_codec_member_read(member, receiver, access_receiver_ty, body)?
+            {
+                return Ok(expr);
+            }
+            if let Some(expr) = self.blob_member_read(member, receiver, access_receiver_ty, body)? {
+                return Ok(expr);
+            }
+        }
         if member.property.name == "length" && self.supports_stdlib_length(access_receiver_ty)
             || member.property.name == "size" && self.supports_stdlib_size(access_receiver_ty)
         {
@@ -1304,18 +1340,28 @@ impl ModuleBuilder<'_> {
             }));
         }
         if Self::is_process_env_member(member) {
-            let ty = self.ctx.krate.types.intern(Type::String);
-            let value = if Self::is_process_env_field(member, "TZ")
+            // `process.env.X` is `string | undefined` in TypeScript, and in the
+            // deterministic profile the answer is known: the profile defines the
+            // timezone and nothing else, so every other variable is *absent*.
+            // Modeling an absent variable as the empty string would make
+            // `process.env.PORT ?? 3000` statically dead and type the join as
+            // `string`; modeling it as `undefined` at `Optional(String)` keeps
+            // both the TypeScript type and the Node behaviour.
+            let string_ty = self.ctx.krate.types.intern(Type::String);
+            let span = self.span(member.span.start, member.span.end);
+            let optional_ty =
+                smelt_hir::type_normalize::optional_of(&mut self.ctx.krate.types, string_ty);
+            let literal = if Self::is_process_env_field(member, "TZ")
                 || Self::is_process_env_field(member, "tz")
             {
-                "America/Santiago".to_owned()
+                Literal::String("America/Santiago".to_owned())
             } else {
-                String::new()
+                Literal::Undefined
             };
             return Some(body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::String(value)),
-                ty,
-                span: self.span(member.span.start, member.span.end),
+                kind: ExprKind::Literal(literal),
+                ty: optional_ty,
+                span,
             }));
         }
         None
@@ -1366,6 +1412,20 @@ impl ModuleBuilder<'_> {
             return self.global_alias_computed_read(member, body);
         }
         let receiver = self.expression(&member.object, body)?;
+        // A computed key that resolves to a STATIC member name is an ordinary
+        // member read written with brackets, so it lowers to the same `Field` a
+        // dot access would. This is what makes a symbol-keyed member usable:
+        // `class C { get [KEY]() { .. } }` declares a member whose name is the
+        // symbol's synthetic key, and `c[KEY]` has to find it. Without this the
+        // declaration lowered and the read did not, so the program answered
+        // `undefined` for a member that exists.
+        //
+        // Placed after the receiver and BEFORE the index so a decline costs no
+        // stray lowered expression: the receiver is lowered once either way, and
+        // the key expression is only lowered on the path that uses it.
+        if let Some(expr) = self.static_computed_member_read(member, receiver, body)? {
+            return Ok(expr);
+        }
         let index = self.expression(&member.expression, body)?;
         let receiver_ty = Self::expr_ty(body, receiver);
         let optional_access = member.optional
@@ -1487,6 +1547,67 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(member.span.start, member.span.end),
         }))
+    }
+
+    /// Lower `receiver[KEY]` as a member read when `KEY` names a static member.
+    ///
+    /// `KEY` is resolved by the same folding the class-member DECLARATION side
+    /// uses (`resolve_static_computed_key_name_expr`), so a const-bound unique
+    /// symbol, a well-known `Symbol.<name>` and a `Symbol.for(..)` registry
+    /// symbol all name the member they declared. Answering `None` leaves the
+    /// ordinary index lowering in charge, which is what every other key gets.
+    ///
+    /// The member must actually exist on the receiver's type: a folded key that
+    /// names nothing is not a member read, and turning it into one would replace
+    /// a runtime lookup with a static error.
+    fn static_computed_member_read(
+        &mut self,
+        member: &oxc::ast::ast::ComputedMemberExpression<'_>,
+        receiver: smelt_hir::ExprId,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let receiver_ty = Self::expr_ty(body, receiver);
+        if !matches!(
+            self.ctx.krate.types.get(self.optional_receiver_inner_type(receiver_ty)),
+            Some(Type::Class { .. })
+        ) {
+            return Ok(None);
+        }
+        // SYMBOL keys only. A string or numeric key resolves through the
+        // ordinary index lowering, and it has to: a class with an index
+        // signature (`[key: string]: T`) answers `class_field_type` for every
+        // name, so folding `bag["a"]` into a named field read would take a
+        // keyed-store read and turn it into a member that does not exist. A
+        // symbol is never an index-signature key, so it is unambiguous -- and it
+        // is the case that had no other path.
+        let Some((name, true)) = self.resolve_static_computed_key_name_expr(&member.expression)
+        else {
+            return Ok(None);
+        };
+        let field = self.intern_source_name(&name);
+        let access_receiver_ty = self.optional_receiver_inner_type(receiver_ty);
+        let Ok(field_ty) = self.class_field_type(access_receiver_ty, field) else {
+            return Ok(None);
+        };
+        let span = self.span(member.span.start, member.span.end);
+        let optional_access = member.optional
+            || matches!(
+                self.ctx.krate.types.get(receiver_ty),
+                Some(Type::Optional(_))
+            );
+        if optional_access {
+            let ty = self.optional_chain_result_type(field_ty);
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::OptionalField { receiver, field },
+                ty,
+                span,
+            })));
+        }
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Field { receiver, field },
+            ty: field_ty,
+            span,
+        })))
     }
 
     /// Lower `Math[method]` for supported numeric method-key unions to a closure.
@@ -1894,6 +2015,12 @@ impl ModuleBuilder<'_> {
         // desugars to a `HostGlobalWrite` slot store; it must intercept before
         // the lifted-mutable-global path and the ordinary member-assignment path.
         if let Some(write) = self.try_host_global_write_expression(assign, body)? {
+            return Ok(Some(write));
+        }
+        // `res.statusCode = 200` is a status-line WRITE on a modeled receiver,
+        // not a field store, so it intercepts here alongside the other
+        // desugared member assignments.
+        if let Some(write) = self.try_server_response_assignment_expression(assign, body)? {
             return Ok(Some(write));
         }
         let Some(item) = self.assignment_target_mutable_global(&assign.left) else {
@@ -2811,7 +2938,9 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let receiver = self.expression(object, body)?;
         let receiver_ty = Self::expr_ty(body, receiver);
-        let field = self.intern_source_name(field_name);
+        // A private name is not the property of the same spelling; see
+        // `intern_private_name`.
+        let field = self.intern_private_name(field_name);
         let ty = self.class_field_type(receiver_ty, field)?;
         Ok(body.push_expr(Expr {
             kind: ExprKind::Field { receiver, field },

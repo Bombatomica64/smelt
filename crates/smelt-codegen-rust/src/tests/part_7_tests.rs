@@ -1254,7 +1254,7 @@ const locale: Locale = { formatDistance: localizeDistance };
     );
 
     assert!(
-        source.contains("unwrap_or_else(|error| panic!(\"{}\", error))"),
+        source.contains("unwrap_or_else(|error| smelt_panic_throw(error))"),
         "{source}"
     );
     assert!(
@@ -1294,7 +1294,7 @@ const number = +value;
 fn emits_no_arg_external_constructor_with_valid_empty_arg_tuple() {
     let source = source_for(
         r#"
-import { UTCDate } from "@date-fns/utc";
+import { UTCDate } from "./utc-date";
 const date = new UTCDate();
 "#,
     );
@@ -1310,7 +1310,7 @@ const date = new UTCDate();
 }
 
 #[test]
-fn emits_object_literal_as_destination_interface_record() {
+fn emits_object_literal_as_destination_interface_struct() {
     let source = source_for(
         r#"
 interface Options {
@@ -1327,16 +1327,341 @@ export function run(): string {
 "#,
     );
 
-    assert!(
-        source.contains(
-            "Options { width: smelt_record_map.get(\"width\").cloned().map(|value| value) }"
-        ),
-        "{source}"
-    );
+    // The literal IS the struct: `Options { width: Some(..) }`, with no
+    // `SmeltRecord<String, SmeltUnknown>` materialized and reconstructed. The
+    // reconstruction this used to assert read three keys per field and
+    // funnelled every tag through `to_string()`, which is a wrong value for any
+    // non-string optional field.
+    assert!(source.contains("Options { width: Some("), "{source}");
+    assert!(!source.contains("smelt_record_map"), "{source}");
     assert!(
         !source.contains("format(::std::collections::HashMap::from"),
         "{source}"
     );
+}
+
+#[test]
+fn types_a_string_predicate_callback_result_as_a_bool() {
+    // `StringAffix` yields a concrete `bool`. Typing the node with the
+    // surrounding expectation instead declared the temporary `SmeltUnknown`
+    // while the expression that filled it stayed a Rust `bool`, so the emitted
+    // crate did not compile (E0308) -- and repairing that at the boundary would
+    // still have left an erase-then-truthiness round trip for a value that was
+    // statically boolean.
+    let source = source_for(
+        r#"
+export function firstA(names: string[]): string | undefined {
+  return names.find((name: string) => name.startsWith("a"));
+}
+"#,
+    );
+
+    assert!(
+        source.contains("let _smelt_tmp_3: bool = closure_arg_0.clone().starts_with("),
+        "{source}"
+    );
+    // Scoped to the emitted function: the runtime prelude legitimately spells
+    // both `SmeltUnknown::Bool(..)` and the truthiness match.
+    let body = source
+        .split_once("fn first_a(")
+        .map_or("", |(_, tail)| tail);
+    assert!(
+        !body.contains("SmeltUnknown"),
+        "the predicate must not erase: {source}"
+    );
+}
+
+#[test]
+fn lowers_a_unique_symbol_keyed_class_member_and_its_read() {
+    // A module-level `const` bound to a unique `Symbol()` is evaluated once, so
+    // it is a stable static key: the member is ordinary, and so is the read.
+    // Both halves were missing -- the declaration was rejected outright, and
+    // once it lowered the read still answered `undefined`.
+    let source = source_for(
+        r"
+const KEY = Symbol();
+
+class Holder {
+  get [KEY](): number {
+    return 41;
+  }
+}
+
+export function read(holder: Holder): number {
+  return holder[KEY];
+}
+",
+    );
+
+    assert!(source.contains("__smelt_symbol_unique_"), "{source}");
+    assert!(!source.contains("SmeltUnknown::Undefined;"), "{source}");
+}
+
+#[test]
+fn keeps_lifting_a_module_arrow_over_scalars() {
+    // The counter-case to the lift refusal. A scalar has no identity, so
+    // re-materializing one inside a lifted function is indistinguishable from
+    // reading it, and such an arrow is still free to lift. The refusal is about
+    // reference identity, not about module-level arrows in general.
+    let source = source_for(
+        r#"
+const label = "scale";
+
+const scaled = (value: number): string => `${label}:${value * 2}`;
+
+const useScaled = (value: number): string => apply(scaled, value);
+
+function apply(f: (value: number) => string, value: number): string {
+  return f(value);
+}
+
+export function run(): string {
+  return useScaled(3);
+}
+"#,
+    );
+
+    assert!(source.contains("fn scaled__module_"), "{source}");
+}
+
+#[test]
+fn awaits_a_value_or_promise_union_to_its_joined_type() {
+    // `await` unwraps the promise arms and passes the others through. The value
+    // arm has to survive: asserting the whole union to be a future selected the
+    // promise arm and `unreachable!`-ed the half that needs no waiting.
+    let source = source_for(
+        r"
+class Cell {
+  value: number;
+  constructor(value: number) {
+    this.value = value;
+  }
+}
+
+function pick(sync: boolean): Cell | Promise<Cell> {
+  return sync ? new Cell(1) : Promise.resolve(new Cell(2));
+}
+
+export async function run(): Promise<number> {
+  const cell = await pick(true);
+  return cell.value;
+}
+",
+    );
+
+    assert!(source.contains("let cell: Cell"), "{source}");
+    assert!(
+        source.contains("SmeltFuture::<Cell>::resolved(value)"),
+        "the value arm must become an already-resolved handle: {source}"
+    );
+    assert!(
+        !source.contains("let cell: SmeltUnknown"),
+        "the awaited union must not erase: {source}"
+    );
+}
+
+#[test]
+fn lowers_a_computed_method_call_over_known_members() {
+    // `receiver[key]()` on a receiver whose member set is known is a choice
+    // among known methods and lowers as one. Before this, the computed read
+    // answered `unknown`, an `unknown` callee became `undefined`, and the whole
+    // body collapsed to a default value with no diagnostic.
+    let source = source_for(
+        r"
+class Body {
+  json(): string {
+    return 'json-body';
+  }
+  text(): string {
+    return 'text-body';
+  }
+}
+
+export function read(body: Body, key: 'json' | 'text'): string {
+  return body[key]();
+}
+",
+    );
+
+    assert!(source.contains("body.json()"), "{source}");
+    assert!(source.contains("body.text()"), "{source}");
+    assert!(source.contains("\"json\".to_owned()"), "{source}");
+    // The defect: the body must not be a default value.
+    assert!(
+        !source.contains("fn read(body: Body, key: String) -> String {\n    return String::new();"),
+        "{source}"
+    );
+}
+
+#[test]
+fn leaves_a_computed_method_call_with_arguments_alone() {
+    // The negative half. Arguments are lowered once and would be referenced
+    // from every arm of the chain, so the desugar declines a call that has
+    // any -- binding them to temporaries first is a separate change, and
+    // silently evaluating an argument once per arm would be worse than the
+    // existing lowering.
+    let source = source_for(
+        r"
+class Body {
+  json(prefix: string): string {
+    return prefix + 'json';
+  }
+  text(prefix: string): string {
+    return prefix + 'text';
+  }
+}
+
+export function read(body: Body, key: 'json' | 'text'): string {
+  return body[key]('p');
+}
+",
+    );
+
+    assert!(!source.contains("body.json("), "{source}");
+}
+
+#[test]
+fn keeps_a_module_scope_reassignment() {
+    // Every annotated or literal-initialized module-level binding has its
+    // declared type recorded so a function body can look it up. That record was
+    // read as "this name has no storage", so a top-level `x = e` evaluated `e`
+    // for its side effects and discarded the write: `let n: number | undefined;
+    // n = 5` still read `undefined`, with no diagnostic. Membership in that
+    // table says nothing about storage; a module-scope `let` has a local, and
+    // the write belongs to it.
+    let source = source_for(
+        r"
+let annotated: number | undefined;
+annotated = 5;
+
+let initialized: number = 1;
+initialized = 6;
+",
+    );
+
+    assert!(source.contains("annotated = Some(5.0)"), "{source}");
+    assert!(source.contains("initialized = 6.0"), "{source}");
+}
+
+#[test]
+fn types_an_iife_returned_arrow_from_the_assignment_target() {
+    // A contextual type flows through an immediately-invoked function
+    // expression's return position, so the arrow the IIFE returns takes its
+    // parameter types from the target rather than erasing to `SmeltUnknown`.
+    // The rule is one rule for all four spellings: `const f: T = (..)()`,
+    // `f = (..)()`, `f ||= (..)()` and `f ??= (..)()` reach it through the same
+    // contextual type.
+    let source = source_for(
+        r"
+type Sizer = (value: string) => number;
+
+let viaAssign: Sizer | undefined;
+viaAssign = (() => {
+  const offset = 10;
+  return (value) => value.length + offset;
+})();
+
+let viaOrAssign: Sizer | undefined;
+viaOrAssign ||= (() => {
+  const offset = 20;
+  return (value) => value.length + offset;
+})();
+
+const direct: Sizer = (() => {
+  const offset = 30;
+  return (value) => value.length + offset;
+})();
+",
+    );
+
+    assert!(!source.contains("closure_arg_0: &SmeltUnknown"), "{source}");
+    assert_eq!(
+        source.matches("closure_arg_0: String").count(),
+        3,
+        "each of the three IIFE-returned arrows takes a typed parameter: {source}"
+    );
+}
+
+#[test]
+fn an_annotated_iife_callee_keeps_its_own_return_type() {
+    // The negative half. An explicit return-type annotation on the callee wins
+    // over the contextual type, exactly as it does in TypeScript; handing an
+    // already-annotated callee a second, contextual answer only creates a way
+    // for the two to disagree.
+    let source = source_for(
+        r"
+export function run(): number {
+  const value: number = (function (): number { return 3; })();
+  return value;
+}
+",
+    );
+
+    assert!(source.contains("fn run()"), "{source}");
+}
+
+#[test]
+fn matches_object_literal_keys_to_interface_fields_by_source_spelling() {
+    // A JavaScript property key is case-sensitive and never case-folded; an
+    // interface FIELD has two spellings, the source name and the Rust-safe
+    // rendering the struct field carries. Matching the literal's keys against
+    // the RENDERED spelling silently dropped every field whose source name is
+    // not already a valid Rust name: the field looked absent, took the optional
+    // default, and the program printed `undefined` where Node prints the value.
+    let source = source_for(
+        r#"
+interface Shape {
+  plain?: number;
+  camelCase?: string;
+  snake_case?: string;
+}
+
+export function build(): Shape {
+  return { plain: 1, camelCase: "a", snake_case: "b" };
+}
+"#,
+    );
+
+    assert!(
+        source.contains(
+            "Shape { plain: Some(1.0), camel_case: Some(\"a\".to_owned()), snake_case: Some(\"b\".to_owned()) }"
+        ),
+        "{source}"
+    );
+    // The specific defect: a camelCase key must not fall through to the
+    // optional default.
+    assert!(!source.contains("camel_case: None"), "{source}");
+}
+
+#[test]
+fn builds_a_nested_optional_interface_literal_as_a_struct() {
+    // The nested literal receives the field's type as its own hint, so both
+    // levels are built directly. Without it the inner literal lowered as a
+    // `Dict`, which made the OUTER literal unbuildable as a struct too, and
+    // both ends went through the erased `SmeltRecord` reconstruction.
+    let source = source_for(
+        r#"
+interface Inner {
+  camelCase?: string;
+  count?: number;
+}
+
+interface Outer {
+  innerShape?: Inner;
+}
+
+export function build(): Outer {
+  return { innerShape: { camelCase: "deep", count: 2 } };
+}
+"#,
+    );
+
+    assert!(
+        source.contains("Inner { camel_case: Some(\"deep\".to_owned()), count: Some(2.0) }"),
+        "{source}"
+    );
+    assert!(source.contains("Outer { inner_shape: Some("), "{source}");
+    assert!(!source.contains("smelt_record_map"), "{source}");
 }
 
 #[test]
@@ -1370,7 +1695,7 @@ export function run(formatLong: FormatLong): string {
 }
 
 #[test]
-fn emits_empty_object_literal_as_optional_interface_record_defaults() {
+fn emits_empty_object_literal_as_optional_interface_struct_defaults() {
     let source = source_for(
         r"
 interface Duration {
@@ -1384,20 +1709,18 @@ export function make(): Duration {
 ",
     );
 
-    // The erased projection consults the prototype slots after the own key
-    // misses, matching `smelt_get_object_field`; see `crate::class_proto`.
+    // An empty literal for an all-optional interface is the struct with every
+    // field absent -- what a hand-writing Rust team would spell. It used to
+    // build an erased record and then project each field back out of it,
+    // consulting `__smelt_proto:`/`__smelt_method:` slots for keys the
+    // interface declares and the literal simply does not set.
+    // `None::<f64>` rather than a bare `None`: the field's own type annotation
+    // is what makes the absent arm inferable at the construction site.
     assert!(
-        source.contains(
-            "Duration { years: smelt_record_map.get(\"years\").or_else(|| smelt_record_map.get(\"__smelt_proto:years\")).or_else(|| smelt_record_map.get(\"__smelt_method:years\")).cloned().map(|value|"
-        ),
+        source.contains("Duration { years: None::<f64>, months: None::<f64> }"),
         "{source}"
     );
-    assert!(
-        source.contains(
-            "months: smelt_record_map.get(\"months\").or_else(|| smelt_record_map.get(\"__smelt_proto:months\")).or_else(|| smelt_record_map.get(\"__smelt_method:months\")).cloned().map(|value|"
-        ),
-        "{source}"
-    );
+    assert!(!source.contains("smelt_record_map"), "{source}");
 }
 
 #[test]
@@ -1623,7 +1946,7 @@ function run(values: string[]): string[] {
     assert!(
         source.contains(".map(|(index, item)| { ((smelt_callback)(")
             && source.contains(
-                ")).unwrap_or_else(|error: Box<dyn std::error::Error>| panic!(\"{}\", error))"
+                ")).unwrap_or_else(|error: Box<dyn std::error::Error>| smelt_panic_throw(error))"
             ),
         "{source}"
     );
@@ -4119,7 +4442,7 @@ const firstValue = first.value;
     assert!(source.contains("self_owned.value"), "{source}");
     assert!(source.contains("value.__smelt_symbol_iterator()"), "{source}");
     assert!(
-        source.contains("value.unwrap_or_else(|error| panic!(\"{}\", error))"),
+        source.contains("value.unwrap_or_else(|error| smelt_panic_throw(error))"),
         "{source}"
     );
     assert!(
@@ -5236,80 +5559,6 @@ function make(parser: Parser): ValueSetter {
         ),
         "{source}"
     );
-}
-
-#[test]
-fn emits_unknown_index_assignment_as_object_mutation() {
-    let source = source_for(
-        r"
-function build(key: unknown, value: unknown): unknown {
-  const result: unknown = {};
-  // @ts-expect-error dynamic index writes are accepted at erased object boundaries.
-  result[key] = value;
-  return result;
-}
-",
-    );
-
-    // The dynamic index write routes through the prelude helper, which inserts
-    // an object property (and handles arrays/other values) in one place.
-    assert!(source.contains("smelt_index_assign(&mut result,"), "{source}");
-    assert!(source.contains("map.insert(key, value)"), "{source}");
-    assert!(!source.contains("unknown is not null"), "{source}");
-}
-
-#[test]
-fn emits_array_destructuring_assignment_as_indexed_writes() {
-    let source = source_for(
-        r"
-function swap(data: unknown[], i: number, j: number): void {
-  [data[i], data[j]] = [data[j], data[i]];
-}
-",
-    );
-
-    assert!(source.contains("let __smelt_destructure"), "{source}");
-    assert!(source.contains("__smelt_destructure.borrow().get"), "{source}");
-    assert!(source.contains("normalized = 1.0"), "{source}");
-    assert_eq!(
-        source
-            .matches("data.borrow_mut()[smelt_assign_index] = smelt_assign_value")
-            .count(),
-        2,
-        "{source}"
-    );
-    assert!(
-        !source.contains("data[smelt_assign_index] = SmeltUnknown::Array"),
-        "{source}"
-    );
-}
-
-#[test]
-fn emits_callback_typeof_unknown_through_shared_static_str_helper() {
-    let source = source_for(
-        r"
-function mapType(values: unknown[]): string[] {
-  return values.map((item) => typeof item);
-}
-",
-    );
-
-    // The tag-to-spelling table is a `&'static str` lookup in the prelude, not a
-    // `String`-allocating match re-inlined at every `typeof` in the source.
-    assert!(
-        source.contains("fn smelt_typeof(value: &SmeltUnknown) -> &'static str"),
-        "{source}"
-    );
-    assert!(
-        source.contains("SmeltUnknown::Symbol(_) => \"symbol\""),
-        "{source}"
-    );
-    assert!(
-        source.contains(
-            "SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Promise(_) => \"object\""
-        ),
-        "{source}"
-    );
     assert!(!source.contains("\"symbol\".to_owned()"), "{source}");
     // Exactly one copy of the table: the helper's own body.
     assert_eq!(
@@ -5408,6 +5657,80 @@ function describe(value: string | number[]): string {
         source.contains("= match &value { SmeltUnion")
             && source.contains("::M0(_) => \"string\", ")
             && source.contains("::M1(_) => \"object\" }.to_owned();"),
+        "{source}"
+    );
+}
+
+#[test]
+fn emits_unknown_index_assignment_as_object_mutation() {
+    let source = source_for(
+        r"
+function build(key: unknown, value: unknown): unknown {
+  const result: unknown = {};
+  // @ts-expect-error dynamic index writes are accepted at erased object boundaries.
+  result[key] = value;
+  return result;
+}
+",
+    );
+
+    // The dynamic index write routes through the prelude helper, which inserts
+    // an object property (and handles arrays/other values) in one place.
+    assert!(source.contains("smelt_index_assign(&mut result,"), "{source}");
+    assert!(source.contains("map.insert(key, value)"), "{source}");
+    assert!(!source.contains("unknown is not null"), "{source}");
+}
+
+#[test]
+fn emits_array_destructuring_assignment_as_indexed_writes() {
+    let source = source_for(
+        r"
+function swap(data: unknown[], i: number, j: number): void {
+  [data[i], data[j]] = [data[j], data[i]];
+}
+",
+    );
+
+    assert!(source.contains("let __smelt_destructure"), "{source}");
+    assert!(source.contains("__smelt_destructure.borrow().get"), "{source}");
+    assert!(source.contains("normalized = 1.0"), "{source}");
+    assert_eq!(
+        source
+            .matches("data.borrow_mut()[smelt_assign_index] = smelt_assign_value")
+            .count(),
+        2,
+        "{source}"
+    );
+    assert!(
+        !source.contains("data[smelt_assign_index] = SmeltUnknown::Array"),
+        "{source}"
+    );
+}
+
+#[test]
+fn emits_callback_typeof_unknown_through_shared_static_str_helper() {
+    let source = source_for(
+        r"
+function mapType(values: unknown[]): string[] {
+  return values.map((item) => typeof item);
+}
+",
+    );
+
+    // The tag-to-spelling table is a `&'static str` lookup in the prelude, not a
+    // `String`-allocating match re-inlined at every `typeof` in the source.
+    assert!(
+        source.contains("fn smelt_typeof(value: &SmeltUnknown) -> &'static str"),
+        "{source}"
+    );
+    assert!(
+        source.contains("SmeltUnknown::Symbol(_) => \"symbol\""),
+        "{source}"
+    );
+    assert!(
+        source.contains(
+            "SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Promise(_) => \"object\""
+        ),
         "{source}"
     );
 }
@@ -9585,7 +9908,10 @@ const value = new C();
 ",
     );
 
-    assert!(source.contains("let __smelt_super: A = "), "{source}");
+    // The `super()` result is bound at the base-most type. A constructor body
+    // predeclares its locals like any other method body, so the binding and its
+    // assignment are two statements; what matters is the TYPE of the binding.
+    assert!(source.contains("let __smelt_super: A"), "{source}");
     assert!(source.contains("B::new()"), "{source}");
     // `C::new` copies BOTH inherited slots out of the constructed `B`, so the
     // base-most field reaches the leaf instance.
@@ -11035,7 +11361,7 @@ console.log(attempt(5));
 /// `unwind: _` — throwing the exception handler away. The call then went through
 /// `closure_call_text_for_dest`, whose single difference from the function-level
 /// path is that it rewrites a trailing `?` into
-/// `unwrap_or_else(|error| panic!(..))`. So a nested function whose body wrapped
+/// `unwrap_or_else(|error| smelt_panic_throw(error))`. So a nested function whose body wrapped
 /// a throwing call in `try`/`catch` did not run its `catch` at all: it aborted
 /// the process on the first throw.
 ///
@@ -11079,7 +11405,7 @@ console.log(outer(5));
         "the `catch` handler must be emitted inside the closure body:\n{body}"
     );
     assert!(
-        !body.contains("unwrap_or_else(|error| panic!"),
+        !body.contains("unwrap_or_else(|error| smelt_panic_throw"),
         "a caught throwing call must not be emitted as a panicking unwrap, which \
          is the handler being discarded:\n{body}"
     );
@@ -11163,7 +11489,7 @@ export function guard(cb: (x: number) => string, v: number): string {
 /// Adapting a throwing function into a callback slot wraps it in a closure whose
 /// Rust signature is `-> Result<T, Box<dyn std::error::Error>>`. The call inside
 /// that body was still rewritten from `?` to
-/// `unwrap_or_else(|error| panic!(..))`, which turned a recoverable JavaScript
+/// `unwrap_or_else(|error| smelt_panic_throw(error))`, which turned a recoverable JavaScript
 /// exception into an abort even though the enclosing signature could carry it.
 /// The `panic!` belongs only where the surrounding Rust signature genuinely
 /// cannot carry an error.
@@ -12035,7 +12361,7 @@ class C(B):
     );
 
     assert!(
-        source.contains("let __smelt_super: B = "),
+        source.contains("let __smelt_super: B"),
         "`C` must construct its immediate base `B`:\n{source}"
     );
     // `C::new` copies BOTH inherited slots out of the constructed `B`, so the
@@ -12836,6 +13162,182 @@ export function countBy<T, K extends PropertyKey>(
         !body.contains(".get(&"),
         "the read probe is gone: {body}"
     );
+}
+
+/// A method body predeclares its function-scope locals (H22).
+///
+/// MIR locals are function-scoped; generated Rust branch bodies are lexically
+/// scoped. A free function body has always predeclared the locals first assigned
+/// outside its entry block, but a METHOD body did not, so a temporary first
+/// assigned inside one `if` arm was declared *inside* that arm and the sibling
+/// arm's assignment named something out of scope — E0425 in the generated crate,
+/// 19053 of them in Hono's routers, with no diagnostic before rustc.
+#[test]
+fn a_method_body_predeclares_locals_assigned_in_more_than_one_branch() {
+    let source = source_for(
+        r"
+class Counter {
+  total = 0;
+
+  step(flag: boolean, amount: number): number {
+    let next: number;
+    if (flag) {
+      next = this.total + amount;
+    } else {
+      next = this.total - amount;
+    }
+    this.total = next;
+    return next;
+  }
+}
+const counter = new Counter();
+console.log(counter.step(true, 2));
+",
+    );
+
+    let body = emitted_function_body(&source, "fn step(");
+    let branch_start = body
+        .find("if flag {")
+        .expect("the branch is emitted: {body}");
+    let (prelude, branches) = body.split_at(branch_start);
+    assert!(
+        prelude.contains("let _smelt_tmp_4: f64;"),
+        "the branch temporary is declared before the branch: {body}"
+    );
+    assert!(
+        !branches
+            .lines()
+            .any(|line| line.trim_start().starts_with("let _smelt_tmp_")),
+        "no temporary is introduced inside a branch arm: {body}"
+    );
+    assert!(
+        branches.contains("_smelt_tmp_4 =") && branches.contains("_smelt_tmp_5 ="),
+        "both arms assign their predeclared temporary: {body}"
+    );
+}
+
+/// A write through a receiver that is still optional-typed is an lvalue (H23).
+///
+/// `tsc` proved the receiver present (the assignment above narrows it), so the
+/// write unwraps in place — `as_mut()`, never a copy, which would drop the
+/// write — and a REFERENCE class keeps its handle (`.0.borrow_mut()`). Before
+/// this the lvalue fell through to the field READ expression, which is not an
+/// lvalue at all (E0070), and the read spelled a field of the handle rather than
+/// of its interior (E0609).
+#[test]
+fn a_field_write_through_an_optional_receiver_unwraps_in_place() {
+    let source = source_for(
+        r"
+class Slot {
+  label = '';
+}
+export function label(slots: Record<string, Slot>, key: string, text: string): string {
+  let slot: Slot | undefined = slots[key];
+  if (!slot) {
+    slot = new Slot();
+    slots[key] = slot;
+  }
+  slot.label = text;
+  return slot.label;
+}
+console.log(label({}, 'a', 'x'));
+",
+    );
+
+    let body = emitted_function_body(&source, "fn label(");
+    assert!(
+        body.contains("expect(\"optional value was absent after narrowing\")"),
+        "the receiver is unwrapped where `tsc` proved it present: {body}"
+    );
+    assert!(
+        body.contains(".0.borrow_mut().label ="),
+        "the write goes through the reference class's handle: {body}"
+    );
+    assert!(
+        body.contains("_smelt_value.0.borrow().label.clone()"),
+        "so does the read through the optional receiver: {body}"
+    );
+    assert!(
+        !body.contains("_smelt_value.label.clone()"),
+        "no field of the handle itself is ever named: {body}"
+    );
+}
+
+/// A value asked for at `bool` is a truthiness test, not a cast (H24).
+///
+/// Wherever JavaScript expects a boolean it applies truthiness, and for a class
+/// instance the answer is "present". The coercion used to hand the value back
+/// unchanged, so an `Option<Node>` in a boolean position emitted
+/// `.map_or(false, |value| value)` — E0308, 48 sites in Hono's trie router.
+#[test]
+fn a_class_valued_optional_in_a_boolean_position_tests_presence() {
+    let source = source_for(
+        r"
+class Node {
+  key = '';
+}
+export function has(nodes: Record<string, Node>, key: string): boolean {
+  const found: Node | undefined = nodes[key];
+  const present = !!found;
+  return present;
+}
+console.log(has({}, 'a'));
+",
+    );
+
+    let body = emitted_function_body(&source, "fn has(");
+    assert!(
+        !body.contains("|value| value)"),
+        "the class value is not handed back where a bool is expected: {body}"
+    );
+    assert!(
+        body.contains("is_some()"),
+        "presence is the truthiness of a class-valued optional: {body}"
+    );
+}
+
+/// A callee read out of a `RefCell` is CLONED out of the guard, not moved.
+///
+/// H17 bound such a callee to a `let` so the read's `Ref` guard drops before the
+/// call runs (a class-field arrow's body mutates the same cell). A SHARED
+/// CLOSURE CAPTURE renders as `(*cell.borrow())`, whose `Rc<dyn Fn ..>` is not
+/// `Copy`, so the plain binding was a move out of a `Ref` deref — E0507, which
+/// stopped the whole es-toolkit probe crate from compiling. Cloning bumps a
+/// refcount and still drops the guard.
+#[test]
+fn a_recursive_capture_callee_is_cloned_out_of_its_borrow_guard() {
+    let source = source_for(
+        r"
+export function flattenAll(values: unknown[], depth: number): unknown[] {
+  const walk = (items: unknown[], level: number): unknown[] => {
+    const out: unknown[] = [];
+    for (const item of items) {
+      if (Array.isArray(item) && level < depth) {
+        for (const nested of walk(item as unknown[], level + 1)) {
+          out.push(nested);
+        }
+      } else {
+        out.push(item);
+      }
+    }
+    return out;
+  };
+  return walk(values, 0);
+}
+console.log(flattenAll([1, [2, [3]]], 2).length);
+",
+    );
+
+    assert!(
+        !source.contains("let smelt_callable = (*"),
+        "a callable is never moved out of a `Ref` deref: {source}"
+    );
+    if source.contains("smelt_callable") {
+        assert!(
+            source.contains("let smelt_callable = ::std::clone::Clone::clone(&"),
+            "the guarded callee is cloned before the call: {source}"
+        );
+    }
 }
 
 #[test]

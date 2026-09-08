@@ -68,21 +68,30 @@ impl FunctionEmitter<'_> {
                 Some(Type::String)
             )
         {
-            let field_text = self.string_field_text(&self.local_value_text(*base)?, *field)?;
-            let field_source_ty = match self.symbol_name(*field)? {
-                "source" => self.type_id(Type::String)?,
-                "global" | "ignoreCase" | "ignore_case" | "multiline" => {
-                    self.type_id(Type::Bool)?
-                }
-                "length" => self.type_id(Type::Int)?,
-                _ => self.type_id(Type::Unknown)?,
-            };
+            let (field_text, field_source_ty) =
+                self.string_field_read(&self.local_value_text(*base)?, *field)?;
             return self.erase_value_text(&field_text, field_source_ty);
         }
         if source_ty == target
             && !matches!(self.mir.types.get(target), Some(Type::Function(_)))
         {
             return self.operand_text(operand);
+        }
+        // A concrete host value used at a RECORD or COLLECTION type goes
+        // through its erasure adapter first. Same rule as in
+        // `value_at_type_text`, which this delegates to so the two spellings
+        // of the coercion cannot disagree; the operand entry point is the one
+        // an ordinary assignment reaches.
+        if let Some(Type::Class { name, .. }) = self.mir.types.get(source_ty)
+            && matches!(
+                self.mir.types.get(target),
+                Some(Type::Dict(_, _) | Type::List(_) | Type::Set(_))
+            )
+            && self
+                .stdlib_class_of_symbol(*name)?
+                .is_some_and(smelt_stdlib::StdlibClass::erases_through_adapter)
+        {
+            return self.value_at_type_text(&operand_text, source_ty, target);
         }
         // `Future<A>` -> `Future<B>` is a coercion of the AWAITED value, so it
         // needs the awaiting adapter the text-based entry point already builds
@@ -678,6 +687,53 @@ impl FunctionEmitter<'_> {
         if source == target && !matches!(self.mir.types.get(target), Some(Type::Function(_))) {
             return Ok(value_text.to_owned());
         }
+        // A value asked for at `bool` is a TRUTHINESS test, not a cast: that is
+        // what JavaScript does wherever a boolean is expected, and it is the
+        // only reading of a class instance, a list, a string or a number in a
+        // boolean position. Without this the coercion fell through to the
+        // structural arms, which had no rule and handed the value back
+        // unchanged — `Option<Node<T>>` at `bool` emitted
+        // `.map_or(false, |value| value)`, and the generated crate did not
+        // compile (E0308, 48 sites in Hono's trie router alone). `Type::Unknown`
+        // keeps its own erased narrowing path below, which already answers
+        // truthiness for a tagged value.
+        if matches!(self.mir.types.get(target), Some(Type::Bool))
+            && !matches!(
+                self.mir.types.get(source),
+                Some(Type::Bool | Type::Unknown | Type::TypeParam { .. })
+            )
+        {
+            return self.value_truthy_text(value_text, source);
+        }
+        // A concrete host value cast to a RECORD or a COLLECTION goes through
+        // its erasure adapter first.
+        //
+        // `erased as { type: string }` reads fields off the host record, and the
+        // adapters below know how to walk a `SmeltUnknown` into a typed record —
+        // but they are reached only when the source is already erased. A
+        // concrete `SmeltBlob` therefore fell straight through and was assigned
+        // to a `SmeltRecord` (E0308).
+        //
+        // It became reachable when `instanceof` started narrowing an erased
+        // local (round 10): inside `x instanceof Blob ? (x as { type: string }) : ..`
+        // the operand is now the concrete class rather than `unknown`, so the
+        // cast has a concrete source where it used to have an erased one. The
+        // blob runtime tier is what caught it.
+        //
+        // Stated over `erases_through_adapter`, so it holds for every host class
+        // with an adapter rather than for the one that exposed it.
+        if let Some(Type::Class { name, .. }) = self.mir.types.get(source)
+            && matches!(
+                self.mir.types.get(target),
+                Some(Type::Dict(_, _) | Type::List(_) | Type::Set(_))
+            )
+            && self
+                .stdlib_class_of_symbol(*name)?
+                .is_some_and(smelt_stdlib::StdlibClass::erases_through_adapter)
+        {
+            let erased = format!("({smelt_owned_value}).into_smelt_unknown()");
+            return self.value_at_type_text(&erased, self.type_id(Type::Unknown)?, target);
+        }
         if source == target && matches!(self.mir.types.get(target), Some(Type::Function(_))) {
             if self.is_borrowed_callback_capture_name(value_text) {
                 return self.borrowed_function_handle_text(value_text, target);
@@ -1221,6 +1277,15 @@ impl FunctionEmitter<'_> {
             Some(Type::Class { name, .. }) if self.is_match_class_symbol(*name)? => {
                 Ok(format!("{smelt_owned_text}.into_smelt_unknown()"))
             }
+            // The concrete fetch types keep their state behind a shared cell, not
+            // in declared fields, so the generic struct adapter would erase them
+            // to a record of nothing. Their prelude `IntoSmeltUnknown` is the one
+            // honest boundary form (identity marker, `size`, and the pairs).
+            Some(Type::Class { .. })
+                if self.is_fetch_runtime_class_type(self.operand_ty(operand)?)? =>
+            {
+                Ok(format!("{smelt_owned_text}.into_smelt_unknown()"))
+            }
             Some(Type::Class { name, .. })
                 if self.is_erased_class_type(self.operand_ty(operand)?)
                     && self.symbol_name(*name)? == "Date" =>
@@ -1656,6 +1721,11 @@ impl FunctionEmitter<'_> {
             // is erased through the single explicit `IntoSmeltUnknown` adapter,
             // reproducing the JavaScript match-array-with-properties shape.
             Some(Type::Class { name, .. }) if self.is_match_class_symbol(*name)? => {
+                Ok(format!("{smelt_owned_value}.into_smelt_unknown()"))
+            }
+            // See the operand-form arm: the fetch types erase through their own
+            // adapter rather than through the declared-field record builder.
+            Some(Type::Class { .. }) if self.is_fetch_runtime_class_type(ty)? => {
                 Ok(format!("{smelt_owned_value}.into_smelt_unknown()"))
             }
             Some(Type::Class { name, .. })
@@ -2625,6 +2695,16 @@ impl FunctionEmitter<'_> {
             Some(Type::Class { name, .. }) if self.is_match_class_symbol(*name)? => Ok(format!(
                 "<SmeltMatch as SmeltFromUnknown>::smelt_from_unknown(({text}).into_smelt_unknown())"
             )),
+            // The inverse of the fetch-type erasure. Without this arm the generic
+            // class fallback answers `Default::default()`, so a header list or a
+            // parameter list that round-tripped through erased dataflow came back
+            // EMPTY with no diagnostic.
+            Some(Type::Class { .. }) if self.is_fetch_runtime_class_type(target)? => {
+                let rust_type = self.type_text_with_impl_trait(target, false)?;
+                Ok(format!(
+                    "<{rust_type} as SmeltFromUnknown>::smelt_from_unknown({smelt_owned_text})"
+                ))
+            }
             Some(Type::Class { .. })
                 if self.type_text_with_impl_trait(target, false)? == "SmeltUnknown" =>
             {
@@ -2686,7 +2766,7 @@ impl FunctionEmitter<'_> {
                         .unwrap_or_else(|| function.rest.unwrap_or(function.params.len()));
                     let default_callback = self.default_value(target)?;
                     return Ok(format!(
-                        "{{ let smelt_value = {smelt_owned_text}; let smelt_function = match smelt_value.clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_function {{ SmeltErasedFunction {{ callback: ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| (smelt_function)(smelt_args).unwrap_or_else(|error| panic!(\"{{}}\", error))), length: {length}.0, object: match smelt_value {{ SmeltUnknown::Object(object) => Some(object), _ => None }} }} }} else {{ {default_callback} }} }}"
+                        "{{ let smelt_value = {smelt_owned_text}; let smelt_function = match smelt_value.clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_function {{ SmeltErasedFunction {{ callback: ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| (smelt_function)(smelt_args).unwrap_or_else(|error| smelt_panic_throw(error))), length: {length}.0, object: match smelt_value {{ SmeltUnknown::Object(object) => Some(object), _ => None }} }} }} else {{ {default_callback} }} }}"
                     ));
                 }
                 let target_text = self.type_text_with_impl_trait(target, false)?;
@@ -2707,7 +2787,7 @@ impl FunctionEmitter<'_> {
                     format!("(smelt_function)({args})?")
                 } else {
                     format!(
-                        "(smelt_function)({args}).unwrap_or_else(|error| panic!(\"{{}}\", error))"
+                        "(smelt_function)({args}).unwrap_or_else(|error| smelt_panic_throw(error))"
                     )
                 };
                 let converted_return_text = if let Some(Type::Future(item)) =

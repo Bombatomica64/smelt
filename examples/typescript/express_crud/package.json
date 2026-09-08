@@ -1,0 +1,24 @@
+{
+  "name": "express-crud",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A small Express 5 + node:sqlite todo CRUD API used as the Smelt v1 showcase input",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "vitest run",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.0",
+    "@types/supertest": "^6.0.2",
+    "supertest": "^7.0.0",
+    "typescript": "^5.7.2",
+    "vitest": "^3.2.7"
+  }
+}

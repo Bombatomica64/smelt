@@ -217,7 +217,15 @@ impl ModuleBuilder<'_> {
 
     /// Return true when an expression is a built-in constructor target.
     pub(super) fn instanceof_builtin_target(target: &str) -> bool {
-        smelt_stdlib::typescript_stdlib_class(target).is_some()
+        // ANY class with a host-object registry marker is a valid target: the
+        // marker exists precisely so `instanceof` can be answered, and an
+        // identity-only entry (one with no modeled surface, such as `FormData`
+        // or `ReadableStream`) is no different in that respect from one with a
+        // full surface. Naming individual host classes below was how this list
+        // grew, and it is why `body instanceof FormData` aborted as "not a
+        // lowered class" the moment those two joined the registry for identity.
+        smelt_stdlib::host_object_marker(target).is_some()
+            || smelt_stdlib::typescript_stdlib_class(target).is_some()
             // Typed-array views (`x instanceof Uint8Array`) are byte-backed host
             // objects, so they are already covered by the `byte_buffer_role`
             // clause below; naming them here too keeps the recognizer readable.
@@ -1333,6 +1341,16 @@ impl ModuleBuilder<'_> {
             }
             Argument::ComputedMemberExpression(member) => self.computed_member(member, body),
             Argument::StaticMemberExpression(member) => self.static_member(member, body),
+            // A private-name field read is a member read like any other; the
+            // `#` sigil only puts the property in a separate namespace. It is
+            // delegated to the same helper the expression position uses, so
+            // `f(this.#field)` and `const x = this.#field` cannot diverge.
+            Argument::PrivateFieldExpression(member) => self.private_field_member(
+                &member.object,
+                member.field.name.as_str(),
+                member.span,
+                body,
+            ),
             // Delegated so an awaited call argument lowers through the same rule
             // as an awaited expression; the argument spelling used to have its
             // own copy that dropped the operand for a non-future type.
@@ -1673,11 +1691,13 @@ impl ModuleBuilder<'_> {
                     })
             }
             AsyncOp::Sleep
+            | AsyncOp::ExitDrain
             | AsyncOp::Resolve
             | AsyncOp::Reject
             | AsyncOp::CreateTask
             | AsyncOp::WaitFor
             | AsyncOp::HttpGetText
+            | AsyncOp::HttpFetch
             | AsyncOp::SetTimeout
             | AsyncOp::ClearTimeout
             | AsyncOp::SetInterval
@@ -2172,7 +2192,7 @@ impl ModuleBuilder<'_> {
         None
     }
 
-    /// Lower TypeScript `fetch(url[, options])` into an async HTTP GET text operation.
+    /// Lower TypeScript `fetch(url[, options])` into an async HTTP fetch.
     pub(super) fn fetch_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -2200,10 +2220,44 @@ impl ModuleBuilder<'_> {
             ));
         };
         let mut url = self.argument(url_argument, body)?;
-        if let Some(options_argument) = call.arguments.get(1) {
-            let _ = self.argument(options_argument, body)?;
+        // `fetch(url, init)` IS `fetch(new Request(url, init))` — that is the
+        // spec's own definition, not a convenience — so the init goes through
+        // the very same reader the `Request` constructor uses and the operand
+        // becomes a request.
+        //
+        // Until now the init was lowered and then DISCARDED, which made
+        // `fetch(url, { method: "POST", body })` silently issue a GET with no
+        // body: a false green of exactly the kind that survives every compile
+        // step and only shows up against a real server.
+        if let Some(init_argument) = call.arguments.get(1) {
+            let request = self.fetch_request_from_init(url, init_argument, body)?;
+            let response_ty = self.response_type();
+            let ty = self.ctx.krate.types.intern(Type::Future(response_ty));
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::AsyncOp {
+                    op: AsyncOp::HttpFetch,
+                    args: vec![request],
+                },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
         }
         let url_ty = Self::expr_ty(body, url);
+        // `fetch(request)`: the spec's other input form, and now that the
+        // transport can carry a method, headers and a body it is the same
+        // operand the two-argument form builds.
+        if self.is_request_type(url_ty) {
+            let response_ty = self.response_type();
+            let ty = self.ctx.krate.types.intern(Type::Future(response_ty));
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::AsyncOp {
+                    op: AsyncOp::HttpFetch,
+                    args: vec![url],
+                },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
         if self.ctx.krate.types.get(url_ty) != Some(&Type::String) {
             let string_ty = self.ctx.krate.types.intern(Type::String);
             if self.is_string_compatible_type(url_ty) || self.type_contains_unknown(url_ty) {
@@ -2222,11 +2276,14 @@ impl ModuleBuilder<'_> {
                 ));
             }
         }
-        let string_ty = self.ctx.krate.types.intern(Type::String);
-        let ty = self.ctx.krate.types.intern(Type::Future(string_ty));
+        // `fetch` resolves to a `Response`, not to the body text: the caller
+        // reads `status`, `ok`, `headers` and the body separately, and a
+        // `Promise<string>` threw all but one of those away.
+        let response_ty = self.response_type();
+        let ty = self.ctx.krate.types.intern(Type::Future(response_ty));
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::AsyncOp {
-                op: AsyncOp::HttpGetText,
+                op: AsyncOp::HttpFetch,
                 args: vec![url],
             },
             ty,

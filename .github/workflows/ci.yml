@@ -500,6 +500,75 @@ jobs:
             --no-fail-fast 2>&1 | tee radash-tests.log
           grep -F "test result: ok. 84 passed; 0 failed;" radash-tests.log
 
+  # ADVISORY tracking job for the Hono campaign (blocker-logs/hono-campaign-plan.md).
+  #
+  # Hono is pure TypeScript with zero runtime dependencies, so it is the corpus
+  # that shows whether Smelt can transpile a FRAMEWORK — routers, middleware
+  # composition, a context object, cookies, validators — rather than only
+  # utilities. It is not yet a gate: source lowering still reports blockers on
+  # names the standards-tier stream owns (`Response`, `Headers`, `BodyInit`,
+  # `TextEncoder`, `crypto`), and the whole-crate build aborts at the first file
+  # that needs one. So this job is `continue-on-error` and its only job today is
+  # to PRINT the current blocker count and shapes, so a change that improves or
+  # regresses them is visible in the log without failing anyone's PR.
+  #
+  # Turn off `continue-on-error` and add the `cargo test` assertion once phase 3
+  # of the campaign plan has a stable pass count (see the radash job below for
+  # the shape that takes).
+  hono-advisory:
+    # Opt-in on PRs via the `run-regressions` label; always on for main pushes.
+    # See the banner above `remeda-regression`.
+    if: >-
+      ${{ github.event_name == 'push'
+          || contains(github.event.pull_request.labels.*.name, 'run-regressions') }}
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build
+
+      - name: Build smelt
+        run: cargo build --bin smelt
+
+      - name: Check out Hono at the pinned ref + copy Smelt fixtures
+        run: |
+          ref="$(python3 -c "import json; libs=json.load(open('.github/compat/libraries.json'))['libraries']; print(next(l['ref'] for l in libs if l['name']=='hono'))")"
+          echo "Hono ref: $ref"
+          repo_dir="target/compat-repos/hono"
+          rm -rf "$repo_dir"
+          git clone --no-tags --filter=blob:none https://github.com/honojs/hono.git "$repo_dir"
+          git -C "$repo_dir" checkout "$ref"
+          cp -R .github/compat/hono/. "$repo_dir"/
+
+      - name: Report Hono source-lowering blockers (advisory)
+        run: |
+          target/debug/smelt --manifest-path target/compat-repos/hono/Smelt.toml \
+            probe --format md | tee hono-probe.md
+          echo "--- per-file blockers ---"
+          target/debug/smelt --manifest-path target/compat-repos/hono/Smelt.toml \
+            check --message-format json | tee hono-blockers.json
+          python3 -c "
+          import json
+          rows = json.load(open('hono-blockers.json'))
+          print(f'hono blockers: {len(rows)}')
+          "
+
+      - name: Transpile Hono to Rust (advisory; aborts on the first blocked file)
+        run: target/debug/smelt --manifest-path target/compat-repos/hono/Smelt.toml build
+
+      - name: Compile the generated Hono crate (advisory)
+        run: |
+          RUSTFLAGS=-Awarnings cargo check \
+            --manifest-path target/compat-repos/hono/dist-smelt/Cargo.toml
+
   # Regression gate: transpile es-toolkit at the ref pinned in
   # .github/compat/libraries.json with the smelt built from THIS commit, then
   # ratchet against checked-in high-water marks in

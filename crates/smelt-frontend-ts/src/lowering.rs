@@ -121,6 +121,19 @@ impl ConstLiteral {
     /// ({ [s]: 1 })` declares the very member an inline `[Symbol.iterator]` key
     /// declares. A unique `Symbol('d')` carries a span-tagged spelling and has
     /// fresh identity per evaluation, so it never folds.
+    /// Return the member key a unique `Symbol(...)` bound to a const names.
+    ///
+    /// Separate from [`Self::symbol_literal_member_name`] because it is only
+    /// sound where the binding is evaluated once; see
+    /// `ty::computed_key_symbols::unique_symbol_key`. Only the two
+    /// const-resolving computed-key arms consult it.
+    fn unique_symbol_member_name(&self) -> Option<String> {
+        match &self.literal {
+            Literal::Symbol(value) => ty::computed_key_symbols::unique_symbol_key(value),
+            _ => None,
+        }
+    }
+
     fn symbol_literal_member_name(spelling: &str) -> Option<String> {
         if let Some(description) =
             ty::computed_key_symbols::registry_description_of_symbol_literal(spelling)
@@ -179,6 +192,16 @@ pub struct ConstCollection {
 pub struct FrontendOptions<'manifest> {
     /// Materialized definition-time structure for this source graph.
     pub specialization: Option<&'manifest smelt_specialize::SpecializationManifest>,
+    /// Import specifiers in this file that name modules the manifest excludes.
+    ///
+    /// `[sources] exclude` prunes the dependency closure, so a relative
+    /// specifier can name a module that was deliberately left out of the
+    /// crate. Such a specifier is not a missing file and not a host package:
+    /// it is a scope decision the manifest recorded, and using a *value* from
+    /// it has to say so rather than silently erasing the binding. The
+    /// transpiler resolves the mapping (it already resolved every import edge)
+    /// and passes the specifiers as written so the message can quote them.
+    pub excluded_modules: &'manifest [String],
 }
 
 /// Materialized specialization data owned by one source module builder.
@@ -398,6 +421,7 @@ pub fn to_hir_with_options(
         source.to_owned(),
         ctx,
         specialization,
+        options.excluded_modules.to_vec(),
     );
     builder.program(&parsed.program)
 }
@@ -442,12 +466,15 @@ pub fn predeclare_type_declarations_with_path(
             })
             .collect());
     }
+    // The predeclaration pass only records type and method surfaces; it never
+    // classifies value imports, so it needs no exclusion list.
     let mut builder = ModuleBuilder::new(
         file_id,
         path.to_owned(),
         source.to_owned(),
         ctx,
         None,
+        Vec::new(),
     );
     builder.predeclare_class_method_fields(&parsed.program);
     builder.predeclare_type_alias_items(&parsed.program);
@@ -682,6 +709,31 @@ struct ModuleBuilder<'ctx> {
     functions: state::function_registry::FunctionRegistry,
     /// Materialized final definitions for this source module.
     specialization: Option<SpecializationData>,
+    /// Value imports awaiting host-module classification.
+    ///
+    /// Filled while the import statements are read and drained once, right
+    /// after the last of them, by
+    /// `ModuleBuilder::classify_pending_host_imports`. The two-phase shape
+    /// exists because the decision depends on the module as a whole (a test
+    /// module keeps the erased binding), which is not known until every import
+    /// has been seen.
+    pending_host_imports: Vec<PendingHostImport>,
+    /// Import specifiers naming modules the manifest excluded from the crate.
+    ///
+    /// Consulted by `classify_pending_host_imports`; see
+    /// [`FrontendOptions::excluded_modules`].
+    excluded_modules: Vec<String>,
+}
+
+/// One value import whose module resolved to no source item.
+#[derive(Debug, Clone)]
+struct PendingHostImport {
+    /// Module specifier as written in source.
+    module: String,
+    /// Exported name (`"default"` for a default import).
+    imported: String,
+    /// Local binding the importer sees.
+    local: String,
 }
 
 /// Concrete types active while lowering a generator body.

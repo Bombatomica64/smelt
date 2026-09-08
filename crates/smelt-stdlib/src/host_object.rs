@@ -347,11 +347,54 @@ pub const HOST_OBJECTS: &[HostObject] = &[
     host("File", "__smelt_file"),
     host("Blob", "__smelt_blob"),
     // Fetch API `Request` host object. Source code (es-toolkit's `isPlainObject`
-    // spec) constructs it only to probe host identity
-    // (`isPlainObject(new Request('...')) === false`); none of its structural
-    // surface is read, so it is a marker-only host object like `WeakMap` /
-    // `DataView`. `instanceof Request` resolves through this marker.
+    // The concrete fetch types. Unlike the marker-only entries above, these have
+    // real generated runtime types (`SmeltHeaders`, `SmeltUrlSearchParams`) and
+    // their structural surface IS read — through typed methods, not through the
+    // record. They are registered here for what happens at the erased boundary:
+    // the marker is what makes the internal `entries` slot non-enumerable in
+    // `for...in` (a real header list enumerates nothing) and what `instanceof`
+    // resolves through. Their construction never takes the marker-only path.
+    host("Headers", "__smelt_headers"),
+    host("URLSearchParams", "__smelt_urlsearchparams"),
+    // `Request` and `Response` moved up from the marker-only group when they
+    // gained real runtime types (`SmeltRequest`/`SmeltResponse`). The marker
+    // still does the same two jobs — `instanceof` resolves through it and
+    // `isPlainObject(new Request('...'))` is `false` because of it — but it is
+    // now stamped by the type's own erasure adapter rather than by a
+    // marker-record constructor, so the concrete value is what the program
+    // holds and the record exists only at the boundary.
     host("Request", "__smelt_request"),
+    host("Response", "__smelt_response"),
+    // The six modeled classes whose state is NOT a record: the text codecs, the
+    // `node:events` emitter, and the three `node:http` types. They were the last
+    // modeled classes with no registry marker, and the consequence was that
+    // erasing one went through the generic struct path — which stamps
+    // `__smelt_class` and reads DECLARED FIELDS, of which a prelude type has
+    // none — so the erased value carried no identity and `instanceof` on it
+    // could not be answered at all. `instance_of_text` folded it to `false` and
+    // silently deleted the branch until round 10 turned that into a blocker;
+    // these entries are what retire it.
+    //
+    // Their state is closures, cells and a tokio shutdown sender, so unlike
+    // `Headers` or `Blob` they cannot be REBUILT from a record. Their erasure
+    // therefore retains the live value in `SMELT_HOST_ORIGINS` keyed by the
+    // record's object id, and `SmeltFromUnknown` hands back that same object —
+    // which is what JavaScript erasure does anyway: `const x: unknown = emitter`
+    // must reach the same listener list.
+    host("TextEncoder", "__smelt_textencoder"),
+    host("TextDecoder", "__smelt_textdecoder"),
+    host("EventEmitter", "__smelt_eventemitter"),
+    host("Server", "__smelt_httpserver"),
+    host("IncomingMessage", "__smelt_incomingmessage"),
+    host("ServerResponse", "__smelt_serverresponse"),
+    // The two `BodyInit` arms whose surfaces are not modeled yet. They are here
+    // for identity only -- `Object.prototype.toString` tags them, `instanceof`
+    // resolves through them, and `JSON.stringify` answers `{}` because a host
+    // object has no own enumerable properties. `reflected_construct_kind`
+    // excludes both, so no dynamic `new FormData()` builds a record that would
+    // pretend to have `append`.
+    host("FormData", "__smelt_formdata"),
+    host("ReadableStream", "__smelt_readablestream"),
     host("DOMException", "__smelt_domexception"),
     // ECMA-402 `Intl` namespace constructors. Source code constructs these only
     // to probe host identity (`isPlainObject(new Intl.Locale('en')) === false`);

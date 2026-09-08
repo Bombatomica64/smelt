@@ -761,7 +761,7 @@ impl FunctionEmitter<'_> {
                 // the order `Object.keys(['a'])` -> `["0"]` and
                 // `Object.keys(withNamedProp)` -> `["0", "x"]` report.
                 smelt_hir::DictProjectionOp::Keys => Ok(format!(
-                    "match {dict_text} {{ SmeltUnknown::Object(map) => {index_keys}(&SmeltUnknown::Object(map.clone())).unwrap_or_else(|| map.keys().into_iter().filter(|key| !key.starts_with(\"__smelt_symbol:\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").collect()), SmeltUnknown::Array(values) => values.own_keys(), _ => Vec::new() }}",
+                    "match {dict_text} {{ SmeltUnknown::Object(map) => {index_keys}(&SmeltUnknown::Object(map.clone())).unwrap_or_else(|| map.keys().into_iter().filter(|key| !key.starts_with(\"__smelt_symbol\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").collect()), SmeltUnknown::Array(values) => values.own_keys(), _ => Vec::new() }}",
                     index_keys = smelt_stdlib::runtime_symbols::byte_buffer::INDEX_KEYS,
                 )),
                 smelt_hir::DictProjectionOp::ForInKeys => Ok(format!(
@@ -785,17 +785,17 @@ impl FunctionEmitter<'_> {
                 // description as `SmeltUnknown::Symbol` keeps the round trip: the
                 // property-key mapping turns that tag back into the prefixed key.
                 smelt_hir::DictProjectionOp::Symbols => Ok(format!(
-                    "match {dict_text} {{ SmeltUnknown::Object(map) => map.keys().into_iter().filter_map(|key| key.strip_prefix(\"__smelt_symbol:\").map(|description| SmeltUnknown::Symbol(description.into()))).collect(), _ => Vec::new() }}"
+                    "match {dict_text} {{ SmeltUnknown::Object(map) => map.keys().into_iter().filter_map(|key| smelt_own_symbol_key_value(&key)).collect(), _ => Vec::new() }}"
                 )),
                 // `Object.values`/`Object.entries` of a byte-backed view are its
                 // decoded elements, paired with their index keys — the same own-key
                 // set `Object.keys` reports above.
                 smelt_hir::DictProjectionOp::Values => Ok(format!(
-                    "match {dict_text} {{ SmeltUnknown::Object(map) => {elements}(&SmeltUnknown::Object(map.clone())).unwrap_or_else(|| map.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").map(|(_, value)| value).collect()), SmeltUnknown::Array(values) => values.own_entries().into_iter().map(|(_, value)| value).collect(), _ => Vec::new() }}",
+                    "match {dict_text} {{ SmeltUnknown::Object(map) => {elements}(&SmeltUnknown::Object(map.clone())).unwrap_or_else(|| map.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").map(|(_, value)| value).collect()), SmeltUnknown::Array(values) => values.own_entries().into_iter().map(|(_, value)| value).collect(), _ => Vec::new() }}",
                     elements = smelt_stdlib::runtime_symbols::byte_buffer::ELEMENTS,
                 )),
                 smelt_hir::DictProjectionOp::Entries => Ok(format!(
-                    "match {dict_text} {{ SmeltUnknown::Object(map) => {elements}(&SmeltUnknown::Object(map.clone())).map_or_else(|| map.clone().into_iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").collect::<Vec<_>>(), |values| values.into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect::<Vec<_>>()), SmeltUnknown::Array(values) => values.own_entries(), _ => Vec::new() }}",
+                    "match {dict_text} {{ SmeltUnknown::Object(map) => {elements}(&SmeltUnknown::Object(map.clone())).map_or_else(|| map.clone().into_iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").collect::<Vec<_>>(), |values| values.into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect::<Vec<_>>()), SmeltUnknown::Array(values) => values.own_entries(), _ => Vec::new() }}",
                     elements = smelt_stdlib::runtime_symbols::byte_buffer::ELEMENTS,
                 )),
             };
@@ -834,20 +834,20 @@ impl FunctionEmitter<'_> {
                         // indices, not the storage keys the marker filter hides.
                         if self.dict_holds_erased_values(self.operand_ty(dict)?) {
                             return Ok(format!(
-                                "{helper}(&{dict_text}).unwrap_or_else(|| {dict_text}.keys().filter(|key| !key.starts_with(\"__smelt_symbol:\") && smelt_is_for_in_record_key(&{dict_text}, key)).collect::<Vec<_>>())",
+                                "{helper}(&{dict_text}).unwrap_or_else(|| {dict_text}.keys().filter(|key| !key.starts_with(\"__smelt_symbol\") && smelt_is_for_in_record_key(&{dict_text}, key)).collect::<Vec<_>>())",
                                 helper = smelt_stdlib::runtime_symbols::byte_buffer::RECORD_INDEX_KEYS,
                             ));
                         }
                         Ok(format!(
-                            "{dict_text}.keys().filter(|key| !key.starts_with(\"__smelt_symbol:\") && smelt_is_for_in_record_key(&{dict_text}, key)).collect::<Vec<_>>()"
+                            "{dict_text}.keys().filter(|key| !key.starts_with(\"__smelt_symbol\") && smelt_is_for_in_record_key(&{dict_text}, key)).collect::<Vec<_>>()"
                         ))
                     } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                         Ok(format!(
-                            "{dict_text}.keys().filter(|key| !key.starts_with(\"__smelt_symbol:\")).collect::<Vec<_>>()"
+                            "{dict_text}.keys().filter(|key| !key.starts_with(\"__smelt_symbol\")).collect::<Vec<_>>()"
                         ))
                     } else {
                         Ok(format!(
-                            "{dict_text}.keys().filter(|key| !key.starts_with(\"__smelt_symbol:\")).cloned().collect::<Vec<_>>()"
+                            "{dict_text}.keys().filter(|key| !key.starts_with(\"__smelt_symbol\")).cloned().collect::<Vec<_>>()"
                         ))
                     }
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
@@ -918,7 +918,7 @@ impl FunctionEmitter<'_> {
                 // one stores the tag directly, and both hand back the tag.
                 if self.mir.types.get(*key_ty) == Some(&Type::String) {
                     Ok(format!(
-                        "{dict_text}.keys().filter_map(|key| key.strip_prefix(\"__smelt_symbol:\").map(|description| SmeltUnknown::Symbol(description.into()))).collect::<Vec<_>>()"
+                        "{dict_text}.keys().filter_map(|key| smelt_own_symbol_key_value(&key)).collect::<Vec<_>>()"
                     ))
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                     // The mirror image of the `Keys` arm: the same own-entry
@@ -944,16 +944,16 @@ impl FunctionEmitter<'_> {
                         // its internal storage fields; see the `Keys` arm above.
                         if self.dict_holds_erased_values(self.operand_ty(dict)?) {
                             return Ok(format!(
-                                "{helper}(&{dict_text}).unwrap_or_else(|| {dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").map(|(_, value)| value).collect::<Vec<_>>())",
+                                "{helper}(&{dict_text}).unwrap_or_else(|| {dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").map(|(_, value)| value).collect::<Vec<_>>())",
                                 helper = smelt_stdlib::runtime_symbols::byte_buffer::RECORD_ELEMENTS,
                             ));
                         }
                         Ok(format!(
-                            "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").map(|(_, value)| value).collect::<Vec<_>>()"
+                            "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").map(|(_, value)| value).collect::<Vec<_>>()"
                         ))
                     } else {
                         Ok(format!(
-                            "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").map(|(_, value)| value.clone()).collect::<Vec<_>>()"
+                            "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").map(|(_, value)| value.clone()).collect::<Vec<_>>()"
                         ))
                     }
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
@@ -978,16 +978,16 @@ impl FunctionEmitter<'_> {
                         // its decoded elements; see the `Keys` arm above.
                         if self.dict_holds_erased_values(self.operand_ty(dict)?) {
                             return Ok(format!(
-                                "{helper}(&{dict_text}).map_or_else(|| {dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").collect::<Vec<_>>(), |values| values.into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect::<Vec<_>>())",
+                                "{helper}(&{dict_text}).map_or_else(|| {dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").collect::<Vec<_>>(), |values| values.into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect::<Vec<_>>())",
                                 helper = smelt_stdlib::runtime_symbols::byte_buffer::RECORD_ELEMENTS,
                             ));
                         }
                         Ok(format!(
-                            "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").collect::<Vec<_>>()"
+                            "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").collect::<Vec<_>>()"
                         ))
                     } else {
                         Ok(format!(
-                            "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>()"
+                            "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>()"
                         ))
                     }
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
@@ -1027,9 +1027,14 @@ impl FunctionEmitter<'_> {
                 "JSON stringify value must be JSON-serializable",
             ));
         }
-        Ok(format!(
-            "serde_json::to_string(&{}).expect(\"JSON serialization failed\")",
+        let value_ty = self.operand_ty(value)?;
+        let value_text = if self.json_needs_erasure(value_ty) {
+            self.erase_value_text(&self.operand_text(value)?, value_ty)?
+        } else {
             self.operand_text(value)?
+        };
+        Ok(format!(
+            "serde_json::to_string(&{value_text}).expect(\"JSON serialization failed\")"
         ))
     }
 

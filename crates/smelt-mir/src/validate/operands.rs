@@ -6,7 +6,7 @@
 //! also holds the "does this reference exist" checks for rvalues, operands,
 //! places, and callees used by structural validation.
 
-use crate::{Callee, MirFunction, Mir, Operand, Place, Rvalue};
+use crate::{Callee, GlobalProjection, Mir, MirFunction, Operand, Place, Rvalue};
 
 use super::structure::validate_local_exists;
 use super::{ValidationError, error, function_index, validate_type};
@@ -32,6 +32,101 @@ impl Rvalue {
             }
             Self::GeneratorDone { result } | Self::GeneratorValue { result } => visit(result),
             Self::GeneratorDelegate { generator } => visit(generator),
+            Self::HeadersNew { init } => {
+                if let Some(init) = init {
+                    visit(init);
+                }
+            }
+            Self::HeadersOp { headers, args, .. } => {
+                visit(headers);
+                for arg in args {
+                    visit(arg);
+                }
+            }
+            Self::EventEmitterNew => {}
+            Self::EventEmitterOp { emitter, args, .. } => {
+                visit(emitter);
+                for arg in args {
+                    visit(arg);
+                }
+            }
+            Self::HttpCreateServer { handler } => visit(handler),
+            Self::HttpServerOp { server, args, .. } => {
+                visit(server);
+                for arg in args {
+                    visit(arg);
+                }
+            }
+            Self::IncomingMessageOp { message, .. } => visit(message),
+            Self::ServerResponseOp { response, args, .. } => {
+                visit(response);
+                for arg in args {
+                    visit(arg);
+                }
+            }
+            Self::RequestNew {
+                input,
+                method,
+                headers,
+                body,
+            } => {
+                visit(input);
+                for operand in [method, headers, body].into_iter().flatten() {
+                    visit(operand);
+                }
+            }
+            Self::RequestOp { request, args, .. } => {
+                visit(request);
+                for arg in args {
+                    visit(arg);
+                }
+            }
+            Self::ResponseNew {
+                body,
+                status,
+                status_text,
+                headers,
+            } => {
+                for operand in [body, status, status_text, headers].into_iter().flatten() {
+                    visit(operand);
+                }
+            }
+            Self::ResponseOp { response, args, .. } => {
+                visit(response);
+                for arg in args {
+                    visit(arg);
+                }
+            }
+            Self::TextEncoderNew => {}
+            Self::TextDecoderNew { label } => {
+                if let Some(label) = label {
+                    visit(label);
+                }
+            }
+            Self::TextEncoderOp { encoder, args, .. } => {
+                visit(encoder);
+                for arg in args {
+                    visit(arg);
+                }
+            }
+            Self::TextDecoderOp { decoder, args, .. } => {
+                visit(decoder);
+                for arg in args {
+                    visit(arg);
+                }
+            }
+            Self::ByteArrayOp { bytes, .. } => visit(bytes),
+            Self::UrlSearchParamsNew { init } => {
+                if let Some(init) = init {
+                    visit(init);
+                }
+            }
+            Self::UrlSearchParamsOp { params, args, .. } => {
+                visit(params);
+                for arg in args {
+                    visit(arg);
+                }
+            }
             Self::List(items) | Self::Set(items) | Self::Tuple(items) => {
                 for item in items {
                     visit(item);
@@ -710,6 +805,12 @@ impl Rvalue {
                 visit(path);
                 visit(text);
             }
+            Self::BlobOp { blob, args, .. } => {
+                visit(blob);
+                for arg in args {
+                    visit(arg);
+                }
+            }
             Self::BlobFromParts {
                 parts,
                 blob_type,
@@ -800,7 +901,7 @@ impl Rvalue {
             | Self::NumericUnaryFunc { operand, .. }
             | Self::StringCase { operand, .. }
             | Self::StringNormalize { operand, .. }
-            | Self::UriEncode { operand }
+            | Self::UriTranscode { operand, .. }
             | Self::ObjectToStringTag { operand }
             | Self::StructuredClone { operand }
             | Self::StringTrim { operand, .. }
@@ -839,6 +940,101 @@ impl Rvalue {
             }
             Self::GeneratorDone { result } | Self::GeneratorValue { result } => visit(result),
             Self::GeneratorDelegate { generator } => visit(generator),
+            Self::HeadersNew { init } => {
+                if let Some(init) = init {
+                    visit(init);
+                }
+            }
+            Self::HeadersOp { headers, args, .. } => {
+                visit(headers);
+                for arg in args.iter_mut() {
+                    visit(arg);
+                }
+            }
+            Self::EventEmitterNew => {}
+            Self::EventEmitterOp { emitter, args, .. } => {
+                visit(emitter);
+                for arg in args.iter_mut() {
+                    visit(arg);
+                }
+            }
+            Self::HttpCreateServer { handler } => visit(handler),
+            Self::HttpServerOp { server, args, .. } => {
+                visit(server);
+                for arg in args.iter_mut() {
+                    visit(arg);
+                }
+            }
+            Self::IncomingMessageOp { message, .. } => visit(message),
+            Self::ServerResponseOp { response, args, .. } => {
+                visit(response);
+                for arg in args.iter_mut() {
+                    visit(arg);
+                }
+            }
+            Self::RequestNew {
+                input,
+                method,
+                headers,
+                body,
+            } => {
+                visit(input);
+                for operand in [method, headers, body].into_iter().flatten() {
+                    visit(operand);
+                }
+            }
+            Self::RequestOp { request, args, .. } => {
+                visit(request);
+                for arg in args.iter_mut() {
+                    visit(arg);
+                }
+            }
+            Self::ResponseNew {
+                body,
+                status,
+                status_text,
+                headers,
+            } => {
+                for operand in [body, status, status_text, headers].into_iter().flatten() {
+                    visit(operand);
+                }
+            }
+            Self::ResponseOp { response, args, .. } => {
+                visit(response);
+                for arg in args.iter_mut() {
+                    visit(arg);
+                }
+            }
+            Self::TextEncoderNew => {}
+            Self::TextDecoderNew { label } => {
+                if let Some(label) = label {
+                    visit(label);
+                }
+            }
+            Self::TextEncoderOp { encoder, args, .. } => {
+                visit(encoder);
+                for arg in args.iter_mut() {
+                    visit(arg);
+                }
+            }
+            Self::TextDecoderOp { decoder, args, .. } => {
+                visit(decoder);
+                for arg in args.iter_mut() {
+                    visit(arg);
+                }
+            }
+            Self::ByteArrayOp { bytes, .. } => visit(bytes),
+            Self::UrlSearchParamsNew { init } => {
+                if let Some(init) = init {
+                    visit(init);
+                }
+            }
+            Self::UrlSearchParamsOp { params, args, .. } => {
+                visit(params);
+                for arg in args.iter_mut() {
+                    visit(arg);
+                }
+            }
             Self::List(items) | Self::Set(items) | Self::Tuple(items) => {
                 for item in items.iter_mut() {
                     visit(item);
@@ -1514,6 +1710,12 @@ impl Rvalue {
                 visit(path);
                 visit(text);
             }
+            Self::BlobOp { blob, args, .. } => {
+                visit(blob);
+                for arg in args.iter_mut() {
+                    visit(arg);
+                }
+            }
             Self::BlobFromParts {
                 parts,
                 blob_type,
@@ -1604,7 +1806,7 @@ impl Rvalue {
             | Self::NumericUnaryFunc { operand, .. }
             | Self::StringCase { operand, .. }
             | Self::StringNormalize { operand, .. }
-            | Self::UriEncode { operand }
+            | Self::UriTranscode { operand, .. }
             | Self::ObjectToStringTag { operand }
             | Self::StructuredClone { operand }
             | Self::StringTrim { operand, .. }
@@ -1670,6 +1872,14 @@ pub(super) fn validate_place_exists(
         Place::Index { base, index, .. } => {
             validate_local_exists(function, *base, errors);
             validate_operand_exists(function, index, errors);
+        }
+        // There is no base local to check for existence. The global index is
+        // validated against `Mir::globals` where the statement is checked, and
+        // the index operand is checked here like any other.
+        Place::Global { projection, .. } => {
+            if let GlobalProjection::Index { index, .. } = projection {
+                validate_operand_exists(function, index, errors);
+            }
         }
     }
 }

@@ -2,7 +2,7 @@
 
 use std::fmt::Write as _;
 
-use crate::expr::{AsyncOp, Expr, ExprKind, PropertyLookup};
+use crate::expr::{AsyncOp, Expr, ExprKind, PropertyLookup, RegexReplaceArg, UriTranscodeOp};
 use crate::ids::ExprId;
 use crate::krate::Crate;
 
@@ -10,6 +10,37 @@ use super::{
     collection_text, dict_lit_text, expr_list_text, expr_ref, item_ref, literal_text, local_ref,
     optional_expr_ref, type_ref,
 };
+
+/// Formats a regex replacer's resolved argument roles as `matched,p1,position`.
+///
+/// Printed inside the `regex_replace_*_callback` line so a golden shows WHICH
+/// spec arguments a callback was resolved to receive, not merely that it has
+/// some.
+fn regex_replace_args_text(args: &[RegexReplaceArg]) -> String {
+    args.iter()
+        .map(|arg| match arg {
+            RegexReplaceArg::Matched => "matched".to_owned(),
+            RegexReplaceArg::Capture(index) => format!("p{index}"),
+            RegexReplaceArg::Position => "position".to_owned(),
+            RegexReplaceArg::Source => "source".to_owned(),
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// Formats a URI transcoding operation's node name.
+///
+/// Named per variant so a golden distinguishes `encodeURI` from
+/// `encodeURIComponent` — the pair differs only in its character set, which is
+/// precisely the mistake worth catching in a cheap test.
+const fn uri_transcode_op_text(op: UriTranscodeOp) -> &'static str {
+    match op {
+        UriTranscodeOp::Encode => "uri_encode",
+        UriTranscodeOp::EncodeComponent => "uri_encode_component",
+        UriTranscodeOp::Decode => "uri_decode",
+        UriTranscodeOp::DecodeComponent => "uri_decode_component",
+    }
+}
 
 /// Formats an expression as text.
 pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
@@ -187,8 +218,8 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             };
             format!("string_normalize_{form_name} {}", expr_ref(*operand))
         }
-        ExprKind::UriEncode { operand } => {
-            format!("uri_encode {}", expr_ref(*operand))
+        ExprKind::UriTranscode { op, operand } => {
+            format!("{} {}", uri_transcode_op_text(*op), expr_ref(*operand))
         }
         ExprKind::ObjectToStringTag { operand } => {
             format!("object_to_string_tag {}", expr_ref(*operand))
@@ -341,16 +372,18 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             pattern,
             haystack,
             callback,
+            args,
         } => {
             let op_name = match op {
                 crate::expr::StringReplaceOp::First => "replace_first_callback",
                 crate::expr::StringReplaceOp::All => "replace_all_callback",
             };
             format!(
-                "regex_{op_name} {}, {}, {}",
+                "regex_{op_name} {}, {}, {} [{}]",
                 expr_ref(*pattern),
                 expr_ref(*haystack),
-                expr_ref(*callback)
+                expr_ref(*callback),
+                regex_replace_args_text(args)
             )
         }
         ExprKind::RegexReplaceFirstMatchUppercase { pattern, haystack } => {
@@ -464,6 +497,213 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 crate::expr::SetProjectionOp::Entries => "entries",
             };
             format!("set_{op_name} {}", expr_ref(*set))
+        }
+        ExprKind::EventEmitterNew => "event_emitter_new".to_owned(),
+        ExprKind::EventEmitterOp { op, emitter, args } => {
+            let name = event_emitter_op_name(*op);
+            let mut text = format!("emitter_{name} {}", expr_ref(*emitter));
+            for arg in args {
+                text.push(' ');
+                text.push_str(&expr_ref(*arg));
+            }
+            text
+        }
+        ExprKind::HttpCreateServer { handler } => {
+            format!("http_create_server {}", expr_ref(*handler))
+        }
+        ExprKind::HttpServerOp { op, server, args } => {
+            let name = match op {
+                crate::expr::HttpServerOp::Listen => "listen",
+                crate::expr::HttpServerOp::Close => "close",
+                crate::expr::HttpServerOp::Address => "address",
+            };
+            let mut text = format!("http_server_{name} {}", expr_ref(*server));
+            for arg in args {
+                text.push(' ');
+                text.push_str(&expr_ref(*arg));
+            }
+            text
+        }
+        ExprKind::IncomingMessageOp { op, message } => {
+            let name = match op {
+                crate::expr::IncomingMessageOp::Method => "method",
+                crate::expr::IncomingMessageOp::Url => "url",
+                crate::expr::IncomingMessageOp::Headers => "headers",
+            };
+            format!("incoming_message_{name} {}", expr_ref(*message))
+        }
+        ExprKind::ServerResponseOp { op, response, args } => {
+            let name = server_response_op_name(*op);
+            let mut text = format!("server_response_{name} {}", expr_ref(*response));
+            for arg in args {
+                text.push(' ');
+                text.push_str(&expr_ref(*arg));
+            }
+            text
+        }
+        ExprKind::RequestNew {
+            input,
+            method,
+            headers,
+            body,
+        } => {
+            let mut parts = vec![format!("input={}", expr_ref(*input))];
+            if let Some(method) = method {
+                parts.push(format!("method={}", expr_ref(*method)));
+            }
+            if let Some(headers) = headers {
+                parts.push(format!("headers={}", expr_ref(*headers)));
+            }
+            if let Some(body) = body {
+                parts.push(format!("body={}", expr_ref(*body)));
+            }
+            format!("request_new {}", parts.join(" "))
+        }
+        ExprKind::RequestOp { op, request, args } => {
+            let name = request_op_name(*op);
+            let mut text = format!("request_{name} {}", expr_ref(*request));
+            for arg in args {
+                text.push(' ');
+                text.push_str(&expr_ref(*arg));
+            }
+            text
+        }
+        ExprKind::ResponseNew {
+            body,
+            status,
+            status_text,
+            headers,
+        } => {
+            let mut parts = Vec::new();
+            if let Some(body) = body {
+                parts.push(format!("body={}", expr_ref(*body)));
+            }
+            if let Some(status) = status {
+                parts.push(format!("status={}", expr_ref(*status)));
+            }
+            if let Some(status_text) = status_text {
+                parts.push(format!("status_text={}", expr_ref(*status_text)));
+            }
+            if let Some(headers) = headers {
+                parts.push(format!("headers={}", expr_ref(*headers)));
+            }
+            if parts.is_empty() {
+                "response_new".to_owned()
+            } else {
+                format!("response_new {}", parts.join(" "))
+            }
+        }
+        ExprKind::ResponseOp { op, response, args } => {
+            let name = response_op_name(*op);
+            let mut text = format!("response_{name} {}", expr_ref(*response));
+            for arg in args {
+                text.push(' ');
+                text.push_str(&expr_ref(*arg));
+            }
+            text
+        }
+        ExprKind::TextEncoderNew => "text_encoder_new".to_owned(),
+        ExprKind::TextDecoderNew { label } => label.map_or_else(
+            || "text_decoder_new".to_owned(),
+            |label| format!("text_decoder_new {}", expr_ref(label)),
+        ),
+        ExprKind::TextEncoderOp { op, encoder, args } => {
+            let op_name = match op {
+                crate::expr::TextEncoderOp::Encode => "encode",
+                crate::expr::TextEncoderOp::Encoding => "encoding",
+            };
+            let args_text = args
+                .iter()
+                .map(|arg| expr_ref(*arg))
+                .collect::<Vec<_>>()
+                .join(", ");
+            if args_text.is_empty() {
+                format!("text_encoder_{op_name} {}", expr_ref(*encoder))
+            } else {
+                format!("text_encoder_{op_name} {} {args_text}", expr_ref(*encoder))
+            }
+        }
+        ExprKind::TextDecoderOp { op, decoder, args } => {
+            let op_name = match op {
+                crate::expr::TextDecoderOp::Decode => "decode",
+                crate::expr::TextDecoderOp::Encoding => "encoding",
+            };
+            let args_text = args
+                .iter()
+                .map(|arg| expr_ref(*arg))
+                .collect::<Vec<_>>()
+                .join(", ");
+            if args_text.is_empty() {
+                format!("text_decoder_{op_name} {}", expr_ref(*decoder))
+            } else {
+                format!("text_decoder_{op_name} {} {args_text}", expr_ref(*decoder))
+            }
+        }
+        ExprKind::ByteArrayOp { op, bytes } => {
+            let op_name = match op {
+                crate::expr::ByteArrayOp::Length => "length",
+                crate::expr::ByteArrayOp::ByteLength => "byte_length",
+            };
+            format!("byte_array_{op_name} {}", expr_ref(*bytes))
+        }
+        ExprKind::UrlSearchParamsNew { init } => init.map_or_else(
+            || "url_search_params_new".to_owned(),
+            |init| format!("url_search_params_new {}", expr_ref(init)),
+        ),
+        ExprKind::UrlSearchParamsOp { op, params, args } => {
+            let op_name = match op {
+                crate::expr::UrlSearchParamsOp::Get => "get",
+                crate::expr::UrlSearchParamsOp::GetAll => "get_all",
+                crate::expr::UrlSearchParamsOp::Has => "has",
+                crate::expr::UrlSearchParamsOp::Set => "set",
+                crate::expr::UrlSearchParamsOp::Append => "append",
+                crate::expr::UrlSearchParamsOp::Delete => "delete",
+                crate::expr::UrlSearchParamsOp::Sort => "sort",
+                crate::expr::UrlSearchParamsOp::ToText => "to_text",
+                crate::expr::UrlSearchParamsOp::Keys => "keys",
+                crate::expr::UrlSearchParamsOp::Values => "values",
+                crate::expr::UrlSearchParamsOp::Entries => "entries",
+            };
+            let args_text = args
+                .iter()
+                .map(|arg| expr_ref(*arg))
+                .collect::<Vec<_>>()
+                .join(", ");
+            if args_text.is_empty() {
+                format!("url_search_params_{op_name} {}", expr_ref(*params))
+            } else {
+                format!(
+                    "url_search_params_{op_name} {}, {args_text}",
+                    expr_ref(*params)
+                )
+            }
+        }
+        ExprKind::HeadersNew { init } => init.map_or_else(
+            || "headers_new".to_owned(),
+            |init| format!("headers_new {}", expr_ref(init)),
+        ),
+        ExprKind::HeadersOp { op, headers, args } => {
+            let op_name = match op {
+                crate::expr::HeadersOp::Get => "get",
+                crate::expr::HeadersOp::Has => "has",
+                crate::expr::HeadersOp::Set => "set",
+                crate::expr::HeadersOp::Append => "append",
+                crate::expr::HeadersOp::Delete => "delete",
+                crate::expr::HeadersOp::Keys => "keys",
+                crate::expr::HeadersOp::Values => "values",
+                crate::expr::HeadersOp::Entries => "entries",
+                crate::expr::HeadersOp::GetSetCookie => "get_set_cookie",
+            };
+            let args_text = args
+                .iter()
+                .map(|arg| expr_ref(*arg))
+                .collect::<Vec<_>>()
+                .join(", ");
+            if args_text.is_empty() {
+                format!("headers_{op_name} {}", expr_ref(*headers))
+            } else {
+                format!("headers_{op_name} {}, {args_text}", expr_ref(*headers))
+            }
         }
         ExprKind::ListConcat { left, right } => {
             format!("list_concat {}, {}", expr_ref(*left), expr_ref(*right))
@@ -882,6 +1122,19 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::FileWriteText { path, text } => {
             format!("file_write_text {}, {}", expr_ref(*path), expr_ref(*text))
         }
+        ExprKind::BlobOp { op, blob, args } => {
+            let op_name = blob_op_name(*op);
+            let args_text = args
+                .iter()
+                .map(|arg| expr_ref(*arg))
+                .collect::<Vec<_>>()
+                .join(", ");
+            if args_text.is_empty() {
+                format!("blob_{op_name} {}", expr_ref(*blob))
+            } else {
+                format!("blob_{op_name} {} {args_text}", expr_ref(*blob))
+            }
+        }
         ExprKind::BlobFromParts {
             parts,
             blob_type,
@@ -1009,12 +1262,63 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
 }
 
 /// Formats a runtime-backed async operation.
+/// The dump spelling of an `EventEmitter` operation.
+const fn event_emitter_op_name(op: crate::expr::EventEmitterOp) -> &'static str {
+    match op {
+        crate::expr::EventEmitterOp::On => "on",
+        crate::expr::EventEmitterOp::Once => "once",
+        crate::expr::EventEmitterOp::Off => "off",
+        crate::expr::EventEmitterOp::RemoveAll => "remove_all",
+        crate::expr::EventEmitterOp::Emit => "emit",
+        crate::expr::EventEmitterOp::ListenerCount => "listener_count",
+    }
+}
+
+/// The dump spelling of a `ServerResponse` operation.
+const fn server_response_op_name(op: crate::expr::ServerResponseOp) -> &'static str {
+    match op {
+        crate::expr::ServerResponseOp::StatusCode => "status_code",
+        crate::expr::ServerResponseOp::SetStatusCode => "set_status_code",
+        crate::expr::ServerResponseOp::SetHeader => "set_header",
+        crate::expr::ServerResponseOp::GetHeader => "get_header",
+        crate::expr::ServerResponseOp::WriteHead => "write_head",
+        crate::expr::ServerResponseOp::Write => "write",
+        crate::expr::ServerResponseOp::End => "end",
+    }
+}
+
+/// The dump spelling of a `Request` operation.
+const fn request_op_name(op: crate::expr::RequestOp) -> &'static str {
+    match op {
+        crate::expr::RequestOp::Url => "url",
+        crate::expr::RequestOp::Method => "method",
+        crate::expr::RequestOp::Headers => "headers",
+        crate::expr::RequestOp::BodyUsed => "body_used",
+        crate::expr::RequestOp::Text => "text",
+        crate::expr::RequestOp::Clone => "clone",
+    }
+}
+
+/// The dump spelling of a `Response` operation.
+const fn response_op_name(op: crate::expr::ResponseOp) -> &'static str {
+    match op {
+        crate::expr::ResponseOp::Status => "status",
+        crate::expr::ResponseOp::Ok => "ok",
+        crate::expr::ResponseOp::StatusText => "status_text",
+        crate::expr::ResponseOp::Headers => "headers",
+        crate::expr::ResponseOp::BodyUsed => "body_used",
+        crate::expr::ResponseOp::Text => "text",
+        crate::expr::ResponseOp::Clone => "clone",
+    }
+}
+
 fn async_op_text(op: AsyncOp, args: &[ExprId]) -> String {
     let op_name = match op {
         AsyncOp::All => "async_all",
         AsyncOp::Race => "async_race",
         AsyncOp::AllSettled => "async_all_settled",
         AsyncOp::Sleep => "async_sleep",
+        AsyncOp::ExitDrain => "async_exit_drain",
         AsyncOp::SetTimeout => "async_set_timeout",
         AsyncOp::ClearTimeout => "async_clear_timeout",
         AsyncOp::SetInterval => "async_set_interval",
@@ -1028,6 +1332,7 @@ fn async_op_text(op: AsyncOp, args: &[ExprId]) -> String {
         AsyncOp::Resolve => "async_resolve",
         AsyncOp::Reject => "async_reject",
         AsyncOp::HttpGetText => "async_http_get_text",
+        AsyncOp::HttpFetch => "async_http_fetch",
     };
     let args_text = args
         .iter()
@@ -1078,5 +1383,19 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
             format!("new {class_name}({arg_text})")
         }
         _ => "invalid call".to_owned(),
+    }
+}
+
+/// The compact dump name of a `Blob`/`File` member.
+const fn blob_op_name(op: crate::expr::BlobOp) -> &'static str {
+    match op {
+        crate::expr::BlobOp::Size => "size",
+        crate::expr::BlobOp::Type => "type",
+        crate::expr::BlobOp::Name => "name",
+        crate::expr::BlobOp::LastModified => "last_modified",
+        crate::expr::BlobOp::Text => "text",
+        crate::expr::BlobOp::ArrayBuffer => "array_buffer",
+        crate::expr::BlobOp::Bytes => "bytes",
+        crate::expr::BlobOp::Slice => "slice",
     }
 }

@@ -799,41 +799,6 @@ return_ty,
         })))
     }
 
-    /// Lower Node `path.join(...)` and `path.resolve(...)` as string path builders.
-    pub(in crate::lowering) fn node_path_static_call(
-        &mut self,
-        call: &oxc::ast::ast::CallExpression<'_>,
-        body: &mut Body,
-    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let Expression::StaticMemberExpression(member) = &call.callee else {
-            return Ok(None);
-        };
-        let Expression::Identifier(object) = &member.object else {
-            return Ok(None);
-        };
-        if object.name != "path" || !self.imports.is_value("path") {
-            return Ok(None);
-        }
-        if !matches!(member.property.name.as_str(), "join" | "resolve") {
-            return Ok(None);
-        }
-        if call.arguments.is_empty() {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                format!("path.{} requires at least one argument", member.property.name),
-            ));
-        }
-        for argument in &call.arguments {
-            let _ = self.argument(argument, body)?;
-        }
-        let ty = self.ctx.krate.types.intern(Type::String);
-        Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::String(String::new())),
-            ty,
-            span: self.span(call.span.start, call.span.end),
-        })))
-    }
-
     /// Lower TypeScript `Object.fromEntries([[key, value], ...])` to a dictionary literal.
     pub(in crate::lowering) fn object_from_entries_call(
         &mut self,

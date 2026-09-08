@@ -73,11 +73,31 @@ fn statement_can_throw(
     locals: &[LocalDecl],
     types: &smelt_hir::TypeInterner,
 ) -> bool {
-    let Statement::Assign {
-        value: Rvalue::ClosureCall { callee, .. },
-        ..
-    } = statement
-    else {
+    let Statement::Assign { value, .. } = statement else {
+        return false;
+    };
+    // `EventEmitter.emit` calls every registered listener, and a listener that
+    // throws leaves through the emitting function exactly as a direct call
+    // would. Which listeners are registered is a run-time fact, so the
+    // conservative answer is the only sound one.
+    if matches!(
+        value,
+        Rvalue::EventEmitterOp {
+            op: smelt_hir::EventEmitterOp::Emit,
+            ..
+        }
+    ) {
+        return true;
+    }
+    // `Server.listen` runs the listening callback in the same turn, and
+    // `close`/`address` reach the same runtime that a bind error surfaces
+    // through — a port already in use is a thrown `Error` in Node, not a
+    // silent no-op. Every server operation is therefore throwing, on the same
+    // reasoning as `emit`: what the operation reaches is decided at run time.
+    if matches!(value, Rvalue::HttpServerOp { .. }) {
+        return true;
+    }
+    let Rvalue::ClosureCall { callee, .. } = value else {
         return false;
     };
     let Some(local) = operand_local(callee) else {

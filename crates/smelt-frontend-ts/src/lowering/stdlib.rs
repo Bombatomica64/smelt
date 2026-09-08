@@ -1,10 +1,14 @@
 //! Focused TypeScript standard-library lowering helpers.
 
+mod blob;
 mod buffer;
 pub(in crate::lowering) mod call_dispatch;
 mod collections;
+mod fetch_types;
+mod http_server;
 mod numbers_math;
 mod objects;
+mod text_codec;
 
 use oxc::ast::ast::{Argument, CallExpression, Expression, ObjectPropertyKind, PropertyKey};
 use oxc::span::GetSpan;
@@ -1241,10 +1245,24 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let value = self.argument(argument, body)?;
-        if !self.is_json_serializable_type(Self::expr_ty(body, value)) {
+        let value_ty = Self::expr_ty(body, value);
+        if !self.is_json_serializable_type(value_ty) {
+            // Name the offending type. Without it the diagnostic says only that
+            // SOMETHING in a possibly deep union/record is not serializable,
+            // which is the least actionable form of a true statement.
             return Err(SmeltError::unsupported(
                 self.span(argument.span().start, argument.span().end),
-                "JSON.stringify() value must be JSON-serializable",
+                format!(
+                    "JSON.stringify() value must be JSON-serializable (got {:?}{})",
+                    self.ctx.krate.types.get(value_ty),
+                    match self.ctx.krate.types.get(value_ty) {
+                        Some(Type::Class { name, .. }) => format!(
+                            ", class `{}`",
+                            self.ctx.krate.symbols.get(*name).unwrap_or("<unknown>")
+                        ),
+                        _ => String::new(),
+                    }
+                ),
             ));
         }
         let ty = self.ctx.krate.types.intern(Type::String);
@@ -1886,6 +1904,26 @@ impl ModuleBuilder<'_> {
                     && self.is_json_serializable_type_inner(value, seen)
             }
             Type::Class { name, args } => {
+                // A HOST OBJECT serializes as `{}`: none of its state is an own
+                // enumerable property, so JavaScript has nothing to write.
+                // `JSON.stringify(new Blob(['a']))`, `new FormData()`,
+                // `new URLSearchParams('a=1')`, `new Headers([..])` and
+                // `new Request(url)` are all `{}` in Node. Treating "Smelt does
+                // not know this class's fields" as "not serializable" rejected
+                // source that JavaScript accepts, and it is what made a
+                // `BodyInit` union unserializable as a whole.
+                if self
+                    .ctx
+                    .krate
+                    .names
+                    .get(name)
+                    .or_else(|| self.ctx.krate.symbols.get(name))
+                    .is_some_and(|class_name| {
+                        smelt_stdlib::host_object_marker(class_name).is_some()
+                    })
+                {
+                    return true;
+                }
                 self.json_class_fields(name, &args).is_some_and(|fields| {
                     if seen.contains(&name) {
                         return true;

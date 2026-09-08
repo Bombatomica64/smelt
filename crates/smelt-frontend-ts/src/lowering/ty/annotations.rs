@@ -744,7 +744,60 @@ return_ty: function.return_ty,
             return Ok(fields);
         }
 
+        // `Omit<T, K>`: the base's fields minus the named keys. A key set that
+        // is not statically known leaves the base untouched, which is the safe
+        // direction -- a field that should have been removed still resolves,
+        // where dropping the whole table makes every field vanish.
+        if name_text == "Omit" {
+            let [base, keys] = args.as_slice() else {
+                return Ok(Vec::new());
+            };
+            let mut fields = self.type_fields_from_ts(base)?;
+            if let Some(removed) = Self::static_pick_keys(keys) {
+                fields.retain(|field| {
+                    !self
+                        .ctx
+                        .krate
+                        .symbols
+                        .get(field.name)
+                        .is_some_and(|name| removed.iter().any(|key| key == name))
+                });
+            }
+            return Ok(fields);
+        }
+        // `Required<T>` / `Partial<T>` keep the base's fields and change only
+        // their optionality; `Readonly<T>` changes neither. All three are
+        // transparent to a field TABLE, which is what a construction site reads.
+        if matches!(name_text, "Required" | "Partial" | "Readonly") {
+            let [base] = args.as_slice() else {
+                return Ok(Vec::new());
+            };
+            let mut fields = self.type_fields_from_ts(base)?;
+            match name_text {
+                "Required" => {
+                    for field in &mut fields {
+                        field.optional = false;
+                    }
+                }
+                "Partial" => {
+                    for field in &mut fields {
+                        field.optional = true;
+                    }
+                }
+                _ => {}
+            }
+            return Ok(fields);
+        }
+
         let symbol = self.intern_type_name(name_text);
+        // An ambient fetch init is not in the crate, so neither lookup below
+        // can see it. Its fields are declared in the shared registry, and
+        // reading them here is what lets every utility above compose over one:
+        // `Required<Omit<RequestInit, ..>>` is `Omit`'s retain over this table,
+        // with `Required`'s optionality applied on top.
+        if let Some(fields) = self.ambient_fetch_init_fields(name_text) {
+            return Ok(fields);
+        }
         if let Some(interface) = self.find_interface(symbol).cloned() {
             let lowered_args = args
                 .iter()
@@ -1431,10 +1484,22 @@ return_ty: function.return_ty,
             TSTupleElement::TSNamedTupleMember(named) => {
                 self.tuple_element_type_to_hir(&named.element_type)
             }
-            _ => Err(SmeltError::unsupported(
-                self.span(item.span().start, item.span().end),
-                format!("tuple element type is not lowered yet: {item:?}"),
-            )),
+            // A tuple element that is not one of the tuple-only forms above
+            // (`TSOptionalType`, `TSRestType`, `TSNamedTupleMember`) IS an
+            // ordinary type: `TSTupleElement` inherits every `TSType` variant.
+            // The arms above are shortcuts, not the whole grammar, so anything
+            // they do not name is delegated to `ts_type_to_hir` rather than
+            // rejected. Before this, a tuple element written as an intersection
+            // (`[H<E2, P, I> & M1, H<E3, P, I2, R>]`) was refused even though
+            // `ts_type_to_hir` has lowered intersections for a long time — and
+            // so was every other `TSType` shape nobody had happened to add here.
+            element => match element.as_ts_type() {
+                Some(ts_type) => self.ts_type_to_hir(ts_type),
+                None => Err(SmeltError::unsupported(
+                    self.span(item.span().start, item.span().end),
+                    format!("tuple element type is not lowered yet: {item:?}"),
+                )),
+            },
         }
     }
 
@@ -1758,6 +1823,33 @@ return_ty: function.return_ty,
             .unwrap_or_default();
         match (name_text.as_str(), args.as_slice()) {
             ("RegExp", []) => Ok(self.regexp_type()),
+            // `BodyInit` is a UNION, not an opaque class. Leaving it opaque made
+            // `JSON.stringify(body)` report "value must be JSON-serializable
+            // (got Class `BodyInit`)" for a value that is a `string` on every
+            // path a program actually takes, and it hid the string arm from body
+            // construction. The arms are the spec's, in the spec's order; the
+            // ones Smelt does not model yet are their host classes, which is
+            // what makes them erase honestly rather than disappear.
+            ("BodyInit", []) => {
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                let none_ty = self.ctx.krate.types.intern(Type::None);
+                let mut members = vec![string_ty];
+                for arm in [
+                    "ArrayBuffer",
+                    "Blob",
+                    "FormData",
+                    "URLSearchParams",
+                    "ReadableStream",
+                ] {
+                    let name = self.intern_type_name(arm);
+                    members.push(self.ctx.krate.types.intern(Type::Class {
+                        name,
+                        args: Vec::new(),
+                    }));
+                }
+                members.push(none_ty);
+                Ok(self.ctx.krate.types.intern(Type::Union(members)))
+            }
             ("Capitalize" | "Uncapitalize" | "Uppercase" | "Lowercase", [_]) => {
                 Ok(self.ctx.krate.types.intern(Type::String))
             }
@@ -2737,6 +2829,117 @@ return_ty: function.return_ty,
         })
     }
 
+    /// The declared field table for an ambient fetch init interface.
+    ///
+    /// One table, read two ways: [`Self::fetch_init_field_type`] answers a
+    /// single key for a direct field read, and this answers the whole set so a
+    /// utility type (`Omit`, `Required`, ...) can compose over it. Keeping them
+    /// as one source is the point -- a second table would drift.
+    ///
+    /// Every key is optional, matching the interfaces themselves; `Required<..>`
+    /// is what flips that, and it does so through the shared utility path.
+    pub(in crate::lowering) fn ambient_fetch_init_fields(
+        &mut self,
+        name_text: &str,
+    ) -> Option<Vec<Field>> {
+        let bare = name_text.strip_prefix("globalThis.").unwrap_or(name_text);
+        let keys: &[&str] = match bare {
+            "ResponseInit" => &["status", "statusText", "headers"],
+            "RequestInit" => &["method", "headers", "body"],
+            _ => return None,
+        };
+        let class = self.intern_type_name(bare);
+        let mut fields = Vec::new();
+        for key in keys {
+            let field = self.intern_source_name(key);
+            // The registry answers with the key's OPTIONAL type; a field table
+            // carries the bare type plus an `optional` flag, so unwrap the one
+            // to build the other.
+            let Some(ty) = self.fetch_init_field_type(class, field) else {
+                continue;
+            };
+            let inner = match self.ctx.krate.types.get(ty) {
+                Some(&Type::Optional(inner)) => inner,
+                _ => ty,
+            };
+            fields.push(Field {
+                name: field,
+                ty: inner,
+                optional: true,
+                visibility: smelt_hir::Visibility::Public,
+                span: self.span(0, 0),
+            });
+        }
+        Some(fields)
+    }
+
+    /// Resolve a field on one of the ambient fetch **init** interfaces.
+    ///
+    /// `ResponseInit`, `RequestInit` and `HeadersInit` are declared in
+    /// lib.dom/undici, which Smelt does not import, so a value annotated with
+    /// one is an opaque class with no declared fields and `init.status`
+    /// resolved to `Unknown`. The field types are statically known all the
+    /// same, so they are declared here — the same reason `SmeltMatch`'s and
+    /// `URLSearchParams.size`'s entries exist in this function.
+    ///
+    /// Every key is **optional** (`status?: number`), so each resolves to an
+    /// `Optional<T>`; that is what makes the absent case fall back to the
+    /// spec's default at the construction site rather than to a wrong value.
+    ///
+    /// A key outside the modeled set resolves to `None` here, which leaves the
+    /// ordinary paths to reject the read — an unmodeled init key must not
+    /// silently read as an erased value.
+    fn fetch_init_field_type(
+        &mut self,
+        class: smelt_hir::Symbol,
+        field: smelt_hir::Symbol,
+    ) -> Option<smelt_hir::TypeId> {
+        let class_name = self
+            .ctx
+            .krate
+            .names
+            .get(class)
+            .or_else(|| self.ctx.krate.symbols.get(class))?
+            .to_owned();
+        // Source names are normalized to snake_case in the symbol table, with
+        // the original spelling kept in `names`, so both are accepted: a key
+        // written `statusText` interns as `status_text`, and which one arrives
+        // here depends on the table the caller's symbol came from.
+        let field_name = self
+            .ctx
+            .krate
+            .names
+            .get(field)
+            .or_else(|| self.ctx.krate.symbols.get(field))?
+            .to_owned();
+        // A site may qualify the ambient interface to escape a local one of the
+        // same name (`globalThis.ResponseInit` where the module declares its
+        // own `ResponseInit`). The qualified reference keeps its full path as a
+        // distinct type, which is what makes the two tell apart at all, so the
+        // registry recognizes both spellings of the ambient one.
+        let class_name = class_name
+            .strip_prefix("globalThis.")
+            .unwrap_or(&class_name)
+            .to_owned();
+        let inner = match (class_name.as_str(), field_name.as_str()) {
+            ("ResponseInit", "status") => self.ctx.krate.types.intern(Type::Float),
+            ("ResponseInit", "statusText" | "status_text") | ("RequestInit", "method") => {
+                self.ctx.krate.types.intern(Type::String)
+            }
+            // `body` is a `BodyInit`, whose modeled arm is a string; the other
+            // arms are types Smelt does not model yet, and the construction
+            // site names them rather than guessing.
+            ("RequestInit", "body") => self.ctx.krate.types.intern(Type::String),
+            // `headers` is a `HeadersInit`: a `Headers`, a record, or an array
+            // of pairs. The modeled init type is the concrete `Headers`, which
+            // is what the construction site's conversion accepts directly; the
+            // other spellings reach it as literals, which keep their own types.
+            ("ResponseInit" | "RequestInit", "headers") => self.headers_type(),
+            _ => return None,
+        };
+        Some(self.ctx.krate.types.intern(Type::Optional(inner)))
+    }
+
     /// Return declared fields for built-in classes that Smelt does not import from lib.d.ts.
     pub(in crate::lowering) fn builtin_class_field_type(
         &mut self,
@@ -2747,6 +2950,17 @@ return_ty: function.return_ty,
         // A `.groups` read yields the named-group accessor class; `.index`,
         // `.input`, and `.length` map to their primitive accessor types; and any
         // named-group read on the accessor class yields an optional string.
+        // `URLSearchParams.size` is the one data property the spec defines on a
+        // params value, and it is a number. Resolving it here keeps the HIR type
+        // honest instead of leaving the read `Unknown` for emission to recover.
+        if self.stdlib_class_of_symbol(class) == Some(smelt_stdlib::StdlibClass::UrlSearchParams)
+            && self.ctx.krate.symbols.get(field) == Some("size")
+        {
+            return Some(self.ctx.krate.types.intern(Type::Float));
+        }
+        if let Some(field_ty) = self.fetch_init_field_type(class, field) {
+            return Some(field_ty);
+        }
         match self.match_stdlib_class(class) {
             Some(smelt_stdlib::StdlibClass::Match) => {
                 let field_name = self.ctx.krate.symbols.get(field)?;
@@ -3286,6 +3500,20 @@ return_ty: function.return_ty,
     /// Both `__SmeltMatch` (the match value) and `__SmeltMatchGroups` (its
     /// named-group accessor) answer `true`; callers that need to distinguish the
     /// two inspect the resolved [`smelt_stdlib::StdlibClass`] directly.
+    /// Resolve a class symbol to its shared stdlib class identity, if any.
+    pub(in crate::lowering) fn stdlib_class_of_symbol(
+        &self,
+        name: smelt_hir::Symbol,
+    ) -> Option<smelt_stdlib::StdlibClass> {
+        let class_name = self
+            .ctx
+            .krate
+            .names
+            .get(name)
+            .or_else(|| self.ctx.krate.symbols.get(name))?;
+        smelt_stdlib::typescript_stdlib_class(class_name)
+    }
+
     pub(in crate::lowering) fn match_stdlib_class(
         &self,
         name: smelt_hir::Symbol,

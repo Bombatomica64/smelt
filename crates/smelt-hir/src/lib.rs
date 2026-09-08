@@ -67,10 +67,23 @@ pub use expr::{
     ClosureCapture, ClosureExpr, DatePart, DictProjectionOp, Expr, ExprKind, GeneratorResumeKind,
     ListCallbackOp,
     ListProjectionOp, ListSearchOp, ListSpliceItem, Literal, NumericExtremaOp, NumericPredicateOp,
-    NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp, PropertyLookup, RegexMatchOp, SetBinaryOp,
-    SetProjectionOp, SetRelationOp, SetRemoveOp, StringAffixOp, StringCaseOp, StringNormalizeForm,
+    NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp, PropertyLookup, RegexMatchOp,
+    RegexReplaceArg, SetBinaryOp,
+    HeadersOp, SetProjectionOp, SetRelationOp, SetRemoveOp, StringAffixOp, StringCaseOp,
+    EventEmitterOp,
+    HttpServerOp,
+    IncomingMessageOp,
+    ServerResponseOp,
+    RequestOp,
+    ResponseOp,
+    UrlSearchParamsOp,
+    TextEncoderOp,
+    TextDecoderOp,
+    ByteArrayOp,
+    BlobOp,
+    StringNormalizeForm,
     StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, UnaryOp,
-    UnknownKind, UrlField, bin_op_text,
+    UnknownKind, UriTranscodeOp, UrlField, bin_op_text,
 };
 pub use format::format_compact;
 pub use ids::{
@@ -79,7 +92,8 @@ pub use ids::{
 };
 pub use item::{
     Class, ClassKind, ClassProtocol, ConstItem, Descriptor, DescriptorValueField, Field, Function,
-    FunctionOwner, Interface, InterfaceHeritage, Item, MethodSig, MutableGlobalItem, Param,
+    FunctionOwner, Interface, InterfaceHeritage, Item, MethodSig, MutableGlobalInit,
+    MutableGlobalItem, Param,
     ParamSig, StaticField, TypeAlias, TypeParamDef, Visibility,
 };
 pub use krate::{

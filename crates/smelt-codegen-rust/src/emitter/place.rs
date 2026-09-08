@@ -35,6 +35,11 @@ impl FunctionEmitter<'_> {
     pub(super) fn place_text(&self, place: &Place) -> Result<String, EmitError> {
         match place {
             Place::Local(local) => self.local_value_text(*local),
+            // A read of a mutable global lowers to `ExprKind::GlobalGet`, not
+            // to a place, so `Place::Global` never appears in a read position.
+            Place::Global { .. } => Err(EmitError::new(
+                "internal: a mutable-global place was read as a value;                  reads lower to GlobalGet",
+            )),
             Place::Field { base, field } => {
                 let base_ty = self.local_decl(*base)?.ty;
                 if let Some(Type::Dict(key, value)) = self.mir.types.get(base_ty) {
@@ -207,10 +212,42 @@ impl FunctionEmitter<'_> {
                 {
                     return self.regexp_field_text(&self.local_value_text(*base)?, *field);
                 }
+                if self.is_url_search_params_class_type(base_ty)? {
+                    return self
+                        .url_search_params_field_text(&self.local_value_text(*base)?, *field);
+                }
                 if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
                     && let Some(kind) = self.match_class_kind(*name)?
                 {
                     return self.match_field_text(&self.local_value_text(*base)?, kind, *field);
+                }
+                // A REFERENCE class reached through an optional receiver keeps
+                // its handle: its fields live behind `Rc<RefCell<Inner>>`, so
+                // the read is `.0.borrow().field`, never a field of the handle
+                // itself. Checked before the structural-record arm below because
+                // a reference class is still record-shaped structurally — that
+                // arm emitted `_smelt_value.field` and the generated crate did
+                // not compile (E0609).
+                if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
+                    && self.is_reference_class_type(*inner)
+                    && self.class_has_named_field(*inner, *field)
+                    && let Some(field_ty) = self
+                        .structural_record_fields(*inner)
+                        .and_then(|fields| {
+                            fields
+                                .iter()
+                                .find(|candidate| candidate.name == *field)
+                                .map(|candidate| candidate.ty)
+                        })
+                {
+                    let base_text = self.local_value_text(*base)?;
+                    let field_name = sanitize_ident(self.symbol_name(*field)?);
+                    let read = format!("_smelt_value.0.borrow().{field_name}.clone()");
+                    return if matches!(self.mir.types.get(field_ty), Some(Type::Optional(_))) {
+                        Ok(format!("{base_text}.as_ref().and_then(|_smelt_value| {read})"))
+                    } else {
+                        Ok(format!("{base_text}.as_ref().map(|_smelt_value| {read})"))
+                    };
                 }
                 if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
                     && let Some(fields) = self.structural_record_fields(*inner)
@@ -284,6 +321,21 @@ impl FunctionEmitter<'_> {
                     return Ok(getter);
                 }
                 if self.storage_field_is_function(base_ty, *field) {
+                    // A function-typed field of a REFERENCE class lives inside
+                    // the shared cell like every other declared field, so it is
+                    // read through `.0.borrow()`. Without this the arm below
+                    // named a field the handle newtype does not have (E0609);
+                    // it is reached before the general reference-class field arm
+                    // further down, so the projection has to be repeated here.
+                    if self.is_reference_class_type(base_ty)
+                        && self.class_has_named_field(base_ty, *field)
+                    {
+                        return Ok(format!(
+                            "{}.0.borrow().{}.clone()",
+                            self.local_value_text(*base)?,
+                            sanitize_ident(self.symbol_name(*field)?)
+                        ));
+                    }
                     return Ok(format!(
                         "{}.{}.clone()",
                         self.local_value_text(*base)?,
@@ -654,10 +706,22 @@ impl FunctionEmitter<'_> {
             .iter()
             .find(|descriptor| descriptor.name == field)
         {
+            // An instance DATA property shadows a prototype accessor of the same
+            // name, which is why a matching field wins here. A `Visibility::
+            // Hidden` field is not an own property at all — a JavaScript `#name`
+            // private field lives in a separate private-name namespace, and a
+            // synthesized storage slot has no source name — so it cannot shadow
+            // anything. Counting it did: `#res` and `get res()/set res()` on the
+            // same class (Hono's `context.ts`) intern the same symbol, so the
+            // accessor pair was ignored and `ctx.res = r` wrote the private slot
+            // directly, skipping the setter's body.
             let instance_storage_shadows = !descriptor.data_descriptor
                 && crate::classes::effective_class_fields(self.mir, class)
                     .iter()
-                    .any(|candidate| candidate.name == field);
+                    .any(|candidate| {
+                        candidate.name == field
+                            && candidate.visibility != smelt_hir::Visibility::Hidden
+                    });
             if !instance_storage_shadows {
                 return Some((class, descriptor));
             }
@@ -714,6 +778,14 @@ impl FunctionEmitter<'_> {
     pub(super) fn assignment_place_text(&self, place: &Place) -> Result<String, EmitError> {
         match place {
             Place::Local(local) => self.local_mut_value_text(*local),
+            // A write through a mutable global is emitted as one whole
+            // statement (`global_place_assign_text`) because the cell borrow
+            // has to scope the mutation. There is no lvalue FRAGMENT that
+            // callers could compose, so this is an error rather than a
+            // best-effort spelling that would borrow twice.
+            Place::Global { .. } => Err(EmitError::new(
+                "write through a mutable global has no lvalue fragment;                  it is emitted as a whole statement",
+            )),
             Place::Index {
                 base,
                 index,
@@ -763,7 +835,34 @@ impl FunctionEmitter<'_> {
                 }
             }
             Place::Field { base, field } => {
-                let base_ty = self.local_decl(*base)?.ty;
+                let declared_ty = self.local_decl(*base)?.ty;
+                // A receiver whose type is still optional at the WRITE. `tsc`
+                // proved it present (the source either narrowed it or asserted
+                // it), so the lvalue unwraps in place: `as_mut()` keeps the
+                // write inside the value the binding holds, where a copy would
+                // silently drop it. Without this the lvalue fell through to the
+                // READ expression below (`base.as_ref().and_then(..)`), which is
+                // not an lvalue at all (E0070).
+                let (base_ty, base_read_text, base_write_text) =
+                    if let Some(Type::Optional(inner)) = self.mir.types.get(declared_ty) {
+                        (
+                            *inner,
+                            format!(
+                                "{}.as_ref().expect(\"optional value was absent after narrowing\")",
+                                self.local_value_text(*base)?
+                            ),
+                            format!(
+                                "{}.as_mut().expect(\"optional value was absent after narrowing\")",
+                                self.local_mut_value_text(*base)?
+                            ),
+                        )
+                    } else {
+                        (
+                            declared_ty,
+                            self.local_value_text(*base)?,
+                            self.local_mut_value_text(*base)?,
+                        )
+                    };
                 // A declared field of a reference class is written through a
                 // narrow `borrow_mut()`. The statement's right-hand side has
                 // already been reduced to an operand by MIR temping, so the
@@ -774,15 +873,13 @@ impl FunctionEmitter<'_> {
                     && self.class_has_named_field(base_ty, *field)
                 {
                     return Ok(format!(
-                        "{}.0.borrow_mut().{}",
-                        self.local_value_text(*base)?,
+                        "{base_read_text}.0.borrow_mut().{}",
                         sanitize_ident(self.symbol_name(*field)?)
                     ));
                 }
                 if self.structural_record_fields(base_ty).is_some() {
                     return Ok(format!(
-                        "{}.{}",
-                        self.local_mut_value_text(*base)?,
+                        "{base_write_text}.{}",
                         sanitize_ident(self.symbol_name(*field)?)
                     ));
                 }
