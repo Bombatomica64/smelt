@@ -1,0 +1,63 @@
+module examples/typescript/end-to-end/62_error_subclass_optional_message/input.ts (ModuleId(0))
+  body BodyId(2)
+  items
+    interface HTTPExceptionOptions fields [Public message?: Optional<String>] methods []
+    class HTTPException fields [Public name: String, Public message: String, Public stack: Optional<String>, Public cause: Unknown, Public status: Float] constructor Some(ItemId(1)) methods [] implements []
+    class GatewayError fields [] constructor Some(ItemId(3)) methods [] implements []
+  locals
+    %0 const described: HTTPException
+    %1 const bare: HTTPException
+    %2 const gateway: GatewayError
+  exprs
+    #0: Float = 404.0
+    #1: String = "message"
+    #2: String = "not found"
+    #3: Dict<String, String> = {#1: #2}
+    #4: HTTPException = new HTTPException(#0, #3)
+    #5: HTTPException = %0
+    #6: HTTPException = %0
+    #7: Float = #6.status
+    #8: HTTPException = %0
+    #9: String = #8.message
+    #10: HTTPException = %0
+    #11: String = #10.name
+    #12: None = @5(console_log)
+    #13: None = call #12(#7, #9, #11)
+    #14: Float = 500.0
+    #15: HTTPException = new HTTPException(#14)
+    #16: HTTPException = %1
+    #17: HTTPException = %1
+    #18: Float = #17.status
+    #19: HTTPException = %1
+    #20: String = #19.message
+    #21: String = json_stringify #20
+    #22: None = @6(console_log)
+    #23: None = call #22(#18, #21)
+    #24: GatewayError = new GatewayError()
+    #25: GatewayError = %2
+    #26: GatewayError = %2
+    #27: Float = #26.status
+    #28: GatewayError = %2
+    #29: String = #28.message
+    #30: String = json_stringify #29
+    #31: None = @7(console_log)
+    #32: None = call #31(#27, #30)
+  stmts
+    s0: let %0: HTTPException = #4
+    s1: #13
+    s2: let %1: HTTPException = #15
+    s3: #23
+    s4: let %2: GatewayError = #24
+    s5: #32
+
+interned types
+  t0 = Float
+  t1 = String
+  t2 = Dict<String, String>
+  t3 = HTTPException
+  t4 = GatewayError
+  t5 = Optional<String>
+  t6 = HTTPExceptionOptions
+  t7 = Optional<HTTPExceptionOptions>
+  t8 = Unknown
+  t9 = None

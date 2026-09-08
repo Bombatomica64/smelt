@@ -356,6 +356,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "59_ambient_response_init",
     "60_response_body_handle",
     "61_generic_init_union_arm",
+    "62_error_subclass_optional_message",
 ];
 
 #[test]
