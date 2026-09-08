@@ -69,9 +69,10 @@ impl Rvalue {
                 method,
                 headers,
                 body,
+                signal,
             } => {
                 visit(input);
-                for operand in [method, headers, body].into_iter().flatten() {
+                for operand in [method, headers, body, signal].into_iter().flatten() {
                     visit(operand);
                 }
             }
@@ -127,7 +128,7 @@ impl Rvalue {
                     visit(arg);
                 }
             }
-            Self::CryptoOp { args, .. } => {
+            Self::AbortSignalOp { args, .. } | Self::CryptoOp { args, .. } => {
                 for arg in args {
                     visit(arg);
                 }
@@ -989,9 +990,10 @@ impl Rvalue {
                 method,
                 headers,
                 body,
+                signal,
             } => {
                 visit(input);
-                for operand in [method, headers, body].into_iter().flatten() {
+                for operand in [method, headers, body, signal].into_iter().flatten() {
                     visit(operand);
                 }
             }
@@ -1047,7 +1049,7 @@ impl Rvalue {
                     visit(arg);
                 }
             }
-            Self::CryptoOp { args, .. } => {
+            Self::AbortSignalOp { args, .. } | Self::CryptoOp { args, .. } => {
                 for arg in args.iter_mut() {
                     visit(arg);
                 }

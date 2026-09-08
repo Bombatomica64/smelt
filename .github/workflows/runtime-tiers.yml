@@ -73,6 +73,7 @@ jobs:
           - shard: async
             tests: >-
               promise_value_fidelity_runtime abort_signal_runtime
+              abort_reason_runtime
               timer_runtime loop_await_runtime generator_runtime
               truthiness_and_await_runtime
           - shard: functions

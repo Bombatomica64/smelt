@@ -110,6 +110,7 @@ mod core;
 mod dict_entry_update;
 mod blob;
 mod fetch_types;
+mod abort_signal;
 mod crypto;
 mod form_data;
 mod text_codec;

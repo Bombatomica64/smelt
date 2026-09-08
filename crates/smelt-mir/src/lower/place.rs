@@ -380,6 +380,7 @@ impl LoweringCtx<'_> {
             | ExprKind::UrlSearchParamsOp { .. }
             | ExprKind::FormDataOp { .. }
             | ExprKind::CryptoOp { .. }
+            | ExprKind::AbortSignalOp { .. }
             | ExprKind::HeadersNew { .. }
             | ExprKind::HeadersOp { .. }
             | ExprKind::RegexExec { .. }

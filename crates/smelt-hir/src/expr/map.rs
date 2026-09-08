@@ -450,6 +450,7 @@ impl ExprKind {
                 method,
                 headers,
                 body,
+                signal,
             } => Self::RequestNew {
                 input: f(input)?,
                 method: match method {
@@ -462,6 +463,10 @@ impl ExprKind {
                 },
                 body: match body {
                     Some(body) => Some(f(body)?),
+                    None => None,
+                },
+                signal: match signal {
+                    Some(signal) => Some(f(signal)?),
                     None => None,
                 },
             },
@@ -548,6 +553,13 @@ impl ExprKind {
                 bytes: f(bytes)?,
             },
             Self::FormDataNew => Self::FormDataNew,
+            Self::AbortSignalOp { op, args } => {
+                let mut mapped = Vec::with_capacity(args.len());
+                for arg in args {
+                    mapped.push(f(arg)?);
+                }
+                Self::AbortSignalOp { op, args: mapped }
+            }
             Self::CryptoOp { op, args } => {
                 let mut mapped = Vec::with_capacity(args.len());
                 for arg in args {

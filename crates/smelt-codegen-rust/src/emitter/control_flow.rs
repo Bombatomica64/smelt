@@ -1255,8 +1255,17 @@ impl FunctionEmitter<'_> {
                 }
             }
             self.mark_local_declared(dest);
+            let __smelt_arm_declared = self.declared_locals_snapshot();
             self.emit_continuation(target, continuation, out)?;
             out.push_str("        }\n");
+            // Each arm of the emitted `match` re-emits the SAME continuation,
+            // and each is its own Rust lexical scope. Restoring the declaration
+            // set before the next arm is what makes it declare its own copy of
+            // a join temporary instead of assigning to the name the first arm
+            // declared -- the E0425 in
+            // `blocker-logs/top-level-try-await-tail.md`. The same
+            // snapshot-per-arm rule the closure emitter already follows.
+            self.restore_declared_locals(__smelt_arm_declared.clone());
             out.push_str("        Err(__smelt_panic) => {\n");
             out.push_str(&format!(
                 "            let __smelt_error = {};\n",
@@ -1284,6 +1293,7 @@ impl FunctionEmitter<'_> {
                 self.mark_local_declared(exception_local);
             }
             self.emit_continuation(handler.catch_block, continuation, out)?;
+            self.restore_declared_locals(__smelt_arm_declared);
             out.push_str("        }\n");
             out.push_str("    }\n");
             return Ok(());
@@ -1321,8 +1331,13 @@ impl FunctionEmitter<'_> {
             ));
         }
         self.mark_local_declared(dest);
+        // Each of the three arms re-emits the SAME continuation into its own
+        // Rust lexical scope, so each needs its own declaration set — see the
+        // note on the two-arm site above.
+        let __smelt_arm_declared = self.declared_locals_snapshot();
         self.emit_continuation(target, continuation, out)?;
         out.push_str("        }\n");
+        self.restore_declared_locals(__smelt_arm_declared.clone());
         out.push_str("        Ok(Err(__smelt_error)) => {\n");
         if let Some(exception_local) = handler.exception_local {
             let exception_name = self.local_name(exception_local)?;
@@ -1337,6 +1352,7 @@ impl FunctionEmitter<'_> {
         }
         self.emit_continuation(handler.catch_block, continuation, out)?;
         out.push_str("        }\n");
+        self.restore_declared_locals(__smelt_arm_declared.clone());
         out.push_str("        Err(__smelt_panic) => {\n");
         out.push_str(&format!(
                 "            let __smelt_error = {};\n",
@@ -1360,6 +1376,7 @@ impl FunctionEmitter<'_> {
             self.mark_local_declared(exception_local);
         }
         self.emit_continuation(handler.catch_block, continuation, out)?;
+        self.restore_declared_locals(__smelt_arm_declared);
         out.push_str("        }\n");
         out.push_str("    }\n");
         Ok(())
@@ -1410,8 +1427,16 @@ impl FunctionEmitter<'_> {
             ));
         }
         self.mark_local_declared(dest);
+        let __smelt_arm_declared = self.declared_locals_snapshot();
         self.emit_continuation(target, continuation, out)?;
         out.push_str("        }\n");
+        // Each arm of the emitted `match` re-emits the SAME continuation, and
+        // each is its own Rust lexical scope. Restoring the declaration set
+        // before the next arm is what makes it declare its own copy of a join
+        // temporary instead of assigning to the name the first arm declared --
+        // the E0425 in `blocker-logs/top-level-try-await-tail.md`. The same
+        // snapshot-per-arm rule the closure emitter already follows.
+        self.restore_declared_locals(__smelt_arm_declared.clone());
         out.push_str("        Err(__smelt_error) => {\n");
         // A rejected future carries the same error channel as a throwing call, so
         // an erased catch binding recovers the rejection's payload here too
@@ -1426,6 +1451,7 @@ impl FunctionEmitter<'_> {
             self.mark_local_declared(exception_local);
         }
         self.emit_continuation(handler.catch_block, continuation, out)?;
+        self.restore_declared_locals(__smelt_arm_declared);
         out.push_str("        }\n");
         out.push_str("    }\n");
         Ok(())

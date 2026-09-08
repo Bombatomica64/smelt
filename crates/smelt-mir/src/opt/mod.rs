@@ -552,9 +552,10 @@ fn rewrite_rvalue(
             method,
             headers,
             body,
+            signal,
         } => {
             let mut rewritten = rewrite_operand_except(input, aliases, dest);
-            for operand in [method, headers, body] {
+            for operand in [method, headers, body, signal] {
                 if let Some(operand) = operand.as_mut() {
                     rewritten |= rewrite_operand_except(operand, aliases, dest);
                 }
@@ -616,7 +617,7 @@ fn rewrite_rvalue(
         // which local the place names, it does not copy the value -- but a
         // future pass that treats an rvalue's operands as read-only must not
         // include this one.
-        Rvalue::CryptoOp { args, .. } => {
+        Rvalue::AbortSignalOp { args, .. } | Rvalue::CryptoOp { args, .. } => {
             let mut rewritten = false;
             for arg in args {
                 rewritten |= rewrite_operand_except(arg, aliases, dest);

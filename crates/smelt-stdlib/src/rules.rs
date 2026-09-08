@@ -184,6 +184,14 @@ pub enum RuleId {
     /// TypeScript `FormData` projection (`keys`, `values`, `entries`,
     /// `forEach`).
     TsFormDataProjection,
+    /// TypeScript `AbortSignal.abort(reason?)`.
+    TsAbortSignalAbort,
+    /// TypeScript `AbortSignal.timeout(ms)`.
+    ///
+    /// Its own rule rather than a shared `AbortSignal` static: `timeout` is the
+    /// one that needs the async runtime — it schedules the abort on the timer
+    /// queue — where `abort` answers an already-settled signal synchronously.
+    TsAbortSignalTimeout,
     /// TypeScript `crypto.randomUUID()`.
     TsCryptoRandomUuid,
     /// TypeScript `crypto.getRandomValues(view)`.
@@ -363,7 +371,12 @@ impl RuleId {
             // (`https://a.test` reads back as `https://a.test/`), which is
             // `url::Url`'s own serialization rather than the input string.
             | Self::TsRequestRead => Some(BackendDependency::Url),
-            Self::TsStructuredClone
+            // The two `AbortSignal` statics need no crate: the signal record and
+            // its timer both come from the generated runtime, and `timeout`'s
+            // timer is the one the crate already carries for `setTimeout`.
+            Self::TsAbortSignalAbort
+            | Self::TsAbortSignalTimeout
+            | Self::TsStructuredClone
             | Self::TsObjectBox
             | Self::TsPromiseStatic
             | Self::TsPrimitiveCast
@@ -478,6 +491,8 @@ impl RuleId {
             Self::TsFormDataRead => "FormData read method",
             Self::TsFormDataMutation => "FormData mutation method",
             Self::TsFormDataProjection => "FormData projection method",
+            Self::TsAbortSignalAbort => "AbortSignal.abort",
+            Self::TsAbortSignalTimeout => "AbortSignal.timeout",
             Self::TsCryptoRandomUuid => "crypto.randomUUID",
             Self::TsCryptoGetRandomValues => "crypto.getRandomValues",
             Self::TsCryptoDigest => "crypto.subtle.digest",

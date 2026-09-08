@@ -1182,6 +1182,7 @@ impl LoweringCtx<'_> {
                 method,
                 headers,
                 body,
+                signal,
             } => {
                 let input_operand = self.lower_expr(*input)?;
                 let mut lower_optional = |expr: &Option<smelt_hir::ExprId>| {
@@ -1191,6 +1192,7 @@ impl LoweringCtx<'_> {
                 let method_operand = lower_optional(method)?;
                 let headers_operand = lower_optional(headers)?;
                 let body_operand = lower_optional(body)?;
+                let signal_operand = lower_optional(signal)?;
                 self.assign_temp(
                     expr.ty,
                     expr.span,
@@ -1199,6 +1201,7 @@ impl LoweringCtx<'_> {
                         method: method_operand,
                         headers: headers_operand,
                         body: body_operand,
+                        signal: signal_operand,
                     },
                 )?
             }
@@ -1315,6 +1318,20 @@ impl LoweringCtx<'_> {
                     Rvalue::ByteArrayOp {
                         op: *op,
                         bytes: bytes_operand,
+                    },
+                )?
+            }
+            ExprKind::AbortSignalOp { op, args } => {
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::AbortSignalOp {
+                        op: *op,
+                        args: arg_operands,
                     },
                 )?
             }

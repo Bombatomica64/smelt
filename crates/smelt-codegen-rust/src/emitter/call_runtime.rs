@@ -1021,6 +1021,9 @@ impl FunctionEmitter<'_> {
                 method,
                 args,
             } => self.union_method_text(receiver, *method, args, dest_ty),
+            Rvalue::AbortSignalOp { op, args } => {
+                self.abort_signal_op_text(*op, args, dest_ty)
+            }
             Rvalue::CryptoOp { op, args } => self.crypto_op_text(*op, args, dest_ty),
             Rvalue::FormDataNew => Ok("SmeltFormData::new()".to_owned()),
             Rvalue::FormDataOp { op, form, args } => {
@@ -1060,7 +1063,14 @@ impl FunctionEmitter<'_> {
                 method,
                 headers,
                 body,
-            } => self.request_new_text(input, method.as_ref(), headers.as_ref(), body.as_ref()),
+                signal,
+            } => self.request_new_text(
+                input,
+                method.as_ref(),
+                headers.as_ref(),
+                body.as_ref(),
+                signal.as_ref(),
+            ),
             Rvalue::RequestOp { op, request, args } => {
                 self.request_op_text(*op, request, args)
             }

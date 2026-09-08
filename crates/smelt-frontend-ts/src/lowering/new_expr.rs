@@ -1787,6 +1787,17 @@ impl ModuleBuilder<'_> {
         let controller_marker_value = bool_literal(body, true);
 
         // The shared signal record: marker, mutable `aborted` flag, listeners.
+        //
+        // `reason` and `__smelt_abort_follows` are deliberately NOT here, even
+        // though the runtime helpers use both. An un-aborted signal's reason is
+        // `undefined`, which is exactly what a read of an absent key answers,
+        // and both helpers already treat an absent follow list as empty — so
+        // storing either slot up front would only add an erased entry to every
+        // controller a program builds. The es-toolkit corpus makes 32 of them;
+        // storing the two slots eagerly cost 64 avoidable-erasure occurrences
+        // for no observable difference. `smelt_abort_signal_fire` inserts the
+        // reason when there IS one, and `smelt_abort_signal_follow` creates the
+        // list when something actually follows.
         let listeners_value = body.push_expr(Expr {
             kind: ExprKind::ListLit(Vec::new()),
             ty: list_ty,

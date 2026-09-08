@@ -546,6 +546,7 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             method,
             headers,
             body,
+            signal,
         } => {
             let mut parts = vec![format!("input={}", expr_ref(*input))];
             if let Some(method) = method {
@@ -556,6 +557,9 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             }
             if let Some(body) = body {
                 parts.push(format!("body={}", expr_ref(*body)));
+            }
+            if let Some(signal) = signal {
+                parts.push(format!("signal={}", expr_ref(*signal)));
             }
             format!("request_new {}", parts.join(" "))
         }
@@ -647,6 +651,22 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             format!("byte_array_{op_name} {}", expr_ref(*bytes))
         }
         ExprKind::FormDataNew => "form_data_new".to_owned(),
+        ExprKind::AbortSignalOp { op, args } => {
+            let op_name = match op {
+                crate::expr::AbortSignalOp::Abort => "abort",
+                crate::expr::AbortSignalOp::Timeout => "timeout",
+            };
+            let args_text = args
+                .iter()
+                .map(|arg| expr_ref(*arg))
+                .collect::<Vec<_>>()
+                .join(", ");
+            if args_text.is_empty() {
+                format!("abort_signal_{op_name}")
+            } else {
+                format!("abort_signal_{op_name} {args_text}")
+            }
+        }
         ExprKind::CryptoOp { op, args } => {
             let op_name = crypto_op_name(*op);
             let args_text = args
@@ -1324,6 +1344,7 @@ const fn request_op_name(op: crate::expr::RequestOp) -> &'static str {
         crate::expr::RequestOp::Text => "text",
         crate::expr::RequestOp::FormData => "form_data",
         crate::expr::RequestOp::Clone => "clone",
+        crate::expr::RequestOp::Signal => "signal",
     }
 }
 

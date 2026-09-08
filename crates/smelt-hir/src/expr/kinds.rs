@@ -11,6 +11,7 @@ use super::{
     RequestOp as RequestOpKind, ResponseOp as ResponseOpKind,
     UnknownKind, UriTranscodeOp,
     UrlField,
+    AbortSignalOp as AbortSignalOpKind,
     CryptoOp as CryptoOpKind,
     FormDataOp as FormDataOpKind,
     UrlSearchParamsOp as UrlSearchParamsOpKind,
@@ -505,6 +506,16 @@ pub enum ExprKind {
         /// Operation arguments (name, or name and value).
         args: Vec<ExprId>,
     },
+    /// An `AbortSignal` static call (`AbortSignal.abort(reason?)`,
+    /// `AbortSignal.timeout(ms)`).
+    ///
+    /// No receiver operand: see [`AbortSignalOpKind`].
+    AbortSignalOp {
+        /// Which static this call performs.
+        op: AbortSignalOpKind,
+        /// Operation arguments, in source order.
+        args: Vec<ExprId>,
+    },
     /// A `WebCrypto` call (`crypto.randomUUID()`, `crypto.getRandomValues(view)`,
     /// `crypto.subtle.digest(algorithm, data)`).
     ///
@@ -618,6 +629,13 @@ pub enum ExprKind {
         headers: Option<ExprId>,
         /// `init.body`, when the init literal set it.
         body: Option<ExprId>,
+        /// `init.signal`, when the init literal set it.
+        ///
+        /// The request's own signal is not this value: the spec makes it a
+        /// DEPENDENT signal that follows this one, so `request.signal` is a
+        /// distinct object that aborts when this one does. See
+        /// `blocker-logs/abort-signal-reason-and-statics.md`.
+        signal: Option<ExprId>,
     },
     /// A `Request` member operation on a concrete `Request` receiver.
     RequestOp {

@@ -3976,6 +3976,9 @@ impl<'builder> ModuleBuilder<'builder> {
             RuleId::TsCryptoRandomUuid
             | RuleId::TsCryptoGetRandomValues
             | RuleId::TsCryptoDigest => self.crypto_call(rule, call, body),
+            RuleId::TsAbortSignalAbort | RuleId::TsAbortSignalTimeout => {
+                self.abort_signal_static_call(rule, call, body)
+            }
             _ => Ok(None),
         }
     }

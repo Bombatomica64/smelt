@@ -291,6 +291,7 @@ impl FunctionEmitter<'_> {
         method: Option<&Operand>,
         headers: Option<&Operand>,
         body: Option<&Operand>,
+        signal: Option<&Operand>,
     ) -> Result<String, EmitError> {
         let input_ty = self.operand_ty(input)?;
         if !matches!(self.mir.types.get(input_ty), Some(Type::String)) {
@@ -302,8 +303,18 @@ impl FunctionEmitter<'_> {
         let method_expr = self.init_scalar_text(method, "\"GET\".to_owned()")?;
         let headers_expr = self.init_headers_text(headers)?;
         let body_expr = self.init_body_text(body)?;
-        Ok(format!(
+        let request_text = format!(
             "SmeltRequest::from_parts(&{input_text}, {method_expr}, {headers_expr}, {body_expr})"
+        );
+        // `init.signal` does not become the request's signal: the spec makes
+        // the request's a DEPENDENT signal that follows the given one, which is
+        // why this registers a follow rather than storing the operand.
+        let Some(signal) = signal else {
+            return Ok(request_text);
+        };
+        Ok(format!(
+            "{{ let smelt_request = {request_text}; smelt_request_follow_signal(smelt_request.id(), {}); smelt_request }}",
+            self.erase(signal)?
         ))
     }
 
@@ -324,6 +335,7 @@ impl FunctionEmitter<'_> {
             smelt_hir::RequestOp::Headers => format!("{receiver}.headers()"),
             smelt_hir::RequestOp::BodyUsed => format!("{receiver}.body_used()"),
             smelt_hir::RequestOp::Clone => format!("{receiver}.tee()"),
+            smelt_hir::RequestOp::Signal => format!("smelt_request_signal({receiver}.id())"),
             // Same handle-clone-into-the-block shape as `Response::text`; see
             // the comment there for why the receiver is not moved.
             smelt_hir::RequestOp::Text => format!(

@@ -1344,6 +1344,11 @@ pub enum Rvalue {
         headers: Option<Operand>,
         /// `init.body`, when the init literal set it.
         body: Option<Operand>,
+        /// `init.signal`, when the init literal set it.
+        ///
+        /// The request's own signal FOLLOWS this one rather than being it (see
+        /// `smelt_hir::ExprKind::RequestNew`).
+        signal: Option<Operand>,
     },
     /// A `Request` member operation on a concrete `Request` receiver.
     RequestOp {
@@ -1409,6 +1414,16 @@ pub enum Rvalue {
         op: smelt_hir::ByteArrayOp,
         /// Byte-view receiver.
         bytes: Operand,
+    },
+    /// Apply an `AbortSignal` static.
+    ///
+    /// No receiver operand: the two statics BUILD a signal (see
+    /// `smelt_hir::AbortSignalOp`).
+    AbortSignalOp {
+        /// Which static to apply.
+        op: smelt_hir::AbortSignalOp,
+        /// Operation arguments, in source order.
+        args: Vec<Operand>,
     },
     /// Apply a `WebCrypto` operation.
     ///
