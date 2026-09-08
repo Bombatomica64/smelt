@@ -5145,11 +5145,26 @@ impl<'builder> ModuleBuilder<'builder> {
             ));
         }
 
+        // Carry the callee's parameter type into each argument, the way the
+        // named-function and `new`-expression paths already do
+        // (`new_expr.rs`'s `params.get(index)`, and the IIFE path above). This
+        // loop lowered its arguments with NO hint, so an object literal written
+        // inline against a closure parameter -- `showRequired({ status: 8 })`
+        // where `showRequired` is a const-bound arrow taking `Opts` -- was
+        // built as a bare record of erased values and only then converted to
+        // the struct, erasing every value on the way in. The parameter type is
+        // right here in `function.params`; a hand-written Rust port would
+        // construct `Opts { .. }` directly, so the hint has to reach the
+        // literal.
         let mut args = call
             .arguments
             .iter()
             .take(fixed_param_count)
-            .map(|arg| self.argument(arg, body))
+            .enumerate()
+            .map(|(index, arg)| {
+                let hint = function.params.get(index).copied();
+                self.argument_with_hint(arg, body, hint)
+            })
             .collect::<Result<Vec<_>, _>>()?;
         for index in supplied_arg_count..fixed_param_count {
             let Some(default) = defaults.get(index).and_then(|default| default.as_ref()) else {

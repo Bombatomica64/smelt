@@ -1,0 +1,6 @@
+fn 8 fn
+optional 7 opt
+required 9 req
+required 0 partial
+optional 0 -
+3
