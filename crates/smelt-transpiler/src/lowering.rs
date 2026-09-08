@@ -123,6 +123,14 @@ struct FrontendLoweringState {
     /// in a spec file activates the dynamic override machinery in the predicate
     /// module even though that module lowers first.
     ts_written_host_globals: std::collections::HashSet<String>,
+    /// Project source files the dependency closure did not reach.
+    ///
+    /// The manifest's source roots minus its excludes, minus the crate's own
+    /// sources: files this project owns that are not in the crate. Seeded once
+    /// before lowering so a type reference can say "that module is yours but
+    /// the crate does not have it" instead of erasing to a nominal class; see
+    /// `HirCtx::project_sources_outside_crate`.
+    ts_project_sources_outside_crate: std::collections::HashSet<String>,
     /// Python module/package namespaces visible through `import package`.
     py_module_namespaces: HashMap<String, HashMap<String, smelt_hir::ItemId>>,
     /// Python `IntEnum` member values visible to later manifest entries.
@@ -502,8 +510,12 @@ pub(crate) fn lower_manifest_entries(
     let specialization = timing::measure("manifest.specialize", || {
         crate::specialization::prepare(config, manifest_path, &ordered_sources)
     })?;
+    // Which of this project's own sources the crate does NOT have. Computed
+    // here because it needs both halves: the manifest's declared source roots
+    // (minus excludes) and the dependency closure that was actually lowered.
+    let outside_crate = sources_outside_crate(config, manifest_dir, &ordered_sources);
     timing::measure("manifest.frontend_lower", || {
-        lower_ordered_manifest_sources(&ordered_sources, &specialization)
+        lower_ordered_manifest_sources(&ordered_sources, &specialization, outside_crate)
     })
 }
 
@@ -674,6 +686,38 @@ fn seed_written_host_globals(sources: &[&ManifestSource], state: &mut FrontendLo
     }
 }
 
+/// Canonical paths of project sources the dependency closure did not reach.
+///
+/// The manifest's source roots (with `[sources] exclude` already applied by
+/// [`discover_source_files`]) minus the sources being lowered. A module in this
+/// set is one this project owns and the crate does not have, which is the one
+/// case where a type reference to a name imported from it can say so instead of
+/// erasing to a nominal class (`HirCtx::project_sources_outside_crate`).
+///
+/// Paths are canonicalized so they match the module keys the frontend builds
+/// for an import specifier (`resolved_module_export_keys`). A path that cannot
+/// be canonicalized is skipped rather than compared in a second spelling: a key
+/// that never matches would only make the check silently inert.
+fn sources_outside_crate(
+    config: &crate::config::Config,
+    manifest_dir: &Path,
+    lowered: &[&ManifestSource],
+) -> std::collections::HashSet<String> {
+    let Ok(project_sources) = discover_source_files(config, manifest_dir) else {
+        return std::collections::HashSet::new();
+    };
+    let in_crate = lowered
+        .iter()
+        .filter_map(|source| fs::canonicalize(&source.path).ok())
+        .collect::<std::collections::HashSet<_>>();
+    project_sources
+        .into_iter()
+        .filter_map(|path| fs::canonicalize(path).ok())
+        .filter(|path| !in_crate.contains(path))
+        .map(|path| path.display().to_string())
+        .collect()
+}
+
 /// Predeclare type aliases and class method surfaces across the TypeScript manifest.
 ///
 /// This gives strongly connected import components the same declaration
@@ -706,6 +750,7 @@ fn predeclare_manifest_type_declarations(
         callable_fields: state.ts_callable_fields,
         callable_object_aliases: state.ts_callable_object_aliases,
         written_host_globals: state.ts_written_host_globals,
+        project_sources_outside_crate: state.ts_project_sources_outside_crate,
     };
     for (idx, source) in sources.iter().enumerate() {
         let path = source.path.display().to_string();
@@ -745,6 +790,7 @@ fn predeclare_manifest_type_declarations(
     state.ts_callable_fields = ctx.callable_fields;
     state.ts_callable_object_aliases = ctx.callable_object_aliases;
     state.ts_written_host_globals = ctx.written_host_globals;
+    state.ts_project_sources_outside_crate = ctx.project_sources_outside_crate;
     Ok((krate, state))
 }
 
@@ -753,9 +799,13 @@ fn predeclare_manifest_type_declarations(
 fn lower_ordered_manifest_sources(
     sources: &[&ManifestSource],
     specialization: &crate::specialization::PreparedSpecialization,
+    outside_crate: std::collections::HashSet<String>,
 ) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
     let mut krate = smelt_hir::Crate::new();
-    let mut state = FrontendLoweringState::default();
+    let mut state = FrontendLoweringState {
+        ts_project_sources_outside_crate: outside_crate,
+        ..FrontendLoweringState::default()
+    };
     seed_written_host_globals(sources, &mut state);
     (krate, state) = predeclare_manifest_type_declarations(krate, state, sources)?;
     let mut modules = Vec::new();
@@ -895,6 +945,7 @@ fn lower_manifest_source(
                 callable_fields: state.ts_callable_fields,
                 callable_object_aliases: state.ts_callable_object_aliases,
                 written_host_globals: state.ts_written_host_globals,
+                project_sources_outside_crate: state.ts_project_sources_outside_crate,
             };
             let outcome = smelt_frontend_ts::to_hir_with_options(
                 &source.source,
@@ -935,6 +986,7 @@ fn lower_manifest_source(
                 ts_callable_fields: ctx.callable_fields,
                 ts_callable_object_aliases: ctx.callable_object_aliases,
                 ts_written_host_globals: ctx.written_host_globals,
+                ts_project_sources_outside_crate: ctx.project_sources_outside_crate,
                 py_module_namespaces: state.py_module_namespaces,
                 py_enum_members: state.py_enum_members,
             };
@@ -972,6 +1024,7 @@ fn lower_manifest_source(
                 ts_callable_fields: state.ts_callable_fields,
                 ts_callable_object_aliases: state.ts_callable_object_aliases,
                 ts_written_host_globals: state.ts_written_host_globals,
+                ts_project_sources_outside_crate: state.ts_project_sources_outside_crate,
                 py_module_namespaces,
                 py_enum_members,
             };

@@ -2980,6 +2980,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     self.imports.mark_global_object_alias(local.clone());
                 }
             }
+            self.imports
+                .record_import_source(local.clone(), source.to_owned());
             let name = self.intern_source_name(&imported);
             let alias = (local != imported).then(|| self.intern_source_name(&local));
             module.imports.push(Import {

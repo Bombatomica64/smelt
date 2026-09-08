@@ -45,6 +45,15 @@ pub(in crate::lowering) struct ImportScope {
     /// fail); reading it as a value is the blocker, which is why the message is
     /// stored here instead of being raised at the import statement.
     unresolved_value_imports: HashMap<String, String>,
+    /// The module specifier each imported local name came from.
+    ///
+    /// Recorded for every named/namespace import, value or type-only, because
+    /// the question it answers is about the NAME's provenance rather than about
+    /// how the name is used: "which module was this supposed to come from?" A
+    /// type reference that resolves to no declaration needs it to say so
+    /// usefully — naming the module is the difference between "unknown type" and
+    /// "that module is not in the crate".
+    import_sources: HashMap<String, String>,
     /// Local names statically known to alias the ambient global object.
     ///
     /// Populated for `const g = globalThis;` style bindings so that global-path
@@ -55,6 +64,16 @@ pub(in crate::lowering) struct ImportScope {
 }
 
 impl ImportScope {
+    /// Record which module specifier an imported local name came from.
+    pub(in crate::lowering) fn record_import_source(&mut self, local: String, source: String) {
+        self.import_sources.insert(local, source);
+    }
+
+    /// Return the module specifier an imported local name came from.
+    pub(in crate::lowering) fn import_source(&self, name: &str) -> Option<&str> {
+        self.import_sources.get(name).map(String::as_str)
+    }
+
     /// Record a local name imported as a runtime value.
     pub(in crate::lowering) fn mark_value(&mut self, local: String) {
         self.values.insert(local);

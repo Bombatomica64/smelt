@@ -190,6 +190,29 @@ pub struct HirCtx {
     /// absent from this set keeps byte-identical presence folding and native
     /// construction (pay-for-use).
     pub written_host_globals: HashSet<String>,
+    /// Project source files that are NOT part of the crate being lowered.
+    ///
+    /// Canonical paths of files the manifest's source roots contain (excludes
+    /// already removed) that the dependency closure did not reach. Seeded once,
+    /// crate-wide, before any module lowers, so the fact is independent of
+    /// lowering order.
+    ///
+    /// It exists to answer one question at a type reference: "is this name
+    /// imported from a module that this project owns but the crate does not
+    /// have?" A reference like that has no declaration to resolve against, and
+    /// the nominal `Type::Class` stand-in it used to get is the worst possible
+    /// answer — a nominal class erases, an erased union member makes the whole
+    /// union non-concrete, and the union reaches the emitter as `SmeltUnknown`
+    /// far from the reference with nothing naming the alias. Hono's five-arm
+    /// `ResponseHeadersInit` erased exactly that way for weeks. Naming it at
+    /// the reference is the difference between a one-line diagnostic and a
+    /// campaign.
+    ///
+    /// Deliberately only the closure GAP: a name imported from a module the
+    /// crate does have, from a bare package (`type-fest`), or from a module the
+    /// manifest excludes keeps the nominal fallback. See
+    /// `blocker-logs/standards-generic-arm-and-typeof-indexed-alias.md`.
+    pub project_sources_outside_crate: HashSet<String>,
 }
 
 impl HirCtx {
@@ -218,6 +241,7 @@ impl HirCtx {
             callable_fields: HashMap::new(),
             callable_object_aliases: HashSet::new(),
             written_host_globals: HashSet::new(),
+            project_sources_outside_crate: HashSet::new(),
         }
     }
 }

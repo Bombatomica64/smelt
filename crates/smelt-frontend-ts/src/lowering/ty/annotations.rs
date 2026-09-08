@@ -2121,6 +2121,14 @@ return_ty: function.return_ty,
                     }
                     return Ok(substituted_alias_ty);
                 }
+                if let Some(module) = self.unresolvable_type_import_module(&name_text) {
+                    return Err(SmeltError::unsupported(
+                        self.span(reference.span.start, reference.span.end),
+                        format!(
+                            "the type `{name_text}` is imported from `{module}`, which is one of this project's own sources but is not part of the crate, so nothing declares it: the reference has no shape (a nominal stand-in for it erases every union that contains it)"
+                        ),
+                    ));
+                }
                 let lowered_args = args
                     .iter()
                     .map(|arg| self.ts_type_to_hir(arg))
@@ -2131,6 +2139,45 @@ return_ty: function.return_ty,
                 }))
             }
         }
+    }
+
+    /// The module a type name was imported from when the crate cannot have it.
+    ///
+    /// `Some(specifier)` only for the one case that is a genuine gap rather
+    /// than a modelling choice: the name came from a RELATIVE specifier that
+    /// resolves to a file the manifest's own source roots contain (excludes
+    /// already applied) and that the dependency closure did not reach, so no
+    /// module in the crate declares it and no later module will. That is the
+    /// shape that erased Hono's `ResponseHeadersInit` for weeks — the nominal
+    /// `Type::Class` stand-in erases, an erased member makes the whole union
+    /// non-concrete, and the resulting `SmeltUnknown` surfaces in the emitter
+    /// far from the reference with nothing naming the alias.
+    ///
+    /// Everything else keeps the nominal fallback, deliberately:
+    ///
+    /// * **A cyclic type-only import of an in-crate declaration.** Hono's
+    ///   `types.ts` names `Context` from `./context` while `context.ts` imports
+    ///   `types.ts`; whichever lowers first sees the other's declarations
+    ///   missing. The module IS in the crate, so this returns `None`.
+    /// * **A types-only external package.** remeda imports `Simplify` from
+    ///   `type-fest`, which is not a crate module and never will be. A bare
+    ///   specifier returns `None`.
+    /// * **An excluded module.** `[sources] exclude` promises that excluding a
+    ///   module removes its implementation, not its type surface, so an
+    ///   excluded file is not in the source-root set this consults and returns
+    ///   `None`.
+    fn unresolvable_type_import_module(&self, name_text: &str) -> Option<String> {
+        if self.ctx.project_sources_outside_crate.is_empty() {
+            return None;
+        }
+        let module = self.imports.import_source(name_text)?;
+        if !module.starts_with('.') {
+            return None;
+        }
+        self.resolved_module_export_keys(module)
+            .into_iter()
+            .any(|key| self.ctx.project_sources_outside_crate.contains(&key))
+            .then(|| module.to_owned())
     }
 
     /// Lower a constructor-only interface to its typed constructor slot.
