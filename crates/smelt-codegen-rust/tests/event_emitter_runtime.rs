@@ -102,7 +102,7 @@ fn run_fixture(source: &str, crate_name: &str) {
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn registration_answers_the_emitter_and_keeps_order() {
-    let source = r#"
+    let source = r"
 import { test, expect } from 'vitest';
 import { EventEmitter } from 'node:events';
 
@@ -138,14 +138,14 @@ test('listeners are scoped to their event name', () => {
   emitter.emit('b');
   expect(order.join(',')).toBe('b');
 });
-"#;
+";
     run_fixture(source, "emitter_registration_runtime");
 }
 
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn emit_reports_whether_a_listener_ran_and_forwards_its_tail() {
-    let source = r#"
+    let source = r"
 import { test, expect } from 'vitest';
 import { EventEmitter } from 'node:events';
 
@@ -169,14 +169,14 @@ test('the tail arguments reach the listener positionally', () => {
   emitter.emit('data', 'payload', 42);
   expect(seen.join(',')).toBe('payload:42');
 });
-"#;
+";
     run_fixture(source, "emitter_emit_runtime");
 }
 
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn once_runs_exactly_once() {
-    let source = r#"
+    let source = r"
 import { test, expect } from 'vitest';
 import { EventEmitter } from 'node:events';
 
@@ -190,14 +190,14 @@ test('a once listener runs on the first emit and is gone after it', () => {
   expect(ran.length).toBe(1);
   expect(emitter.listenerCount('go')).toBe(0);
 });
-"#;
+";
     run_fixture(source, "emitter_once_runtime");
 }
 
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn removal_takes_one_instance_and_removeall_takes_the_event() {
-    let source = r#"
+    let source = r"
 import { test, expect } from 'vitest';
 import { EventEmitter } from 'node:events';
 
@@ -232,14 +232,14 @@ test('removeAllListeners drops one event and leaves the others', () => {
 test('listenerCount of an unknown event is zero', () => {
   expect(new EventEmitter().listenerCount('none')).toBe(0);
 });
-"#;
+";
     run_fixture(source, "emitter_removal_runtime");
 }
 
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn emit_iterates_a_snapshot_of_the_listener_list() {
-    let source = r#"
+    let source = r"
 import { test, expect } from 'vitest';
 import { EventEmitter } from 'node:events';
 
@@ -269,14 +269,14 @@ test('a listener removed during an emit still runs in it', () => {
   expect(seen.join(',')).toBe('first,second');
   expect(emitter.listenerCount('n')).toBe(1);
 });
-"#;
+";
     run_fixture(source, "emitter_snapshot_runtime");
 }
 
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn two_handles_are_one_emitter() {
-    let source = r#"
+    let source = r"
 import { test, expect } from 'vitest';
 import { EventEmitter } from 'node:events';
 
@@ -297,6 +297,6 @@ test('two separate emitters do not share listeners', () => {
   expect(right.listenerCount('a')).toBe(0);
   expect(right.emit('a')).toBe(false);
 });
-"#;
+";
     run_fixture(source, "emitter_identity_runtime");
 }

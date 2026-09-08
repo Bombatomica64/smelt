@@ -257,3 +257,4 @@ third_party/es-toolkit-src/
 !blocker-logs/hono-h34-union-valued-record.md
 !blocker-logs/hono-h35-union-index-write.md
 !blocker-logs/hono-h27-double-optional-dict-read.md
+!blocker-logs/clippy-all-targets-gate.md

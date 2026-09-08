@@ -29,10 +29,10 @@ fn parse_error_is_reported() -> TestResult {
 
 #[test]
 fn simple_function_lowers() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 def add(x: int, y: int) -> int:
     return x + y
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -57,12 +57,12 @@ def add(x: int, y: int) -> int:
 /// order, just as a hand-written Rust call would be.
 #[test]
 fn function_keyword_arguments_bind_declared_parameters() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 def subtract(left: int, right: int) -> int:
     return left - right
 
 answer: int = subtract(right=2, left=5)
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -105,10 +105,10 @@ def add(x: int, y: int) -> int:
 
 #[test]
 fn module_dunders_lower_to_string_literals() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 module_name: str = __name__
 module_file: str = __file__
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_path_module(source, "src/package/example.py", &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -130,10 +130,10 @@ module_file: str = __file__
 
 #[test]
 fn ternary_expression_lowers() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 def choose(flag: bool, left: int, right: int) -> int:
     return left if flag else right
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -186,13 +186,13 @@ value: str | None = obj.id or None
 
 #[test]
 fn async_function_and_await_lower() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 async def lift(value: int) -> int:
     return value
 
 async def run() -> int:
     return await lift(5)
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -240,13 +240,13 @@ async def run() -> int:
 
 #[test]
 fn await_outside_async_function_is_rejected() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 async def lift(value: int) -> int:
     return value
 
 def run() -> int:
     return await lift(5)
-"#);
+");
     let mut ctx = HirCtx::new();
     let errors = lower_errors(source, &mut ctx)?;
     let error = first_error(&errors)?;
@@ -260,7 +260,7 @@ def run() -> int:
 
 #[test]
 fn asyncio_gather_and_sleep_lower_to_async_ops() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 import asyncio
 
 async def lift(value: int) -> int:
@@ -269,7 +269,7 @@ async def lift(value: int) -> int:
 
 async def run() -> tuple[int, int]:
     return await asyncio.gather(lift(1), lift(2))
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -324,12 +324,12 @@ async def run() -> tuple[int, int]:
 
 #[test]
 fn lower_level_asyncio_loop_apis_are_rejected() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 import asyncio
 
 def run() -> None:
     asyncio.get_event_loop()
-"#);
+");
     let mut ctx = HirCtx::new();
     let errors = lower_errors(source, &mut ctx)?;
     let error = first_error(&errors)?;
@@ -343,7 +343,7 @@ def run() -> None:
 
 #[test]
 fn asyncio_task_wait_for_and_runtime_objects_are_classified() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 import asyncio
 
 async def lift(value: int) -> int:
@@ -352,16 +352,16 @@ async def lift(value: int) -> int:
 async def run() -> int:
     task: Awaitable[int] = asyncio.create_task(lift(1))
     return await asyncio.wait_for(task, 10)
-"#);
+");
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
 
-    let queue_source = py!(r#"
+    let queue_source = py!(r"
 import asyncio
 
 def run() -> None:
     asyncio.Queue()
-"#);
+");
     let mut queue_ctx = HirCtx::new();
     let errors = lower_errors(queue_source, &mut queue_ctx)?;
     ensure(
@@ -490,10 +490,10 @@ fn single_function_body(ctx: &HirCtx, module_id: ModuleId) -> Result<&Body, Stri
 
 #[test]
 fn list_comprehension_lowers_to_block_with_push() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 def doubles(xs: list[int]) -> list[int]:
     return [x * 2 for x in xs]
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let body = single_function_body(&ctx, module_id)?;
@@ -516,10 +516,10 @@ def doubles(xs: list[int]) -> list[int]:
 fn list_comprehension_if_clause_lowers() -> TestResult {
     // The `if` guard lowers to an `If` statement inside the loop; we assert the
     // overall comprehension still lowers to a block with a push.
-    let source = py!(r#"
+    let source = py!(r"
 def evens(xs: list[int]) -> list[int]:
     return [x for x in xs if x > 0]
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let body = single_function_body(&ctx, module_id)?;
@@ -534,10 +534,10 @@ def evens(xs: list[int]) -> list[int]:
 
 #[test]
 fn nested_list_comprehension_lowers() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 def pairs(xs: list[int], ys: list[int]) -> list[int]:
     return [x + y for x in xs for y in ys]
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let body = single_function_body(&ctx, module_id)?;
@@ -552,10 +552,10 @@ def pairs(xs: list[int], ys: list[int]) -> list[int]:
 
 #[test]
 fn set_comprehension_lowers_to_block_with_add() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 def uniq(xs: list[int]) -> set[int]:
     return {x for x in xs}
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let body = single_function_body(&ctx, module_id)?;
@@ -570,10 +570,10 @@ def uniq(xs: list[int]) -> set[int]:
 
 #[test]
 fn dict_comprehension_lowers_to_block() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 def table(xs: list[int]) -> dict[int, int]:
     return {k: k for k in xs}
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let body = single_function_body(&ctx, module_id)?;
@@ -594,10 +594,10 @@ def table(xs: list[int]) -> dict[int, int]:
 
 #[test]
 fn generator_expression_lowers() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 def collected(xs: list[int]) -> list[int]:
     return list(x for x in xs)
-"#);
+");
     let mut ctx = HirCtx::new();
     // Generator expressions materialize eagerly; lowering should succeed.
     lower_module(source, &mut ctx)?;
@@ -606,10 +606,10 @@ def collected(xs: list[int]) -> list[int]:
 
 #[test]
 fn list_comprehension_over_string_lowers() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 def chars(text: str) -> list[str]:
     return [c for c in text]
-"#);
+");
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
     Ok(())
@@ -617,10 +617,10 @@ def chars(text: str) -> list[str]:
 
 #[test]
 fn comprehension_destructuring_target_is_rejected() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 def firsts(pairs: list[tuple[int, int]]) -> list[int]:
     return [a for a, b in pairs]
-"#);
+");
     let mut ctx = HirCtx::new();
     let errors = lower_errors(source, &mut ctx)?;
     let error = first_error(&errors)?;

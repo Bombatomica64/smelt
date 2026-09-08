@@ -98,16 +98,16 @@ fn run_fixture(source: &str, crate_name: &str) {
 
 /// A generic identity helper whose body forces its argument through the erased
 /// `unknown` carrier and back — the shape every `clone`/`cloneDeep` helper has.
-const ROUND_TRIP: &str = r#"
+const ROUND_TRIP: &str = r"
 function roundTrip<T>(value: T): T {
   const erased = value as unknown;
   return erased as T;
 }
-"#;
+";
 
 /// es-toolkit `clone`'s error branch, written out: read the value's prototype,
 /// call its `constructor`, then copy `stack` across.
-const REBUILD_ERROR: &str = r#"
+const REBUILD_ERROR: &str = r"
 function rebuild<T>(obj: T): T {
   const prototype = Object.getPrototypeOf(obj);
   const Ctor = prototype.constructor;
@@ -123,7 +123,7 @@ function rebuild<T>(obj: T): T {
   }
   return obj;
 }
-"#;
+";
 
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]

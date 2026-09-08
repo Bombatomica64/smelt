@@ -11,7 +11,7 @@
 //!    survivors. The hash index stores *positions* into that `Vec`, so a removal
 //!    has to shift every later position down by one; if it does not, members
 //!    after the hole are looked up at the wrong slot.
-//! 2. **`NaN` is a member of itself** under SameValueZero, unlike `f64`
+//! 2. **`NaN` is a member of itself** under `SameValueZero`, unlike `f64`
 //!    `PartialEq`, so every `NaN` has to hash as one canonical `NaN`.
 //! 3. **`+0` and `-0` are one member**, and their `f64` bit patterns differ, so
 //!    the hash has to normalize the sign of zero.

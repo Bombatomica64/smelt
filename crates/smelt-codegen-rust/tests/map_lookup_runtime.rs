@@ -12,7 +12,7 @@
 //!    survivors. The index stores *positions* into that `Vec`, so a removal has
 //!    to shift every later position down by one; if it does not, entries after
 //!    the hole are looked up at the wrong slot.
-//! 2. **`NaN` is its own key** under SameValueZero, unlike `f64` `PartialEq`, so
+//! 2. **`NaN` is its own key** under `SameValueZero`, unlike `f64` `PartialEq`, so
 //!    every `NaN` key has to hash as one canonical `NaN`.
 //! 3. **`+0` and `-0` are one key**, and their `f64` bit patterns differ, so the
 //!    hash has to normalize the sign of zero.
@@ -99,16 +99,14 @@ fn run_map_fixture(source: &str, crate_name: &str) {
     drop(std::fs::remove_dir_all(&root));
 }
 
-#[test]
-#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
-fn map_iteration_follows_insertion_order_across_a_delete() {
-    // Iteration order is first-set order, and `delete` closes the hole without
-    // reordering the survivors. The hash index stores positions into the
-    // insertion-ordered backing `Vec`, so this is the case that catches an index
-    // that was not re-aligned after the removal: every entry set *after* the
-    // deleted one moves down a slot, and a stale index would either report its
-    // key missing or match it against the wrong entry.
-    let source = r#"
+/// The insertion-order fixture program, hoisted out of its test function.
+///
+/// Five independent `test(...)` blocks share one generated crate on purpose:
+/// emitting and running one is slow enough that the test is `#[ignore]`d, so
+/// splitting them into five Rust tests would multiply that cost for no extra
+/// coverage. Hoisting the program to a `const` keeps the single run and keeps
+/// the function short.
+const MAP_INSERTION_ORDER_SOURCE: &str = r#"
 import { test, expect } from "vitest";
 test("iteration is insertion order after a delete and later sets", () => {
   const scores = new Map<string, number>();
@@ -184,7 +182,17 @@ test("clear empties the map and later sets still resolve", () => {
   expect(scores.size).toBe(1);
 });
 "#;
-    run_map_fixture(source, "smelt_map_insertion_order");
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn map_iteration_follows_insertion_order_across_a_delete() {
+    // Iteration order is first-set order, and `delete` closes the hole without
+    // reordering the survivors. The hash index stores positions into the
+    // insertion-ordered backing `Vec`, so this is the case that catches an index
+    // that was not re-aligned after the removal: every entry set *after* the
+    // deleted one moves down a slot, and a stale index would either report its
+    // key missing or match it against the wrong entry.
+    run_map_fixture(MAP_INSERTION_ORDER_SOURCE, "smelt_map_insertion_order");
 }
 
 #[test]

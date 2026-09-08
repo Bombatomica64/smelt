@@ -97,7 +97,7 @@ fn run_fixture(source: &str, crate_name: &str) {
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn a_host_object_serializes_as_an_empty_object() {
-    let source = r#"
+    let source = r"
 import { test, expect } from 'vitest';
 
 test('a Headers list writes no internals', () => {
@@ -118,7 +118,7 @@ test('a Response writes no internals either', () => {
   const erased: unknown = new Response('body', { status: 201 });
   expect(JSON.stringify(erased)).toBe('{}');
 });
-"#;
+";
     run_fixture(source, "json_host_object_runtime");
 }
 

@@ -126,12 +126,12 @@ clone-strategy = "aggressive"
 
     ensure(
         json.contains("makeClient") && json.contains("which the manifest excludes"),
-        &format!("expected a named exclusion blocker for the value import, got {json}"),
+        format!("expected a named exclusion blocker for the value import, got {json}"),
     )?;
     // The excluded file must not have been lowered as a module of the crate.
     ensure(
         !json.contains("client/index.ts"),
-        &format!("excluded module should be pruned from the closure, got {json}"),
+        format!("excluded module should be pruned from the closure, got {json}"),
     )?;
 
     Ok(())
@@ -192,7 +192,7 @@ clone-strategy = "aggressive"
 
     ensure(
         !json.contains("which the manifest excludes"),
-        &format!("a type-only import from an excluded module must not block, got {json}"),
+        format!("a type-only import from an excluded module must not block, got {json}"),
     )?;
 
     Ok(())

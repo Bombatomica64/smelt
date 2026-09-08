@@ -94,21 +94,14 @@ fn run_fixture(source: &str, crate_name: &str) {
     drop(std::fs::remove_dir_all(&root));
 }
 
-#[test]
-#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
-fn a_nested_destructured_callback_parameter_reads_the_nested_value() {
-    // The four nesting shapes, all over typed tuples and interfaces so every
-    // binding has a resolvable type:
-    //
-    // * an array pattern inside an array pattern, with an elided element —
-    //   Hono's `matchResult[0].map(([[, route]]) => route)`;
-    // * an object pattern inside an object pattern;
-    // * an object pattern inside an array pattern (an entries loop);
-    // * an array pattern inside an object pattern.
-    //
-    // The one-level shapes are asserted alongside, because the recursion must
-    // not change what they already answered.
-    let source = r#"
+/// The callback-destructuring fixture program, hoisted out of its test function.
+///
+/// Emitting and running a generated crate is slow enough that the test is
+/// `#[ignore]`d, so the program stays ONE fixture rather than being split
+/// into several Rust tests that would each pay that cost again. Hoisting it
+/// to a `const` keeps the single run and keeps the function short; the
+/// reasoning for what the program proves stays on the test itself.
+const CALLBACK_DESTRUCTURING_SOURCE: &str = r#"
 import { test, expect } from "vitest";
 
 interface Route {
@@ -207,5 +200,20 @@ test("one-level destructuring still answers what it did", () => {
   expect(flatFields([{ a: 1, b: 2 }, { a: 3, b: 4 }])).toEqual([3, 7]);
 });
 "#;
-    run_fixture(source, "smelt_callback_destructuring_nesting");
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_nested_destructured_callback_parameter_reads_the_nested_value() {
+    // The four nesting shapes, all over typed tuples and interfaces so every
+    // binding has a resolvable type:
+    //
+    // * an array pattern inside an array pattern, with an elided element —
+    //   Hono's `matchResult[0].map(([[, route]]) => route)`;
+    // * an object pattern inside an object pattern;
+    // * an object pattern inside an array pattern (an entries loop);
+    // * an array pattern inside an object pattern.
+    //
+    // The one-level shapes are asserted alongside, because the recursion must
+    // not change what they already answered.
+    run_fixture(CALLBACK_DESTRUCTURING_SOURCE, "smelt_callback_destructuring_nesting");
 }

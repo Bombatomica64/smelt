@@ -292,7 +292,7 @@ mod tests {
         let mut interner = SymbolInterner::default();
         let in_scope_name = interner.intern("T");
         let other = interner.intern("U");
-        let scope: HashSet<Symbol> = [in_scope_name].into_iter().collect();
+        let scope: HashSet<Symbol> = HashSet::from([in_scope_name]);
         let substitution = TypeSubstitution::lexical(&scope);
         assert_eq!(
             substitution.resolve(in_scope_name).unwrap(),
@@ -316,7 +316,7 @@ mod tests {
             Resolved::Substituted(TypeId(7))
         );
 
-        let scope: HashSet<Symbol> = [name].into_iter().collect();
+        let scope: HashSet<Symbol> = HashSet::from([name]);
         let lexical = TypeSubstitution::lexical(&scope).with_bindings(&bindings);
         assert_eq!(lexical.resolve(name).unwrap(), Resolved::Spelled(name));
         assert_eq!(

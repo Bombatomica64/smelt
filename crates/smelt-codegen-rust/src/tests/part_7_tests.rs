@@ -11189,7 +11189,7 @@ console.log(out);
         "the finalizer's Map delete must be emitted, got:\n{body}"
     );
     assert!(
-        body.contains("7"),
+        body.contains('7'),
         "the try body's return value must survive the finalizer, got:\n{body}"
     );
 }
@@ -13005,7 +13005,7 @@ m.set(pick(true), 1);
 /// intersection of a plain callable and its own properties (which is how the
 /// underlying function object is modeled), and an overload signature that
 /// narrows that value to the interface.
-const CALLABLE_OVERLOAD_PRELUDE: &str = r#"
+const CALLABLE_OVERLOAD_PRELUDE: &str = r"
 const curryPlaceholder: unique symbol = Symbol('curry.placeholder');
 type __ = typeof curryPlaceholder;
 
@@ -13057,7 +13057,7 @@ export function byArgumentType(): ((...args: any[]) => any) & { placeholder: unk
   wrapper.placeholder = curryPlaceholder;
   return wrapper;
 }
-"#;
+";
 
 /// A call to an overloaded callable interface must not stop at the first
 /// overload that merely shares the call's arity.

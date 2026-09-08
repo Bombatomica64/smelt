@@ -2,10 +2,10 @@ use super::*;
 
 #[test]
 fn list_pop_method_lowers() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 values: list[int] = [1, 2]
 item: int = values.pop()
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -56,10 +56,10 @@ dict_result: None = mapping.clear()
 
 #[test]
 fn list_copy_method_lowers() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 values: list[int] = [1, 2]
 copied: list[int] = values.copy()
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -213,10 +213,10 @@ coord_set: set[int] = set(coords)
 
 #[test]
 fn list_count_method_lowers() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 values: list[int] = [1, 2, 1]
 count: int = values.count(1)
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -236,10 +236,10 @@ count: int = values.count(1)
 
 #[test]
 fn list_index_method_lowers() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 values: list[int] = [1, 2, 1]
 index: int = values.index(2)
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -259,10 +259,10 @@ index: int = values.index(2)
 
 #[test]
 fn list_remove_method_lowers() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 values: list[int] = [1, 2, 1]
 result: None = values.remove(2)
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -282,14 +282,14 @@ result: None = values.remove(2)
 
 #[test]
 fn list_sort_method_lowers() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 ints: list[int] = [2, 1]
 int_result: None = ints.sort()
 int_keyword_result: None = ints.sort(reverse=False)
 floats: list[float] = [2.0, 1.0]
 float_result: None = floats.sort()
 float_keyword_result: None = floats.sort(key=None)
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;

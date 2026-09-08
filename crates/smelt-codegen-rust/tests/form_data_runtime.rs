@@ -271,10 +271,14 @@ test("the content type may carry a charset parameter", async () => {
     run_form_data_fixture(source, "form_data_urlencoded");
 }
 
-#[test]
-#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
-fn a_multipart_body_reads_back_as_a_form() {
-    let source = r#"
+/// The multipart fixture program, hoisted out of its test function.
+///
+/// Three independent `test(...)` blocks share one generated crate on purpose:
+/// emitting and running one is slow enough that the test is `#[ignore]`d, so
+/// splitting them into three Rust tests would triple that cost for no extra
+/// coverage. Hoisting the program to a `const` keeps the single run and keeps
+/// the function short.
+const MULTIPART_FORM_SOURCE: &str = r#"
 import { test, expect } from "vitest";
 test("a part with a filename is a file entry, and one without is text", async () => {
   const boundary = "----SmeltBoundary";
@@ -359,7 +363,11 @@ test("a quoted boundary and a repeated name both work", async () => {
   expect(tags[1]).toBe("two");
 });
 "#;
-    run_form_data_fixture(source, "form_data_multipart");
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_multipart_body_reads_back_as_a_form() {
+    run_form_data_fixture(MULTIPART_FORM_SOURCE, "form_data_multipart");
 }
 
 #[test]
