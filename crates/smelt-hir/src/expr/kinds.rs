@@ -11,6 +11,7 @@ use super::{
     RequestOp as RequestOpKind, ResponseOp as ResponseOpKind,
     UnknownKind, UriTranscodeOp,
     UrlField,
+    FormDataOp as FormDataOpKind,
     UrlSearchParamsOp as UrlSearchParamsOpKind,
     BlobOp as BlobOpKind, ByteArrayOp as ByteArrayOpKind, TextDecoderOp as TextDecoderOpKind,
     TextEncoderOp as TextEncoderOpKind,
@@ -501,6 +502,21 @@ pub enum ExprKind {
         /// The `URLSearchParams` receiver.
         params: ExprId,
         /// Operation arguments (name, or name and value).
+        args: Vec<ExprId>,
+    },
+    /// `new FormData()`.
+    ///
+    /// No initializer: the spec's constructor takes an optional `HTMLFormElement`
+    /// only, which is DOM and outside the profile, so a form is always built
+    /// empty and filled with `append`.
+    FormDataNew,
+    /// A `FormData` method call on a concrete receiver.
+    FormDataOp {
+        /// Which operation this call performs.
+        op: FormDataOpKind,
+        /// The `FormData` receiver.
+        form: ExprId,
+        /// Operation arguments (name; name and value; or a callback).
         args: Vec<ExprId>,
     },
     /// `new Response(body?, init?)`.

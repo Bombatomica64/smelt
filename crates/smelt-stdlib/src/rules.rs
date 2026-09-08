@@ -177,6 +177,13 @@ pub enum RuleId {
     TsUrlSearchParamsProjection,
     /// TypeScript `URLSearchParams.prototype.toString`.
     TsUrlSearchParamsToString,
+    /// TypeScript `FormData` read (`get`, `getAll`, `has`).
+    TsFormDataRead,
+    /// TypeScript `FormData` mutating method (`set`, `append`, `delete`).
+    TsFormDataMutation,
+    /// TypeScript `FormData` projection (`keys`, `values`, `entries`,
+    /// `forEach`).
+    TsFormDataProjection,
     /// TypeScript `TextEncoder.prototype.encode`.
     TsTextEncoderEncode,
     /// TypeScript `TextDecoder.prototype.decode`.
@@ -330,6 +337,12 @@ impl RuleId {
             | Self::TsUrlSearchParamsMutation
             | Self::TsUrlSearchParamsProjection
             | Self::TsUrlSearchParamsToString
+            // A `FormData` body arrives as `multipart/form-data` OR as
+            // `application/x-www-form-urlencoded`, and the second form is
+            // parsed by the same `url::form_urlencoded` the params type uses.
+            | Self::TsFormDataRead
+            | Self::TsFormDataMutation
+            | Self::TsFormDataProjection
             // `new Request(input)` answers the WHATWG-SERIALIZED url
             // (`https://a.test` reads back as `https://a.test/`), which is
             // `url::Url`'s own serialization rather than the input string.
@@ -446,6 +459,9 @@ impl RuleId {
             Self::TsUrlSearchParamsMutation => "URLSearchParams mutation method",
             Self::TsUrlSearchParamsProjection => "URLSearchParams projection method",
             Self::TsUrlSearchParamsToString => "URLSearchParams.toString",
+            Self::TsFormDataRead => "FormData read method",
+            Self::TsFormDataMutation => "FormData mutation method",
+            Self::TsFormDataProjection => "FormData projection method",
             Self::TsTextEncoderEncode => "TextEncoder.encode",
             Self::TsTextDecoderDecode => "TextDecoder.decode",
             Self::TsBlobRead => "Blob property read",

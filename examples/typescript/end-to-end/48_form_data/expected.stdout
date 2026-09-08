@@ -1,0 +1,19 @@
+1
+2
+true false
+a,b
+a 9
+b x
+b
+absent
+file blob text/plain 5 hello
+file note.txt text/plain 5 hello
+file given.txt text/plain 3 bye
+a 1
+b hello world
+a 2
+true
+title text hello
+doc file a.txt text/plain 9 file body
+wrong type threw
+second read threw

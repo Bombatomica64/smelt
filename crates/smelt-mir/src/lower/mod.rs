@@ -142,6 +142,18 @@ type LoweredMutationReceiver = (Operand, MutationWriteback);
 /// See `blocker-logs/hono-h31-projected-receiver-writeback.md`.
 type PlaceWritebacks = Vec<(Place, LocalId)>;
 
+/// A lowered place plus the writebacks that commit it.
+///
+/// The pair is the return shape of every place-lowering entry point, so it gets
+/// a name rather than being respelled inside three `Result`s.
+type PlaceResult = Result<(Place, PlaceWritebacks), LowerError>;
+
+/// A lowered place BASE local plus the writebacks that commit it.
+///
+/// The base-local variants answer the root local instead of a whole place; see
+/// [`PlaceResult`] for why the pair is named.
+type PlaceBaseResult = Result<(LocalId, PlaceWritebacks), LowerError>;
+
 
 /// Synthetic MIR helper types shared by every body lowered in one run.
 ///

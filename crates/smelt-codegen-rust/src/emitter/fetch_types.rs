@@ -329,6 +329,12 @@ impl FunctionEmitter<'_> {
             smelt_hir::RequestOp::Text => format!(
                 "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(smelt_request.take_text()?) }})) }}"
             ),
+            // The same single-use reader, handing its bytes plus the request's
+            // OWN `Content-Type` to the parser: the encoding (and a multipart
+            // boundary) is a header, not a property of the bytes.
+            smelt_hir::RequestOp::FormData => format!(
+                "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_content_type = smelt_request.headers().get(\"content-type\"); Ok::<_, Box<dyn std::error::Error>>(smelt_form_data_from_body(smelt_content_type, smelt_request.body().take_bytes()?)?) }})) }}"
+            ),
         })
     }
 
@@ -435,6 +441,11 @@ impl FunctionEmitter<'_> {
             // is exactly what the spec says happens.
             smelt_hir::ResponseOp::Text => format!(
                 "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(smelt_response.take_text()?) }})) }}"
+            ),
+            // Same shape as `Request::formData`; see the comment there for why
+            // the parser is handed the header rather than only the bytes.
+            smelt_hir::ResponseOp::FormData => format!(
+                "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_content_type = smelt_response.headers().get(\"content-type\"); Ok::<_, Box<dyn std::error::Error>>(smelt_form_data_from_body(smelt_content_type, smelt_response.body().take_bytes()?)?) }})) }}"
             ),
         })
     }

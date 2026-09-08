@@ -398,6 +398,12 @@ pub enum RequestOp {
     BodyUsed,
     /// `text()`: the body decoded as UTF-8. Async, and consumes the body.
     Text,
+    /// `formData()`: the body parsed as a form. Async, and consumes the body.
+    ///
+    /// Beside `Text` rather than under it because it answers a different type,
+    /// but the same body reader underneath: single-use, and a second call is
+    /// the spec's `TypeError`.
+    FormData,
     /// `clone()`: a copy whose body is independently readable.
     Clone,
 }
@@ -429,6 +435,8 @@ pub enum ResponseOp {
     BodyUsed,
     /// `text()`: the body decoded as UTF-8. Async, and consumes the body.
     Text,
+    /// `formData()`: the body parsed as a form. Async, and consumes the body.
+    FormData,
     /// `clone()`: a copy whose body is independently readable.
     Clone,
 }
@@ -536,6 +544,38 @@ pub enum ByteArrayOp {
     Length,
     /// `byteLength`: the byte count.
     ByteLength,
+}
+
+/// A directly lowered WHATWG `FormData` member.
+///
+/// The same shape as [`UrlSearchParamsOp`] — a pair list's read, mutation and
+/// projection surface — with the spec's two differences carried in the types
+/// rather than here: names are case-SENSITIVE, and an entry's VALUE is
+/// `string | File`, so `Get` answers an optional union and `GetAll` a list of
+/// unions where the params type answers strings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FormDataOp {
+    /// `get(name)`: the first value for a name, or `null`.
+    Get,
+    /// `getAll(name)`: every value for a name, in order.
+    GetAll,
+    /// `has(name)`.
+    Has,
+    /// `set(name, value, filename?)`: replace the first entry and drop the rest.
+    Set,
+    /// `append(name, value, filename?)`.
+    Append,
+    /// `delete(name)`: remove every entry for a name.
+    Delete,
+    /// `keys()`: names in insertion order, one per ENTRY (a duplicated name
+    /// appears once per entry, as the spec's iterator does).
+    Keys,
+    /// `values()`: values in insertion order.
+    Values,
+    /// `entries()`: name/value pairs in insertion order.
+    Entries,
+    /// `forEach(callback)`: the callback receives `(value, name)`.
+    ForEach,
 }
 
 /// A directly lowered WHATWG `Blob`/`File` member.

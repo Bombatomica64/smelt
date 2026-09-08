@@ -1410,6 +1410,20 @@ pub enum Rvalue {
         /// Byte-view receiver.
         bytes: Operand,
     },
+    /// Construct an empty WHATWG `FormData` value.
+    ///
+    /// No initializer: the spec's only constructor argument is an
+    /// `HTMLFormElement`, which is DOM and outside the profile.
+    FormDataNew,
+    /// Apply a `FormData` operation to a concrete receiver.
+    FormDataOp {
+        /// Operation to apply.
+        op: smelt_hir::FormDataOp,
+        /// `FormData` receiver.
+        form: Operand,
+        /// Operation arguments (name; name and value; or a callback).
+        args: Vec<Operand>,
+    },
     /// Construct a WHATWG `URLSearchParams` value.
     UrlSearchParamsNew {
         /// Optional initializer value.

@@ -646,6 +646,20 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             };
             format!("byte_array_{op_name} {}", expr_ref(*bytes))
         }
+        ExprKind::FormDataNew => "form_data_new".to_owned(),
+        ExprKind::FormDataOp { op, form, args } => {
+            let op_name = form_data_op_name(*op);
+            let args_text = args
+                .iter()
+                .map(|arg| expr_ref(*arg))
+                .collect::<Vec<_>>()
+                .join(", ");
+            if args_text.is_empty() {
+                format!("form_data_{op_name} {}", expr_ref(*form))
+            } else {
+                format!("form_data_{op_name} {}, {args_text}", expr_ref(*form))
+            }
+        }
         ExprKind::UrlSearchParamsNew { init } => init.map_or_else(
             || "url_search_params_new".to_owned(),
             |init| format!("url_search_params_new {}", expr_ref(init)),
@@ -1295,6 +1309,7 @@ const fn request_op_name(op: crate::expr::RequestOp) -> &'static str {
         crate::expr::RequestOp::Headers => "headers",
         crate::expr::RequestOp::BodyUsed => "body_used",
         crate::expr::RequestOp::Text => "text",
+        crate::expr::RequestOp::FormData => "form_data",
         crate::expr::RequestOp::Clone => "clone",
     }
 }
@@ -1308,6 +1323,7 @@ const fn response_op_name(op: crate::expr::ResponseOp) -> &'static str {
         crate::expr::ResponseOp::Headers => "headers",
         crate::expr::ResponseOp::BodyUsed => "body_used",
         crate::expr::ResponseOp::Text => "text",
+        crate::expr::ResponseOp::FormData => "form_data",
         crate::expr::ResponseOp::Clone => "clone",
     }
 }
@@ -1387,6 +1403,22 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
 }
 
 /// The compact dump name of a `Blob`/`File` member.
+/// The dump spelling of a `FormData` operation.
+const fn form_data_op_name(op: crate::expr::FormDataOp) -> &'static str {
+    match op {
+        crate::expr::FormDataOp::Get => "get",
+        crate::expr::FormDataOp::GetAll => "get_all",
+        crate::expr::FormDataOp::Has => "has",
+        crate::expr::FormDataOp::Set => "set",
+        crate::expr::FormDataOp::Append => "append",
+        crate::expr::FormDataOp::Delete => "delete",
+        crate::expr::FormDataOp::Keys => "keys",
+        crate::expr::FormDataOp::Values => "values",
+        crate::expr::FormDataOp::Entries => "entries",
+        crate::expr::FormDataOp::ForEach => "for_each",
+    }
+}
+
 const fn blob_op_name(op: crate::expr::BlobOp) -> &'static str {
     match op {
         crate::expr::BlobOp::Size => "size",

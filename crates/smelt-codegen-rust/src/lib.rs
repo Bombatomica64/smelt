@@ -88,6 +88,7 @@ mod event_emitter_prelude;
 mod host_value_erasure;
 mod blob_prelude;
 mod fetch_types_prelude;
+mod form_data_prelude;
 mod text_codec_prelude;
 pub(crate) mod class_proto;
 pub(crate) mod classes;
@@ -567,6 +568,7 @@ fn emit_source_with_free_function_router(
     // carries none of `SmeltHeaders`.
     let needs_headers = stdlib::needs_headers_runtime(mir);
     let needs_url_search_params = stdlib::needs_url_search_params_runtime(mir);
+    let needs_form_data = stdlib::needs_form_data_runtime(mir);
     let needs_response = stdlib::needs_response_runtime(mir);
     let needs_request = stdlib::needs_request_runtime(mir);
     let needs_event_emitter = stdlib::needs_event_emitter_runtime(mir);
@@ -797,6 +799,7 @@ fn emit_source_with_free_function_router(
     if (needs_regex
         || needs_headers
         || needs_url_search_params
+        || needs_form_data
         || needs_byte_array
         || needs_text_encoder
         || needs_text_decoder
@@ -5338,6 +5341,12 @@ fn emit_source_with_free_function_router(
     }
     if needs_url_search_params {
         fetch_types_prelude::emit_url_search_params(&mut writer, needs_unknown);
+    }
+    // After `SmeltBlob` in the dependency sense (a form entry holds one) and
+    // beside the params list in the semantic one: both parse the urlencoded
+    // form through `url::form_urlencoded`.
+    if needs_form_data {
+        form_data_prelude::emit(&mut writer, needs_unknown);
     }
     // `SmeltBody` is emitted before `SmeltResponse` because the response holds
     // one by value; both are gated on a type that HAS a body being present.

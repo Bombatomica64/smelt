@@ -466,6 +466,44 @@ impl ModuleBuilder<'_> {
                 span: self.span(start, end),
             }));
         }
+        // Narrowing an OPTIONAL erased local to one concrete arm takes two
+        // steps, and only both together are a value the backend can call a
+        // method on. `string | File | undefined` narrowed to `File` — the shape
+        // a `FormData` entry read has after a null check and a
+        // `typeof === "string"` check — needs the `Option` unwrapped AND the
+        // surviving union arm projected out of the payload. Each step alone is
+        // already supported: a bare local read at the payload type is the
+        // narrowing unwrap the backend renders as `.expect(..)`, and an
+        // `UnknownCast` off an erased payload is the arm projection. Emitting
+        // the read at the narrowed arm type directly (what happened before)
+        // left the local's `Option<SmeltUnion…>` in place and the generated
+        // Rust called the arm's methods straight on the `Option`.
+        if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(base_ty).cloned()
+            && ty != inner
+            && ty != base_ty
+            && matches!(
+                self.ctx.krate.types.get(inner),
+                Some(Type::Unknown | Type::Union(_))
+            )
+            && !matches!(
+                self.ctx.krate.types.get(ty),
+                Some(Type::Optional(_) | Type::None)
+            )
+        {
+            let payload = body.push_expr(Expr {
+                kind: ExprKind::Local(local),
+                ty: inner,
+                span: self.span(start, end),
+            });
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::UnknownCast {
+                    value: payload,
+                    target: ty,
+                },
+                ty,
+                span: self.span(start, end),
+            }));
+        }
         Ok(local_expr)
     }
 

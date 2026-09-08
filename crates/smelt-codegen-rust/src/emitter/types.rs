@@ -1253,6 +1253,10 @@ impl FunctionEmitter<'_> {
                 {
                     return Ok(RustType::raw("SmeltUrlSearchParams"));
                 }
+                if self.stdlib_class_of_symbol(*name)? == Some(smelt_stdlib::StdlibClass::FormData)
+                {
+                    return Ok(RustType::raw("SmeltFormData"));
+                }
                 if self.stdlib_class_of_symbol(*name)? == Some(smelt_stdlib::StdlibClass::Response)
                 {
                     return Ok(RustType::raw("SmeltResponse"));
@@ -1556,6 +1560,13 @@ impl FunctionEmitter<'_> {
                     == Some(smelt_stdlib::StdlibClass::UrlSearchParams) =>
             {
                 Ok("SmeltUrlSearchParams::new()".to_owned())
+            }
+            Type::Class { name, .. }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::FormData) =>
+            {
+                // An empty form, which is exactly what `new FormData()` is.
+                Ok("SmeltFormData::new()".to_owned())
             }
             Type::Class { name, .. }
                 if self.stdlib_class_of_symbol(*name)?

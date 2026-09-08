@@ -5035,6 +5035,11 @@ impl<'mir> FunctionEmitter<'mir> {
                                 // the fetch types as real Rust values.
                                 | smelt_stdlib::StdlibClass::Headers
                                 | smelt_stdlib::StdlibClass::UrlSearchParams
+                                // A `FormData` is the concrete `SmeltFormData`,
+                                // whose entry values are the concrete
+                                // `string | File` pair -- nothing in a form is
+                                // an erased record.
+                                | smelt_stdlib::StdlibClass::FormData
                                 // The text codecs and the concrete byte view
                                 // are generated Rust types too. The byte view
                                 // is reached only through its synthetic class

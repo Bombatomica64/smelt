@@ -1021,6 +1021,10 @@ impl FunctionEmitter<'_> {
                 method,
                 args,
             } => self.union_method_text(receiver, *method, args, dest_ty),
+            Rvalue::FormDataNew => Ok("SmeltFormData::new()".to_owned()),
+            Rvalue::FormDataOp { op, form, args } => {
+                self.form_data_op_text(*op, form, args, dest_ty)
+            }
             Rvalue::UrlSearchParamsNew { init } => {
                 self.url_search_params_new_text(init.as_ref())
             }

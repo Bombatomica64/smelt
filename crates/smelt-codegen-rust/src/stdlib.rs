@@ -31,9 +31,13 @@ pub(crate) fn backend_dependencies(mir: &Mir) -> Vec<BackendDependency> {
     if any_rvalue_needs(mir, rvalue_needs_chrono_tz) || needs_unknown_type(mir) {
         deps.push(BackendDependency::ChronoTz);
     }
+    // `SmeltFormData` carries the urlencoded parser its `formData()` reader
+    // needs, and that parser is `url::form_urlencoded` — so a crate that holds
+    // a form needs the crate even when it never names `URL` or params.
     if any_rvalue_needs(mir, rvalue_needs_url)
         || needs_url_search_params_runtime(mir)
         || needs_request_runtime(mir)
+        || needs_form_data_runtime(mir)
     {
         deps.push(BackendDependency::Url);
     }
@@ -250,6 +254,32 @@ pub(crate) fn needs_url_search_params_runtime(mir: &Mir) -> bool {
         .any(|ty| is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::UrlSearchParams))
 }
 
+/// Returns true when generated Rust needs the `SmeltFormData` type.
+///
+/// Same pay-for-use rule as [`needs_headers_runtime`]: either a form operation
+/// or a mention of the type in the type table. A `Response`/`Request`
+/// `formData()` read is one of those operations, and it is what pulls the
+/// multipart and urlencoded parsers into a crate that never says `FormData`.
+pub(crate) fn needs_form_data_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| {
+        matches!(rvalue, Rvalue::FormDataNew | Rvalue::FormDataOp { .. })
+            || matches!(
+                rvalue,
+                Rvalue::ResponseOp {
+                    op: smelt_hir::ResponseOp::FormData,
+                    ..
+                } | Rvalue::RequestOp {
+                    op: smelt_hir::RequestOp::FormData,
+                    ..
+                }
+            )
+    }) || mir
+        .types
+        .all()
+        .iter()
+        .any(|ty| is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::FormData))
+}
+
 /// Returns true when generated Rust needs the `SmeltTextEncoder` type.
 ///
 /// Same pay-for-use rule as [`needs_headers_runtime`]: either a `TextEncoder`
@@ -318,6 +348,9 @@ pub(crate) fn needs_blob_runtime(mir: &Mir) -> bool {
         stdlib_class_of_class_symbol(mir, *name)
             .is_some_and(smelt_stdlib::StdlibClass::is_blob_runtime_type)
     })
+    // A form entry's value is `string | File`, so the blob runtime type is part
+    // of `SmeltFormData` whether or not the program ever names `Blob`.
+    || needs_form_data_runtime(mir)
 }
 
 /// Resolve a class symbol to its shared stdlib class identity, if any.
