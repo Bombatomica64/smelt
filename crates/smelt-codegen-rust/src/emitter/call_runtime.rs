@@ -1021,6 +1021,7 @@ impl FunctionEmitter<'_> {
                 method,
                 args,
             } => self.union_method_text(receiver, *method, args, dest_ty),
+            Rvalue::CryptoOp { op, args } => self.crypto_op_text(*op, args, dest_ty),
             Rvalue::FormDataNew => Ok("SmeltFormData::new()".to_owned()),
             Rvalue::FormDataOp { op, form, args } => {
                 self.form_data_op_text(*op, form, args, dest_ty)

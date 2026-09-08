@@ -1,0 +1,173 @@
+module examples/typescript/end-to-end/49_web_crypto/input.ts (ModuleId(0))
+  body BodyId(0)
+  locals
+    %0 const id: String
+    %1 const groups: List<String>
+    %2 const message: __SmeltUint8Array
+    %3 const empty: __SmeltUint8Array
+  exprs
+    #0: String = crypto_random_uuid
+    #1: String = %0
+    #2: Float = len #1
+    #3: None = @0(console_log)
+    #4: None = call #3(#2)
+    #5: String = %0
+    #6: Float = 8.0
+    #7: String = #5[#6]
+    #8: String = %0
+    #9: Float = 13.0
+    #10: String = #8[#9]
+    #11: String = %0
+    #12: Float = 18.0
+    #13: String = #11[#12]
+    #14: String = %0
+    #15: Float = 23.0
+    #16: String = #14[#15]
+    #17: None = @1(console_log)
+    #18: None = call #17(#7, #10, #13, #16)
+    #19: String = %0
+    #20: Float = 14.0
+    #21: String = #19[#20]
+    #22: None = @2(console_log)
+    #23: None = call #22(#21)
+    #24: String = "89ab"
+    #25: String = "89ab"
+    #26: String = %0
+    #27: Float = 19.0
+    #28: String = #26[#27]
+    #29: Bool = string_contains #25, #28
+    #30: None = @3(console_log)
+    #31: None = call #30(#29)
+    #32: String = %0
+    #33: String = crypto_random_uuid
+    #34: Bool = JsStrictEq #32, #33
+    #35: None = @4(console_log)
+    #36: None = call #35(#34)
+    #37: String = %0
+    #38: String = string_lower #37
+    #39: String = %0
+    #40: Bool = JsStrictEq #38, #39
+    #41: None = @5(console_log)
+    #42: None = call #41(#40)
+    #43: String = %0
+    #44: String = "-"
+    #45: List<String> = string_split #43, #44, _
+    #46: List<String> = %1
+    #47: Float = len #46
+    #48: None = @6(console_log)
+    #49: None = call #48(#47)
+    #50: List<String> = %1
+    #51: Float = 0.0
+    #52: String = #50[#51]
+    #53: Float = len #52
+    #54: List<String> = %1
+    #55: Float = 1.0
+    #56: String = #54[#55]
+    #57: Float = len #56
+    #58: List<String> = %1
+    #59: Float = 2.0
+    #60: String = #58[#59]
+    #61: Float = len #60
+    #62: None = @7(console_log)
+    #63: None = call #62(#53, #57, #61)
+    #64: List<String> = %1
+    #65: Float = 3.0
+    #66: String = #64[#65]
+    #67: Float = len #66
+    #68: List<String> = %1
+    #69: Float = 4.0
+    #70: String = #68[#69]
+    #71: Float = len #70
+    #72: None = @8(console_log)
+    #73: None = call #72(#67, #71)
+    #74: TextEncoder = text_encoder_new
+    #75: String = "abc"
+    #76: __SmeltUint8Array = text_encoder_encode #74 #75
+    #77: String = "SHA-1"
+    #78: __SmeltUint8Array = %2
+    #79: Future<__SmeltUint8Array> = crypto_digest #77, #78
+    #80: __SmeltUint8Array = await #79
+    #81: Float = byte_array_byte_length #80
+    #82: None = @9(console_log)
+    #83: None = call #82(#81)
+    #84: String = "SHA-256"
+    #85: __SmeltUint8Array = %2
+    #86: Future<__SmeltUint8Array> = crypto_digest #84, #85
+    #87: __SmeltUint8Array = await #86
+    #88: Float = byte_array_byte_length #87
+    #89: None = @10(console_log)
+    #90: None = call #89(#88)
+    #91: String = "SHA-384"
+    #92: __SmeltUint8Array = %2
+    #93: Future<__SmeltUint8Array> = crypto_digest #91, #92
+    #94: __SmeltUint8Array = await #93
+    #95: Float = byte_array_byte_length #94
+    #96: None = @11(console_log)
+    #97: None = call #96(#95)
+    #98: String = "SHA-512"
+    #99: __SmeltUint8Array = %2
+    #100: Future<__SmeltUint8Array> = crypto_digest #98, #99
+    #101: __SmeltUint8Array = await #100
+    #102: Float = byte_array_byte_length #101
+    #103: None = @12(console_log)
+    #104: None = call #103(#102)
+    #105: String = "sha-256"
+    #106: __SmeltUint8Array = %2
+    #107: Future<__SmeltUint8Array> = crypto_digest #105, #106
+    #108: __SmeltUint8Array = await #107
+    #109: Float = byte_array_byte_length #108
+    #110: None = @13(console_log)
+    #111: None = call #110(#109)
+    #112: TextEncoder = text_encoder_new
+    #113: String = ""
+    #114: __SmeltUint8Array = text_encoder_encode #112 #113
+    #115: String = "SHA-256"
+    #116: __SmeltUint8Array = %3
+    #117: Future<__SmeltUint8Array> = crypto_digest #115, #116
+    #118: __SmeltUint8Array = await #117
+    #119: Float = byte_array_byte_length #118
+    #120: None = @14(console_log)
+    #121: None = call #120(#119)
+    #122: Future<None> = async_exit_drain()
+    #123: None = await #122
+  stmts
+    s0: let %0: String = #0
+    s1: #4
+    s2: #18
+    s3: #23
+    s4: #31
+    s5: #36
+    s6: #42
+    s7: let %1: List<String> = #45
+    s8: #49
+    s9: #63
+    s10: #73
+    s11: let %2: __SmeltUint8Array = #76
+    s12: #83
+    s13: #90
+    s14: #97
+    s15: #104
+    s16: #111
+    s17: let %3: __SmeltUint8Array = #114
+    s18: #121
+    s19: #123
+  async state machine
+    states [state0, state1, state2, state3, state4, state5, state6, state7]
+    suspend #80 on #79 -> state81
+    suspend #87 on #86 -> state88
+    suspend #94 on #93 -> state95
+    suspend #101 on #100 -> state102
+    suspend #108 on #107 -> state109
+    suspend #118 on #117 -> state119
+    suspend #123 on #122 -> state124
+
+interned types
+  t0 = String
+  t1 = List<String>
+  t2 = TextEncoder
+  t3 = __SmeltUint8Array
+  t4 = Float
+  t5 = None
+  t6 = Bool
+  t7 = Future<__SmeltUint8Array>
+  t8 = Future<None>

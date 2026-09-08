@@ -611,6 +611,18 @@ fn rewrite_rvalue(
         Rvalue::UrlSearchParamsNew { init } => init
             .as_mut()
             .is_some_and(|init| rewrite_operand_except(init, aliases, dest)),
+        // `getRandomValues` fills its argument in place, so the argument is a
+        // place the call WRITES. Alias rewriting still applies -- it renames
+        // which local the place names, it does not copy the value -- but a
+        // future pass that treats an rvalue's operands as read-only must not
+        // include this one.
+        Rvalue::CryptoOp { args, .. } => {
+            let mut rewritten = false;
+            for arg in args {
+                rewritten |= rewrite_operand_except(arg, aliases, dest);
+            }
+            rewritten
+        }
         Rvalue::FormDataNew => false,
         Rvalue::FormDataOp { form, args, .. } => {
             let mut rewritten = rewrite_operand_except(form, aliases, dest);

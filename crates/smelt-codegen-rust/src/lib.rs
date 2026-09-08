@@ -88,6 +88,7 @@ mod event_emitter_prelude;
 mod host_value_erasure;
 mod blob_prelude;
 mod fetch_types_prelude;
+mod crypto_prelude;
 mod form_data_prelude;
 mod text_codec_prelude;
 pub(crate) mod class_proto;
@@ -568,6 +569,8 @@ fn emit_source_with_free_function_router(
     // carries none of `SmeltHeaders`.
     let needs_headers = stdlib::needs_headers_runtime(mir);
     let needs_url_search_params = stdlib::needs_url_search_params_runtime(mir);
+    let needs_crypto_random_values = stdlib::needs_crypto_random_values_runtime(mir);
+    let needs_crypto_digest = stdlib::needs_crypto_digest_runtime(mir);
     let needs_form_data = stdlib::needs_form_data_runtime(mir);
     let needs_response = stdlib::needs_response_runtime(mir);
     let needs_request = stdlib::needs_request_runtime(mir);
@@ -5372,6 +5375,19 @@ fn emit_source_with_free_function_router(
     }
     if needs_text_decoder {
         text_codec_prelude::emit_decoder(&mut writer, needs_unknown);
+    }
+    // After the byte view: both WebCrypto helpers name `SmeltUint8Array` in
+    // their signatures, and `getRandomValues` reaches into its byte storage.
+    // Emitted only for the members a program actually calls, so a crate that
+    // hashes carries neither `getrandom` nor the fill helper.
+    if needs_crypto_random_values || needs_crypto_digest {
+        crypto_prelude::emit(
+            &mut writer,
+            needs_crypto_random_values,
+            needs_crypto_digest,
+            needs_byte_array,
+            needs_unknown,
+        );
     }
     if needs_event_emitter {
         event_emitter_prelude::emit(&mut writer);

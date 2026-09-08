@@ -77,6 +77,7 @@ pub use expr::{
     RequestOp,
     ResponseOp,
     UrlSearchParamsOp,
+    CryptoOp,
     FormDataOp,
     TextEncoderOp,
     TextDecoderOp,

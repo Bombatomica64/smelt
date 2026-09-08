@@ -1,0 +1,134 @@
+async fn main (FuncId(0)) -> None throws
+  locals
+    %0 user id: String
+    %1 user groups: List<String>
+    %2 user message: __SmeltUint8Array
+    %3 user empty: __SmeltUint8Array
+    %4 temp: String
+    %5 temp: Float
+    %6 temp: None
+    %7 temp: None
+    %8 temp: None
+    %9 temp: Bool
+    %10 temp: None
+    %11 temp: String
+    %12 temp: Bool
+    %13 temp: None
+    %14 temp: String
+    %15 temp: Bool
+    %16 temp: None
+    %17 temp: List<String>
+    %18 temp: Float
+    %19 temp: None
+    %20 temp: Float
+    %21 temp: Float
+    %22 temp: Float
+    %23 temp: None
+    %24 temp: Float
+    %25 temp: Float
+    %26 temp: None
+    %27 temp: TextEncoder
+    %28 temp: __SmeltUint8Array
+    %29 temp: Future<__SmeltUint8Array>
+    %30 temp: __SmeltUint8Array
+    %31 temp: Float
+    %32 temp: None
+    %33 temp: Future<__SmeltUint8Array>
+    %34 temp: __SmeltUint8Array
+    %35 temp: Float
+    %36 temp: None
+    %37 temp: Future<__SmeltUint8Array>
+    %38 temp: __SmeltUint8Array
+    %39 temp: Float
+    %40 temp: None
+    %41 temp: Future<__SmeltUint8Array>
+    %42 temp: __SmeltUint8Array
+    %43 temp: Float
+    %44 temp: None
+    %45 temp: Future<__SmeltUint8Array>
+    %46 temp: __SmeltUint8Array
+    %47 temp: Float
+    %48 temp: None
+    %49 temp: TextEncoder
+    %50 temp: __SmeltUint8Array
+    %51 temp: Future<__SmeltUint8Array>
+    %52 temp: __SmeltUint8Array
+    %53 temp: Float
+    %54 temp: None
+    %55 temp: Future<None>
+    %56 temp: None
+  bb0:
+    %4 = crypto_random_uuid
+    %0 = move %4
+    %5 = len copy %0
+    %6 = call @console_log(move %5) -> bb1
+  bb1:
+    %7 = call @console_log(copy %0[8.0], copy %0[13.0], copy %0[18.0], copy %0[23.0]) -> bb2
+  bb2:
+    %8 = call @console_log(copy %0[14.0]) -> bb3
+  bb3:
+    %9 = string_contains "89ab", copy %0[19.0]
+    %10 = call @console_log(move %9) -> bb4
+  bb4:
+    %11 = crypto_random_uuid
+    %12 = copy %0 == move %11
+    %13 = call @console_log(move %12) -> bb5
+  bb5:
+    %14 = string_lower copy %0
+    %15 = move %14 == copy %0
+    %16 = call @console_log(move %15) -> bb6
+  bb6:
+    %17 = string_split move %0, "-", _
+    %1 = move %17
+    %18 = len copy %1
+    %19 = call @console_log(move %18) -> bb7
+  bb7:
+    %20 = len copy %1[0.0]
+    %21 = len copy %1[1.0]
+    %22 = len copy %1[2.0]
+    %23 = call @console_log(move %20, move %21, move %22) -> bb8
+  bb8:
+    %24 = len copy %1[3.0]
+    %25 = len copy %1[4.0]
+    %26 = call @console_log(move %24, move %25) -> bb9
+  bb9:
+    %27 = text_encoder_new
+    %28 = text_encoder_encode move %27 "abc"
+    %2 = move %28
+    %29 = crypto_digest "SHA-1", copy %2
+    %30 = await move %29
+    %31 = byte_array_byte_length move %30
+    %32 = call @console_log(move %31) -> bb10
+  bb10:
+    %33 = crypto_digest "SHA-256", copy %2
+    %34 = await move %33
+    %35 = byte_array_byte_length move %34
+    %36 = call @console_log(move %35) -> bb11
+  bb11:
+    %37 = crypto_digest "SHA-384", copy %2
+    %38 = await move %37
+    %39 = byte_array_byte_length move %38
+    %40 = call @console_log(move %39) -> bb12
+  bb12:
+    %41 = crypto_digest "SHA-512", copy %2
+    %42 = await move %41
+    %43 = byte_array_byte_length move %42
+    %44 = call @console_log(move %43) -> bb13
+  bb13:
+    %45 = crypto_digest "sha-256", move %2
+    %46 = await move %45
+    %47 = byte_array_byte_length move %46
+    %48 = call @console_log(move %47) -> bb14
+  bb14:
+    %49 = text_encoder_new
+    %50 = text_encoder_encode move %49 ""
+    %3 = move %50
+    %51 = crypto_digest "SHA-256", move %3
+    %52 = await move %51
+    %53 = byte_array_byte_length move %52
+    %54 = call @console_log(move %53) -> bb15
+  bb15:
+    %55 = async_exit_drain()
+    %56 = await move %55
+    return none
+

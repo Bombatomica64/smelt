@@ -1086,6 +1086,23 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
             || "url_search_params_new".to_owned(),
             |init| format!("url_search_params_new {}", operand_text(init)),
         ),
+        Rvalue::CryptoOp { op, args } => {
+            let op_name = match op {
+                smelt_hir::CryptoOp::RandomUuid => "random_uuid",
+                smelt_hir::CryptoOp::GetRandomValues => "get_random_values",
+                smelt_hir::CryptoOp::Digest => "digest",
+            };
+            let args_text = args
+                .iter()
+                .map(operand_text)
+                .collect::<Vec<_>>()
+                .join(", ");
+            if args_text.is_empty() {
+                format!("crypto_{op_name}")
+            } else {
+                format!("crypto_{op_name} {args_text}")
+            }
+        }
         Rvalue::FormDataNew => "form_data_new".to_owned(),
         Rvalue::FormDataOp { op, form, args } => {
             let op_name = match op {

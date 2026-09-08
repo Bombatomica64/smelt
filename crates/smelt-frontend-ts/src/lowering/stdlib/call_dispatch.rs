@@ -1713,7 +1713,6 @@ impl<'builder> ModuleBuilder<'builder> {
         Self::structured_clone_call,
         Self::uri_encode_call,
         Self::object_prototype_to_string_call,
-        Self::crypto_get_random_values_call,
         Self::unsupported_object_collection_call_entry,
         Self::exact_stdlib_call,
         Self::array_constructor_call,
@@ -3955,6 +3954,9 @@ impl<'builder> ModuleBuilder<'builder> {
             RuleId::TsBufferStatic => self.exact_buffer_static_call(call, body),
             RuleId::TsJsonStringify => self.json_stringify_call(call, body),
             RuleId::TsJsonParse => self.json_parse_call(call, body),
+            RuleId::TsCryptoRandomUuid
+            | RuleId::TsCryptoGetRandomValues
+            | RuleId::TsCryptoDigest => self.crypto_call(rule, call, body),
             _ => Ok(None),
         }
     }

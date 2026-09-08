@@ -127,6 +127,11 @@ impl Rvalue {
                     visit(arg);
                 }
             }
+            Self::CryptoOp { args, .. } => {
+                for arg in args {
+                    visit(arg);
+                }
+            }
             Self::FormDataNew => {}
             Self::FormDataOp { form, args, .. } => {
                 visit(form);
@@ -1038,6 +1043,11 @@ impl Rvalue {
             }
             Self::UrlSearchParamsOp { params, args, .. } => {
                 visit(params);
+                for arg in args.iter_mut() {
+                    visit(arg);
+                }
+            }
+            Self::CryptoOp { args, .. } => {
                 for arg in args.iter_mut() {
                     visit(arg);
                 }

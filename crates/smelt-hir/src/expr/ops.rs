@@ -546,6 +546,35 @@ pub enum ByteArrayOp {
     ByteLength,
 }
 
+/// A directly lowered `WebCrypto` member.
+///
+/// The three keyless members of the `crypto` global. There is no receiver
+/// operand for any of them: `crypto` is a namespace object with no state a
+/// program can observe, so the call takes only its arguments — the same shape
+/// `Date.now()` and `Math.random()` already have. The key-taking members of
+/// `SubtleCrypto` are deliberately absent; see `CRYPTO_KEY_REASON` in
+/// `smelt_stdlib::host_modules` for why they stay declared.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CryptoOp {
+    /// `crypto.randomUUID()`: a fresh v4 UUID in the spec's lowercase
+    /// hyphenated form.
+    RandomUuid,
+    /// `crypto.getRandomValues(view)`: fill the view with random bytes.
+    ///
+    /// The spec fills the argument IN PLACE and returns that same object, so
+    /// the argument is a mutable place rather than a value: `filled === buffer`
+    /// is `true` in the source and has to stay true in the generated Rust.
+    GetRandomValues,
+    /// `crypto.subtle.digest(algorithm, data)`: hash the bytes. Async.
+    ///
+    /// The algorithm is a run-time STRING (or an object with a `name`), not a
+    /// type, so one call site can name any of SHA-1/256/384/512 and the digest
+    /// width is only known when it runs. That is why the result is a byte value
+    /// rather than a fixed-size one, and why the emitted match carries every
+    /// supported algorithm.
+    Digest,
+}
+
 /// A directly lowered WHATWG `FormData` member.
 ///
 /// The same shape as [`UrlSearchParamsOp`] — a pair list's read, mutation and

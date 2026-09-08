@@ -548,6 +548,13 @@ impl ExprKind {
                 bytes: f(bytes)?,
             },
             Self::FormDataNew => Self::FormDataNew,
+            Self::CryptoOp { op, args } => {
+                let mut mapped = Vec::with_capacity(args.len());
+                for arg in args {
+                    mapped.push(f(arg)?);
+                }
+                Self::CryptoOp { op, args: mapped }
+            }
             Self::FormDataOp { op, form, args } => {
                 let form = f(form)?;
                 let mut mapped = Vec::with_capacity(args.len());

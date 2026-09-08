@@ -32,6 +32,25 @@ pub enum BackendDependency {
     /// cannot compile. A program that never calls `createServer` pays for none
     /// of them.
     Hyper,
+    /// `uuid` for generated `crypto.randomUUID()`.
+    Uuid,
+    /// `getrandom` for generated `crypto.getRandomValues(view)`.
+    ///
+    /// Not `rand`: filling a byte view is exactly `getrandom`'s whole job, and
+    /// it is the crate `rand` itself calls for its OS entropy. A program that
+    /// only wants random bytes should not carry a distribution and generator
+    /// framework to get them.
+    GetRandom,
+    /// `sha1` and `sha2` for generated `crypto.subtle.digest(..)`.
+    ///
+    /// One dependency rather than two, because a `digest` call picks its
+    /// algorithm from a STRING at run time: `digest(name, data)` has to be able
+    /// to answer SHA-1 and any SHA-2 width from the same match, so a manifest
+    /// carrying one of the two crates could not compile the emitted call. The
+    /// split that would matter — a program that only ever digests SHA-256 — is
+    /// not knowable from the source spelling in general, and both crates are
+    /// small.
+    Sha,
 }
 
 impl BackendDependency {
@@ -59,6 +78,12 @@ impl BackendDependency {
             Self::Hyper => {
                 "hyper = { version = \"1\", features = [\"server\", \"http1\"] }\nhyper-util = { version = \"0.1\", features = [\"tokio\", \"server\"] }\nhttp-body-util = \"0.1\"\nhttp = \"1\"\nbytes = \"1\"\n"
             }
+            // `v4` is the only generator `randomUUID` names, and it is the only
+            // feature taken: `uuid`'s default features add serde and formatting
+            // surfaces a generated crate never spells.
+            Self::Uuid => "uuid = { version = \"1\", features = [\"v4\"] }\n",
+            Self::GetRandom => "getrandom = \"0.3\"\n",
+            Self::Sha => "sha1 = \"0.10\"\nsha2 = \"0.10\"\n",
         }
     }
 }
