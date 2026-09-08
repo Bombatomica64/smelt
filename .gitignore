@@ -270,3 +270,6 @@ third_party/es-toolkit-src/
 # standards-narrowing-sweep-and-nullish-stringify.md closes out the narrowing
 # gaps and records the nullish-stringify find
 !blocker-logs/standards-narrowing-sweep-and-nullish-stringify.md
+# standards-ambient-init-dictionaries.md records the ResponseInit/RequestInit
+# generated-struct design and the Hono stop it moved
+!blocker-logs/standards-ambient-init-dictionaries.md

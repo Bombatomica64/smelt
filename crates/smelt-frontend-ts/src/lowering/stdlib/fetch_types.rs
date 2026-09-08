@@ -547,7 +547,12 @@ impl ModuleBuilder<'_> {
         let Ok(receiver) = self.expression(&member.object, body) else {
             return Ok(None);
         };
-        let receiver_ty = Self::expr_ty(body, receiver);
+        let span = self.span(member.span.start, member.span.end);
+        let (receiver, receiver_ty) = if member.optional {
+            (receiver, Self::expr_ty(body, receiver))
+        } else {
+            self.present_receiver(receiver, span, body)
+        };
         if !self.is_response_type(receiver_ty) {
             return Ok(None);
         }
@@ -585,26 +590,86 @@ impl ModuleBuilder<'_> {
     /// share [`ResponseOp`] with the methods rather than going through the
     /// generic field-read path — there is no struct field to read; the value is
     /// computed by the runtime type (`ok` is derived from `status`).
-    pub(in crate::lowering) fn response_property_read(
+     /// Unwrap a receiver whose DECLARED type is still optional at a member read.
+    ///
+    /// `if (this.res) { this.res.headers }` — Hono's `HTTPException.getResponse`
+    /// — reads a member off a field typed `Response | undefined` that the source
+    /// has just narrowed. Narrowing tracks LOCALS, so the field's declared type
+    /// is what arrives here, and every modeled-host member read is gated on the
+    /// receiver being exactly that class: the guarded read fell through to the
+    /// erased member path and produced a `SmeltUnknown`, which is what refused
+    /// `new Response(.., { headers: this.res.headers })` at the constructor.
+    ///
+    /// `tsc` proved the receiver present, so the read asserts it — the same
+    /// `TypeAssert` the `length` path and the union-arm dispatch use. A source
+    /// `?.` never reaches here: that spelling asks for `undefined` when the
+    /// receiver is absent, which is the optional-chain lowering's job.
+    pub(in crate::lowering) fn present_receiver(
+        &self,
+        receiver: smelt_hir::ExprId,
+        span: smelt_hir::Span,
+        body: &mut Body,
+    ) -> (smelt_hir::ExprId, smelt_hir::TypeId) {
+        let receiver_ty = Self::expr_ty(body, receiver);
+        if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(receiver_ty).cloned() {
+            let asserted = body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: receiver },
+                ty: inner,
+                span,
+            });
+            return (asserted, inner);
+        }
+        (receiver, receiver_ty)
+    }
+
+   pub(in crate::lowering) fn response_property_read(
         &mut self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        // `None` marks a property that IS a `Response` member but has no
+        // modeled operation, so the receiver still has to be checked before it
+        // can be reported: `this.body = data` on an `any` receiver
+        // (`declare module 'koa'` shapes) is not this class's `body` at all.
         let op = match member.property.name.as_str() {
-            "status" => ResponseOp::Status,
-            "ok" => ResponseOp::Ok,
-            "statusText" => ResponseOp::StatusText,
-            "headers" => ResponseOp::Headers,
-            "bodyUsed" => ResponseOp::BodyUsed,
+            "status" => Some(ResponseOp::Status),
+            "ok" => Some(ResponseOp::Ok),
+            "statusText" => Some(ResponseOp::StatusText),
+            "headers" => Some(ResponseOp::Headers),
+            "bodyUsed" => Some(ResponseOp::BodyUsed),
+            // `body` is a `ReadableStream | null`, which Smelt does not model
+            // (the same surface the Hono probe manifest excludes by name). It
+            // used to fall through to the erased field read, whose emitted text
+            // read the generated struct's own `body` field: the HIR claimed an
+            // erased value while the Rust was an `Option<SmeltBody>`, so the
+            // generated crate failed to compile with an E0308 that named
+            // neither the source line nor the reason. A named blocker says what
+            // is missing, and the modeled ways to move a body still work --
+            // `await res.text()`, or passing the response itself at the body
+            // position, which takes its handle.
+            "body" => None,
             _ => return Ok(None),
         };
         let Ok(receiver) = self.expression(&member.object, body) else {
             return Ok(None);
         };
-        let receiver_ty = Self::expr_ty(body, receiver);
+        // A receiver the source narrowed to present keeps its modeled member
+        // read; see `present_receiver`.
+        let span = self.span(member.span.start, member.span.end);
+        let (receiver, receiver_ty) = if member.optional {
+            (receiver, Self::expr_ty(body, receiver))
+        } else {
+            self.present_receiver(receiver, span, body)
+        };
         if !self.is_response_type(receiver_ty) {
             return Ok(None);
         }
+        let Some(op) = op else {
+            return Err(SmeltError::unsupported(
+                span,
+                "`Response.body` is a ReadableStream, which is not modeled; use `await response.text()`, or pass the response itself as the body",
+            ));
+        };
         let ty = self.response_op_result_type(op);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::ResponseOp {
@@ -759,7 +824,12 @@ impl ModuleBuilder<'_> {
         let Ok(receiver) = self.expression(&member.object, body) else {
             return Ok(None);
         };
-        let receiver_ty = Self::expr_ty(body, receiver);
+        let span = self.span(member.span.start, member.span.end);
+        let (receiver, receiver_ty) = if member.optional {
+            (receiver, Self::expr_ty(body, receiver))
+        } else {
+            self.present_receiver(receiver, span, body)
+        };
         if !self.is_request_type(receiver_ty) {
             return Ok(None);
         }
@@ -798,20 +868,35 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let op = match member.property.name.as_str() {
-            "url" => RequestOp::Url,
-            "method" => RequestOp::Method,
-            "headers" => RequestOp::Headers,
-            "bodyUsed" => RequestOp::BodyUsed,
-            "signal" => RequestOp::Signal,
+            "url" => Some(RequestOp::Url),
+            "method" => Some(RequestOp::Method),
+            "headers" => Some(RequestOp::Headers),
+            "bodyUsed" => Some(RequestOp::BodyUsed),
+            "signal" => Some(RequestOp::Signal),
+            // Same as `Response.body` above: a `ReadableStream` Smelt does not
+            // model, named rather than erased into a field read that does not
+            // compile.
+            "body" => None,
             _ => return Ok(None),
         };
         let Ok(receiver) = self.expression(&member.object, body) else {
             return Ok(None);
         };
-        let receiver_ty = Self::expr_ty(body, receiver);
+        let span = self.span(member.span.start, member.span.end);
+        let (receiver, receiver_ty) = if member.optional {
+            (receiver, Self::expr_ty(body, receiver))
+        } else {
+            self.present_receiver(receiver, span, body)
+        };
         if !self.is_request_type(receiver_ty) {
             return Ok(None);
         }
+        let Some(op) = op else {
+            return Err(SmeltError::unsupported(
+                span,
+                "`Request.body` is a ReadableStream, which is not modeled; use `await request.text()`, or pass the request itself as the body",
+            ));
+        };
         let ty = self.request_op_result_type(op);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::RequestOp {

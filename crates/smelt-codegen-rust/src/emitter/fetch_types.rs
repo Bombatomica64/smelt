@@ -456,6 +456,33 @@ impl FunctionEmitter<'_> {
         match self.mir.types.get(body_ty) {
             Some(Type::String) => Ok(format!("SmeltBody::from_text(&{body_text})")),
             Some(Type::None) => Ok("SmeltBody::empty()".to_owned()),
+            // An OPTIONAL body. WHATWG's constructor takes `BodyInit?` and an
+            // absent body IS the empty body — the same answer the no-argument
+            // spelling gives — so this is a modeled case rather than a blocker.
+            // It is the shape `body?: BodyInit | null` arrives in.
+            Some(&Type::Optional(inner)) => {
+                let present = self.body_conversion_text("smelt_body_init", inner)?;
+                Ok(format!(
+                    "match {body_text} {{ Some(smelt_body_init) => {present}, None => SmeltBody::empty() }}"
+                ))
+            }
+            // An ERASED body. `BodyInit` is a union whose unmodeled arms are
+            // host classes, so a `BodyInit | null | undefined` parameter erases
+            // and the whole call used to be refused at BUILD time — including
+            // for the string every real caller passes.
+            //
+            // **Dynamic boundary.** The arms the spec allows are distinguishable
+            // at run time by tag, and only there: the static type says nothing
+            // beyond "some runtime value". A string is text and a nullish value
+            // is the empty body, which covers every arm Smelt models; anything
+            // else is an unmodeled arm and throws, naming itself, rather than
+            // putting wrong bytes in the body. A concrete type cannot stand in
+            // here — the erasure is the parameter's own declared type.
+            Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => Ok(format!(
+                "match {body_text} {{ SmeltUnknown::String(value) => SmeltBody::from_text(&value.to_string()), \
+                 SmeltUnknown::Null | SmeltUnknown::Undefined => SmeltBody::empty(), \
+                 value => panic!(\"body arm is not modeled yet: {{value:?}}\") }}"
+            )),
             _ => Err(EmitError::new(format!(
                 "body must be a string or null; this `BodyInit` arm is not modeled yet: {}",
                 self.type_text_with_impl_trait(body_ty, false)?
