@@ -547,6 +547,19 @@ impl ExprKind {
                 op,
                 bytes: f(bytes)?,
             },
+            Self::FormDataNew => Self::FormDataNew,
+            Self::FormDataOp { op, form, args } => {
+                let form = f(form)?;
+                let mut mapped = Vec::with_capacity(args.len());
+                for arg in args {
+                    mapped.push(f(arg)?);
+                }
+                Self::FormDataOp {
+                    op,
+                    form,
+                    args: mapped,
+                }
+            }
             Self::UrlSearchParamsNew { init } => Self::UrlSearchParamsNew {
                 init: match init {
                     Some(init) => Some(f(init)?),

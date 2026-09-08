@@ -26,6 +26,8 @@ pub enum TypeScriptReceiverKind {
     Headers,
     /// A WHATWG `URLSearchParams` value.
     UrlSearchParams,
+    /// A WHATWG `FormData` value.
+    FormData,
     /// A WHATWG `Response` value.
     Response,
     /// A WHATWG `Request` value.
@@ -291,9 +293,52 @@ pub const TYPESCRIPT_METHODS: &[MethodRecognition] = &[
         "toString",
         RuleId::TsUrlSearchParamsToString,
     ),
+    // `FormData`. The same ordered name/value pair list `Headers` and
+    // `URLSearchParams` are, with two differences that both come from the spec:
+    // names are case-SENSITIVE (a header list's are not), and an entry's value
+    // is `string | File` rather than a string.
+    method(TypeScriptReceiverKind::FormData, "get", RuleId::TsFormDataRead),
+    method(TypeScriptReceiverKind::FormData, "getAll", RuleId::TsFormDataRead),
+    method(TypeScriptReceiverKind::FormData, "has", RuleId::TsFormDataRead),
+    method(TypeScriptReceiverKind::FormData, "set", RuleId::TsFormDataMutation),
+    method(
+        TypeScriptReceiverKind::FormData,
+        "append",
+        RuleId::TsFormDataMutation,
+    ),
+    method(
+        TypeScriptReceiverKind::FormData,
+        "delete",
+        RuleId::TsFormDataMutation,
+    ),
+    method(
+        TypeScriptReceiverKind::FormData,
+        "keys",
+        RuleId::TsFormDataProjection,
+    ),
+    method(
+        TypeScriptReceiverKind::FormData,
+        "values",
+        RuleId::TsFormDataProjection,
+    ),
+    method(
+        TypeScriptReceiverKind::FormData,
+        "entries",
+        RuleId::TsFormDataProjection,
+    ),
+    method(
+        TypeScriptReceiverKind::FormData,
+        "forEach",
+        RuleId::TsFormDataProjection,
+    ),
     method(
         TypeScriptReceiverKind::Response,
         "text",
+        RuleId::TsResponseBodyRead,
+    ),
+    method(
+        TypeScriptReceiverKind::Response,
+        "formData",
         RuleId::TsResponseBodyRead,
     ),
     method(
@@ -304,6 +349,11 @@ pub const TYPESCRIPT_METHODS: &[MethodRecognition] = &[
     method(
         TypeScriptReceiverKind::Request,
         "text",
+        RuleId::TsRequestBodyRead,
+    ),
+    method(
+        TypeScriptReceiverKind::Request,
+        "formData",
         RuleId::TsRequestBodyRead,
     ),
     method(

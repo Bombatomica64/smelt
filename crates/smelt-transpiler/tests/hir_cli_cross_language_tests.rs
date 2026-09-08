@@ -340,6 +340,7 @@ fn end_to_end_examples_match_expected_outputs() -> TestResult {
         "45_text_codec",
         "46_blob_file",
         "47_module_const_host_value",
+        "48_form_data",
     ] {
         verify_end_to_end_example(name)?;
     }

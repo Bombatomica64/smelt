@@ -1241,6 +1241,58 @@ impl ModuleBuilder<'_> {
         format!("__smelt_anon_class_{}", class.span.start)
     }
 
+    /// Give a named class EXPRESSION its own type symbol when its name is a
+    /// modeled host class.
+    ///
+    /// A named class expression binds its name only inside the class's own
+    /// body, so nothing outside can name it as a type. A modeled host class of
+    /// the same spelling, on the other hand, is named by every reference to the
+    /// host value — and both would otherwise intern the SAME
+    /// `Type::Class { name }`, leaving one type identity standing for two
+    /// different Rust types: the emitted struct and the runtime type the host
+    /// class lowers to.
+    ///
+    /// That is not a theoretical clash. es-toolkit's `isBlob`/`isFile` specs
+    /// install `globalThis.File = class File extends Blob { .. }`; the class
+    /// expression emits a real `File` struct while `new File(..)` in the same
+    /// module keeps dispatching on the host override slot, whose native
+    /// fallback is a `SmeltBlob`. One shared symbol therefore declared the
+    /// struct's constructor result as `SmeltBlob` and the blob fallback as
+    /// `File` — seven `error[E0308]`s in the generated crate, with nothing in
+    /// the compiler able to tell the two meanings apart.
+    ///
+    /// So the host keeps the spelling and the class expression takes an
+    /// internal symbol, the same way a `describe` callback's class declarations
+    /// do (`enter_test_suite_class_scope`). Deliberately NOT applied to a class
+    /// DECLARATION: that name IS in the enclosing scope, the source genuinely
+    /// shadows the host class, and every reference — including from another
+    /// module through an import — must keep resolving to the one symbol.
+    fn host_shadowing_class_expression_name(
+        &mut self,
+        class: &oxc::ast::ast::Class<'_>,
+        class_source_name: &str,
+    ) -> Option<smelt_hir::Symbol> {
+        if class.r#type != oxc::ast::ast::ClassType::ClassExpression {
+            return None;
+        }
+        // Anonymous expressions already get a collision-free synthetic name;
+        // there is no spelling to take away from the host class.
+        class.id.as_ref()?;
+        smelt_stdlib::typescript_stdlib_class(class_source_name)?;
+        let internal_name = format!(
+            "{class_source_name}SmeltClassExprF{}S{}",
+            self.file_id.0, class.span.start,
+        );
+        // The internal name is the Rust-facing RENDERING; the source spelling
+        // stays the recorded original name, because that is what reflection
+        // reads. `__smelt_class` and the `instanceof` class registry both go
+        // through the original name, and JavaScript answers `File` there — the
+        // disambiguation exists for the Rust type system, not for the program.
+        let symbol = self.ctx.krate.symbols.intern(&internal_name);
+        self.ctx.krate.names.record(symbol, class_source_name);
+        Some(symbol)
+    }
+
     /// Lower a class declaration to HIR.
     ///
     /// Anonymous classes (`class {}` in an expression position) are named with a
@@ -1258,7 +1310,10 @@ impl ModuleBuilder<'_> {
             || Self::anonymous_class_name(class),
             |id| id.name.to_string(),
         );
-        let class_name = self.classes.scoped_type_name(&class_source_name)
+        let class_name = self
+            .classes
+            .scoped_type_name(&class_source_name)
+            .or_else(|| self.host_shadowing_class_expression_name(class, &class_source_name))
             .unwrap_or_else(|| self.intern_type_name(&class_source_name));
         let class_name_owned = self
             .ctx

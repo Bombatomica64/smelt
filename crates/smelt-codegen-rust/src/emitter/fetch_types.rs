@@ -329,6 +329,12 @@ impl FunctionEmitter<'_> {
             smelt_hir::RequestOp::Text => format!(
                 "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(smelt_request.take_text()?) }})) }}"
             ),
+            // The same single-use reader, handing its bytes plus the request's
+            // OWN `Content-Type` to the parser: the encoding (and a multipart
+            // boundary) is a header, not a property of the bytes.
+            smelt_hir::RequestOp::FormData => format!(
+                "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_content_type = smelt_request.headers().get(\"content-type\"); Ok::<_, Box<dyn std::error::Error>>(smelt_form_data_from_body(smelt_content_type, smelt_request.body().take_bytes()?)?) }})) }}"
+            ),
         })
     }
 
@@ -435,6 +441,11 @@ impl FunctionEmitter<'_> {
             // is exactly what the spec says happens.
             smelt_hir::ResponseOp::Text => format!(
                 "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(smelt_response.take_text()?) }})) }}"
+            ),
+            // Same shape as `Request::formData`; see the comment there for why
+            // the parser is handed the header rather than only the bytes.
+            smelt_hir::ResponseOp::FormData => format!(
+                "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_content_type = smelt_response.headers().get(\"content-type\"); Ok::<_, Box<dyn std::error::Error>>(smelt_form_data_from_body(smelt_content_type, smelt_response.body().take_bytes()?)?) }})) }}"
             ),
         })
     }
@@ -548,11 +559,15 @@ impl FunctionEmitter<'_> {
     }
 
     /// Resolve a class symbol to its shared stdlib class identity, if any.
+    ///
+    /// Delegates to `crate::stdlib::stdlib_class_of_class_symbol`, which is the
+    /// one place that answers this for the pay-for-use gates and the emitters
+    /// alike -- including the source-shadowing rule documented there.
     pub(super) fn stdlib_class_of_symbol(
         &self,
         name: Symbol,
     ) -> Result<Option<smelt_stdlib::StdlibClass>, EmitError> {
-        Ok(smelt_stdlib::typescript_stdlib_class(self.symbol_name(name)?))
+        Ok(crate::stdlib::stdlib_class_of_class_symbol(self.mir, name))
     }
     /// Render a scalar init key, falling back to the spec's default.
     ///

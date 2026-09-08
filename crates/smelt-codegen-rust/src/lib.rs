@@ -88,6 +88,7 @@ mod event_emitter_prelude;
 mod host_value_erasure;
 mod blob_prelude;
 mod fetch_types_prelude;
+mod form_data_prelude;
 mod text_codec_prelude;
 pub(crate) mod class_proto;
 pub(crate) mod classes;
@@ -567,6 +568,7 @@ fn emit_source_with_free_function_router(
     // carries none of `SmeltHeaders`.
     let needs_headers = stdlib::needs_headers_runtime(mir);
     let needs_url_search_params = stdlib::needs_url_search_params_runtime(mir);
+    let needs_form_data = stdlib::needs_form_data_runtime(mir);
     let needs_response = stdlib::needs_response_runtime(mir);
     let needs_request = stdlib::needs_request_runtime(mir);
     let needs_event_emitter = stdlib::needs_event_emitter_runtime(mir);
@@ -583,6 +585,13 @@ fn emit_source_with_free_function_router(
     let needs_vitest_mock = stdlib::needs_vitest_mock_runtime(mir);
     let needs_structured_clone = stdlib::rvalues(mir)
         .any(|rvalue| matches!(rvalue, Rvalue::StructuredClone { .. }));
+    // Only crates that lower a `typeof` at all carry the shared tag-to-spelling
+    // helper. A `typeof` over a concrete union is decided per member at compile
+    // time and stays inline at its site, so in a crate whose ONLY `typeof` is
+    // that shape the helper is emitted unused -- inert under the generated
+    // crate's `#![allow(dead_code)]`, and not worth a second walk over every
+    // operand's type to tell the two shapes apart here.
+    let needs_typeof = stdlib::rvalues(mir).any(|rvalue| matches!(rvalue, Rvalue::TypeofValue { .. }));
     // Only crates that actually concatenate an erased argument need the
     // `IsConcatSpreadable` helper, so it stays out of every other prelude.
     let needs_concat_spread =
@@ -790,6 +799,7 @@ fn emit_source_with_free_function_router(
     if (needs_regex
         || needs_headers
         || needs_url_search_params
+        || needs_form_data
         || needs_byte_array
         || needs_text_encoder
         || needs_text_decoder
@@ -2333,6 +2343,14 @@ fn emit_source_with_free_function_router(
         // cannot disagree about the chain.
         writer.line("/// Whether an `Object.create` prototype has to be recorded to stay observable.");
         writer.line("fn smelt_prototype_slot_is_observable(prototype: &SmeltUnknown) -> bool { !matches!(prototype, SmeltUnknown::String(sentinel) if &**sentinel == \"__smelt_proto:object\" || &**sentinel == \"__smelt_proto:class\") }");
+        // JavaScript `typeof` answers one of seven fixed spellings, decided purely
+        // by the erased value's tag. Every source `typeof` asks the same question,
+        // so the tag-to-spelling table lives here once and returns a `&'static str`
+        // rather than being inlined -- and re-allocated -- at each site.
+        if needs_typeof {
+            writer.line("/// Resolve the JavaScript `typeof` spelling for an erased value.");
+            writer.line("fn smelt_typeof(value: &SmeltUnknown) -> &'static str { match value { SmeltUnknown::Undefined => \"undefined\", SmeltUnknown::Bool(_) => \"boolean\", SmeltUnknown::Number(_) => \"number\", SmeltUnknown::String(_) => \"string\", SmeltUnknown::Symbol(_) => \"symbol\", SmeltUnknown::Function(_) => \"function\", SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Promise(_) => \"object\" } }");
+        }
         writer.blank_line();
         writer.blank_line();
         writer.line("thread_local! {");
@@ -5323,6 +5341,12 @@ fn emit_source_with_free_function_router(
     }
     if needs_url_search_params {
         fetch_types_prelude::emit_url_search_params(&mut writer, needs_unknown);
+    }
+    // After `SmeltBlob` in the dependency sense (a form entry holds one) and
+    // beside the params list in the semantic one: both parse the urlencoded
+    // form through `url::form_urlencoded`.
+    if needs_form_data {
+        form_data_prelude::emit(&mut writer, needs_unknown);
     }
     // `SmeltBody` is emitted before `SmeltResponse` because the response holds
     // one by value; both are gated on a type that HAS a body being present.

@@ -979,6 +979,7 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 smelt_hir::RequestOp::Headers => "headers",
                 smelt_hir::RequestOp::BodyUsed => "body_used",
                 smelt_hir::RequestOp::Text => "text",
+                smelt_hir::RequestOp::FormData => "form_data",
                 smelt_hir::RequestOp::Clone => "clone",
             };
             let mut text = format!("request_{name} {}", operand_text(request));
@@ -1021,6 +1022,7 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 smelt_hir::ResponseOp::Headers => "headers",
                 smelt_hir::ResponseOp::BodyUsed => "body_used",
                 smelt_hir::ResponseOp::Text => "text",
+                smelt_hir::ResponseOp::FormData => "form_data",
                 smelt_hir::ResponseOp::Clone => "clone",
             };
             let mut text = format!("response_{name} {}", operand_text(response));
@@ -1084,6 +1086,31 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
             || "url_search_params_new".to_owned(),
             |init| format!("url_search_params_new {}", operand_text(init)),
         ),
+        Rvalue::FormDataNew => "form_data_new".to_owned(),
+        Rvalue::FormDataOp { op, form, args } => {
+            let op_name = match op {
+                smelt_hir::FormDataOp::Get => "get",
+                smelt_hir::FormDataOp::GetAll => "get_all",
+                smelt_hir::FormDataOp::Has => "has",
+                smelt_hir::FormDataOp::Set => "set",
+                smelt_hir::FormDataOp::Append => "append",
+                smelt_hir::FormDataOp::Delete => "delete",
+                smelt_hir::FormDataOp::Keys => "keys",
+                smelt_hir::FormDataOp::Values => "values",
+                smelt_hir::FormDataOp::Entries => "entries",
+                smelt_hir::FormDataOp::ForEach => "for_each",
+            };
+            let args_text = args
+                .iter()
+                .map(operand_text)
+                .collect::<Vec<_>>()
+                .join(", ");
+            if args_text.is_empty() {
+                format!("form_data_{op_name} {}", operand_text(form))
+            } else {
+                format!("form_data_{op_name} {}, {args_text}", operand_text(form))
+            }
+        }
         Rvalue::UrlSearchParamsOp { op, params, args } => {
             let op_text = match op {
                 smelt_hir::UrlSearchParamsOp::Get => "get",

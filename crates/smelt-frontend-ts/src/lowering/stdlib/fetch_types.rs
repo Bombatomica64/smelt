@@ -551,9 +551,13 @@ impl ModuleBuilder<'_> {
         if !self.is_response_type(receiver_ty) {
             return Ok(None);
         }
-        let op = match rule {
-            RuleId::TsResponseBodyRead => ResponseOp::Text,
-            RuleId::TsResponseClone => ResponseOp::Clone,
+        // One rule covers both body readers, because they ARE one reader in
+        // the spec's terms: async, single-use, and a second call throws. The
+        // member spelling picks which value it answers.
+        let op = match (rule, member_name) {
+            (RuleId::TsResponseBodyRead, "formData") => ResponseOp::FormData,
+            (RuleId::TsResponseBodyRead, _) => ResponseOp::Text,
+            (RuleId::TsResponseClone, _) => ResponseOp::Clone,
             _ => return Ok(None),
         };
         if !call.arguments.is_empty() {
@@ -644,6 +648,12 @@ impl ModuleBuilder<'_> {
             ResponseOp::Text => {
                 let string_ty = self.ctx.krate.types.intern(Type::String);
                 self.ctx.krate.types.intern(Type::Future(string_ty))
+            }
+            // `formData()` is `Promise<FormData>`: a future over the modeled
+            // concrete form, so the awaited value needs no narrowing.
+            ResponseOp::FormData => {
+                let form_ty = self.form_data_type();
+                self.ctx.krate.types.intern(Type::Future(form_ty))
             }
         }
     }
@@ -750,6 +760,7 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         }
         let op = match rule {
+            RuleId::TsRequestBodyRead if member_name == "formData" => RequestOp::FormData,
             RuleId::TsRequestBodyRead => RequestOp::Text,
             RuleId::TsRequestClone => RequestOp::Clone,
             _ => return Ok(None),
@@ -833,6 +844,12 @@ impl ModuleBuilder<'_> {
             RequestOp::Text => {
                 let string_ty = self.ctx.krate.types.intern(Type::String);
                 self.ctx.krate.types.intern(Type::Future(string_ty))
+            }
+            // `formData()` is `Promise<FormData>`, the same reader as `text()`
+            // answering the modeled concrete form instead of a string.
+            RequestOp::FormData => {
+                let form_ty = self.form_data_type();
+                self.ctx.krate.types.intern(Type::Future(form_ty))
             }
         }
     }

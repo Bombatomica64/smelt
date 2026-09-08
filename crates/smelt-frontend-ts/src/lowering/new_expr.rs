@@ -273,6 +273,9 @@ impl ModuleBuilder<'_> {
         if callee.name == "URLSearchParams" && !self.classes.contains("URLSearchParams") {
             return self.url_search_params_constructor_expression(new_expr, body);
         }
+        if callee.name == "FormData" && !self.classes.contains("FormData") {
+            return self.form_data_constructor_expression(new_expr, body);
+        }
         if callee.name == "Response" && !self.classes.contains("Response") {
             return self.response_constructor_expression(new_expr, body);
         }
@@ -895,6 +898,37 @@ impl ModuleBuilder<'_> {
         let ty = self.url_search_params_type();
         Ok(body.push_expr(Expr {
             kind: ExprKind::UrlSearchParamsNew { init },
+            ty,
+            span: self.span(new_expr.span.start, new_expr.span.end),
+        }))
+    }
+
+    /// `new FormData()`.
+    ///
+    /// Was a marker-only host record: `form.append(..)` did nothing and
+    /// `form.get(..)` answered `undefined`, so the value existed and held no
+    /// entries. It is now the modeled `FormData` class.
+    ///
+    /// The constructor takes no arguments here on purpose. The spec's only
+    /// parameter is an optional `HTMLFormElement` (plus a `submitter`), which
+    /// is DOM and outside the non-DOM profile — so rather than accept and
+    /// ignore an argument, one is refused with a named blocker and a form is
+    /// always built empty and filled with `append`.
+    pub(super) fn form_data_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if !new_expr.arguments.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(new_expr.span.start, new_expr.span.end),
+                "FormData constructor takes no arguments: the spec's only argument is an \
+                 `HTMLFormElement`, which the non-DOM profile does not model",
+            ));
+        }
+        let ty = self.form_data_type();
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::FormDataNew,
             ty,
             span: self.span(new_expr.span.start, new_expr.span.end),
         }))
