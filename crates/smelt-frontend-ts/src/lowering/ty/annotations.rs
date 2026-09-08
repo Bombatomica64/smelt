@@ -329,11 +329,43 @@ impl ModuleBuilder<'_> {
         }
     }
 
-    /// Lower `typeof name` type queries for already-known function values.
+    /// Lower a `typeof name` type query to the type of the VALUE it names.
+    ///
+    /// A type query asks for the type of a value binding, so the answer is
+    /// whatever the frontend already resolved that binding to: a function's
+    /// signature, or a module-level binding's own type. Both are known before
+    /// any body is lowered (`predeclare_function_items`,
+    /// `collect_module_globals`).
+    ///
+    /// This is what makes the standard "const object as a closed value set"
+    /// idiom lower to what it denotes:
+    ///
+    /// ```ignore
+    /// const mimes = { json: "application/json" } as const;
+    /// type Mime = (typeof mimes)[keyof typeof mimes];   // -> string
+    /// ```
+    ///
+    /// `keyof T` is already `string` and an indexed access over a `Dict` is
+    /// already its value type, so resolving the query is the only missing link.
+    /// While it answered `Unknown`, an alias written this way erased — and,
+    /// because an erased member makes a whole union non-concrete
+    /// (`union_member_is_concrete`), one such alias inside a union erased the
+    /// union entirely: Hono's `ResponseHeadersInit` reached `new Headers(init)`
+    /// as `SmeltUnknown` for exactly this reason, with no diagnostic naming the
+    /// alias. See `blocker-logs/standards-generic-arm-and-typeof-indexed-alias.md`.
+    ///
+    /// A query naming something with no resolvable value type still answers
+    /// `Unknown`: `typeof SomeClass` is the CONSTRUCTOR, not an instance, and
+    /// that is a separate shape.
     pub(in crate::lowering) fn type_query_to_hir(
         &mut self,
         query: &oxc::ast::ast::TSTypeQuery<'_>,
     ) -> smelt_hir::TypeId {
+        if let TSTypeQueryExprName::IdentifierReference(ident) = &query.expr_name
+            && let Some(value_ty) = self.value_binding_type(ident.name.as_str())
+        {
+            return value_ty;
+        }
         if let TSTypeQueryExprName::IdentifierReference(ident) = &query.expr_name
             && let Some(item) = self.items.get(ident.name.as_str()).copied()
             && let Item::Function(function) = self.item_ref(item)
@@ -350,6 +382,24 @@ return_ty: function.return_ty,
             }));
         }
         self.ctx.krate.types.intern(Type::Unknown)
+    }
+
+    /// The resolved type of a VALUE binding named in a type position.
+    ///
+    /// Only module-level bindings are consulted: they are collected in a
+    /// prepass, so a `typeof` in an annotation sees them regardless of where the
+    /// annotation sits relative to the declaration. A `const` item's own
+    /// recorded type is preferred when both are present because it is the one
+    /// the value's reads use.
+    fn value_binding_type(&self, name: &str) -> Option<smelt_hir::TypeId> {
+        if let Some(item) = self.items.get(name).copied() {
+            match self.item_ref(item) {
+                Item::Const(constant) => return Some(constant.ty),
+                Item::MutableGlobal(global) => return Some(global.ty),
+                _ => {}
+            }
+        }
+        self.module_globals.get(name).copied()
     }
 
     /// Convert a function-type rest parameter annotation into its list type.
