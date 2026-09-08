@@ -1,4 +1,4 @@
-module examples/typescript/end-to-end/55_reassigned_method/input.ts (ModuleId(0))
+module examples/typescript/end-to-end/57_reassigned_method/input.ts (ModuleId(0))
   body BodyId(5)
   items
     class Router fields [Public log: String, Public pick: fn(String) -> String] constructor Some(ItemId(2)) methods [ItemId(0), ItemId(1)] implements []

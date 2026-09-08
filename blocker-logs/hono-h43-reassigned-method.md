@@ -151,7 +151,7 @@ let _smelt_tmp_7: String = self.describe(path.clone());  // still a STATIC call
 
 ### Verification
 
-- `examples/typescript/end-to-end/55_reassigned_method` — a runtime fixture
+- `examples/typescript/end-to-end/57_reassigned_method` — a runtime fixture
   where the reassignment changes behaviour and persists across calls:
   `slow:a,fast:a` / `fast:b,fast:b` / `[a][b]`. The first line proves the
   original body ran before the assignment and the new one after; the second
