@@ -4,6 +4,7 @@ mod ambient_globals;
 mod arguments_forwarding;
 mod function_statics;
 mod specialization;
+pub(in crate::lowering) mod spread_arguments;
 mod state;
 mod stdlib;
 mod stdlib_dispatch;

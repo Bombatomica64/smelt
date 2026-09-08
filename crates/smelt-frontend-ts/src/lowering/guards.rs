@@ -1372,6 +1372,12 @@ impl ModuleBuilder<'_> {
             Argument::TSInstantiationExpression(instantiation) => {
                 self.expression(&instantiation.expression, body)
             }
+            // A spread reaching here is a VARIADIC caller: a rest list, a
+            // stdlib shim like `Math.max(...xs)`, a `new`, a super call. Those
+            // read the operand as one value on purpose. A fixed-arity call must
+            // not reach here -- `lower_call_arg` asserts that -- because
+            // lowering the operand as a single argument is what silently bound a
+            // whole tuple to parameter 0 and let the emitter default the rest.
             Argument::SpreadElement(spread) => self.expression(&spread.argument, body),
             _ => Err(SmeltError::unsupported(
                 self.span(argument.span().start, argument.span().end),

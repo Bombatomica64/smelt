@@ -105,3 +105,90 @@ is half (b) of the brief and is still untouched. It needs the closure's ARITY
 expanded from the contextual type as well as the spread distributed — see
 `hono-h45-callback-parameter-typing.md` for the sizing. It should follow the
 choke point rather than precede it.
+
+---
+
+## Round 19: the choke point, six paths, and the row cleared
+
+**Slice 8 → 7.** The hono `router.add(...routes[i])` row cleared, and every one
+of the 7 remaining errors is already accounted for: 6 are H42 (deferred), 1 is
+H44 (numbered).
+
+### The choke point
+
+`lowering::spread_arguments` is now the only place a spread is interpreted for a
+fixed-arity call:
+
+- `expanded_call_arguments` turns an argument list into `Vec<CallArg>`, where a
+  tuple spread has become one `Lowered` entry per element and everything else
+  stays `Source`. Positional pairing with parameters is therefore correct only
+  after expansion, which is the invariant every path needed and none had.
+- `lower_call_arg` lowers one entry, applying a contextual hint only where there
+  is still source to apply it to, and carries the debug assertion.
+
+### Six paths, not five
+
+Round 18 counted five. There were six; the sixth was found by the runtime
+fixture rather than by reading code:
+
+| # | path | was |
+| --- | --- | --- |
+| 1 | typed closure callee, no rest slot | `args: Vec::new()` — every parameter padded |
+| 2 | typed under-application | spread as argument 0, rest typed `None` |
+| 3 | function-typed field callee | spread as argument 0, rest padded |
+| 4 | erased callee | spread lowered and DISCARDED |
+| 5 | named top-level function (hints + deferred callbacks) | spread in slot 0, rest padded |
+| 6 | **method callee** | spread as argument 0, rest padded |
+
+Path 5 was the one hono's slice row needed. Path 6 only surfaced when the
+fixture called `sink.take(...routes[1])` and the generated crate failed to
+compile — a compile-only inline assertion would not have covered it, and neither
+would reading the five sites again.
+
+### The debug assertion
+
+It lives in `lower_call_arg`, not in `argument()`. The ruling asked for an
+assertion that no other site sees a spread, and in `argument()` that is not
+expressible: variadic callers legitimately hand it a spread and read the operand
+as one value (a rest list, `Math.max(...xs)`, `new`, a super call — 30-odd sites
+across the frontend). The precise invariant is the narrower one: a *fixed-arity*
+call never lowers a spread as a single argument. `expanded_call_arguments` makes
+every spread a `Lowered` entry, so a `Source` spread reaching `lower_call_arg`
+means some path built its `CallArg`s another way — which is exactly the bug
+class — and it trips in test builds.
+
+### `Option<tuple>`: written, then withdrawn as unreachable
+
+The ruling was that spreading `undefined`/`null` throws a branded `TypeError`,
+and that is right about JavaScript. It is **not implementable as a distinct
+path, because nothing reaches it.** Every route resolves the optional before the
+spread sees it:
+
+- a cast (`...x as Route`) lowers through the narrowing path to
+  `.expect("optional value was absent after narrowing")`;
+- a list element read (`...xs[i]` — hono's actual spelling) lowers through the
+  array-hole path to `.unwrap_or_else(|| default)`.
+
+Both were tried in the runtime fixture. The throw, the `== null` test and the
+`error_object_from_message("TypeError", ..)` call were written and working, then
+removed rather than shipped as a branch no test can reach. `Option<tuple>` is
+now the same named blocker as a list spread, with the reason at the emit site.
+
+### A pre-existing gap this exposed, worth its own item
+
+`oneRoute[1]` on a one-element array **prints `  @0` instead of throwing**. The
+array-hole path defaults a missing element, so an out-of-range read yields
+`("", "", 0.0)` and the spread distributes those defaults. JavaScript throws
+`TypeError: undefined is not iterable`. That is a silent wrong answer of exactly
+the kind this family is about, but it is upstream of the spread — the read is
+already wrong before the spread sees it — so it is not fixed here and not
+folded in. It is the reason the fixture's absent case was withdrawn.
+
+### The fixture
+
+`examples/typescript/end-to-end/61_tuple_spread_arguments`, listed in
+`END_TO_END_EXAMPLES` in the same commit. It prints what each callee actually
+received, across a named top-level function, a leading fixed argument before a
+spread, a closure, a method, a spread of a call result (asserting `evaluations:
+1`, since indexing the operand directly used to re-evaluate it per element), and
+a list element read. Runtime, because the broken lowering compiled.
