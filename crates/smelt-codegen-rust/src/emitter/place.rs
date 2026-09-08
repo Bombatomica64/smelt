@@ -631,8 +631,19 @@ impl FunctionEmitter<'_> {
         };
         let method_name = sanitize_ident(self.symbol_name(method_symbol)?);
         let base_text = self.local_value_text(base)?;
+        // A getter that can throw is emitted returning
+        // `Result<_, Box<dyn Error>>`, so the READ has to propagate like any
+        // other fallible call. Without the `?` the caller gets the `Result`
+        // itself where the property's value is expected, and the first thing
+        // done to a read value is usually `.clone()` -- which is how this
+        // surfaced: `Box<dyn Error>` is not `Clone`, so a spread of a throwing
+        // getter failed with `E0599` on the `Result` rather than with a type
+        // mismatch naming the property. Every consumer of a property read wants
+        // the value, never the `Result`, so the propagation belongs here rather
+        // than in each consumer.
+        let propagate = if getter.can_throw { "?" } else { "" };
         if getter_class == owner.name {
-            return Ok(Some(format!("{base_text}.{method_name}()")));
+            return Ok(Some(format!("{base_text}.{method_name}(){propagate}")));
         }
         let descriptor_value = self.descriptor_value_text(getter_class, descriptor)?;
         let arguments = getter
@@ -650,7 +661,7 @@ impl FunctionEmitter<'_> {
             .collect::<Vec<_>>()
             .join(", ");
         Ok(Some(format!(
-            "{descriptor_value}.{method_name}({arguments})"
+            "{descriptor_value}.{method_name}({arguments}){propagate}"
         )))
     }
 
