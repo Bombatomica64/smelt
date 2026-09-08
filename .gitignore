@@ -276,3 +276,7 @@ third_party/es-toolkit-src/
 # standards-erased-host-members.md records the runtime member resolution on
 # erased host records
 !blocker-logs/standards-erased-host-members.md
+# standards-generic-arm-and-typeof-indexed-alias.md records the generic-arm
+# instantiation fix and the (typeof X)[keyof typeof X] alias that actually stops
+# Hono's context.ts
+!blocker-logs/standards-generic-arm-and-typeof-indexed-alias.md

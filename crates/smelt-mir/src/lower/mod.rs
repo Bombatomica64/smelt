@@ -651,6 +651,7 @@ fn lower_module_bodies(
 /// operational type normalization then run once over the finalized MIR.
 fn run_finalization_passes(mir: &mut Mir) {
     intern_fallible_builtin_return_types(mir);
+    passes::generic_records::intern_generic_record_instantiations(mir);
     closures::mark_escaping_closures(mir);
     passes::throwing::propagate_throwing_functions(mir);
     closures::widen_throwing_closure_types(mir);
