@@ -162,6 +162,63 @@ D1 helps only where the argument is statically resolvable, so the round-6 floor
 stays: an erased callback out of a data structure will always take the panic
 route and must keep its identity there.
 
+### D2 / H42. The two `TypeParam` erasure rules disagree
+
+Two rules govern the two sides of a map-and-collect, and they contradict each
+other. `emitter/coercion.rs`:
+
+- `value_at_type`'s `target_is_erased` erases a bare `Type::TypeParam` target
+  **unconditionally, at any depth**. This is the coercion path, taken when the
+  entry's source is a typed value.
+- `extract_value_text`'s `TypeParam` arm (around line 2731) **respects scope**:
+  where `current_function_has_type_param(name)` holds it recovers the value as
+  `<T as SmeltFromUnknown>::smelt_from_unknown(..)`, yielding a `T`; only
+  otherwise does it erase. This is the recovery path, taken when the entry's
+  source is already `SmeltUnknown`.
+
+H41a made the collect's turbofish erase unconditionally so it would agree with
+the first rule. Where an entry takes the SECOND path the two disagree again in
+the opposite direction: the entries carry `T`, the annotation says
+`SmeltUnknown`. That is the round-15 nested record-of-record `E0277`, and it is
+not a depth bug — depth only decides which path an entry takes.
+
+**Measured, not argued.** Making the annotation scope-respecting instead
+(`TypeSubstitution::lexical_subset(current_function_type_params())`) takes the
+slice from 15 errors to **27**: the flat 8 + 8 family returns immediately. So
+`T` IS in the current function's lexical scope in the flat case, H41a's blanket
+erasure is load-bearing there, and no choice of substitution for the annotation
+alone can satisfy both paths.
+
+### What it would take
+
+Either:
+
+1. **Thread a `TypeSubstitution` into the value-rendering recursion**, so a
+   render position's erasure is decided once and used by both the annotation and
+   the entries. `value_at_type_text` has ~190 call sites and
+   `extract_value_text` ~28, so ~218 signatures change. This is the correct
+   architecture — the module already threads `TypeSubstitution` into
+   `rust_type` — and it is a mechanical but wide refactor.
+2. **Unify the rules instead**: drop the unconditional erasure in
+   `target_is_erased`, or drop the scope-respecting arm in
+   `extract_value_text`. Narrow diffs, much worse blast radius — the second
+   erases genuinely generic recoveries, which is a direct risk to the
+   `SmeltUnknown` baselines (the examples corpus invariant is `avoidable == 0`).
+
+Option 1 is the recommendation. Per CLAUDE.md's refactoring-timing rule this is
+an architecture pass and waits for the feature phase to stabilise: **it goes
+immediately after the Hono crate first compiles, as its own round.**
+
+### The imprecision H41a leaves in the meantime
+
+Because `collected_container_type_text` erases unconditionally, a callee that IS
+genuinely generic gets `SmeltUnknown` written into a turbofish where the lexical
+spelling `T` was correct. It costs **zero** slice errors today — nothing in the
+slice reaches that combination — so it is imprecision, not a live bug. It is the
+reason the helper's comment must not claim the erased and lexical renderings
+agree whenever a type parameter is mentioned. H42 is what makes the annotation
+precise again.
+
 ---
 
 ## PROGRESS LOG — round 3

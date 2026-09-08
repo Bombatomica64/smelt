@@ -59,18 +59,42 @@ impl FunctionEmitter<'_> {
     /// //                                          ^ kept the CALLER's T
     /// ```
     ///
-    /// Erased rendering is what the entries are, and it is identical to lexical
-    /// rendering for a target that mentions no type parameter, so this needs no
-    /// condition.
+    /// So the substitution here is UNCONDITIONALLY erased, which is deliberate
+    /// and is load-bearing: it is what makes the annotation agree with
+    /// `target_is_erased`, whose erasure is itself unconditional. Narrowing it
+    /// to the type parameters the current function actually emits
+    /// (`TypeSubstitution::lexical_subset(current_function_type_params())`) was
+    /// measured and takes the hono slice from 15 errors to 27 — the family
+    /// above returns immediately, because that `T` IS in the caller's lexical
+    /// scope. Do not "tighten" this to a scoped substitution without reading
+    /// H42 first.
     ///
-    /// On `SmeltUnknown`: this can write `SmeltUnknown` into a turbofish where
-    /// the lexical spelling said `T`, but it does not erase anything new. The
-    /// entry mappers above already coerced each key and value to the erased
-    /// target; the annotation is only being made to agree with the values that
-    /// are actually in the iterator. The dynamic boundary is the callee that
-    /// did not lift its own type parameter — decided before this function is
-    /// reached — not this annotation. Where the callee IS generic the target
-    /// mentions no type parameter and the rendering is unchanged.
+    /// On `SmeltUnknown`: this writes `SmeltUnknown` into a turbofish where the
+    /// lexical spelling said `T`. Where the entry took the coercion path that
+    /// erases nothing new — `target_is_erased` had already erased those keys and
+    /// values, and the annotation is only being made to name what the iterator
+    /// really holds. The dynamic boundary is the callee that did not lift its
+    /// own type parameter, decided upstream of this function.
+    ///
+    /// It is NOT precise in general, and the honest limits are two:
+    ///
+    /// 1. Where a callee IS genuinely generic, this still erases, so a
+    ///    turbofish can say `SmeltUnknown` where `T` was correct. Zero slice
+    ///    errors reach that combination today, so it is imprecision rather than
+    ///    a live bug.
+    /// 2. An entry whose source is already `SmeltUnknown` takes
+    ///    `extract_value_text`'s recovery path instead, and that path RESPECTS
+    ///    scope — it rebuilds the value as `T`. Then the entries carry `T`
+    ///    while this annotation says `SmeltUnknown`, which is the round-15
+    ///    nested record-of-record `E0277`.
+    ///
+    /// Both are the same root cause: two rules disagree about when a
+    /// `TypeParam` target erases, and no choice of substitution for the
+    /// annotation ALONE can satisfy both paths. Fixing it means deciding a
+    /// render position's erasure once and using it on both sides, which is a
+    /// ~218-call-site refactor. Tracked as **H42** in
+    /// `blocker-logs/hono-campaign-plan.md` (DEFERRED, D2), scheduled for its
+    /// own round once the Hono crate compiles.
     fn collected_container_type_text(&self, target: TypeId) -> Result<String, EmitError> {
         self.rust_type(target, false, &TypeSubstitution::erased())
             .map(RustType::into_string)
