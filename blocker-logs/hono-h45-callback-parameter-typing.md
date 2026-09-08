@@ -127,3 +127,80 @@ interfaces, closures, globals, types, symbols — no source map). Pinning this
 site took a manifest-level bisection. Threading a span into MIR so an
 `EmitError` can name a file and line would have turned that into one build, and
 it would pay off on every future emitter stop in a corpus this size.
+
+---
+
+## RESOLVED (round 17): the stop is standards demand, not this stream's
+
+Round 17 landed `Mir::file_paths` and `current_function_site` (item 2), and the
+blocker immediately named itself:
+
+```
+… (initializer `smelt_get_unknown_field(&closure_arg_1…, "headers")`
+   in `<unnamed>` at third_party/hono/src/context.ts:8797..8909)
+```
+
+Bytes 8797..8909 are `context.ts:287-291`:
+
+```ts
+const createResponseInstance = (
+  body?: BodyInit | null | undefined,
+  init?: globalThis.ResponseInit
+): Response => new Response(body, init)
+```
+
+`init` is `closure_arg_1`, optional, and `new Response(body, init)` reads
+`.headers` off it inside the `Response` lowering.
+
+### Three conclusions, and they close this item
+
+1. **It is not a callback-parameter typing bug.** `init` carries an EXPLICIT
+   annotation, `init?: globalThis.ResponseInit`. There is no contextual typing
+   involved: the type is written at the parameter, and it is honoured. The
+   erasure happens because `ResponseInit` has no model, not because a type
+   failed to reach the body.
+
+2. **It is standards-owned.** `ResponseInit` is part of the `Response` family,
+   which the campaign plan's §6 contract puts in `standards-tier-plan.md`
+   ("You never model `Headers`, `Request`, `Response`, …"). So this stop is
+   **recorded fetch demand**, and belongs in `hono-fetch-demand.md` rather than
+   being implemented here.
+
+3. **It is not the rest-parameter spread either.** `context.ts:658`'s
+   `(...args) => this.#newResponse(...(args as Parameters<NewResponse>))` is a
+   genuine, separate bug (documented above, and fixture-reproducible: the rest
+   packs to `SmeltList<SmeltUnknown>`, the spread passes the pack as argument 0,
+   and the remaining parameters default). It is worth fixing on its own merits —
+   the closure's own emitted signature does not even match its declared field
+   type, so the field assignment cannot type-check — but it is **not** what the
+   full crate is stopping on, and fixing it will not move this stop.
+
+### What H45 is now
+
+Closed as a diagnosis. Nothing in it is this stream's work:
+
+- the `Headers`/`ResponseInit` stop → standards demand, hand off;
+- contextual callback-parameter typing → already implemented, no work needed;
+- the rest-parameter tuple spread → real, separate, renumber it if it is to be
+  scheduled (it needs the callback classifier, see below).
+
+### Sizing the rest-parameter spread, for whoever picks it up
+
+Not a small fix. The wrong type is made in
+`arrow_callback_param_types_with_hint`
+(`crates/smelt-frontend-ts/src/lowering/callbacks/body_lowering.rs`, around the
+`if let Some(rest) = &arrow.params.rest` block): when the contextual function
+has no rest at that index, the remaining parameter types are folded into a
+`Type::Union` and wrapped in a `Type::List`. TypeScript's answer is a TUPLE —
+`Parameters<F>` is a tuple — so `(String, Optional<Init>)` becomes
+`List<String | Optional<Init>>`, which then renders `SmeltList<SmeltUnknown>`.
+
+Changing that type alone is not enough. A single tuple-typed parameter still
+gives the closure arity 1, so its Rust signature stays
+`Fn((String, Option<Init>)) -> String` against a declared
+`Fn(String, Option<Init>) -> String`. The fix has to EXPAND the rest into the
+contextual arity — N real parameters, with the rest name bound to a tuple local
+built from them — and then let the spread distribute positionally. That reaches
+into `arrow_callback_from_params`
+(`callbacks/classify.rs`) and the `CallbackExpr`/param-index machinery, which is
+why it wants its own round rather than a corner of one.

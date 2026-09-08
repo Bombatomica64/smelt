@@ -242,3 +242,40 @@ blocker goes with it and needs nothing from either stream.
 Counts, for scale: `.status` reads on a `ResponseOrInit`-typed value appear at
 this one site; `ResponseInit` appears in 5 signatures in `context.ts`.
 
+
+---
+
+## Update (Hono round 17): the full-crate build now stops on this same gap
+
+The whole-crate emit stop is this entry, at a site that is now pinned exactly
+rather than inferred. With `Mir::file_paths` landed, the blocker names itself:
+
+```
+EmitError: "`new Headers(init)` initializer type is not modeled: SmeltUnknown
+  (initializer `smelt_get_unknown_field(&closure_arg_1.clone()
+   .unwrap_or(SmeltUnknown::Undefined), \"headers\").clone()`
+   in `<unnamed>` at third_party/hono/src/context.ts:8797..8909)"
+```
+
+Bytes 8797..8909 are `context.ts:287-291`:
+
+```ts
+const createResponseInstance = (
+  body?: BodyInit | null | undefined,
+  init?: globalThis.ResponseInit
+): Response => new Response(body, init)
+```
+
+`init` is explicitly annotated `globalThis.ResponseInit`, so nothing about
+inference or contextual typing is involved — the parameter erases because the
+TYPE has no model, which is exactly the ask above. `new Response(body, init)`
+then reads `.headers` off the erased value.
+
+This raises the entry's priority from "one `.status` read" to **the single thing
+blocking the whole-crate build**: phase 2's gate cannot be measured at all until
+`ResponseInit` has typed keys. Two Hono-stream rounds were spent looking for a
+lowering cause before the site was pinned, and there is none to find — the Hono
+stream has nothing to implement here.
+
+Re-probe after `ResponseInit` lands; the next stop is either the next standards
+family or the Hono stream's, and this log gets whichever it is.
