@@ -1544,10 +1544,28 @@ fn smelt_box_value(value: SmeltUnknown) -> SmeltUnknown { let (marker, boxed) = 
 
 /// Resolve the AbortSignal record behind an abort controller or signal object.
 fn smelt_abort_signal_object(object: &SmeltObject) -> Option<SmeltObject> { if object.contains_key("__smelt_abortsignal") { return Some(object.clone()); } match object.get("signal") { Some(SmeltUnknown::Object(signal)) if signal.contains_key("__smelt_abortsignal") => Some(signal), _ => None } }
-/// Mark an AbortSignal aborted and fire (then clear) its registered `'abort'` listeners.
-fn smelt_abort_signal_fire(signal: &SmeltObject) { if matches!(signal.get("aborted"), Some(SmeltUnknown::Bool(true))) { return; } signal.insert("aborted".to_owned(), SmeltUnknown::Bool(true)); let listeners = match signal.get("__smelt_abort_listeners") { Some(SmeltUnknown::Array(values)) => values.clone().into_vec(), _ => Vec::new() }; signal.insert("__smelt_abort_listeners".to_owned(), SmeltUnknown::Array(Vec::new().into())); for listener in listeners { if let SmeltUnknown::Function(callback) = listener { let event = SmeltObject::new(Vec::from([("type".to_owned(), SmeltUnknown::String("abort".into()))])); let _ = callback(vec![SmeltUnknown::Object(event)]); } } }
+/// The `AbortError` reason `abort()` uses when the caller names none.
+fn smelt_abort_default_reason() -> SmeltUnknown { SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("AbortError".into())), ("__smelt_domexception".to_owned(), SmeltUnknown::Bool(true)), ("message".to_owned(), SmeltUnknown::String("This operation was aborted".into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]))) }
+/// The `TimeoutError` reason `AbortSignal.timeout(ms)` aborts with.
+fn smelt_abort_timeout_reason() -> SmeltUnknown { SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("TimeoutError".into())), ("__smelt_domexception".to_owned(), SmeltUnknown::Bool(true)), ("message".to_owned(), SmeltUnknown::String("The operation was aborted due to timeout".into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]))) }
+/// The reason an `abort`/`AbortSignal.abort` argument list asks for.
+fn smelt_abort_reason_argument(args: &[SmeltUnknown]) -> SmeltUnknown { match args.first() { None | Some(SmeltUnknown::Undefined | SmeltUnknown::Null) => smelt_abort_default_reason(), Some(reason) => reason.clone() } }
+/// Build a fresh AbortSignal record, optionally already aborted.
+fn smelt_abort_signal_record(reason: Option<SmeltUnknown>) -> SmeltObject { let aborted = reason.is_some(); let mut fields = Vec::from([("__smelt_abortsignal".to_owned(), SmeltUnknown::Bool(true)), ("aborted".to_owned(), SmeltUnknown::Bool(aborted)), ("__smelt_abort_listeners".to_owned(), SmeltUnknown::Array(Vec::new().into()))]); if let Some(reason) = reason { fields.push(("reason".to_owned(), reason)); } SmeltObject::new(fields) }
+/// Mark an AbortSignal aborted with a reason, fire its listeners, and propagate to its dependents.
+fn smelt_abort_signal_fire(signal: &SmeltObject, reason: SmeltUnknown) { if matches!(signal.get("aborted"), Some(SmeltUnknown::Bool(true))) { return; } signal.insert("aborted".to_owned(), SmeltUnknown::Bool(true)); signal.insert("reason".to_owned(), reason.clone()); let listeners = match signal.get("__smelt_abort_listeners") { Some(SmeltUnknown::Array(values)) => values.clone().into_vec(), _ => Vec::new() }; signal.insert("__smelt_abort_listeners".to_owned(), SmeltUnknown::Array(Vec::new().into())); for listener in listeners { if let SmeltUnknown::Function(callback) = listener { let event = SmeltObject::new(Vec::from([("type".to_owned(), SmeltUnknown::String("abort".into()))])); let _ = callback(vec![SmeltUnknown::Object(event)]); } } let follows = match signal.get("__smelt_abort_follows") { Some(SmeltUnknown::Array(values)) => values.clone().into_vec(), _ => Vec::new() }; for follower in follows { if let SmeltUnknown::Object(dependent) = follower { smelt_abort_signal_fire(&dependent, reason.clone()); } } }
+/// Register `dependent` to abort whenever `source` does, settling it now when `source` already has.
+fn smelt_abort_signal_follow(source: &SmeltObject, dependent: &SmeltObject) { if matches!(source.get("aborted"), Some(SmeltUnknown::Bool(true))) { let reason = source.get("reason").unwrap_or(SmeltUnknown::Undefined); smelt_abort_signal_fire(dependent, reason); return; } let mut follows = match source.get("__smelt_abort_follows") { Some(SmeltUnknown::Array(values)) => values.into_vec(), _ => Vec::new() }; follows.push(SmeltUnknown::Object(dependent.clone())); source.insert("__smelt_abort_follows".to_owned(), SmeltUnknown::Array(follows.into())); }
+/// Every request's `AbortSignal`, keyed by the request's JS reference id.
+thread_local! { static SMELT_REQUEST_SIGNALS: ::std::cell::RefCell<::std::collections::HashMap<usize, SmeltObject>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
+/// The request's signal, minting and remembering one on first read.
+fn smelt_request_signal_record(id: usize) -> SmeltObject { SMELT_REQUEST_SIGNALS.with(|table| table.borrow_mut().entry(id).or_insert_with(|| smelt_abort_signal_record(None)).clone()) }
+/// `request.signal`.
+fn smelt_request_signal(id: usize) -> SmeltUnknown { SmeltUnknown::Object(smelt_request_signal_record(id)) }
+/// Make a request's signal follow the `init.signal` it was constructed with.
+fn smelt_request_follow_signal(id: usize, source: SmeltUnknown) { let dependent = smelt_request_signal_record(id); if let SmeltUnknown::Object(source) = source { if let Some(source) = smelt_abort_signal_object(&source) { smelt_abort_signal_follow(&source, &dependent); } } }
 /// Return an erased AbortController/AbortSignal method bound to its shared record.
-fn smelt_abort_method(object: SmeltObject, method: &str) -> SmeltUnknown { let method = method.to_owned(); SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let signal = smelt_abort_signal_object(&object); match method.as_str() { "abort" | "dispatchEvent" => { if let Some(signal) = signal { smelt_abort_signal_fire(&signal); } Ok(if method == "dispatchEvent" { SmeltUnknown::Bool(true) } else { SmeltUnknown::Undefined }) } "addEventListener" => { if let Some(signal) = signal { let event_type = match args.first() { Some(SmeltUnknown::String(value)) => value.to_string(), _ => String::new() }; if event_type == "abort" { if let Some(listener @ SmeltUnknown::Function(_)) = args.get(1).cloned() { let mut listeners = match signal.get("__smelt_abort_listeners") { Some(SmeltUnknown::Array(values)) => values.into_vec(), _ => Vec::new() }; listeners.push(listener); signal.insert("__smelt_abort_listeners".to_owned(), SmeltUnknown::Array(listeners.into())); } } } Ok(SmeltUnknown::Undefined) } "removeEventListener" => { if let Some(signal) = signal { if let Some(target @ SmeltUnknown::Function(_)) = args.get(1).cloned() { let listeners: Vec<SmeltUnknown> = match signal.get("__smelt_abort_listeners") { Some(SmeltUnknown::Array(values)) => values.into_vec(), _ => Vec::new() }.into_iter().filter(|listener| !listener.js_strict_eq(&target)).collect(); signal.insert("__smelt_abort_listeners".to_owned(), SmeltUnknown::Array(listeners.into())); } } Ok(SmeltUnknown::Undefined) } _ => Ok(SmeltUnknown::Undefined) } })) }
+fn smelt_abort_method(object: SmeltObject, method: &str) -> SmeltUnknown { let method = method.to_owned(); SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let signal = smelt_abort_signal_object(&object); match method.as_str() { "abort" => { if let Some(signal) = signal { smelt_abort_signal_fire(&signal, smelt_abort_reason_argument(&args)); } Ok(SmeltUnknown::Undefined) } "dispatchEvent" => { if let Some(signal) = signal { smelt_abort_signal_fire(&signal, smelt_abort_default_reason()); } Ok(SmeltUnknown::Bool(true)) } "throwIfAborted" => { if let Some(signal) = signal { if matches!(signal.get("aborted"), Some(SmeltUnknown::Bool(true))) { return Err(smelt_throw(signal.get("reason").unwrap_or(SmeltUnknown::Undefined))); } } Ok(SmeltUnknown::Undefined) } "addEventListener" => { if let Some(signal) = signal { let event_type = match args.first() { Some(SmeltUnknown::String(value)) => value.to_string(), _ => String::new() }; if event_type == "abort" { if let Some(listener @ SmeltUnknown::Function(_)) = args.get(1).cloned() { let mut listeners = match signal.get("__smelt_abort_listeners") { Some(SmeltUnknown::Array(values)) => values.into_vec(), _ => Vec::new() }; listeners.push(listener); signal.insert("__smelt_abort_listeners".to_owned(), SmeltUnknown::Array(listeners.into())); } } } Ok(SmeltUnknown::Undefined) } "removeEventListener" => { if let Some(signal) = signal { if let Some(target @ SmeltUnknown::Function(_)) = args.get(1).cloned() { let listeners: Vec<SmeltUnknown> = match signal.get("__smelt_abort_listeners") { Some(SmeltUnknown::Array(values)) => values.into_vec(), _ => Vec::new() }.into_iter().filter(|listener| !listener.js_strict_eq(&target)).collect(); signal.insert("__smelt_abort_listeners".to_owned(), SmeltUnknown::Array(listeners.into())); } } Ok(SmeltUnknown::Undefined) } _ => Ok(SmeltUnknown::Undefined) } })) }
 
 /// The synthesized host method a member read resolves to, if the object
 /// carries a host marker and has no OWN member of that name.
@@ -2292,9 +2310,16 @@ fn smelt_thrown_value(error: &(dyn ::std::error::Error + 'static)) -> SmeltUnkno
 /// The class brand is the one `new <ErrorClass>(message)` writes; a thrown
 /// class instance is read through its `name` property instead, which is what
 /// JavaScript reports for `error.name` on a user error class.
-fn smelt_panic_payload(error: &(dyn ::std::error::Error + 'static)) -> SmeltPanic { let value = smelt_thrown_value(error); let message = smelt_thrown_message(&value); let mut class = "Error".to_owned(); if let SmeltUnknown::Object(object) = &value { if let Some(SmeltUnknown::String(name)) = object.get("__smelt_error") { class = name.to_string(); } else if let Some(SmeltUnknown::String(name)) = object.get("name") { class = name.to_string(); } } SmeltPanic { class, message } }
-/// Present a caught panic as the erased error record a `catch` binds.
-fn smelt_panic_error_value(panic: &(dyn ::std::any::Any + Send)) -> SmeltUnknown { SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String(smelt_panic_class(panic).into())), ("message".to_owned(), SmeltUnknown::String(smelt_panic_message(panic).into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]))) }
+/// The thrown value a panic-routed `throw` parked for its `catch`.
+thread_local! { static SMELT_PANIC_VALUE: ::std::cell::RefCell<Option<SmeltUnknown>> = const { ::std::cell::RefCell::new(None) }; }
+fn smelt_panic_payload(error: &(dyn ::std::error::Error + 'static)) -> SmeltPanic { let value = smelt_thrown_value(error); let message = smelt_thrown_message(&value); let mut class = "Error".to_owned(); if let SmeltUnknown::Object(object) = &value { if let Some(SmeltUnknown::String(name)) = object.get("__smelt_error") { class = name.to_string(); } else if let Some(SmeltUnknown::String(name)) = object.get("name") { class = name.to_string(); } } SMELT_PANIC_VALUE.with(|slot| { *slot.borrow_mut() = Some(value); }); SmeltPanic { class, message } }
+/// Present a caught panic as the value a `catch` binds.
+///
+/// The parked value when the throw took the panic route, so a thrown
+/// string arrives at the `catch` as that string and a thrown class
+/// instance keeps its own fields. The class-and-message record otherwise:
+/// a panic that is not a routed `throw` has no JavaScript value behind it.
+fn smelt_panic_error_value(panic: &(dyn ::std::any::Any + Send)) -> SmeltUnknown { if let Some(value) = SMELT_PANIC_VALUE.with(|slot| slot.borrow_mut().take()) { if panic.downcast_ref::<SmeltPanic>().is_some() { return value; } } SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String(smelt_panic_class(panic).into())), ("message".to_owned(), SmeltUnknown::String(smelt_panic_message(panic).into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]))) }
 
 impl Eq for SmeltUnknown {}
 
@@ -2730,8 +2755,8 @@ impl SmeltRegExp {
         let regex = self.compiled();
         let start = if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow() } else { 0 };
         let suffix = haystack.get(start..).unwrap_or("");
-        let captures = regex.captures(suffix).ok().flatten()?;
-        let matched = captures.get(0)?;
+        let Some(captures) = regex.captures(suffix).ok().flatten() else { if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow_mut() = 0; } return None; };
+        let Some(matched) = captures.get(0) else { if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow_mut() = 0; } return None; };
         if self.has_flag('y') && matched.start() != 0 { *self.last_index.borrow_mut() = 0; return None; }
         if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow_mut() = start + matched.end(); }
         Some(SmeltMatch::from_captures(&regex, &captures, start + matched.start(), haystack))
@@ -3068,23 +3093,24 @@ smelt_local.block_on(&smelt_runtime, async move {
     let _smelt_tmp_22: f64;
     let _smelt_tmp_24: f64;
     let _smelt_tmp_25: f64;
-    let _smelt_tmp_27: SmeltTextEncoder;
-    let _smelt_tmp_28: SmeltUint8Array;
+    let _smelt_tmp_27: bool;
+    let _smelt_tmp_29: SmeltTextEncoder;
     let _smelt_tmp_30: SmeltUint8Array;
-    let _smelt_tmp_31: f64;
-    let _smelt_tmp_34: SmeltUint8Array;
-    let _smelt_tmp_35: f64;
-    let _smelt_tmp_38: SmeltUint8Array;
-    let _smelt_tmp_39: f64;
-    let _smelt_tmp_42: SmeltUint8Array;
-    let _smelt_tmp_43: f64;
-    let _smelt_tmp_46: SmeltUint8Array;
-    let _smelt_tmp_47: f64;
-    let _smelt_tmp_49: SmeltTextEncoder;
-    let _smelt_tmp_50: SmeltUint8Array;
+    let _smelt_tmp_32: SmeltUint8Array;
+    let _smelt_tmp_33: f64;
+    let _smelt_tmp_36: SmeltUint8Array;
+    let _smelt_tmp_37: f64;
+    let _smelt_tmp_40: SmeltUint8Array;
+    let _smelt_tmp_41: f64;
+    let _smelt_tmp_44: SmeltUint8Array;
+    let _smelt_tmp_45: f64;
+    let _smelt_tmp_48: SmeltUint8Array;
+    let _smelt_tmp_49: f64;
+    let _smelt_tmp_51: SmeltTextEncoder;
     let _smelt_tmp_52: SmeltUint8Array;
-    let _smelt_tmp_53: f64;
-    let _smelt_tmp_56: ();
+    let _smelt_tmp_54: SmeltUint8Array;
+    let _smelt_tmp_55: f64;
+    let _smelt_tmp_58: ();
     let _smelt_tmp_4: String = uuid::Uuid::new_v4().to_string();
     let id: String = _smelt_tmp_4;
     let _smelt_tmp_5: f64 = id.chars().count() as f64;
@@ -3099,7 +3125,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_14 = id.clone().to_lowercase();
     _smelt_tmp_15 = _smelt_tmp_14 == id.clone();
     let _ = { println!("{}", _smelt_tmp_15); };
-    _smelt_tmp_17 = Into::<SmeltList<_>>::into({ let smelt_haystack = id; let smelt_separator = "-".to_owned(); if smelt_separator.is_empty() { if smelt_haystack.is_empty() { Vec::new() } else { smelt_haystack.chars().map(|ch| ch.to_string()).collect::<Vec<_>>() } } else { smelt_haystack.split(&smelt_separator).map(str::to_owned).collect::<Vec<_>>() } });
+    _smelt_tmp_17 = Into::<SmeltList<_>>::into({ let smelt_haystack = id.clone(); let smelt_separator = "-".to_owned(); if smelt_separator.is_empty() { if smelt_haystack.is_empty() { Vec::new() } else { smelt_haystack.chars().map(|ch| ch.to_string()).collect::<Vec<_>>() } } else { smelt_haystack.split(&smelt_separator).map(str::to_owned).collect::<Vec<_>>() } });
     groups = Into::<SmeltList<_>>::into(_smelt_tmp_17);
     _smelt_tmp_18 = groups.len() as f64;
     let _ = { println!("{}", _smelt_tmp_18); };
@@ -3110,38 +3136,40 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_24 = groups.borrow().get({ let normalized = 3.0 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()).chars().count() as f64;
     _smelt_tmp_25 = groups.borrow().get({ let normalized = 4.0 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()).chars().count() as f64;
     let _ = { println!("{} {}", _smelt_tmp_24, _smelt_tmp_25); };
-    _smelt_tmp_27 = SmeltTextEncoder::new();
-    _smelt_tmp_28 = _smelt_tmp_27.encode(&"abc".to_owned());
-    message = _smelt_tmp_28;
-    let _smelt_tmp_29: SmeltFuture<SmeltUint8Array> = { let smelt_algorithm = ("SHA-1".to_owned()).clone(); let smelt_data = (message.clone()).to_bytes(); SmeltFuture::from_future(Box::pin(async move { smelt_crypto_digest(&smelt_algorithm, &smelt_data) })) };
-    _smelt_tmp_30 = _smelt_tmp_29.await?;
-    _smelt_tmp_31 = _smelt_tmp_30.byte_length();
-    let _ = { println!("{}", _smelt_tmp_31); };
-    let _smelt_tmp_33: SmeltFuture<SmeltUint8Array> = { let smelt_algorithm = ("SHA-256".to_owned()).clone(); let smelt_data = (message.clone()).to_bytes(); SmeltFuture::from_future(Box::pin(async move { smelt_crypto_digest(&smelt_algorithm, &smelt_data) })) };
-    _smelt_tmp_34 = _smelt_tmp_33.await?;
-    _smelt_tmp_35 = _smelt_tmp_34.byte_length();
-    let _ = { println!("{}", _smelt_tmp_35); };
-    let _smelt_tmp_37: SmeltFuture<SmeltUint8Array> = { let smelt_algorithm = ("SHA-384".to_owned()).clone(); let smelt_data = (message.clone()).to_bytes(); SmeltFuture::from_future(Box::pin(async move { smelt_crypto_digest(&smelt_algorithm, &smelt_data) })) };
-    _smelt_tmp_38 = _smelt_tmp_37.await?;
-    _smelt_tmp_39 = _smelt_tmp_38.byte_length();
-    let _ = { println!("{}", _smelt_tmp_39); };
-    let _smelt_tmp_41: SmeltFuture<SmeltUint8Array> = { let smelt_algorithm = ("SHA-512".to_owned()).clone(); let smelt_data = (message.clone()).to_bytes(); SmeltFuture::from_future(Box::pin(async move { smelt_crypto_digest(&smelt_algorithm, &smelt_data) })) };
-    _smelt_tmp_42 = _smelt_tmp_41.await?;
-    _smelt_tmp_43 = _smelt_tmp_42.byte_length();
-    let _ = { println!("{}", _smelt_tmp_43); };
-    let _smelt_tmp_45: SmeltFuture<SmeltUint8Array> = { let smelt_algorithm = ("sha-256".to_owned()).clone(); let smelt_data = (message).to_bytes(); SmeltFuture::from_future(Box::pin(async move { smelt_crypto_digest(&smelt_algorithm, &smelt_data) })) };
-    _smelt_tmp_46 = _smelt_tmp_45.await?;
-    _smelt_tmp_47 = _smelt_tmp_46.byte_length();
-    let _ = { println!("{}", _smelt_tmp_47); };
-    _smelt_tmp_49 = SmeltTextEncoder::new();
-    _smelt_tmp_50 = _smelt_tmp_49.encode(&"".to_owned());
-    empty = _smelt_tmp_50;
-    let _smelt_tmp_51: SmeltFuture<SmeltUint8Array> = { let smelt_algorithm = ("SHA-256".to_owned()).clone(); let smelt_data = (empty).to_bytes(); SmeltFuture::from_future(Box::pin(async move { smelt_crypto_digest(&smelt_algorithm, &smelt_data) })) };
-    _smelt_tmp_52 = _smelt_tmp_51.await?;
-    _smelt_tmp_53 = _smelt_tmp_52.byte_length();
-    let _ = { println!("{}", _smelt_tmp_53); };
-    let _smelt_tmp_55: SmeltFuture<()> = SmeltFuture::from_future(Box::pin(async move { smelt_run_until_exit().await; Ok::<_, Box<dyn std::error::Error>>(()) }));
-    _smelt_tmp_56 = _smelt_tmp_55.await?;
+    _smelt_tmp_27 = regex::Regex::new(&"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$".to_owned()).expect("regex compile failed").is_match(&id);
+    let _ = { println!("{}", _smelt_tmp_27); };
+    _smelt_tmp_29 = SmeltTextEncoder::new();
+    _smelt_tmp_30 = _smelt_tmp_29.encode(&"abc".to_owned());
+    message = _smelt_tmp_30;
+    let _smelt_tmp_31: SmeltFuture<SmeltUint8Array> = { let smelt_algorithm = ("SHA-1".to_owned()).clone(); let smelt_data = (message.clone()).to_bytes(); SmeltFuture::from_future(Box::pin(async move { smelt_crypto_digest(&smelt_algorithm, &smelt_data) })) };
+    _smelt_tmp_32 = _smelt_tmp_31.await?;
+    _smelt_tmp_33 = _smelt_tmp_32.byte_length();
+    let _ = { println!("{}", _smelt_tmp_33); };
+    let _smelt_tmp_35: SmeltFuture<SmeltUint8Array> = { let smelt_algorithm = ("SHA-256".to_owned()).clone(); let smelt_data = (message.clone()).to_bytes(); SmeltFuture::from_future(Box::pin(async move { smelt_crypto_digest(&smelt_algorithm, &smelt_data) })) };
+    _smelt_tmp_36 = _smelt_tmp_35.await?;
+    _smelt_tmp_37 = _smelt_tmp_36.byte_length();
+    let _ = { println!("{}", _smelt_tmp_37); };
+    let _smelt_tmp_39: SmeltFuture<SmeltUint8Array> = { let smelt_algorithm = ("SHA-384".to_owned()).clone(); let smelt_data = (message.clone()).to_bytes(); SmeltFuture::from_future(Box::pin(async move { smelt_crypto_digest(&smelt_algorithm, &smelt_data) })) };
+    _smelt_tmp_40 = _smelt_tmp_39.await?;
+    _smelt_tmp_41 = _smelt_tmp_40.byte_length();
+    let _ = { println!("{}", _smelt_tmp_41); };
+    let _smelt_tmp_43: SmeltFuture<SmeltUint8Array> = { let smelt_algorithm = ("SHA-512".to_owned()).clone(); let smelt_data = (message.clone()).to_bytes(); SmeltFuture::from_future(Box::pin(async move { smelt_crypto_digest(&smelt_algorithm, &smelt_data) })) };
+    _smelt_tmp_44 = _smelt_tmp_43.await?;
+    _smelt_tmp_45 = _smelt_tmp_44.byte_length();
+    let _ = { println!("{}", _smelt_tmp_45); };
+    let _smelt_tmp_47: SmeltFuture<SmeltUint8Array> = { let smelt_algorithm = ("sha-256".to_owned()).clone(); let smelt_data = (message).to_bytes(); SmeltFuture::from_future(Box::pin(async move { smelt_crypto_digest(&smelt_algorithm, &smelt_data) })) };
+    _smelt_tmp_48 = _smelt_tmp_47.await?;
+    _smelt_tmp_49 = _smelt_tmp_48.byte_length();
+    let _ = { println!("{}", _smelt_tmp_49); };
+    _smelt_tmp_51 = SmeltTextEncoder::new();
+    _smelt_tmp_52 = _smelt_tmp_51.encode(&"".to_owned());
+    empty = _smelt_tmp_52;
+    let _smelt_tmp_53: SmeltFuture<SmeltUint8Array> = { let smelt_algorithm = ("SHA-256".to_owned()).clone(); let smelt_data = (empty).to_bytes(); SmeltFuture::from_future(Box::pin(async move { smelt_crypto_digest(&smelt_algorithm, &smelt_data) })) };
+    _smelt_tmp_54 = _smelt_tmp_53.await?;
+    _smelt_tmp_55 = _smelt_tmp_54.byte_length();
+    let _ = { println!("{}", _smelt_tmp_55); };
+    let _smelt_tmp_57: SmeltFuture<()> = SmeltFuture::from_future(Box::pin(async move { smelt_run_until_exit().await; Ok::<_, Box<dyn std::error::Error>>(()) }));
+    _smelt_tmp_58 = _smelt_tmp_57.await?;
     return Ok(());
 })
 }

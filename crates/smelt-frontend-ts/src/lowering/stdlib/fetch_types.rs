@@ -36,7 +36,7 @@ use smelt_stdlib::RuleId;
 const RESPONSE_INIT_KEYS: &[&str] = &["status", "statusText", "headers"];
 
 /// The `RequestInit` keys Smelt models.
-const REQUEST_INIT_KEYS: &[&str] = &["method", "headers", "body"];
+const REQUEST_INIT_KEYS: &[&str] = &["method", "headers", "body", "signal"];
 
 /// Per-key init operands collected from a literal, a spread, or a typed value.
 ///
@@ -685,10 +685,11 @@ impl ModuleBuilder<'_> {
         if let Some(init_argument) = new_expr.arguments.get(1) {
             self.lower_fetch_init(init_argument, REQUEST_INIT_KEYS, "Request", &mut fields, body)?;
         }
-        let (method, headers, body_expr) = (
+        let (method, headers, body_expr, signal) = (
             fields.take("method"),
             fields.take("headers"),
             fields.take("body"),
+            fields.take("signal"),
         );
         let ty = self.request_type();
         Ok(body.push_expr(Expr {
@@ -697,6 +698,7 @@ impl ModuleBuilder<'_> {
                 method,
                 headers,
                 body: body_expr,
+                signal,
             },
             ty,
             span: self.span(new_expr.span.start, new_expr.span.end),
@@ -718,10 +720,11 @@ impl ModuleBuilder<'_> {
         let span = self.span(init_argument.span().start, init_argument.span().end);
         let mut fields = InitFields::default();
         self.lower_fetch_init(init_argument, REQUEST_INIT_KEYS, "fetch", &mut fields, body)?;
-        let (method, headers, body_expr) = (
+        let (method, headers, body_expr, signal) = (
             fields.take("method"),
             fields.take("headers"),
             fields.take("body"),
+            fields.take("signal"),
         );
         let ty = self.request_type();
         Ok(body.push_expr(Expr {
@@ -730,6 +733,7 @@ impl ModuleBuilder<'_> {
                 method,
                 headers,
                 body: body_expr,
+                signal,
             },
             ty,
             span,
@@ -798,6 +802,7 @@ impl ModuleBuilder<'_> {
             "method" => RequestOp::Method,
             "headers" => RequestOp::Headers,
             "bodyUsed" => RequestOp::BodyUsed,
+            "signal" => RequestOp::Signal,
             _ => return Ok(None),
         };
         let Ok(receiver) = self.expression(&member.object, body) else {
@@ -841,6 +846,12 @@ impl ModuleBuilder<'_> {
             RequestOp::BodyUsed => self.ctx.krate.types.intern(Type::Bool),
             RequestOp::Headers => self.headers_type(),
             RequestOp::Clone => self.request_type(),
+            // The signal is the erased abort record, the same value
+            // `new AbortController().signal` is — so `request.signal.aborted`
+            // and `request.signal.addEventListener(..)` resolve through the
+            // one abort member path rather than a second one. It is never
+            // `null` in the spec, so the type is not optional.
+            RequestOp::Signal => self.ctx.krate.types.intern(Type::Unknown),
             RequestOp::Text => {
                 let string_ty = self.ctx.krate.types.intern(Type::String);
                 self.ctx.krate.types.intern(Type::Future(string_ty))

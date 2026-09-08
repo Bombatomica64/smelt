@@ -261,3 +261,9 @@ third_party/es-toolkit-src/
 !blocker-logs/hono-h36-static-tag-check.md
 !blocker-logs/hono-h29-generic-class-bounds.md
 !blocker-logs/hono-h29b-tuple-erasure.md
+# abort-signal-reason-and-statics.md records the AbortSignal reason/statics inventory diffed against Node
+!blocker-logs/abort-signal-reason-and-statics.md
+# top-level-try-await-tail.md documents the module-top-level try/await tail fix
+!blocker-logs/top-level-try-await-tail.md
+# regex-literal-test-erases-match.md documents the RegExp.prototype.test erasure fix
+!blocker-logs/regex-literal-test-erases-match.md

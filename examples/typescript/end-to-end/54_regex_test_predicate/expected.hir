@@ -1,0 +1,175 @@
+module examples/typescript/end-to-end/54_regex_test_predicate/input.ts (ModuleId(0))
+  body BodyId(3)
+  locals
+    %0 const globalRe: RegExp
+    %1 const sticky: RegExp
+    %2 const built: RegExp
+    %3 let matched: Float
+    %4 let index: Float
+    %5 const words: List<String>
+  exprs
+    #0: String = "0a1b"
+    #1: String = "^[0-9a-f]{4}$"
+    #2: Bool = regex_search #1, #0
+    #3: None = @0(console_log)
+    #4: None = call #3(#2)
+    #5: String = "zzzz"
+    #6: String = "^[0-9a-f]{4}$"
+    #7: Bool = regex_search #6, #5
+    #8: None = @1(console_log)
+    #9: None = call #8(#7)
+    #10: String = "AB"
+    #11: String = "(?i)ab"
+    #12: Bool = regex_search #11, #10
+    #13: None = @2(console_log)
+    #14: None = call #13(#12)
+    #15: String = "a
+c"
+    #16: String = "(?s)^a.c$"
+    #17: Bool = regex_search #16, #15
+    #18: None = @3(console_log)
+    #19: None = call #18(#17)
+    #20: String = "aaa"
+    #21: String = "^a+$"
+    #22: Bool = regex_search #21, #20
+    #23: None = @4(console_log)
+    #24: None = call #23(#22)
+    #25: String = "abc"
+    #26: String = "b"
+    #27: Bool = regex_search #26, #25
+    #28: None = @5(console_log)
+    #29: None = call #28(#27)
+    #30: String = "AAA"
+    #31: String = "^a+$"
+    #32: String = "i"
+    #33: RegExp = new RegExp(#31, #32)
+    #34: Bool = regex_test #33 #30
+    #35: None = @6(console_log)
+    #36: None = call #35(#34)
+    #37: String = "a"
+    #38: String = "g"
+    #39: RegExp = new RegExp(#37, #38)
+    #40: String = "aa"
+    #41: RegExp = %0
+    #42: Bool = regex_test #41 #40
+    #43: String = "aa"
+    #44: RegExp = %0
+    #45: Bool = regex_test #44 #43
+    #46: String = "aa"
+    #47: RegExp = %0
+    #48: Bool = regex_test #47 #46
+    #49: None = @7(console_log)
+    #50: None = call #49(#42, #45, #48)
+    #51: String = "aa"
+    #52: RegExp = %0
+    #53: Bool = regex_test #52 #51
+    #54: None = @8(console_log)
+    #55: None = call #54(#53)
+    #56: String = "a"
+    #57: String = "y"
+    #58: RegExp = new RegExp(#56, #57)
+    #59: String = "aa"
+    #60: RegExp = %1
+    #61: Bool = regex_test #60 #59
+    #62: String = "aa"
+    #63: RegExp = %1
+    #64: Bool = regex_test #63 #62
+    #65: String = "aa"
+    #66: RegExp = %1
+    #67: Bool = regex_test #66 #65
+    #68: None = @9(console_log)
+    #69: None = call #68(#61, #64, #67)
+    #70: String = "a"
+    #71: String = "g"
+    #72: RegExp = new RegExp(#70, #71)
+    #73: String = "aa"
+    #74: RegExp = %2
+    #75: Bool = regex_test #74 #73
+    #76: String = "aa"
+    #77: RegExp = %2
+    #78: Bool = regex_test #77 #76
+    #79: String = "aa"
+    #80: RegExp = %2
+    #81: Bool = regex_test #80 #79
+    #82: None = @10(console_log)
+    #83: None = call #82(#75, #78, #81)
+    #84: Float = 0.0
+    #85: Float = 0.0
+    #86: Float = %4
+    #87: Float = 3.0
+    #88: Bool = Lt #86, #87
+    #89: String = "aa"
+    #90: String = "a"
+    #91: String = "g"
+    #92: RegExp = new RegExp(#90, #91)
+    #93: Bool = regex_test #92 #89
+    #94: Float = %3
+    #95: Float = %3
+    #96: Float = 1.0
+    #97: Float = Add #95, #96
+    #98: Float = %4
+    #99: Float = %4
+    #100: Float = 1.0
+    #101: Float = Add #99, #100
+    #102: Float = %3
+    #103: None = @11(console_log)
+    #104: None = call #103(#102)
+    #105: String = "alpha"
+    #106: String = "beta"
+    #107: String = "gamma"
+    #108: String = "delta"
+    #109: List<String> = [#105, #106, #107, #108]
+    #110: List<String> = %5
+    #111: fn(String, Int, List<String>) -> Bool = closure BodyId(0) captures 0 -> Bool
+    #112: List<String> = list_filter #110, #111
+    #113: String = ","
+    #114: String = string_join #112, #113
+    #115: None = @12(console_log)
+    #116: None = call #115(#114)
+    #117: List<String> = %5
+    #118: fn(String, Int, List<String>) -> Bool = closure BodyId(1) captures 0 -> Bool
+    #119: Bool = list_every #117, #118
+    #120: None = @13(console_log)
+    #121: None = call #120(#119)
+    #122: List<String> = %5
+    #123: fn(String, Int, List<String>) -> Bool = closure BodyId(2) captures 0 -> Bool
+    #124: Bool = list_some #122, #123
+    #125: None = @14(console_log)
+    #126: None = call #125(#124)
+  stmts
+    s0: #4
+    s1: #9
+    s2: #14
+    s3: #19
+    s4: #24
+    s5: #29
+    s6: #36
+    s7: let %0: RegExp = #39
+    s8: #50
+    s9: #55
+    s10: let %1: RegExp = #58
+    s11: #69
+    s12: let %2: RegExp = #72
+    s13: #83
+    s14: let %3: Float = #84
+    s15: let %4: Float = #85
+    s16: #94 = #97
+    s17: if #93 then BlockId(2)
+    s18: #98 = #101
+    s19: while #88 BlockId(1) update-block BlockId(3)
+    s20: #104
+    s21: let %5: List<String> = #109
+    s22: #116
+    s23: #121
+    s24: #126
+
+interned types
+  t0 = RegExp
+  t1 = String
+  t2 = Float
+  t3 = List<String>
+  t4 = Bool
+  t5 = None
+  t6 = Int
+  t7 = Unknown
+  t8 = fn(String, Int, List<String>) -> Bool

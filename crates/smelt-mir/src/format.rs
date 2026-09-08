@@ -781,6 +781,13 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 operand_text(haystack)
             )
         }
+        Rvalue::RegexTest { regex, haystack } => {
+            format!(
+                "regex_test {} {}",
+                operand_text(regex),
+                operand_text(haystack)
+            )
+        }
         Rvalue::RegexExec { regex, haystack } => {
             format!(
                 "regex_exec {}, {}",
@@ -959,6 +966,7 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
             method,
             headers,
             body,
+            signal,
         } => {
             let mut parts = vec![format!("input={}", operand_text(input))];
             if let Some(method) = method {
@@ -969,6 +977,9 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
             }
             if let Some(body) = body {
                 parts.push(format!("body={}", operand_text(body)));
+            }
+            if let Some(signal) = signal {
+                parts.push(format!("signal={}", operand_text(signal)));
             }
             format!("request_new {}", parts.join(" "))
         }
@@ -981,6 +992,7 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 smelt_hir::RequestOp::Text => "text",
                 smelt_hir::RequestOp::FormData => "form_data",
                 smelt_hir::RequestOp::Clone => "clone",
+                smelt_hir::RequestOp::Signal => "signal",
             };
             let mut text = format!("request_{name} {}", operand_text(request));
             for arg in args {
@@ -1086,6 +1098,22 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
             || "url_search_params_new".to_owned(),
             |init| format!("url_search_params_new {}", operand_text(init)),
         ),
+        Rvalue::AbortSignalOp { op, args } => {
+            let op_name = match op {
+                smelt_hir::AbortSignalOp::Abort => "abort",
+                smelt_hir::AbortSignalOp::Timeout => "timeout",
+            };
+            let args_text = args
+                .iter()
+                .map(operand_text)
+                .collect::<Vec<_>>()
+                .join(", ");
+            if args_text.is_empty() {
+                format!("abort_signal_{op_name}")
+            } else {
+                format!("abort_signal_{op_name} {args_text}")
+            }
+        }
         Rvalue::CryptoOp { op, args } => {
             let op_name = match op {
                 smelt_hir::CryptoOp::RandomUuid => "random_uuid",

@@ -131,6 +131,20 @@ pub(crate) fn error_payload_record_expr_dyn(class_text: &str, message_text: &str
     )
 }
 
+/// Renders an erased `DOMException` record: an error record plus the marker.
+///
+/// A `DOMException` is an `Error` for every purpose a generated program can
+/// observe -- `.name` and `.message` read off the error fields, and a `catch`
+/// binding inspects it like any other -- and it is ALSO a distinct identity, so
+/// `reason instanceof DOMException` has to answer true. Carrying both the error
+/// brand and the host marker is what makes both true at once, and it is how the
+/// WebCrypto and AbortSignal reasons are built.
+pub(crate) fn dom_exception_record_expr(name: &str, message: &str) -> String {
+    format!(
+        "SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"__smelt_error\".to_owned(), SmeltUnknown::String({name:?}.into())), (\"__smelt_domexception\".to_owned(), SmeltUnknown::Bool(true)), (\"message\".to_owned(), SmeltUnknown::String({message:?}.into())), (\"stack\".to_owned(), SmeltUnknown::Undefined), (\"cause\".to_owned(), SmeltUnknown::Undefined)])))"
+    )
+}
+
 /// Name of the generated fallible `JSON.parse` adapter.
 ///
 /// `smelt_json_parse(&str) -> Result<SmeltUnknown, Box<dyn std::error::Error>>`.
@@ -257,6 +271,9 @@ pub(crate) fn emit_thrown_payload_support(writer: &mut CodeWriter, needs_panic_r
 /// Name of the generated `Send` panic payload that carries a throw's identity.
 const PANIC_TYPE: &str = "SmeltPanic";
 
+/// Name of the thread-local slot holding a panic-routed throw's value.
+const PANIC_VALUE_SLOT: &str = "SMELT_PANIC_VALUE";
+
 /// Name of the generated adapter that routes a Smelt error through `panic!`.
 ///
 /// `smelt_panic_throw(error: Box<dyn Error>) -> !`. The emit sites spell the
@@ -306,17 +323,30 @@ pub(crate) fn caught_panic_error_value_expr(panic_text: &str) -> String {
 /// `std::panic::catch_unwind`. That route is why the generated `Cargo.toml` must
 /// never set `panic = "abort"`; `emitted_manifest_never_aborts_on_panic` pins it.
 ///
-/// # Why the payload is a class plus a message, and not the thrown value
+/// # Why the panic payload is a class plus a message
 ///
 /// `std::panic::panic_any` requires `Any + Send`, and a `SmeltUnknown` holds
-/// `Rc` handles, so the thrown value itself cannot cross an unwind. `SmeltPanic`
-/// carries the two parts of the payload that a `catch` observes and that *are*
-/// `Send`: the error class brand and the message. Before this existed the route
-/// panicked with `format!("{}", error)`, so every panic-routed throw arrived at
-/// its `catch` as a bare `Error` — `error.name` was wrong for `URIError`,
-/// `TypeError`, and every user error class. Custom fields on a thrown class
-/// instance still do not survive the unwind; the statically resolvable cases are
-/// meant to stop taking this route at all (see `hono-fallible-ops.md` §9(b)).
+/// `Rc` handles, so the thrown value cannot ride the unwind itself.
+/// `SmeltPanic` carries the two parts that *are* `Send`: the error class brand
+/// and the message. Before this existed the route panicked with
+/// `format!("{}", error)`, so every panic-routed throw arrived at its `catch` as
+/// a bare `Error` — `error.name` was wrong for `URIError`, `TypeError`, and
+/// every user error class.
+///
+/// # And why the VALUE still arrives
+///
+/// The value travels beside the panic rather than inside it, in a thread-local
+/// slot (`SMELT_PANIC_VALUE`): a routed throw parks it, and the `catch_unwind`
+/// that receives the panic takes it. That is sound because the two are the same
+/// thread by construction — the `catch_unwind` is emitted around the call in the
+/// same generated function — so `Send` is a static bound on the panic payload
+/// and not a claim about where this value goes.
+///
+/// This is what makes a panic-routed `throw "text"` arrive at its `catch` as
+/// that string rather than as an `Error` whose message happens to be it, and
+/// what lets a thrown class instance keep its own fields. `AbortSignal`'s
+/// `throwIfAborted()` is the shape that needed it: the spec throws the REASON,
+/// which is any JavaScript value, and a string reason is the commonest kind.
 ///
 /// # The hook
 ///
@@ -378,6 +408,24 @@ fn emit_panic_payload_projection(writer: &mut CodeWriter) {
     writer.line("/// The class brand is the one `new <ErrorClass>(message)` writes; a thrown");
     writer.line("/// class instance is read through its `name` property instead, which is what");
     writer.line("/// JavaScript reports for `error.name` on a user error class.");
+    // The thrown VALUE, parked for the catch that is about to run.
+    //
+    // `panic_any` needs `Any + Send` and a `SmeltUnknown` holds `Rc` handles,
+    // so the value cannot ride the unwind itself — but it does not have to.
+    // A panic-routed throw and the `catch_unwind` that receives it are the same
+    // thread by construction (the `catch_unwind` is emitted around the call, in
+    // the same generated function), so a thread-local slot hands the value
+    // across without ever crossing a thread boundary. `Send` is a static bound
+    // on the panic payload, not a description of where this value goes.
+    //
+    // Nesting is safe because throw/catch is strictly nested on one thread and
+    // each catch TAKES the slot: an inner catch cannot see an outer throw's
+    // value, and a panic that is not a `SmeltPanic` finds the slot empty and
+    // falls back to the class-and-message record.
+    writer.line("/// The thrown value a panic-routed `throw` parked for its `catch`.");
+    writer.line(format!(
+        "thread_local! {{ static {PANIC_VALUE_SLOT}: ::std::cell::RefCell<Option<SmeltUnknown>> = const {{ ::std::cell::RefCell::new(None) }}; }}"
+    ));
     writer.line(format!(
         "fn {PANIC_PAYLOAD_FN}(error: &(dyn ::std::error::Error + 'static)) -> {PANIC_TYPE} {{ \
          let value = {THROWN_VALUE_FN}(error); \
@@ -386,11 +434,20 @@ fn emit_panic_payload_projection(writer: &mut CodeWriter) {
          if let SmeltUnknown::Object(object) = &value {{ \
          if let Some(SmeltUnknown::String(name)) = object.get(\"__smelt_error\") {{ class = name.to_string(); }} \
          else if let Some(SmeltUnknown::String(name)) = object.get(\"name\") {{ class = name.to_string(); }} }} \
+         {PANIC_VALUE_SLOT}.with(|slot| {{ *slot.borrow_mut() = Some(value); }}); \
          {PANIC_TYPE} {{ class, message }} }}"
     ));
-    writer.line("/// Present a caught panic as the erased error record a `catch` binds.");
+    writer.line("/// Present a caught panic as the value a `catch` binds.");
+    writer.line("///");
+    writer.line("/// The parked value when the throw took the panic route, so a thrown");
+    writer.line("/// string arrives at the `catch` as that string and a thrown class");
+    writer.line("/// instance keeps its own fields. The class-and-message record otherwise:");
+    writer.line("/// a panic that is not a routed `throw` has no JavaScript value behind it.");
     writer.line(format!(
-        "fn {PANIC_ERROR_VALUE_FN}(panic: &(dyn ::std::any::Any + Send)) -> SmeltUnknown {{ {} }}",
+        "fn {PANIC_ERROR_VALUE_FN}(panic: &(dyn ::std::any::Any + Send)) -> SmeltUnknown {{ \
+         if let Some(value) = {PANIC_VALUE_SLOT}.with(|slot| slot.borrow_mut().take()) {{ \
+         if panic.downcast_ref::<{PANIC_TYPE}>().is_some() {{ return value; }} }} \
+         {} }}",
         error_payload_record_expr_dyn(
             &format!("{PANIC_CLASS_FN}(panic)"),
             &format!("{PANIC_MESSAGE_FN}(panic)")

@@ -406,6 +406,12 @@ pub enum RequestOp {
     FormData,
     /// `clone()`: a copy whose body is independently readable.
     Clone,
+    /// `signal`: the request's `AbortSignal`.
+    ///
+    /// Every request HAS one — the member is never `null`, so it is not
+    /// optional — and reads of it answer the SAME signal, which is what
+    /// `request.signal === request.signal` observes.
+    Signal,
 }
 
 /// A directly lowered WHATWG `Response` operation.
@@ -544,6 +550,27 @@ pub enum ByteArrayOp {
     Length,
     /// `byteLength`: the byte count.
     ByteLength,
+}
+
+/// A directly lowered `AbortSignal` STATIC.
+///
+/// The two class-side members, which build a signal rather than reading one.
+/// Neither takes a receiver — `AbortSignal` is a constructor used as a
+/// namespace here — so the shape is the arguments alone, like
+/// [`CryptoOp`]'s.
+///
+/// The instance members (`aborted`, `reason`, `addEventListener`,
+/// `throwIfAborted`, ...) are deliberately absent: they are read off the
+/// signal RECORD and bound by the `smelt_abort_method` runtime helper, which
+/// is what lets an optional-chained `signal?.addEventListener(..)` resolve
+/// them. Giving them HIR nodes would mean two dispatch paths for one surface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AbortSignalOp {
+    /// `AbortSignal.abort(reason?)`: a signal that is already aborted.
+    Abort,
+    /// `AbortSignal.timeout(ms)`: a signal that aborts after `ms`, with the
+    /// spec's `TimeoutError` reason.
+    Timeout,
 }
 
 /// A directly lowered `WebCrypto` member.
