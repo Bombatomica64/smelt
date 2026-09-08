@@ -1,8 +1,8 @@
 {
   "files_scanned": 745,
-  "total": 74607,
+  "total": 74606,
   "category_totals": {
-    "avoidable-erasure": 32518,
+    "avoidable-erasure": 32517,
     "legitimate-boundary": 39432,
     "runtime-prelude": 2657
   },
@@ -29910,13 +29910,6 @@
       "occurrences": 1,
       "files": 1,
       "example": "third_party/es-toolkit/dist-smelt/src/allKeyed.rs:62"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "_smelt_tmp_N = values.clone().as_ref().is_some_and(|smelt_value| matches!(smelt_value, SmeltUnknown::Array(_)));",
-      "occurrences": 1,
-      "files": 1,
-      "example": "third_party/es-toolkit/dist-smelt/src/pullAllWith.rs:76"
     },
     {
       "category": "avoidable-erasure",

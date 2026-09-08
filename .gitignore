@@ -258,3 +258,4 @@ third_party/es-toolkit-src/
 !blocker-logs/hono-h35-union-index-write.md
 !blocker-logs/hono-h27-double-optional-dict-read.md
 !blocker-logs/clippy-all-targets-gate.md
+!blocker-logs/hono-h36-static-tag-check.md

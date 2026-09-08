@@ -2210,6 +2210,22 @@ impl FunctionEmitter<'_> {
             if kind == smelt_hir::UnknownKind::Null {
                 return Ok(format!("{text}.is_none()"));
             }
+            if kind == smelt_hir::UnknownKind::Undefined {
+                return Ok(format!("{text}.is_none()"));
+            }
+            // The payload's own type may already decide the test, in which case
+            // only PRESENCE is left to check at run time: `Array.isArray(xs)`
+            // for `xs: string[] | undefined` is exactly `xs.is_some()`, and for
+            // `xs: string | undefined` it is `false` whether or not `xs` is
+            // there. See `static_tag_check` for why a concrete payload cannot
+            // take the erased path below.
+            if let Some(decided) = self.static_tag_check(inner, kind) {
+                return Ok(if decided {
+                    format!("{text}.is_some()")
+                } else {
+                    "false".to_owned()
+                });
+            }
             // A concrete-union `Option` payload is a tagged enum, so the present
             // value is narrowed against its `SmeltUnion…` variants rather than
             // erased `SmeltUnknown` tags.
@@ -2220,6 +2236,11 @@ impl FunctionEmitter<'_> {
             return Ok(format!(
                 "{text}.as_ref().is_some_and(|smelt_value| {check})"
             ));
+        }
+        // Same rule without the `Option` wrapper: a value whose static type
+        // answers the test needs no runtime match, and cannot be given one.
+        if let Some(decided) = self.static_tag_check(value_ty, kind) {
+            return Ok(decided.to_string());
         }
         self.tag_check_raw(&text, kind)
     }
@@ -2394,6 +2415,61 @@ impl FunctionEmitter<'_> {
         let unknown_ty = self.type_id(Type::Unknown)?;
         let text = self.value_at_type(value, unknown_ty)?;
         Ok(format!("smelt_structured_clone({text})"))
+    }
+
+    /// Decide a JavaScript tag test at COMPILE time when the value's static
+    /// type already answers it, or `None` when the value is erased and the test
+    /// genuinely has to run.
+    ///
+    /// A `SmeltUnknown::…(_)` pattern can only be matched against a
+    /// `SmeltUnknown`. Emitting one against a value whose Rust type is already
+    /// concrete does not narrow anything — it does not compile.
+    /// `Array.isArray(values)` where `values: string[] | undefined` produced
+    ///
+    /// ```text
+    /// values.clone().as_ref().is_some_and(|smelt_value| matches!(smelt_value, SmeltUnknown::Array(_)))
+    /// //                                                        ^ &SmeltList<SmeltUnknown>, not a SmeltUnknown
+    /// ```
+    ///
+    /// (es-toolkit `pullAllWith.rs:76`, H36.) And a concrete type needs no
+    /// runtime test in the first place: a `SmeltList` IS an array, on every
+    /// path, which is exactly what a hand-writing Rust team would observe and
+    /// then not write the check at all.
+    ///
+    /// Erased shapes — `unknown`, an unscoped type parameter, a non-concrete
+    /// union, `never` — return `None` and keep the runtime match. So does any
+    /// shape this cannot answer confidently, and an erased class, which really
+    /// is represented as a `SmeltUnknown` at run time.
+    fn static_tag_check(&self, ty: TypeId, kind: smelt_hir::UnknownKind) -> Option<bool> {
+        use smelt_hir::UnknownKind as Kind;
+
+        if self.is_erased_class_type(ty) {
+            return None;
+        }
+        // `typeof` answers "object" for arrays, plain objects, `null`, promises
+        // and every class instance — the same set the `Object` arm of
+        // `tag_check_raw` matches — so each concrete arm below decides `Object`
+        // alongside its own tag rather than guessing.
+        match self.mir.types.get(ty)? {
+            // Erased or unanswerable: the check must stay dynamic.
+            Type::Unknown
+            | Type::Never
+            | Type::TypeParam { .. }
+            | Type::Union(_)
+            | Type::Optional(_)
+            | Type::None
+            | Type::Generator { .. }
+            | Type::GeneratorResult { .. } => None,
+            Type::Bool => Some(kind == Kind::Bool),
+            Type::Int | Type::Float => Some(kind == Kind::Number),
+            Type::String => Some(kind == Kind::String),
+            Type::List(_) | Type::Tuple(_) => Some(matches!(kind, Kind::Array | Kind::Object)),
+            Type::Dict(_, _) | Type::JsMap(_, _) | Type::Set(_) | Type::Class { .. } => {
+                Some(kind == Kind::Object)
+            }
+            Type::Function(_) => Some(kind == Kind::Function),
+            Type::Future(_) => Some(matches!(kind, Kind::Promise | Kind::Object)),
+        }
     }
 
     /// Emits a runtime tag check for already-rendered `SmeltUnknown` text.
