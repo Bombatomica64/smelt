@@ -13702,3 +13702,38 @@ export function hold<T>(trunk: Trunk<T>): Trunk<T> {
         "a generic value class keeps derive-equivalent `Default` bounds: {source}"
     );
 }
+
+#[test]
+fn an_erased_adapter_recovers_a_tuple_parameter_element_wise() {
+    // The mirror of the tuple ERASURE fix: a Rust tuple has no
+    // `SmeltFromUnknown` impl, so the blanket
+    // `SmeltFromUnknown::smelt_from_unknown(..)` an erased method adapter
+    // reaches for does not compile against a tuple parameter. It is recovered
+    // from the erased array it was written as instead.
+    let source = source_for(
+        r"
+type Entry = [string, number];
+export class Bag {
+  seen: string = '';
+  take(entry: Entry): string {
+    this.seen = entry[0];
+    return this.seen;
+  }
+}
+export function use(bag: Bag): string {
+  return bag.take(['a', 1]);
+}
+",
+    );
+
+    // The enabling condition: an erased method adapter is actually emitted for
+    // this class, which is the only place the blanket recovery appeared.
+    assert!(
+        source.contains("__smelt_method:take"),
+        "the fixture must emit an erased method adapter: {source}"
+    );
+    assert!(
+        source.contains("if let SmeltUnknown::Array(smelt_tuple_values)"),
+        "a tuple parameter must be recovered element-wise: {source}"
+    );
+}
