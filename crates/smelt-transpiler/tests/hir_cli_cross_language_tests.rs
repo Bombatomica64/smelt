@@ -291,9 +291,13 @@ clone-strategy = "aggressive"
     Ok(())
 }
 
-#[test]
-fn end_to_end_examples_match_expected_outputs() -> TestResult {
-    for name in [
+/// Every TypeScript end-to-end example the golden suite checks.
+///
+/// A list rather than a directory scan: an example is only checked once it
+/// is named here, so adding a fixture directory without its entry silently
+/// checks nothing. Kept out of the test body so the list can grow without
+/// pushing the function past the line limit.
+const END_TO_END_EXAMPLES: &[&str] = &[
         "01_number",
         "02_string",
         "03_boolean",
@@ -351,7 +355,12 @@ fn end_to_end_examples_match_expected_outputs() -> TestResult {
         "57_reassigned_method",
         "58_absent_value_stringify",
         "59_ambient_response_init",
-    ] {
+        "60_tuple_spread_arguments",
+];
+
+#[test]
+fn end_to_end_examples_match_expected_outputs() -> TestResult {
+    for name in END_TO_END_EXAMPLES {
         verify_end_to_end_example(name)?;
     }
 
