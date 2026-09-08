@@ -577,7 +577,15 @@ impl FunctionEmitter<'_> {
                         let store_text =
                             format!("{base_text}.{}", smelt_hir::CLASS_INDEX_STORE_FIELD);
                         let optional_read =
-                            self.dict_index_optional_read_text(&store_text, key_ty, index)?;
+                            self.dict_index_optional_read_text(&store_text, key_ty, value_ty, index)?;
+                        // An optional store value has already been flattened by
+                        // the read, so the result IS the value type — a missing
+                        // key and a stored `undefined` are the same `None`. Its
+                        // default is that `None`, so defaulting again would try
+                        // to `unwrap_or` an `Option<inner>` with an `Option`.
+                        if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
+                            return Ok(optional_read);
+                        }
                         let default_value = self.default_value(value_ty)?;
                         Ok(format!("{optional_read}.unwrap_or({default_value})"))
                     }

@@ -418,9 +418,9 @@ impl FunctionEmitter<'_> {
         // field (issue #84). A dynamic `bag[key]` read returns the store value
         // for the key or `None` (missing key -> `undefined`), giving the honest
         // `Option<T>` round-trip result rather than a stub.
-        if let Some((key_ty, _value_ty)) = self.class_index_store_types(receiver_ty) {
+        if let Some((key_ty, value_ty)) = self.class_index_store_types(receiver_ty) {
             let store_text = format!("{receiver_text}.{CLASS_INDEX_STORE_FIELD}");
-            return self.dict_index_optional_read_text(&store_text, key_ty, index);
+            return self.dict_index_optional_read_text(&store_text, key_ty, value_ty, index);
         }
         match self.mir.types.get(receiver_ty) {
             Some(Type::List(item_ty)) => {
@@ -443,8 +443,8 @@ impl FunctionEmitter<'_> {
                     ))
                 }
             }
-            Some(Type::Dict(key_ty, _)) => {
-                self.dict_index_optional_read_text(receiver_text, *key_ty, index)
+            Some(Type::Dict(key_ty, value_ty)) => {
+                self.dict_index_optional_read_text(receiver_text, *key_ty, *value_ty, index)
             }
             Some(Type::String) => {
                 let index_text = self.optional_normalized_index_text(

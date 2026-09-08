@@ -2905,10 +2905,22 @@ impl FunctionEmitter<'_> {
     /// `undefined`). String keys coerce the index through
     /// `property_key_to_string_text`; a `SmeltRecord`/`SmeltJsMap` store already
     /// returns an owned `Option`, while a plain `HashMap` needs `.cloned()`.
+    ///
+    /// When the store's VALUE type is itself optional the result is flattened,
+    /// because TypeScript does not distinguish a missing key from a key holding
+    /// `undefined` — both read as `undefined` — so HIR collapses
+    /// `Optional(Optional(T))` to `Optional(T)` and the emitted read must
+    /// collapse with it. Without the flatten this helper answered
+    /// `Option<Option<T>>` into a destination declared `Option<T>`: hono's
+    /// `MatcherMap<T> = Record<string, Matcher<T>>` read as `matchers[method]`
+    /// (`src/matcher.rs:37`, `:69`) is that shape. The place-read path in
+    /// `place.rs` has always flattened here, so passing the value type is what
+    /// stops the two spellings of one read from disagreeing.
     pub(super) fn dict_index_optional_read_text(
         &self,
         store_text: &str,
         key_ty: TypeId,
+        value_ty: TypeId,
         index: &Operand,
     ) -> Result<String, EmitError> {
         let key_text = if self.mir.types.get(key_ty) == Some(&Type::String) {
@@ -2921,10 +2933,15 @@ impl FunctionEmitter<'_> {
         } else {
             self.value_at_type(index, key_ty)?
         };
-        if self.dict_uses_smelt_record(key_ty) || self.dict_uses_js_key_map(key_ty) {
-            Ok(format!("{store_text}.get(&{key_text})"))
+        let flatten = if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
+            ".flatten()"
         } else {
-            Ok(format!("{store_text}.get(&{key_text}).cloned()"))
+            ""
+        };
+        if self.dict_uses_smelt_record(key_ty) || self.dict_uses_js_key_map(key_ty) {
+            Ok(format!("{store_text}.get(&{key_text}){flatten}"))
+        } else {
+            Ok(format!("{store_text}.get(&{key_text}).cloned(){flatten}"))
         }
     }
 
