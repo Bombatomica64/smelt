@@ -775,6 +775,151 @@ none
     Ok(())
 }
 
+/// The module whose TYPE ALIAS and INTERFACE share their names with another
+/// module's classes.
+const CROSS_KIND_NON_CLASSES: &str = r"export type Slot = string | number;
+
+export interface Tag {
+  label: string;
+}
+
+export function describeSlot(slot: Slot): string {
+  return typeof slot === 'string' ? 'text:' + slot : 'number:' + String(slot);
+}
+
+export function describeTag(tag: Tag): string {
+  return 'tag:' + tag.label;
+}
+";
+
+/// The module whose CLASSES share those names, and that reaches the alias
+/// module's `Slot` only through an import CYCLE (`./readers` imports this
+/// module's `Slot` back).
+const CROSS_KIND_CLASSES: &str = r"import type { Held } from './readers';
+
+export class Slot<T> {
+  #value: T;
+
+  constructor(value: T) {
+    this.#value = value;
+  }
+
+  read(): T {
+    return this.#value;
+  }
+}
+
+export function unwrap(held: Held): string {
+  return held.read() + '/unwrapped';
+}
+
+export class Tag {
+  #name: string;
+
+  constructor(name: string) {
+    this.#name = name;
+  }
+
+  name(): string {
+    return this.#name;
+  }
+}
+";
+
+/// The other half of the cycle: it type-imports the CLASS and bakes it into an
+/// alias of its own, which is where the wrong resolution used to be recorded --
+/// `Held` resolving to the union alias instead of the class would make
+/// `held.read()` in `holder.ts` unlowerable.
+const CROSS_KIND_READERS: &str = r"import type { Slot } from './holder';
+
+export type Held = Slot<string>;
+";
+
+/// An importer that uses both spellings of both names.
+const CROSS_KIND_MAIN: &str = r"import { Slot, Tag, unwrap } from './holder';
+import { describeSlot, describeTag } from './shape';
+
+const held = new Slot<string>('held');
+console.log(held.read());
+console.log(unwrap(held));
+console.log(new Tag('named').name());
+console.log(describeSlot('plain'));
+console.log(describeSlot(7));
+console.log(describeTag({ label: 'shape' }));
+";
+
+#[test]
+fn build_runs_type_names_shared_across_kinds_and_modules() -> TestResult {
+    // Ambiguity of a type name is CROSS-KIND: the generated Rust has one type
+    // namespace, so a `type Slot` or an `interface Tag` in one module and a
+    // `class Slot` / `class Tag` in another collide exactly as two classes do.
+    // Only classes were scanned, so each pair shared one symbol. Hono's
+    // `reg-exp-router/node.ts` `interface Context { varIndex: number }` and its
+    // `context.ts` `class Context<E, P, I>` are that pair, and they produced
+    // 437 `E0609` (`no field var_index`, reads of the interface's field landing
+    // on the class struct) and 222 `E0107` (three type arguments against none)
+    // in the whole-crate `cargo check` -- 74% of its errors, all downstream of
+    // one wrongly resolved name.
+    //
+    // The import CYCLE here is the second half of the same defect. The by-name
+    // lookups can only answer once the imported module's item exists, and in a
+    // cycle it does not: `readers.ts` lowers before `holder.ts`, so its
+    // `Slot<string>` found no item, fell through to the bare spelling -- which
+    // the alias module owns -- and its own alias `Held` baked that in, so every
+    // use of `Held` read the wrong type. Hono's `types.ts` and `context.ts` are
+    // exactly that cycle. The rename map is computed from a scan of every
+    // source before any module lowers, so asking IT which module a name was
+    // imported from has no ordering problem.
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "cross-kind-type-name"
+version = "0.1.0"
+
+[sources]
+roots = ["src"]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "cross_kind_type_name"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(project_path.join("src/shape.ts"), CROSS_KIND_NON_CLASSES)?;
+    fs::write(project_path.join("src/holder.ts"), CROSS_KIND_CLASSES)?;
+    fs::write(project_path.join("src/readers.ts"), CROSS_KIND_READERS)?;
+    fs::write(project_path.join("src/main.ts"), CROSS_KIND_MAIN)?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    // Each declaration answers with its own shape: the classes with their own
+    // values, the alias reached through the cycle with the CLASS (not the
+    // union), the union alias with its own narrowing, and the interface with
+    // its own field. Before the fix the crate did not compile.
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(
+        &actual_stdout,
+        &"held
+held/unwrapped
+named
+text:plain
+number:7
+tag:shape
+".to_owned(),
+        "unexpected stdout",
+    )?;
+
+    Ok(())
+}
+
 /// Every TypeScript end-to-end example the golden suite checks.
 ///
 /// A list rather than a directory scan: an example is only checked once it

@@ -2288,7 +2288,23 @@ return_ty: function.return_ty,
     }
 
     /// Resolve a source type reference through local import aliases to its declared symbol.
+    ///
+    /// A name this module DECLARES and that is ambiguous across the crate is
+    /// answered first, with this module's own rendering of it. That has to come
+    /// before every crate-wide lookup below: `find_type_alias` and the
+    /// by-name item map are keyed by the bare spelling, whose entry for an
+    /// ambiguous name is whichever module registered last, so without this a
+    /// module's own `interface Context` annotation resolved to another module's
+    /// `class Context` (the cross-kind half of H61, and Hono's 437 `E0609`).
+    /// The rename map answers `None` for every unambiguous name, so nothing
+    /// about a crate without a collision changes.
     pub(in crate::lowering) fn resolve_type_reference_symbol(&mut self, name_text: &str) -> smelt_hir::Symbol {
+        if let Some(symbol) = self.module_qualified_type_name(name_text) {
+            return symbol;
+        }
+        if let Some(symbol) = self.imported_ambiguous_type_name(name_text) {
+            return symbol;
+        }
         let direct_symbol = self.intern_type_name(name_text);
         // TypeScript declaration merging permits a value namespace/class and a
         // type alias to share a spelling. In type position the alias is
@@ -2308,6 +2324,76 @@ return_ty: function.return_ty,
             }
         }
         direct_symbol
+    }
+
+    /// The EXPORTING module's rendering of an ambiguous type name reached
+    /// through an import.
+    ///
+    /// The by-name lookups in [`Self::resolve_type_reference_symbol`] can only
+    /// answer once the imported module's item exists, and in an import CYCLE it
+    /// does not: Hono's `types.ts` and `context.ts` import each other, so when
+    /// `types.ts` lowers first its `Context<E>` found no item and fell through
+    /// to the bare spelling — which belongs to `reg-exp-router/node.ts`'s
+    /// `interface Context { varIndex: number }`. The alias `NotFoundHandler<E>`
+    /// baked that in, and every field typed through it read the interface's
+    /// struct instead of the class: 437 `E0609` and 222 `E0107` in the whole
+    /// crate, all of them downstream of one wrongly resolved name.
+    ///
+    /// The rename map does not have that ordering problem, because it is
+    /// computed from a scan of every source before any module lowers. So the
+    /// question "which module was this name imported from, and what is THAT
+    /// module's rendering of it" is answerable at the moment the reference is
+    /// lowered, item or no item. The lookup is by the name the module EXPORTED
+    /// (`import { Node as TrieNode }` asks about `Node`), and it answers `None`
+    /// for a name that is not ambiguous or whose module does not declare it —
+    /// so a barrel re-export, a host module and every crate without a collision
+    /// keep resolving exactly as before.
+    fn imported_ambiguous_type_name(&mut self, name_text: &str) -> Option<smelt_hir::Symbol> {
+        let specifier = self.imports.import_source(name_text)?.to_owned();
+        let exported = self
+            .imports
+            .imported_name(name_text)
+            .unwrap_or(name_text)
+            .to_owned();
+        let rendered = self.module_type_rename(&specifier, &exported)?;
+        let symbol = self.ctx.krate.symbols.intern(&rendered);
+        self.ctx.krate.names.record(symbol, &exported);
+        Some(symbol)
+    }
+
+    /// The rendering module `specifier` gives to the ambiguous type `name`.
+    ///
+    /// Two passes, because the rename map is keyed by the manifest's own
+    /// spelling of each source path while the candidate list is built from this
+    /// module's path plus the specifier: the first pass compares those spellings
+    /// directly, and the second falls back to comparing canonicalized paths so a
+    /// `./`-relative or symlinked spelling still matches. The map holds one
+    /// entry per (module, ambiguous name) pair and is empty for a crate with no
+    /// collision, so the second pass is a scan of nothing in the common case.
+    fn module_type_rename(&self, specifier: &str, name: &str) -> Option<String> {
+        let candidates = self.resolved_module_export_keys(specifier);
+        for candidate in &candidates {
+            if let Some(rendered) = self
+                .ctx
+                .type_renames
+                .get(candidate)
+                .and_then(|renames| renames.get(name))
+            {
+                return Some(rendered.clone());
+            }
+        }
+        let canonical_candidates = candidates
+            .iter()
+            .filter_map(|candidate| Self::canonical_module_path(candidate))
+            .collect::<Vec<_>>();
+        self.ctx.type_renames.iter().find_map(|(path, renames)| {
+            let rendered = renames.get(name)?;
+            let canonical = Self::canonical_module_path(path)?;
+            canonical_candidates
+                .iter()
+                .any(|candidate| *candidate == canonical)
+                .then(|| rendered.clone())
+        })
     }
 
     /// Lower a TypeScript `Record<K, V>` key type for Smelt's object model.

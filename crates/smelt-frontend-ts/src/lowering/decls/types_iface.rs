@@ -24,6 +24,37 @@ impl ModuleBuilder<'_> {
         self.types.qualify(name)
     }
 
+    /// The symbol a module-scope type declaration interns for its own name.
+    ///
+    /// One entry point for every type-level kind — `interface`, `type` alias,
+    /// `enum` — so a name that is ambiguous across the crate takes this
+    /// module's rendering of it whatever kind declared it. Ambiguity is
+    /// cross-kind because the generated Rust has one type namespace: Hono's
+    /// `interface Context { varIndex: number }` and its `class Context<E, P, I>`
+    /// collided exactly as two classes do. See
+    /// [`Self::module_qualified_type_name`] for the scheme and
+    /// `manifest_type_renames` in the transpiler for how it is computed.
+    ///
+    /// `local_name` is the declaration's own identifier and `qualified_name` is
+    /// that identifier after [`Self::qualified_type_declaration_name`] has
+    /// applied the active namespace path. The rename map is keyed by the SOURCE
+    /// spelling of a module-scope declaration, and the scanner that builds it
+    /// only walks top-level statements, so a declaration nested in a namespace
+    /// (where the two names differ) is already disambiguated by its namespace
+    /// prefix and keeps that spelling untouched.
+    pub(in crate::lowering) fn declared_type_name_symbol(
+        &mut self,
+        local_name: &str,
+        qualified_name: &str,
+    ) -> smelt_hir::Symbol {
+        if local_name == qualified_name
+            && let Some(symbol) = self.module_qualified_type_name(local_name)
+        {
+            return symbol;
+        }
+        self.intern_type_name(qualified_name)
+    }
+
     /// Lower a TypeScript type alias declaration to HIR.
     ///
     /// An alias whose right-hand side is a *callable object* — a call signature
@@ -38,7 +69,7 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let local_name_text = alias.id.name.as_str();
         let name_text = self.qualified_type_declaration_name(local_name_text);
-        let name = self.intern_type_name(&name_text);
+        let name = self.declared_type_name_symbol(local_name_text, &name_text);
         let type_params = self.push_type_parameter_scope(alias.type_parameters.as_deref())?;
         let surface = self
             .callable_object_surface_members(&alias.type_annotation)
@@ -87,7 +118,7 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let local_name_text = interface.id.name.as_str();
         let name_text = self.qualified_type_declaration_name(local_name_text);
-        let name = self.intern_type_name(&name_text);
+        let name = self.declared_type_name_symbol(local_name_text, &name_text);
         let type_params = self.push_type_parameter_scope(interface.type_parameters.as_deref())?;
         let mut fields = Vec::new();
         let mut methods = Vec::new();

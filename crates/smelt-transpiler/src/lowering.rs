@@ -135,9 +135,9 @@ struct FrontendLoweringState {
     /// keyed by module path then source class name.
     ///
     /// Seeded once before lowering begins, so whether a name is ambiguous never
-    /// depends on lowering order; see `HirCtx::class_renames` and
-    /// [`manifest_class_renames`].
-    ts_class_renames: HashMap<String, HashMap<String, String>>,
+    /// depends on lowering order; see `HirCtx::type_renames` and
+    /// [`manifest_type_renames`].
+    ts_type_renames: HashMap<String, HashMap<String, String>>,
     /// Crate-unique module identity per module path, from
     /// [`manifest_module_names`]; see `HirCtx::module_identities`.
     ts_module_identities: HashMap<String, String>,
@@ -735,7 +735,7 @@ fn manifest_module_identities(sources: &[&ManifestSource]) -> HashMap<String, St
 /// Only the Rust rendering changes; the frontend records the source spelling as
 /// the symbol's original name, because `instanceof` and `__smelt_class` read
 /// that and JavaScript answers `Node` for both classes.
-fn manifest_class_renames(
+fn manifest_type_renames(
     sources: &[&ManifestSource],
 ) -> HashMap<String, HashMap<String, String>> {
     let declared = sources
@@ -743,7 +743,7 @@ fn manifest_class_renames(
         .map(|source| {
             let path = source.path.display().to_string();
             if SourceLang::from_path(&path).is_ok_and(SourceLang::is_typescript) {
-                smelt_frontend_ts::scan_declared_class_names(&source.source, &path)
+                smelt_frontend_ts::scan_declared_type_names(&source.source, &path)
             } else {
                 Vec::new()
             }
@@ -782,6 +782,13 @@ fn manifest_class_renames(
                 .entry(source.path.display().to_string())
                 .or_default()
                 .insert(name.clone(), rendered);
+        }
+    }
+    if std::env::var_os("SMELT_DEBUG_TYPE_RENAMES").is_some() {
+        for (path, map) in &renames {
+            for (name, rendered) in map {
+                eprintln!("[type-rename] {path}: {name} -> {rendered}");
+            }
         }
     }
     renames
@@ -852,7 +859,7 @@ fn predeclare_manifest_type_declarations(
         callable_object_aliases: state.ts_callable_object_aliases,
         written_host_globals: state.ts_written_host_globals,
         project_sources_outside_crate: state.ts_project_sources_outside_crate,
-        class_renames: state.ts_class_renames,
+        type_renames: state.ts_type_renames,
         module_identities: state.ts_module_identities,
     };
     for (idx, source) in sources.iter().enumerate() {
@@ -894,7 +901,7 @@ fn predeclare_manifest_type_declarations(
     state.ts_callable_object_aliases = ctx.callable_object_aliases;
     state.ts_written_host_globals = ctx.written_host_globals;
     state.ts_project_sources_outside_crate = ctx.project_sources_outside_crate;
-    state.ts_class_renames = ctx.class_renames;
+    state.ts_type_renames = ctx.type_renames;
     state.ts_module_identities = ctx.module_identities;
     Ok((krate, state))
 }
@@ -912,7 +919,7 @@ fn lower_ordered_manifest_sources(
         ..FrontendLoweringState::default()
     };
     seed_written_host_globals(sources, &mut state);
-    state.ts_class_renames = manifest_class_renames(sources);
+    state.ts_type_renames = manifest_type_renames(sources);
     state.ts_module_identities = manifest_module_identities(sources);
     (krate, state) = predeclare_manifest_type_declarations(krate, state, sources)?;
     let mut modules = Vec::new();
@@ -973,7 +980,7 @@ pub(crate) fn collect_manifest_diagnostics(
     let mut krate = smelt_hir::Crate::new();
     let mut state = FrontendLoweringState::default();
     seed_written_host_globals(&ordered_sources, &mut state);
-    state.ts_class_renames = manifest_class_renames(&ordered_sources);
+    state.ts_type_renames = manifest_type_renames(&ordered_sources);
     state.ts_module_identities = manifest_module_identities(&ordered_sources);
     (krate, state) = predeclare_manifest_type_declarations(krate, state, &ordered_sources)?;
     let mut diagnostics = Vec::new();
@@ -1055,7 +1062,7 @@ fn lower_manifest_source(
                 callable_object_aliases: state.ts_callable_object_aliases,
                 written_host_globals: state.ts_written_host_globals,
                 project_sources_outside_crate: state.ts_project_sources_outside_crate,
-                class_renames: state.ts_class_renames,
+                type_renames: state.ts_type_renames,
                 module_identities: state.ts_module_identities,
             };
             let outcome = smelt_frontend_ts::to_hir_with_options(
@@ -1098,7 +1105,7 @@ fn lower_manifest_source(
                 ts_callable_object_aliases: ctx.callable_object_aliases,
                 ts_written_host_globals: ctx.written_host_globals,
                 ts_project_sources_outside_crate: ctx.project_sources_outside_crate,
-                ts_class_renames: ctx.class_renames,
+                ts_type_renames: ctx.type_renames,
                 ts_module_identities: ctx.module_identities,
                 py_module_namespaces: state.py_module_namespaces,
                 py_enum_members: state.py_enum_members,
@@ -1138,7 +1145,7 @@ fn lower_manifest_source(
                 ts_callable_object_aliases: state.ts_callable_object_aliases,
                 ts_written_host_globals: state.ts_written_host_globals,
                 ts_project_sources_outside_crate: state.ts_project_sources_outside_crate,
-                ts_class_renames: state.ts_class_renames,
+                ts_type_renames: state.ts_type_renames,
                 ts_module_identities: state.ts_module_identities,
                 py_module_namespaces,
                 py_enum_members,

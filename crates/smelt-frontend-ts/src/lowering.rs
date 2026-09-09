@@ -541,23 +541,35 @@ fn assignment_target_host_global_name<'a>(target: &'a AssignmentTarget<'a>) -> O
     (smelt_stdlib::host_object_by_class(property).is_some()).then_some(property)
 }
 
-/// Scan one TypeScript source for the MODULE-SCOPE class names it declares.
+/// Scan one TypeScript source for the MODULE-SCOPE type names it declares,
+/// across every type-level kind: `class`, `interface`, `type` alias and `enum`.
 ///
 /// The crate-level half lives in the transpiler, which unions these across
 /// every source before lowering begins and hands back a rename for any name
-/// declared by more than one module (see `HirCtx::class_renames`). Doing it as
+/// declared by more than one module (see `HirCtx::type_renames`). Doing it as
 /// a pre-pass rather than during lowering is what makes the answer independent
 /// of lowering order: whether `Node` is ambiguous cannot depend on which module
 /// happens to lower first.
 ///
-/// Only top-level declarations count, `export class` included. A class
-/// EXPRESSION and a class nested inside a function or a test closure are
-/// deliberately skipped: neither is nameable from another module, so neither
-/// can collide across modules, and both already get their own disambiguation
-/// (`anonymous_class_name`, `enter_test_suite_class_scope`). Parse failures
-/// yield an empty list so scanning never blocks a build.
+/// Every kind is scanned by ONE list because a type name is crate-unique across
+/// all of them, not per kind: the generated Rust puts a class's struct, an
+/// interface's struct, an alias's structural struct and an enum in the same
+/// namespace, so two modules declaring `Context` collide whether or not they
+/// spelled it the same way. Hono is the case that forced it —
+/// `reg-exp-router/node.ts` exports `interface Context { varIndex: number }`
+/// while `context.ts` exports `class Context<E, P, I>`, and reads of the
+/// interface's field landed on the class struct (437 `E0609`, 222 `E0107` in
+/// the whole crate).
+///
+/// Only top-level declarations count, the `export` spelling of each included. A
+/// class EXPRESSION and a declaration nested inside a function, a namespace or
+/// a test closure are deliberately skipped: none is nameable from another
+/// module under its bare spelling, so none can collide across modules, and each
+/// already has its own disambiguation (`anonymous_class_name`,
+/// `qualified_type_declaration_name`, `enter_test_suite_class_scope`). Parse
+/// failures yield an empty list so scanning never blocks a build.
 #[must_use]
-pub fn scan_declared_class_names(source: &str, path: &str) -> Vec<String> {
+pub fn scan_declared_type_names(source: &str, path: &str) -> Vec<String> {
     let mut names = Vec::new();
     if is_generated_declaration_file(path, source) {
         return names;
@@ -575,21 +587,42 @@ pub fn scan_declared_class_names(source: &str, path: &str) -> Vec<String> {
         return names;
     }
     for statement in &parsed.program.body {
-        let class = match statement {
-            Statement::ClassDeclaration(class) => Some(class),
-            Statement::ExportDeclaration(export) => match &export.declaration {
-                Declaration::ClassDeclaration(class) => Some(class),
-                _ => None,
-            },
-            _ => None,
-        };
-        if let Some(class) = class
-            && let Some(id) = &class.id
-        {
-            names.push(id.name.to_string());
+        match statement {
+            Statement::ExportDeclaration(export) => {
+                if let Some(name) = declared_type_name(&export.declaration) {
+                    names.push(name);
+                }
+            }
+            statement => {
+                if let Some(declaration) = statement.as_declaration()
+                    && let Some(name) = declared_type_name(declaration)
+                {
+                    names.push(name);
+                }
+            }
         }
     }
     names
+}
+
+/// The module-scope type name a declaration introduces, if it introduces one.
+///
+/// The four type-level kinds only. A `function`, a `var`/`let`/`const` and a
+/// namespace introduce no type name that another module's type declaration can
+/// collide with in the generated Rust type namespace, so they answer `None` —
+/// and an anonymous class expression has no name to answer with.
+fn declared_type_name(declaration: &Declaration<'_>) -> Option<String> {
+    match declaration {
+        Declaration::ClassDeclaration(class) => {
+            class.id.as_ref().map(|id| id.name.to_string())
+        }
+        Declaration::TSInterfaceDeclaration(interface) => {
+            Some(interface.id.name.to_string())
+        }
+        Declaration::TSTypeAliasDeclaration(alias) => Some(alias.id.name.to_string()),
+        Declaration::TSEnumDeclaration(enum_decl) => Some(enum_decl.id.name.to_string()),
+        _ => None,
+    }
 }
 
 /// AST collector for `globalThis.<HostName> = ...` writes anywhere in a program.

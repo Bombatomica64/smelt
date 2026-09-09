@@ -236,7 +236,7 @@ pub struct HirCtx {
     /// Only the RUST RENDERING changes. The source spelling stays the recorded
     /// original name (`krate.names`), because that is what reflection reads:
     /// `instanceof` and `__smelt_class` must still answer `Node`.
-    pub class_renames: HashMap<String, HashMap<String, String>>,
+    pub type_renames: HashMap<String, HashMap<String, String>>,
     /// Crate-unique module identity for each module path.
     ///
     /// A module-private helper's Rust item name has to stay distinct after every
@@ -284,7 +284,7 @@ impl HirCtx {
             callable_object_aliases: HashSet::new(),
             written_host_globals: HashSet::new(),
             project_sources_outside_crate: HashSet::new(),
-            class_renames: HashMap::new(),
+            type_renames: HashMap::new(),
             module_identities: HashMap::new(),
         }
     }

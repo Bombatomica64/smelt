@@ -1456,17 +1456,28 @@ impl ModuleBuilder<'_> {
         Some(symbol)
     }
 
-    /// The Rust-facing symbol for a source class name, qualified when the name
+    /// The Rust-facing symbol for a source TYPE name, qualified when the name
     /// is ambiguous across the crate.
     ///
-    /// Class identity in HIR is the name symbol: `Type::Class { name }` carries
+    /// Type identity in HIR is the name symbol: `Type::Class { name }` carries
     /// it and `resolve_method` goes from it back to the class item. Two modules
-    /// exporting a class of the same name therefore shared one symbol for two
-    /// different classes, and every method of the loser reported "unknown class
+    /// declaring a type of the same name therefore shared one symbol for two
+    /// different types, and every method of the loser reported "unknown class
     /// method" — Hono's two `Node` classes, which stopped the router slice
-    /// transpiling. `HirCtx::class_renames` is the crate-wide answer to "is
+    /// transpiling. `HirCtx::type_renames` is the crate-wide answer to "is
     /// this name ambiguous, and what is this module's rendering of it",
     /// computed before any module lowers.
+    ///
+    /// Ambiguity is CROSS-KIND, which is why this is not called
+    /// `..._class_name`: the generated Rust puts a class's struct, an
+    /// interface's struct, a structural alias's struct and an enum in one type
+    /// namespace, so `interface Context` in one module and `class Context<E, P,
+    /// I>` in another collide exactly as two classes do — Hono's is the pair
+    /// that produced 437 `E0609` (`no field var_index`, because reads of the
+    /// interface's field landed on the class struct) and 222 `E0107` (the class
+    /// takes three type arguments and the interface none). Every declaration
+    /// kind consults this one map, and the declaring module wins for its own
+    /// spelling whatever kind it declared.
     ///
     /// Returns `None` for an unambiguous name so it keeps its bare spelling and
     /// every existing golden stays byte-identical. When it does rename, the
@@ -1484,13 +1495,13 @@ impl ModuleBuilder<'_> {
     /// spelling is whichever module registered last, so Hono's trie router
     /// resolved its own `Node<T>` annotation to the reg-exp router's class and
     /// read that class's fields (H61).
-    pub(in crate::lowering) fn module_qualified_class_name(
+    pub(in crate::lowering) fn module_qualified_type_name(
         &mut self,
         class_source_name: &str,
     ) -> Option<smelt_hir::Symbol> {
         let rendered = self
             .ctx
-            .class_renames
+            .type_renames
             .get(&self.path)
             .and_then(|renames| renames.get(class_source_name))?
             .clone();
@@ -1529,7 +1540,7 @@ impl ModuleBuilder<'_> {
             .classes
             .scoped_type_name(&class_source_name)
             .or_else(|| self.host_shadowing_class_expression_name(class, &class_source_name));
-        // `module_qualified_class_name` changes the class's RUST NAME and
+        // `module_qualified_type_name` changes the class's RUST NAME and
         // nothing else, so the module-local string-keyed metadata below stays
         // under the SOURCE spelling. Every reader of those maps derives its key
         // from the source name — either directly, or through
@@ -1540,7 +1551,7 @@ impl ModuleBuilder<'_> {
         // than a blocker. `registry_text` is `Some` only for that case.
         let (class_name, registry_text) = match scoped_or_host_name {
             Some(name) => (name, None),
-            None => match self.module_qualified_class_name(&class_source_name) {
+            None => match self.module_qualified_type_name(&class_source_name) {
                 // A renamed class must still answer to its source spelling
                 // inside its own module: `new Node()` and a `Node` type
                 // annotation both resolve through the scoped type name, and the

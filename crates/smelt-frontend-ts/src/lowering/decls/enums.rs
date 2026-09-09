@@ -135,7 +135,7 @@ impl ModuleBuilder<'_> {
         };
         let ty = self.ctx.krate.types.intern(underlying);
         let name_text = self.qualified_type_declaration_name(enum_name);
-        let name = self.intern_type_name(&name_text);
+        let name = self.declared_type_name_symbol(enum_name, &name_text);
         let item = self.ctx.krate.push_item(Item::TypeAlias(TypeAlias {
             name,
             type_params: Vec::new(),

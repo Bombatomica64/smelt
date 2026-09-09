@@ -54,6 +54,14 @@ pub(in crate::lowering) struct ImportScope {
     /// usefully — naming the module is the difference between "unknown type" and
     /// "that module is not in the crate".
     import_sources: HashMap<String, String>,
+    /// The name each imported local was exported AS by its module.
+    ///
+    /// Separate from `import_sources` because an import may be aliased
+    /// (`import { Node as TrieNode }`), and the question a crate-wide type
+    /// rename asks is about the EXPORTED spelling: the rename map is keyed by
+    /// the declaring module's own name for the type, not by whatever the
+    /// importer chose to call it.
+    imported_names: HashMap<String, String>,
     /// Local names statically known to alias the ambient global object.
     ///
     /// Populated for `const g = globalThis;` style bindings so that global-path
@@ -72,6 +80,16 @@ impl ImportScope {
     /// Return the module specifier an imported local name came from.
     pub(in crate::lowering) fn import_source(&self, name: &str) -> Option<&str> {
         self.import_sources.get(name).map(String::as_str)
+    }
+
+    /// Record the name an imported local was exported as by its module.
+    pub(in crate::lowering) fn record_imported_name(&mut self, local: String, imported: String) {
+        self.imported_names.insert(local, imported);
+    }
+
+    /// Return the name an imported local was exported as by its module.
+    pub(in crate::lowering) fn imported_name(&self, name: &str) -> Option<&str> {
+        self.imported_names.get(name).map(String::as_str)
     }
 
     /// Record a local name imported as a runtime value.

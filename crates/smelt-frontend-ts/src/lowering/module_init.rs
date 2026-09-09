@@ -207,9 +207,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
             // Same symbol the declaration will use, so a crate-ambiguous class
             // name attaches its predeclared method surface to ITS class rather
             // than to the other module's class of the same spelling (see
-            // `module_qualified_class_name`).
+            // `module_qualified_type_name`).
             let name = self
-                .module_qualified_class_name(id.name.as_str())
+                .module_qualified_type_name(id.name.as_str())
                 .unwrap_or_else(|| self.intern_type_name(id.name.as_str()));
             if self
                 .push_type_parameter_scope(class.type_parameters.as_deref())
@@ -3025,6 +3025,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }
             self.imports
                 .record_import_source(local.clone(), source.to_owned());
+            self.imports
+                .record_imported_name(local.clone(), imported.clone());
             let name = self.intern_source_name(&imported);
             let alias = (local != imported).then(|| self.intern_source_name(&local));
             module.imports.push(Import {

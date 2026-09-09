@@ -295,3 +295,7 @@ third_party/es-toolkit-src/
 # to zero avoidable erasure BY CONSTRUCTION (a general switch-termination rule, and
 # two fixture splits into executing runtime tiers), with the per-fixture numbers
 !blocker-logs/hono-round28-examples-invariant.md
+# hono-h71-cross-kind-type-name-collision.md records the cross-kind type-name
+# ruling (a type name is crate-unique across class/interface/alias/enum) and the
+# import-cycle half of it, with the whole-crate cargo check table before/after
+!blocker-logs/hono-h71-cross-kind-type-name-collision.md
