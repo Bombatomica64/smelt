@@ -549,6 +549,13 @@ impl ModuleBuilder<'_> {
                     if self.try_collect_callable_local_prop(assign, body, block)? {
                         return Ok(());
                     }
+                    // A logical assignment stores conditionally; in statement
+                    // position its value is discarded, so it needs neither a
+                    // result temporary nor an else arm.
+                    if Self::is_logical_assignment_operator(assign.operator) {
+                        self.lower_logical_assignment(assign, body, Some(block), false)?;
+                        return Ok(());
+                    }
                     let (target, value) = self.assignment_parts(assign, body)?;
                     body.push_stmt_to_block(block, Stmt::Assign { target, value });
                     return Ok(());

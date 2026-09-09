@@ -38,147 +38,150 @@ fn main (FuncId(1)) -> None
     %1 user initialized: Float
     %2 user via_iife: Optional<fn(String) -> Float>
     %3 user via_or_assign: Optional<fn(String) -> Float>
-    %4 user via_nullish_assign: Optional<fn(String) -> Float>
-    %5 user direct: fn(String) -> Float
-    %6 temp: fn() -> fn(String) -> Float
-    %7 temp: fn(String) -> Float
-    %8 temp: Bool
-    %9 temp: Optional<fn(String) -> Float>
-    %10 temp: fn() -> fn(String) -> Float
-    %11 temp: fn(String) -> Float
+    %4 user __smelt_logical_value_4: fn(String) -> Float
+    %5 user via_nullish_assign: Optional<fn(String) -> Float>
+    %6 user __smelt_logical_value_6: fn(String) -> Float
+    %7 user direct: fn(String) -> Float
+    %8 temp: fn() -> fn(String) -> Float
+    %9 temp: fn(String) -> Float
+    %10 temp: Bool
+    %11 temp: Bool
     %12 temp: fn() -> fn(String) -> Float
     %13 temp: fn(String) -> Float
-    %14 temp: fn(String) -> Float
+    %14 temp: Bool
     %15 temp: fn() -> fn(String) -> Float
     %16 temp: fn(String) -> Float
-    %17 temp: Float
-    %18 temp: Bool
+    %17 temp: fn() -> fn(String) -> Float
+    %18 temp: fn(String) -> Float
     %19 temp: Float
-    %20 temp: Float
+    %20 temp: Bool
     %21 temp: Float
-    %22 temp: None
-    %23 temp: None
-    %24 temp: fn(String) -> Float
-    %25 temp: Bool
-    %26 temp: Float
-    %27 temp: Float
-    %28 temp: fn(String) -> Float
+    %22 temp: Float
+    %23 temp: Float
+    %24 temp: None
+    %25 temp: None
+    %26 temp: fn(String) -> Float
+    %27 temp: Bool
+    %28 temp: Float
     %29 temp: Float
-    %30 temp: None
-    %31 temp: Bool
-    %32 temp: Float
-    %33 temp: Float
-    %34 temp: fn(String) -> Float
+    %30 temp: fn(String) -> Float
+    %31 temp: Float
+    %32 temp: None
+    %33 temp: Bool
+    %34 temp: Float
     %35 temp: Float
-    %36 temp: None
-    %37 temp: fn(String) -> Float
-    %38 temp: Bool
-    %39 temp: Float
+    %36 temp: fn(String) -> Float
+    %37 temp: Float
+    %38 temp: None
+    %39 temp: Bool
     %40 temp: Float
-    %41 temp: fn(String) -> Float
-    %42 temp: Float
-    %43 temp: None
-    %44 temp: Float
-    %45 temp: None
-    %46 temp: String
-    %47 temp: None
+    %41 temp: Float
+    %42 temp: fn(String) -> Float
+    %43 temp: Float
+    %44 temp: None
+    %45 temp: Float
+    %46 temp: None
+    %47 temp: String
+    %48 temp: None
   bb0:
     %0 = undefined
     %0 = 5.0
     %1 = 1.0
     %1 = 6.0
     %2 = undefined
-    %6 = closure ClosureId(0) []
-    %7 = closure_call move %6()
-    %2 = move %7
+    %8 = closure ClosureId(0) []
+    %9 = closure_call move %8()
+    %2 = move %9
     %3 = undefined
-    %8 = copy %3 != none
-    switch move %8 ? bb1 : bb2
+    %10 = copy %3 != none
+    %11 = !move %10
+    switch move %11 ? bb1 : bb2
   bb1:
-    %9 = move %3
-    goto bb3
-  bb2:
-    %10 = closure ClosureId(2) [copy %0]
-    %11 = closure_call move %10()
-    %9 = move %11
-    goto bb3
-  bb3:
-    %3 = move %9
-    %4 = undefined
-    %12 = closure ClosureId(4) [copy %0]
+    %12 = closure ClosureId(2) [copy %0]
     %13 = closure_call move %12()
-    %14 = move %4 ?? move %13
-    %4 = move %14
-    %15 = closure ClosureId(6) [copy %0]
+    %4 = move %13
+    %3 = move %4
+    goto bb2
+  bb2:
+    %5 = undefined
+    %14 = copy %5 == none
+    switch move %14 ? bb3 : bb4
+  bb3:
+    %15 = closure ClosureId(4) [copy %0]
     %16 = closure_call move %15()
-    %5 = move %16
-    %17 = copy %0
-    %18 = move %17 == undefined
-    switch move %18 ? bb4 : bb5
+    %6 = move %16
+    %5 = move %6
+    goto bb4
   bb4:
-    %20 = -1.0
-    %19 = move %20
-    goto bb6
+    %17 = closure ClosureId(6) [copy %0]
+    %18 = closure_call move %17()
+    %7 = move %18
+    %19 = copy %0
+    %20 = move %19 == undefined
+    switch move %20 ? bb5 : bb6
   bb5:
-    %21 = copy %0
-    %19 = move %21
-    goto bb6
+    %22 = -1.0
+    %21 = move %22
+    goto bb7
   bb6:
-    %22 = call @console_log(move %19) -> bb7
+    %23 = copy %0
+    %21 = move %23
+    goto bb7
   bb7:
-    %23 = call @console_log(move %1) -> bb8
+    %24 = call @console_log(move %21) -> bb8
   bb8:
-    %24 = copy %2
-    %25 = move %24 == undefined
-    switch move %25 ? bb9 : bb10
+    %25 = call @console_log(move %1) -> bb9
   bb9:
-    %27 = -1.0
-    %26 = move %27
-    goto bb11
+    %26 = copy %2
+    %27 = move %26 == undefined
+    switch move %27 ? bb10 : bb11
   bb10:
-    %28 = move %2
-    %29 = closure_call move %28("ab")
-    %26 = move %29
-    goto bb11
+    %29 = -1.0
+    %28 = move %29
+    goto bb12
   bb11:
-    %30 = call @console_log(move %26) -> bb12
+    %30 = move %2
+    %31 = closure_call move %30("ab")
+    %28 = move %31
+    goto bb12
   bb12:
-    %31 = copy %3 == undefined
-    switch move %31 ? bb13 : bb14
+    %32 = call @console_log(move %28) -> bb13
   bb13:
-    %33 = -1.0
-    %32 = move %33
-    goto bb15
+    %33 = copy %3 == undefined
+    switch move %33 ? bb14 : bb15
   bb14:
-    %34 = move %3
-    %35 = closure_call move %34("ab")
-    %32 = move %35
-    goto bb15
+    %35 = -1.0
+    %34 = move %35
+    goto bb16
   bb15:
-    %36 = call @console_log(move %32) -> bb16
+    %36 = move %3
+    %37 = closure_call move %36("ab")
+    %34 = move %37
+    goto bb16
   bb16:
-    %37 = copy %4
-    %38 = move %37 == undefined
-    switch move %38 ? bb17 : bb18
+    %38 = call @console_log(move %34) -> bb17
   bb17:
-    %40 = -1.0
-    %39 = move %40
-    goto bb19
+    %39 = copy %5 == undefined
+    switch move %39 ? bb18 : bb19
   bb18:
-    %41 = move %4
-    %42 = closure_call move %41("ab")
-    %39 = move %42
-    goto bb19
+    %41 = -1.0
+    %40 = move %41
+    goto bb20
   bb19:
-    %43 = call @console_log(move %39) -> bb20
+    %42 = move %5
+    %43 = closure_call move %42("ab")
+    %40 = move %43
+    goto bb20
   bb20:
-    %44 = closure_call move %5("ab")
-    %45 = call @console_log(move %44) -> bb21
+    %44 = call @console_log(move %40) -> bb21
   bb21:
-    %46 = call fn0() -> bb22
+    %45 = closure_call move %7("ab")
+    %46 = call @console_log(move %45) -> bb22
   bb22:
-    %47 = call @console_log(move %46) -> bb23
+    %47 = call fn0() -> bb23
   bb23:
+    %48 = call @console_log(move %47) -> bb24
+  bb24:
     return none
 
 closure ClosureId(0) -> fn(String) -> Float

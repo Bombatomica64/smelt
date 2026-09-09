@@ -104,6 +104,12 @@ impl ModuleBuilder<'_> {
                     body.push_stmt_to_block(loop_body, Stmt::Expr(set));
                     return Ok(());
                 }
+                // A logical update (`i ||= 1`) stores conditionally through its
+                // own rule, which pushes the branch into the loop body itself.
+                if Self::is_logical_assignment_operator(assign.operator) {
+                    self.lower_logical_assignment(assign, body, Some(loop_body), false)?;
+                    return Ok(());
+                }
                 let (target, value) = self.assignment_parts(assign, body)?;
                 body.push_stmt_to_block(loop_body, Stmt::Assign { target, value });
                 Ok(())

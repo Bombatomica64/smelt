@@ -1,4 +1,4 @@
-module examples/typescript/end-to-end/79_data_view_shared_buffer/input.ts (ModuleId(0))
+module examples/typescript/end-to-end/82_data_view_shared_buffer/input.ts (ModuleId(0))
   body BodyId(2)
   items
     fn tag_of owner Module

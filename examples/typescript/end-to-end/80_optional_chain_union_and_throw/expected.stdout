@@ -1,0 +1,4 @@
+number arm: none
+tuple arm: a=1
+no receiver: no registry
+receiver: present
