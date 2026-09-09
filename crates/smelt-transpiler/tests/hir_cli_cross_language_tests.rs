@@ -291,6 +291,108 @@ clone-strategy = "aggressive"
     Ok(())
 }
 
+/// The first of two modules that both export a class named `Node`.
+const DUPLICATE_CLASS_ALPHA: &str = r"export class Node {
+  #items: string[] = [];
+
+  push(value: string): void {
+    this.#items.push(value);
+  }
+
+  search(prefix: string): string[] {
+    return this.#items.filter((item) => item.startsWith(prefix));
+  }
+}
+";
+
+/// The second module exporting `Node`, with members disjoint from the first's.
+const DUPLICATE_CLASS_BETA: &str = r"export class Node {
+  index = 0;
+
+  bump(): number {
+    this.index += 1;
+    return this.index;
+  }
+}
+";
+
+/// An importer that aliases both `Node` classes and calls each one's members.
+const DUPLICATE_CLASS_MAIN: &str = r"import { Node as AlphaNode } from './alpha';
+import { Node as BetaNode } from './beta';
+
+const alpha = new AlphaNode();
+alpha.push('abc');
+alpha.push('bcd');
+console.log(alpha.search('a').join(','));
+
+const beta = new BetaNode();
+console.log(beta.bump());
+console.log(beta.bump());
+";
+
+#[test]
+fn build_runs_two_modules_exporting_a_same_named_class() -> TestResult {
+    // Class identity in HIR is the class's name symbol, and method resolution
+    // goes from that symbol back to the class item. Two modules exporting a
+    // class of the same name therefore interned ONE symbol for two different
+    // classes, and every method of the loser reported "unknown class method" —
+    // Hono's two `Node` classes (`router/trie-router/node.ts` and
+    // `router/reg-exp-router/node.ts`), which stopped the router slice
+    // transpiling outright once the import-scanner fix put both in the crate.
+    //
+    // A crate-wide pre-pass now gives an ambiguous class name the same ordinal
+    // suffix scheme `manifest_module_names` uses for module bodies: the last
+    // declaring module keeps the bare name and earlier ones become `Node_1`,
+    // `Node_2`, ... A name declared by exactly one module is untouched, which
+    // is what keeps every existing golden byte-identical.
+    //
+    // This is a multi-module test rather than an `examples/` fixture because
+    // the golden harness copies one `input.ts` into a single-file project and
+    // the whole point here is TWO modules. Building and RUNNING it is what
+    // proves the fix: the failure mode was a wrong method resolution, so the
+    // observable symptom is the value each class answers, not a diagnostic.
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "duplicate-class-name"
+version = "0.1.0"
+
+[sources]
+roots = ["src"]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "duplicate_class_name"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    // Both modules export a class named `Node`, with disjoint members: if the
+    // two collapse onto one identity, at least one call cannot resolve. The
+    // importer aliases them, so this also shows the problem was never import
+    // scope — distinct local names still collided.
+    fs::write(project_path.join("src/alpha.ts"), DUPLICATE_CLASS_ALPHA)?;
+    fs::write(project_path.join("src/beta.ts"), DUPLICATE_CLASS_BETA)?;
+    fs::write(project_path.join("src/main.ts"), DUPLICATE_CLASS_MAIN)?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    // Each class answers with its OWN members. Before the fix this failed to
+    // lower at all ("unknown class method `bump`"); a rename that lost the
+    // declaring module's field metadata instead printed an empty first line.
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(&actual_stdout, &"abc\n1\n2\n".to_owned(), "unexpected stdout")?;
+
+    Ok(())
+}
+
 /// Every TypeScript end-to-end example the golden suite checks.
 ///
 /// A list rather than a directory scan: an example is only checked once it

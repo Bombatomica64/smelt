@@ -541,6 +541,57 @@ fn assignment_target_host_global_name<'a>(target: &'a AssignmentTarget<'a>) -> O
     (smelt_stdlib::host_object_by_class(property).is_some()).then_some(property)
 }
 
+/// Scan one TypeScript source for the MODULE-SCOPE class names it declares.
+///
+/// The crate-level half lives in the transpiler, which unions these across
+/// every source before lowering begins and hands back a rename for any name
+/// declared by more than one module (see `HirCtx::class_renames`). Doing it as
+/// a pre-pass rather than during lowering is what makes the answer independent
+/// of lowering order: whether `Node` is ambiguous cannot depend on which module
+/// happens to lower first.
+///
+/// Only top-level declarations count, `export class` included. A class
+/// EXPRESSION and a class nested inside a function or a test closure are
+/// deliberately skipped: neither is nameable from another module, so neither
+/// can collide across modules, and both already get their own disambiguation
+/// (`anonymous_class_name`, `enter_test_suite_class_scope`). Parse failures
+/// yield an empty list so scanning never blocks a build.
+#[must_use]
+pub fn scan_declared_class_names(source: &str, path: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    if is_generated_declaration_file(path, source) {
+        return names;
+    }
+    let allocator = Allocator::default();
+    let source_type = if is_typescript_declaration_path(path) {
+        SourceType::d_ts()
+    } else {
+        SourceType::default().with_typescript(true)
+    };
+    let parsed = Parser::new(&allocator, source, source_type)
+        .with_options(ParseOptions::default())
+        .parse();
+    if !parsed.diagnostics.is_empty() {
+        return names;
+    }
+    for statement in &parsed.program.body {
+        let class = match statement {
+            Statement::ClassDeclaration(class) => Some(class),
+            Statement::ExportDeclaration(export) => match &export.declaration {
+                Declaration::ClassDeclaration(class) => Some(class),
+                _ => None,
+            },
+            _ => None,
+        };
+        if let Some(class) = class
+            && let Some(id) = &class.id
+        {
+            names.push(id.name.to_string());
+        }
+    }
+    names
+}
+
 /// AST collector for `globalThis.<HostName> = ...` writes anywhere in a program.
 ///
 /// Walking continues into nested nodes so writes inside function/method bodies,

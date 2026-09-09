@@ -213,6 +213,30 @@ pub struct HirCtx {
     /// manifest excludes keeps the nominal fallback. See
     /// `blocker-logs/standards-generic-arm-and-typeof-indexed-alias.md`.
     pub project_sources_outside_crate: HashSet<String>,
+    /// Rust-facing class names for source class names that are AMBIGUOUS across
+    /// the crate, keyed by module path then by source class name.
+    ///
+    /// Class identity in HIR is the class's name symbol (`Type::Class { name }`),
+    /// and method resolution goes from that symbol back to the class item. Two
+    /// modules exporting a class of the same name therefore interned ONE symbol
+    /// for two different classes, and every method of the loser reported
+    /// "unknown class method" — Hono's two `Node` classes
+    /// (`router/trie-router/node.ts` and `router/reg-exp-router/node.ts`) are
+    /// the case that found it, and it stopped the router slice transpiling
+    /// outright.
+    ///
+    /// The transpiler computes this before any module lowers, so the answer
+    /// cannot depend on lowering order: a name declared by exactly one module
+    /// is absent here and keeps its bare spelling (so every existing golden is
+    /// byte-identical), and a name declared by several gets the ordinal suffix
+    /// scheme `manifest_module_names` already uses for module bodies — the last
+    /// declaring module keeps the bare name, earlier ones become `Node_1`,
+    /// `Node_2`, ...
+    ///
+    /// Only the RUST RENDERING changes. The source spelling stays the recorded
+    /// original name (`krate.names`), because that is what reflection reads:
+    /// `instanceof` and `__smelt_class` must still answer `Node`.
+    pub class_renames: HashMap<String, HashMap<String, String>>,
 }
 
 impl HirCtx {
@@ -242,6 +266,7 @@ impl HirCtx {
             callable_object_aliases: HashSet::new(),
             written_host_globals: HashSet::new(),
             project_sources_outside_crate: HashSet::new(),
+            class_renames: HashMap::new(),
         }
     }
 }
