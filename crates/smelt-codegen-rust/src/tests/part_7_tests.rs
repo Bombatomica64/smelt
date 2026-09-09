@@ -107,6 +107,48 @@ export function cycle(): unknown {
     assert!(!source.contains("expect(\"missing field\") ="), "{source}");
 }
 
+/// A class EXPRESSION calling a method it INHERITS resolves that method, and
+/// the call stays a direct method call.
+///
+/// A class expression's members lower before its own item is registered, so the
+/// receiver's class is "in progress" and its own metadata lists only the
+/// methods it declares. An inherited name fell through to the dynamic path,
+/// which lowers a member READ and calls it — and the emitter renders that read
+/// as a struct field of a name the class has as a METHOD:
+/// `E0615: attempted to take value of method `build_all_matchers``, the last
+/// non-H42 error in the Hono router slice (H44). Hono's shape is
+/// `const X = class<T> extends RegExpRouter<T> { … this.buildAllMatchers() }`.
+#[test]
+fn class_expression_call_to_an_inherited_method_stays_a_method_call() {
+    let source = source_for(
+        r"
+class Counter {
+  #hits: string[] = [];
+
+  add(key: string): void {
+    this.#hits.push(key);
+  }
+
+  protected tally(): string {
+    return this.#hits.join(',');
+  }
+}
+
+const Reporting = class extends Counter {
+  report(): string {
+    return this.tally();
+  }
+};
+
+export const reported = new Reporting().report();
+",
+    );
+
+    // A direct call on the receiver, not a field read dispatched dynamically.
+    assert!(source.contains("self.tally()"), "{source}");
+    assert!(!source.contains("self.tally.clone()"), "{source}");
+}
+
 /// A `return <literal>` statement inside an `async` function returns the
 /// *resolved* value, not a promise: the async lowering wraps the whole body
 /// into the future. When the declared return type is `Promise<[null, T]>` the

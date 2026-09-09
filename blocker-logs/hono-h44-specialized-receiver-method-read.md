@@ -112,3 +112,48 @@ One thing the attempt did find on the way: Hono spells the wiring
 value-position instantiation expression — `match<RegExpRouter<T>, T>` — is
 "expression kind is not lowered yet: TSInstantiationExpression". Recorded
 separately as `blocker-logs/hono-h59-instantiation-expression.md`.
+
+## Round 26: fixed, and the precondition was not specialization at all
+
+The slice itself was the witness, as this note said it would have to be, and it
+named the real precondition: the receiver is an **in-progress class** — a class
+EXPRESSION, whose members lower before its own item is registered — calling a
+method it **inherits**.
+
+```ts
+const RegExpRouterWithMatcherExport = class<T> extends RegExpRouter<T> {
+  buildAndExportAllMatchers() {
+    return this.buildAllMatchers()      // protected, declared on the BASE
+  }
+}
+```
+
+`resolve_method` walks the base chain for a lowered class, and for an
+in-progress one it consulted only `in_progress_class_method_return`, which lists
+the methods the class DECLARES. An inherited name missed, so the call fell
+through to `Ok((receiver_ty, ItemId::MAX))` — the dynamic path — and lowered as
+a member READ plus an indirect call. The emitter then rendered that read as a
+struct field of a name the class has as a method, which is the `E0615` in the
+title.
+
+The fix is one recovery step in the same function: when the in-progress class
+does not declare the method, resolve it through the base class the registry
+already recorded (`ClassRegistry::set_base`), which is fully lowered. It answers
+`None` rather than an error when there is no base or the base chain does not
+have the method, so a genuinely dynamic name still takes the dynamic path.
+
+So the four fixtures in this note were right to emit the correct route: none of
+them was a class expression. "Specialization" was the wrong hypothesis — the
+missing ingredient was `class extends` inside a class expression, which no
+fixture had.
+
+Guarded by `class_expression_call_to_an_inherited_method_stays_a_method_call`
+(codegen unit test, verified to fail with the change reverted). It is a text
+assertion rather than a runtime fixture because a const-bound class expression
+is separately broken at RUNTIME: the same reproduction answers `report: null`
+where JavaScript answers `report: a,b`, while a declared `class extends`
+control answers correctly. That is H68, numbered in
+`hono-h57-receiver-capture-and-class-value-default.md`.
+
+With this, the **router slice is down to 6 `cargo check` errors, all of them
+H42** (`TypeParam` erasure), the one family the campaign has deferred.

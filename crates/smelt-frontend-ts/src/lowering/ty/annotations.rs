@@ -3211,6 +3211,18 @@ return_ty: function.return_ty,
             {
                 return Ok((return_ty, smelt_hir::ItemId(u32::MAX)));
             }
+            // The class is still being lowered and does not DECLARE this method,
+            // so it is inherited: resolve it through the recorded base, exactly
+            // as the lowered-class path below does. Falling through instead
+            // typed the call as the receiver and lowered it as a dynamic call
+            // through a member read, which the emitter renders as a FIELD read
+            // of a name the class has as a method (`E0615: attempted to take
+            // value of method`, H44 — Hono's anonymous
+            // `class<T> extends RegExpRouter<T>` calling the base's protected
+            // `buildAllMatchers`).
+            if let Some(resolved) = self.in_progress_class_base_method(name, method, span) {
+                return Ok(resolved);
+            }
             // An interface-typed receiver has no concrete method item, but its
             // method signatures carry return types. Resolving them keeps the
             // call expression correctly typed (e.g. `counter.count()` is a
@@ -3301,6 +3313,40 @@ return_ty: function.return_ty,
             self.span(0, 0),
             format!("unknown class method `{method_name}`"),
         ))
+    }
+
+    /// Resolve a method an IN-PROGRESS class inherits, through its base class.
+    ///
+    /// A class expression's members lower before its own item is registered, so
+    /// `class_by_symbol` answers `None` for the class currently being lowered
+    /// and its own metadata only lists the methods it declares. Its base,
+    /// however, is fully lowered and recorded by `ClassRegistry::set_base`, so
+    /// an inherited method resolves there and the call keeps a real method item
+    /// instead of erasing to a member read.
+    ///
+    /// Answers `None` — never an error — when there is no base or the base
+    /// chain does not have the method: this is a recovery path, and the caller's
+    /// existing fall-through is still the right answer for a name that is
+    /// genuinely dynamic.
+    fn in_progress_class_base_method(
+        &mut self,
+        class: smelt_hir::Symbol,
+        method: smelt_hir::Symbol,
+        span: oxc::span::Span,
+    ) -> Option<(smelt_hir::TypeId, smelt_hir::ItemId)> {
+        let class_name = self
+            .ctx
+            .krate
+            .names
+            .get(class)
+            .or_else(|| self.ctx.krate.symbols.get(class))
+            .map(str::to_owned)?;
+        let (base, base_args) = self.classes.base(&class_name).cloned()?;
+        let base_ty = self.ctx.krate.types.intern(Type::Class {
+            name: base,
+            args: base_args,
+        });
+        self.resolve_method(base_ty, method, span).ok()
     }
 
     /// Resolve a method return type from metadata collected before a class item exists.
