@@ -21,8 +21,8 @@ module examples/typescript/end-to-end/55_headers_init_union/input.ts (ModuleId(0
     #6: None = call #5(#4)
     #7: String = "content-type"
     #8: String = "text/html"
-    #9: List<String> = [#7, #8]
-    #10: List<(String, String)> | Dict<String, String> | Headers = [#9]
+    #9: (String, String) = (#7, #8)
+    #10: List<(String, String)> = [#9]
     #11: fn(List<(String, String)> | Dict<String, String> | Headers) -> String = @4(content_type_of)
     #12: String = call #11(#10)
     #13: None = @10(console_log)

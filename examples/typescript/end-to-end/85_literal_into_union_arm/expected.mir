@@ -1,0 +1,188 @@
+fn describe (FuncId(0)) -> String
+  locals
+    %0 param slot: Float | List<(String, Float)>
+    %1 temp: Bool
+    %2 temp: Float
+    %3 temp: String
+    %4 temp: String
+    %5 temp: List<(String, Float)>
+    %6 temp: fn((String, Float), Int, List<(String, Float)>) -> String
+    %7 temp: List<String>
+    %8 temp: String
+    %9 temp: String
+  bb0:
+    %1 = unknown_is Number copy %0
+    switch move %1 ? bb1 : bb2
+  bb1:
+    %2 = unknown_cast copy %0 as t0
+    %3 = primitive_cast_string move %2
+    %4 = "number:" + move %3
+    return move %4
+  bb2:
+    %5 = unknown_cast copy %0 as t3
+    %6 = closure ClosureId(0) []
+    %7 = list_map move %5, move %6
+    %8 = string_join move %7, ","
+    %9 = "pairs:" + move %8
+    return move %9
+
+fn total (FuncId(1)) -> String
+  locals
+    %0 param rows: String | List<(Float, Float)>
+    %1 user sum: Float
+    %2 user row: (Float, Float)
+    %3 temp: Bool
+    %4 temp: String
+    %5 temp: String
+    %6 temp: List<(Float, Float)>
+    %7 temp: Float
+    %8 temp: Float
+    %9 temp: Bool
+    %10 temp: Float
+    %11 temp: Float
+    %12 temp: Float
+    %13 temp: Float
+    %14 temp: String
+    %15 temp: String
+  bb0:
+    %3 = unknown_is String copy %0
+    switch move %3 ? bb1 : bb2
+  bb1:
+    %4 = unknown_cast copy %0 as t1
+    %5 = "text:" + move %4
+    return move %5
+  bb2:
+    %1 = 0.0
+    %6 = unknown_cast copy %0 as t6
+    %7 = 0.0
+    goto bb3
+  bb3:
+    %8 = len copy %6
+    %9 = copy %7 < move %8
+    switch move %9 ? bb4 : bb6
+  bb4:
+    %2 = copy %6[copy %7]
+    %10 = tuple_index copy %2, 0
+    %11 = tuple_index move %2, 1
+    %12 = move %10 * move %11
+    %13 = move %1 + move %12
+    %1 = move %13
+    goto bb5
+  bb5:
+    %7 = copy %7 + 1.0
+    goto bb3
+  bb6:
+    %14 = primitive_cast_string move %1
+    %15 = "sum:" + move %14
+    return move %15
+
+fn first_of (FuncId(2)) -> String
+  locals
+    %0 param values: List<Float | String>
+    %1 temp: Float
+    %2 temp: Bool
+    %3 temp: String
+    %4 temp: String
+  bb0:
+    %1 = len copy %0
+    %2 = move %1 == 0.0
+    switch move %2 ? bb1 : bb2
+  bb1:
+    %3 = "empty"
+    goto bb3
+  bb2:
+    %4 = primitive_cast_string copy %0[0.0]
+    %3 = move %4
+    goto bb3
+  bb3:
+    return move %3
+
+fn main (FuncId(3)) -> None
+  locals
+    %0 user pairs: List<(String, Float)>
+    %1 temp: (String, Float)
+    %2 temp: (String, Float)
+    %3 temp: List<(String, Float)>
+    %4 temp: String
+    %5 temp: String
+    %6 temp: None
+    %7 temp: (String, Float)
+    %8 temp: (String, Float)
+    %9 temp: List<(String, Float)>
+    %10 temp: String
+    %11 temp: String
+    %12 temp: None
+    %13 temp: String
+    %14 temp: String
+    %15 temp: None
+    %16 temp: (Float, Float)
+    %17 temp: (Float, Float)
+    %18 temp: List<(Float, Float)>
+    %19 temp: String
+    %20 temp: String
+    %21 temp: None
+    %22 temp: String
+    %23 temp: String
+    %24 temp: None
+    %25 temp: List<Float | String>
+    %26 temp: String
+    %27 temp: String
+    %28 temp: None
+  bb0:
+    %1 = ("a", 1.0)
+    %2 = ("b", 2.0)
+    %3 = [move %1, move %2]
+    %4 = call fn0(move %3) -> bb1
+  bb1:
+    %5 = "direct: " + move %4
+    %6 = call @console_log(move %5) -> bb2
+  bb2:
+    %7 = ("a", 1.0)
+    %8 = ("b", 2.0)
+    %9 = [move %7, move %8]
+    %0 = move %9
+    %10 = call fn0(move %0) -> bb3
+  bb3:
+    %11 = "bound: " + move %10
+    %12 = call @console_log(move %11) -> bb4
+  bb4:
+    %13 = call fn0(7.0) -> bb5
+  bb5:
+    %14 = "other arm: " + move %13
+    %15 = call @console_log(move %14) -> bb6
+  bb6:
+    %16 = (2.0, 3.0)
+    %17 = (4.0, 5.0)
+    %18 = [move %16, move %17]
+    %19 = call fn1(move %18) -> bb7
+  bb7:
+    %20 = "nested: " + move %19
+    %21 = call @console_log(move %20) -> bb8
+  bb8:
+    %22 = call fn1("none") -> bb9
+  bb9:
+    %23 = "string arm: " + move %22
+    %24 = call @console_log(move %23) -> bb10
+  bb10:
+    %25 = ["a", "b"]
+    %26 = call fn2(move %25) -> bb11
+  bb11:
+    %27 = "ambiguous: " + move %26
+    %28 = call @console_log(move %27) -> bb12
+  bb12:
+    return none
+
+closure ClosureId(0) -> String
+  locals
+    %0 param __callback_param_0: (String, Float)
+    %1 param __callback_param_1: Int
+    %2 param __callback_param_2: List<(String, Float)>
+    %3 temp: String
+    %4 temp: String
+    %5 temp: String
+  bb0:
+    %3 = copy %0[0] + "="
+    %4 = primitive_cast_string copy %0[1]
+    %5 = copy %3 + copy %4
+    return copy %5
+

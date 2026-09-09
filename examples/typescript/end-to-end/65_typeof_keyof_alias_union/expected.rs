@@ -2981,8 +2981,8 @@ impl Default for SmeltUnion10 {
 
 // @smelt:prelude-end — generated program below
 fn main() {
-    let _smelt_tmp_6: SmeltList<String>;
-    let _smelt_tmp_7: SmeltUnion10;
+    let _smelt_tmp_6: (String, String);
+    let _smelt_tmp_7: SmeltList<(String, String)>;
     let _smelt_tmp_10: SmeltRecord<String, String>;
     let _smelt_tmp_13: SmeltList<String>;
     let _smelt_tmp_14: SmeltList<SmeltList<String>>;
@@ -2994,9 +2994,9 @@ fn main() {
     let _smelt_tmp_3: SmeltRecord<String, String> = SmeltRecord::from([("Content-Type".to_owned(), declared)]);
     let _smelt_tmp_4: String = header_of(SmeltUnion10::M1(_smelt_tmp_3), "content-type".to_owned());
     let _ = { println!("{}", _smelt_tmp_4); };
-    _smelt_tmp_6 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["x-kind".to_owned(), "pairs".to_owned()]; smelt_list_items }));
-    _smelt_tmp_7 = SmeltUnion10::M0(Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, String)> = vec![{ let smelt_tuple_values = _smelt_tmp_6.clone().to_vec(); (smelt_tuple_values.get(0).cloned().unwrap_or(String::new()), smelt_tuple_values.get(1).cloned().unwrap_or(String::new())) }]; smelt_list_items })));
-    let _smelt_tmp_8: String = header_of(_smelt_tmp_7, "x-kind".to_owned());
+    _smelt_tmp_6 = ("x-kind".to_owned(), "pairs".to_owned());
+    _smelt_tmp_7 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, String)> = vec![_smelt_tmp_6.clone()]; smelt_list_items }));
+    let _smelt_tmp_8: String = header_of(SmeltUnion10::M0(_smelt_tmp_7), "x-kind".to_owned());
     let _ = { println!("{}", _smelt_tmp_8); };
     _smelt_tmp_10 = SmeltRecord::from([("x-kind".to_owned(), "record".to_owned())]);
     let _smelt_tmp_11: String = header_of(SmeltUnion10::M1(_smelt_tmp_10), "x-kind".to_owned());

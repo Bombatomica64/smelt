@@ -35,8 +35,8 @@ fn main (FuncId(2)) -> None
     %4 temp: Dict<String, String>
     %5 temp: String
     %6 temp: None
-    %7 temp: List<String>
-    %8 temp: List<(String, String)> | Dict<String, String> | Headers
+    %7 temp: (String, String)
+    %8 temp: List<(String, String)>
     %9 temp: String
     %10 temp: None
     %11 temp: List<String>
@@ -80,7 +80,7 @@ fn main (FuncId(2)) -> None
   bb1:
     %6 = call @console_log(move %5) -> bb2
   bb2:
-    %7 = ["content-type", "text/html"]
+    %7 = ("content-type", "text/html")
     %8 = [move %7]
     %9 = call fn0(move %8) -> bb3
   bb3:

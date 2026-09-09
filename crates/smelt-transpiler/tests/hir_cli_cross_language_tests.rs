@@ -861,6 +861,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "82_class_expression_binding",
     "83_same_named_methods_across_classes",
     "84_promise_continuations",
+    "85_literal_into_union_arm",
 ];
 
 #[test]

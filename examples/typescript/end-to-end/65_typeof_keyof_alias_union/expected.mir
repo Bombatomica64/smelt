@@ -21,8 +21,8 @@ fn main (FuncId(1)) -> None
     %3 temp: Dict<String, String>
     %4 temp: String
     %5 temp: None
-    %6 temp: List<String>
-    %7 temp: List<(String, String)> | Dict<String, String> | Headers
+    %6 temp: (String, String)
+    %7 temp: List<(String, String)>
     %8 temp: String
     %9 temp: None
     %10 temp: Dict<String, String>
@@ -45,7 +45,7 @@ fn main (FuncId(1)) -> None
   bb1:
     %5 = call @console_log(move %4) -> bb2
   bb2:
-    %6 = ["x-kind", "pairs"]
+    %6 = ("x-kind", "pairs")
     %7 = [move %6]
     %8 = call fn0(move %7, "x-kind") -> bb3
   bb3:

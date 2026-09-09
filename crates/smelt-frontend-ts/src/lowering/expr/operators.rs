@@ -2695,6 +2695,46 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower an array expression.
+    /// Project a UNION hint to the arm an array literal can be lowered at.
+    ///
+    /// Answers the hint unchanged when it is not a union, and `None` -> `None`.
+    /// A union contributes an arm only when exactly ONE of its members is a
+    /// list or a tuple: with two candidate arms (`string[] | number[]`) the
+    /// literal's own elements are the better evidence, which is what the
+    /// no-hint path already uses.
+    fn array_literal_union_arm_hint(
+        &self,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Option<smelt_hir::TypeId> {
+        let hint = type_hint?;
+        let Some(Type::Union(items)) = self.ctx.krate.types.get(hint) else {
+            return type_hint;
+        };
+        // A union with an ERASED arm (`unknown[] | unknown`) renders as the
+        // erased carrier, so its arms are not distinguishable in Rust and
+        // contextual typing at one of them buys nothing: the literal is erased
+        // either way, and the erased spelling is the one that round-trips.
+        if items.iter().any(|item| {
+            matches!(
+                self.ctx.krate.types.get(*item),
+                Some(Type::Unknown | Type::TypeParam { .. })
+            )
+        }) {
+            return type_hint;
+        }
+        let mut arms = items.iter().copied().filter(|item| {
+            matches!(
+                self.ctx.krate.types.get(*item),
+                Some(Type::List(_) | Type::Tuple(_))
+            )
+        });
+        let arm = arms.next()?;
+        if arms.next().is_some() {
+            return type_hint;
+        }
+        Some(arm)
+    }
+
     pub(in crate::lowering) fn array_expression(
         &mut self,
         array: &oxc::ast::ast::ArrayExpression<'_>,
@@ -2708,6 +2748,15 @@ impl ModuleBuilder<'_> {
         {
             return self.array_expression_with_spread(array, body, type_hint);
         }
+        // A UNION hint contextually types the literal at the arm that can hold
+        // it. `firstPair(slot: number | [string, number][])` called with
+        // `[['a', 1]]` used to lower the literal with no hint at all — the
+        // union is neither a list nor a tuple — so its elements erased and the
+        // argument became `SmeltList<SmeltUnknown>`, while the SAME literal
+        // bound to a typed local first was injected as the union's arm. The arm
+        // is the honest hint, and the existing union injection at the call
+        // boundary then wraps the concretely typed value.
+        let type_hint = self.array_literal_union_arm_hint(type_hint);
         let mut items = Vec::new();
         let tuple_hints = type_hint.and_then(|hint| match self.ctx.krate.types.get(hint) {
             Some(Type::Tuple(tuple_items)) => Some(tuple_items.clone()),

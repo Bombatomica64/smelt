@@ -25,8 +25,8 @@ module examples/typescript/end-to-end/65_typeof_keyof_alias_union/input.ts (Modu
     #14: None = call #13(#12)
     #15: String = "x-kind"
     #16: String = "pairs"
-    #17: List<String> = [#15, #16]
-    #18: List<(String, String)> | Dict<String, String> | Headers = [#17]
+    #17: (String, String) = (#15, #16)
+    #18: List<(String, String)> = [#17]
     #19: String = "x-kind"
     #20: fn(List<(String, String)> | Dict<String, String> | Headers, String) -> String = @4(header_of)
     #21: String = call #20(#18, #19)
