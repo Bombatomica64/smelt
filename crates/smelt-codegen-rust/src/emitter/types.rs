@@ -1375,8 +1375,15 @@ impl FunctionEmitter<'_> {
                 "SmeltList<{}>",
                 self.rust_type(*item, false, substitution)?
             ))),
+            // An insertion-ORDERED set, because JavaScript specifies `Set`
+            // iteration as insertion order and a Rust `HashSet` has none (H52).
+            // `SmeltPrimSet` keeps a `Vec` of entries beside a hash index, so
+            // membership stays hashed; the sibling `SmeltJsSet` below is ordered
+            // too but erases each element for SameValueZero membership, which
+            // would drag the whole `SmeltUnknown` carrier into any program
+            // holding a `Set<string>`.
             Type::Set(item) if self.type_is_hash_set_key_safe(*item) => Ok(RustType::raw(format!(
-                "::std::collections::HashSet<{}>",
+                "SmeltPrimSet<{}>",
                 self.rust_type(*item, false, substitution)?
             ))),
             Type::Set(item) => Ok(RustType::raw(format!(
@@ -1539,7 +1546,7 @@ impl FunctionEmitter<'_> {
                 self.type_text_with_impl_trait(*item, false)?
             )),
             Type::Set(item) if self.type_is_hash_set_key_safe(*item) => {
-                Ok("::std::collections::HashSet::new()".to_owned())
+                Ok("SmeltPrimSet::new()".to_owned())
             }
             Type::Set(_) => Ok("SmeltJsSet::new()".to_owned()),
             Type::Dict(key, _) if self.dict_uses_smelt_record(*key) => {

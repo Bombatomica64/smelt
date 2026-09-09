@@ -42,7 +42,11 @@ coord_set: set[int] = set(coords)
 
     assert!(source.matches(".clone().clone()").count() >= 1);
     assert!(source.contains("vec![]"));
-    assert!(source.contains("::std::collections::HashSet::new()"));
+    // A source `set` — Python's included — is the insertion-ordered
+    // `SmeltPrimSet` container rather than a Rust `HashSet` (H52). Python
+    // guarantees no set order of its own, so an ordered container costs it
+    // nothing; JavaScript REQUIRES insertion order.
+    assert!(source.contains("SmeltPrimSet::new()"));
     assert!(source.contains("::std::collections::HashMap::from([])"));
     assert!(source.contains(".iter().cloned().collect::<Vec<_>>()"));
     assert!(
@@ -51,11 +55,11 @@ coord_set: set[int] = set(coords)
         ),
         "{source}"
     );
-    assert!(source.contains(".iter().cloned().collect::<::std::collections::HashSet<_>>()"));
+    assert!(source.contains(".iter().cloned().collect::<SmeltPrimSet<_>>()"));
     assert!(source.contains(".iter().cloned().collect::<::std::collections::HashMap<_, _>>()"));
     assert!(source.contains("panic!(\"tuple() length mismatch\")"));
     assert!(source.contains("vec!["));
-    assert!(source.contains("::std::collections::HashSet::from(["));
+    assert!(source.contains("SmeltPrimSet::from(["));
 }
 
 #[test]
@@ -325,7 +329,7 @@ has_key: bool = "a" in mapping
     assert!(source.contains("rand::random_range(0..choice_items.len())"));
     assert!(source.contains("random.choice() from empty list"));
     assert!(source.contains(".0 == "));
-    assert!(source.contains("::std::collections::HashSet::from(["));
+    assert!(source.contains("SmeltPrimSet::from(["));
     assert!(source.contains(".contains(&1)"));
     assert!(source.contains(".contains_key(&"));
 }

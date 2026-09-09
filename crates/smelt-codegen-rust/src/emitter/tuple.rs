@@ -195,7 +195,7 @@ impl FunctionEmitter<'_> {
                 "tuple-to-set destination must be set of the tuple item type",
             ));
         }
-        Ok(format!("::std::collections::HashSet::from([{items_text}])"))
+        Ok(format!("SmeltPrimSet::from([{items_text}])"))
     }
 
     /// Returns tuple fields and their shared item type for homogeneous tuple conversions.

@@ -720,6 +720,23 @@ fn rvalue_needs_reqwest(rvalue: &Rvalue) -> bool {
     )
 }
 
+/// Returns true when generated Rust needs the insertion-ordered primitive set.
+///
+/// A source `Set` whose element type can key a Rust hash map is emitted as
+/// `SmeltPrimSet` (entries `Vec` plus a hash index), because JavaScript
+/// specifies `Set` iteration as insertion order and a bare `HashSet` has none.
+/// Every other element type routes through `SmeltJsSet`, which is ordered too
+/// but lives behind the `needs_unknown` gate: its membership erases each element
+/// for SameValueZero, so it would pull the whole erased-value carrier into any
+/// program holding a set of strings.
+#[must_use]
+pub(crate) fn needs_prim_set(mir: &Mir) -> bool {
+    mir.types
+        .all()
+        .iter()
+        .any(|ty| matches!(ty, Type::Set(item) if module_hash_set_key_safe(mir, *item)))
+}
+
 /// Returns whether a set element type backs a plain Rust `HashSet`.
 ///
 /// Mirrors [`FunctionEmitter::type_is_hash_set_key_safe`] at module scope so

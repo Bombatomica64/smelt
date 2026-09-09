@@ -713,7 +713,7 @@ impl FunctionEmitter<'_> {
                     return Ok(if set_uses_js_set {
                         "SmeltJsSet::new()".to_owned()
                     } else {
-                        "::std::collections::HashSet::new()".to_owned()
+                        "SmeltPrimSet::new()".to_owned()
                     });
                 }
                 let item_ty = match self.mir.types.get(dest_ty) {
@@ -734,7 +734,7 @@ impl FunctionEmitter<'_> {
                 if set_uses_js_set {
                     return Ok(format!("SmeltJsSet::from([{items_text}])"));
                 }
-                Ok(format!("::std::collections::HashSet::from([{items_text}])"))
+                Ok(format!("SmeltPrimSet::from([{items_text}])"))
             }
             Rvalue::Dict(entries) => {
                 if let Some(record_text) = self.record_literal_text_for_dest(entries, dest_ty)? {

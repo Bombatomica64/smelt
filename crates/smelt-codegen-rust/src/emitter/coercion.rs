@@ -1391,13 +1391,18 @@ impl FunctionEmitter<'_> {
                 // compare by id). `HashSet` has no `as_ptr`, so key the stable id
                 // on the binding's own address (`&set`). Temps / fresh sets keep
                 // `SmeltArray::new`.
+                // The members erase in the set's own insertion order. They used
+                // to be sorted by hash key, which was a deterministic answer to
+                // a question the old unordered `HashSet` backing could not
+                // answer at all; `SmeltPrimSet` keeps the entries, so the
+                // erased array reads like the source set (H52).
                 if let Some(bare_local) = self.list_local_identity_key(operand)? {
                     return Ok(format!(
-                        "{{ let smelt_list_id = smelt_list_identity(&({bare_local}) as *const _ as *const () as usize); let mut values = {smelt_owned_text}.into_iter().map(|value| {value_wrap}).collect::<Vec<_>>(); values.sort_by_key(smelt_unknown_stable_hash_key); SmeltUnknown::Array(SmeltArray::with_id(smelt_list_id, values)) }}"
+                        "{{ let smelt_list_id = smelt_list_identity(&({bare_local}) as *const _ as *const () as usize); let values = {smelt_owned_text}.into_iter().map(|value| {value_wrap}).collect::<Vec<_>>(); SmeltUnknown::Array(SmeltArray::with_id(smelt_list_id, values)) }}"
                     ));
                 }
                 Ok(format!(
-                    "{{ let mut values = {smelt_owned_text}.into_iter().map(|value| {value_wrap}).collect::<Vec<_>>(); values.sort_by_key(smelt_unknown_stable_hash_key); SmeltUnknown::Array(values.into()) }}"
+                    "{{ let values = {smelt_owned_text}.into_iter().map(|value| {value_wrap}).collect::<Vec<_>>(); SmeltUnknown::Array(values.into()) }}"
                 ))
             }
             Some(Type::Tuple(items)) => {
@@ -1821,8 +1826,9 @@ impl FunctionEmitter<'_> {
                     ));
                 }
                 let value_wrap = self.erase_value_text("value", *item)?;
+                // Insertion order, not hash order: see the sibling arm.
                 Ok(format!(
-                    "{{ let mut values = {}.clone().into_iter().map(|value| {value_wrap}).collect::<Vec<_>>(); values.sort_by_key(smelt_unknown_stable_hash_key); SmeltUnknown::Array(values.into()) }}",
+                    "{{ let values = {}.clone().into_iter().map(|value| {value_wrap}).collect::<Vec<_>>(); SmeltUnknown::Array(values.into()) }}",
                     value.parenthesized_if_needed()
                 ))
             }

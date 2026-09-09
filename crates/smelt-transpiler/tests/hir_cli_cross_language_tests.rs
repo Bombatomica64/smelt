@@ -468,6 +468,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "69_asserted_callback_name",
     "70_set_from_iterable",
     "71_const_arrow_literal_hint",
+    "72_set_insertion_order",
 ];
 
 #[test]
