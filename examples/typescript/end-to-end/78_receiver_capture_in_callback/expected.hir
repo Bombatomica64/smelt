@@ -1,0 +1,70 @@
+module examples/typescript/end-to-end/78_receiver_capture_in_callback/input.ts (ModuleId(0))
+  body BodyId(6)
+  items
+    class Index fields [Hidden #known: Dict<String, Bool>] constructor Some(ItemId(3)) methods [ItemId(0), ItemId(1), ItemId(2)] implements []
+  locals
+    %0 const index: Index
+  exprs
+    #0: Index = new Index()
+    #1: Index = %0
+    #2: Index = %0
+    #3: fn(String) -> None = #2.add
+    #4: Index = %0
+    #5: String = "a"
+    #6: None = #4.add(#5)
+    #7: Index = %0
+    #8: Index = %0
+    #9: fn(String) -> None = #8.add
+    #10: Index = %0
+    #11: String = "c"
+    #12: None = #10.add(#11)
+    #13: String = "kept: "
+    #14: Index = %0
+    #15: fn(List<String>) -> List<String> = #14.keep
+    #16: Index = %0
+    #17: String = "a"
+    #18: String = "b"
+    #19: String = "c"
+    #20: List<String> = [#17, #18, #19]
+    #21: List<String> = #16.keep(#20)
+    #22: String = ","
+    #23: String = string_join #21, #22
+    #24: String = Add #13, #23
+    #25: None = @5(console_log)
+    #26: None = call #25(#24)
+    #27: String = "labelled: "
+    #28: Index = %0
+    #29: fn(List<String>, String) -> List<String> = #28.label
+    #30: Index = %0
+    #31: String = "a"
+    #32: String = "b"
+    #33: List<String> = [#31, #32]
+    #34: String = "!"
+    #35: List<String> = #30.label(#33, #34)
+    #36: String = ","
+    #37: String = string_join #35, #36
+    #38: String = Add #27, #37
+    #39: None = @6(console_log)
+    #40: None = call #39(#38)
+  stmts
+    s0: let %0: Index = #0
+    s1: #6
+    s2: #12
+    s3: #26
+    s4: #40
+
+interned types
+  t0 = Index
+  t1 = Bool
+  t2 = String
+  t3 = Dict<String, Bool>
+  t4 = None
+  t5 = List<String>
+  t6 = Int
+  t7 = Unknown
+  t8 = fn(String, Int, List<String>) -> Bool
+  t9 = List<Unknown>
+  t10 = fn(String, Int, List<String>) -> String
+  t11 = fn(String) -> None
+  t12 = fn(List<String>) -> List<String>
+  t13 = fn(List<String>, String) -> List<String>

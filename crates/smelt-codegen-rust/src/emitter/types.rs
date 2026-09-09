@@ -1698,6 +1698,22 @@ impl FunctionEmitter<'_> {
             Type::Class { name, .. } if self.is_match_class_symbol(*name)? => {
                 Ok("SmeltMatch::default()".to_owned())
             }
+            // A generic class's default has to NAME the class when its type
+            // arguments are unresolved: a bare `Default::default()` leaves them
+            // to inference, and a binding annotated `Class<_>` and initialized
+            // from it pins nothing (E0283, the router slice's anonymous
+            // `class<T> extends RegExpRouter<T>` bound to a const). Naming the
+            // class puts the unresolved parameters on the DEFAULT's own path,
+            // where they resolve to the dynamic carrier — which is what such a
+            // value is used as: a class VALUE is the constructor, never an
+            // instance, and every read of it goes through erasure.
+            Type::Class { name, args } if args.is_empty() && self.class_type_param_count(*name) > 0 => {
+                let placeholders = vec!["SmeltUnknown"; self.class_type_param_count(*name)].join(", ");
+                Ok(format!(
+                    "{}::<{placeholders}>::default()",
+                    sanitize_ident(self.symbol_name(*name)?)
+                ))
+            }
             Type::Class { .. } => Ok("Default::default()".to_owned()),
             Type::Function(function) => {
                 if self.is_erased_unknown_rest_function(function) && !function.may_throw {
@@ -1903,6 +1919,18 @@ impl FunctionEmitter<'_> {
                     crate::classes::effective_class_fields(self.mir, class),
                 )
             })
+    }
+
+    /// How many type parameters the class named `name` declares.
+    ///
+    /// `0` for a non-generic class and for a name that is not a generated class
+    /// at all, so callers can ask without checking first.
+    pub(super) fn class_type_param_count(&self, name: smelt_hir::Symbol) -> usize {
+        self.mir
+            .classes
+            .iter()
+            .find(|class| class.name == name)
+            .map_or(0, |class| class.type_params.len())
     }
 
     /// Substitute concrete class/interface arguments into structural fields.

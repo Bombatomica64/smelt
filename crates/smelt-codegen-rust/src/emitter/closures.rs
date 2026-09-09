@@ -1,6 +1,13 @@
 //! Closure rendering engine: emits Rust closure literals and their block/match bodies for MIR closures, including extra-parameter adapters, await detection, and closure operand text.
 
 use super::*;
+
+/// The binding a captured receiver takes inside a closure.
+///
+/// `self` cannot be a `let` binding in Rust, so a closure that captures the
+/// enclosing method's receiver binds it under this name and its body's uses are
+/// rewritten to match.
+const SELF_CAPTURE_NAME: &str = "smelt_self";
 use smelt_hir::FunctionType;
 use rendered_text_rewrite::{
     SELF_RECURSIVE_UPGRADE, replace_shared_capture_uses, shared_capture_cell_name,
@@ -195,6 +202,19 @@ impl FunctionEmitter<'_> {
                                 return format!(
                                     "let smelt_capture_{name} = smelt_capture_{name}.clone();"
                                 );
+                            }
+                            // `self` is a Rust keyword and cannot be bound, so a
+                            // capture of the receiver takes a non-keyword name and
+                            // the body's uses are rewritten to it — the same
+                            // machinery the shared-storage case above uses.
+                            // `let self = self.clone();` is what the emitter used
+                            // to produce (E0424, 2 of the router slice's errors):
+                            // naming the binding `self` made the body text work
+                            // unchanged, which Rust does not allow.
+                            if name == "self" {
+                                shared_replacements
+                                    .push((name.clone(), SELF_CAPTURE_NAME.to_owned()));
+                                return format!("let {SELF_CAPTURE_NAME} = self.clone();");
                             }
                             // Mutability is driven purely by whether the closure
                             // body actually writes through the capture. A blanket
@@ -1003,6 +1023,14 @@ impl FunctionEmitter<'_> {
                             );
                         }
                         return format!("let smelt_capture_{name} = smelt_capture_{name}.clone();");
+                    }
+                    // `self` cannot be a `let` binding in Rust, so a captured
+                    // receiver takes `SELF_CAPTURE_NAME` and the body's uses are
+                    // rewritten to it — see the sibling prelude above, which
+                    // does the same for the other closure shape.
+                    if name == "self" {
+                        shared_replacements.push((name.clone(), SELF_CAPTURE_NAME.to_owned()));
+                        return format!("let {SELF_CAPTURE_NAME} = {source_name}.clone();");
                     }
                     // See the sibling capture-prelude above: mutability follows
                     // real writes only, no blanket `mut` for collection types.
