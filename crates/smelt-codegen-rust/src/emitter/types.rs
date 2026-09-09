@@ -742,7 +742,17 @@ impl FunctionEmitter<'_> {
                                         .unwrap_or(record_field.ty)
                                 }
                             })
-                            .ok_or_else(|| EmitError::new("optional record field is unknown"))
+                            .ok_or_else(|| {
+                                // Name the field and the receiver: the site
+                                // annotation says which function, and this says
+                                // which read inside it.
+                                EmitError::new(format!(
+                                    "optional record field `{}` is unknown on {}",
+                                    self.symbol_name(*field).unwrap_or("<unnamed>"),
+                                    self.type_text_with_impl_trait(*inner, false)
+                                        .unwrap_or_else(|_| format!("{:?}", self.mir.types.get(*inner))),
+                                ))
+                            })
                     }
                     // The read's type is the field type of *this*
                     // instantiation, so the record's type arguments have to be

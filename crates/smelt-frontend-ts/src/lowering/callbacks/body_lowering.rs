@@ -9,7 +9,7 @@ use crate::lowering::{
     Literal, LocalDecl, LogicalOperator, ModuleBuilder, ObjectPropertyKind, Param, PropertyKey,
     SimpleAssignmentTarget, SmeltError, Span, Statement, Stmt, Type,
 };
-use super::super::support::arrow_block_statements;
+use super::super::support::{arrow_block_statements, statement_terminates};
 use oxc::span::GetSpan;
 
 /// The body form of a callback lowered through a real HIR closure body.
@@ -1306,6 +1306,38 @@ impl ModuleBuilder<'_> {
         clippy::too_many_arguments,
         reason = "shared closure-body lowering threads the params, body form, async flag, span and both contextual types through one call"
     )]
+    /// The type a closure body's `return` statements agree on, if any.
+    ///
+    /// Used when the caller had no return type to give a block-bodied callback
+    /// (see `infer_block_return`): the body's own returns are the answer the
+    /// source wrote. The join is [`Self::conditional_branch_type`], the same
+    /// unification a ternary's arms use, so `return 'n'` and `return k` agree
+    /// on `String` and a genuinely mixed body still widens the way a ternary
+    /// would.
+    ///
+    /// Returns `None` when there is nothing to infer FROM — a body with no
+    /// `return` at all, or a bare `return;` — and when the arms do not unify,
+    /// so the caller keeps its fallback rather than inventing a type. A `None`
+    /// answer is therefore always the pre-existing behaviour.
+    fn inferred_block_return_ty(&mut self, closure_body: &Body) -> Option<smelt_hir::TypeId> {
+        let mut inferred: Option<smelt_hir::TypeId> = None;
+        for stmt in &closure_body.stmts {
+            let Stmt::Return(value) = stmt else {
+                continue;
+            };
+            let value_ty = Self::expr_ty(closure_body, (*value)?);
+            inferred = match inferred {
+                None => Some(value_ty),
+                Some(current) if current == value_ty => Some(current),
+                Some(current) => Some(
+                    self.conditional_branch_type(current, value_ty, None, 0, 0)
+                        .ok()?,
+                ),
+            };
+        }
+        inferred
+    }
+
     fn closure_body_expr_from_parts(
         &mut self,
         params: &oxc::ast::ast::FormalParameters<'_>,
@@ -1486,8 +1518,58 @@ impl ModuleBuilder<'_> {
         let saved_deferred_updates = self.deferred_postfix_updates.take();
         let infer_expression_return = is_expression_body
             && matches!(self.ctx.krate.types.get(return_ty), Some(Type::Unknown));
+        // The same inference for a BLOCK-bodied callback.
+        //
+        // `return_ty` here is the CALLER's fallback, and for `map` that is
+        // `Unknown` — the element type of the mapped list is exactly what the
+        // callback is supposed to answer, so the caller has nothing better to
+        // offer. An expression-bodied arrow already inferred its own type; a
+        // block-bodied one kept the fallback, so ANY callback that the compact
+        // callback IR could not model (mentioning `this` is enough: the compact
+        // IR has no `this`, so every such callback lands here) was typed
+        // `-> Unknown` and its `map` produced a `List<Unknown>`.
+        //
+        // That is how Hono's `buildRegExpStr` got a `List<Unknown>` out of a
+        // `map` whose every arm is a string, and the erasure only surfaced two
+        // frames later as `list unshift item must match the list element type`
+        // (H54). Reading the body's own returns is what the source says.
+        // ... and only when the body cannot fall off its end.
+        //
+        // A body that can reach its closing brace without a `return` answers
+        // `undefined` on that path, which is NOT part of the join of its
+        // explicit returns. Inferring from the returns alone typed such a
+        // callback as if the fall-through could not happen, and for a
+        // customizer protocol that path is the whole contract: es-toolkit's
+        // `mergeWith` customizer returns a value to override and falls through
+        // to mean "not handled". Eight of its tests went red on the first
+        // version of this inference, which is what taught the condition.
+        //
+        // `statement_terminates` is the same conservative test the switch
+        // lowering uses for "can control reach the next case": a `return` or
+        // `throw`, an `if` whose every arm terminates, a `try` whose block and
+        // handler both do. It says NO for shapes that do terminate but need
+        // real flow analysis to prove it (a `switch` where every case returns,
+        // a `while (true)`), and a `no` here only means the caller's fallback
+        // is kept — the pre-existing behaviour.
+        let body_always_returns = match &body_kind {
+            ClosureBodyKind::ArrowExpression(_) => false,
+            ClosureBodyKind::Statements(statements) => {
+                statements.iter().any(|statement| statement_terminates(statement))
+            }
+        };
+        let infer_block_return = !is_expression_body
+            && body_always_returns
+            && matches!(self.ctx.krate.types.get(return_ty), Some(Type::Unknown));
         self.current_async = is_async;
-        self.current_return_ty = Some(return_ty);
+        // A return HINT of `Unknown` erases the returned value on the way out
+        // (`return_statement_value_hint`), which would make the inference below
+        // read back the very `Unknown` it is trying to replace. With no hint the
+        // returns keep their own types and the join is the source's answer.
+        self.current_return_ty = if infer_block_return {
+            None
+        } else {
+            Some(return_ty)
+        };
         let mut actual_return_ty = return_ty;
         let predeclare_result = match body_kind {
             ClosureBodyKind::ArrowExpression(_) => Ok(()),
@@ -1541,6 +1623,12 @@ impl ModuleBuilder<'_> {
                 }
             }
         };
+        if infer_block_return
+            && lowering_result.is_ok()
+            && let Some(inferred) = self.inferred_block_return_ty(&closure_body)
+        {
+            actual_return_ty = inferred;
+        }
         if is_async {
             closure_body.build_async_state_machine();
         }

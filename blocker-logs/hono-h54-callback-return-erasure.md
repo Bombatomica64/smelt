@@ -1,7 +1,8 @@
 # H54 — a callback's return type erases when its body reads a field of the class being lowered
 
-The router slice's new stop, found the moment H51 let it get past the duplicate
-`Node` classes (round 24). **Diagnosed, not fixed.**
+The router slice's stop after H51 (round 24). **Diagnosed then; ruled and FIXED
+in round 25**, though the cause turned out to be one layer up from where this
+note first put it — the correction is at the end.
 
 ## How it reports
 
@@ -82,3 +83,54 @@ two of them), and the failure is silent until something type-checks the result
 — here an `unshift`, which is why it surfaced as an emitter blocker rather than
 a frontend diagnostic. Anything that merely stores or joins the erased list
 would have compiled and quietly carried `SmeltUnknown` values.
+
+## Correction and fix (round 25)
+
+The bisection above was right about the symptom and wrong about the cause, and
+the correction is worth keeping because it changed what got fixed.
+
+This note blamed the in-progress class metadata (a field lookup missing where a
+method lookup exists) and the conditional's condition. Neither was it. Rerunning
+the bisection one step further:
+
+| callback body | callback return |
+| --- | --- |
+| `const c = 1; return k;` | `String` |
+| `return this.label;` | **`Unknown`** |
+| `const c = this; return k;` | **`Unknown`** |
+| `const c = this.children[k]; return k;` | **`Unknown`** |
+
+ANY block-bodied callback that mentions `this` erased — including one returning
+a plain `string` field, and one that never reads a field at all. So it was not
+field resolution: a field read resolves correctly (`let v: Option<f64>` for
+`c.varIndex`, verified by running it). `this` merely forces the callback out of
+the compact callback IR, which has no `this`, into the closure-body FALLBACK —
+and the fallback took its return type from the CALLER's guess. For `map` that
+guess is `unknown`, because the mapped element type is exactly what the callback
+is supposed to answer.
+
+The rule that landed: a block-bodied callback's return type is the join of its
+own `return`s (the same join a ternary's arms use), not the caller's fallback.
+An expression-bodied arrow already did this; the block form kept the fallback.
+
+**And one condition, which the corpus taught rather than review.** The first
+version inferred from the explicit returns alone and took es-toolkit from
+1055/4 to 1047/12: a body that can fall off its end answers `undefined` on that
+path, and for a customizer protocol that path IS the contract — `mergeWith`'s
+customizer returns a value to override and falls through to mean "not handled".
+So the inference only applies when the body cannot fall through, tested with
+`statement_terminates`, the same conservative check the switch lowering uses.
+A `no` from it keeps the caller's fallback, which is the pre-existing behaviour.
+
+Measured: es-toolkit back to 1055/4 with avoidable erasure **32438 -> 32288
+(-150)**, baseline re-snapshotted in the same commit as the policy requires;
+remeda advisory -12; examples invariant 0. Fixture
+`74_callback_block_return_type` covers five fallback shapes (loop, compound
+assignment, `try`/`catch`, `switch`, numeric) plus the two shapes that already
+worked, and every mapped list is pushed through an operation that only
+type-checks at the concrete element type — a `List<Unknown>` prints the same
+text, so the types are the assertion.
+
+The slice is past this and stops on the next family, now named precisely by the
+round's diagnostic work: `optional record field '#pattern' is unknown on Node_1
+(in 'insert' at src/router/trie-router/node.ts:766..1681)`.
