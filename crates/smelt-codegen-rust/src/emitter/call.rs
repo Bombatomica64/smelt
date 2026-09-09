@@ -819,6 +819,21 @@ impl FunctionEmitter<'_> {
                     self.operand_text(text)?
                 ))
             }
+            Callee::Builtin(BuiltinFn::Base64(op)) => {
+                let value = args.first().ok_or_else(|| {
+                    EmitError::new("a base64 transcoder takes one string argument")
+                })?;
+                let adapter = match op {
+                    smelt_hir::Base64Op::Encode => crate::thrown::BTOA_FN,
+                    smelt_hir::Base64Op::Decode => crate::thrown::ATOB_FN,
+                };
+                // The trailing `?` is what marks the call fallible to
+                // `emit_throwing_call_terminator`, which renders the shape that
+                // binds the caught `InvalidCharacterError` and jumps to the
+                // handler's catch block.
+                let value_text = self.string_like_operand_text(value, "base64 input")?;
+                Ok(format!("{adapter}({value_text}.as_str())?"))
+            }
             Callee::Builtin(BuiltinFn::UriDecode(op)) => {
                 let value = args.first().ok_or_else(|| {
                     EmitError::new("a URI decoder takes one string argument")
@@ -2648,6 +2663,10 @@ impl FunctionEmitter<'_> {
             // A decoder answers a `String`, not an erased value -- the whole
             // point of keeping the typed runtime helper behind the adapter.
             Callee::Builtin(BuiltinFn::UriDecode(_)) => return self.type_id(Type::String),
+            // Both base64 directions answer a `String` for the same reason: the
+            // adapter wraps a typed helper, and only the throw crosses the
+            // erased channel.
+            Callee::Builtin(BuiltinFn::Base64(_)) => return self.type_id(Type::String),
             Callee::Static(func) => {
                 let function = self
                     .mir

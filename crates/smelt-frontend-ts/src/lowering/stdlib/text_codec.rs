@@ -34,14 +34,11 @@
 //! eleven typed-array views share (`smelt_stdlib::host_object`): a view's
 //! runtime identity carries an element type, a byte offset, and a shared
 //! `ArrayBuffer` that reflective construction
-//! (`new Object.getPrototypeOf(x).constructor(..)`) reads back, and corpora
-//! annotate `Uint8Array` inside erased typed-array unions. Rebinding that
-//! spelling to a concrete Rust type would therefore change the meaning of
-//! existing programs, so the concrete view is reached through the reserved
-//! synthetic name `smelt_stdlib::BYTE_ARRAY_CLASS_NAME` instead. A concrete view
-//! assigned into a `Uint8Array`-annotated slot crosses the ordinary
-//! `IntoSmeltUnknown` boundary, exactly as any other concrete value does.
-//! Converting the whole view family to concrete Rust is recorded as demand.
+//! (`new Object.getPrototypeOf(x).constructor(..)`) reads back. That is now
+//! modeled: increment 3 of the typed-array plan made the eleven view spellings
+//! the concrete `SmeltTypedArray` family, so `encode` answers a `Uint8Array`
+//! under its own name and the reserved synthetic spelling that stood in for it
+//! is gone.
 
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
@@ -297,13 +294,18 @@ impl ModuleBuilder<'_> {
         })
     }
 
-    /// Return the modeled concrete byte-view class type.
+    /// Return the modeled concrete byte-view class type: a `Uint8Array`.
+    ///
+    /// The SOURCE spelling, not a reserved synthetic name. It was synthetic
+    /// while the source spelling still meant the erased byte-backed record and
+    /// rebinding it would have changed the meaning of existing programs;
+    /// increment 3 of the typed-array plan made `Uint8Array` the concrete
+    /// family, so the two names denoted the same Rust type under two spellings
+    /// and the synthetic one only hid what `encode` answers. A program can now
+    /// write `const bytes: Uint8Array = new TextEncoder().encode(text)` and
+    /// have it mean what it says.
     pub(in crate::lowering) fn byte_array_type(&mut self) -> smelt_hir::TypeId {
-        let name = self.intern_type_name(smelt_stdlib::BYTE_ARRAY_CLASS_NAME);
-        self.ctx.krate.types.intern(Type::Class {
-            name,
-            args: Vec::new(),
-        })
+        self.typed_array_class_type("Uint8Array")
     }
 
     /// Return whether a lowered type is the modeled `TextEncoder` class.

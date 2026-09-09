@@ -2475,4 +2475,31 @@ pub enum BuiltinFn {
     /// wrote was absent from the generated crate. Hono's `tryDecode` is that
     /// shape.
     UriDecode(smelt_hir::UriTranscodeOp),
+    /// `btoa` / `atob`, which throw a catchable `InvalidCharacterError`
+    /// `DOMException` on input their direction cannot represent.
+    ///
+    /// A builtin for the reason [`Self::JsonParse`] is, and for BOTH directions
+    /// rather than one: `btoa` refuses a code point above U+00FF and `atob`
+    /// refuses a malformed base64 string, so neither has an infallible rvalue
+    /// form to keep.
+    Base64(smelt_hir::Base64Op),
+}
+
+impl BuiltinFn {
+    /// Return whether this builtin can leave through the error channel.
+    ///
+    /// Asked by the throwing pass, so a fallible builtin with no handler in
+    /// scope marks its enclosing function `can_throw`. That used to be a
+    /// `matches!` naming `JsonParse` alone, which is why `decodeURI` in a
+    /// function with no `try` emitted `smelt_decode_uri_throwing(..)?` inside a
+    /// signature that returns no `Result` (E0277): every fallible builtin added
+    /// after `JSON.parse` was invisible to the pass. Stating it on the enum is
+    /// what makes the next one impossible to forget.
+    #[must_use]
+    pub const fn is_fallible(self) -> bool {
+        match self {
+            Self::JsonParse | Self::UriDecode(_) | Self::Base64(_) => true,
+            Self::ConsoleLog { .. } | Self::ConsoleWrite | Self::ConsoleErrorWrite => false,
+        }
+    }
 }

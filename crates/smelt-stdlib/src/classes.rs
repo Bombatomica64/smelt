@@ -88,7 +88,9 @@ pub enum StdlibClass {
     ///
     /// One stdlib class for all eleven source spellings — `Uint8Array`,
     /// `Int8Array`, ..., `BigUint64Array` — plus the reserved synthetic
-    /// [`BYTE_ARRAY_CLASS_NAME`] that `TextEncoder.encode` answers. The element
+    /// `TextEncoder.encode`, `Blob.bytes()` and `crypto` all answer a
+    /// `Uint8Array` under that name; there is no reserved synthetic spelling
+    /// for the family any more. The element
     /// KIND is deliberately not part of the class identity: it is a runtime
     /// property of the value (`Object.prototype.toString.call(view)` reports
     /// it, and reflective construction reads it back off an erased record), so
@@ -327,16 +329,6 @@ pub const MATCH_CLASS_NAME: &str = "__SmeltMatch";
 /// Reserved synthetic class name for `matchResult.groups` named-group access.
 pub const MATCH_GROUPS_CLASS_NAME: &str = "__SmeltMatchGroups";
 
-/// Reserved synthetic class name for a concrete byte view.
-///
-/// `TextEncoder.encode` answers a value of this class. The name is not writable
-/// in user TypeScript (double-underscore prefix), so it never collides with a
-/// source class. It resolves to the SAME [`StdlibClass::TypedArray`] the eleven
-/// source spellings do — a `Uint8` view is a `Uint8` view however it was
-/// spelled — and survives only because codecs and `crypto` answer a view
-/// without naming one of the source constructors.
-pub const BYTE_ARRAY_CLASS_NAME: &str = "__SmeltUint8Array";
-
 /// Return the stdlib class modeled by a TypeScript class type name.
 ///
 /// Codegen consults this instead of comparing class symbol names inline so
@@ -368,7 +360,6 @@ pub fn typescript_stdlib_class(name: &str) -> Option<StdlibClass> {
         "ReadableStream" => Some(StdlibClass::ReadableStream),
         "TextEncoder" => Some(StdlibClass::TextEncoder),
         "TextDecoder" => Some(StdlibClass::TextDecoder),
-        BYTE_ARRAY_CLASS_NAME => Some(StdlibClass::TypedArray),
         // The eleven typed-array views are ONE modeled class, keyed off the
         // shared registry rather than eleven arms here, so the construction
         // side, the annotation side and codegen's Rust-type side cannot

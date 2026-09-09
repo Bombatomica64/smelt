@@ -572,6 +572,36 @@ impl FunctionEmitter<'_> {
     /// Converts a string trim operation to Rust text.
     /// Returns whether a type is supported by the current JSON serializer path.
     pub(super) fn is_json_serializable_type(&self, ty: TypeId) -> bool {
+        // A value whose EMITTED Rust type is already the erased carrier has
+        // nothing left to reject. `json_stringify_text` erases its operand
+        // unconditionally and lets `Serialize for SmeltUnknown` decide the
+        // output at run time — that impl is where every ECMA-262 rule lives
+        // (an integral number has no fraction, a non-finite one is `null`, an
+        // `undefined` property is omitted, a byte-backed view serializes as its
+        // element indices, a host object as `{}`), and it has an arm for every
+        // tag a `SmeltUnknown` can carry. So for such an operand this predicate
+        // is asking a question about a representation that no longer exists.
+        //
+        // **The boundary, documented at the emit site as the policy requires.**
+        // This does not introduce an erasure: the operand is ALREADY a
+        // `SmeltUnknown` because its own type is `unknown`, a type parameter, or
+        // a union with no concrete Rust spelling. Rejecting it did not keep any
+        // value concrete; it only refused to serialize the one case the runtime
+        // rule exists for. Hono's `utils/crypto.ts` is exactly that case:
+        // `data: string | boolean | number | JSONValue | ArrayBufferView |
+        // ArrayBuffer` is reassigned across a narrowing, so the operand's static
+        // type is the erased union, and the whole crate stopped in the emitter
+        // on a value the generated `Serialize` would have rendered correctly.
+        //
+        // A value with a REAL Rust representation still goes through the arms
+        // below, so a user class with an unserializable field is still a named
+        // blocker rather than silently becoming `{}`.
+        if self
+            .type_text_with_impl_trait(ty, false)
+            .is_ok_and(|text| text == "SmeltUnknown")
+        {
+            return true;
+        }
         match self.mir.types.get(ty) {
             // A TYPE PARAMETER stringifies through the erased boundary, exactly
             // as `Unknown` does: `JSON.stringify(x)` on a generic `x: T` is
@@ -605,15 +635,6 @@ impl FunctionEmitter<'_> {
                 // emitter erases such a value first, and the erased carrier's
                 // `Serialize` is what renders the empty object.
                 if self.is_host_object_class(*name) {
-                    return true;
-                }
-                // The concrete byte view erases to the same byte-backed host
-                // record a `new Uint8Array(..)` does, so the erased carrier's
-                // `Serialize` renders it identically — as its element indices.
-                // The frontend's matching arm says the same thing.
-                if self.symbol_name(*name).is_ok_and(|class_name| {
-                    class_name == smelt_stdlib::BYTE_ARRAY_CLASS_NAME
-                }) {
                     return true;
                 }
                 if let Some(class) = self.mir.classes.iter().find(|class| class.name == *name) {

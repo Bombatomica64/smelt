@@ -3,8 +3,8 @@ module examples/typescript/end-to-end/51_web_crypto/input.ts (ModuleId(0))
   locals
     %0 const id: String
     %1 const groups: List<String>
-    %2 const message: __SmeltUint8Array
-    %3 const empty: __SmeltUint8Array
+    %2 const message: Uint8Array
+    %3 const empty: Uint8Array
   exprs
     #0: String = crypto_random_uuid
     #1: String = %0
@@ -87,37 +87,37 @@ module examples/typescript/end-to-end/51_web_crypto/input.ts (ModuleId(0))
     #78: None = call #77(#76)
     #79: TextEncoder = text_encoder_new
     #80: String = "abc"
-    #81: __SmeltUint8Array = text_encoder_encode #79 #80
+    #81: Uint8Array = text_encoder_encode #79 #80
     #82: String = "SHA-1"
-    #83: __SmeltUint8Array = %2
+    #83: Uint8Array = %2
     #84: Future<ArrayBuffer> = crypto_digest #82, #83
     #85: ArrayBuffer = await #84
     #86: Float = byte_array_byte_length #85
     #87: None = @10(console_log)
     #88: None = call #87(#86)
     #89: String = "SHA-256"
-    #90: __SmeltUint8Array = %2
+    #90: Uint8Array = %2
     #91: Future<ArrayBuffer> = crypto_digest #89, #90
     #92: ArrayBuffer = await #91
     #93: Float = byte_array_byte_length #92
     #94: None = @11(console_log)
     #95: None = call #94(#93)
     #96: String = "SHA-384"
-    #97: __SmeltUint8Array = %2
+    #97: Uint8Array = %2
     #98: Future<ArrayBuffer> = crypto_digest #96, #97
     #99: ArrayBuffer = await #98
     #100: Float = byte_array_byte_length #99
     #101: None = @12(console_log)
     #102: None = call #101(#100)
     #103: String = "SHA-512"
-    #104: __SmeltUint8Array = %2
+    #104: Uint8Array = %2
     #105: Future<ArrayBuffer> = crypto_digest #103, #104
     #106: ArrayBuffer = await #105
     #107: Float = byte_array_byte_length #106
     #108: None = @13(console_log)
     #109: None = call #108(#107)
     #110: String = "sha-256"
-    #111: __SmeltUint8Array = %2
+    #111: Uint8Array = %2
     #112: Future<ArrayBuffer> = crypto_digest #110, #111
     #113: ArrayBuffer = await #112
     #114: Float = byte_array_byte_length #113
@@ -125,9 +125,9 @@ module examples/typescript/end-to-end/51_web_crypto/input.ts (ModuleId(0))
     #116: None = call #115(#114)
     #117: TextEncoder = text_encoder_new
     #118: String = ""
-    #119: __SmeltUint8Array = text_encoder_encode #117 #118
+    #119: Uint8Array = text_encoder_encode #117 #118
     #120: String = "SHA-256"
-    #121: __SmeltUint8Array = %3
+    #121: Uint8Array = %3
     #122: Future<ArrayBuffer> = crypto_digest #120, #121
     #123: ArrayBuffer = await #122
     #124: Float = byte_array_byte_length #123
@@ -148,13 +148,13 @@ module examples/typescript/end-to-end/51_web_crypto/input.ts (ModuleId(0))
     s9: #63
     s10: #73
     s11: #78
-    s12: let %2: __SmeltUint8Array = #81
+    s12: let %2: Uint8Array = #81
     s13: #88
     s14: #95
     s15: #102
     s16: #109
     s17: #116
-    s18: let %3: __SmeltUint8Array = #119
+    s18: let %3: Uint8Array = #119
     s19: #126
     s20: #128
   async state machine
@@ -171,7 +171,7 @@ interned types
   t0 = String
   t1 = List<String>
   t2 = TextEncoder
-  t3 = __SmeltUint8Array
+  t3 = Uint8Array
   t4 = Float
   t5 = None
   t6 = Bool

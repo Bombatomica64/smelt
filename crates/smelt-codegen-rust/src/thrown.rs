@@ -208,6 +208,69 @@ pub(crate) fn emit_uri_decode_support(writer: &mut CodeWriter) {
     }
 }
 
+/// Name of the generated fallible `btoa` adapter.
+pub(crate) const BTOA_FN: &str = "smelt_btoa_throwing";
+
+/// Name of the generated fallible `atob` adapter.
+pub(crate) const ATOB_FN: &str = "smelt_atob_throwing";
+
+/// Emits the fallible base64 adapters into the generated prelude.
+///
+/// Both directions throw the spec's branded `InvalidCharacterError`
+/// `DOMException`, and both reach a `catch` through the same ABI a source-level
+/// `throw` uses, so a `catch` binding cannot tell a runtime-raised one from a
+/// hand-written `new DOMException(msg, 'InvalidCharacterError')`.
+///
+/// `btoa` maps each code point to one byte, which is only possible up to
+/// U+00FF; anything above has no byte and is the spec's
+/// `InvalidCharacterError`. The output is padded, which is what
+/// `btoa("\u{00ff} ")` being `"/yA="` means.
+///
+/// `atob` implements WHATWG **forgiving-base64** rather than canonical base64,
+/// and the difference is observable in three places a stricter decoder gets
+/// wrong: `atob("aGVsbG8")` (no padding) decodes, `atob("YR==")`
+/// (non-canonical trailing bits) decodes, and `atob("aGVs bG8=")` (embedded
+/// whitespace) decodes — while `atob("YR=")` and `atob("a")` throw. The
+/// algorithm is the spec's, in its order: strip the five ASCII whitespace code
+/// points, drop up to two `=` only when the length is a multiple of four,
+/// refuse a length of `4n + 1`, refuse any character outside the standard
+/// alphabet, then decode.
+///
+/// The decoded bytes come back as a BYTE STRING — one code point per byte, the
+/// inverse of `btoa` — not as UTF-8 text, because that is what `atob` answers:
+/// `atob(btoa(s)) === s` has to hold for every `s` the encoder accepted, and a
+/// UTF-8 reinterpretation would break it for every byte above 0x7F.
+pub(crate) fn emit_base64_support(writer: &mut CodeWriter) {
+    // The decode engine is configured for the forgiving algorithm: padding is
+    // already removed by the steps above, and non-canonical trailing bits are
+    // the spec's business rather than an error.
+    writer.blank_line();
+    writer.line("/// The forgiving-base64 decode engine `atob` is specified against.");
+    writer.line(
+        "const SMELT_BASE64_FORGIVING: base64::engine::GeneralPurpose = base64::engine::GeneralPurpose::new(&base64::alphabet::STANDARD, base64::engine::GeneralPurposeConfig::new().with_encode_padding(false).with_decode_padding_mode(base64::engine::DecodePaddingMode::RequireNone).with_decode_allow_trailing_bits(true));",
+    );
+    writer.blank_line();
+    writer.line(
+        "/// `btoa`: base64 of a byte string, throwing a catchable `InvalidCharacterError`.",
+    );
+    writer.line(format!(
+        "fn {BTOA_FN}(value: &str) -> Result<String, Box<dyn ::std::error::Error>> {{          use base64::Engine as _;          let mut bytes = Vec::with_capacity(value.len());          for ch in value.chars() {{          let point = ch as u32;          if point > 0xFF {{ return Err({THROW_FN}({invalid})); }}          bytes.push(point as u8);          }}          Ok(base64::engine::general_purpose::STANDARD.encode(bytes)) }}",
+        invalid = dom_exception_record_expr("InvalidCharacterError", "Invalid character"),
+    ));
+    writer.blank_line();
+    writer.line(
+        "/// `atob`: WHATWG forgiving-base64, throwing a catchable `InvalidCharacterError`.",
+    );
+    writer.line(format!(
+        "fn {ATOB_FN}(value: &str) -> Result<String, Box<dyn ::std::error::Error>> {{          use base64::Engine as _;          let mut chars: Vec<char> = value.chars().filter(|ch| !matches!(ch, ' ' | '\\t' | '\\n' | '\\r' | '\\u{{000c}}')).collect();          if chars.len() % 4 == 0 {{          if chars.ends_with(&['=', '=']) {{ chars.truncate(chars.len() - 2); }}          else if chars.ends_with(&['=']) {{ chars.truncate(chars.len() - 1); }}          }}          if chars.len() % 4 == 1 {{ return Err({THROW_FN}({malformed})); }}          if !chars.iter().all(|ch| ch.is_ascii_alphanumeric() || *ch == '+' || *ch == '/') {{ return Err({THROW_FN}({invalid})); }}          let encoded: String = chars.into_iter().collect();          match SMELT_BASE64_FORGIVING.decode(encoded.as_bytes()) {{          Ok(bytes) => Ok(bytes.into_iter().map(char::from).collect()),          Err(_) => Err({THROW_FN}({invalid})) }} }}",
+        invalid = dom_exception_record_expr("InvalidCharacterError", "Invalid character"),
+        malformed = dom_exception_record_expr(
+            "InvalidCharacterError",
+            "The string to be decoded is not correctly encoded.",
+        ),
+    ));
+}
+
 /// Emits the exception-payload ABI into the generated runtime prelude.
 ///
 /// Only called from inside the prelude's `needs_unknown` region: the payload is

@@ -646,6 +646,9 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 format!("text_decoder_{op_name} {} {args_text}", expr_ref(*decoder))
             }
         }
+        ExprKind::Base64Transcode { op, operand } => {
+            format!("{} {}", op.name(), expr_ref(*operand))
+        }
         ExprKind::TypedArrayNew { class_name, args } => {
             let args_text = args
                 .iter()

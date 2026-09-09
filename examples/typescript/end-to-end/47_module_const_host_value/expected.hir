@@ -87,7 +87,7 @@ interned types
   t9 = fn() -> String
   t10 = None
   t11 = fn() -> None
-  t12 = __SmeltUint8Array
+  t12 = Uint8Array
   t13 = Optional<String>
   t14 = fn(String) -> Float
   t15 = fn(String) -> String

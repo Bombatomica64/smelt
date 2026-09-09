@@ -2006,17 +2006,17 @@ impl ModuleBuilder<'_> {
                     .names
                     .get(name)
                     .or_else(|| self.ctx.krate.symbols.get(name))
+                    // A host object serializes cleanly: it erases to a
+                    // byte-backed or marker record whose own enumerable
+                    // properties are what `Serialize for SmeltUnknown` renders
+                    // — a view as its element indices
+                    // (`JSON.stringify(new TextEncoder().encode("hi"))` is
+                    // `{"0":104,"1":105}`), a marker-only host as `{}`.
+                    // Rejecting these made every program that serializes
+                    // encoded bytes a blocker even though the value crosses the
+                    // boundary cleanly.
                     .is_some_and(|class_name| {
-                        // The CONCRETE byte view (`TextEncoder.encode`'s result)
-                        // erases to the same byte-backed host record a
-                        // `new Uint8Array(..)` does, so it serializes the same
-                        // way: as its element indices
-                        // (`JSON.stringify(new TextEncoder().encode("hi"))` is
-                        // `{"0":104,"1":105}`). Rejecting it here made every
-                        // program that serializes encoded bytes a blocker even
-                        // though the value crosses the boundary cleanly.
-                        class_name == smelt_stdlib::BYTE_ARRAY_CLASS_NAME
-                            || smelt_stdlib::host_object_marker(class_name).is_some()
+                        smelt_stdlib::host_object_marker(class_name).is_some()
                     })
                 {
                     return true;

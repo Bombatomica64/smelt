@@ -67,6 +67,9 @@ pub(crate) fn backend_dependencies(mir: &Mir) -> Vec<BackendDependency> {
     if needs_crypto_digest_runtime(mir) {
         deps.push(BackendDependency::Sha);
     }
+    if needs_base64_runtime(mir) {
+        deps.push(BackendDependency::Base64);
+    }
     deps
 }
 
@@ -705,6 +708,22 @@ pub(crate) fn needs_uri_decode_runtime(mir: &Mir) -> bool {
     })
 }
 
+/// Returns true when generated Rust needs the fallible base64 adapters.
+///
+/// Keyed on the call, like [`needs_uri_decode_runtime`]: `btoa`/`atob` have no
+/// modeled type to look for in the type table, so a call is the only evidence.
+pub(crate) fn needs_base64_runtime(mir: &Mir) -> bool {
+    terminators(mir).any(|terminator| {
+        matches!(
+            terminator,
+            Terminator::Call {
+                callee: Callee::Builtin(BuiltinFn::Base64(_)),
+                ..
+            }
+        )
+    })
+}
+
 /// Iterates over every block terminator in the program, functions and closures.
 fn terminators(mir: &Mir) -> impl Iterator<Item = &Terminator> {
     mir.functions
@@ -837,6 +856,11 @@ pub(crate) fn needs_unknown_type(mir: &Mir) -> bool {
         // clause its throwing adapter would be emitted into a block the program
         // never enters and the generated crate would not compile (E0425).
         || needs_uri_decode_runtime(mir)
+        // The base64 codec is the same case: both directions answer a `String`
+        // and only their THROW crosses the erased channel, so without this the
+        // adapters would be emitted into a prelude block the program never
+        // enters, and the generated crate would not compile (E0425).
+        || needs_base64_runtime(mir)
         // A `Set` whose element type is not a value-equality primitive is
         // emitted as the `SmeltJsSet` runtime container, whose SameValueZero
         // membership projects elements through `IntoSmeltUnknown`. That carrier

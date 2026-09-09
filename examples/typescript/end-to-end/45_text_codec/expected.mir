@@ -1,11 +1,11 @@
 fn main (FuncId(0)) -> None
   locals
     %0 user encoder: TextEncoder
-    %1 user bytes: __SmeltUint8Array
+    %1 user bytes: Uint8Array
     %2 user decoder: TextDecoder
-    %3 user emoji: __SmeltUint8Array
+    %3 user emoji: Uint8Array
     %4 temp: TextEncoder
-    %5 temp: __SmeltUint8Array
+    %5 temp: Uint8Array
     %6 temp: Float
     %7 temp: None
     %8 temp: Float
@@ -18,16 +18,16 @@ fn main (FuncId(0)) -> None
     %15 temp: String
     %16 temp: None
     %17 temp: TextEncoder
-    %18 temp: __SmeltUint8Array
+    %18 temp: Uint8Array
     %19 temp: Float
     %20 temp: None
     %21 temp: TextDecoder
     %22 temp: TextEncoder
-    %23 temp: __SmeltUint8Array
+    %23 temp: Uint8Array
     %24 temp: String
     %25 temp: None
     %26 temp: TextEncoder
-    %27 temp: __SmeltUint8Array
+    %27 temp: Uint8Array
     %28 temp: Float
     %29 temp: None
     %30 temp: TextDecoder

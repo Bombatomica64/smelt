@@ -689,7 +689,7 @@ fn intern_fallible_builtin_return_types(mir: &mut Mir) {
         {
             match builtin {
                 BuiltinFn::JsonParse => needed.push(Type::Unknown),
-                BuiltinFn::UriDecode(_) => needed.push(Type::String),
+                BuiltinFn::UriDecode(_) | BuiltinFn::Base64(_) => needed.push(Type::String),
                 BuiltinFn::ConsoleLog { .. }
                 | BuiltinFn::ConsoleWrite
                 | BuiltinFn::ConsoleErrorWrite => {}

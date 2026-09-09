@@ -2,7 +2,7 @@ fn encoded_length (FuncId(0)) -> Float
   locals
     %0 param text: String
     %1 temp: TextEncoder
-    %2 temp: __SmeltUint8Array
+    %2 temp: Uint8Array
     %3 temp: Float
   bb0:
     %1 = global_get #0
@@ -15,7 +15,7 @@ fn round_trip (FuncId(1)) -> String
     %0 param text: String
     %1 temp: TextDecoder
     %2 temp: TextEncoder
-    %3 temp: __SmeltUint8Array
+    %3 temp: Uint8Array
     %4 temp: String
   bb0:
     %1 = global_get #1
