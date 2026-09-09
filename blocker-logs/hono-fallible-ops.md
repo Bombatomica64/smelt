@@ -529,3 +529,47 @@ by the same fact: (b) can only help where the argument is statically resolvable,
 so **(a) remains the correct floor** for an erased callback pulled out of a data
 structure, which will always take the panic route. They compose; they are not
 alternatives.
+
+---
+
+## Update, round 25 (standards stream)
+
+`btoa` / `atob` are lowered, and the table's third and fourth rows are closed:
+
+| operation | MIR form | throws in JS | today in generated Rust |
+| --- | --- | --- | --- |
+| `btoa` | `Callee::Builtin(Base64(Encode))` + unwind | `InvalidCharacterError` | correct, catchable |
+| `atob` | `Callee::Builtin(Base64(Decode))` + unwind | `InvalidCharacterError` | correct, catchable |
+
+Both directions are fallible, so unlike `UriTranscodeOp` there is no
+`is_fallible` split to record on the op: `btoa` refuses a code point above
+U+00FF and `atob` refuses input its forgiving grammar cannot read. Both throw
+the branded `DOMException`, and the two spec refusals carry the two DIFFERENT
+messages the runtime carries ("The string to be decoded is not correctly
+encoded." for a length of `4n + 1`, "Invalid character" for a character outside
+the alphabet — verified against Node 22).
+
+`atob` implements WHATWG **forgiving-base64**, not canonical base64. Three
+observable differences from a strict decoder, all of which a hand-rolled
+implementation gets wrong: unpadded input decodes, non-canonical trailing bits
+decode (`atob("YR==")` is `"a"`), and embedded ASCII whitespace is stripped —
+while `atob("YR=")` and `atob("a")` throw. That is why the codec is the `base64`
+crate plus the spec's own five steps rather than an alphabet table.
+
+### The general fix this uncovered
+
+§2's table is about the LOWERING of each fallible operation. There was a second
+hole, one level up, in the pass that decides which functions can throw:
+`terminator_can_throw` named `BuiltinFn::JsonParse` alone. So a fallible builtin
+added after `JSON.parse` never marked its caller `can_throw`, and the URI
+decoders — fixed for their unwind edge in round 5 — still could not be called
+from a function with no `try`:
+
+```
+fn decode(value: String) -> String {
+    let tmp: String = smelt_decode_uri_throwing(value.as_str())?;  // E0277
+```
+
+The question is now asked of the builtin (`BuiltinFn::is_fallible`), so a new
+fallible builtin cannot be invisible to the pass. `decodeURI` outside a `try`
+compiles for the first time.

@@ -5,7 +5,7 @@
 
 use smelt_hir::Type;
 
-use crate::{BuiltinFn, Callee, LocalDecl, Mir, Rvalue, Statement, Terminator};
+use crate::{Callee, LocalDecl, Mir, Rvalue, Statement, Terminator};
 
 use super::super::{local_index, usize_from_u32};
 use super::operand_local;
@@ -126,12 +126,17 @@ fn terminator_can_throw(terminator: &Terminator, throwing: &[bool]) -> bool {
         } => true,
         Terminator::Await { unwind: None, .. } => true,
         // A fallible builtin with no handler in scope leaves the function
-        // through its error channel, so the enclosing function throws.
+        // through its error channel, so the enclosing function throws. Asked of
+        // the builtin itself (`BuiltinFn::is_fallible`) rather than named here:
+        // this arm used to name `JsonParse` alone, so the URI decoders — added
+        // later, and fallible in exactly the same way — never marked their
+        // caller, and `decodeURI` outside a `try` emitted a `?` in a function
+        // returning no `Result`.
         Terminator::Call {
-            callee: Callee::Builtin(BuiltinFn::JsonParse),
+            callee: Callee::Builtin(builtin),
             unwind: None,
             ..
-        } => true,
+        } => builtin.is_fallible(),
         Terminator::Goto(_)
         | Terminator::Call { .. }
         | Terminator::Await { .. }

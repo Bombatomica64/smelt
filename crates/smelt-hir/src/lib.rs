@@ -82,6 +82,7 @@ pub use expr::{
     FormDataOp,
     TextEncoderOp,
     TextDecoderOp,
+    Base64Op,
     ByteArrayOp,
     BlobOp,
     StringNormalizeForm,

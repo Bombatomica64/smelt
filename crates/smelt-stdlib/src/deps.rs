@@ -51,6 +51,17 @@ pub enum BackendDependency {
     /// not knowable from the source spelling in general, and both crates are
     /// small.
     Sha,
+    /// `base64` for generated `btoa` / `atob`.
+    ///
+    /// The two globals are one dependency because they are the two directions
+    /// of one codec and a program that has either almost always has both
+    /// (`cookie.ts` signs with `btoa` and verifies with `atob`). Hand-rolling
+    /// the alphabet was considered and rejected: the padding, the strict
+    /// trailing-bit check that decides whether `atob` throws, and the
+    /// whitespace rule are exactly the details a hand-written implementation
+    /// gets subtly wrong, and `base64` is the crate a Rust team would reach
+    /// for.
+    Base64,
 }
 
 impl BackendDependency {
@@ -84,6 +95,7 @@ impl BackendDependency {
             Self::Uuid => "uuid = { version = \"1\", features = [\"v4\"] }\n",
             Self::GetRandom => "getrandom = \"0.3\"\n",
             Self::Sha => "sha1 = \"0.10\"\nsha2 = \"0.10\"\n",
+            Self::Base64 => "base64 = \"0.22\"\n",
         }
     }
 }

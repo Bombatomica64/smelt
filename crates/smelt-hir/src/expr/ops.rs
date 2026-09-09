@@ -555,6 +555,33 @@ pub enum TextDecoderOp {
     Encoding,
 }
 
+/// One direction of the base64 codec: `btoa` or `atob`.
+///
+/// Both directions are FALLIBLE, unlike the URI transcoders where only the
+/// decoders can throw: `btoa` refuses a code point above U+00FF because there
+/// is no byte for it, and `atob` refuses a string that is not base64. Each
+/// throws the branded `InvalidCharacterError` `DOMException` the spec names, so
+/// the split that [`UriTranscodeOp::is_fallible`] records has no analogue here
+/// — there is nothing to record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Base64Op {
+    /// `btoa(text)`: the base64 of a byte string (each code unit one byte).
+    Encode,
+    /// `atob(text)`: the byte string a base64 string encodes.
+    Decode,
+}
+
+impl Base64Op {
+    /// The global's source name, which is also how both dumps print the op.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Encode => "btoa",
+            Self::Decode => "atob",
+        }
+    }
+}
+
 /// A directly lowered member of the concrete typed-array family.
 ///
 /// One enum for both halves of the family — the element VIEW

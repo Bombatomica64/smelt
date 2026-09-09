@@ -84,6 +84,12 @@ pub struct MethodRecognition {
 pub const TYPESCRIPT_CALLS: &[CallRecognition] = &[
     free("fetch", RuleId::TsFetch),
     free("structuredClone", RuleId::TsStructuredClone),
+    // The base64 globals. Free functions rather than members of a namespace:
+    // they are `globalThis.btoa` / `globalThis.atob` in every runtime that has
+    // them, and a source binding of either name shadows the global the way it
+    // does for every other entry here.
+    free("btoa", RuleId::TsBase64),
+    free("atob", RuleId::TsBase64),
     // `createServer` from `node:http`. A modeled host-module export is
     // recognized at its USE site rather than at its binding (see
     // `classify_pending_host_imports`), which is why the module's only free

@@ -554,6 +554,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "72_form_data_for_each",
     "73_set_insertion_order",
     "74_typed_array_views",
+    "76_base64_globals",
 ];
 
 #[test]

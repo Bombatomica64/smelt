@@ -1732,6 +1732,7 @@ impl<'builder> ModuleBuilder<'builder> {
         Self::sinon_fake_timers_call,
         Self::structured_clone_call,
         Self::uri_encode_call,
+        Self::base64_call,
         Self::object_prototype_to_string_call,
         Self::unsupported_object_collection_call_entry,
         Self::exact_stdlib_call,
@@ -2040,6 +2041,70 @@ impl<'builder> ModuleBuilder<'builder> {
         let string_ty = self.ctx.krate.types.intern(Type::String);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::ObjectToStringTag { operand },
+            ty: string_ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Which direction of the base64 codec `name` names, if any.
+    ///
+    /// Asked of the name alone, so the direct-call lowering and the bare-value
+    /// form (`values.map(atob)`) cannot disagree about which global is which
+    /// direction.
+    pub(in crate::lowering) const fn base64_global(name: &str) -> Option<smelt_hir::Base64Op> {
+        match name.as_bytes() {
+            b"btoa" => Some(smelt_hir::Base64Op::Encode),
+            b"atob" => Some(smelt_hir::Base64Op::Decode),
+            _ => None,
+        }
+    }
+
+    /// Lower `btoa(text)` / `atob(text)` to the base64 IR op.
+    ///
+    /// The operand rule is the URI transcoders': a concrete `string` passes
+    /// through and an erased or string-convertible operand is asserted to
+    /// `string` first, because `btoa(1)` is `btoa("1")` in JavaScript. A source
+    /// binding of either name shadows the global and declines here.
+    pub(in crate::lowering) fn base64_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::Identifier(callee) = &call.callee else {
+            return Ok(None);
+        };
+        let name = callee.name.as_str();
+        let Some(op) = Self::base64_global(name) else {
+            return Ok(None);
+        };
+        if self.scope.is_bound(name) || self.items.contains_key(name) {
+            return Ok(None);
+        }
+        let [value_arg] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                format!("{name} requires exactly one string argument"),
+            ));
+        };
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let value = self.argument(value_arg, body)?;
+        let value_ty = Self::expr_ty(body, value);
+        let operand = if self.ctx.krate.types.get(value_ty) == Some(&Type::String) {
+            value
+        } else if self.is_string_compatible_type(value_ty) || self.type_contains_unknown(value_ty) {
+            body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value },
+                ty: string_ty,
+                span: self.span(value_arg.span().start, value_arg.span().end),
+            })
+        } else {
+            return Err(SmeltError::unsupported(
+                self.span(value_arg.span().start, value_arg.span().end),
+                format!("{name} argument must be a string"),
+            ));
+        };
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Base64Transcode { op, operand },
             ty: string_ty,
             span: self.span(call.span.start, call.span.end),
         })))

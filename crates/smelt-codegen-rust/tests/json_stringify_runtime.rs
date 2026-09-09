@@ -203,3 +203,67 @@ test("a union with a byte view arm serializes per arm", () => {
 "#;
     run_fixture(source, "smelt_json_union_arms");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn an_operand_that_is_already_erased_serializes_through_the_runtime_rule() {
+    // The emitter's own `JsonStringify` arm used to REJECT an operand whose
+    // static type was already `SmeltUnknown`, which is exactly the case the
+    // runtime rule exists for: erasing it kept nothing concrete, and rejecting
+    // it refused to serialize the one shape `Serialize for SmeltUnknown` was
+    // written to decide. Hono's whole crate stopped in the emitter on it —
+    // `utils/crypto.ts` reassigns `data: string | boolean | number | JSONValue
+    // | ArrayBufferView | ArrayBuffer` across a narrowing, so the operand's
+    // static type is the erased union rather than any one arm.
+    //
+    // These cases live in the tier rather than in the examples corpus for the
+    // same reason the rest of this file does: an `unknown` parameter and an
+    // erased union are erased BY CONSTRUCTION, and the corpus holds a hard
+    // zero-avoidable-erasure invariant. Every expectation below is Node 22's.
+    let source = r#"
+import { test, expect } from "vitest";
+
+function stringifyUnknown(value: unknown): string {
+  return JSON.stringify(value);
+}
+
+function stringifyGeneric<T>(value: T): string {
+  return JSON.stringify(value);
+}
+
+type JSONValue = string | number | boolean | null;
+type Data = string | boolean | number | JSONValue | ArrayBufferView | ArrayBuffer;
+
+function createHashish(value: Data): string {
+  let data: Data = value;
+  if (typeof data === "boolean") {
+    data = data ? 1 : 0;
+  }
+  return JSON.stringify(data);
+}
+
+test("an `unknown` operand serializes by its runtime tag", () => {
+  expect(stringifyUnknown(1)).toBe("1");
+  expect(stringifyUnknown(1.5)).toBe("1.5");
+  expect(stringifyUnknown("text")).toBe('"text"');
+  expect(stringifyUnknown(true)).toBe("true");
+  expect(stringifyUnknown(null)).toBe("null");
+  expect(stringifyUnknown([1, "a", false])).toBe('[1,"a",false]');
+  expect(stringifyUnknown({ a: 1, b: "two" })).toBe('{"a":1,"b":"two"}');
+});
+test("a generic operand is legal for every instantiation", () => {
+  expect(stringifyGeneric(2.5)).toBe("2.5");
+  expect(stringifyGeneric("g")).toBe('"g"');
+  expect(stringifyGeneric(false)).toBe("false");
+});
+test("a union reassigned across a narrowing serializes per arm", () => {
+  expect(createHashish("s")).toBe('"s"');
+  expect(createHashish(3)).toBe("3");
+  expect(createHashish(true)).toBe("1");
+  expect(createHashish(false)).toBe("0");
+  expect(createHashish(new Uint8Array([1, 2]))).toBe('{"0":1,"1":2}');
+  expect(createHashish(new ArrayBuffer(2))).toBe("{}");
+});
+"#;
+    run_fixture(source, "smelt_json_stringify_erased_operand");
+}

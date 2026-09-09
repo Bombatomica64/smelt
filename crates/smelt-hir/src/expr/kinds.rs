@@ -15,7 +15,8 @@ use super::{
     CryptoOp as CryptoOpKind,
     FormDataOp as FormDataOpKind,
     UrlSearchParamsOp as UrlSearchParamsOpKind,
-    BlobOp as BlobOpKind, ByteArrayOp as ByteArrayOpKind, TextDecoderOp as TextDecoderOpKind,
+    Base64Op as Base64OpKind, BlobOp as BlobOpKind, ByteArrayOp as ByteArrayOpKind,
+    TextDecoderOp as TextDecoderOpKind,
     TextEncoderOp as TextEncoderOpKind,
 };
 use crate::ids::{BlockId, BodyId, ExprId, ItemId, LocalId, Symbol, TypeId};
@@ -501,6 +502,16 @@ pub enum ExprKind {
         decoder: ExprId,
         /// Operation arguments (the byte view to decode, or none).
         args: Vec<ExprId>,
+    },
+    /// One direction of the base64 codec (`btoa` / `atob`).
+    ///
+    /// Both directions throw, so both reach MIR as a call terminator rather
+    /// than an rvalue — see `Base64Op`.
+    Base64Transcode {
+        /// Which direction this call runs.
+        op: Base64OpKind,
+        /// The string to encode or decode.
+        operand: ExprId,
     },
     /// Construct a value of the concrete typed-array family.
     ///

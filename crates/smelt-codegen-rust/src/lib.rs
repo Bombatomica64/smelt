@@ -4799,6 +4799,11 @@ fn emit_source_with_free_function_router(
         if stdlib::needs_uri_decode_runtime(mir) {
             thrown::emit_uri_decode_support(&mut writer);
         }
+        // The base64 codec, same channel and same ABI dependency. Both
+        // directions throw, so both adapters are emitted together.
+        if stdlib::needs_base64_runtime(mir) {
+            thrown::emit_base64_support(&mut writer);
+        }
         writer.blank_line();
         writer.line("impl Eq for SmeltUnknown {}");
         writer.blank_line();

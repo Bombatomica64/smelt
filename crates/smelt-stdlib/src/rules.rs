@@ -219,6 +219,14 @@ pub enum RuleId {
     TsBlobBodyRead,
     /// TypeScript `Blob.prototype.slice`.
     TsBlobSlice,
+    /// TypeScript `btoa` / `atob`: the two directions of the base64 codec.
+    ///
+    /// One rule for both, because they are one codec and one dependency, and
+    /// both are FALLIBLE in the same way — each throws the branded
+    /// `InvalidCharacterError` `DOMException` for input its direction cannot
+    /// represent (a code point above U+00FF for `btoa`, a malformed base64
+    /// string for `atob`).
+    TsBase64,
     /// TypeScript typed-array data-property read (`length`, `byteLength`,
     /// `byteOffset`, `buffer`).
     TsTypedArrayRead,
@@ -382,6 +390,7 @@ impl RuleId {
             // (`https://a.test` reads back as `https://a.test/`), which is
             // `url::Url`'s own serialization rather than the input string.
             | Self::TsRequestRead => Some(BackendDependency::Url),
+            Self::TsBase64 => Some(BackendDependency::Base64),
             // The two `AbortSignal` statics need no crate: the signal record and
             // its timer both come from the generated runtime, and `timeout`'s
             // timer is the one the crate already carries for `setTimeout`.
@@ -517,6 +526,7 @@ impl RuleId {
             Self::TsBlobRead => "Blob property read",
             Self::TsBlobBodyRead => "Blob body reader",
             Self::TsBlobSlice => "Blob.slice",
+            Self::TsBase64 => "btoa / atob",
             Self::TsTypedArrayRead => "typed-array data-property read",
             Self::TsTypedArrayMethod => "typed-array method",
             Self::TsResponseRead => "Response property read",

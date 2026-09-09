@@ -662,6 +662,24 @@ impl LoweringCtx<'_> {
                     )?
                 }
             }
+            ExprKind::Base64Transcode { op, operand } => {
+                // Both directions throw, so both need the call terminator's
+                // unwind edge — the same reason `JSON.parse` and the URI
+                // decoders do. A `Statement::Assign` has none, so a `try` the
+                // source wrote around `atob` would lose its handler.
+                let lowered_operand = self.lower_expr(*operand)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                let target = self.function.push_block(expr.span);
+                self.set_terminator(Terminator::Call {
+                    callee: Callee::Builtin(BuiltinFn::Base64(*op)),
+                    args: vec![lowered_operand],
+                    dest,
+                    target,
+                    unwind: self.current_exception_handler(),
+                })?;
+                self.current_block = target;
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::ObjectToStringTag { operand } => {
                 let lowered_operand = self.lower_expr(*operand)?;
                 self.assign_temp(

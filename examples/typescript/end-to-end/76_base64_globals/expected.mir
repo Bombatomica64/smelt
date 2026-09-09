@@ -1,0 +1,222 @@
+fn encode (FuncId(0)) -> String throws
+  locals
+    %0 param value: String
+    %1 temp: String
+  bb0:
+    %1 = call @btoa(copy %0) -> bb1
+  bb1:
+    return move %1
+
+fn decode (FuncId(1)) -> String throws
+  locals
+    %0 param value: String
+    %1 temp: String
+  bb0:
+    %1 = call @atob(copy %0) -> bb1
+  bb1:
+    return move %1
+
+fn safe_encode (FuncId(2)) -> String
+  locals
+    %0 param value: String
+    %1 user error: Unknown
+    %2 user failure: DOMException
+    %3 temp: String
+    %4 temp: DOMException
+    %5 temp: String
+    %6 temp: String
+    %7 temp: String
+  bb0:
+    goto bb1
+  bb1:
+    %3 = call @btoa(copy %0) -> bb4 unwind bb3
+  bb2:
+    return none
+  bb3:
+    %4 = unknown_cast move %1 as t5
+    %2 = move %4
+    %5 = "E:" + copy %2.field9
+    %6 = move %5 + ":"
+    %7 = move %6 + copy %2.field10
+    return move %7
+  bb4:
+    return move %3
+
+fn safe_decode (FuncId(3)) -> String
+  locals
+    %0 param value: String
+    %1 user error: Unknown
+    %2 user failure: DOMException
+    %3 temp: String
+    %4 temp: DOMException
+    %5 temp: String
+    %6 temp: String
+    %7 temp: String
+  bb0:
+    goto bb1
+  bb1:
+    %3 = call @atob(copy %0) -> bb4 unwind bb3
+  bb2:
+    return none
+  bb3:
+    %4 = unknown_cast move %1 as t5
+    %2 = move %4
+    %5 = "E:" + copy %2.field9
+    %6 = move %5 + ":"
+    %7 = move %6 + copy %2.field10
+    return move %7
+  bb4:
+    return move %3
+
+fn decoded_brand (FuncId(4)) -> Bool
+  locals
+    %0 param value: String
+    %1 user error: Unknown
+    %2 temp: String
+    %3 temp: Bool
+  bb0:
+    goto bb1
+  bb1:
+    %2 = call @atob(copy %0) -> bb4 unwind bb3
+  bb2:
+    return none
+  bb3:
+    %3 = instanceof move %1, class7
+    return move %3
+  bb4:
+    return false
+
+fn main (FuncId(5)) -> None throws
+  locals
+    %0 temp: String
+    %1 temp: None
+    %2 temp: String
+    %3 temp: None
+    %4 temp: String
+    %5 temp: String
+    %6 temp: String
+    %7 temp: None
+    %8 temp: String
+    %9 temp: None
+    %10 temp: String
+    %11 temp: None
+    %12 temp: String
+    %13 temp: None
+    %14 temp: String
+    %15 temp: String
+    %16 temp: String
+    %17 temp: None
+    %18 temp: String
+    %19 temp: None
+    %20 temp: String
+    %21 temp: None
+    %22 temp: String
+    %23 temp: None
+    %24 temp: String
+    %25 temp: String
+    %26 temp: None
+    %27 temp: String
+    %28 temp: None
+    %29 temp: String
+    %30 temp: None
+    %31 temp: String
+    %32 temp: None
+    %33 temp: String
+    %34 temp: None
+    %35 temp: String
+    %36 temp: None
+    %37 temp: String
+    %38 temp: None
+    %39 temp: Bool
+    %40 temp: None
+    %41 temp: Bool
+    %42 temp: None
+  bb0:
+    %0 = call fn0("hello") -> bb1
+  bb1:
+    %1 = call @console_log(move %0) -> bb2
+  bb2:
+    %2 = call fn0("") -> bb3
+  bb3:
+    %3 = call @console_log(move %2) -> bb4
+  bb4:
+    %4 = call fn0("a") -> bb5
+  bb5:
+    %5 = call fn0("ab") -> bb6
+  bb6:
+    %6 = call fn0("abc") -> bb7
+  bb7:
+    %7 = call @console_log(move %4, move %5, move %6) -> bb8
+  bb8:
+    %8 = call fn0("ÿ ") -> bb9
+  bb9:
+    %9 = call @console_log(move %8) -> bb10
+  bb10:
+    %10 = call fn1("aGVsbG8=") -> bb11
+  bb11:
+    %11 = call @console_log(move %10) -> bb12
+  bb12:
+    %12 = call fn1("") -> bb13
+  bb13:
+    %13 = call @console_log(move %12) -> bb14
+  bb14:
+    %14 = call fn1("YQ==") -> bb15
+  bb15:
+    %15 = call fn1("YWI=") -> bb16
+  bb16:
+    %16 = call fn1("YWJj") -> bb17
+  bb17:
+    %17 = call @console_log(move %14, move %15, move %16) -> bb18
+  bb18:
+    %18 = call fn1("aGVsbG8") -> bb19
+  bb19:
+    %19 = call @console_log(move %18) -> bb20
+  bb20:
+    %20 = call fn1("YR==") -> bb21
+  bb21:
+    %21 = call @console_log(move %20) -> bb22
+  bb22:
+    %22 = call fn1("aGVs bG8=") -> bb23
+  bb23:
+    %23 = call @console_log(move %22) -> bb24
+  bb24:
+    %24 = call fn0("round trip é") -> bb25
+  bb25:
+    %25 = call fn1(move %24) -> bb26
+  bb26:
+    %26 = call @console_log(move %25) -> bb27
+  bb27:
+    %27 = call fn2("Ā") -> bb28
+  bb28:
+    %28 = call @console_log(move %27) -> bb29
+  bb29:
+    %29 = call fn2("ok") -> bb30
+  bb30:
+    %30 = call @console_log(move %29) -> bb31
+  bb31:
+    %31 = call fn3("a") -> bb32
+  bb32:
+    %32 = call @console_log(move %31) -> bb33
+  bb33:
+    %33 = call fn3("!!!!") -> bb34
+  bb34:
+    %34 = call @console_log(move %33) -> bb35
+  bb35:
+    %35 = call fn3("YR=") -> bb36
+  bb36:
+    %36 = call @console_log(move %35) -> bb37
+  bb37:
+    %37 = call fn3("YWJj") -> bb38
+  bb38:
+    %38 = call @console_log(move %37) -> bb39
+  bb39:
+    %39 = call fn4("****") -> bb40
+  bb40:
+    %40 = call @console_log(move %39) -> bb41
+  bb41:
+    %41 = call fn4("YWJj") -> bb42
+  bb42:
+    %42 = call @console_log(move %41) -> bb43
+  bb43:
+    return none
+

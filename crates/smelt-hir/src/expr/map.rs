@@ -552,6 +552,10 @@ impl ExprKind {
                     args: mapped,
                 }
             }
+            Self::Base64Transcode { op, operand } => Self::Base64Transcode {
+                op,
+                operand: f(operand)?,
+            },
             Self::TypedArrayNew { class_name, args } => {
                 let mut mapped = Vec::with_capacity(args.len());
                 for arg in args {

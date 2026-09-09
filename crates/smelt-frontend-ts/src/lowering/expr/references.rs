@@ -730,6 +730,32 @@ impl ModuleBuilder<'_> {
                     },
                 )
             }
+            // A base64 global used as a VALUE rather than called:
+            // `values.map(atob)`, a native-function table entry. The closure
+            // runs the same IR op the direct-call lowering does, with a
+            // concrete `string` parameter.
+            //
+            // NOTE: like the URI decoders above, the closure is deliberately
+            // NOT marked `may_throw` — TypeScript cannot spell "this callback
+            // throws", so the declared `(value: string) => string` wins and a
+            // `may_throw` closure would fail the coercion into it (E0599). A
+            // base64 call made DIRECTLY inside a `try` is catchable (that is
+            // the `BuiltinFn::Base64` terminator); reached through a callback
+            // value it still aborts, which is the same standing limitation.
+            "btoa" | "atob" => {
+                let op = Self::base64_global(name)?;
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                self.builtin_unary_closure_expression(
+                    string_ty,
+                    string_ty,
+                    span,
+                    outer_body,
+                    |value_expr| ExprKind::Base64Transcode {
+                        op,
+                        operand: value_expr,
+                    },
+                )
+            }
             // `setTimeout` used as a value rather than called directly (e.g.
             // `const original = globalThis.setTimeout;` before mocking). The
             // synthesized `(callback, delayMs) => …` closure runs the same
