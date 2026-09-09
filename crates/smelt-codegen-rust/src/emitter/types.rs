@@ -1298,7 +1298,12 @@ impl FunctionEmitter<'_> {
                 if let Some(codec_type) = match self.stdlib_class_of_symbol(*name)? {
                     Some(smelt_stdlib::StdlibClass::TextEncoder) => Some("SmeltTextEncoder"),
                     Some(smelt_stdlib::StdlibClass::TextDecoder) => Some("SmeltTextDecoder"),
-                    Some(smelt_stdlib::StdlibClass::ByteArray) => Some("SmeltUint8Array"),
+                    // The whole typed-array family is ONE Rust type: the
+                    // element kind is a runtime field of the value, not part of
+                    // its static identity, so all eleven source spellings and
+                    // the synthetic codec name render the same type.
+                    Some(smelt_stdlib::StdlibClass::TypedArray) => Some("SmeltTypedArray"),
+                    Some(smelt_stdlib::StdlibClass::ArrayBuffer) => Some("SmeltArrayBuffer"),
                     _ => None,
                 } {
                     return Ok(RustType::raw(codec_type));
@@ -1631,12 +1636,19 @@ impl FunctionEmitter<'_> {
             }
             // An empty byte view, which is what `new Uint8Array(0)` is: a view
             // with no bytes is a value the type can hold, unlike a server
-            // without a handler.
+            // without a handler. Zero-length storage is the same answer for the
+            // buffer half.
             Type::Class { name, .. }
                 if self.stdlib_class_of_symbol(*name)?
-                    == Some(smelt_stdlib::StdlibClass::ByteArray) =>
+                    == Some(smelt_stdlib::StdlibClass::TypedArray) =>
             {
-                Ok("SmeltUint8Array::new()".to_owned())
+                Ok("SmeltTypedArray::new()".to_owned())
+            }
+            Type::Class { name, .. }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::ArrayBuffer) =>
+            {
+                Ok("SmeltArrayBuffer::new(0)".to_owned())
             }
             Type::Class { name, .. }
                 if self.stdlib_class_of_symbol(*name)?

@@ -8,6 +8,7 @@ pub(in crate::lowering) mod call_dispatch;
 mod collections;
 mod fetch_types;
 mod form_data;
+mod typed_array;
 mod http_server;
 mod numbers_math;
 mod objects;

@@ -555,19 +555,81 @@ pub enum TextDecoderOp {
     Encoding,
 }
 
-/// A directly lowered read on a concrete byte view.
+/// A directly lowered member of the concrete typed-array family.
 ///
-/// The two size members a byte view publishes. They differ for every OTHER
-/// typed-array view — `length` is the element count and `byteLength` the byte
-/// count — and agree here because a `Uint8Array`'s elements are one byte wide;
-/// both are modeled rather than one aliased to the other so the enum stays true
-/// to the spec if a wider concrete view is added.
+/// One enum for both halves of the family — the element VIEW
+/// (`SmeltTypedArray`) and its byte STORAGE (`SmeltArrayBuffer`) — because
+/// every member here is a spec member whose name the two halves share where
+/// they both have it (`byteLength`, `slice`). The receiver's own type decides
+/// which implementation runs, exactly as it does in JavaScript, so codegen
+/// renders one method call and Rust resolves it; the alternative was two
+/// enums whose overlapping arms could drift.
+///
+/// The element KIND is not here. It is a runtime property of the value, so
+/// `length` (element count) and `byteLength` (byte count) are one op each and
+/// differ at run time by the receiver's width, rather than one op per width.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ByteArrayOp {
     /// `length`: the element count.
     Length,
     /// `byteLength`: the byte count.
     ByteLength,
+    /// `byteOffset`: where a view starts in its buffer.
+    ByteOffset,
+    /// `buffer`: the view's storage, SHARED rather than copied.
+    Buffer,
+    /// `subarray(start?, end?)`: another view over the SAME storage.
+    Subarray,
+    /// `slice(start?, end?)`: a COPY of a range, in fresh storage.
+    Slice,
+    /// `set(source, offset?)`: copy elements in, converting per element.
+    Set,
+    /// `fill(value, start?, end?)`: write one value across a range.
+    Fill,
+    /// The view's decoded elements, at its own width and signedness.
+    ///
+    /// Not a spec member name: it is what iteration, spreading and
+    /// `Array.from(view)` all need, and giving them one op keeps the decode in
+    /// a single place rather than in each consumer.
+    Elements,
+    /// The view's own enumerable property NAMES: its element indices as strings.
+    ///
+    /// A typed array's own properties are exactly its indexed elements —
+    /// `length`/`byteLength`/`byteOffset`/`buffer` are prototype accessors — so
+    /// `Object.keys(view)` is `["0", "1", ...]`. Answering it from the concrete
+    /// value is what keeps the enumeration off the erased record: the erased
+    /// face computes the same answer from a marker record, and going through
+    /// one for a value whose length is right here is erasure with no boundary.
+    IndexKeys,
+    /// The view's own enumerable entries: `(index-as-string, element)` pairs.
+    ///
+    /// The `Object.entries(view)` form of [`Self::IndexKeys`] and
+    /// [`Self::Elements`], as one op so the two halves of a pair cannot be
+    /// decoded by two different rules.
+    IndexEntries,
+}
+
+impl ByteArrayOp {
+    /// The op's snake-case name, as the HIR and MIR dumps print it.
+    ///
+    /// Shared by both formatters so a new arm cannot be spelled two ways in the
+    /// two golden dumps.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Length => "length",
+            Self::ByteLength => "byte_length",
+            Self::ByteOffset => "byte_offset",
+            Self::Buffer => "buffer",
+            Self::Subarray => "subarray",
+            Self::Slice => "slice",
+            Self::Set => "set",
+            Self::Fill => "fill",
+            Self::Elements => "elements",
+            Self::IndexKeys => "index_keys",
+            Self::IndexEntries => "index_entries",
+        }
+    }
 }
 
 /// A directly lowered `AbortSignal` STATIC.

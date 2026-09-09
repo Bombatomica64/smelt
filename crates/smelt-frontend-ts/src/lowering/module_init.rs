@@ -1840,7 +1840,25 @@ impl<'ctx> ModuleBuilder<'ctx> {
         collector.into_free_names()
     }
 
-    /// Scan `const name = <arrow/function>` initializers for identifier reads.
+    /// Scan module `const` initializers that are REPLAYED inside item bodies.
+    ///
+    /// Two shapes qualify, and for one reason: their initializer expression is
+    /// re-lowered at each use site rather than evaluated once into a
+    /// module-body local, so an identifier it reads is read from wherever that
+    /// use site is — inside a hoisted item body, where there is no module-body
+    /// local to read through.
+    ///
+    /// * an arrow/function initializer, whose body runs at each call;
+    /// * an object or array/`as const` literal, which `self.consts` records and
+    ///   rebuilds per use (`const DATA = { view: VIEW }` read by
+    ///   `Object.values(DATA)` from another item rebuilds the literal there, and
+    ///   with it the read of `VIEW`).
+    ///
+    /// Missing the second shape is what made a module-level
+    /// `const VIEW = new Uint8Array(1)` referenced from an exported object
+    /// literal report the class-typed-module-binding blocker: the slot pass
+    /// declined the binding because it saw no item-body read, and then the read
+    /// happened in an item body anyway.
     fn collect_hoisted_reads_in_const_callables(
         collector: &mut ReadNameCollector,
         decl: &oxc::ast::ast::VariableDeclaration<'_>,
@@ -1851,7 +1869,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
         for declarator in &decl.declarations {
             if let Some(
-                init @ (Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)),
+                init @ (Expression::ArrowFunctionExpression(_)
+                | Expression::FunctionExpression(_)
+                | Expression::ObjectExpression(_)
+                | Expression::ArrayExpression(_)
+                | Expression::TSAsExpression(_)),
             ) = &declarator.init
             {
                 collector.visit_expression(init);

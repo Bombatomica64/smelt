@@ -427,6 +427,14 @@ impl FunctionEmitter<'_> {
                 {
                     return self.match_index_text(&self.local_value_text(*base)?, index);
                 }
+                // An indexed read on a typed-array view decodes ONE element at
+                // the view's own width and signedness. A negative or fractional
+                // index is a named property in JavaScript, not an element, and
+                // `get` answers `None` for it — the same "no such element"
+                // answer an out-of-range read gets.
+                if let Some(text) = self.typed_array_index_read_text(base_ty, *base, index)? {
+                    return Ok(text);
+                }
                 match self.mir.types.get(base_ty) {
                     Some(Type::List(item_ty)) => {
                         // A list index READ only ever calls `.get(..).cloned()`

@@ -53,6 +53,16 @@ pub enum TypeScriptReceiverKind {
     /// and shares its whole method surface, so keying the methods on two kinds
     /// would duplicate every entry to say the same thing.
     Blob,
+    /// A value of the concrete typed-array family: one of the eleven views, or
+    /// the `ArrayBuffer` storage behind them.
+    ///
+    /// One receiver kind for both halves, for the same reason `Blob` and `File`
+    /// share one: the members they both have (`byteLength`, `slice`) are the
+    /// same spec member with the same meaning, and the receiver's own type
+    /// decides which implementation runs. A member only one half has
+    /// (`byteOffset`, `set`, `fill`, `subarray`) declines at the type check in
+    /// the dispatch rather than needing a second kind here.
+    TypedArray,
 }
 
 /// Receiver-method call shape recognized after a frontend knows the receiver type.
@@ -290,6 +300,29 @@ pub const TYPESCRIPT_METHODS: &[MethodRecognition] = &[
     ),
     method(TypeScriptReceiverKind::Blob, "bytes", RuleId::TsBlobBodyRead),
     method(TypeScriptReceiverKind::Blob, "slice", RuleId::TsBlobSlice),
+    // The concrete typed-array family. `slice` is deliberately shared between
+    // the view and its storage — one spec member, one entry — and `subarray`
+    // is the view-only form that shares storage rather than copying.
+    method(
+        TypeScriptReceiverKind::TypedArray,
+        "subarray",
+        RuleId::TsTypedArrayMethod,
+    ),
+    method(
+        TypeScriptReceiverKind::TypedArray,
+        "slice",
+        RuleId::TsTypedArrayMethod,
+    ),
+    method(
+        TypeScriptReceiverKind::TypedArray,
+        "set",
+        RuleId::TsTypedArrayMethod,
+    ),
+    method(
+        TypeScriptReceiverKind::TypedArray,
+        "fill",
+        RuleId::TsTypedArrayMethod,
+    ),
     method(
         TypeScriptReceiverKind::UrlSearchParams,
         "keys",

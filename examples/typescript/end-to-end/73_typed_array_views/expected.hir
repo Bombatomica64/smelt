@@ -1,0 +1,345 @@
+module examples/typescript/end-to-end/73_typed_array_views/input.ts (ModuleId(0))
+  body BodyId(1)
+  locals
+    %0 const fromElements: Uint8Array
+    %1 const fromLength: Uint8Array
+    %2 const buffer: ArrayBuffer
+    %3 const wholeBuffer: Float64Array
+    %4 const window: Uint8Array
+    %5 const converted: Uint8Array
+    %6 const wide: Uint32Array
+    %7 const shared: Uint8Array
+    %8 const copied: Uint8Array
+    %9 const target: Uint8Array
+    %10 const collected: List<Float>
+    %11 let element: Float
+  exprs
+    #0: Float = 1.0
+    #1: Float = 2.0
+    #2: Float = 3.0
+    #3: Float = 250.0
+    #4: List<Float> = [#0, #1, #2, #3]
+    #5: Uint8Array = typed_array_new Uint8Array #4
+    #6: Float = 3.0
+    #7: Uint8Array = typed_array_new Uint8Array #6
+    #8: Float = 8.0
+    #9: ArrayBuffer = typed_array_new ArrayBuffer #8
+    #10: ArrayBuffer = %2
+    #11: Float64Array = typed_array_new Float64Array #10
+    #12: ArrayBuffer = %2
+    #13: Float = 2.0
+    #14: Float = 4.0
+    #15: Uint8Array = typed_array_new Uint8Array #12 #13 #14
+    #16: Float = 1.0
+    #17: Float = Neg #16
+    #18: List<Float> = [#17]
+    #19: Int8Array = typed_array_new Int8Array #18
+    #20: Uint8Array = typed_array_new Uint8Array #19
+    #21: Uint8Array = %0
+    #22: Float = byte_array_length #21
+    #23: Uint8Array = %0
+    #24: Float = byte_array_byte_length #23
+    #25: Uint8Array = %0
+    #26: Float = byte_array_byte_offset #25
+    #27: None = @0(console_log)
+    #28: None = call #27(#22, #24, #26)
+    #29: Uint8Array = %1
+    #30: Float = byte_array_length #29
+    #31: ArrayBuffer = %2
+    #32: Float = byte_array_byte_length #31
+    #33: None = @1(console_log)
+    #34: None = call #33(#30, #32)
+    #35: Float64Array = %3
+    #36: Float = byte_array_length #35
+    #37: Float64Array = %3
+    #38: Float = byte_array_byte_length #37
+    #39: Float64Array = %3
+    #40: Float = byte_array_byte_offset #39
+    #41: None = @2(console_log)
+    #42: None = call #41(#36, #38, #40)
+    #43: Uint8Array = %4
+    #44: Float = byte_array_length #43
+    #45: Uint8Array = %4
+    #46: Float = byte_array_byte_offset #45
+    #47: Uint8Array = %4
+    #48: ArrayBuffer = byte_array_buffer #47
+    #49: Float = byte_array_byte_length #48
+    #50: None = @3(console_log)
+    #51: None = call #50(#44, #46, #49)
+    #52: Uint8Array = %5
+    #53: Float = byte_array_length #52
+    #54: Uint8Array = %5
+    #55: Float = 0.0
+    #56: Unknown = #54[#55]
+    #57: None = @4(console_log)
+    #58: None = call #57(#53, #56)
+    #59: Float = 200.0
+    #60: List<Float> = [#59]
+    #61: Int8Array = typed_array_new Int8Array #60
+    #62: Float = 0.0
+    #63: Unknown = #61[#62]
+    #64: Float = 256.0
+    #65: List<Float> = [#64]
+    #66: Uint8Array = typed_array_new Uint8Array #65
+    #67: Float = 0.0
+    #68: Unknown = #66[#67]
+    #69: Float = 300.0
+    #70: List<Float> = [#69]
+    #71: Uint8ClampedArray = typed_array_new Uint8ClampedArray #70
+    #72: Float = 0.0
+    #73: Unknown = #71[#72]
+    #74: None = @5(console_log)
+    #75: None = call #74(#63, #68, #73)
+    #76: Float = 1.0
+    #77: Float = 2.0
+    #78: List<Float> = [#76, #77]
+    #79: Uint32Array = typed_array_new Uint32Array #78
+    #80: Uint32Array = %6
+    #81: Float = byte_array_length #80
+    #82: Uint32Array = %6
+    #83: Float = byte_array_byte_length #82
+    #84: Uint32Array = %6
+    #85: Float = 1.0
+    #86: Unknown = #84[#85]
+    #87: None = @6(console_log)
+    #88: None = call #87(#81, #83, #86)
+    #89: Uint8Array = %0
+    #90: Float = 0.0
+    #91: Unknown = #89[#90]
+    #92: Float = 9.0
+    #93: Uint8Array = %0
+    #94: Float = 0.0
+    #95: Unknown = #93[#94]
+    #96: Uint8Array = %0
+    #97: Float = 3.0
+    #98: Unknown = #96[#97]
+    #99: None = @7(console_log)
+    #100: None = call #99(#95, #98)
+    #101: Uint8Array = %0
+    #102: Float = 1.0
+    #103: Uint8Array = byte_array_subarray #101 #102
+    #104: Uint8Array = %7
+    #105: Float = 0.0
+    #106: Unknown = #104[#105]
+    #107: Float = 42.0
+    #108: Uint8Array = %0
+    #109: Float = 1.0
+    #110: Unknown = #108[#109]
+    #111: Uint8Array = %7
+    #112: Float = 0.0
+    #113: Unknown = #111[#112]
+    #114: Uint8Array = %7
+    #115: Float = byte_array_byte_offset #114
+    #116: None = @8(console_log)
+    #117: None = call #116(#110, #113, #115)
+    #118: Uint8Array = %0
+    #119: Float = 0.0
+    #120: Float = 2.0
+    #121: Uint8Array = byte_array_slice #118 #119 #120
+    #122: Uint8Array = %8
+    #123: Float = 0.0
+    #124: Unknown = #122[#123]
+    #125: Float = 0.0
+    #126: Uint8Array = %0
+    #127: Float = 0.0
+    #128: Unknown = #126[#127]
+    #129: Uint8Array = %8
+    #130: Float = 0.0
+    #131: Unknown = #129[#130]
+    #132: Uint8Array = %8
+    #133: Float = byte_array_length #132
+    #134: None = @9(console_log)
+    #135: None = call #134(#128, #131, #133)
+    #136: Float = 4.0
+    #137: Uint8Array = typed_array_new Uint8Array #136
+    #138: Uint8Array = %9
+    #139: Uint8Array = %0
+    #140: Float = 0.0
+    #141: Float = 2.0
+    #142: Uint8Array = byte_array_subarray #139 #140 #141
+    #143: Float = 1.0
+    #144: None = byte_array_set #138 #142 #143
+    #145: Uint8Array = %9
+    #146: Float = 0.0
+    #147: Unknown = #145[#146]
+    #148: Uint8Array = %9
+    #149: Float = 1.0
+    #150: Unknown = #148[#149]
+    #151: Uint8Array = %9
+    #152: Float = 2.0
+    #153: Unknown = #151[#152]
+    #154: None = @10(console_log)
+    #155: None = call #154(#147, #150, #153)
+    #156: Uint8Array = %9
+    #157: Float = 7.0
+    #158: Float = 2.0
+    #159: Uint8Array = byte_array_fill #156 #157 #158
+    #160: Uint8Array = %9
+    #161: Float = 1.0
+    #162: Unknown = #160[#161]
+    #163: Uint8Array = %9
+    #164: Float = 2.0
+    #165: Unknown = #163[#164]
+    #166: Uint8Array = %9
+    #167: Float = 3.0
+    #168: Unknown = #166[#167]
+    #169: None = @11(console_log)
+    #170: None = call #169(#162, #165, #168)
+    #171: Uint8Array = %0
+    #172: Bool = instanceof #171, class0
+    #173: Uint8Array = %0
+    #174: Bool = instanceof #173, class7
+    #175: None = @12(console_log)
+    #176: None = call #175(#172, #174)
+    #177: ArrayBuffer = %2
+    #178: Bool = instanceof #177, class1
+    #179: ArrayBuffer = %2
+    #180: Bool = false
+    #181: None = @13(console_log)
+    #182: None = call #181(#178, #180)
+    #183: Uint8Array = %0
+    #184: Bool = true
+    #185: Float64Array = %3
+    #186: Bool = true
+    #187: None = @14(console_log)
+    #188: None = call #187(#184, #186)
+    #189: Uint8Array = %0
+    #190: String = object_to_string_tag #189
+    #191: None = @15(console_log)
+    #192: None = call #191(#190)
+    #193: Uint32Array = %6
+    #194: String = object_to_string_tag #193
+    #195: None = @16(console_log)
+    #196: None = call #195(#194)
+    #197: Uint8Array = %0
+    #198: String = primitive_cast_string #197
+    #199: None = @17(console_log)
+    #200: None = call #199(#198)
+    #201: String = ""
+    #202: Uint32Array = %6
+    #203: String = Add #201, #202
+    #204: None = @18(console_log)
+    #205: None = call #204(#203)
+    #206: List<Float> = []
+    #207: Uint32Array = %6
+    #208: List<Float> = byte_array_elements #207
+    #209: List<Float> = %10
+    #210: Float = %11
+    #211: Float = list_push #209, #210
+    #212: List<Float> = %10
+    #213: String = "-"
+    #214: String = string_join #212, #213
+    #215: None = @19(console_log)
+    #216: None = call #215(#214)
+    #217: Uint32Array = %6
+    #218: List<Float> = byte_array_elements #217
+    #219: String = "-"
+    #220: String = string_join #218, #219
+    #221: None = @20(console_log)
+    #222: None = call #221(#220)
+    #223: Uint32Array = %6
+    #224: List<Float> = byte_array_elements #223
+    #225: String = "-"
+    #226: String = string_join #224, #225
+    #227: None = @21(console_log)
+    #228: None = call #227(#226)
+    #229: Uint8Array = %0
+    #230: String = json_stringify #229
+    #231: None = @22(console_log)
+    #232: None = call #231(#230)
+    #233: ArrayBuffer = %2
+    #234: String = json_stringify #233
+    #235: None = @23(console_log)
+    #236: None = call #235(#234)
+    #237: Uint8Array = %0
+    #238: List<String> = byte_array_index_keys #237
+    #239: String = ","
+    #240: String = string_join #238, #239
+    #241: None = @24(console_log)
+    #242: None = call #241(#240)
+    #243: Uint8Array = %0
+    #244: List<Float> = byte_array_elements #243
+    #245: String = ","
+    #246: String = string_join #244, #245
+    #247: None = @25(console_log)
+    #248: None = call #247(#246)
+    #249: Uint32Array = %6
+    #250: List<(String, Float)> = byte_array_index_entries #249
+    #251: fn((String, Float), Int, List<(String, Float)>) -> String = closure BodyId(0) captures 0 -> String
+    #252: List<String> = list_map #250, #251
+    #253: String = ","
+    #254: String = string_join #252, #253
+    #255: None = @26(console_log)
+    #256: None = call #255(#254)
+    #257: Uint32Array = %6
+    #258: List<String> = byte_array_index_keys #257
+    #259: String = ","
+    #260: String = string_join #258, #259
+    #261: None = @27(console_log)
+    #262: None = call #261(#260)
+  stmts
+    s0: let %0: Uint8Array = #5
+    s1: let %1: Uint8Array = #7
+    s2: let %2: ArrayBuffer = #9
+    s3: let %3: Float64Array = #11
+    s4: let %4: Uint8Array = #15
+    s5: let %5: Uint8Array = #20
+    s6: #28
+    s7: #34
+    s8: #42
+    s9: #51
+    s10: #58
+    s11: #75
+    s12: let %6: Uint32Array = #79
+    s13: #88
+    s14: #91 = #92
+    s15: #100
+    s16: let %7: Uint8Array = #103
+    s17: #106 = #107
+    s18: #117
+    s19: let %8: Uint8Array = #121
+    s20: #124 = #125
+    s21: #135
+    s22: let %9: Uint8Array = #137
+    s23: #144
+    s24: #155
+    s25: #159
+    s26: #170
+    s27: #176
+    s28: #182
+    s29: #188
+    s30: #192
+    s31: #196
+    s32: #200
+    s33: #205
+    s34: let %10: List<Float> = #206
+    s35: #211
+    s36: for %11 in #208 BlockId(1)
+    s37: #216
+    s38: #222
+    s39: #228
+    s40: #232
+    s41: #236
+    s42: #242
+    s43: #248
+    s44: #256
+    s45: #262
+
+interned types
+  t0 = Float
+  t1 = List<Float>
+  t2 = Uint8Array
+  t3 = ArrayBuffer
+  t4 = Unknown
+  t5 = Int8Array
+  t6 = Uint32Array
+  t7 = Float64Array
+  t8 = None
+  t9 = Uint8ClampedArray
+  t10 = Bool
+  t11 = String
+  t12 = List<String>
+  t13 = (String, Float)
+  t14 = List<(String, Float)>
+  t15 = Int
+  t16 = fn((String, Float), Int, List<(String, Float)>) -> String

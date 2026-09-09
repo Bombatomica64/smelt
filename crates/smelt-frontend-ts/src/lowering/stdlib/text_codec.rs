@@ -46,7 +46,7 @@
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use oxc::ast::ast::Expression;
-use smelt_hir::{Body, ByteArrayOp, Expr, ExprKind, TextDecoderOp, TextEncoderOp, Type};
+use smelt_hir::{Body, Expr, ExprKind, TextDecoderOp, TextEncoderOp, Type};
 use smelt_stdlib::RuleId;
 
 /// The encoding labels the WHATWG encoding standard maps to UTF-8.
@@ -275,22 +275,6 @@ impl ModuleBuilder<'_> {
                     span,
                 })))
             }
-            "length" | "byteLength" if self.is_byte_array_type(receiver_ty) => {
-                let float_ty = self.ctx.krate.types.intern(Type::Float);
-                let op = if member.property.name == "length" {
-                    ByteArrayOp::Length
-                } else {
-                    ByteArrayOp::ByteLength
-                };
-                Ok(Some(body.push_expr(Expr {
-                    kind: ExprKind::ByteArrayOp {
-                        op,
-                        bytes: receiver,
-                    },
-                    ty: float_ty,
-                    span,
-                })))
-            }
             _ => Ok(None),
         }
     }
@@ -334,11 +318,4 @@ impl ModuleBuilder<'_> {
             && !self.user_class_shadows("TextDecoder")
     }
 
-    /// Return whether a lowered type is the modeled concrete byte view.
-    ///
-    /// No shadowing check: the class name is synthetic and unwritable in source,
-    /// so no user class can shadow it.
-    pub(in crate::lowering) fn is_byte_array_type(&self, ty: smelt_hir::TypeId) -> bool {
-        self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::ByteArray)
-    }
 }

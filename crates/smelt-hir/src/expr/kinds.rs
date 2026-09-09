@@ -502,12 +502,29 @@ pub enum ExprKind {
         /// Operation arguments (the byte view to decode, or none).
         args: Vec<ExprId>,
     },
-    /// A size read on a concrete byte view.
+    /// Construct a value of the concrete typed-array family.
+    ///
+    /// One node for all twelve source constructors — the eleven views and
+    /// `ArrayBuffer` — because the element kind is a runtime property selected
+    /// by the name, not a different operation. Codegen reads the name to pick
+    /// the kind (or the storage half) and the ARGUMENT TYPES to pick the
+    /// spelling: a number is a length, a list is elements, a buffer is a
+    /// re-view over shared storage, another view is an element-by-element
+    /// conversion, and an erased value is the one honest dynamic boundary.
+    TypedArrayNew {
+        /// The source constructor name, as written.
+        class_name: String,
+        /// The constructor arguments, as written.
+        args: Vec<ExprId>,
+    },
+    /// A member read or method call on the concrete typed-array family.
     ByteArrayOp {
-        /// Which size member this reads.
+        /// Which member this reads or calls.
         op: ByteArrayOpKind,
-        /// The byte-view receiver.
+        /// The view (or byte-storage) receiver.
         bytes: ExprId,
+        /// Operation arguments (a range, a value, a source view, or none).
+        args: Vec<ExprId>,
     },
     /// A `URLSearchParams` method call on a concrete receiver.
     UrlSearchParamsOp {

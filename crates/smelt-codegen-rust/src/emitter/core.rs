@@ -5018,54 +5018,18 @@ impl<'mir> FunctionEmitter<'mir> {
     pub(super) fn is_erased_class_type(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
             Some(Type::Class { name, .. }) => {
-                // RegExp and the synthetic match-result classes have dedicated
-                // Rust runtime types (`SmeltRegExp` / `SmeltMatch`). Other stdlib
-                // classes may still be represented by primitive or collection
-                // values and should keep the ordinary erased-class fallback.
+                // A modeled class with a CONCRETE generated Rust type never
+                // erases: that is the whole point of modeling it as a real Rust
+                // value. Asked of the registry
+                // (`StdlibClass::has_concrete_runtime_type`) rather than of a
+                // list of spellings here — the list is what silently omitted
+                // `ArrayBuffer` when the typed-array family became concrete, so
+                // a coercion into an `SmeltArrayBuffer` slot erased instead of
+                // recovering and the generated crate stopped compiling. The
+                // three `node:http` classes were omitted the same way.
                 if self.symbol_name(*name).is_ok_and(|type_name| {
-                    matches!(
-                        smelt_stdlib::typescript_stdlib_class(type_name),
-                        Some(
-                            smelt_stdlib::StdlibClass::RegExp
-                                | smelt_stdlib::StdlibClass::Match
-                                | smelt_stdlib::StdlibClass::MatchGroups
-                                // A WHATWG `Headers` is the concrete
-                                // `SmeltHeaders` runtime type, so it never
-                                // erases: that is the whole point of modeling
-                                // the fetch types as real Rust values.
-                                | smelt_stdlib::StdlibClass::Headers
-                                | smelt_stdlib::StdlibClass::UrlSearchParams
-                                // A `FormData` is the concrete `SmeltFormData`,
-                                // whose entry values are the concrete
-                                // `string | File` pair -- nothing in a form is
-                                // an erased record.
-                                | smelt_stdlib::StdlibClass::FormData
-                                // A body HANDLE is the concrete `SmeltBody`.
-                                // It is the one modeled class with no readable
-                                // members, but it is still a real Rust value:
-                                // presence, and being passed back to a
-                                // constructor, are what it answers.
-                                | smelt_stdlib::StdlibClass::ReadableStream
-                                // The text codecs and the concrete byte view
-                                // are generated Rust types too. The byte view
-                                // is reached only through its synthetic class
-                                // name, so the source spelling `Uint8Array`
-                                // keeps its erased byte-backed-record meaning.
-                                | smelt_stdlib::StdlibClass::TextEncoder
-                                | smelt_stdlib::StdlibClass::TextDecoder
-                                | smelt_stdlib::StdlibClass::ByteArray
-                                // `Blob`/`File` are the concrete `SmeltBlob`.
-                                | smelt_stdlib::StdlibClass::Blob
-                                | smelt_stdlib::StdlibClass::File
-                                // Likewise `Response`: a concrete
-                                // `SmeltResponse`, never an erased record.
-                                | smelt_stdlib::StdlibClass::Response
-                                | smelt_stdlib::StdlibClass::Request
-                                // An emitter is a concrete listener list, not
-                                // an erased record.
-                                | smelt_stdlib::StdlibClass::EventEmitter
-                        )
-                    )
+                    smelt_stdlib::typescript_stdlib_class(type_name)
+                        .is_some_and(smelt_stdlib::StdlibClass::has_concrete_runtime_type)
                 }) {
                     return false;
                 }

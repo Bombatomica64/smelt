@@ -336,6 +336,11 @@ impl SmeltArrayBuffer {
     pub fn storage(&self) -> ::std::rc::Rc<::std::cell::RefCell<Vec<u8>>> { ::std::rc::Rc::clone(&self.bytes) }
     /// Storage sharing this buffer's bytes handle and identity.
     pub fn from_storage(id: usize, bytes: ::std::rc::Rc<::std::cell::RefCell<Vec<u8>>>) -> Self { Self { id, bytes } }
+    /// Overwrite bytes at an absolute offset; out-of-range bytes are dropped.
+    pub fn write_bytes_at(&self, offset: usize, source: &[u8]) {
+        let mut bytes = self.bytes.borrow_mut();
+        for (step, byte) in source.iter().enumerate() { if let Some(slot) = bytes.get_mut(offset + step) { *slot = *byte; } }
+    }
     /// `slice(start, end)`: a COPY of a byte range in fresh storage.
     pub fn slice(&self, start: i64, end: Option<i64>) -> Self {
         let bytes = self.bytes.borrow();
@@ -345,6 +350,7 @@ impl SmeltArrayBuffer {
         Self::from_bytes(bytes[from..to.max(from)].to_vec())
     }
 }
+impl Default for SmeltArrayBuffer { fn default() -> Self { Self::new(0) } }
 
 /// An element view over byte storage: kind, offset, length.
 #[derive(Clone)]
@@ -385,6 +391,8 @@ impl SmeltTypedArray {
         let length = bytes.len() / kind.byte_width();
         Self { id: smelt_next_object_id(), kind, bytes: ::std::rc::Rc::new(::std::cell::RefCell::new(bytes)), buffer_id: smelt_next_object_id(), byte_offset: 0, length }
     }
+    /// A zero-filled view of `kind` holding `length` elements.
+    pub fn with_length(kind: SmeltTypedArrayKind, length: usize) -> Self { Self::with_bytes(kind, vec![0_u8; length * kind.byte_width()]) }
     /// A view of `kind` over the given elements, in fresh storage.
     pub fn with_elements(kind: SmeltTypedArrayKind, elements: &[f64]) -> Self {
         let width = kind.byte_width();
@@ -426,6 +434,8 @@ impl SmeltTypedArray {
         let width = self.kind.byte_width();
         (0..self.length).map(|index| self.kind.decode(&bytes, self.byte_offset + index * width)).collect()
     }
+    /// `toString()`: the elements joined by commas.
+    pub fn to_js_string(&self) -> String { self.to_elements().into_iter().map(|element| element.to_string()).collect::<Vec<_>>().join(",") }
     /// An indexed element read; `None` past the end.
     pub fn get(&self, index: f64) -> Option<f64> {
         if index < 0.0 || index.fract() != 0.0 { return None; }
@@ -433,6 +443,20 @@ impl SmeltTypedArray {
         if index >= self.length { return None; }
         let bytes = self.bytes.borrow();
         Some(self.kind.decode(&bytes, self.byte_offset + index * self.kind.byte_width()))
+    }
+    /// Overwrite this view's byte window; extra source bytes are ignored.
+    pub fn write_bytes(&self, source: &[u8]) {
+        let mut bytes = self.bytes.borrow_mut();
+        let start = self.byte_offset.min(bytes.len());
+        let end = (start + self.length * self.kind.byte_width()).min(bytes.len());
+        let count = (end - start).min(source.len());
+        bytes[start..start + count].copy_from_slice(&source[..count]);
+    }
+    /// Overwrite bytes at an offset WITHIN this view's window.
+    pub fn write_bytes_at(&self, offset: usize, source: &[u8]) {
+        let mut bytes = self.bytes.borrow_mut();
+        let end = self.byte_offset + self.length * self.kind.byte_width();
+        for (step, byte) in source.iter().enumerate() { let at = self.byte_offset + offset + step; if at < end { if let Some(slot) = bytes.get_mut(at) { *slot = *byte; } } }
     }
     /// An indexed element write; dropped past the end.
     pub fn set_index(&self, index: f64, value: f64) {

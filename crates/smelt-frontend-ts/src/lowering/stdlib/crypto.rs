@@ -83,7 +83,7 @@ impl ModuleBuilder<'_> {
                 // the call as a fresh view would lose that.
                 let ty = Self::expr_ty(body, view);
                 // A typed-array VIEW is still the byte-backed host record by
-                // design (see `StdlibClass::ByteArray`), and a program that
+                // design (see `StdlibClass::TypedArray`), and a program that
                 // allocates the view it wants filled — `new Uint8Array(n)` — is
                 // holding exactly that. Both shapes are accepted, and codegen
                 // fills whichever it was handed; refusing the erased one would
@@ -91,7 +91,7 @@ impl ModuleBuilder<'_> {
                 // refused rather than silently ignored, because the previous
                 // lowering's answer to everything was to hand the argument back
                 // UNFILLED.
-                if !self.is_byte_array_type(ty)
+                if !self.is_typed_array_view_type(ty)
                     && !matches!(
                         self.ctx.krate.types.get(ty),
                         Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
@@ -121,14 +121,31 @@ impl ModuleBuilder<'_> {
                 let algorithm = self.argument(algorithm, body)?;
                 let algorithm = self.crypto_algorithm_name(algorithm, span, body)?;
                 let data = self.argument(data, body)?;
-                if !self.is_byte_array_type(Self::expr_ty(body, data)) {
+                // `BufferSource` is the spec's input type: a VIEW or its
+                // STORAGE, both now concrete. A value whose type carries no
+                // shape (an `unknown`, a generic, or a union with byte arms —
+                // Hono's `utils/crypto.ts` hands one of exactly that shape) is
+                // accepted too and reads its bytes through the view's boundary
+                // adapter at run time; nothing else is bytes at all, and
+                // refusing it is better than hashing zero bytes.
+                let data_ty = Self::expr_ty(body, data);
+                if !self.is_typed_array_view_type(data_ty)
+                    && !self.is_array_buffer_type(data_ty)
+                    && !matches!(
+                        self.ctx.krate.types.get(data_ty),
+                        Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
+                    )
+                {
                     return Err(SmeltError::unsupported(
                         span,
-                        "`crypto.subtle.digest` hashes a concrete byte view (the value `TextEncoder.encode` and the body readers answer); the erased typed-array views are not modeled as digest input yet",
+                        "`crypto.subtle.digest` hashes a `BufferSource`: a typed-array view or an `ArrayBuffer`",
                     ));
                 }
-                let bytes_ty = self.byte_array_type();
-                let ty = self.ctx.krate.types.intern(Type::Future(bytes_ty));
+                // The spec answers an `ArrayBuffer`, which is now a modeled
+                // concrete type, so the promise is one of those rather than of
+                // a view.
+                let buffer_ty = self.array_buffer_type();
+                let ty = self.ctx.krate.types.intern(Type::Future(buffer_ty));
                 Ok(Some(body.push_expr(Expr {
                     kind: ExprKind::CryptoOp {
                         op: CryptoOp::Digest,

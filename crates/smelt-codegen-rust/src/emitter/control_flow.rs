@@ -627,6 +627,20 @@ impl FunctionEmitter<'_> {
                 negative,
             } => {
                 let base_ty = self.local_decl(*base)?.ty;
+                // An indexed write through a typed-array view encodes ONE
+                // element into the shared storage, so a write through one view
+                // is visible through every other view over the same buffer.
+                // Out-of-range and non-integer indices are dropped, which is
+                // what JavaScript does for a view (they would be named
+                // properties, and a view has none).
+                if let Some(statement) =
+                    self.typed_array_index_write_statement(base_ty, *base, index, value)?
+                {
+                    out.push_str("    ");
+                    out.push_str(&statement);
+                    out.push('\n');
+                    return Ok(());
+                }
                 match self.mir.types.get(base_ty) {
                     Some(Type::Dict(key, item)) => {
                         let rendered_value = self.rvalue_text_for_dest(value, *item)?;

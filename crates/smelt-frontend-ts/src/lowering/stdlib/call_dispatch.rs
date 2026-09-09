@@ -1749,6 +1749,10 @@ impl<'builder> ModuleBuilder<'builder> {
         Self::object_get_own_property_symbols_call,
         Self::object_projection_call,
         Self::object_has_own_call,
+        // Before the collection and list dispatches: `slice`, `set` and `fill`
+        // are names those own for other receivers, and the family's receiver
+        // type is what separates them.
+        Self::dispatch_typed_array_method,
         Self::dispatch_collection_method,
         Self::dispatch_headers_method,
         Self::dispatch_url_search_params_method,

@@ -301,6 +301,12 @@ impl ModuleBuilder<'_> {
             "Buffer" => self.buffer_constructor_expression(new_expr, body)?,
             // The byte-backed host objects other than `Buffer` construct through
             // the shared host constructor (`ExprKind::HostConstruct`).
+            // The concrete family first: an overridden global that names one of
+            // the eleven views or `ArrayBuffer` constructs the Rust value, and
+            // only `SharedArrayBuffer`/`DataView` fall to the erased record.
+            _ if self.is_typed_array_family_name(name) => {
+                self.typed_array_constructor_expression(new_expr, name, body)?
+            }
             _ if smelt_stdlib::byte_buffer_role(name).is_some() => {
                 self.byte_buffer_constructor_expression(new_expr, name, body)?
             }

@@ -90,8 +90,11 @@ impl FunctionEmitter<'_> {
             smelt_hir::BlobOp::Text => Ok(format!(
                 "{{ let smelt_blob = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(smelt_blob.to_text()) }})) }}"
             )),
-            smelt_hir::BlobOp::ArrayBuffer | smelt_hir::BlobOp::Bytes => Ok(format!(
-                "{{ let smelt_blob = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(SmeltUint8Array::from_bytes(smelt_blob.to_bytes())) }})) }}"
+            smelt_hir::BlobOp::ArrayBuffer => Ok(format!(
+                "{{ let smelt_blob = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(SmeltArrayBuffer::from_bytes(smelt_blob.to_bytes())) }})) }}"
+            )),
+            smelt_hir::BlobOp::Bytes => Ok(format!(
+                "{{ let smelt_blob = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(SmeltTypedArray::from_bytes(smelt_blob.to_bytes())) }})) }}"
             )),
             smelt_hir::BlobOp::Slice => {
                 let float_ty = self.type_id(Type::Float)?;

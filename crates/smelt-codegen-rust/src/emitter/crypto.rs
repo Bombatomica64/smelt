@@ -45,7 +45,7 @@ impl FunctionEmitter<'_> {
                 // arm exists and when it goes away.
                 let view_ty = self.operand_ty(view)?;
                 let is_concrete_view = matches!(self.mir.types.get(view_ty), Some(Type::Class { name, .. })
-                    if self.stdlib_class_of_symbol(*name)? == Some(smelt_stdlib::StdlibClass::ByteArray));
+                    if self.stdlib_class_of_symbol(*name)? == Some(smelt_stdlib::StdlibClass::TypedArray));
                 if is_concrete_view {
                     return Ok(format!(
                         "smelt_crypto_random_values(&{})",
@@ -69,7 +69,17 @@ impl FunctionEmitter<'_> {
                 };
                 let string_ty = self.type_id(Type::String)?;
                 let algorithm_text = self.value_at_type(algorithm, string_ty)?;
-                let data_text = self.operand_text(data)?;
+                // Either half of the family answers `to_bytes()` directly; an
+                // erased value enters through the view's boundary adapter,
+                // which reads the bytes of any byte-backed record.
+                let data_ty = self.operand_ty(data)?;
+                let data_text = if self.is_typed_array_view_class_type(data_ty)?
+                    || self.operand_is_array_buffer(data)?
+                {
+                    self.operand_text(data)?
+                } else {
+                    format!("SmeltTypedArray::smelt_from_unknown({})", self.erase(data)?)
+                };
                 Ok(format!(
                     "{{ let smelt_algorithm = ({algorithm_text}).clone(); let smelt_data = ({data_text}).to_bytes(); SmeltFuture::from_future(Box::pin(async move {{ smelt_crypto_digest(&smelt_algorithm, &smelt_data) }})) }}"
                 ))

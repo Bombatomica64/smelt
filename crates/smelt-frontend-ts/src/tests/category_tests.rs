@@ -637,8 +637,12 @@ fn new_abort_controller_lowers_to_concrete_marker_record() -> Result<(), String>
 /// `byteLength`, `byteOffset`, or an indexed element read.
 #[test]
 fn new_byte_buffer_host_lowers_to_the_shared_host_constructor() -> Result<(), String> {
+    // `ArrayBuffer` is no longer here: it is modeled concretely (increment 3 of
+    // the typed-array plan) and lowers to `TypedArrayNew`. What remains is the
+    // two byte hosts Smelt does NOT model concretely — cross-thread storage and
+    // a per-call-width window — for which the erased record is still the honest
+    // representation.
     for (source, class_name, arg_count) in [
-        (ts!("const buf = new ArrayBuffer(8);"), "ArrayBuffer", 1),
         (
             ts!("const buf = new SharedArrayBuffer(8);"),
             "SharedArrayBuffer",
@@ -982,15 +986,14 @@ export function make(): Object {
 /// Every typed-array view constructor — including the BigInt-backed
 /// `BigInt64Array` / `BigUint64Array` that the previous inline recognizer
 /// omitted and which aborted the es-toolkit build as `unresolved class
-/// BigUint64Array` — lowers to the one shared byte-buffer `HostConstruct` keyed by
-/// its own class name.
+/// BigUint64Array` — lowers to the one `TypedArrayNew` node keyed by its own
+/// class name, and its type is the modeled family class.
 ///
-/// This replaces the old numeric-list model, where all eleven views shared one
-/// `Vec<f64>`: every one of them then reported `Object.prototype.toString` tag
-/// `[object Array]` with the *byte* count as its `length`, so a `Float32Array` and
-/// a `Float64Array` over the same eight bytes were indistinguishable. Naming the
-/// class here is what lets the runtime resolve the view's marker and its element
-/// type from the shared registry.
+/// One node and one class for all eleven, because the element KIND is a runtime
+/// property of the value rather than part of its static identity: the name
+/// carried on the node is what selects the kind at emission, and
+/// `Type::Class { name }` keeps the source spelling so nothing about the view's
+/// name is lost.
 #[test]
 fn typed_array_constructors_lower_to_byte_buffer_host_constructs() -> Result<(), String> {
     for name in smelt_stdlib::TYPED_ARRAY_CLASS_NAMES {
@@ -1001,10 +1004,19 @@ fn typed_array_constructors_lower_to_byte_buffer_host_constructs() -> Result<(),
         let body = module_body(&ctx, module)?;
         ensure!(
             body.exprs.iter().any(|expr| matches!(
-                &expr.kind,
-                ExprKind::HostConstruct { class_name, .. } if class_name == name
+                (&expr.kind, ctx.krate.types.get(expr.ty)),
+                (
+                    ExprKind::TypedArrayNew { class_name, .. },
+                    Some(Type::Class { name: spelled, .. }),
+                ) if class_name == name
+                    && ctx.krate.symbols.get(*spelled) == Some(name)
             )),
-            "expected `new {name}(8)` to lower to a `{name}` HostConstruct",
+            "expected `new {name}(8)` to lower to a concrete `{name}` construction",
+        );
+        ensure!(
+            smelt_stdlib::typescript_stdlib_class(name)
+                == Some(smelt_stdlib::StdlibClass::TypedArray),
+            "expected `{name}` to resolve to the concrete typed-array family",
         );
         // The registry must know the view, or the runtime cannot resolve either
         // its identity marker or the element width that makes `length` the
@@ -1018,12 +1030,12 @@ fn typed_array_constructors_lower_to_byte_buffer_host_constructs() -> Result<(),
     Ok(())
 }
 
-/// `new Uint8Array([1, 2, 3])` passes its element list straight to the shared
-/// byte-buffer constructor, which encodes each element at the view's own width.
+/// `new Uint8Array([1, 2, 3])` passes its element list straight to the family's
+/// construction node, which encodes each element at the view's own width.
 ///
-/// The element list is still an ordinary `ListLit` — only its *destination*
-/// changed: it is now a `HostConstruct` argument rather than the constructed value
-/// itself, which is what makes `new Uint8Array([1, 2, 3]).buffer` and
+/// The element list is still an ordinary `ListLit` — only its *destination* is
+/// the construction node rather than the constructed value itself, which is
+/// what makes `new Uint8Array([1, 2, 3]).buffer` and
 /// `Object.prototype.toString.call(...)` answer like a real view.
 #[test]
 fn typed_array_from_literal_passes_its_elements_to_the_host_construct() -> Result<(), String> {
@@ -1035,12 +1047,12 @@ fn typed_array_from_literal_passes_its_elements_to_the_host_construct() -> Resul
         .exprs
         .iter()
         .find_map(|expr| match &expr.kind {
-            ExprKind::HostConstruct { class_name, args } if class_name == "Uint8Array" => {
+            ExprKind::TypedArrayNew { class_name, args } if class_name == "Uint8Array" => {
                 Some(args.clone())
             }
             _ => None,
         })
-        .ok_or_else(|| "expected a `Uint8Array` HostConstruct".to_owned())?;
+        .ok_or_else(|| "expected a `Uint8Array` construction".to_owned())?;
     let [elements] = host_args.as_slice() else {
         return Err("expected exactly one constructor argument".to_owned());
     };

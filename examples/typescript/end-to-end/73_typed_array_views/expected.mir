@@ -1,0 +1,281 @@
+fn main (FuncId(0)) -> None
+  locals
+    %0 user from_elements: Uint8Array
+    %1 user from_length: Uint8Array
+    %2 user buffer: ArrayBuffer
+    %3 user whole_buffer: Float64Array
+    %4 user window: Uint8Array
+    %5 user converted: Uint8Array
+    %6 user wide: Uint32Array
+    %7 user shared: Uint8Array
+    %8 user copied: Uint8Array
+    %9 user target: Uint8Array
+    %10 user collected: List<Float>
+    %11 user element: Float
+    %12 temp: List<Float>
+    %13 temp: Uint8Array
+    %14 temp: Uint8Array
+    %15 temp: ArrayBuffer
+    %16 temp: Float64Array
+    %17 temp: Uint8Array
+    %18 temp: Float
+    %19 temp: List<Float>
+    %20 temp: Int8Array
+    %21 temp: Uint8Array
+    %22 temp: Float
+    %23 temp: Float
+    %24 temp: Float
+    %25 temp: None
+    %26 temp: Float
+    %27 temp: Float
+    %28 temp: None
+    %29 temp: Float
+    %30 temp: Float
+    %31 temp: Float
+    %32 temp: None
+    %33 temp: Float
+    %34 temp: Float
+    %35 temp: ArrayBuffer
+    %36 temp: Float
+    %37 temp: None
+    %38 temp: Float
+    %39 temp: None
+    %40 temp: List<Float>
+    %41 temp: Int8Array
+    %42 temp: List<Float>
+    %43 temp: Uint8Array
+    %44 temp: List<Float>
+    %45 temp: Uint8ClampedArray
+    %46 temp: None
+    %47 temp: List<Float>
+    %48 temp: Uint32Array
+    %49 temp: Float
+    %50 temp: Float
+    %51 temp: None
+    %52 temp: None
+    %53 temp: Uint8Array
+    %54 temp: Float
+    %55 temp: None
+    %56 temp: Uint8Array
+    %57 temp: Float
+    %58 temp: None
+    %59 temp: Uint8Array
+    %60 temp: Uint8Array
+    %61 temp: None
+    %62 temp: None
+    %63 temp: Uint8Array
+    %64 temp: None
+    %65 temp: Bool
+    %66 temp: Bool
+    %67 temp: None
+    %68 temp: Bool
+    %69 temp: None
+    %70 temp: None
+    %71 temp: String
+    %72 temp: None
+    %73 temp: String
+    %74 temp: None
+    %75 temp: String
+    %76 temp: None
+    %77 temp: String
+    %78 temp: None
+    %79 temp: List<Float>
+    %80 temp: List<Float>
+    %81 temp: Float
+    %82 temp: Float
+    %83 temp: Bool
+    %84 temp: Float
+    %85 temp: String
+    %86 temp: None
+    %87 temp: List<Float>
+    %88 temp: String
+    %89 temp: None
+    %90 temp: List<Float>
+    %91 temp: String
+    %92 temp: None
+    %93 temp: String
+    %94 temp: None
+    %95 temp: String
+    %96 temp: None
+    %97 temp: List<String>
+    %98 temp: String
+    %99 temp: None
+    %100 temp: List<Float>
+    %101 temp: String
+    %102 temp: None
+    %103 temp: List<(String, Float)>
+    %104 temp: fn((String, Float), Int, List<(String, Float)>) -> String
+    %105 temp: List<String>
+    %106 temp: String
+    %107 temp: None
+    %108 temp: List<String>
+    %109 temp: String
+    %110 temp: None
+  bb0:
+    %12 = [1.0, 2.0, 3.0, 250.0]
+    %13 = typed_array_new Uint8Array move %12
+    %0 = move %13
+    %14 = typed_array_new Uint8Array 3.0
+    %1 = move %14
+    %15 = typed_array_new ArrayBuffer 8.0
+    %2 = move %15
+    %16 = typed_array_new Float64Array copy %2
+    %3 = move %16
+    %17 = typed_array_new Uint8Array copy %2 2.0 4.0
+    %4 = move %17
+    %18 = -1.0
+    %19 = [move %18]
+    %20 = typed_array_new Int8Array move %19
+    %21 = typed_array_new Uint8Array move %20
+    %5 = move %21
+    %22 = byte_array_length copy %0
+    %23 = byte_array_byte_length copy %0
+    %24 = byte_array_byte_offset copy %0
+    %25 = call @console_log(move %22, move %23, move %24) -> bb1
+  bb1:
+    %26 = byte_array_length move %1
+    %27 = byte_array_byte_length copy %2
+    %28 = call @console_log(move %26, move %27) -> bb2
+  bb2:
+    %29 = byte_array_length copy %3
+    %30 = byte_array_byte_length copy %3
+    %31 = byte_array_byte_offset move %3
+    %32 = call @console_log(move %29, move %30, move %31) -> bb3
+  bb3:
+    %33 = byte_array_length copy %4
+    %34 = byte_array_byte_offset copy %4
+    %35 = byte_array_buffer move %4
+    %36 = byte_array_byte_length move %35
+    %37 = call @console_log(move %33, move %34, move %36) -> bb4
+  bb4:
+    %38 = byte_array_length copy %5
+    %39 = call @console_log(move %38, copy %5[0.0]) -> bb5
+  bb5:
+    %40 = [200.0]
+    %41 = typed_array_new Int8Array move %40
+    %42 = [256.0]
+    %43 = typed_array_new Uint8Array move %42
+    %44 = [300.0]
+    %45 = typed_array_new Uint8ClampedArray move %44
+    %46 = call @console_log(copy %41[0.0], copy %43[0.0], copy %45[0.0]) -> bb6
+  bb6:
+    %47 = [1.0, 2.0]
+    %48 = typed_array_new Uint32Array move %47
+    %6 = move %48
+    %49 = byte_array_length copy %6
+    %50 = byte_array_byte_length copy %6
+    %51 = call @console_log(move %49, move %50, copy %6[1.0]) -> bb7
+  bb7:
+    %0[0.0] = 9.0
+    %52 = call @console_log(copy %0[0.0], copy %0[3.0]) -> bb8
+  bb8:
+    %53 = byte_array_subarray copy %0 1.0
+    %7 = move %53
+    %7[0.0] = 42.0
+    %54 = byte_array_byte_offset copy %7
+    %55 = call @console_log(copy %0[1.0], copy %7[0.0], move %54) -> bb9
+  bb9:
+    %56 = byte_array_slice copy %0 0.0 2.0
+    %8 = move %56
+    %8[0.0] = 0.0
+    %57 = byte_array_length copy %8
+    %58 = call @console_log(copy %0[0.0], copy %8[0.0], move %57) -> bb10
+  bb10:
+    %59 = typed_array_new Uint8Array 4.0
+    %9 = move %59
+    %60 = byte_array_subarray copy %0 0.0 2.0
+    %61 = byte_array_set copy %9 move %60 1.0
+    %62 = call @console_log(copy %9[0.0], copy %9[1.0], copy %9[2.0]) -> bb11
+  bb11:
+    %63 = byte_array_fill copy %9 7.0 2.0
+    %64 = call @console_log(copy %9[1.0], copy %9[2.0], copy %9[3.0]) -> bb12
+  bb12:
+    %65 = instanceof copy %0, class0
+    %66 = instanceof copy %0, class7
+    %67 = call @console_log(move %65, move %66) -> bb13
+  bb13:
+    %68 = instanceof copy %2, class1
+    %69 = call @console_log(move %68, false) -> bb14
+  bb14:
+    %70 = call @console_log(true, true) -> bb15
+  bb15:
+    %71 = object_to_string_tag copy %0
+    %72 = call @console_log(move %71) -> bb16
+  bb16:
+    %73 = object_to_string_tag copy %6
+    %74 = call @console_log(move %73) -> bb17
+  bb17:
+    %75 = primitive_cast_string copy %0
+    %76 = call @console_log(move %75) -> bb18
+  bb18:
+    %77 = "" + copy %6
+    %78 = call @console_log(move %77) -> bb19
+  bb19:
+    %79 = []
+    %10 = move %79
+    %80 = byte_array_elements copy %6
+    %81 = 0.0
+    goto bb20
+  bb20:
+    %82 = len copy %80
+    %83 = copy %81 < move %82
+    switch move %83 ? bb21 : bb23
+  bb21:
+    %11 = copy %80[copy %81]
+    %84 = list_push copy %10, move %11
+    goto bb22
+  bb22:
+    %81 = copy %81 + 1.0
+    goto bb20
+  bb23:
+    %85 = string_join move %10, "-"
+    %86 = call @console_log(move %85) -> bb24
+  bb24:
+    %87 = byte_array_elements copy %6
+    %88 = string_join move %87, "-"
+    %89 = call @console_log(move %88) -> bb25
+  bb25:
+    %90 = byte_array_elements copy %6
+    %91 = string_join move %90, "-"
+    %92 = call @console_log(move %91) -> bb26
+  bb26:
+    %93 = json_stringify copy %0
+    %94 = call @console_log(move %93) -> bb27
+  bb27:
+    %95 = json_stringify move %2
+    %96 = call @console_log(move %95) -> bb28
+  bb28:
+    %97 = byte_array_index_keys copy %0
+    %98 = string_join move %97, ","
+    %99 = call @console_log(move %98) -> bb29
+  bb29:
+    %100 = byte_array_elements move %0
+    %101 = string_join move %100, ","
+    %102 = call @console_log(move %101) -> bb30
+  bb30:
+    %103 = byte_array_index_entries copy %6
+    %104 = closure ClosureId(0) []
+    %105 = list_map move %103, move %104
+    %106 = string_join move %105, ","
+    %107 = call @console_log(move %106) -> bb31
+  bb31:
+    %108 = byte_array_index_keys move %6
+    %109 = string_join move %108, ","
+    %110 = call @console_log(move %109) -> bb32
+  bb32:
+    return none
+
+closure ClosureId(0) -> String
+  locals
+    %0 param __callback_param_0: (String, Float)
+    %1 param __callback_param_1: Int
+    %2 param __callback_param_2: List<(String, Float)>
+    %3 temp: String
+    %4 temp: String
+    %5 temp: String
+  bb0:
+    %3 = "" + copy %0[0]
+    %4 = copy %3 + "="
+    %5 = copy %4 + copy %0[1]
+    return copy %5
+

@@ -372,23 +372,37 @@ pub(crate) fn needs_text_decoder_runtime(mir: &Mir) -> bool {
         .any(|ty| is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::TextDecoder))
 }
 
-/// Returns true when generated Rust needs the `SmeltUint8Array` type.
+/// Returns true when generated Rust needs the concrete typed-array family
+/// (`SmeltTypedArrayKind`, `SmeltArrayBuffer`, `SmeltTypedArray`).
 ///
-/// A byte view has no source constructor of its own — the concrete view is the
-/// value `TextEncoder.encode` answers — so the gate is "some type that PRODUCES
-/// or CONSUMES one is present", plus a mention of the class in the type table
-/// for a view that is only named (a parameter or a field).
+/// The gate is "some type that PRODUCES or CONSUMES a view or its storage is
+/// present", plus a mention of either class in the type table for a value that
+/// is only named (a parameter or a field). The two halves share one gate
+/// because they are emitted together: a view answers `.buffer` as an
+/// `SmeltArrayBuffer` and storage is constructed into a view, so neither
+/// type-checks without the other.
 pub(crate) fn needs_byte_array_runtime(mir: &Mir) -> bool {
     needs_text_encoder_runtime(mir)
         || needs_text_decoder_runtime(mir)
         // `blob.arrayBuffer()` / `blob.bytes()` answer a byte view.
         || needs_blob_runtime(mir)
-        || any_rvalue_needs(mir, |rvalue| matches!(rvalue, Rvalue::ByteArrayOp { .. }))
+        // Both `crypto` members answer or fill a family value.
+        || needs_crypto_random_values_runtime(mir)
+        || needs_crypto_digest_runtime(mir)
+        || any_rvalue_needs(mir, |rvalue| {
+            matches!(
+                rvalue,
+                Rvalue::ByteArrayOp { .. } | Rvalue::TypedArrayNew { .. }
+            )
+        })
         || mir
             .types
             .all()
             .iter()
-            .any(|ty| is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::ByteArray))
+            .any(|ty| {
+                is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::TypedArray)
+                    || is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::ArrayBuffer)
+            })
 }
 
 /// Returns true when generated Rust needs the `SmeltBlob` runtime type.

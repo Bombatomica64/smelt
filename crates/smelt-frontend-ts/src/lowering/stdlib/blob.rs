@@ -157,12 +157,16 @@ impl ModuleBuilder<'_> {
                 let string_ty = self.ctx.krate.types.intern(Type::String);
                 self.ctx.krate.types.intern(Type::Future(string_ty))
             }
-            // `arrayBuffer()` answers an `ArrayBuffer` in the spec and
-            // `bytes()` a `Uint8Array`. Smelt has one concrete byte value, so
-            // both answer it: the difference between the two host types is a
-            // view-vs-storage distinction that only the typed-array family
-            // observes, and that family is still the erased byte-backed record.
-            BlobOp::ArrayBuffer | BlobOp::Bytes => {
+            // `arrayBuffer()` answers an `ArrayBuffer` and `bytes()` a
+            // `Uint8Array`, each its own concrete type now that the
+            // view-vs-storage distinction is observable — `ArrayBuffer.isView`
+            // separates them, and `new Uint8Array(await blob.arrayBuffer())`
+            // re-views the storage rather than copying elements.
+            BlobOp::ArrayBuffer => {
+                let buffer_ty = self.array_buffer_type();
+                self.ctx.krate.types.intern(Type::Future(buffer_ty))
+            }
+            BlobOp::Bytes => {
                 let bytes_ty = self.byte_array_type();
                 self.ctx.krate.types.intern(Type::Future(bytes_ty))
             }

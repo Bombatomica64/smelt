@@ -1322,14 +1322,33 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
-            ExprKind::ByteArrayOp { op, bytes } => {
+            ExprKind::TypedArrayNew { class_name, args } => {
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::TypedArrayNew {
+                        class_name: class_name.clone(),
+                        args: arg_operands,
+                    },
+                )?
+            }
+            ExprKind::ByteArrayOp { op, bytes, args } => {
                 let bytes_operand = self.lower_expr(*bytes)?;
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
                 self.assign_temp(
                     expr.ty,
                     expr.span,
                     Rvalue::ByteArrayOp {
                         op: *op,
                         bytes: bytes_operand,
+                        args: arg_operands,
                     },
                 )?
             }

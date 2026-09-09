@@ -3598,7 +3598,12 @@ export const VALUES = Object.values(DATA);
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
-    ensure_eq!(module.items.len(), 2);
+    // Three items: the two exported consts, plus the module-global SLOT for
+    // `TYPED_ARRAY`. The view is a modeled class now (the concrete typed-array
+    // family), and a class-typed module binding read from a replayed const
+    // initializer is lifted to a slot so the object literal reads the ONE value
+    // the initializer produced instead of a fabricated empty one.
+    ensure_eq!(module.items.len(), 3);
     ensure!(ctx.krate.types.all().iter().any(|ty| {
         matches!(
             ty,

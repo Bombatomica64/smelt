@@ -31,30 +31,30 @@ async fn main (FuncId(0)) -> None throws
     %28 temp: None
     %29 temp: TextEncoder
     %30 temp: __SmeltUint8Array
-    %31 temp: Future<__SmeltUint8Array>
-    %32 temp: __SmeltUint8Array
+    %31 temp: Future<ArrayBuffer>
+    %32 temp: ArrayBuffer
     %33 temp: Float
     %34 temp: None
-    %35 temp: Future<__SmeltUint8Array>
-    %36 temp: __SmeltUint8Array
+    %35 temp: Future<ArrayBuffer>
+    %36 temp: ArrayBuffer
     %37 temp: Float
     %38 temp: None
-    %39 temp: Future<__SmeltUint8Array>
-    %40 temp: __SmeltUint8Array
+    %39 temp: Future<ArrayBuffer>
+    %40 temp: ArrayBuffer
     %41 temp: Float
     %42 temp: None
-    %43 temp: Future<__SmeltUint8Array>
-    %44 temp: __SmeltUint8Array
+    %43 temp: Future<ArrayBuffer>
+    %44 temp: ArrayBuffer
     %45 temp: Float
     %46 temp: None
-    %47 temp: Future<__SmeltUint8Array>
-    %48 temp: __SmeltUint8Array
+    %47 temp: Future<ArrayBuffer>
+    %48 temp: ArrayBuffer
     %49 temp: Float
     %50 temp: None
     %51 temp: TextEncoder
     %52 temp: __SmeltUint8Array
-    %53 temp: Future<__SmeltUint8Array>
-    %54 temp: __SmeltUint8Array
+    %53 temp: Future<ArrayBuffer>
+    %54 temp: ArrayBuffer
     %55 temp: Float
     %56 temp: None
     %57 temp: Future<None>

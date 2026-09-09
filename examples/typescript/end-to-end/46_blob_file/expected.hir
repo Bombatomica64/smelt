@@ -129,8 +129,8 @@ module examples/typescript/end-to-end/46_blob_file/input.ts (ModuleId(0))
     #116: None = @18(console_log)
     #117: None = call #116(#115)
     #118: Blob = %0
-    #119: Future<__SmeltUint8Array> = blob_array_buffer #118
-    #120: __SmeltUint8Array = await #119
+    #119: Future<ArrayBuffer> = blob_array_buffer #118
+    #120: ArrayBuffer = await #119
     #121: Float = byte_array_byte_length #120
     #122: None = @19(console_log)
     #123: None = call #122(#121)
@@ -225,6 +225,8 @@ interned types
   t8 = Bool
   t9 = List<Blob>
   t10 = Future<String>
-  t11 = __SmeltUint8Array
-  t12 = Future<__SmeltUint8Array>
-  t13 = Future<None>
+  t11 = ArrayBuffer
+  t12 = Future<ArrayBuffer>
+  t13 = __SmeltUint8Array
+  t14 = Future<__SmeltUint8Array>
+  t15 = Future<None>

@@ -608,7 +608,20 @@ fn rewrite_rvalue(
             }
             rewritten
         }
-        Rvalue::ByteArrayOp { bytes, .. } => rewrite_operand_except(bytes, aliases, dest),
+        Rvalue::TypedArrayNew { args, .. } => {
+            let mut rewritten = false;
+            for arg in args {
+                rewritten |= rewrite_operand_except(arg, aliases, dest);
+            }
+            rewritten
+        }
+        Rvalue::ByteArrayOp { bytes, args, .. } => {
+            let mut rewritten = rewrite_operand_except(bytes, aliases, dest);
+            for arg in args {
+                rewritten |= rewrite_operand_except(arg, aliases, dest);
+            }
+            rewritten
+        }
         Rvalue::UrlSearchParamsNew { init } => init
             .as_mut()
             .is_some_and(|init| rewrite_operand_except(init, aliases, dest)),

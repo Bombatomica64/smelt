@@ -88,7 +88,6 @@ impl ModuleBuilder<'_> {
         // for a `key` the surface has always known to be a `string`. The types
         // come from `form_data_op_callback_param_types`, beside the result
         // types, so a member's callback shape and its result cannot disagree.
-        if std::env::var("SMELT_DBG_FD").is_ok() { eprintln!("FD dispatch op={op:?}"); }
         let args = if let Some(param_tys) = self.form_data_op_callback_param_types(op) {
             let Some(argument) = call.arguments.first() else {
                 return Ok(None);
