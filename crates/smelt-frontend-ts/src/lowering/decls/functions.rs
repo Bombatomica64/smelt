@@ -1474,6 +1474,16 @@ impl ModuleBuilder<'_> {
     /// [`Self::host_shadowing_class_expression_name`] does: `instanceof` and
     /// `__smelt_class` read that, and JavaScript answers `Node` for both
     /// classes. Only the Rust type name differs.
+    ///
+    /// For an ambiguous name it also answers `Some` for the module whose
+    /// rendering IS the bare spelling — the symbol is then the same one
+    /// `intern_type_name` would give, so nothing about the emitted crate
+    /// changes, but the caller binds the name in this module's own scope. That
+    /// binding is the point: without it a reference to the name resolved
+    /// through the crate-wide by-name item map, whose entry for an ambiguous
+    /// spelling is whichever module registered last, so Hono's trie router
+    /// resolved its own `Node<T>` annotation to the reg-exp router's class and
+    /// read that class's fields (H61).
     pub(in crate::lowering) fn module_qualified_class_name(
         &mut self,
         class_source_name: &str,

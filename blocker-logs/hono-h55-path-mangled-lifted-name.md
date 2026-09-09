@@ -42,3 +42,28 @@ spelling may be a regression rather than the original design.
 Only cosmetic for a program that runs, but it blocks golden coverage of every
 lifted-arrow shape, and it makes generated output non-reproducible, which is a
 property worth having for a transpiler whose output is committed.
+
+## What landed (round 25)
+
+The qualifier is now the module IDENTITY, from the same
+`manifest_module_names` the transpiler already computes for module bodies:
+`helper__module_main` instead of
+`helper__module__tmp_xyz_scratchpad_cba_src_main_ts`. It reaches the frontend as
+`HirCtx::module_identities` (path -> identity), filled once before lowering,
+next to `class_renames` from H51 — the same shape of answer for the same class
+of problem, which is why it reuses the same plumbing rather than adding any.
+
+A module lowered on its own (a unit test, `dump-hir`) has no crate to be unique
+within and keeps the path spelling, so nothing outside a manifest build moves.
+
+The test is `build_emits_identical_rust_from_two_directories`: it builds one
+source in two temp directories and compares the emitted crate BYTE FOR BYTE,
+because the property is equality between builds rather than any particular
+spelling. It also asserts the qualifier is still there (`helper__module_main`)
+so it cannot pass by the qualification being dropped, which would reintroduce
+the cross-module collision the qualifier prevents. It fails on the parent
+commit — checked by stashing the change, not assumed.
+
+Measured: workspace tests green, `cargo clippy --all-targets` error-free,
+es-toolkit 1055/4 with the ratchet at 32288 (+0), remeda 391 files with
+`cargo check` 0 errors, examples invariant 0.

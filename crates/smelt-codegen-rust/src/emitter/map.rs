@@ -1023,13 +1023,14 @@ impl FunctionEmitter<'_> {
             return Err(EmitError::new("JSON stringify destination must be string"));
         }
         if !self.is_json_serializable_type(self.operand_ty(value)?) {
-            // The blocker names the TYPE and the enclosing function: this
-            // message is what a whole-crate build prints, and on its own it
-            // gave a reader no way to find the call site.
+            // The blocker names the TYPE; the enclosing function and its source
+            // span come from the site the emit entrypoints attach
+            // (`EmitError::with_site`), which is the one mechanism every
+            // function-scoped blocker uses. Naming the function here as well
+            // printed it twice and without the span.
             return Err(EmitError::new(format!(
-                "JSON stringify value must be JSON-serializable, got {} (in `{}`)",
+                "JSON stringify value must be JSON-serializable, got {}",
                 self.type_text_with_impl_trait(self.operand_ty(value)?, false)?,
-                self.symbol_name(self.function.name).unwrap_or("<unnamed>"),
             )));
         }
         // Serialize through the erased carrier, ALWAYS. `JSON.stringify` is

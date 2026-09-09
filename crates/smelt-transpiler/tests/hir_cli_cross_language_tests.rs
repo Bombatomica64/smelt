@@ -291,6 +291,84 @@ clone-strategy = "aggressive"
     Ok(())
 }
 
+/// A forward-referenced module-level arrow const, whose lifted Rust item name
+/// is qualified by its module.
+const LIFTED_ARROW_MAIN: &str = r"function run(n: number): number {
+  return helper(n) + 1;
+}
+const helper = (n: number): number => n * 2;
+console.log(run(3));
+console.log(helper(5));
+";
+
+/// The generated Rust for one source is the same wherever it is built.
+///
+/// A module-private helper's Rust item name has to stay unique once every
+/// module is emitted into one crate, and it was qualified with `self.path` —
+/// the path the compiler was handed, absolute in a manifest build. So the same
+/// TypeScript emitted `helper__module__tmp_xyz_src_main_ts` in one checkout and
+/// a different name in another: generated output was not reproducible, and no
+/// golden could cover the shape (H55, found while writing H50's fixture).
+///
+/// The qualifier is now the module IDENTITY the transpiler already computes for
+/// module bodies (`manifest_module_names`), so this test builds the same source
+/// in two different directories and compares the emitted crate byte for byte.
+/// Two builds rather than a golden with a name in it, because the property is
+/// equality between builds, not any particular spelling.
+#[test]
+fn build_emits_identical_rust_from_two_directories() -> TestResult {
+    let mut emitted = Vec::new();
+    for _ in 0_u8..2_u8 {
+        let project = TempProject::new()?;
+        let project_path = project.path();
+        fs::create_dir_all(project_path.join("src"))?;
+        fs::write(
+            project_path.join("Smelt.toml"),
+            r#"[project]
+name = "reproducible-names"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "reproducible_names"
+build = false
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+        )?;
+        fs::write(project_path.join("src/main.ts"), LIFTED_ARROW_MAIN)?;
+        let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+        smelt(&["--manifest-path", &manifest_arg, "build"])?;
+        emitted.push(fs::read_to_string(project_path.join("dist/src/main.rs"))?);
+    }
+    let [first, second] = emitted.as_slice() else {
+        return Err("expected two emitted crates".into());
+    };
+    ensure_eq(
+        first,
+        second,
+        "the same source built in two directories must emit the same Rust",
+    )?;
+    // The lifted helper is qualified by its module, not by a path: the shape
+    // this test exists for would otherwise pass vacuously if the qualification
+    // were dropped altogether (which would reintroduce the cross-module
+    // collision it prevents).
+    ensure(
+        first.contains("helper__module_main"),
+        "the lifted arrow should be qualified by its module identity",
+    )?;
+    ensure(
+        !first.contains("__module__"),
+        "no generated name should embed an absolute path",
+    )?;
+
+    Ok(())
+}
+
 /// A predicate bound to a const, used both directly and by name.
 const NAMED_LOCAL_CALLBACK_MAIN: &str = r#"type Predicate = (value: string) => boolean;
 
@@ -476,6 +554,226 @@ clone-strategy = "aggressive"
     Ok(())
 }
 
+/// A renamed generic class that constructs and stores ITSELF.
+///
+/// Trie-shaped, like `router/trie-router/node.ts`: a private record of children
+/// keyed by string, each child a `Node<T>` this method constructs.
+const SELF_CONSTRUCTING_CLASS_TRIE: &str = r#"type Pattern = readonly [string, string, boolean] | "*";
+
+export class Node<T> {
+  #children: Record<string, Node<T>> = {};
+  #pattern?: Pattern | string;
+  #values: T[] = [];
+
+  insert(key: string, pattern: Pattern | string, value: T): void {
+    let child = this.#children[key];
+    if (!child) {
+      child = new Node<T>();
+      this.#children[key] = child;
+    }
+    if (pattern && !child.#pattern) {
+      child.#pattern = pattern;
+    }
+    child.#values.push(value);
+  }
+
+  describe(key: string): string {
+    const child = this.#children[key];
+    if (!child) {
+      return "none";
+    }
+    return child.#pattern === undefined ? "unset" : "set";
+  }
+}
+"#;
+
+/// The same-named class that forces the rename, in another module.
+const SELF_CONSTRUCTING_CLASS_OTHER: &str = r"export class Node {
+  index = 0;
+
+  bump(): number {
+    this.index += 1;
+    return this.index;
+  }
+}
+";
+
+/// An importer that aliases both and exercises the self-constructing one.
+const SELF_CONSTRUCTING_CLASS_MAIN: &str = r"import { Node as TrieNode } from './trie';
+import { Node as RegExpNode } from './regexp';
+
+const trie = new TrieNode<string>();
+trie.insert('a', '*', 'handler');
+console.log(trie.describe('a'));
+console.log(trie.describe('b'));
+
+const regexp = new RegExpNode();
+console.log(regexp.bump());
+";
+
+#[test]
+fn build_runs_a_renamed_class_constructing_itself() -> TestResult {
+    // A `new Node()` inside `Node`'s OWN method resolved to the other module's
+    // `Node`. `ClassRegistry::item` reads a map seeded with every class item in
+    // the crate, and a class's own item is registered only AFTER its members
+    // are lowered, so the seeded entry was the only match while the class was
+    // in progress. While both classes shared one name symbol that was
+    // invisible; giving them distinct symbols (the duplicate-class-name fix
+    // above) turned it into a generated-crate type mismatch,
+    // `expected Option<Node_1<T>>, found Node`.
+    //
+    // A class name bound in the module's own lexical scope now wins over a
+    // crate-wide item of the same spelling, which is what makes a
+    // self-reference resolve to the class being declared.
+    //
+    // Multi-module and build-and-run for the same reasons as the test above:
+    // one module cannot produce a rename, and the symptom is a value.
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "self-constructing-class"
+version = "0.1.0"
+
+[sources]
+roots = ["src"]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "self_constructing_class"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(project_path.join("src/trie.ts"), SELF_CONSTRUCTING_CLASS_TRIE)?;
+    fs::write(
+        project_path.join("src/regexp.ts"),
+        SELF_CONSTRUCTING_CLASS_OTHER,
+    )?;
+    fs::write(project_path.join("src/main.ts"), SELF_CONSTRUCTING_CLASS_MAIN)?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    // `describe('a')` sees the child the insert stored; `describe('b')` sees
+    // nothing. Before the fix the generated crate did not compile at all.
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(&actual_stdout, &"set
+none
+1
+".to_owned(), "unexpected stdout")?;
+
+    Ok(())
+}
+
+/// The module that LOSES the bare spelling of an ambiguous class name.
+const AMBIGUOUS_CLASS_LOSER: &str = r"export class Node {
+  #tag = 'first';
+
+  label(): string {
+    return this.#tag;
+  }
+}
+";
+
+/// The module that KEEPS the bare spelling, and refers to its own class.
+const AMBIGUOUS_CLASS_WINNER: &str = r"export class Node {
+  #children: Record<string, Node> = {};
+  #pattern?: string;
+
+  add(key: string, pattern: string): void {
+    const child: Node = new Node();
+    this.#children[key] = child;
+    child.#pattern = pattern;
+  }
+
+  describe(key: string): string {
+    const child = this.#children[key];
+    if (!child) {
+      return 'none';
+    }
+    return child.#pattern === undefined ? 'unset' : 'set';
+  }
+}
+";
+
+/// An importer that aliases both and exercises the bare-name winner.
+const AMBIGUOUS_CLASS_MAIN: &str = r"import { Node as FirstNode } from './first';
+import { Node as SecondNode } from './second';
+
+console.log(new FirstNode().label());
+
+const second = new SecondNode();
+second.add('a', '*');
+console.log(second.describe('a'));
+console.log(second.describe('b'));
+";
+
+#[test]
+fn build_runs_a_module_referring_to_its_own_ambiguous_class_name() -> TestResult {
+    // The module that keeps the BARE spelling of an ambiguous class name had no
+    // binding of its own: `resolve_type_reference_symbol` fell through to the
+    // crate-wide by-name item map, whose entry for an ambiguous spelling is
+    // whichever module registered last. So `second.ts`'s own `Node`
+    // annotations, and its `new Node()`, resolved to `first.ts`'s class, and
+    // reads of its own fields went looking on the wrong class — Hono's trie
+    // router read the reg-exp router's `#children` and stopped the router slice
+    // with "optional record field `#pattern` is unknown on Node_1".
+    //
+    // Every module that declares an ambiguous name now gets an entry in the
+    // rename map, the winner's mapping the name to itself: the Rust name is
+    // unchanged (so goldens are byte-identical) but the frontend binds the name
+    // in the module's own scope, which is what makes a module's own class win
+    // for its own spelling.
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "ambiguous-class-name"
+version = "0.1.0"
+
+[sources]
+roots = ["src"]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "ambiguous_class_name"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(project_path.join("src/first.ts"), AMBIGUOUS_CLASS_LOSER)?;
+    fs::write(project_path.join("src/second.ts"), AMBIGUOUS_CLASS_WINNER)?;
+    fs::write(project_path.join("src/main.ts"), AMBIGUOUS_CLASS_MAIN)?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    // Each class answers with its own members, and the winner's record holds
+    // what its own method stored. Before the fix this did not lower at all.
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(
+        &actual_stdout,
+        &"first
+set
+none
+".to_owned(),
+        "unexpected stdout",
+    )?;
+
+    Ok(())
+}
+
 /// Every TypeScript end-to-end example the golden suite checks.
 ///
 /// A list rather than a directory scan: an example is only checked once it
@@ -554,6 +852,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "72_form_data_for_each",
     "73_set_insertion_order",
     "74_typed_array_views",
+    "75_callback_block_return_type",
 ];
 
 #[test]

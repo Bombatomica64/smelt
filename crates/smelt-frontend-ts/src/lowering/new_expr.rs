@@ -311,6 +311,61 @@ impl ModuleBuilder<'_> {
         if callee.name == "URL" {
             return self.url_constructor_expression(new_expr, body);
         }
+        // A class name bound in THIS module's lexical scope wins over a
+        // crate-wide item of the same spelling.
+        //
+        // `classes.item` reads a map seeded with every class item in the crate,
+        // and a class's own item is registered only AFTER its members are
+        // lowered — so `new Node()` inside `Node`'s own method resolved to
+        // another module's `Node`. While both classes shared one symbol that
+        // was invisible; H51 gave them distinct symbols and it became a type
+        // mismatch in the generated crate (`expected Option<Node_1<T>>, found
+        // Node`), which is how it was found.
+        //
+        // The scoped type name is the module's own binding, bound before its
+        // members are lowered, so preferring it is what makes a self-reference
+        // resolve to the class being declared. It is only ever set when the
+        // spelling is ambiguous crate-wide, so nothing else moves.
+        if let Some(scoped_name) = self.classes.scoped_type_name(callee.name.as_str())
+            && self
+                .classes
+                .item(callee.name.as_str())
+                .and_then(|item| match self.item_ref(item) {
+                    Item::Class(class) => Some(class.name),
+                    _ => None,
+                })
+                != Some(scoped_name)
+        {
+            let args = new_expr
+                .arguments
+                .iter()
+                .map(|arg| self.argument(arg, body))
+                .collect::<Result<Vec<_>, _>>()?;
+            let class_args = new_expr
+                .type_arguments
+                .as_ref()
+                .map(|type_args| {
+                    type_args
+                        .params
+                        .iter()
+                        .map(|arg| self.ts_type_to_hir(arg))
+                        .collect::<Result<Vec<_>, _>>()
+                })
+                .transpose()?
+                .unwrap_or_default();
+            let ty = self.ctx.krate.types.intern(Type::Class {
+                name: scoped_name,
+                args: class_args,
+            });
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::New {
+                    class: scoped_name,
+                    args,
+                },
+                ty,
+                span: self.span(new_expr.span.start, new_expr.span.end),
+            }));
+        }
         let Some(item) = self.classes.item(callee.name.as_str()) else {
             if self.classes.is_pending(callee.name.as_str()) {
                 let class_name = self.intern_type_name(callee.name.as_str());

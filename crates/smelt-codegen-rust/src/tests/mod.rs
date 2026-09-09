@@ -97,3 +97,4 @@ mod name_and_shape_tests;
 mod object_model_tests;
 mod stdlib_boundary_tests;
 mod function_semantics_tests;
+mod blocker_site_tests;
