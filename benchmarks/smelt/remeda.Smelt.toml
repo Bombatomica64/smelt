@@ -16,6 +16,7 @@ crate-name = "remeda_bench"
 build = false
 
 [rust]
+allocator = "mimalloc"
 edition = "2024"
 
 [strict]
