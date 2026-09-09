@@ -91,6 +91,7 @@ mod fetch_types_prelude;
 mod crypto_prelude;
 mod form_data_prelude;
 mod text_codec_prelude;
+mod typed_array_prelude;
 pub(crate) mod class_proto;
 pub(crate) mod classes;
 pub(crate) mod classify;

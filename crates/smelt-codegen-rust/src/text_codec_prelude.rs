@@ -45,15 +45,22 @@
 
 use crate::rust::CodeWriter;
 
-/// Emit the `SmeltUint8Array` runtime type.
+/// Emit the concrete byte view, which is the typed-array family's `Uint8` face.
+///
+/// The view used to be its own `Rc<RefCell<Vec<u8>>>` struct with `length` and
+/// `byteLength` and nothing else. It is now `SmeltTypedArray` — a kind, a byte
+/// offset and a shared buffer — with `SmeltUint8Array` emitted as an alias, so
+/// every reachable use (`TextEncoder.encode`, `TextDecoder.decode`,
+/// `crypto.getRandomValues`) keeps the same type spelling and the same answers
+/// while the members a source `Uint8Array` will need already exist. See
+/// `crate::typed_array_prelude` and
+/// `blocker-logs/standards-typed-array-views-plan.md`.
 ///
 /// `needs_unknown` gates the erasure adapters (`IntoSmeltUnknown` /
 /// `SmeltFromUnknown`): a program that never crosses the dynamic boundary does
 /// not emit the carrier type, so the impls must not be emitted either.
 pub fn emit_byte_array(writer: &mut CodeWriter, needs_unknown: bool) {
-    emit_byte_array_struct(writer);
-    emit_byte_array_inherent_impl(writer);
-    emit_byte_array_traits(writer, needs_unknown);
+    crate::typed_array_prelude::emit(writer, needs_unknown);
 }
 
 
@@ -169,117 +176,6 @@ pub fn emit_decoder(writer: &mut CodeWriter, needs_unknown: bool) {
         writer.blank_line();
     }
 
-}
-
-/// Emit the byte-view struct and its comparisons.
-fn emit_byte_array_struct(writer: &mut CodeWriter) {
-    writer.line("/// A concrete byte view: shared bytes with a JS reference identity.");
-    writer.line("#[derive(Clone)]");
-    writer.block("pub struct SmeltUint8Array", |struct_writer| {
-        struct_writer.line("id: usize,");
-        struct_writer.line("/// The view's bytes, shared like every JS reference object's state.");
-        struct_writer.line("bytes: ::std::rc::Rc<::std::cell::RefCell<Vec<u8>>>,");
-    });
-    writer.blank_line();
-    // Structural equality over the bytes: `expect(encoder.encode("a")).toEqual(
-    // new Uint8Array([97]))` compares contents, not identity.
-    writer.line(
-        "impl PartialEq for SmeltUint8Array { fn eq(&self, other: &Self) -> bool { *self.bytes.borrow() == *other.bytes.borrow() } }",
-    );
-    // Node prints a typed array as `Uint8Array(3) [ 1, 2, 3 ]`, and an empty one
-    // as `Uint8Array(0) []`. Matching that here is what keeps a `console.log` of
-    // an encoded value byte-identical to Node's.
-    writer.block(
-        "impl ::std::fmt::Debug for SmeltUint8Array",
-        |impl_writer| {
-            impl_writer.block(
-                "fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result",
-                |fn_writer| {
-                    fn_writer.line("let bytes = self.bytes.borrow();");
-                    fn_writer.line("if bytes.is_empty() { return write!(formatter, \"Uint8Array(0) []\"); }");
-                    fn_writer.line(
-                        "let items = bytes.iter().map(|byte| byte.to_string()).collect::<Vec<String>>().join(\", \");",
-                    );
-                    fn_writer
-                        .line("write!(formatter, \"Uint8Array({}) [ {items} ]\", bytes.len())");
-                },
-            );
-        },
-    );
-    writer.line("impl Default for SmeltUint8Array { fn default() -> Self { Self::new() } }");
-    writer.blank_line();
-}
-
-/// Emit the byte view's operations as inherent methods.
-fn emit_byte_array_inherent_impl(writer: &mut CodeWriter) {
-    writer.line("#[allow(dead_code)]");
-    writer.block("impl SmeltUint8Array", |impl_writer| {
-        impl_writer.line("/// An empty view with a fresh JS reference identity.");
-        impl_writer.line("pub fn new() -> Self { Self::from_bytes(Vec::new()) }");
-        impl_writer.line("/// A view over owned bytes, with a fresh JS reference identity.");
-        impl_writer.line(
-            "pub fn from_bytes(bytes: Vec<u8>) -> Self { Self { id: smelt_next_object_id(), bytes: ::std::rc::Rc::new(::std::cell::RefCell::new(bytes)) } }",
-        );
-        impl_writer.line("/// JS reference identity of this view.");
-        impl_writer.line("pub fn id(&self) -> usize { self.id }");
-        impl_writer.line("/// A copy of the view's bytes.");
-        impl_writer.line("pub fn to_bytes(&self) -> Vec<u8> { self.bytes.borrow().clone() }");
-        // `length` and `byteLength` are separate methods even though they agree
-        // for a one-byte element type, because they are separate spec members:
-        // aliasing them here would be a lie the moment a wider concrete view
-        // exists.
-        impl_writer.line("/// `length`: the element count, one element per byte.");
-        impl_writer.line("pub fn length(&self) -> f64 { self.bytes.borrow().len() as f64 }");
-        impl_writer.line("/// `byteLength`: the byte count.");
-        impl_writer.line("pub fn byte_length(&self) -> f64 { self.bytes.borrow().len() as f64 }");
-    });
-    writer.blank_line();
-}
-
-/// Emit the byte view's dynamic-boundary adapters.
-///
-/// The erased form is the byte-backed host record the typed-array views use, so
-/// a concrete view and a `new Uint8Array(..)` are the same value once erased.
-fn emit_byte_array_traits(writer: &mut CodeWriter, needs_unknown: bool) {
-    if !needs_unknown {
-        return;
-    }
-    writer.line("/// Erase a byte view for a dynamic boundary.");
-    writer.block("impl IntoSmeltUnknown for SmeltUint8Array", |impl_writer| {
-        impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
-            fn_writer.line("let bytes = self.bytes.borrow();");
-            fn_writer.line(
-                "let elements: Vec<SmeltUnknown> = bytes.iter().map(|byte| SmeltUnknown::Number(f64::from(*byte))).collect();",
-            );
-            fn_writer.line("let count = elements.len() as f64;");
-            fn_writer.line(
-                "SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([(\"__smelt_uint8array\".to_owned(), SmeltUnknown::Bool(true)), (\"bytes\".to_owned(), SmeltUnknown::Array(elements.into())), (\"byteLength\".to_owned(), SmeltUnknown::Number(count)), (\"length\".to_owned(), SmeltUnknown::Number(count))])))",
-            );
-        });
-    });
-    writer.blank_line();
-    writer.line("/// Rebuild a byte view from an erased value.");
-    writer.block("impl SmeltFromUnknown for SmeltUint8Array", |impl_writer| {
-        impl_writer.block(
-            "fn smelt_from_unknown(value: SmeltUnknown) -> Self",
-            |fn_writer| {
-                // Any byte-backed host record answers here, not only the
-                // `__smelt_uint8array` one: every view and every `ArrayBuffer`
-                // carries its storage under `bytes`, so a `DataView` or a
-                // `Float64Array` crossing into a byte view reads its bytes
-                // rather than silently becoming empty.
-                fn_writer.line("let SmeltUnknown::Object(map) = value else { return Self::new() };");
-                fn_writer.line(
-                    "let Some(SmeltUnknown::Array(items)) = map.get(\"bytes\") else { return Self::new() };",
-                );
-                fn_writer.line(
-                    "let bytes = items.into_vec().into_iter().map(|item| match item { SmeltUnknown::Number(number) => number as u8, _ => 0 }).collect::<Vec<u8>>();",
-                );
-                fn_writer.line("Self::from_bytes(bytes)");
-            },
-        );
-    });
-    writer.blank_line();
 }
 
 /// Emit one text codec's erasure adapter pair.

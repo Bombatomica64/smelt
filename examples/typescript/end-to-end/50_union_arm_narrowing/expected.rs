@@ -2997,60 +2997,354 @@ impl SmeltFromUnknown for SmeltFormData {
     }
 }
 
-/// A concrete byte view: shared bytes with a JS reference identity.
+/// The element type of a typed-array view.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[allow(dead_code)]
+pub enum SmeltTypedArrayKind {
+    /// `Int8Array`: 1-byte element.
+    Int8,
+    /// `Uint8Array`: 1-byte element.
+    Uint8,
+    /// `Uint8ClampedArray`: 1-byte element.
+    Uint8Clamped,
+    /// `Int16Array`: 2-byte elements.
+    Int16,
+    /// `Uint16Array`: 2-byte elements.
+    Uint16,
+    /// `Int32Array`: 4-byte elements.
+    Int32,
+    /// `Uint32Array`: 4-byte elements.
+    Uint32,
+    /// `Float32Array`: 4-byte elements.
+    Float32,
+    /// `Float64Array`: 8-byte elements.
+    Float64,
+    /// `BigInt64Array`: 8-byte elements.
+    BigInt64,
+    /// `BigUint64Array`: 8-byte elements.
+    BigUint64,
+}
+
+#[allow(dead_code)]
+impl SmeltTypedArrayKind {
+    /// The constructor name, which is also the `[object X]` tag.
+    pub fn class_name(self) -> &'static str {
+        match self {
+            Self::Int8 => "Int8Array",
+            Self::Uint8 => "Uint8Array",
+            Self::Uint8Clamped => "Uint8ClampedArray",
+            Self::Int16 => "Int16Array",
+            Self::Uint16 => "Uint16Array",
+            Self::Int32 => "Int32Array",
+            Self::Uint32 => "Uint32Array",
+            Self::Float32 => "Float32Array",
+            Self::Float64 => "Float64Array",
+            Self::BigInt64 => "BigInt64Array",
+            Self::BigUint64 => "BigUint64Array",
+        }
+    }
+    /// The identity marker the erased face stamps for this kind.
+    pub fn marker(self) -> &'static str {
+        match self {
+            Self::Int8 => "__smelt_int8array",
+            Self::Uint8 => "__smelt_uint8array",
+            Self::Uint8Clamped => "__smelt_uint8clampedarray",
+            Self::Int16 => "__smelt_int16array",
+            Self::Uint16 => "__smelt_uint16array",
+            Self::Int32 => "__smelt_int32array",
+            Self::Uint32 => "__smelt_uint32array",
+            Self::Float32 => "__smelt_float32array",
+            Self::Float64 => "__smelt_float64array",
+            Self::BigInt64 => "__smelt_bigint64array",
+            Self::BigUint64 => "__smelt_biguint64array",
+        }
+    }
+    /// `BYTES_PER_ELEMENT`: the stride between elements.
+    pub fn byte_width(self) -> usize {
+        match self {
+            Self::Int8 => 1,
+            Self::Uint8 => 1,
+            Self::Uint8Clamped => 1,
+            Self::Int16 => 2,
+            Self::Uint16 => 2,
+            Self::Int32 => 4,
+            Self::Uint32 => 4,
+            Self::Float32 => 4,
+            Self::Float64 => 8,
+            Self::BigInt64 => 8,
+            Self::BigUint64 => 8,
+        }
+    }
+    /// The kind whose marker a byte-backed record carries, if any.
+    pub fn from_marker(marker: &str) -> Option<Self> {
+        if marker == "__smelt_int8array" { return Some(Self::Int8); }
+        if marker == "__smelt_uint8array" { return Some(Self::Uint8); }
+        if marker == "__smelt_uint8clampedarray" { return Some(Self::Uint8Clamped); }
+        if marker == "__smelt_int16array" { return Some(Self::Int16); }
+        if marker == "__smelt_uint16array" { return Some(Self::Uint16); }
+        if marker == "__smelt_int32array" { return Some(Self::Int32); }
+        if marker == "__smelt_uint32array" { return Some(Self::Uint32); }
+        if marker == "__smelt_float32array" { return Some(Self::Float32); }
+        if marker == "__smelt_float64array" { return Some(Self::Float64); }
+        if marker == "__smelt_bigint64array" { return Some(Self::BigInt64); }
+        if marker == "__smelt_biguint64array" { return Some(Self::BigUint64); }
+        None
+    }
+    /// Read one element out of `bytes` at a byte offset.
+    pub fn decode(self, bytes: &[u8], at: usize) -> f64 {
+        let width = self.byte_width();
+        if at + width > bytes.len() { return 0.0; }
+        let window = &bytes[at..at + width];
+        match self {
+            Self::Int8 => f64::from(window[0] as i8),
+            Self::Uint8 | Self::Uint8Clamped => f64::from(window[0]),
+            Self::Int16 => f64::from(i16::from_le_bytes([window[0], window[1]])),
+            Self::Uint16 => f64::from(u16::from_le_bytes([window[0], window[1]])),
+            Self::Int32 => f64::from(i32::from_le_bytes([window[0], window[1], window[2], window[3]])),
+            Self::Uint32 => f64::from(u32::from_le_bytes([window[0], window[1], window[2], window[3]])),
+            Self::Float32 => f64::from(f32::from_le_bytes([window[0], window[1], window[2], window[3]])),
+            Self::Float64 => f64::from_le_bytes([window[0], window[1], window[2], window[3], window[4], window[5], window[6], window[7]]),
+            Self::BigInt64 => i64::from_le_bytes([window[0], window[1], window[2], window[3], window[4], window[5], window[6], window[7]]) as f64,
+            Self::BigUint64 => u64::from_le_bytes([window[0], window[1], window[2], window[3], window[4], window[5], window[6], window[7]]) as f64,
+        }
+    }
+    /// Write one element into `bytes` at a byte offset.
+    pub fn encode(self, value: f64, bytes: &mut [u8], at: usize) {
+        let width = self.byte_width();
+        if at + width > bytes.len() { return; }
+        let encoded = self.encode_bytes(value);
+        bytes[at..at + width].copy_from_slice(&encoded[..width]);
+    }
+    /// One element's little-endian bytes, low-order first.
+    fn encode_bytes(self, value: f64) -> [u8; 8] {
+        match self {
+            Self::Int8 => [(value as i64 as i8) as u8, 0, 0, 0, 0, 0, 0, 0],
+            Self::Uint8 => [(value as i64 as u8), 0, 0, 0, 0, 0, 0, 0],
+            Self::Uint8Clamped => [(if value.is_nan() { 0.0 } else { value.round_ties_even().clamp(0.0, 255.0) }) as u8, 0, 0, 0, 0, 0, 0, 0],
+            Self::Int16 => { let mut out = [0_u8; 8]; out[..2].copy_from_slice(&(value as i64 as i16).to_le_bytes()); out },
+            Self::Uint16 => { let mut out = [0_u8; 8]; out[..2].copy_from_slice(&(value as i64 as u16).to_le_bytes()); out },
+            Self::Int32 => { let mut out = [0_u8; 8]; out[..4].copy_from_slice(&(value as i64 as i32).to_le_bytes()); out },
+            Self::Uint32 => { let mut out = [0_u8; 8]; out[..4].copy_from_slice(&(value as i64 as u32).to_le_bytes()); out },
+            Self::Float32 => { let mut out = [0_u8; 8]; out[..4].copy_from_slice(&(value as f32).to_le_bytes()); out },
+            Self::Float64 => value.to_le_bytes(),
+            Self::BigInt64 => (value as i64).to_le_bytes(),
+            Self::BigUint64 => (value as i64 as u64).to_le_bytes(),
+        }
+    }
+}
+
+/// Byte storage with a JavaScript reference identity (`ArrayBuffer`).
 #[derive(Clone)]
-pub struct SmeltUint8Array {
+pub struct SmeltArrayBuffer {
     id: usize,
-    /// The view's bytes, shared like every JS reference object's state.
+    /// The storage, shared by every view over it.
     bytes: ::std::rc::Rc<::std::cell::RefCell<Vec<u8>>>,
 }
 
-impl PartialEq for SmeltUint8Array { fn eq(&self, other: &Self) -> bool { *self.bytes.borrow() == *other.bytes.borrow() } }
-impl ::std::fmt::Debug for SmeltUint8Array {
-    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+impl PartialEq for SmeltArrayBuffer { fn eq(&self, other: &Self) -> bool { *self.bytes.borrow() == *other.bytes.borrow() } }
+impl ::std::fmt::Debug for SmeltArrayBuffer { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { write!(formatter, "ArrayBuffer {{ byteLength: {} }}", self.bytes.borrow().len()) } }
+#[allow(dead_code)]
+impl SmeltArrayBuffer {
+    /// Zeroed storage of `byte_length` bytes.
+    pub fn new(byte_length: usize) -> Self { Self::from_bytes(vec![0_u8; byte_length]) }
+    /// Storage over owned bytes, with a fresh identity.
+    pub fn from_bytes(bytes: Vec<u8>) -> Self { Self { id: smelt_next_object_id(), bytes: ::std::rc::Rc::new(::std::cell::RefCell::new(bytes)) } }
+    /// JS reference identity of this storage.
+    pub fn id(&self) -> usize { self.id }
+    /// `byteLength`: the storage size in bytes.
+    pub fn byte_length(&self) -> f64 { self.bytes.borrow().len() as f64 }
+    /// A COPY of the storage's bytes.
+    pub fn to_bytes(&self) -> Vec<u8> { self.bytes.borrow().clone() }
+    /// The shared storage handle, for a view over it.
+    pub fn storage(&self) -> ::std::rc::Rc<::std::cell::RefCell<Vec<u8>>> { ::std::rc::Rc::clone(&self.bytes) }
+    /// Storage sharing this buffer's bytes handle and identity.
+    pub fn from_storage(id: usize, bytes: ::std::rc::Rc<::std::cell::RefCell<Vec<u8>>>) -> Self { Self { id, bytes } }
+    /// `slice(start, end)`: a COPY of a byte range in fresh storage.
+    pub fn slice(&self, start: i64, end: Option<i64>) -> Self {
         let bytes = self.bytes.borrow();
-        if bytes.is_empty() { return write!(formatter, "Uint8Array(0) []"); }
-        let items = bytes.iter().map(|byte| byte.to_string()).collect::<Vec<String>>().join(", ");
-        write!(formatter, "Uint8Array({}) [ {items} ]", bytes.len())
+        let len = bytes.len() as i64;
+        let from = (if start < 0 { len + start } else { start }).clamp(0, len) as usize;
+        let to = end.map_or(len, |end| if end < 0 { len + end } else { end }).clamp(0, len) as usize;
+        Self::from_bytes(bytes[from..to.max(from)].to_vec())
     }
 }
-impl Default for SmeltUint8Array { fn default() -> Self { Self::new() } }
 
-#[allow(dead_code)]
-impl SmeltUint8Array {
-    /// An empty view with a fresh JS reference identity.
-    pub fn new() -> Self { Self::from_bytes(Vec::new()) }
-    /// A view over owned bytes, with a fresh JS reference identity.
-    pub fn from_bytes(bytes: Vec<u8>) -> Self { Self { id: smelt_next_object_id(), bytes: ::std::rc::Rc::new(::std::cell::RefCell::new(bytes)) } }
-    /// JS reference identity of this view.
-    pub fn id(&self) -> usize { self.id }
-    /// A copy of the view's bytes.
-    pub fn to_bytes(&self) -> Vec<u8> { self.bytes.borrow().clone() }
-    /// `length`: the element count, one element per byte.
-    pub fn length(&self) -> f64 { self.bytes.borrow().len() as f64 }
-    /// `byteLength`: the byte count.
-    pub fn byte_length(&self) -> f64 { self.bytes.borrow().len() as f64 }
-}
-
-/// Erase a byte view for a dynamic boundary.
-impl IntoSmeltUnknown for SmeltUint8Array {
+/// Erase byte storage for a dynamic boundary.
+impl IntoSmeltUnknown for SmeltArrayBuffer {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         let bytes = self.bytes.borrow();
         let elements: Vec<SmeltUnknown> = bytes.iter().map(|byte| SmeltUnknown::Number(f64::from(*byte))).collect();
         let count = elements.len() as f64;
-        SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([("__smelt_uint8array".to_owned(), SmeltUnknown::Bool(true)), ("bytes".to_owned(), SmeltUnknown::Array(elements.into())), ("byteLength".to_owned(), SmeltUnknown::Number(count)), ("length".to_owned(), SmeltUnknown::Number(count))])))
+        SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([("__smelt_arraybuffer".to_owned(), SmeltUnknown::Bool(true)), ("bytes".to_owned(), SmeltUnknown::Array(elements.into())), ("byteLength".to_owned(), SmeltUnknown::Number(count))])))
     }
 }
 
-/// Rebuild a byte view from an erased value.
-impl SmeltFromUnknown for SmeltUint8Array {
+/// Rebuild byte storage from an erased value.
+impl SmeltFromUnknown for SmeltArrayBuffer {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let SmeltUnknown::Object(map) = value else { return Self::new(0) };
+        let Some(SmeltUnknown::Array(items)) = map.get("bytes") else { return Self::new(0) };
+        let bytes = items.into_vec().into_iter().map(|item| match item { SmeltUnknown::Number(value) => value as i64 as u8, _ => 0 }).collect::<Vec<u8>>();
+        Self::from_storage(map.id, ::std::rc::Rc::new(::std::cell::RefCell::new(bytes)))
+    }
+}
+
+/// An element view over byte storage: kind, offset, length.
+#[derive(Clone)]
+pub struct SmeltTypedArray {
+    id: usize,
+    /// The element type this view reads and writes.
+    kind: SmeltTypedArrayKind,
+    /// The storage, SHARED with every other view over it.
+    bytes: ::std::rc::Rc<::std::cell::RefCell<Vec<u8>>>,
+    /// Identity of the `ArrayBuffer` this view reports.
+    buffer_id: usize,
+    /// `byteOffset`: where this view starts in the storage.
+    byte_offset: usize,
+    /// `length`: how many elements this view spans.
+    length: usize,
+}
+
+impl PartialEq for SmeltTypedArray { fn eq(&self, other: &Self) -> bool { self.kind == other.kind && self.to_elements() == other.to_elements() } }
+impl ::std::fmt::Debug for SmeltTypedArray {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        let elements = self.to_elements();
+        let name = self.kind.class_name();
+        if elements.is_empty() { return write!(formatter, "{name}(0) []"); }
+        let items = elements.iter().map(|element| element.to_string()).collect::<Vec<String>>().join(", ");
+        write!(formatter, "{name}({}) [ {items} ]", elements.len())
+    }
+}
+impl Default for SmeltTypedArray { fn default() -> Self { Self::new() } }
+
+#[allow(dead_code)]
+impl SmeltTypedArray {
+    /// An empty `Uint8` view with a fresh reference identity.
+    pub fn new() -> Self { Self::from_bytes(Vec::new()) }
+    /// A `Uint8` view over owned bytes, with a fresh identity.
+    pub fn from_bytes(bytes: Vec<u8>) -> Self { Self::with_bytes(SmeltTypedArrayKind::Uint8, bytes) }
+    /// A view of `kind` over owned bytes, in fresh storage.
+    pub fn with_bytes(kind: SmeltTypedArrayKind, bytes: Vec<u8>) -> Self {
+        let length = bytes.len() / kind.byte_width();
+        Self { id: smelt_next_object_id(), kind, bytes: ::std::rc::Rc::new(::std::cell::RefCell::new(bytes)), buffer_id: smelt_next_object_id(), byte_offset: 0, length }
+    }
+    /// A view of `kind` over the given elements, in fresh storage.
+    pub fn with_elements(kind: SmeltTypedArrayKind, elements: &[f64]) -> Self {
+        let width = kind.byte_width();
+        let mut bytes = vec![0_u8; elements.len() * width];
+        for (index, element) in elements.iter().enumerate() { kind.encode(*element, &mut bytes, index * width); }
+        Self::with_bytes(kind, bytes)
+    }
+    /// A view of `kind` over an existing buffer's storage.
+    pub fn over_buffer(kind: SmeltTypedArrayKind, buffer: &SmeltArrayBuffer, byte_offset: usize, length: Option<usize>) -> Self {
+        let storage = buffer.storage();
+        let available = storage.borrow().len().saturating_sub(byte_offset) / kind.byte_width();
+        let length = length.map_or(available, |length| length.min(available));
+        Self { id: smelt_next_object_id(), kind, bytes: storage, buffer_id: buffer.id(), byte_offset, length }
+    }
+    /// JS reference identity of this view.
+    pub fn id(&self) -> usize { self.id }
+    /// The element type this view reads.
+    pub fn kind(&self) -> SmeltTypedArrayKind { self.kind }
+    /// The constructor name, which is also the `[object X]` tag.
+    pub fn class_name(&self) -> &'static str { self.kind.class_name() }
+    /// `length`: the element count.
+    pub fn length(&self) -> f64 { self.length as f64 }
+    /// `byteLength`: the byte count this view spans.
+    pub fn byte_length(&self) -> f64 { (self.length * self.kind.byte_width()) as f64 }
+    /// `byteOffset`: where this view starts in its buffer.
+    pub fn byte_offset(&self) -> f64 { self.byte_offset as f64 }
+    /// `buffer`: the storage this view reads, shared not copied.
+    pub fn buffer(&self) -> SmeltArrayBuffer { SmeltArrayBuffer::from_storage(self.buffer_id, ::std::rc::Rc::clone(&self.bytes)) }
+    /// A COPY of the bytes this view spans.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let bytes = self.bytes.borrow();
+        let start = self.byte_offset.min(bytes.len());
+        let end = (start + self.length * self.kind.byte_width()).min(bytes.len());
+        bytes[start..end].to_vec()
+    }
+    /// The view's decoded elements, at its own width and signedness.
+    pub fn to_elements(&self) -> Vec<f64> {
+        let bytes = self.bytes.borrow();
+        let width = self.kind.byte_width();
+        (0..self.length).map(|index| self.kind.decode(&bytes, self.byte_offset + index * width)).collect()
+    }
+    /// An indexed element read; `None` past the end.
+    pub fn get(&self, index: f64) -> Option<f64> {
+        if index < 0.0 || index.fract() != 0.0 { return None; }
+        let index = index as usize;
+        if index >= self.length { return None; }
+        let bytes = self.bytes.borrow();
+        Some(self.kind.decode(&bytes, self.byte_offset + index * self.kind.byte_width()))
+    }
+    /// An indexed element write; dropped past the end.
+    pub fn set_index(&self, index: f64, value: f64) {
+        if index < 0.0 || index.fract() != 0.0 { return; }
+        let index = index as usize;
+        if index >= self.length { return; }
+        let mut bytes = self.bytes.borrow_mut();
+        let at = self.byte_offset + index * self.kind.byte_width();
+        self.kind.encode(value, &mut bytes, at);
+    }
+    /// `subarray(start, end)`: another view over the SAME storage.
+    pub fn subarray(&self, start: i64, end: Option<i64>) -> Self {
+        let (from, to) = self.element_range(start, end);
+        Self { id: smelt_next_object_id(), kind: self.kind, bytes: ::std::rc::Rc::clone(&self.bytes), buffer_id: self.buffer_id, byte_offset: self.byte_offset + from * self.kind.byte_width(), length: to.saturating_sub(from) }
+    }
+    /// `slice(start, end)`: a COPY of an element range.
+    pub fn slice(&self, start: i64, end: Option<i64>) -> Self {
+        let (from, to) = self.element_range(start, end);
+        let width = self.kind.byte_width();
+        let bytes = self.bytes.borrow();
+        let at = self.byte_offset + from * width;
+        let until = (self.byte_offset + to * width).min(bytes.len());
+        Self::with_bytes(self.kind, bytes[at.min(until)..until].to_vec())
+    }
+    /// `set(source, offset)`: copy elements in, converting per element.
+    pub fn set_from(&self, source: &Self, offset: usize) {
+        for (index, element) in source.to_elements().into_iter().enumerate() { self.set_index((offset + index) as f64, element); }
+    }
+    /// `fill(value, start, end)`: write one value across a range.
+    pub fn fill(&self, value: f64, start: i64, end: Option<i64>) -> Self {
+        let (from, to) = self.element_range(start, end);
+        for index in from..to { self.set_index(index as f64, value); }
+        self.clone()
+    }
+    /// Clamped element bounds, counting back from the end when negative.
+    fn element_range(&self, start: i64, end: Option<i64>) -> (usize, usize) {
+        let len = self.length as i64;
+        let from = (if start < 0 { len + start } else { start }).clamp(0, len);
+        let to = end.map_or(len, |end| if end < 0 { len + end } else { end }).clamp(0, len);
+        (from as usize, to.max(from) as usize)
+    }
+}
+
+/// Erase a typed-array view for a dynamic boundary.
+impl IntoSmeltUnknown for SmeltTypedArray {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        let bytes = self.to_bytes();
+        let elements: Vec<SmeltUnknown> = bytes.iter().map(|byte| SmeltUnknown::Number(f64::from(*byte))).collect();
+        let byte_count = elements.len() as f64;
+        let length = self.length as f64;
+        SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([(self.kind.marker().to_owned(), SmeltUnknown::Bool(true)), ("bytes".to_owned(), SmeltUnknown::Array(elements.into())), ("byteLength".to_owned(), SmeltUnknown::Number(byte_count)), ("length".to_owned(), SmeltUnknown::Number(length))])))
+    }
+}
+
+/// Rebuild a typed-array view from an erased value.
+impl SmeltFromUnknown for SmeltTypedArray {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let SmeltUnknown::Object(map) = value else { return Self::new() };
         let Some(SmeltUnknown::Array(items)) = map.get("bytes") else { return Self::new() };
-        let bytes = items.into_vec().into_iter().map(|item| match item { SmeltUnknown::Number(number) => number as u8, _ => 0 }).collect::<Vec<u8>>();
-        Self::from_bytes(bytes)
+        let bytes = items.into_vec().into_iter().map(|item| match item { SmeltUnknown::Number(value) => value as i64 as u8, _ => 0 }).collect::<Vec<u8>>();
+        let kind = map.iter().find_map(|(key, _)| SmeltTypedArrayKind::from_marker(&key)).unwrap_or(SmeltTypedArrayKind::Uint8);
+        let width = kind.byte_width();
+        let length = bytes.len() / width;
+        Self { id: map.id, kind, bytes: ::std::rc::Rc::new(::std::cell::RefCell::new(bytes)), buffer_id: smelt_next_object_id(), byte_offset: 0, length }
     }
 }
+
+/// The `Uint8` face of the family: Smelt's concrete byte view.
+pub type SmeltUint8Array = SmeltTypedArray;
 
 /// A WHATWG `Blob` (or `File`): immutable bytes, a MIME type, and the
 /// two optional `File` data properties.
