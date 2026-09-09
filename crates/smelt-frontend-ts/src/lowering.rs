@@ -698,6 +698,15 @@ struct ModuleBuilder<'ctx> {
     current_statement_block: Option<smelt_hir::BlockId>,
     /// Postfix updates waiting for the variable initializer that reads their original value.
     deferred_postfix_updates: Option<Vec<Stmt>>,
+    /// Name a class EXPRESSION takes from the binding it initializes.
+    ///
+    /// `const Foo = class { … }` declares a class named `Foo` — that is the
+    /// name TypeScript infers, and it is what makes `new Foo()`, `Foo` in type
+    /// position, `x instanceof Foo` and `extends Foo` resolve nominally. Set
+    /// around the [`Self::class_declaration`] call for such a declarator and
+    /// consumed by it, so a class expression nested deeper inside the same
+    /// initializer still takes its synthetic anonymous name.
+    class_expression_binding_name: Option<String>,
     /// Number of vitest asymmetric matchers (`expect.any`, `expect.arrayContaining`,
     /// ...) lowered so far in this module.
     ///

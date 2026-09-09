@@ -1,0 +1,128 @@
+module examples/typescript/end-to-end/82_class_expression_binding/input.ts (ModuleId(0))
+  body BodyId(11)
+  items
+    class Counter fields [Hidden #hits: List<String>] constructor Some(ItemId(5)) methods [ItemId(3), ItemId(4)] implements []
+    class DeclaredReporting fields [] constructor Some(ItemId(7)) methods [ItemId(8)] implements []
+  locals
+    %0 const reporting: Reporting
+    %1 const declared: DeclaredReporting
+    %2 const numbers: Boxed<Float>
+  exprs
+    #0: Reporting = new Reporting()
+    #1: Reporting = %0
+    #2: Reporting = %0
+    #3: fn(String) -> None = #2.add
+    #4: Reporting = %0
+    #5: String = "a"
+    #6: None = #4.add(#5)
+    #7: Reporting = %0
+    #8: Reporting = %0
+    #9: fn(String) -> None = #8.add
+    #10: Reporting = %0
+    #11: String = "b"
+    #12: None = #10.add(#11)
+    #13: String = "expression subclass: "
+    #14: Reporting = %0
+    #15: fn() -> String = #14.report
+    #16: Reporting = %0
+    #17: String = #16.report()
+    #18: String = Add #13, #17
+    #19: None = @13(console_log)
+    #20: None = call #19(#18)
+    #21: DeclaredReporting = new DeclaredReporting()
+    #22: DeclaredReporting = %1
+    #23: DeclaredReporting = %1
+    #24: fn(String) -> None = #23.add
+    #25: DeclaredReporting = %1
+    #26: String = "c"
+    #27: None = #25.add(#26)
+    #28: String = "declared subclass: "
+    #29: DeclaredReporting = %1
+    #30: fn() -> String = #29.report
+    #31: DeclaredReporting = %1
+    #32: String = #31.report()
+    #33: String = Add #28, #32
+    #34: None = @14(console_log)
+    #35: None = call #34(#33)
+    #36: Boxed<Float> = new Boxed()
+    #37: String = "generic: "
+    #38: Boxed<Float> = %2
+    #39: Boxed<Float> = %2
+    #40: fn(T) -> Float = #39.push
+    #41: Boxed<Float> = %2
+    #42: Float = 7.0
+    #43: Float = #41.push(#42)
+    #44: String = primitive_cast_string #43
+    #45: String = Add #37, #44
+    #46: String = " "
+    #47: String = Add #45, #46
+    #48: Boxed<Float> = %2
+    #49: List<Float> = #48.items
+    #50: Float = 0.0
+    #51: Float = #49[#50]
+    #52: String = primitive_cast_string #51
+    #53: String = Add #47, #52
+    #54: None = @18(console_log)
+    #55: None = call #54(#53)
+    #56: String = "instanceof: "
+    #57: Boxed<Float> = %2
+    #58: Bool = instanceof #57, class12
+    #59: String = "yes"
+    #60: String = "no"
+    #61: String = if #58 then #59 else #60
+    #62: String = Add #56, #61
+    #63: None = @19(console_log)
+    #64: None = call #63(#62)
+    #65: String = "typeof expression class: "
+    #66: String = "function"
+    #67: String = Add #65, #66
+    #68: None = @20(console_log)
+    #69: None = call #68(#67)
+    #70: String = "typeof declared class: "
+    #71: String = "function"
+    #72: String = Add #70, #71
+    #73: None = @21(console_log)
+    #74: None = call #73(#72)
+    #75: String = "typeof instance: "
+    #76: Boxed<Float> = %2
+    #77: String = "object"
+    #78: String = Add #75, #77
+    #79: None = @22(console_log)
+    #80: None = call #79(#78)
+  stmts
+    s0: let %0: Reporting = #0
+    s1: #6
+    s2: #12
+    s3: #20
+    s4: let %1: DeclaredReporting = #21
+    s5: #27
+    s6: #35
+    s7: let %2: Boxed<Float> = #36
+    s8: #55
+    s9: #64
+    s10: #69
+    s11: #74
+    s12: #80
+
+interned types
+  t0 = __smelt_anon_class_733
+  t1 = Unknown
+  t2 = Reporting
+  t3 = DeclaredReporting
+  t4 = T
+  t5 = __smelt_anon_class_1394<T>
+  t6 = List<T>
+  t7 = Float
+  t8 = None
+  t9 = __smelt_anon_class_1394
+  t10 = Boxed
+  t11 = Counter
+  t12 = String
+  t13 = List<String>
+  t14 = fn() -> String
+  t15 = fn(String) -> None
+  t16 = Boxed<T>
+  t17 = Boxed<Float>
+  t18 = fn(T) -> Float
+  t19 = List<Float>
+  t20 = Bool

@@ -3414,6 +3414,20 @@ impl ModuleBuilder<'_> {
             {
                 continue;
             }
+            // `const Foo = class { … }` is a class declaration named `Foo`: it
+            // lowers as one and contributes no runtime binding, exactly like the
+            // constructor-function case above. Lowered as a value instead, the
+            // binding held a placeholder instance and `new Foo()` erased into a
+            // dynamic construction whose methods answered `null` (H68).
+            if let Some((name, class)) = Self::const_class_expression(declarator) {
+                let previous = self
+                    .class_expression_binding_name
+                    .replace(name.to_owned());
+                let lowered = self.class_declaration(class);
+                self.class_expression_binding_name = previous;
+                lowered?;
+                continue;
+            }
             // `const { placeholder } = partial;` destructures a static property off
             // a FUNCTION, which the ordinary record-destructuring path cannot type.
             // See `lowering::function_statics`.

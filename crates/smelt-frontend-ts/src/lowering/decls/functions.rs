@@ -1512,8 +1512,17 @@ impl ModuleBuilder<'_> {
         // fall back to a synthetic name so the class still registers and can be
         // referenced as a value. The name is owned here and borrowed as
         // `class_text` for the rest of lowering.
+        // A class EXPRESSION initializing a binding is named by that binding
+        // (`class_expression_binding_name`); the name is consumed here so a
+        // class expression nested deeper in the same initializer still falls
+        // back to its synthetic anonymous name. A class DECLARATION always uses
+        // its own identifier.
         let class_source_name = class.id.as_ref().map_or_else(
-            || Self::anonymous_class_name(class),
+            || {
+                self.class_expression_binding_name
+                    .take()
+                    .unwrap_or_else(|| Self::anonymous_class_name(class))
+            },
             |id| id.name.to_string(),
         );
         let scoped_or_host_name = self

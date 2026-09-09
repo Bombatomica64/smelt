@@ -2782,6 +2782,26 @@ impl ModuleBuilder<'_> {
                 span: self.span(unary.span.start, unary.span.end),
             }));
         }
+        // A CLASS REFERENCE is a function value in JavaScript: `typeof Foo` is
+        // `"function"` for `class Foo {}` exactly as it is for `Blob` above,
+        // while `typeof new Foo()` is `"object"`. HIR types both the class and
+        // its instances as `Type::Class`, so the distinction has to come from
+        // the operand's SPELLING — a name bound to a class in this module,
+        // not shadowed by a local. Folding to the instance answer said
+        // `typeof Foo === "object"`, and a `typeof X === "function"` guard over
+        // a class value took its no-constructor branch.
+        if let Expression::Identifier(identifier) = &unary.argument
+            && !self.scope.is_bound(identifier.name.as_str())
+            && (self.classes.contains(identifier.name.as_str())
+                || self.classes.is_pending(identifier.name.as_str()))
+        {
+            let ty = self.ctx.krate.types.intern(Type::String);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String("function".to_owned())),
+                ty,
+                span: self.span(unary.span.start, unary.span.end),
+            }));
+        }
         let operand = self.expression(&unary.argument, body)?;
         let operand_ty = Self::expr_ty(body, operand);
         let ty = self.ctx.krate.types.intern(Type::String);

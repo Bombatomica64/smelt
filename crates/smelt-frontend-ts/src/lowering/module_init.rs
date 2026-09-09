@@ -302,6 +302,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             current_arguments_arities: Vec::new(),
             current_statement_block: None,
             deferred_postfix_updates: None,
+            class_expression_binding_name: None,
             asymmetric_matchers_lowered: 0,
             forward_referenced_locals: HashSet::new(),
             defining_local_functions: Vec::new(),
@@ -973,23 +974,37 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
     /// Collect class names declared in the current module before lowering eager arrow bodies.
     pub(super) fn program_class_names(program: &Program<'_>) -> HashSet<String> {
-        program
-            .body
-            .iter()
-            .filter_map(|statement| {
-                let class = match statement {
-                    Statement::ClassDeclaration(class) => class,
-                    Statement::ExportDeclaration(export) => {
-                        let Declaration::ClassDeclaration(class) = &export.declaration else {
-                            return None;
-                        };
-                        class
-                    }
-                    _ => return None,
-                };
-                class.id.as_ref().map(|id| id.name.to_string())
-            })
-            .collect()
+        let mut names = HashSet::new();
+        for statement in &program.body {
+            let exported = match statement {
+                Statement::ExportDeclaration(export) => Some(&export.declaration),
+                _ => None,
+            };
+            let class = match (statement, exported) {
+                (Statement::ClassDeclaration(class), _) => Some(class.as_ref()),
+                (_, Some(Declaration::ClassDeclaration(class))) => Some(class.as_ref()),
+                _ => None,
+            };
+            if let Some(id) = class.and_then(|class| class.id.as_ref()) {
+                names.insert(id.name.to_string());
+            }
+            // `const Foo = class { … }` declares a class named `Foo` (see
+            // `ModuleBuilder::class_expression_binding_name`), so the name is
+            // pending from the prepass exactly like a `class Foo {}`
+            // declaration and a `new Foo()` lowered earlier in the module still
+            // resolves nominally.
+            let variable = match (statement, exported) {
+                (Statement::VariableDeclaration(variable), _) => Some(variable.as_ref()),
+                (_, Some(Declaration::VariableDeclaration(variable))) => Some(variable.as_ref()),
+                _ => None,
+            };
+            for declarator in variable.iter().flat_map(|variable| &variable.declarations) {
+                if let Some((name, _)) = Self::const_class_expression(declarator) {
+                    names.insert(name.to_owned());
+                }
+            }
+        }
+        names
     }
 
     /// Collect interface names declared in the current module before lowering.

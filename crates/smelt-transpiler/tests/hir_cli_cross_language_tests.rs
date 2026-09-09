@@ -858,6 +858,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "79_logical_assignment_store",
     "80_optional_chain_union_and_throw",
     "81_receiver_capture_in_callback",
+    "82_class_expression_binding",
 ];
 
 #[test]
