@@ -280,3 +280,6 @@ third_party/es-toolkit-src/
 # instantiation fix and the (typeof X)[keyof typeof X] alias that actually stops
 # Hono's context.ts
 !blocker-logs/standards-generic-arm-and-typeof-indexed-alias.md
+# standards-typed-array-views-plan.md is the measured inventory and increment
+# plan for the typed-array-views item
+!blocker-logs/standards-typed-array-views-plan.md
