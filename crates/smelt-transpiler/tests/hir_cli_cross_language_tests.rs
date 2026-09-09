@@ -671,6 +671,109 @@ none
     Ok(())
 }
 
+/// The module that LOSES the bare spelling of an ambiguous class name.
+const AMBIGUOUS_CLASS_LOSER: &str = r"export class Node {
+  #tag = 'first';
+
+  label(): string {
+    return this.#tag;
+  }
+}
+";
+
+/// The module that KEEPS the bare spelling, and refers to its own class.
+const AMBIGUOUS_CLASS_WINNER: &str = r"export class Node {
+  #children: Record<string, Node> = {};
+  #pattern?: string;
+
+  add(key: string, pattern: string): void {
+    const child: Node = new Node();
+    this.#children[key] = child;
+    child.#pattern = pattern;
+  }
+
+  describe(key: string): string {
+    const child = this.#children[key];
+    if (!child) {
+      return 'none';
+    }
+    return child.#pattern === undefined ? 'unset' : 'set';
+  }
+}
+";
+
+/// An importer that aliases both and exercises the bare-name winner.
+const AMBIGUOUS_CLASS_MAIN: &str = r"import { Node as FirstNode } from './first';
+import { Node as SecondNode } from './second';
+
+console.log(new FirstNode().label());
+
+const second = new SecondNode();
+second.add('a', '*');
+console.log(second.describe('a'));
+console.log(second.describe('b'));
+";
+
+#[test]
+fn build_runs_a_module_referring_to_its_own_ambiguous_class_name() -> TestResult {
+    // The module that keeps the BARE spelling of an ambiguous class name had no
+    // binding of its own: `resolve_type_reference_symbol` fell through to the
+    // crate-wide by-name item map, whose entry for an ambiguous spelling is
+    // whichever module registered last. So `second.ts`'s own `Node`
+    // annotations, and its `new Node()`, resolved to `first.ts`'s class, and
+    // reads of its own fields went looking on the wrong class — Hono's trie
+    // router read the reg-exp router's `#children` and stopped the router slice
+    // with "optional record field `#pattern` is unknown on Node_1".
+    //
+    // Every module that declares an ambiguous name now gets an entry in the
+    // rename map, the winner's mapping the name to itself: the Rust name is
+    // unchanged (so goldens are byte-identical) but the frontend binds the name
+    // in the module's own scope, which is what makes a module's own class win
+    // for its own spelling.
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "ambiguous-class-name"
+version = "0.1.0"
+
+[sources]
+roots = ["src"]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "ambiguous_class_name"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(project_path.join("src/first.ts"), AMBIGUOUS_CLASS_LOSER)?;
+    fs::write(project_path.join("src/second.ts"), AMBIGUOUS_CLASS_WINNER)?;
+    fs::write(project_path.join("src/main.ts"), AMBIGUOUS_CLASS_MAIN)?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    // Each class answers with its own members, and the winner's record holds
+    // what its own method stored. Before the fix this did not lower at all.
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(
+        &actual_stdout,
+        &"first
+set
+none
+".to_owned(),
+        "unexpected stdout",
+    )?;
+
+    Ok(())
+}
+
 /// Every TypeScript end-to-end example the golden suite checks.
 ///
 /// A list rather than a directory scan: an example is only checked once it

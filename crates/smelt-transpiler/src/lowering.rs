@@ -725,6 +725,13 @@ fn manifest_module_identities(sources: &[&ManifestSource]) -> HashMap<String, St
 /// the LAST in dependency order keeps the bare name while earlier ones take a
 /// stable ordinal suffix (`Node_1`, `Node_2`, ...).
 ///
+/// The result maps EVERY module that declares an ambiguous name, including the
+/// one whose rendering is the bare spelling (which maps the name to itself).
+/// The map is therefore also the answer to "does this module declare this
+/// ambiguous name", which is what makes the frontend bind the name in the
+/// module's own scope rather than resolve it through the crate-wide by-name
+/// item map — see the frontend's `class_declaration`.
+///
 /// Only the Rust rendering changes; the frontend records the source spelling as
 /// the symbol's original name, because `instanceof` and `__smelt_class` read
 /// that and JavaScript answers `Node` for both classes.
@@ -757,13 +764,24 @@ fn manifest_class_renames(
             }
             let ordinal = seen.entry(name.as_str()).or_insert(0);
             *ordinal = ordinal.saturating_add(1);
-            if *ordinal == total {
-                continue;
-            }
+            // The module that keeps the BARE spelling gets an entry too,
+            // mapping the name to itself. It is not a rename — the Rust name is
+            // unchanged — but it is what tells the frontend "this module
+            // declares this ambiguous name", so the frontend binds the name in
+            // the module's own scope instead of resolving it through the
+            // crate-wide by-name item map, whose entry for an ambiguous
+            // spelling is whichever module registered last. Without it, the
+            // winner's own `Node<T>` annotation resolved to the LOSER's class
+            // (Hono's trie router read the reg-exp router's `#children`).
+            let rendered = if *ordinal == total {
+                name.clone()
+            } else {
+                format!("{name}_{ordinal}")
+            };
             renames
                 .entry(source.path.display().to_string())
                 .or_default()
-                .insert(name.clone(), format!("{name}_{ordinal}"));
+                .insert(name.clone(), rendered);
         }
     }
     renames
