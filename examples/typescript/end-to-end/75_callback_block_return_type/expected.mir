@@ -31,8 +31,8 @@ fn upper (FuncId(2)) -> List<String>
 fn classified (FuncId(3)) -> List<String>
   locals
     %0 param keys: List<String>
-    %1 temp: fn(String, Int, List<String>) -> Unknown
-    %2 temp: List<Unknown>
+    %1 temp: fn(String, Int, List<String>) -> String
+    %2 temp: List<String>
   bb0:
     %1 = closure ClosureId(3) []
     %2 = list_map copy %0, move %1
@@ -206,7 +206,7 @@ closure ClosureId(2) -> String
   bb3:
     return copy %0
 
-closure ClosureId(3) -> Unknown
+closure ClosureId(3) -> String
   locals
     %0 param key: String
   bb0:
@@ -216,7 +216,7 @@ closure ClosureId(3) -> Unknown
   bb2:
     return copy %0
   bb3:
-    return undefined
+    return none
 
 closure ClosureId(4) -> Float
   locals

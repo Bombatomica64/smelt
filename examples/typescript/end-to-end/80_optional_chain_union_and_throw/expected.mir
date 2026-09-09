@@ -1,33 +1,6 @@
-class Registry fields [Hidden #seen: Dict<String, Bool>] constructor Some(FuncId(4)) methods [FuncId(2), FuncId(3)]
+class Registry fields [Hidden #seen: Dict<String, Bool>] constructor Some(FuncId(3)) methods [FuncId(1), FuncId(2)]
 
-fn first_pair (FuncId(0)) -> Optional<(String, Float)>
-  locals
-    %0 param slot: Float | List<(String, Float)>
-    %1 user pairs: Optional<(String, Float)>
-    %2 temp: Optional<(String, Float)>
-    %3 temp: Bool
-    %4 temp: Bool
-    %5 temp: (String, Float)
-  bb0:
-    %2 = copy %0?.[0.0]
-    %1 = move %2
-    switch false ? bb1 : bb2
-  bb1:
-    %3 = true
-    goto bb3
-  bb2:
-    %4 = copy %1 == undefined
-    %3 = move %4
-    goto bb3
-  bb3:
-    switch move %3 ? bb4 : bb5
-  bb4:
-    return undefined
-  bb5:
-    %5 = move %1
-    return move %5
-
-fn fill (FuncId(1)) -> String throws
+fn fill (FuncId(0)) -> String throws
   locals
     %0 param registry: Optional<Registry>
     %1 param key: String
@@ -37,7 +10,7 @@ fn fill (FuncId(1)) -> String throws
     %5 temp: Registry
     %6 temp: String
   bb0:
-    %2 = copy %0?.method10(copy %1, true)
+    %2 = copy %0?.method6(copy %1, true)
     %3 = copy %0 == undefined
     switch move %3 ? bb1 : bb2
   bb1:
@@ -45,14 +18,14 @@ fn fill (FuncId(1)) -> String throws
     goto bb4
   bb2:
     %5 = copy %0
-    %6 = call fn3(move %5, copy %1) -> bb3
+    %6 = call fn2(move %5, copy %1) -> bb3
   bb3:
     %4 = move %6
     goto bb4
   bb4:
     return move %4
 
-fn insert (FuncId(2)) -> None throws
+fn insert (FuncId(1)) -> None throws
   locals
     %0 param this: Registry
     %1 param key: String
@@ -66,15 +39,15 @@ fn insert (FuncId(2)) -> None throws
     switch move %3 ? bb1 : bb2
   bb1:
     %4 = {"__smelt_error": "Error", "message": "empty key", "stack": undefined, "cause": undefined}
-    %5 = unknown_cast move %4 as t5
+    %5 = unknown_cast move %4 as t7
     throw move %5
   bb2:
-    %6 = copy %0.field8
+    %6 = copy %0.field4
     %6[copy %1] = copy %2
-    %0.field8 = move %6
+    %0.field4 = move %6
     return none
 
-fn has (FuncId(3)) -> String
+fn has (FuncId(2)) -> String
   locals
     %0 param this: Registry
     %1 param key: String
@@ -82,7 +55,7 @@ fn has (FuncId(3)) -> String
     %3 temp: Bool
     %4 temp: String
   bb0:
-    %2 = copy %0.field8
+    %2 = copy %0.field4
     %3 = copy %2[copy %1] == undefined
     switch move %3 ? bb1 : bb2
   bb1:
@@ -94,105 +67,37 @@ fn has (FuncId(3)) -> String
   bb3:
     return move %4
 
-fn new (FuncId(4)) -> Registry
+fn new (FuncId(3)) -> Registry
   locals
     %0 user this: Registry
     %1 temp: Dict<String, Bool>
   bb0:
-    %0 = struct3 {}
+    %0 = struct1 {}
     %1 = {}
-    %0.field8 = move %1
+    %0.field4 = move %1
     return move %0
 
-fn main (FuncId(5)) -> None throws
+fn main (FuncId(4)) -> None throws
   locals
-    %0 user from_number: Optional<(String, Float)>
-    %1 user pairs: List<(String, Float)>
-    %2 user from_pairs: Optional<(String, Float)>
-    %3 temp: Optional<(String, Float)>
-    %4 temp: Bool
+    %0 temp: String
+    %1 temp: String
+    %2 temp: None
+    %3 temp: Registry
+    %4 temp: String
     %5 temp: String
-    %6 temp: (String, Float)
-    %7 temp: String
-    %8 temp: String
-    %9 temp: None
-    %10 temp: (String, Float)
-    %11 temp: (String, Float)
-    %12 temp: List<(String, Float)>
-    %13 temp: Optional<(String, Float)>
-    %14 temp: Bool
-    %15 temp: String
-    %16 temp: (String, Float)
-    %17 temp: String
-    %18 temp: String
-    %19 temp: (String, Float)
-    %20 temp: Float
-    %21 temp: String
-    %22 temp: String
-    %23 temp: String
-    %24 temp: None
-    %25 temp: String
-    %26 temp: String
-    %27 temp: None
-    %28 temp: Registry
-    %29 temp: String
-    %30 temp: String
-    %31 temp: None
+    %6 temp: None
   bb0:
-    %3 = call fn0(7.0) -> bb1
+    %0 = call fn0(undefined, "a") -> bb1
   bb1:
-    %0 = move %3
-    %4 = copy %0 == undefined
-    switch move %4 ? bb2 : bb3
+    %1 = "no receiver: " + move %0
+    %2 = call @console_log(move %1) -> bb2
   bb2:
-    %5 = "none"
-    goto bb4
+    %3 = call fn3() -> bb3
   bb3:
-    %6 = move %0
-    %7 = tuple_index move %6, 0
-    %5 = move %7
-    goto bb4
+    %4 = call fn0(move %3, "a") -> bb4
   bb4:
-    %8 = "number arm: " + move %5
-    %9 = call @console_log(move %8) -> bb5
+    %5 = "receiver: " + move %4
+    %6 = call @console_log(move %5) -> bb5
   bb5:
-    %10 = ("a", 1.0)
-    %11 = ("b", 2.0)
-    %12 = [move %10, move %11]
-    %1 = move %12
-    %13 = call fn0(move %1) -> bb6
-  bb6:
-    %2 = move %13
-    %14 = copy %2 == undefined
-    switch move %14 ? bb7 : bb8
-  bb7:
-    %15 = "none"
-    goto bb9
-  bb8:
-    %16 = copy %2
-    %17 = tuple_index move %16, 0
-    %18 = move %17 + "="
-    %19 = move %2
-    %20 = tuple_index move %19, 1
-    %21 = primitive_cast_string move %20
-    %22 = move %18 + move %21
-    %15 = move %22
-    goto bb9
-  bb9:
-    %23 = "tuple arm: " + move %15
-    %24 = call @console_log(move %23) -> bb10
-  bb10:
-    %25 = call fn1(undefined, "a") -> bb11
-  bb11:
-    %26 = "no receiver: " + move %25
-    %27 = call @console_log(move %26) -> bb12
-  bb12:
-    %28 = call fn4() -> bb13
-  bb13:
-    %29 = call fn1(move %28, "a") -> bb14
-  bb14:
-    %30 = "receiver: " + move %29
-    %31 = call @console_log(move %30) -> bb15
-  bb15:
     return none
 

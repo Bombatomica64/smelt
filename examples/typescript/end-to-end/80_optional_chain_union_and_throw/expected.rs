@@ -2840,116 +2840,18 @@ impl IntoSmeltUnknown for Registry {
     }
 }
 
-#[derive(Clone)]
-pub enum SmeltUnion8 {
-    M0(f64),
-    M1(SmeltList<(String, f64)>),
-}
-impl IntoSmeltUnknown for SmeltUnion8 {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        match self {
-            Self::M0(value) => SmeltUnknown::Number(value as f64),
-            Self::M1(value) => { let smelt_l = value; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| SmeltUnknown::Array(vec![SmeltUnknown::String((value.0.clone()).into()), SmeltUnknown::Number(value.1.clone() as f64)].into())).collect::<Vec<_>>())) },
-        }
-    }
-}
-impl SmeltUnion8 {
-    fn from_smelt_unknown(value: SmeltUnknown) -> Self {
-        if matches!(value, SmeltUnknown::Number(_)) { return Self::M0(match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }); }
-        Self::M1({ let smelt_src = value.clone().into_smelt_unknown(); match smelt_src { SmeltUnknown::Null | SmeltUnknown::Undefined => SmeltList::new(Vec::new()), SmeltUnknown::Array(values) => SmeltList::with_id(values.id, values.into_iter().map(|value| if let SmeltUnknown::Array(smelt_tuple_values) = value.clone() { (match smelt_tuple_values.get(0).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }, match smelt_tuple_values.get(1).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) } else { panic!("unknown is not tuple") }).collect::<Vec<_>>()), SmeltUnknown::String(value) => SmeltList::new(value.chars().map(|ch| if let SmeltUnknown::Array(smelt_tuple_values) = (SmeltUnknown::String(ch.to_string().into())).clone() { (match smelt_tuple_values.get(0).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }, match smelt_tuple_values.get(1).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) } else { panic!("unknown is not tuple") }).collect::<Vec<_>>()), SmeltUnknown::Object(value) => if let Some(smelt_bytes) = smelt_host_buffer_elements(&SmeltUnknown::Object(value.clone())) { SmeltList::new(smelt_bytes.into_iter().map(|value| if let SmeltUnknown::Array(smelt_tuple_values) = value.clone() { (match smelt_tuple_values.get(0).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }, match smelt_tuple_values.get(1).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) } else { panic!("unknown is not tuple") }).collect::<Vec<_>>()) } else if let Some(smelt_args) = smelt_arguments_elements(&value) { SmeltList::new(smelt_args.into_iter().map(|value| if let SmeltUnknown::Array(smelt_tuple_values) = value.clone() { (match smelt_tuple_values.get(0).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }, match smelt_tuple_values.get(1).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) } else { panic!("unknown is not tuple") }).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(pairs)) = value.get("__smelt_map") { SmeltList::new(pairs.into_vec().into_iter().map(|value| if let SmeltUnknown::Array(smelt_tuple_values) = value.clone() { (match smelt_tuple_values.get(0).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }, match smelt_tuple_values.get(1).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) } else { panic!("unknown is not tuple") }).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(members)) = value.get("__smelt_set") { SmeltList::new(members.into_vec().into_iter().map(|value| if let SmeltUnknown::Array(smelt_tuple_values) = value.clone() { (match smelt_tuple_values.get(0).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }, match smelt_tuple_values.get(1).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) } else { panic!("unknown is not tuple") }).collect::<Vec<_>>()) } else { match value.get("__smelt_symbol_iterator") { Some(SmeltUnknown::Function(iterator)) => SmeltList::new(smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null)).into_iter().map(|value| if let SmeltUnknown::Array(smelt_tuple_values) = value.clone() { (match smelt_tuple_values.get(0).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }, match smelt_tuple_values.get(1).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) } else { panic!("unknown is not tuple") }).collect::<Vec<_>>()), _ => panic!("unknown is not iterable") } }, _ => panic!("unknown is not iterable") } })
-    }
-}
-impl PartialEq for SmeltUnion8 {
-    fn eq(&self, other: &Self) -> bool {
-        self.clone().into_smelt_unknown() == other.clone().into_smelt_unknown()
-    }
-}
-impl SmeltFromUnknown for SmeltUnion8 {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self { Self::from_smelt_unknown(value) }
-}
-impl SmeltJsKeyEq for SmeltUnion8 {
-    fn same_js_key(&self, other: &Self) -> bool { self.clone().into_smelt_unknown().same_js_key(&other.clone().into_smelt_unknown()) }
-    fn js_key_hash(&self) -> Option<u64> { self.clone().into_smelt_unknown().js_key_hash() }
-}
-impl ::std::fmt::Debug for SmeltUnion8 {
-    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        ::std::fmt::Debug::fmt(&self.clone().into_smelt_unknown(), formatter)
-    }
-}
-impl Default for SmeltUnion8 {
-    fn default() -> Self {
-        Self::M0(0.0)
-    }
-}
-
 // @smelt:prelude-end — generated program below
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let from_number: Option<(String, f64)>;
-    let pairs: SmeltList<(String, f64)>;
-    let from_pairs: Option<(String, f64)>;
-    let _smelt_tmp_4: bool;
-    let mut _smelt_tmp_5: String;
-    let _smelt_tmp_6: (String, f64);
-    let _smelt_tmp_7: String;
-    let _smelt_tmp_8: String;
-    let _smelt_tmp_10: (String, f64);
-    let _smelt_tmp_11: (String, f64);
-    let _smelt_tmp_12: SmeltList<(String, f64)>;
-    let _smelt_tmp_14: bool;
-    let mut _smelt_tmp_15: String;
-    let _smelt_tmp_16: (String, f64);
-    let _smelt_tmp_17: String;
-    let _smelt_tmp_18: String;
-    let _smelt_tmp_19: (String, f64);
-    let _smelt_tmp_20: f64;
-    let _smelt_tmp_21: String;
-    let _smelt_tmp_22: String;
-    let _smelt_tmp_23: String;
-    let _smelt_tmp_26: String;
-    let _smelt_tmp_30: String;
-    let _smelt_tmp_3: Option<(String, f64)> = first_pair(SmeltUnion8::M0(7.0));
-    from_number = _smelt_tmp_3;
-    _smelt_tmp_4 = from_number.clone().is_none();
-    let mut _smelt_tmp_5: String = String::new();
-    if _smelt_tmp_4 {
-    _smelt_tmp_5 = "none".to_owned();
-    } else {
-    _smelt_tmp_6 = from_number.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_7 = _smelt_tmp_6.0.clone();
-    _smelt_tmp_5 = _smelt_tmp_7;
-    }
-    _smelt_tmp_8 = "number arm: ".to_owned() + &_smelt_tmp_5;
-    let _ = { println!("{}", _smelt_tmp_8); };
-    _smelt_tmp_10 = ("a".to_owned(), 1.0);
-    _smelt_tmp_11 = ("b".to_owned(), 2.0);
-    _smelt_tmp_12 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, f64)> = vec![_smelt_tmp_10.clone(), _smelt_tmp_11.clone()]; smelt_list_items }));
-    pairs = Into::<SmeltList<_>>::into(_smelt_tmp_12);
-    let _smelt_tmp_13: Option<(String, f64)> = first_pair(SmeltUnion8::M1(pairs));
-    from_pairs = _smelt_tmp_13;
-    _smelt_tmp_14 = from_pairs.clone().is_none();
-    let mut _smelt_tmp_15: String = String::new();
-    if _smelt_tmp_14 {
-    _smelt_tmp_15 = "none".to_owned();
-    } else {
-    _smelt_tmp_16 = from_pairs.clone().clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_17 = _smelt_tmp_16.0.clone();
-    _smelt_tmp_18 = _smelt_tmp_17 + &"=".to_owned();
-    _smelt_tmp_19 = from_pairs.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_20 = _smelt_tmp_19.1.clone();
-    _smelt_tmp_21 = smelt_number_to_string(_smelt_tmp_20);
-    _smelt_tmp_22 = _smelt_tmp_18 + &_smelt_tmp_21;
-    _smelt_tmp_15 = _smelt_tmp_22;
-    }
-    _smelt_tmp_23 = "tuple arm: ".to_owned() + &_smelt_tmp_15;
-    let _ = { println!("{}", _smelt_tmp_23); };
-    let _smelt_tmp_25: String = fill(None::<Registry>, "a".to_owned())?;
-    _smelt_tmp_26 = "no receiver: ".to_owned() + &_smelt_tmp_25;
-    let _ = { println!("{}", _smelt_tmp_26); };
-    let _smelt_tmp_28: Registry = Registry::new();
-    let _smelt_tmp_29: String = fill(Some(_smelt_tmp_28), "a".to_owned())?;
-    _smelt_tmp_30 = "receiver: ".to_owned() + &_smelt_tmp_29;
-    let _ = { println!("{}", _smelt_tmp_30); };
+    let _smelt_tmp_1: String;
+    let _smelt_tmp_5: String;
+    let _smelt_tmp_0: String = fill(None::<Registry>, "a".to_owned())?;
+    _smelt_tmp_1 = "no receiver: ".to_owned() + &_smelt_tmp_0;
+    let _ = { println!("{}", _smelt_tmp_1); };
+    let _smelt_tmp_3: Registry = Registry::new();
+    let _smelt_tmp_4: String = fill(Some(_smelt_tmp_3), "a".to_owned())?;
+    _smelt_tmp_5 = "receiver: ".to_owned() + &_smelt_tmp_4;
+    let _ = { println!("{}", _smelt_tmp_5); };
     return Ok(());
 }
 
@@ -2999,37 +2901,6 @@ impl Registry {
 #![allow(dead_code, non_snake_case, unused_imports, unused_variables)]
 
 use super::*;
-
-pub(crate) fn first_pair(slot: SmeltUnion8) -> Option<(String, f64)> {
-    let mut _smelt_tmp_3: bool;
-    let _smelt_tmp_4: bool;
-    let _smelt_tmp_5: (String, f64);
-    let _smelt_tmp_2: Option<(String, f64)> = match slot.clone().into_smelt_unknown() {
-                        SmeltUnknown::String(value) => {
-                            let len = value.chars().count() as i64;
-                            let index = 0.0 as i64;
-                            let normalized = if index < 0 { len + index } else { index };
-                            usize::try_from(normalized).ok().and_then(|index| value.chars().nth(index).map(|ch| { let _smelt_element = SmeltUnknown::String(ch.to_string().into()); if let SmeltUnknown::Array(smelt_tuple_values) = _smelt_element.clone() { (match smelt_tuple_values.get(0).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }, match smelt_tuple_values.get(1).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) } else { panic!("unknown is not tuple") } }))
-                        }
-                        SmeltUnknown::Array(values) => {
-                            let len = values.len() as i64;
-                            let index = 0.0 as i64;
-                            let normalized = if index < 0 { len + index } else { index };
-                            usize::try_from(normalized).ok().and_then(|index| values.get(index).cloned().map(|_smelt_element| if let SmeltUnknown::Array(smelt_tuple_values) = _smelt_element.clone() { (match smelt_tuple_values.get(0).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }, match smelt_tuple_values.get(1).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) } else { panic!("unknown is not tuple") }))
-                        }
-                        SmeltUnknown::Object(values) => match smelt_get_object_field(&values, &smelt_number_to_string(0.0)) { SmeltUnknown::Undefined => None, _smelt_element => Some(if let SmeltUnknown::Array(smelt_tuple_values) = _smelt_element.clone() { (match smelt_tuple_values.get(0).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }, match smelt_tuple_values.get(1).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) } else { panic!("unknown is not tuple") }) },
-                        SmeltUnknown::Bool(_) | SmeltUnknown::Number(_) | SmeltUnknown::Symbol(_) | SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => None,
-                    };
-    let pairs: Option<(String, f64)> = _smelt_tmp_2;
-    _smelt_tmp_4 = pairs.clone().is_none();
-    _smelt_tmp_3 = _smelt_tmp_4;
-    if _smelt_tmp_3 {
-    return None::<(String, f64)>;
-    } else {
-    _smelt_tmp_5 = pairs.clone().expect("optional value was absent after narrowing");
-    return Some(_smelt_tmp_5);
-    }
-}
 
 pub(crate) fn fill(registry: Option<Registry>, key: String) -> Result<String, Box<dyn std::error::Error>> {
     let mut _smelt_tmp_4: String;

@@ -1289,23 +1289,6 @@ impl ModuleBuilder<'_> {
         )
     }
 
-    /// Lower a callback closure body from its constituent parts.
-    ///
-    /// Shared implementation behind [`Self::arrow_closure_body_expr`] and
-    /// [`Self::function_closure_body_expr`]. It binds the formal parameters into
-    /// closure locals, collects the captured outer locals referenced by the
-    /// body, lowers the body (an arrow expression body or a statement block) and
-    /// emits the closure expression with the inferred/annotated return type.
-    ///
-    /// `body_kind` selects the body form: [`ClosureBodyKind::ArrowExpression`]
-    /// lowers the single expression through the return-expression hint path (and
-    /// may infer the return type when it is left `Unknown`), while
-    /// [`ClosureBodyKind::Statements`] lowers a statement block — the form used
-    /// by block-bodied arrows and by `function` expression callbacks.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "shared closure-body lowering threads the params, body form, async flag, span and both contextual types through one call"
-    )]
     /// The type a closure body's `return` statements agree on, if any.
     ///
     /// Used when the caller had no return type to give a block-bodied callback
@@ -1338,6 +1321,23 @@ impl ModuleBuilder<'_> {
         inferred
     }
 
+    /// Lower a callback closure body from its constituent parts.
+    ///
+    /// Shared implementation behind [`Self::arrow_closure_body_expr`] and
+    /// [`Self::function_closure_body_expr`]. It binds the formal parameters into
+    /// closure locals, collects the captured outer locals referenced by the
+    /// body, lowers the body (an arrow expression body or a statement block) and
+    /// emits the closure expression with the inferred/annotated return type.
+    ///
+    /// `body_kind` selects the body form: [`ClosureBodyKind::ArrowExpression`]
+    /// lowers the single expression through the return-expression hint path (and
+    /// may infer the return type when it is left `Unknown`), while
+    /// [`ClosureBodyKind::Statements`] lowers a statement block — the form used
+    /// by block-bodied arrows and by `function` expression callbacks.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "shared closure-body lowering threads the params, body form, async flag, span and both contextual types through one call"
+    )]
     fn closure_body_expr_from_parts(
         &mut self,
         params: &oxc::ast::ast::FormalParameters<'_>,
@@ -1547,10 +1547,11 @@ impl ModuleBuilder<'_> {
         // `statement_terminates` is the same conservative test the switch
         // lowering uses for "can control reach the next case": a `return` or
         // `throw`, an `if` whose every arm terminates, a `try` whose block and
-        // handler both do. It says NO for shapes that do terminate but need
-        // real flow analysis to prove it (a `switch` where every case returns,
-        // a `while (true)`), and a `no` here only means the caller's fallback
-        // is kept — the pre-existing behaviour.
+        // handler both do, and a `switch` with a `default` whose every clause
+        // terminates. It still says NO for shapes that do terminate but need
+        // real flow analysis to prove it (a `while (true)`, a `switch` without a
+        // `default` that nonetheless covers its scrutinee), and a `no` here only
+        // means the caller's fallback is kept — the pre-existing behaviour.
         let body_always_returns = match &body_kind {
             ClosureBodyKind::ArrowExpression(_) => false,
             ClosureBodyKind::Statements(statements) => {

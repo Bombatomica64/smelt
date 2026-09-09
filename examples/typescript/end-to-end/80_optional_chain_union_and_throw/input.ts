@@ -1,29 +1,21 @@
-// Three rules about an optional chain, all three of them families the Hono
-// router slice hit:
+// A method that can THROW inside an optional chain propagates out of the
+// chain, which means the caller is a throwing function and the call carries
+// its `?` — a closure cannot, which is what made the optional chain answer
+// `Option<Result<..>>`.
 //
-// 1. a receiver whose static type is a generated UNION reaches the runtime
-//    narrowing through its `IntoSmeltUnknown` boundary adapter, not by matching
-//    `SmeltUnknown` arms against the union's own enum;
-// 2. the erased element that narrowing produces is converted to the read's
-//    declared RESULT type;
-// 3. a method that can THROW propagates out of the chain, which means the
-//    caller is a throwing function and the call carries its `?`.
-type Slot = number | [string, number][];
-
-function firstPair(slot: Slot): [string, number] | undefined {
-  const pairs = slot?.[0];
-  if (typeof pairs === 'number' || pairs === undefined) {
-    return undefined;
-  }
-  return pairs;
-}
-
-const fromNumber = firstPair(7);
-console.log('number arm: ' + (fromNumber === undefined ? 'none' : fromNumber[0]));
-const pairs: [string, number][] = [['a', 1], ['b', 2]];
-const fromPairs = firstPair(pairs);
-console.log('tuple arm: ' + (fromPairs === undefined ? 'none' : fromPairs[0] + '=' + String(fromPairs[1])));
-
+// This fixture used to also pin the two UNION rules of the same Hono family:
+// that a receiver whose static type is a generated union reaches the runtime
+// narrowing through its `IntoSmeltUnknown` boundary adapter (not by matching
+// `SmeltUnknown` arms against the union's own enum), and that the erased
+// element narrowing produces is converted to the read's declared result type.
+// Those two are an ERASED path by construction — an element read on a union
+// whose arms are not all indexable has no concrete Rust type to carry — so
+// keeping them here spent the zero-avoidable-erasure budget of the examples
+// corpus on output whose whole subject is erasure. They live in the executing
+// tier instead, where the assertion is the VALUE and not the spelling:
+// `union_optional_element_read_narrows_at_runtime` in
+// `crates/smelt-codegen-rust/tests/union_receiver_runtime.rs`. Fixtures 66 and
+// 74 were split the same way.
 class Registry {
   #seen: Record<string, boolean> = {};
 
@@ -40,8 +32,7 @@ class Registry {
 }
 
 // `registry?.insert(..)` calls a method that can throw, so `fill` is a throwing
-// function and the call inside the chain carries its `?` — a closure cannot,
-// which is what made the optional chain answer `Option<Result<..>>`.
+// function and the call inside the chain carries its `?`.
 function fill(registry: Registry | undefined, key: string): string {
   registry?.insert(key, true);
   return registry === undefined ? 'no registry' : registry.has(key);

@@ -2982,24 +2982,24 @@ pub(crate) fn classified(keys: SmeltList<String>) -> SmeltList<String> {
     let _smelt_tmp_1 = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
     match closure_arg_0.as_str() {
         "a" => {
-    SmeltUnknown::String("A".into())
+    "A".to_owned()
         }
         _ => {
-    SmeltUnknown::String((closure_arg_0.clone()).into())
+    closure_arg_0.clone()
         }
     }
     });
-    let _smelt_tmp_2: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
+    let _smelt_tmp_2: SmeltList<String> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
     match closure_arg_0.as_str() {
         "a" => {
-    SmeltUnknown::String("A".into())
+    "A".to_owned()
         }
         _ => {
-    SmeltUnknown::String((closure_arg_0.clone()).into())
+    closure_arg_0.clone()
         }
     }
     }); let smelt_array = keys.clone(); smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>() });
-    return { let smelt_l: SmeltList<_> = _smelt_tmp_2.clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }).collect::<Vec<_>>()) };
+    return _smelt_tmp_2;
 }
 
 pub(crate) fn widths(keys: SmeltList<String>) -> SmeltList<f64> {

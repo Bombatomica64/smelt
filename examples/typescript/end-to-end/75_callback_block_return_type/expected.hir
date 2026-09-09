@@ -137,9 +137,8 @@ interned types
   t10 = fn(List<String>) -> List<String>
   t11 = fn(List<String>) -> List<Float>
   t12 = List<Unknown>
-  t13 = fn(String, Int, List<String>) -> Unknown
-  t14 = fn(String, Int, List<String>) -> Float
-  t15 = fn(List<String>) -> List<String>
-  t16 = None
-  t17 = fn(List<String>) -> List<Float>
-  t18 = fn(Float, Float, Int, List<Float>) -> Float
+  t13 = fn(String, Int, List<String>) -> Float
+  t14 = fn(List<String>) -> List<String>
+  t15 = None
+  t16 = fn(List<String>) -> List<Float>
+  t17 = fn(Float, Float, Int, List<Float>) -> Float

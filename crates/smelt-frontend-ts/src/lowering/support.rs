@@ -190,6 +190,13 @@ pub(super) fn visibility(accessibility: Option<TSAccessibility>) -> Visibility {
 }
 
 /// Return whether a statement always terminates control flow.
+///
+/// Conservative in one direction only: a `true` answer means control cannot
+/// reach the statement AFTER this one, and a `false` answer means the analysis
+/// could not prove that — never the reverse. Callers rely on that asymmetry
+/// (the switch lowering asks "can control reach the next case", and callback
+/// return inference asks "can this body fall off its end"), so a shape that
+/// needs real flow analysis answers `false` rather than guessing.
 pub(super) fn statement_terminates(statement: &Statement<'_>) -> bool {
     match statement {
         Statement::ReturnStatement(_) | Statement::ThrowStatement(_) => true,
@@ -213,6 +220,36 @@ pub(super) fn statement_terminates(statement: &Statement<'_>) -> bool {
                 .is_none_or(|handler| handler.body.body.iter().any(statement_terminates));
             finalizer_terminates || (block_terminates && handler_terminates)
         }
+        // A `switch` leaves the enclosing statement when it cannot be left by
+        // falling out of it: there is a `default` clause (so some clause is
+        // always entered), and every clause the source can enter reaches a
+        // terminating statement. A clause with an EMPTY consequent falls
+        // through to the next one, so it carries no requirement of its own,
+        // which is why the LAST clause is required to be non-empty and
+        // terminating: it is the only clause with nowhere to fall through to.
+        //
+        // A `break` is deliberately not terminating (see the arm below), so the
+        // ordinary `case x: ...; break;` shape answers `false` here, as it must:
+        // control resumes after the `switch`.
+        //
+        // Requiring EVERY non-empty clause to terminate is stricter than JS
+        // semantics (a non-terminating clause falls through into the next one,
+        // which may itself terminate), and deliberately so: over-strictness
+        // only keeps a caller's fallback, while a wrong `true` would type a
+        // callback as if a fall-through path did not exist.
+        Statement::SwitchStatement(switch_stmt) => {
+            let has_default = switch_stmt
+                .cases
+                .iter()
+                .any(|case| case.test.is_none());
+            let every_clause_terminates = switch_stmt.cases.iter().all(|case| {
+                case.consequent.is_empty() || case.consequent.iter().any(statement_terminates)
+            });
+            let last_clause_terminates = switch_stmt.cases.last().is_some_and(|case| {
+                !case.consequent.is_empty() && case.consequent.iter().any(statement_terminates)
+            });
+            has_default && every_clause_terminates && last_clause_terminates
+        }
         Statement::BreakStatement(_)
         | Statement::ContinueStatement(_)
         | Statement::DebuggerStatement(_)
@@ -223,7 +260,6 @@ pub(super) fn statement_terminates(statement: &Statement<'_>) -> bool {
         | Statement::ForOfStatement(_)
         | Statement::ForStatement(_)
         | Statement::LabeledStatement(_)
-        | Statement::SwitchStatement(_)
         | Statement::WhileStatement(_)
         | Statement::WithStatement(_)
         | Statement::VariableDeclaration(_)
