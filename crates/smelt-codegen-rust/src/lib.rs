@@ -2955,6 +2955,44 @@ fn emit_source_with_free_function_router(
         writer.line("    Ok(current)");
         writer.line("}");
         writer.blank_line();
+        // `promise.then(..)`, `.catch(..)` and `.finally(..)` reached through an
+        // ERASED receiver. The typed spelling lowers to an `AsyncOp` in the
+        // frontend, but a promise that arrives as `SmeltUnknown` — the result of
+        // calling an erased callable, which is what a generic
+        // `TFunction extends () => any` parameter is — reads its member through
+        // `smelt_get_unknown_field`, and that answered `undefined`: the
+        // continuation silently vanished and the chain's value became a default
+        // (radash's `guard`, whose `func()` result is erased, answered its
+        // fallback for every input; H66).
+        //
+        // The derived promise is lazy exactly like every other one here: the
+        // future is not driven until `smelt_await`, which is what JavaScript
+        // does too. A handler's returned promise is flattened
+        // (`smelt_await_flatten`), so `then` never answers `Promise<Promise<T>>`.
+        writer.line("/// Run one promise continuation handler over a settled value.");
+        writer.line("///");
+        writer.line("/// A missing or non-callable handler passes the value through, which is");
+        writer.line("/// what `promise.then(undefined)` does in JavaScript.");
+        writer.line("#[allow(dead_code)]");
+        writer.line("async fn smelt_promise_continue(handler: Option<SmeltUnknown>, value: SmeltUnknown) -> Result<SmeltUnknown, Box<dyn std::error::Error>> {");
+        writer.line("    match handler {");
+        writer.line("        Some(SmeltUnknown::Function(handler)) => smelt_await_flatten((handler)(::std::vec![value])?).await,");
+        writer.line("        _ => Ok(value),");
+        writer.line("    }");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// Read a modeled member off an erased promise (`then`/`catch`/`finally`).");
+        writer.line("#[allow(dead_code)]");
+        writer.line("fn smelt_promise_member(promise: &SmeltPromise, field: &str) -> SmeltUnknown {");
+        writer.line("    let member: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = match field {");
+        writer.line("        \"then\" => { let source = promise.clone(); ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| { let source = source.clone(); let on_fulfilled = smelt_args.first().cloned(); let on_rejected = smelt_args.get(1).cloned(); Ok(SmeltUnknown::Promise(SmeltPromise::from_future(Box::pin(async move { match source.smelt_await().await { Ok(value) => smelt_promise_continue(on_fulfilled, value).await, Err(error) => match on_rejected { Some(handler) => smelt_promise_continue(Some(handler), smelt_thrown_value(&*error)).await, None => Err(error) } } })))) }) }");
+        writer.line("        \"catch\" => { let source = promise.clone(); ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| { let source = source.clone(); let on_rejected = smelt_args.first().cloned(); Ok(SmeltUnknown::Promise(SmeltPromise::from_future(Box::pin(async move { match source.smelt_await().await { Ok(value) => Ok(value), Err(error) => smelt_promise_continue(on_rejected, smelt_thrown_value(&*error)).await } })))) }) }");
+        writer.line("        \"finally\" => { let source = promise.clone(); ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| { let source = source.clone(); let on_settled = smelt_args.first().cloned(); Ok(SmeltUnknown::Promise(SmeltPromise::from_future(Box::pin(async move { let settled = source.smelt_await().await; if let Some(SmeltUnknown::Function(handler)) = on_settled { (handler)(::std::vec![])?; } settled })))) }) }");
+        writer.line("        _ => return SmeltUnknown::Undefined,");
+        writer.line("    };");
+        writer.line("    SmeltUnknown::Function(member)");
+        writer.line("}");
+        writer.blank_line();
         // Generic promise-value ABI. A source `Promise<T>` / `Type::Future(T)`
         // lowers to `SmeltFuture<T>` in *every* position (parameter, field,
         // return, local, async-op result), so the same MIR future type renders
@@ -4205,6 +4243,11 @@ fn emit_source_with_free_function_router(
         writer.line("        SmeltUnknown::Array(values) => smelt_get_array_field(values, field),");
         writer.line("        SmeltUnknown::String(marker) if &**marker == \"__smelt_proto:object\" => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined),");
         writer.line("        SmeltUnknown::Function(function) => match smelt_function_value_property(function, field) { SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },");
+        // A PROMISE reached dynamically still has its continuation members: the
+        // typed `p.catch(f)` lowers to an `AsyncOp`, and this is the same
+        // operation for a promise the static types lost (see
+        // `smelt_promise_member`).
+        writer.line("        SmeltUnknown::Promise(promise) => smelt_promise_member(promise, field),");
         writer.line("        _ => SmeltUnknown::Undefined,");
         writer.line("    }");
         writer.line("}");

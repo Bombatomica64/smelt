@@ -517,14 +517,43 @@ impl FunctionEmitter<'_> {
                 };
                 let future_text = self.await_operand_text(future)?;
                 let (prelude, callback_expr) = self.promise_callback_hoist(callback)?;
+                // The handler receives the THROWN VALUE, recovered from the
+                // error channel — not the rejection's message text. A `catch`
+                // binding sees the value JavaScript threw, so `error instanceof
+                // Error`, `error.name` and a non-`Error` rejection reason all
+                // answer as they do in the source.
                 let invocation = self.promise_callback_invocation_with(
                     callback,
                     &callback_expr,
-                    "SmeltUnknown::String(smelt_error.to_string().into())",
+                    &crate::thrown::thrown_value_expr("smelt_error"),
                 )?;
-                let default_value = self.default_value(*output_ty)?;
+                // `catch` RECOVERS: the promise it answers settles with the
+                // handler's value, exactly as `then`'s does. Discarding it and
+                // answering the output type's default (`let _ = {invocation};`)
+                // made `await p.catch(() => 'fallback')` evaluate to `""` — a
+                // silent wrong value on the standard recovery idiom.
+                //
+                // A handler that returns a promise is flattened, so `catch`
+                // never answers `Promise<Promise<T>>`; this is the same
+                // settle/flatten pair the `Then` arm above uses.
+                let callback_return_ty = match self.mir.types.get(self.operand_ty(callback)?) {
+                    Some(Type::Function(function)) => function.return_ty,
+                    _ => self.type_id(Type::Unknown)?,
+                };
+                let (settle, settled_ty) = match self.mir.types.get(callback_return_ty) {
+                    Some(Type::Future(item)) => (
+                        format!("let smelt_callback_value = {invocation}.await?;"),
+                        *item,
+                    ),
+                    _ => (
+                        format!("let smelt_callback_value = {invocation};"),
+                        callback_return_ty,
+                    ),
+                };
+                let recovered =
+                    self.value_at_type_text("smelt_callback_value", settled_ty, *output_ty)?;
                 Ok(format!(
-                    "{{ {prelude}SmeltFuture::from_future(Box::pin(async move {{ match {future_text}.await {{ Ok(smelt_value) => Ok::<_, Box<dyn std::error::Error>>(smelt_value), Err(smelt_error) => {{ let _ = {invocation}; Ok::<_, Box<dyn std::error::Error>>({default_value}) }} }} }})) }}"
+                    "{{ {prelude}SmeltFuture::from_future(Box::pin(async move {{ match {future_text}.await {{ Ok(smelt_value) => Ok::<_, Box<dyn std::error::Error>>(smelt_value), Err(smelt_error) => {{ {settle} Ok::<_, Box<dyn std::error::Error>>({recovered}) }} }} }})) }}"
                 ))
             }
             smelt_hir::AsyncOp::SpawnLocal => {

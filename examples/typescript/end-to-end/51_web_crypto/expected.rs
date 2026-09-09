@@ -1457,6 +1457,30 @@ async fn smelt_await_flatten(value: SmeltUnknown) -> Result<SmeltUnknown, Box<dy
     Ok(current)
 }
 
+/// Run one promise continuation handler over a settled value.
+///
+/// A missing or non-callable handler passes the value through, which is
+/// what `promise.then(undefined)` does in JavaScript.
+#[allow(dead_code)]
+async fn smelt_promise_continue(handler: Option<SmeltUnknown>, value: SmeltUnknown) -> Result<SmeltUnknown, Box<dyn std::error::Error>> {
+    match handler {
+        Some(SmeltUnknown::Function(handler)) => smelt_await_flatten((handler)(::std::vec![value])?).await,
+        _ => Ok(value),
+    }
+}
+
+/// Read a modeled member off an erased promise (`then`/`catch`/`finally`).
+#[allow(dead_code)]
+fn smelt_promise_member(promise: &SmeltPromise, field: &str) -> SmeltUnknown {
+    let member: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = match field {
+        "then" => { let source = promise.clone(); ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| { let source = source.clone(); let on_fulfilled = smelt_args.first().cloned(); let on_rejected = smelt_args.get(1).cloned(); Ok(SmeltUnknown::Promise(SmeltPromise::from_future(Box::pin(async move { match source.smelt_await().await { Ok(value) => smelt_promise_continue(on_fulfilled, value).await, Err(error) => match on_rejected { Some(handler) => smelt_promise_continue(Some(handler), smelt_thrown_value(&*error)).await, None => Err(error) } } })))) }) }
+        "catch" => { let source = promise.clone(); ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| { let source = source.clone(); let on_rejected = smelt_args.first().cloned(); Ok(SmeltUnknown::Promise(SmeltPromise::from_future(Box::pin(async move { match source.smelt_await().await { Ok(value) => Ok(value), Err(error) => smelt_promise_continue(on_rejected, smelt_thrown_value(&*error)).await } })))) }) }
+        "finally" => { let source = promise.clone(); ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| { let source = source.clone(); let on_settled = smelt_args.first().cloned(); Ok(SmeltUnknown::Promise(SmeltPromise::from_future(Box::pin(async move { let settled = source.smelt_await().await; if let Some(SmeltUnknown::Function(handler)) = on_settled { (handler)(::std::vec![])?; } settled })))) }) }
+        _ => return SmeltUnknown::Undefined,
+    };
+    SmeltUnknown::Function(member)
+}
+
 #[allow(dead_code)]
 enum SmeltFutureState<T> {
     Pending(::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>),
@@ -1898,6 +1922,7 @@ fn smelt_get_unknown_field(value: &SmeltUnknown, field: &str) -> SmeltUnknown {
         SmeltUnknown::Array(values) => smelt_get_array_field(values, field),
         SmeltUnknown::String(marker) if &**marker == "__smelt_proto:object" => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined),
         SmeltUnknown::Function(function) => match smelt_function_value_property(function, field) { SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },
+        SmeltUnknown::Promise(promise) => smelt_promise_member(promise, field),
         _ => SmeltUnknown::Undefined,
     }
 }

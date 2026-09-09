@@ -860,6 +860,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "81_receiver_capture_in_callback",
     "82_class_expression_binding",
     "83_same_named_methods_across_classes",
+    "84_promise_continuations",
 ];
 
 #[test]

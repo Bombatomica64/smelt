@@ -11972,8 +11972,11 @@ export function head<T>(arr: readonly T[]): T | undefined {
         !source.contains("unwrap_or(Default::default())"),
         "an out-of-range element must be `None`, not the element default:\n{source}"
     );
+    // Counted in the PROGRAM half only: the shared runtime prelude has its own
+    // `.cloned()` calls (the erased promise's continuation members clone their
+    // handler arguments), and this assertion is about the two lowered functions.
     assert_eq!(
-        source.matches(".cloned();").count(),
+        program_body(&source).matches(".cloned();").count(),
         2,
         "both functions must return the bare `get(..).cloned()` option:\n{source}"
     );

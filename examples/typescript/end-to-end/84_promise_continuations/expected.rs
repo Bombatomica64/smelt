@@ -20,6 +20,33 @@ fn smelt_panic_message(panic: &(dyn ::std::any::Any + Send)) -> String { if let 
 /// Recover the error class a `catch` observes from a caught panic.
 fn smelt_panic_class(panic: &(dyn ::std::any::Any + Send)) -> String { panic.downcast_ref::<SmeltPanic>().map_or_else(|| "Error".to_owned(), |payload| payload.class.clone()) }
 thread_local! {
+    static SMELT_VIRTUAL_MS: ::std::cell::Cell<u64> = const { ::std::cell::Cell::new(0) };
+    static SMELT_TIMER_EPOCH: ::std::cell::Cell<Option<::std::time::Instant>> = const { ::std::cell::Cell::new(None) };
+}
+
+/// Monotonic virtual + wall clock (ms) shared by JS timers and `Date.now()`.
+///
+/// Returns real elapsed wall time since a fixed epoch plus the virtual
+/// fast-forward accumulated by `sleep`/timer draining, so `setTimeout`
+/// deadlines and `Date.now()` measurements share one timeline.
+fn smelt_mono_ms() -> u64 {
+    let epoch = SMELT_TIMER_EPOCH.with(|epoch| match epoch.get() {
+        Some(instant) => instant,
+        None => { let instant = ::std::time::Instant::now(); epoch.set(Some(instant)); instant }
+    });
+    let real_ms = ::std::time::Instant::now().saturating_duration_since(epoch).as_millis() as u64;
+    real_ms.saturating_add(SMELT_VIRTUAL_MS.with(::std::cell::Cell::get))
+}
+
+/// Fast-forward the virtual clock so `smelt_mono_ms()` reaches `target_ms`.
+fn smelt_virtual_advance_to(target_ms: u64) {
+    let now = smelt_mono_ms();
+    if target_ms > now {
+        SMELT_VIRTUAL_MS.with(|virtual_ms| virtual_ms.set(virtual_ms.get().saturating_add(target_ms - now)));
+    }
+}
+
+thread_local! {
     static SMELT_NEXT_OBJECT_ID: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
 }
 
@@ -1383,6 +1410,7 @@ impl SmeltPromise {
             if let Some(result) = self.state.borrow().clone() {
                 return result.map_err(smelt_throw);
             }
+            smelt_sleep_ms(0.0).await;
             tokio::task::yield_now().await;
         }
     }
@@ -1990,6 +2018,201 @@ impl Default for SmeltUnknown {
     }
 }
 
+struct SmeltTimer {
+    id: u64,
+    due_ms: u64,
+    callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut() -> Result<(), Box<dyn std::error::Error>>>>,
+    // `Some(period)` marks a repeating `setInterval` timer that re-arms
+    // itself `period` ms after each fire; `None` is a one-shot `setTimeout`.
+    period_ms: Option<u64>,
+}
+
+thread_local! {
+    static SMELT_NEXT_TIMER_ID: ::std::cell::Cell<u64> = const { ::std::cell::Cell::new(1) };
+    static SMELT_TIMERS: ::std::cell::RefCell<Vec<SmeltTimer>> = const { ::std::cell::RefCell::new(Vec::new()) };
+    static SMELT_PROMISE_TASKS: ::std::cell::RefCell<Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = ()>>>>> = const { ::std::cell::RefCell::new(Vec::new()) };
+    // Non-zero while a `Promise.race` driver owns the event loop; see
+    // `smelt_promise_race`.
+    static SMELT_RACE_DEPTH: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) };
+}
+
+fn smelt_reset_timers() {
+    SMELT_NEXT_TIMER_ID.with(|next| next.set(1));
+    SMELT_VIRTUAL_MS.with(|virtual_ms| virtual_ms.set(0));
+    SMELT_TIMER_EPOCH.with(|epoch| epoch.set(None));
+    SMELT_TIMERS.with(|timers| timers.borrow_mut().clear());
+    SMELT_PROMISE_TASKS.with(|tasks| tasks.borrow_mut().clear());
+    SMELT_RACE_DEPTH.with(|depth| depth.set(0));
+    SMELT_PRIME_DEPTH.with(|depth| depth.set(0));
+}
+
+fn smelt_noop_waker() -> ::std::task::Waker {
+    unsafe fn clone(_: *const ()) -> ::std::task::RawWaker { smelt_raw_waker() }
+    unsafe fn wake(_: *const ()) {}
+    unsafe fn wake_by_ref(_: *const ()) {}
+    unsafe fn drop(_: *const ()) {}
+    fn smelt_raw_waker() -> ::std::task::RawWaker { ::std::task::RawWaker::new(::std::ptr::null(), &::std::task::RawWakerVTable::new(clone, wake, wake_by_ref, drop)) }
+    unsafe { ::std::task::Waker::from_raw(smelt_raw_waker()) }
+}
+
+fn smelt_spawn_promise_task(task: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = ()>>>) {
+    SMELT_PROMISE_TASKS.with(|tasks| tasks.borrow_mut().push(task));
+}
+
+async fn smelt_drain_promise_tasks() {
+    for _ in 0..64 {
+        let mut tasks = SMELT_PROMISE_TASKS.with(|tasks| ::std::mem::take(&mut *tasks.borrow_mut()));
+        if tasks.is_empty() { break; }
+        let waker = smelt_noop_waker();
+        let mut cx = ::std::task::Context::from_waker(&waker);
+        let mut pending = Vec::new();
+        for mut task in tasks.drain(..) {
+            if task.as_mut().poll(&mut cx).is_pending() { pending.push(task); }
+        }
+        let had_pending = !pending.is_empty();
+        SMELT_PROMISE_TASKS.with(|tasks| tasks.borrow_mut().extend(pending));
+        if !had_pending { break; }
+        tokio::task::yield_now().await;
+    }
+}
+
+fn smelt_set_timeout(callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut() -> Result<(), Box<dyn std::error::Error>>>>, delay_ms: f64) -> SmeltUnknown {
+    let id = SMELT_NEXT_TIMER_ID.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id });
+    let delay_ms = if delay_ms.is_finite() && delay_ms > 0.0 { delay_ms as u64 } else { 0 };
+    let due_ms = smelt_mono_ms().saturating_add(delay_ms);
+    SMELT_TIMERS.with(|timers| timers.borrow_mut().push(SmeltTimer { id, due_ms, callback, period_ms: None }));
+    SmeltUnknown::Number(id as f64)
+}
+
+fn smelt_set_interval(callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut() -> Result<(), Box<dyn std::error::Error>>>>, period_ms: f64) -> SmeltUnknown {
+    let id = SMELT_NEXT_TIMER_ID.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id });
+    // Clamp non-positive periods to 1 ms so an interval still advances virtual
+    // time and cannot busy-loop the drain at the current instant.
+    let period_ms = if period_ms.is_finite() && period_ms > 0.0 { period_ms as u64 } else { 1 };
+    let due_ms = smelt_mono_ms().saturating_add(period_ms);
+    SMELT_TIMERS.with(|timers| timers.borrow_mut().push(SmeltTimer { id, due_ms, callback, period_ms: Some(period_ms) }));
+    SmeltUnknown::Number(id as f64)
+}
+
+fn smelt_clear_timeout<T: IntoSmeltUnknown>(handle: T) {
+    let SmeltUnknown::Number(id) = handle.into_smelt_unknown() else { return; };
+    let id = id as u64;
+    SMELT_TIMERS.with(|timers| timers.borrow_mut().retain(|timer| timer.id != id));
+}
+
+fn smelt_clear_interval<T: IntoSmeltUnknown>(handle: T) { smelt_clear_timeout(handle) }
+
+fn smelt_drain_due_timers(id_barrier: u64) {
+    loop {
+        let now = smelt_mono_ms();
+        let due = SMELT_TIMERS.with(|timers| {
+            let mut timers = timers.borrow_mut();
+            let mut due = Vec::new();
+            let mut pending = Vec::new();
+            for timer in timers.drain(..) {
+                if timer.due_ms <= now && timer.id < id_barrier { due.push(timer); } else { pending.push(timer); }
+            }
+            *timers = pending;
+            due
+        });
+        if due.is_empty() { break; }
+        for timer in due {
+            (&mut *timer.callback.borrow_mut())().unwrap_or_else(|error| smelt_panic_throw(error));
+            // Re-arm repeating `setInterval` timers for their next period. The
+            // next fire is scheduled `period` ms from the current virtual time, so
+            // it is strictly in the future and cannot re-fire within this drain pass.
+            if let Some(period_ms) = timer.period_ms {
+                let next_due = now.saturating_add(period_ms);
+                SMELT_TIMERS.with(|timers| timers.borrow_mut().push(SmeltTimer { id: timer.id, due_ms: next_due, callback: timer.callback.clone(), period_ms: Some(period_ms) }));
+            }
+        }
+    }
+}
+
+async fn smelt_sleep_ms(delay_ms: f64) {
+    if SMELT_PRIME_DEPTH.with(::std::cell::Cell::get) > 0 { tokio::task::yield_now().await; }
+    smelt_drain_promise_tasks().await;
+    let delay_ms = if delay_ms.is_finite() && delay_ms > 0.0 { delay_ms as u64 } else { 0 };
+    let target_ms = smelt_mono_ms().saturating_add(delay_ms);
+    let id_barrier = if delay_ms == 0 { SMELT_NEXT_TIMER_ID.with(::std::cell::Cell::get) } else { u64::MAX };
+    let mut fired_any = false;
+    loop {
+        let next_due = SMELT_TIMERS.with(|timers| timers.borrow().iter().filter(|timer| timer.due_ms <= target_ms && timer.id < id_barrier).map(|timer| timer.due_ms).min());
+        let Some(next_due) = next_due else { break; };
+        fired_any = true;
+        smelt_virtual_advance_to(next_due);
+        smelt_drain_due_timers(id_barrier);
+        smelt_drain_promise_tasks().await;
+    }
+    smelt_virtual_advance_to(target_ms);
+    'idle: {
+        // A `Promise.race` driver owns the clock while it is running: if a
+        // racer advanced time here, polling one racer could fire ANOTHER
+        // racer's timer, so both settle in the same round and the winner
+        // stops being the one that finished first. Yield instead and let
+        // `smelt_promise_race` take exactly one timer step per round.
+        if delay_ms != 0 || fired_any || SMELT_RACE_DEPTH.with(::std::cell::Cell::get) > 0 { break 'idle; }
+        let tasks_pending = SMELT_PROMISE_TASKS.with(|tasks| !tasks.borrow().is_empty());
+        if tasks_pending { break 'idle; }
+        let earliest = SMELT_TIMERS.with(|timers| timers.borrow().iter().filter(|timer| timer.id < id_barrier).map(|timer| timer.due_ms).min());
+        let Some(earliest) = earliest else { break 'idle; };
+        smelt_virtual_advance_to(earliest);
+        smelt_drain_due_timers(id_barrier);
+        smelt_drain_promise_tasks().await;
+    }
+    smelt_drain_promise_tasks().await;
+    if SMELT_RACE_DEPTH.with(::std::cell::Cell::get) == 0 { tokio::task::yield_now().await; }
+}
+
+thread_local! {
+    /// Open handles that keep the program alive, in Node's sense.
+    static SMELT_LIVE_HANDLES: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) };
+}
+/// Register a handle that must keep the program from exiting.
+#[allow(dead_code)]
+fn smelt_retain_handle() { SMELT_LIVE_HANDLES.with(|handles| handles.set(handles.get().saturating_add(1))); }
+/// Release a handle registered by `smelt_retain_handle`.
+#[allow(dead_code)]
+fn smelt_release_handle() { SMELT_LIVE_HANDLES.with(|handles| handles.set(handles.get().saturating_sub(1))); }
+/// Run the event loop until the program is allowed to exit.
+///
+/// First the ordinary run-until-idle drain, then Node's ref'd-handle
+/// rule: stay alive while any handle is open. Polling (rather than a
+/// notification) is deliberate -- this loop runs once, at the very end of
+/// the program, and only while a handle really is open, so its cost is a
+/// wakeup every few milliseconds in a process that is otherwise just
+/// serving.
+#[allow(dead_code)]
+async fn smelt_run_until_exit() {
+    smelt_sleep_ms(0.0).await;
+    while SMELT_LIVE_HANDLES.with(::std::cell::Cell::get) > 0 {
+        tokio::time::sleep(::std::time::Duration::from_millis(5)).await;
+    }
+}
+
+async fn smelt_promise_race<T>(mut racers: Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>>) -> Result<T, Box<dyn std::error::Error>> {
+    struct SmeltRaceGuard;
+    impl Drop for SmeltRaceGuard { fn drop(&mut self) { SMELT_RACE_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1))); } }
+    SMELT_RACE_DEPTH.with(|depth| depth.set(depth.get().saturating_add(1)));
+    let _smelt_race_guard = SmeltRaceGuard;
+    loop {
+        let waker = smelt_noop_waker();
+        let mut cx = ::std::task::Context::from_waker(&waker);
+        for racer in racers.iter_mut() {
+            if let ::std::task::Poll::Ready(result) = ::std::future::Future::poll(racer.as_mut(), &mut cx) { return result; }
+        }
+        smelt_drain_promise_tasks().await;
+        let id_barrier = SMELT_NEXT_TIMER_ID.with(::std::cell::Cell::get);
+        let earliest = SMELT_TIMERS.with(|timers| timers.borrow().iter().filter(|timer| timer.id < id_barrier).map(|timer| timer.due_ms).min());
+        if let Some(earliest) = earliest {
+            smelt_virtual_advance_to(earliest);
+            smelt_drain_due_timers(id_barrier);
+            smelt_drain_promise_tasks().await;
+        }
+        tokio::task::yield_now().await;
+    }
+}
+
 impl SmeltUnknown {
     /// Returns the JavaScript-style length for unknown string, array, and object values.
     pub fn len(&self) -> usize {
@@ -2397,67 +2620,6 @@ impl<K, T> IntoSmeltUnknown for SmeltRecord<K, T> where K: IntoSmeltUnknown + Eq
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
-struct Shape {
-    plain: Option<f64>,
-    camel_case: Option<String>,
-    snake_case: Option<String>,
-    a_very_long_camel_name: Option<f64>,
-}
-impl IntoSmeltUnknown for Shape {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("plain".to_owned(), self.plain.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Number(value as f64))),
-        ("camelCase".to_owned(), self.camel_case.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))),
-        ("snake_case".to_owned(), self.snake_case.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::String(value.into()))),
-        ("aVeryLongCamelName".to_owned(), self.a_very_long_camel_name.map_or(SmeltUnknown::Undefined, |value| SmeltUnknown::Number(value as f64))),
-        ])))
-    }
-}
-impl SmeltFromUnknown for Shape {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("plain") {
-                result.plain = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-            if let Some(field) = object.get("camelCase") {
-                result.camel_case = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-            if let Some(field) = object.get("snake_case") {
-                result.snake_case = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-            if let Some(field) = object.get("aVeryLongCamelName") {
-                result.a_very_long_camel_name = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-        }
-        result
-    }
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-struct Wrapper {
-    inner_shape: Option<Shape>,
-}
-impl IntoSmeltUnknown for Wrapper {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::from([
-        ("innerShape".to_owned(), self.inner_shape.map_or(SmeltUnknown::Undefined, |value| (value).into_smelt_unknown())),
-        ])))
-    }
-}
-impl SmeltFromUnknown for Wrapper {
-    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(field) = object.get("innerShape") {
-                result.inner_shape = SmeltFromUnknown::smelt_from_unknown(field);
-            }
-        }
-        result
-    }
-}
-
 thread_local! { static SMELT_REGEX_CACHE: ::std::cell::RefCell<::std::collections::HashMap<String, ::std::option::Option<::std::rc::Rc<fancy_regex::Regex>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 
 const SMELT_REGEX_SIZE_LIMIT: usize = 64 * 1024 * 1024;
@@ -2826,51 +2988,17 @@ impl SmeltFromUnknown for SmeltMatch {
 }
 
 // @smelt:prelude-end — generated program below
-fn main() {
-    let inner: Option<Shape>;
-    let _smelt_tmp_20: bool;
-    let mut _smelt_tmp_21: String;
-    let _smelt_tmp_22: Option<String>;
-    let _smelt_tmp_25: bool;
-    let mut _smelt_tmp_26: String;
-    let _smelt_tmp_27: Option<f64>;
-    let _smelt_tmp_4: Shape = Shape { plain: Some(1.0), camel_case: Some("a".to_owned()), snake_case: Some("b".to_owned()), a_very_long_camel_name: Some(41.0) };
-    let full: Shape = _smelt_tmp_4;
-    let _smelt_tmp_5: Shape = Shape { plain: None::<f64>, camel_case: Some("only".to_owned()), snake_case: None::<String>, a_very_long_camel_name: None::<f64> };
-    let partial: Shape = _smelt_tmp_5;
-    let _smelt_tmp_6: Shape = Shape { plain: Some(2.0), camel_case: Some("deep".to_owned()), snake_case: None::<String>, a_very_long_camel_name: None::<f64> };
-    let _smelt_tmp_7: Wrapper = Wrapper { inner_shape: Some(_smelt_tmp_6) };
-    let nested: Wrapper = _smelt_tmp_7;
-    let _smelt_tmp_8: String = number_of(full.plain.clone());
-    let _ = { println!("{}", _smelt_tmp_8); };
-    let _smelt_tmp_10: String = text_of(full.camel_case.clone());
-    let _ = { println!("{}", _smelt_tmp_10); };
-    let _smelt_tmp_12: String = text_of(full.snake_case.clone());
-    let _ = { println!("{}", _smelt_tmp_12); };
-    let _smelt_tmp_14: String = number_of(full.a_very_long_camel_name.clone());
-    let _ = { println!("{}", _smelt_tmp_14); };
-    let _smelt_tmp_16: String = text_of(partial.camel_case.clone());
-    let _ = { println!("{}", _smelt_tmp_16); };
-    let _smelt_tmp_18: String = text_of(partial.snake_case.clone());
-    let _ = { println!("{}", _smelt_tmp_18); };
-    inner = nested.inner_shape.clone();
-    _smelt_tmp_20 = inner.clone().is_none();
-    if _smelt_tmp_20 {
-    _smelt_tmp_21 = "no inner".to_owned();
-    } else {
-    _smelt_tmp_22 = inner.clone().as_ref().and_then(|_smelt_value| _smelt_value.camel_case.clone());
-    let _smelt_tmp_23: String = text_of(_smelt_tmp_22);
-    _smelt_tmp_21 = _smelt_tmp_23;
-    }
-    let _ = { println!("{}", _smelt_tmp_21); };
-    _smelt_tmp_25 = inner.clone().is_none();
-    if _smelt_tmp_25 {
-    _smelt_tmp_26 = "no inner".to_owned();
-    } else {
-    _smelt_tmp_27 = inner.as_ref().and_then(|_smelt_value| _smelt_value.plain.clone());
-    let _smelt_tmp_28: String = number_of(_smelt_tmp_27);
-    _smelt_tmp_26 = _smelt_tmp_28;
-    }
-    let _ = { println!("{}", _smelt_tmp_26); };
-    return;
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+let smelt_runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+let smelt_local = tokio::task::LocalSet::new();
+smelt_local.block_on(&smelt_runtime, async move {
+    let _smelt_tmp_1: String;
+    let _smelt_tmp_4: ();
+    let _smelt_tmp_0 = SmeltFuture::from_future(Box::pin(run()));
+    _smelt_tmp_1 = _smelt_tmp_0.await?;
+    let _ = { println!("{}", _smelt_tmp_1); };
+    let _smelt_tmp_3: SmeltFuture<()> = SmeltFuture::from_future(Box::pin(async move { smelt_run_until_exit().await; Ok::<_, Box<dyn std::error::Error>>(()) }));
+    _smelt_tmp_4 = _smelt_tmp_3.await?;
+    return Ok(());
+})
 }
