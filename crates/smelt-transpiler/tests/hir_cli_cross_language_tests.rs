@@ -853,6 +853,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "73_set_insertion_order",
     "74_typed_array_views",
     "75_callback_block_return_type",
+    "76_logical_assignment_store",
 ];
 
 #[test]

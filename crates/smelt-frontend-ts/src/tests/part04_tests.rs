@@ -4722,7 +4722,13 @@ export function read(value: number | undefined): number | undefined {
 }
 
 #[test]
-fn lowers_logical_or_assignment_as_lazy_value_selection() -> Result<(), String> {
+fn lowers_logical_or_assignment_as_a_conditional_store() -> Result<(), String> {
+    // `value ||= 3` is `value || (value = 3)`: the STORE is what the test
+    // guards, not the value. Lowering it as the unconditional
+    // `value = (value ? value : 3)` was observationally equivalent for a local
+    // but wrong for a record element, where storing the value the test rejected
+    // CREATES a key that JavaScript leaves absent (`rec[k] &&= 9`), so the
+    // shape asserted here is the branch.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
         ts!(r"
@@ -4736,11 +4742,31 @@ export function initialize(value: number): number {
     let module = module(&ctx, module_id)?;
     let body = function_body(&ctx, function_item(&ctx, module, 0)?)?;
 
+    let stmt_at = |stmt: smelt_hir::StmtId| {
+        body.stmts.get(usize::try_from(stmt.0).unwrap_or(usize::MAX))
+    };
+    let stores_conditionally = body.stmts.iter().any(|stmt| match stmt {
+        Stmt::If {
+            then_block,
+            else_block,
+            ..
+        } => {
+            else_block.is_none()
+                && body
+                    .blocks
+                    .get(usize::try_from(then_block.0).unwrap_or(usize::MAX))
+                    .is_some_and(|then| {
+                        then.stmts
+                            .iter()
+                            .filter_map(|stmt| stmt_at(*stmt))
+                            .any(|stmt| matches!(stmt, Stmt::Assign { .. }))
+                    })
+        }
+        _ => false,
+    });
     ensure!(
-        body.exprs
-            .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::Conditional { .. })),
-        "expected ||= to preserve short-circuit selection through a conditional"
+        stores_conditionally,
+        "expected ||= to store only in the branch its test selects"
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())

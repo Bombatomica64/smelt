@@ -1,0 +1,391 @@
+module examples/typescript/end-to-end/76_logical_assignment_store/input.ts (ModuleId(0))
+  body BodyId(1)
+  items
+    class Leaf fields [Public tag: String] constructor Some(ItemId(0)) methods [] implements []
+  locals
+    %0 let local: Float
+    %1 const localValue: Float
+    %2 const holder: Dict<String, Float>
+    %3 const fieldValue: Float
+    %4 const numbers: Dict<String, Float>
+    %5 const elementValue: Float
+    %6 let falsyLocal: Float
+    %7 let __smelt_logical_7: Float
+    %8 const __smelt_logical_value_8: Float
+    %9 const orLocal: Float
+    %10 const falsyHolder: Dict<String, Float>
+    %11 let __smelt_logical_11: Float
+    %12 const __smelt_logical_value_12: Float
+    %13 const orField: Float
+    %14 const leaves: Dict<String, Leaf>
+    %15 let __smelt_logical_15: Optional<Leaf>
+    %16 const __smelt_logical_value_16: Leaf
+    %17 const leaf: Optional<Leaf>
+    %18 let __smelt_logical_18: Optional<Leaf>
+    %19 const __smelt_logical_value_19: Leaf
+    %20 const kept: Optional<Leaf>
+    %21 const nullish: Dict<String, Float>
+    %22 const __smelt_logical_value_22: Float
+    %23 const conjunction: Dict<String, Float>
+    %24 const __smelt_logical_value_24: Float
+    %25 const present: Dict<String, Float>
+    %26 const __smelt_logical_value_26: Float
+    %27 let absentLocal: Optional<Float>
+    %28 const __smelt_logical_value_28: Float
+    %29 const optional: Dict<String, Optional<Float>>
+    %30 const __smelt_logical_value_30: Float
+    %31 let truthy: Float
+    %32 const __smelt_logical_value_32: Float
+  exprs
+    #0: Float = 0.0
+    #1: Float = %0
+    #2: Float = 5.0
+    #3: String = "local: "
+    #4: Float = %1
+    #5: String = primitive_cast_string #4
+    #6: String = Add #3, #5
+    #7: String = " "
+    #8: String = Add #6, #7
+    #9: Float = %0
+    #10: String = primitive_cast_string #9
+    #11: String = Add #8, #10
+    #12: None = @2(console_log)
+    #13: None = call #12(#11)
+    #14: String = "field"
+    #15: Float = 0.0
+    #16: Dict<String, Float> = {#14: #15}
+    #17: Dict<String, Float> = %2
+    #18: Float = #17.field
+    #19: Float = 5.0
+    #20: String = "field: "
+    #21: Float = %3
+    #22: String = primitive_cast_string #21
+    #23: String = Add #20, #22
+    #24: String = " "
+    #25: String = Add #23, #24
+    #26: Dict<String, Float> = %2
+    #27: Float = #26.field
+    #28: String = primitive_cast_string #27
+    #29: String = Add #25, #28
+    #30: None = @3(console_log)
+    #31: None = call #30(#29)
+    #32: Dict<String, Float> = {}
+    #33: Dict<String, Float> = %4
+    #34: String = "a"
+    #35: Float = #33[#34]
+    #36: Float = 5.0
+    #37: String = "element: "
+    #38: Float = %5
+    #39: String = primitive_cast_string #38
+    #40: String = Add #37, #39
+    #41: String = " "
+    #42: String = Add #40, #41
+    #43: Dict<String, Float> = %4
+    #44: List<String> = dict_keys #43
+    #45: String = ","
+    #46: String = string_join #44, #45
+    #47: String = Add #42, #46
+    #48: String = " "
+    #49: String = Add #47, #48
+    #50: Dict<String, Float> = %4
+    #51: String = "a"
+    #52: Float = #50[#51]
+    #53: String = primitive_cast_string #52
+    #54: String = Add #49, #53
+    #55: None = @4(console_log)
+    #56: None = call #55(#54)
+    #57: Float = 0.0
+    #58: Float = %6
+    #59: Float = 0.0
+    #60: Bool = NotEq #58, #59
+    #61: Bool = Not #60
+    #62: Float = 7.0
+    #63: Float = %8
+    #64: Float = %7
+    #65: Float = %8
+    #66: Float = %7
+    #67: Float = %7
+    #68: String = "or local: "
+    #69: Float = %9
+    #70: String = primitive_cast_string #69
+    #71: String = Add #68, #70
+    #72: String = " "
+    #73: String = Add #71, #72
+    #74: Float = %6
+    #75: String = primitive_cast_string #74
+    #76: String = Add #73, #75
+    #77: None = @5(console_log)
+    #78: None = call #77(#76)
+    #79: String = "field"
+    #80: Float = 0.0
+    #81: Dict<String, Float> = {#79: #80}
+    #82: Dict<String, Float> = %10
+    #83: Float = #82.field
+    #84: Float = 0.0
+    #85: Bool = NotEq #83, #84
+    #86: Bool = Not #85
+    #87: Float = 7.0
+    #88: Float = %12
+    #89: Float = %11
+    #90: Float = %12
+    #91: Float = %11
+    #92: Float = %11
+    #93: String = "or field: "
+    #94: Float = %13
+    #95: String = primitive_cast_string #94
+    #96: String = Add #93, #95
+    #97: String = " "
+    #98: String = Add #96, #97
+    #99: Dict<String, Float> = %10
+    #100: Float = #99.field
+    #101: String = primitive_cast_string #100
+    #102: String = Add #98, #101
+    #103: None = @6(console_log)
+    #104: None = call #103(#102)
+    #105: Dict<String, Leaf> = {}
+    #106: Dict<String, Leaf> = %14
+    #107: String = "a"
+    #108: Optional<Leaf> = #106[#107]
+    #109: None = none
+    #110: Bool = NotEq #108, #109
+    #111: Bool = Not #110
+    #112: String = "first"
+    #113: Leaf = new Leaf(#112)
+    #114: Leaf = %16
+    #115: Optional<Leaf> = %15
+    #116: Leaf = %16
+    #117: Optional<Leaf> = %15
+    #118: Optional<Leaf> = %15
+    #119: String = "or element: "
+    #120: Optional<Leaf> = %17
+    #121: Optional<String> = #120?.tag
+    #122: String = Add #119, #121
+    #123: String = " "
+    #124: String = Add #122, #123
+    #125: Dict<String, Leaf> = %14
+    #126: List<String> = dict_keys #125
+    #127: String = ","
+    #128: String = string_join #126, #127
+    #129: String = Add #124, #128
+    #130: None = @7(console_log)
+    #131: None = call #130(#129)
+    #132: Dict<String, Leaf> = %14
+    #133: String = "a"
+    #134: Optional<Leaf> = #132[#133]
+    #135: None = none
+    #136: Bool = NotEq #134, #135
+    #137: Bool = Not #136
+    #138: String = "second"
+    #139: Leaf = new Leaf(#138)
+    #140: Leaf = %19
+    #141: Optional<Leaf> = %18
+    #142: Leaf = %19
+    #143: Optional<Leaf> = %18
+    #144: Optional<Leaf> = %18
+    #145: String = "or element again: "
+    #146: Optional<Leaf> = %20
+    #147: Optional<String> = #146?.tag
+    #148: String = Add #145, #147
+    #149: String = " "
+    #150: String = Add #148, #149
+    #151: Dict<String, Leaf> = %14
+    #152: List<String> = dict_keys #151
+    #153: String = ","
+    #154: String = string_join #152, #153
+    #155: String = Add #150, #154
+    #156: None = @8(console_log)
+    #157: None = call #156(#155)
+    #158: Dict<String, Float> = {}
+    #159: Dict<String, Float> = %21
+    #160: String = "a"
+    #161: Float = #159[#160]
+    #162: Optional<Float> = #159[#160]
+    #163: Optional<Float> = none
+    #164: Bool = Eq #162, #163
+    #165: Float = 2.0
+    #166: Float = %22
+    #167: String = "nullish absent: "
+    #168: Dict<String, Float> = %21
+    #169: List<String> = dict_keys #168
+    #170: String = ","
+    #171: String = string_join #169, #170
+    #172: String = Add #167, #171
+    #173: String = " "
+    #174: String = Add #172, #173
+    #175: Dict<String, Float> = %21
+    #176: String = "a"
+    #177: Float = #175[#176]
+    #178: String = primitive_cast_string #177
+    #179: String = Add #174, #178
+    #180: None = @9(console_log)
+    #181: None = call #180(#179)
+    #182: Dict<String, Float> = {}
+    #183: Dict<String, Float> = %23
+    #184: String = "a"
+    #185: Float = #183[#184]
+    #186: Optional<Float> = #183[#184]
+    #187: Bool = primitive_cast_bool #186
+    #188: Float = 9.0
+    #189: Float = %24
+    #190: String = "and absent: "
+    #191: Dict<String, Float> = %23
+    #192: List<String> = dict_keys #191
+    #193: Float = len #192
+    #194: String = primitive_cast_string #193
+    #195: String = Add #190, #194
+    #196: None = @10(console_log)
+    #197: None = call #196(#195)
+    #198: String = "a"
+    #199: Float = 3.0
+    #200: Dict<String, Float> = {#198: #199}
+    #201: Dict<String, Float> = %25
+    #202: String = "a"
+    #203: Float = #201[#202]
+    #204: Optional<Float> = #201[#202]
+    #205: Bool = primitive_cast_bool #204
+    #206: Float = 9.0
+    #207: Float = %26
+    #208: String = "and present: "
+    #209: Dict<String, Float> = %25
+    #210: String = "a"
+    #211: Float = #209[#210]
+    #212: String = primitive_cast_string #211
+    #213: String = Add #208, #212
+    #214: None = @11(console_log)
+    #215: None = call #214(#213)
+    #216: None = undefined
+    #217: Optional<Float> = %27
+    #218: Optional<Float> = none
+    #219: Bool = Eq #217, #218
+    #220: Float = 4.0
+    #221: Float = %28
+    #222: String = "nullish local: "
+    #223: Optional<Float> = %27
+    #224: String = primitive_cast_string #223
+    #225: String = Add #222, #224
+    #226: None = @12(console_log)
+    #227: None = call #226(#225)
+    #228: Dict<String, Optional<Float>> = {}
+    #229: Dict<String, Optional<Float>> = %29
+    #230: Optional<Float> = #229.field
+    #231: Optional<Float> = none
+    #232: Bool = Eq #230, #231
+    #233: Float = 4.0
+    #234: Float = %30
+    #235: String = "nullish field: "
+    #236: Dict<String, Optional<Float>> = %29
+    #237: Optional<Float> = #236.field
+    #238: String = primitive_cast_string #237
+    #239: String = Add #235, #238
+    #240: None = @13(console_log)
+    #241: None = call #240(#239)
+    #242: Float = 1.0
+    #243: Float = %31
+    #244: Float = 0.0
+    #245: Bool = NotEq #243, #244
+    #246: Bool = Not #245
+    #247: Float = 8.0
+    #248: Float = %32
+    #249: String = "or truthy: "
+    #250: Float = %31
+    #251: String = primitive_cast_string #250
+    #252: String = Add #249, #251
+    #253: None = @14(console_log)
+    #254: None = call #253(#252)
+  stmts
+    s0: let %0: Float = #0
+    s1: #1 = #2
+    s2: let %1: Float = #2
+    s3: #13
+    s4: let %2: Dict<String, Float> = #16
+    s5: #18 = #19
+    s6: let %3: Float = #19
+    s7: #31
+    s8: let %4: Dict<String, Float> = #32
+    s9: #35 = #36
+    s10: let %5: Float = #36
+    s11: #56
+    s12: let %6: Float = #57
+    s13: let %8: Float = #62
+    s14: #58 = #63
+    s15: #64 = #65
+    s16: #66 = #58
+    s17: let %7: Float
+    s18: if #61 then BlockId(1) else BlockId(2)
+    s19: let %9: Float = #67
+    s20: #78
+    s21: let %10: Dict<String, Float> = #81
+    s22: let %12: Float = #87
+    s23: #83 = #88
+    s24: #89 = #90
+    s25: #91 = #83
+    s26: let %11: Float
+    s27: if #86 then BlockId(3) else BlockId(4)
+    s28: let %13: Float = #92
+    s29: #104
+    s30: let %14: Dict<String, Leaf> = #105
+    s31: let %16: Leaf = #113
+    s32: #108 = #114
+    s33: #115 = #116
+    s34: #117 = #108
+    s35: let %15: Optional<Leaf>
+    s36: if #111 then BlockId(5) else BlockId(6)
+    s37: let %17: Optional<Leaf> = #118
+    s38: #131
+    s39: let %19: Leaf = #139
+    s40: #134 = #140
+    s41: #141 = #142
+    s42: #143 = #134
+    s43: let %18: Optional<Leaf>
+    s44: if #137 then BlockId(7) else BlockId(8)
+    s45: let %20: Optional<Leaf> = #144
+    s46: #157
+    s47: let %21: Dict<String, Float> = #158
+    s48: let %22: Float = #165
+    s49: #161 = #166
+    s50: if #164 then BlockId(9)
+    s51: #181
+    s52: let %23: Dict<String, Float> = #182
+    s53: let %24: Float = #188
+    s54: #185 = #189
+    s55: if #187 then BlockId(10)
+    s56: #197
+    s57: let %25: Dict<String, Float> = #200
+    s58: let %26: Float = #206
+    s59: #203 = #207
+    s60: if #205 then BlockId(11)
+    s61: #215
+    s62: let %27: Optional<Float> = #216
+    s63: let %28: Float = #220
+    s64: #217 = #221
+    s65: if #219 then BlockId(12)
+    s66: #227
+    s67: let %29: Dict<String, Optional<Float>> = #228
+    s68: let %30: Float = #233
+    s69: #230 = #234
+    s70: if #232 then BlockId(13)
+    s71: #241
+    s72: let %31: Float = #242
+    s73: let %32: Float = #247
+    s74: #243 = #248
+    s75: if #246 then BlockId(14)
+    s76: #254
+
+interned types
+  t0 = Float
+  t1 = String
+  t2 = Dict<String, Float>
+  t3 = List<Float>
+  t4 = Unknown
+  t5 = Dict<String, Unknown>
+  t6 = List<Unknown>
+  t7 = Bool
+  t8 = Leaf
+  t9 = Dict<String, Leaf>
+  t10 = Optional<Unknown>
+  t11 = None
+  t12 = Optional<Float>
+  t13 = Dict<String, Optional<Float>>
+  t14 = List<String>
+  t15 = Optional<Leaf>
+  t16 = Optional<String>
