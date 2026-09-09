@@ -1042,7 +1042,8 @@ impl FunctionEmitter<'_> {
                     ));
                 }
                 let rust_function_name = self.function_rust_name(function)?;
-                let emitted_params = self.emitted_function_param_types(&rust_function_name)?;
+                let emitted_params =
+                    self.emitted_function_param_types(&self.emitted_signature_key(function)?)?;
                 if function.params.len() == 1 {
                     let rest_param = function
                         .params
@@ -1693,8 +1694,8 @@ impl FunctionEmitter<'_> {
         if function.rest.is_some() {
             return Ok(None);
         }
-        let rust_name = self.function_rust_name(function)?;
-        let emitted_params = self.emitted_function_param_types(&rust_name)?;
+        let emitted_params =
+            self.emitted_function_param_types(&self.emitted_signature_key(function)?)?;
 
         // Only the parameters the callee actually LIFTS may be bound here. A
         // parameter that erases is rendered `SmeltUnknown` in the emitted
@@ -1759,7 +1760,7 @@ impl FunctionEmitter<'_> {
         }
         // (6) — the call's own Rust type must be nameable.
         let declared_return = self
-            .emitted_function_return_type(&rust_name)
+            .emitted_function_return_type(&self.emitted_signature_key(function)?)
             .unwrap_or(function.return_ty);
         let Some(return_ty) = substituted_type_id(self.mir, declared_return, &bindings) else {
             return Ok(None);
@@ -1883,7 +1884,8 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         }
         let rust_function_name = self.function_rust_name(function)?;
-        let emitted_params = self.emitted_function_param_types(&rust_function_name)?;
+        let emitted_params =
+            self.emitted_function_param_types(&self.emitted_signature_key(function)?)?;
         // Resolve each argument's effective (emitted) target parameter type.
         let target_tys = function
             .params
@@ -2028,7 +2030,7 @@ impl FunctionEmitter<'_> {
         // applied when the returned value is a list whose rendered element type
         // differs from the destination's.
         let return_ty = self
-            .emitted_function_return_type(&rust_function_name)
+            .emitted_function_return_type(&self.emitted_signature_key(function)?)
             .unwrap_or(function.return_ty);
         let dest_is_list = matches!(self.mir.types.get(dest_ty), Some(Type::List(_)));
         let result_expr = match monomorphized_arg {
@@ -2498,8 +2500,7 @@ impl FunctionEmitter<'_> {
                 } else if function.is_async && !function.is_generator {
                     self.type_id(Type::Future(function.return_ty))?
                 } else {
-                    let rust_name = self.function_rust_name(function)?;
-                    self.emitted_function_return_type(&rust_name)
+                    self.emitted_function_return_type(&self.emitted_signature_key(function)?)
                         .unwrap_or(function.return_ty)
                 }
             }

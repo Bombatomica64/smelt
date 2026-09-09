@@ -859,6 +859,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "80_optional_chain_union_and_throw",
     "81_receiver_capture_in_callback",
     "82_class_expression_binding",
+    "83_same_named_methods_across_classes",
 ];
 
 #[test]

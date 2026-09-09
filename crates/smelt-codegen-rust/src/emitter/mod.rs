@@ -267,14 +267,22 @@ impl EmitContext {
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             let priority = emitted_signature_priority(function);
+            // Keyed by the emitted-signature key, not the bare Rust name: a
+            // method's name is unique only inside its own `impl` block (see
+            // `FunctionEmitter::emitted_signature_key_in`).
+            let signature_key = core::emitted_signature_key_in(
+                function,
+                &rust_name,
+                |symbol| mir.symbols.get(symbol).map(str::to_owned),
+            );
             if function_param_type_priorities
-                .get(&rust_name)
+                .get(&signature_key)
                 .copied()
                 .is_none_or(|existing| priority > existing)
             {
-                function_param_types.insert(rust_name.clone(), params);
-                function_return_types.insert(rust_name.clone(), function.return_ty);
-                function_param_type_priorities.insert(rust_name.clone(), priority);
+                function_param_types.insert(signature_key.clone(), params);
+                function_return_types.insert(signature_key.clone(), function.return_ty);
+                function_param_type_priorities.insert(signature_key, priority);
             }
             function_names.insert(function.id, rust_name);
         }

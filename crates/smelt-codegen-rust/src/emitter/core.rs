@@ -1853,6 +1853,32 @@ impl<'mir> FunctionEmitter<'mir> {
             .map_or_else(|| Ok(sanitize_ident(self.symbol_name(function.name)?)), Ok)
     }
 
+    /// The key the emitted-signature maps use for one generated Rust function.
+    ///
+    /// A method's Rust name is unique only INSIDE its `impl` block: two classes
+    /// may both emit `fn bump`. Keying the emitted parameter/return types by the
+    /// bare name therefore let one class's method answer for another's — and
+    /// since the maps decide the type a call site converts FROM, a call to
+    /// `Second::bump(): string` was converted from `First::bump()`'s `()`,
+    /// which renders a constant and drops the call itself (H63:
+    /// `second.bump('!')` answered `""`).
+    ///
+    /// The key is therefore qualified by the owning class for a method, a static
+    /// method and a constructor, and is the bare Rust name for a free function —
+    /// which is what the emitted `fn` name is unique among. Overload
+    /// implementations that share ONE emitted function still share one key, so
+    /// the priority rule that picks between their signatures is unchanged.
+    /// The emitted-signature key for `function`, resolved against this crate.
+    pub(super) fn emitted_signature_key(
+        &self,
+        function: &MirFunction,
+    ) -> Result<String, EmitError> {
+        let rust_name = self.function_rust_name(function)?;
+        Ok(emitted_signature_key_in(function, &rust_name, |symbol| {
+            self.symbol_name(symbol).ok().map(str::to_owned)
+        }))
+    }
+
     /// Returns the parameter types of a generated function by its emitted Rust name.
     ///
     /// Function values can carry an instantiated generic call type even though
@@ -5845,4 +5871,40 @@ fn async_adapter_future_text(call_text: &str, awaited_text: &str) -> String {
     format!(
         "{{ let smelt_async_source = {call_text}; SmeltFuture::from_future(Box::pin(async move {{ let smelt_async_output = smelt_async_source.await?; Ok::<_, Box<dyn std::error::Error>>({awaited_text}) }})) }}"
     )
+}
+
+/// The key the emitted-signature maps use for one generated Rust function.
+///
+/// A method's Rust name is unique only INSIDE its `impl` block: two classes may
+/// both emit `fn bump`. Keying the emitted parameter/return types by the bare
+/// name therefore let one class's method answer for another's — and since those
+/// maps decide the type a call site converts FROM, a call to
+/// `Second::bump(): string` was converted from `First::bump()`'s `()`, which
+/// renders a constant and drops the call itself (H63: `second.bump('!')`
+/// answered `""`).
+///
+/// The key is qualified by the owning class for a method, a static method and a
+/// constructor, and is the bare Rust name for a free function — which is what
+/// the emitted `fn` name is unique among. Overload implementations that share
+/// ONE emitted function still share one key, so the priority rule that picks
+/// between their signatures is unchanged.
+///
+/// A free function rather than a method because the crate-level map is built
+/// before any emitter exists; `FunctionEmitter::emitted_signature_key` is the
+/// in-emitter spelling and they must agree, which is why there is one body.
+pub(super) fn emitted_signature_key_in(
+    function: &MirFunction,
+    rust_name: &str,
+    symbol_name: impl Fn(Symbol) -> Option<String>,
+) -> String {
+    let owner = match function.origin {
+        HirOrigin::ClassConstructor { class, .. }
+        | HirOrigin::ClassMethod { class, .. }
+        | HirOrigin::ClassStaticMethod { class, .. } => class,
+        HirOrigin::Body(_) => return rust_name.to_owned(),
+    };
+    match symbol_name(owner) {
+        Some(class_name) => format!("{class_name}::{rust_name}"),
+        None => rust_name.to_owned(),
+    }
 }
