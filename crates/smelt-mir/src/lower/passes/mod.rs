@@ -8,6 +8,7 @@
 //! end. This module keeps only the general function-throwing propagation in
 //! [`throwing`], whose `can_throw` results the closure widening consumes.
 
+pub(super) mod generic_records;
 pub(super) mod throwing;
 
 use crate::{LocalId, Operand, Place};

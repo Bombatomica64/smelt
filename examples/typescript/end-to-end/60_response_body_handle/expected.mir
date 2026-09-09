@@ -1,0 +1,149 @@
+class Boom fields [Public res: Optional<Response>, Public status: Float, Public message: String] constructor Some(FuncId(1)) methods [FuncId(2)]
+interface BoomOptions
+
+async fn run (FuncId(0)) -> None
+  locals
+    %0 user with_res: Boom
+    %1 user rewrapped: Response
+    %2 user bare: Boom
+    %3 user from_message: Response
+    %4 temp: Dict<String, String>
+    %5 temp: Response
+    %6 temp: Dict<String, Unknown>
+    %7 temp: Boom
+    %8 temp: Response
+    %9 temp: Float
+    %10 temp: None
+    %11 temp: Headers
+    %12 temp: Optional<String>
+    %13 temp: String
+    %14 temp: None
+    %15 temp: Future<String>
+    %16 temp: String
+    %17 temp: None
+    %18 temp: Dict<String, String>
+    %19 temp: Boom
+    %20 temp: Response
+    %21 temp: Float
+    %22 temp: None
+    %23 temp: Future<String>
+    %24 temp: String
+    %25 temp: None
+    %26 temp: Response
+    %27 temp: Optional<ReadableStream>
+    %28 temp: Bool
+    %29 temp: None
+    %30 temp: Response
+    %31 temp: Optional<ReadableStream>
+    %32 temp: Bool
+    %33 temp: None
+  bb0:
+    %4 = {"x-a": "1"}
+    %5 = response_new body="teapot" headers=move %4
+    %6 = {"message": "teapot", "res": move %5}
+    %7 = call fn1(418.0, move %6) -> bb1
+  bb1:
+    %0 = move %7
+    %8 = call fn2(move %0) -> bb2
+  bb2:
+    %1 = move %8
+    %9 = response_status copy %1
+    %10 = call @console_log(move %9) -> bb3
+  bb3:
+    %11 = response_headers copy %1
+    %12 = headers_get move %11, "x-a"
+    %13 = move %12 ?? "none"
+    %14 = call @console_log(move %13) -> bb4
+  bb4:
+    %15 = response_text move %1
+    %16 = await move %15
+    %17 = call @console_log(move %16) -> bb5
+  bb5:
+    %18 = {"message": "missing"}
+    %19 = call fn1(404.0, move %18) -> bb6
+  bb6:
+    %2 = move %19
+    %20 = call fn2(move %2) -> bb7
+  bb7:
+    %3 = move %20
+    %21 = response_status copy %3
+    %22 = call @console_log(move %21) -> bb8
+  bb8:
+    %23 = response_text move %3
+    %24 = await move %23
+    %25 = call @console_log(move %24) -> bb9
+  bb9:
+    %26 = response_new body=none
+    %27 = response_body move %26
+    %28 = move %27 == none
+    %29 = call @console_log(move %28) -> bb10
+  bb10:
+    %30 = response_new body=""
+    %31 = response_body move %30
+    %32 = move %31 == none
+    %33 = call @console_log(move %32) -> bb11
+  bb11:
+    return none
+
+fn new (FuncId(1)) -> Boom
+  locals
+    %0 user this: Boom
+    %1 param status: Optional<Float>
+    %2 param options: Optional<BoomOptions>
+    %3 user status: Float
+    %4 temp: Float
+    %5 temp: Optional<String>
+    %6 temp: String
+    %7 temp: Optional<Response>
+  bb0:
+    %0 = struct5 {}
+    %4 = copy %1 ?? 500.0
+    %3 = move %4
+    %5 = copy %2?.field4
+    %6 = move %5 ?? ""
+    %0.field4 = move %6
+    %7 = copy %2?.field3
+    %0.field3 = move %7
+    %0.field6 = move %3
+    return move %0
+
+fn get_response (FuncId(2)) -> Response
+  locals
+    %0 param this: Boom
+    %1 user new_response: Response
+    %2 temp: Bool
+    %3 temp: Response
+    %4 temp: Optional<ReadableStream>
+    %5 temp: Response
+    %6 temp: Headers
+    %7 temp: Response
+    %8 temp: Response
+  bb0:
+    %2 = copy %0.field3 != none
+    switch move %2 ? bb1 : bb2
+  bb1:
+    %3 = copy %0.field3
+    %4 = response_body move %3
+    %5 = copy %0.field3
+    %6 = response_headers move %5
+    %7 = response_new body=move %4 status=copy %0.field6 headers=move %6
+    %1 = move %7
+    return move %1
+  bb2:
+    %8 = response_new body=copy %0.field4 status=copy %0.field6
+    return move %8
+
+async fn main (FuncId(3)) -> None throws
+  locals
+    %0 temp: Future<None>
+    %1 temp: None
+    %2 temp: Future<None>
+    %3 temp: None
+  bb0:
+    %0 = call fn0() -> bb1
+  bb1:
+    %1 = await move %0
+    %2 = async_exit_drain()
+    %3 = await move %2
+    return none
+

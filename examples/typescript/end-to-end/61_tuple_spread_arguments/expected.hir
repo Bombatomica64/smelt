@@ -1,0 +1,182 @@
+module examples/typescript/end-to-end/61_tuple_spread_arguments/input.ts (ModuleId(0))
+  body BodyId(6)
+  items
+    global mut evaluations: Float
+    type Route = (String, String, Float)
+    fn record owner Module
+    class Sink fields [] constructor Some(ItemId(7)) methods [ItemId(6)] implements []
+    fn make_route owner Module
+  locals
+    %0 const routes: List<(String, String, Float)>
+    %1 let i: Float
+    %2 const __smelt_spread: (String, String, Float)
+    %3 const tail: (String, Float)
+    %4 const __smelt_spread: (String, Float)
+    %5 const viaClosure: fn(String, String, Float) -> String
+    %6 const __smelt_spread: (String, String, Float)
+    %7 const sink: Sink
+    %8 const __smelt_spread: (String, String, Float)
+    %9 const __smelt_spread: (String, String, Float)
+    %10 const oneRoute: List<(String, String, Float)>
+    %11 const __smelt_spread: (String, String, Float)
+  exprs
+    #0: String = "GET"
+    #1: String = "/a"
+    #2: Float = 1.0
+    #3: (String, String, Float) = (#0, #1, #2)
+    #4: String = "POST"
+    #5: String = "/b"
+    #6: Float = 2.0
+    #7: (String, String, Float) = (#4, #5, #6)
+    #8: List<(String, String, Float)> = [#3, #7]
+    #9: Float = 0.0
+    #10: Float = %1
+    #11: List<(String, String, Float)> = %0
+    #12: Float = len #11
+    #13: Bool = Lt #10, #12
+    #14: List<(String, String, Float)> = %0
+    #15: Float = %1
+    #16: (String, String, Float) = #14[#15]
+    #17: (String, String, Float) = %2
+    #18: Int = 0
+    #19: String = #17[#18]
+    #20: (String, String, Float) = %2
+    #21: Int = 1
+    #22: String = #20[#21]
+    #23: (String, String, Float) = %2
+    #24: Int = 2
+    #25: Float = #23[#24]
+    #26: fn(String, String, Float) -> String = @3(record)
+    #27: String = call #26(#19, #22, #25)
+    #28: None = @9(console_log)
+    #29: None = call #28(#27)
+    #30: Float = %1
+    #31: Float = 1.0
+    #32: Float = Add #30, #31
+    #33: String = "/c"
+    #34: Float = 7.0
+    #35: (String, Float) = (#33, #34)
+    #36: (String, Float) = %3
+    #37: (String, Float) = %4
+    #38: Int = 0
+    #39: String = #37[#38]
+    #40: (String, Float) = %4
+    #41: Int = 1
+    #42: Float = #40[#41]
+    #43: String = "DELETE"
+    #44: fn(String, String, Float) -> String = @3(record)
+    #45: String = call #44(#43, #39, #42)
+    #46: None = @10(console_log)
+    #47: None = call #46(#45)
+    #48: fn(String, String, Float) -> String = closure BodyId(5) captures 0 -> String
+    #49: List<(String, String, Float)> = %0
+    #50: Float = 0.0
+    #51: (String, String, Float) = #49[#50]
+    #52: (String, String, Float) = %6
+    #53: Int = 0
+    #54: String = #52[#53]
+    #55: (String, String, Float) = %6
+    #56: Int = 1
+    #57: String = #55[#56]
+    #58: (String, String, Float) = %6
+    #59: Int = 2
+    #60: Float = #58[#59]
+    #61: String = closure_call #48(#54, #57, #60)
+    #62: None = @11(console_log)
+    #63: None = call #62(#61)
+    #64: Sink = new Sink()
+    #65: Sink = %7
+    #66: fn(String, String, Float) -> String = #65.take
+    #67: Sink = %7
+    #68: List<(String, String, Float)> = %0
+    #69: Float = 1.0
+    #70: (String, String, Float) = #68[#69]
+    #71: (String, String, Float) = %8
+    #72: Int = 0
+    #73: String = #71[#72]
+    #74: (String, String, Float) = %8
+    #75: Int = 1
+    #76: String = #74[#75]
+    #77: (String, String, Float) = %8
+    #78: Int = 2
+    #79: Float = #77[#78]
+    #80: String = #67.take(#73, #76, #79)
+    #81: None = @12(console_log)
+    #82: None = call #81(#80)
+    #83: fn() -> (String, String, Float) = @4(make_route)
+    #84: (String, String, Float) = call #83()
+    #85: (String, String, Float) = %9
+    #86: Int = 0
+    #87: String = #85[#86]
+    #88: (String, String, Float) = %9
+    #89: Int = 1
+    #90: String = #88[#89]
+    #91: (String, String, Float) = %9
+    #92: Int = 2
+    #93: Float = #91[#92]
+    #94: fn(String, String, Float) -> String = @3(record)
+    #95: String = call #94(#87, #90, #93)
+    #96: None = @13(console_log)
+    #97: None = call #96(#95)
+    #98: String = "evaluations: "
+    #99: Float = global_get @2(evaluations)
+    #100: String = Add #98, #99
+    #101: None = @14(console_log)
+    #102: None = call #101(#100)
+    #103: String = "PATCH"
+    #104: String = "/maybe"
+    #105: Float = 4.0
+    #106: (String, String, Float) = (#103, #104, #105)
+    #107: List<(String, String, Float)> = [#106]
+    #108: List<(String, String, Float)> = %10
+    #109: Float = 0.0
+    #110: (String, String, Float) = #108[#109]
+    #111: (String, String, Float) = %11
+    #112: Int = 0
+    #113: String = #111[#112]
+    #114: (String, String, Float) = %11
+    #115: Int = 1
+    #116: String = #114[#115]
+    #117: (String, String, Float) = %11
+    #118: Int = 2
+    #119: Float = #117[#118]
+    #120: fn(String, String, Float) -> String = @3(record)
+    #121: String = call #120(#113, #116, #119)
+    #122: None = @15(console_log)
+    #123: None = call #122(#121)
+  stmts
+    s0: let %0: List<(String, String, Float)> = #8
+    s1: let %1: Float = #9
+    s2: let %2: (String, String, Float) = #16
+    s3: #29
+    s4: #30 = #32
+    s5: while #13 BlockId(1) update-block BlockId(2)
+    s6: let %3: (String, Float) = #35
+    s7: let %4: (String, Float) = #36
+    s8: #47
+    s9: let %6: (String, String, Float) = #51
+    s10: #63
+    s11: let %7: Sink = #64
+    s12: let %8: (String, String, Float) = #70
+    s13: #82
+    s14: let %9: (String, String, Float) = #84
+    s15: #97
+    s16: #102
+    s17: let %10: List<(String, String, Float)> = #107
+    s18: let %11: (String, String, Float) = #110
+    s19: #123
+
+interned types
+  t0 = String
+  t1 = Float
+  t2 = (String, String, Float)
+  t3 = List<(String, String, Float)>
+  t4 = (String, Float)
+  t5 = fn(String, String, Float) -> String
+  t6 = Sink
+  t7 = fn(String, String, Float) -> String
+  t8 = fn() -> (String, String, Float)
+  t9 = None
+  t10 = Bool
+  t11 = Int
+  t12 = fn() -> (String, String, Float)

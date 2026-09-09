@@ -1091,12 +1091,16 @@ mod tests {
         let bounded = policy(&scratch);
         let output = run_prepared(&shell_command("echo smelt-guest-ok", &bounded), &bounded)
             .map_err(|error| error.to_string())?;
-        assert!(output.status.success(), "the guest must exit cleanly");
-        assert_eq!(
-            String::from_utf8_lossy(&output.stdout).trim(),
-            "smelt-guest-ok",
-            "stdout must be captured verbatim below the budget"
-        );
+        if !output.status.success() {
+            return Err("the guest must exit cleanly".to_owned());
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stdout = stdout.trim();
+        if stdout != "smelt-guest-ok" {
+            return Err(format!(
+                "stdout must be captured verbatim below the budget, got: {stdout}"
+            ));
+        }
         Ok(())
     }
 
@@ -1108,16 +1112,18 @@ mod tests {
         let output = run_prepared(&shell_command("env", &bounded), &bounded)
             .map_err(|error| error.to_string())?;
         let environment = String::from_utf8_lossy(&output.stdout);
-        assert!(
-            environment.contains("LANG=C"),
-            "the policy environment must reach the guest, got: {environment}"
-        );
+        if !environment.contains("LANG=C") {
+            return Err(format!(
+                "the policy environment must reach the guest, got: {environment}"
+            ));
+        }
         // Cargo exports this into the test process; `sh` never synthesizes it,
         // so its presence would mean the host environment leaked into the guest.
-        assert!(
-            !environment.contains("CARGO_PKG_NAME"),
-            "host environment must not leak into the guest, got: {environment}"
-        );
+        if environment.contains("CARGO_PKG_NAME") {
+            return Err(format!(
+                "host environment must not leak into the guest, got: {environment}"
+            ));
+        }
         Ok(())
     }
 

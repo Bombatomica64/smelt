@@ -208,11 +208,19 @@ fn method_adapter_text(
 ) -> Result<String, EmitError> {
     let mut args = Vec::new();
     for (index, param) in function.params.iter().skip(1).enumerate() {
-        let _local = local_decl(function, *param)
+        let local = local_decl(function, *param)
             .ok_or_else(|| EmitError::new("class method parameter has no local declaration"))?;
-        args.push(format!(
-            "SmeltFromUnknown::smelt_from_unknown(smelt_args.get({index}).cloned().unwrap_or(SmeltUnknown::Undefined))"
-        ));
+        // The parameter's TYPE decides how it is recovered. This used to reach
+        // for the blanket `SmeltFromUnknown` regardless — the declaration was
+        // fetched and discarded — which does not compile for a parameter type
+        // that has no such impl. See `record_field_from_unknown_text`.
+        args.push(crate::record_field_from_unknown_text(
+            mir,
+            &format!(
+                "smelt_args.get({index}).cloned().unwrap_or(SmeltUnknown::Undefined)"
+            ),
+            local.ty,
+        )?);
     }
     // A throwing method returns `Result<_, Box<dyn Error>>`; the erased
     // callback's own return type is the same `Result`, so the `?` propagates
@@ -237,14 +245,17 @@ fn method_adapter_text(
          move |smelt_args: Vec<SmeltUnknown>| {{ let _ = &smelt_args; \
          let smelt_result = {call}; Ok({result}) }} }}"
     );
-    let Some(identity) = identity else {
+    // Renamed rather than shadowed: the unwrapped value is what the identity
+    // link takes, and `shadow_unrelated` reads a same-name rebind here as a
+    // second, unrelated binding.
+    let Some(identity_key) = identity else {
         return Ok(format!(
             "SmeltUnknown::Function(::std::rc::Rc::new({body}))"
         ));
     };
     Ok(format!(
         "{{ let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({body}); \
-         smelt_link_function_identity_key(&smelt_method, {identity}); SmeltUnknown::Function(smelt_method) }}"
+         smelt_link_function_identity_key(&smelt_method, {identity_key}); SmeltUnknown::Function(smelt_method) }}"
     ))
 }
 

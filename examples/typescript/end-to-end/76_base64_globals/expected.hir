@@ -1,0 +1,149 @@
+module examples/typescript/end-to-end/76_base64_globals/input.ts (ModuleId(0))
+  body BodyId(5)
+  items
+    fn encode owner Module
+    fn decode owner Module
+    fn safe_encode owner Module
+    fn safe_decode owner Module
+    fn decoded_brand owner Module
+  exprs
+    #0: String = "hello"
+    #1: fn(String) -> String = @0(encode)
+    #2: String = call #1(#0)
+    #3: None = @5(console_log)
+    #4: None = call #3(#2)
+    #5: String = ""
+    #6: fn(String) -> String = @0(encode)
+    #7: String = call #6(#5)
+    #8: None = @6(console_log)
+    #9: None = call #8(#7)
+    #10: String = "a"
+    #11: fn(String) -> String = @0(encode)
+    #12: String = call #11(#10)
+    #13: String = "ab"
+    #14: fn(String) -> String = @0(encode)
+    #15: String = call #14(#13)
+    #16: String = "abc"
+    #17: fn(String) -> String = @0(encode)
+    #18: String = call #17(#16)
+    #19: None = @7(console_log)
+    #20: None = call #19(#12, #15, #18)
+    #21: String = "ÿ "
+    #22: fn(String) -> String = @0(encode)
+    #23: String = call #22(#21)
+    #24: None = @8(console_log)
+    #25: None = call #24(#23)
+    #26: String = "aGVsbG8="
+    #27: fn(String) -> String = @1(decode)
+    #28: String = call #27(#26)
+    #29: None = @9(console_log)
+    #30: None = call #29(#28)
+    #31: String = ""
+    #32: fn(String) -> String = @1(decode)
+    #33: String = call #32(#31)
+    #34: None = @10(console_log)
+    #35: None = call #34(#33)
+    #36: String = "YQ=="
+    #37: fn(String) -> String = @1(decode)
+    #38: String = call #37(#36)
+    #39: String = "YWI="
+    #40: fn(String) -> String = @1(decode)
+    #41: String = call #40(#39)
+    #42: String = "YWJj"
+    #43: fn(String) -> String = @1(decode)
+    #44: String = call #43(#42)
+    #45: None = @11(console_log)
+    #46: None = call #45(#38, #41, #44)
+    #47: String = "aGVsbG8"
+    #48: fn(String) -> String = @1(decode)
+    #49: String = call #48(#47)
+    #50: None = @12(console_log)
+    #51: None = call #50(#49)
+    #52: String = "YR=="
+    #53: fn(String) -> String = @1(decode)
+    #54: String = call #53(#52)
+    #55: None = @13(console_log)
+    #56: None = call #55(#54)
+    #57: String = "aGVs bG8="
+    #58: fn(String) -> String = @1(decode)
+    #59: String = call #58(#57)
+    #60: None = @14(console_log)
+    #61: None = call #60(#59)
+    #62: String = "round trip é"
+    #63: fn(String) -> String = @0(encode)
+    #64: String = call #63(#62)
+    #65: fn(String) -> String = @1(decode)
+    #66: String = call #65(#64)
+    #67: None = @15(console_log)
+    #68: None = call #67(#66)
+    #69: String = "Ā"
+    #70: fn(String) -> String = @2(safe_encode)
+    #71: String = call #70(#69)
+    #72: None = @16(console_log)
+    #73: None = call #72(#71)
+    #74: String = "ok"
+    #75: fn(String) -> String = @2(safe_encode)
+    #76: String = call #75(#74)
+    #77: None = @17(console_log)
+    #78: None = call #77(#76)
+    #79: String = "a"
+    #80: fn(String) -> String = @3(safe_decode)
+    #81: String = call #80(#79)
+    #82: None = @18(console_log)
+    #83: None = call #82(#81)
+    #84: String = "!!!!"
+    #85: fn(String) -> String = @3(safe_decode)
+    #86: String = call #85(#84)
+    #87: None = @19(console_log)
+    #88: None = call #87(#86)
+    #89: String = "YR="
+    #90: fn(String) -> String = @3(safe_decode)
+    #91: String = call #90(#89)
+    #92: None = @20(console_log)
+    #93: None = call #92(#91)
+    #94: String = "YWJj"
+    #95: fn(String) -> String = @3(safe_decode)
+    #96: String = call #95(#94)
+    #97: None = @21(console_log)
+    #98: None = call #97(#96)
+    #99: String = "****"
+    #100: fn(String) -> Bool = @4(decoded_brand)
+    #101: Bool = call #100(#99)
+    #102: None = @22(console_log)
+    #103: None = call #102(#101)
+    #104: String = "YWJj"
+    #105: fn(String) -> Bool = @4(decoded_brand)
+    #106: Bool = call #105(#104)
+    #107: None = @23(console_log)
+    #108: None = call #107(#106)
+  stmts
+    s0: #4
+    s1: #9
+    s2: #20
+    s3: #25
+    s4: #30
+    s5: #35
+    s6: #46
+    s7: #51
+    s8: #56
+    s9: #61
+    s10: #68
+    s11: #73
+    s12: #78
+    s13: #83
+    s14: #88
+    s15: #93
+    s16: #98
+    s17: #103
+    s18: #108
+
+interned types
+  t0 = String
+  t1 = fn(String) -> String
+  t2 = Bool
+  t3 = fn(String) -> Bool
+  t4 = Unknown
+  t5 = DOMException
+  t6 = fn(String) -> String
+  t7 = None
+  t8 = fn(String) -> Bool

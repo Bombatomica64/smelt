@@ -8,7 +8,8 @@ use std::fmt::Write as _;
 use smelt_hir::{PropertyLookup, Type, TypeId};
 
 use crate::{
-    BuiltinFn, Callee, Constant, LocalId, LocalKind, Mir, Operand, Place, Rvalue, Statement,
+    BuiltinFn, Callee, Constant, GlobalProjection, LocalId, LocalKind, Mir, Operand, Place,
+    Rvalue, Statement,
     Terminator,
 };
 
@@ -569,8 +570,14 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
             };
             format!("string_normalize_{form_text} {}", operand_text(operand))
         }
-        Rvalue::UriEncode { operand } => {
-            format!("uri_encode {}", operand_text(operand))
+        Rvalue::UriTranscode { op, operand } => {
+            let op_text = match op {
+                smelt_hir::UriTranscodeOp::Encode => "uri_encode",
+                smelt_hir::UriTranscodeOp::EncodeComponent => "uri_encode_component",
+                smelt_hir::UriTranscodeOp::Decode => "uri_decode",
+                smelt_hir::UriTranscodeOp::DecodeComponent => "uri_decode_component",
+            };
+            format!("{op_text} {}", operand_text(operand))
         }
         Rvalue::ObjectToStringTag { operand } => {
             format!("object_to_string_tag {}", operand_text(operand))
@@ -730,13 +737,24 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
             pattern,
             haystack,
             callback,
+            args,
         } => {
             let op_text = match op {
                 smelt_hir::StringReplaceOp::First => "replace_callback",
                 smelt_hir::StringReplaceOp::All => "replace_all_callback",
             };
+            let args_text = args
+                .iter()
+                .map(|arg| match arg {
+                    smelt_hir::RegexReplaceArg::Matched => "matched".to_owned(),
+                    smelt_hir::RegexReplaceArg::Capture(index) => format!("p{index}"),
+                    smelt_hir::RegexReplaceArg::Position => "position".to_owned(),
+                    smelt_hir::RegexReplaceArg::Source => "source".to_owned(),
+                })
+                .collect::<Vec<_>>()
+                .join(",");
             format!(
-                "regex_{op_text} {}, {}, {}",
+                "regex_{op_text} {}, {}, {} [{args_text}]",
                 operand_text(pattern),
                 operand_text(haystack),
                 operand_text(callback)
@@ -760,6 +778,13 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
             format!(
                 "regex_find {}, {}",
                 operand_text(pattern),
+                operand_text(haystack)
+            )
+        }
+        Rvalue::RegexTest { regex, haystack } => {
+            format!(
+                "regex_test {} {}",
+                operand_text(regex),
                 operand_text(haystack)
             )
         }
@@ -877,6 +902,335 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 operand_text(left),
                 operand_text(right)
             )
+        }
+        Rvalue::EventEmitterNew => "event_emitter_new".to_owned(),
+        Rvalue::EventEmitterOp { op, emitter, args } => {
+            let name = match op {
+                smelt_hir::EventEmitterOp::On => "on",
+                smelt_hir::EventEmitterOp::Once => "once",
+                smelt_hir::EventEmitterOp::Off => "off",
+                smelt_hir::EventEmitterOp::RemoveAll => "remove_all",
+                smelt_hir::EventEmitterOp::Emit => "emit",
+                smelt_hir::EventEmitterOp::ListenerCount => "listener_count",
+            };
+            let mut text = format!("emitter_{name} {}", operand_text(emitter));
+            for arg in args {
+                text.push(' ');
+                text.push_str(&operand_text(arg));
+            }
+            text
+        }
+        Rvalue::HttpCreateServer { handler } => {
+            format!("http_create_server {}", operand_text(handler))
+        }
+        Rvalue::HttpServerOp { op, server, args } => {
+            let name = match op {
+                smelt_hir::HttpServerOp::Listen => "listen",
+                smelt_hir::HttpServerOp::Close => "close",
+                smelt_hir::HttpServerOp::Address => "address",
+            };
+            let mut text = format!("http_server_{name} {}", operand_text(server));
+            for arg in args {
+                text.push(' ');
+                text.push_str(&operand_text(arg));
+            }
+            text
+        }
+        Rvalue::IncomingMessageOp { op, message } => {
+            let name = match op {
+                smelt_hir::IncomingMessageOp::Method => "method",
+                smelt_hir::IncomingMessageOp::Url => "url",
+                smelt_hir::IncomingMessageOp::Headers => "headers",
+            };
+            format!("incoming_message_{name} {}", operand_text(message))
+        }
+        Rvalue::ServerResponseOp { op, response, args } => {
+            let name = match op {
+                smelt_hir::ServerResponseOp::StatusCode => "status_code",
+                smelt_hir::ServerResponseOp::SetStatusCode => "set_status_code",
+                smelt_hir::ServerResponseOp::SetHeader => "set_header",
+                smelt_hir::ServerResponseOp::GetHeader => "get_header",
+                smelt_hir::ServerResponseOp::WriteHead => "write_head",
+                smelt_hir::ServerResponseOp::Write => "write",
+                smelt_hir::ServerResponseOp::End => "end",
+            };
+            let mut text = format!("server_response_{name} {}", operand_text(response));
+            for arg in args {
+                text.push(' ');
+                text.push_str(&operand_text(arg));
+            }
+            text
+        }
+        Rvalue::RequestNew {
+            input,
+            method,
+            headers,
+            body,
+            signal,
+        } => {
+            let mut parts = vec![format!("input={}", operand_text(input))];
+            if let Some(method) = method {
+                parts.push(format!("method={}", operand_text(method)));
+            }
+            if let Some(headers) = headers {
+                parts.push(format!("headers={}", operand_text(headers)));
+            }
+            if let Some(body) = body {
+                parts.push(format!("body={}", operand_text(body)));
+            }
+            if let Some(signal) = signal {
+                parts.push(format!("signal={}", operand_text(signal)));
+            }
+            format!("request_new {}", parts.join(" "))
+        }
+        Rvalue::RequestOp { op, request, args } => {
+            let name = match op {
+                smelt_hir::RequestOp::Url => "url",
+                smelt_hir::RequestOp::Method => "method",
+                smelt_hir::RequestOp::Headers => "headers",
+                smelt_hir::RequestOp::BodyUsed => "body_used",
+                smelt_hir::RequestOp::Body => "body",
+                smelt_hir::RequestOp::Text => "text",
+                smelt_hir::RequestOp::FormData => "form_data",
+                smelt_hir::RequestOp::ArrayBuffer => "array_buffer",
+                smelt_hir::RequestOp::Bytes => "bytes",
+                smelt_hir::RequestOp::Clone => "clone",
+                smelt_hir::RequestOp::Signal => "signal",
+            };
+            let mut text = format!("request_{name} {}", operand_text(request));
+            for arg in args {
+                text.push(' ');
+                text.push_str(&operand_text(arg));
+            }
+            text
+        }
+        Rvalue::ResponseNew {
+            body,
+            status,
+            status_text,
+            headers,
+        } => {
+            let mut parts = Vec::new();
+            if let Some(body) = body {
+                parts.push(format!("body={}", operand_text(body)));
+            }
+            if let Some(status) = status {
+                parts.push(format!("status={}", operand_text(status)));
+            }
+            if let Some(status_text) = status_text {
+                parts.push(format!("status_text={}", operand_text(status_text)));
+            }
+            if let Some(headers) = headers {
+                parts.push(format!("headers={}", operand_text(headers)));
+            }
+            if parts.is_empty() {
+                "response_new".to_owned()
+            } else {
+                format!("response_new {}", parts.join(" "))
+            }
+        }
+        Rvalue::ResponseOp { op, response, args } => {
+            let name = match op {
+                smelt_hir::ResponseOp::Status => "status",
+                smelt_hir::ResponseOp::Ok => "ok",
+                smelt_hir::ResponseOp::StatusText => "status_text",
+                smelt_hir::ResponseOp::Headers => "headers",
+                smelt_hir::ResponseOp::BodyUsed => "body_used",
+                smelt_hir::ResponseOp::Body => "body",
+                smelt_hir::ResponseOp::Text => "text",
+                smelt_hir::ResponseOp::FormData => "form_data",
+                smelt_hir::ResponseOp::ArrayBuffer => "array_buffer",
+                smelt_hir::ResponseOp::Bytes => "bytes",
+                smelt_hir::ResponseOp::Clone => "clone",
+            };
+            let mut text = format!("response_{name} {}", operand_text(response));
+            for arg in args {
+                text.push(' ');
+                text.push_str(&operand_text(arg));
+            }
+            text
+        }
+        Rvalue::TextEncoderNew => "text_encoder_new".to_owned(),
+        Rvalue::TextDecoderNew { label } => label.as_ref().map_or_else(
+            || "text_decoder_new".to_owned(),
+            |label| format!("text_decoder_new {}", operand_text(label)),
+        ),
+        Rvalue::TextEncoderOp { op, encoder, args } => {
+            let op_name = match op {
+                smelt_hir::TextEncoderOp::Encode => "encode",
+                smelt_hir::TextEncoderOp::Encoding => "encoding",
+            };
+            let args_text = args
+                .iter()
+                .map(operand_text)
+                .collect::<Vec<_>>()
+                .join(", ");
+            if args_text.is_empty() {
+                format!("text_encoder_{op_name} {}", operand_text(encoder))
+            } else {
+                format!(
+                    "text_encoder_{op_name} {} {args_text}",
+                    operand_text(encoder)
+                )
+            }
+        }
+        Rvalue::TextDecoderOp { op, decoder, args } => {
+            let op_name = match op {
+                smelt_hir::TextDecoderOp::Decode => "decode",
+                smelt_hir::TextDecoderOp::Encoding => "encoding",
+            };
+            let args_text = args
+                .iter()
+                .map(operand_text)
+                .collect::<Vec<_>>()
+                .join(", ");
+            if args_text.is_empty() {
+                format!("text_decoder_{op_name} {}", operand_text(decoder))
+            } else {
+                format!(
+                    "text_decoder_{op_name} {} {args_text}",
+                    operand_text(decoder)
+                )
+            }
+        }
+        Rvalue::TypedArrayNew { class_name, args } => {
+            let args_text = args.iter().map(operand_text).collect::<Vec<_>>().join(" ");
+            if args_text.is_empty() {
+                format!("typed_array_new {class_name}")
+            } else {
+                format!("typed_array_new {class_name} {args_text}")
+            }
+        }
+        Rvalue::DataViewAccess { member, view, args } => {
+            let args_text = args.iter().map(operand_text).collect::<Vec<_>>().join(" ");
+            format!("data_view_{member} {} {args_text}", operand_text(view))
+        }
+        Rvalue::ByteArrayOp { op, bytes, args } => {
+            let op_name = op.name();
+            let receiver = operand_text(bytes);
+            if args.is_empty() {
+                format!("byte_array_{op_name} {receiver}")
+            } else {
+                let args_text = args.iter().map(operand_text).collect::<Vec<_>>().join(" ");
+                format!("byte_array_{op_name} {receiver} {args_text}")
+            }
+        }
+        Rvalue::UrlSearchParamsNew { init } => init.as_ref().map_or_else(
+            || "url_search_params_new".to_owned(),
+            |init| format!("url_search_params_new {}", operand_text(init)),
+        ),
+        Rvalue::AbortSignalOp { op, args } => {
+            let op_name = match op {
+                smelt_hir::AbortSignalOp::Abort => "abort",
+                smelt_hir::AbortSignalOp::Timeout => "timeout",
+            };
+            let args_text = args
+                .iter()
+                .map(operand_text)
+                .collect::<Vec<_>>()
+                .join(", ");
+            if args_text.is_empty() {
+                format!("abort_signal_{op_name}")
+            } else {
+                format!("abort_signal_{op_name} {args_text}")
+            }
+        }
+        Rvalue::CryptoOp { op, args } => {
+            let op_name = match op {
+                smelt_hir::CryptoOp::RandomUuid => "random_uuid",
+                smelt_hir::CryptoOp::GetRandomValues => "get_random_values",
+                smelt_hir::CryptoOp::Digest => "digest",
+            };
+            let args_text = args
+                .iter()
+                .map(operand_text)
+                .collect::<Vec<_>>()
+                .join(", ");
+            if args_text.is_empty() {
+                format!("crypto_{op_name}")
+            } else {
+                format!("crypto_{op_name} {args_text}")
+            }
+        }
+        Rvalue::FormDataNew => "form_data_new".to_owned(),
+        Rvalue::FormDataOp { op, form, args } => {
+            let op_name = match op {
+                smelt_hir::FormDataOp::Get => "get",
+                smelt_hir::FormDataOp::GetAll => "get_all",
+                smelt_hir::FormDataOp::Has => "has",
+                smelt_hir::FormDataOp::Set => "set",
+                smelt_hir::FormDataOp::Append => "append",
+                smelt_hir::FormDataOp::Delete => "delete",
+                smelt_hir::FormDataOp::Keys => "keys",
+                smelt_hir::FormDataOp::Values => "values",
+                smelt_hir::FormDataOp::Entries => "entries",
+                smelt_hir::FormDataOp::ForEach => "for_each",
+            };
+            let args_text = args
+                .iter()
+                .map(operand_text)
+                .collect::<Vec<_>>()
+                .join(", ");
+            if args_text.is_empty() {
+                format!("form_data_{op_name} {}", operand_text(form))
+            } else {
+                format!("form_data_{op_name} {}, {args_text}", operand_text(form))
+            }
+        }
+        Rvalue::UrlSearchParamsOp { op, params, args } => {
+            let op_text = match op {
+                smelt_hir::UrlSearchParamsOp::Get => "get",
+                smelt_hir::UrlSearchParamsOp::GetAll => "get_all",
+                smelt_hir::UrlSearchParamsOp::Has => "has",
+                smelt_hir::UrlSearchParamsOp::Set => "set",
+                smelt_hir::UrlSearchParamsOp::Append => "append",
+                smelt_hir::UrlSearchParamsOp::Delete => "delete",
+                smelt_hir::UrlSearchParamsOp::Sort => "sort",
+                smelt_hir::UrlSearchParamsOp::ToText => "to_text",
+                smelt_hir::UrlSearchParamsOp::Keys => "keys",
+                smelt_hir::UrlSearchParamsOp::Values => "values",
+                smelt_hir::UrlSearchParamsOp::Entries => "entries",
+            };
+            let args_text = args
+                .iter()
+                .map(operand_text)
+                .collect::<Vec<_>>()
+                .join(", ");
+            if args_text.is_empty() {
+                format!("url_search_params_{op_text} {}", operand_text(params))
+            } else {
+                format!(
+                    "url_search_params_{op_text} {}, {args_text}",
+                    operand_text(params)
+                )
+            }
+        }
+        Rvalue::HeadersNew { init } => init.as_ref().map_or_else(
+            || "headers_new".to_owned(),
+            |init| format!("headers_new {}", operand_text(init)),
+        ),
+        Rvalue::HeadersOp { op, headers, args } => {
+            let op_text = match op {
+                smelt_hir::HeadersOp::Get => "get",
+                smelt_hir::HeadersOp::Has => "has",
+                smelt_hir::HeadersOp::Set => "set",
+                smelt_hir::HeadersOp::Append => "append",
+                smelt_hir::HeadersOp::Delete => "delete",
+                smelt_hir::HeadersOp::Keys => "keys",
+                smelt_hir::HeadersOp::Values => "values",
+                smelt_hir::HeadersOp::Entries => "entries",
+                smelt_hir::HeadersOp::GetSetCookie => "get_set_cookie",
+            };
+            let args_text = args
+                .iter()
+                .map(operand_text)
+                .collect::<Vec<_>>()
+                .join(", ");
+            if args_text.is_empty() {
+                format!("headers_{op_text} {}", operand_text(headers))
+            } else {
+                format!("headers_{op_text} {}, {args_text}", operand_text(headers))
+            }
         }
         Rvalue::SetProjection { op, set } => {
             let op_text = match op {
@@ -1374,6 +1728,28 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 operand_text(text)
             )
         }
+        Rvalue::BlobOp { op, blob, args } => {
+            let op_name = match op {
+                smelt_hir::BlobOp::Size => "size",
+                smelt_hir::BlobOp::Type => "type",
+                smelt_hir::BlobOp::Name => "name",
+                smelt_hir::BlobOp::LastModified => "last_modified",
+                smelt_hir::BlobOp::Text => "text",
+                smelt_hir::BlobOp::ArrayBuffer => "array_buffer",
+                smelt_hir::BlobOp::Bytes => "bytes",
+                smelt_hir::BlobOp::Slice => "slice",
+            };
+            let args_text = args
+                .iter()
+                .map(operand_text)
+                .collect::<Vec<_>>()
+                .join(", ");
+            if args_text.is_empty() {
+                format!("blob_{op_name} {}", operand_text(blob))
+            } else {
+                format!("blob_{op_name} {} {args_text}", operand_text(blob))
+            }
+        }
         Rvalue::BlobFromParts {
             parts,
             blob_type,
@@ -1421,6 +1797,7 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 smelt_hir::AsyncOp::Race => "async_race",
                 smelt_hir::AsyncOp::AllSettled => "async_all_settled",
                 smelt_hir::AsyncOp::Sleep => "async_sleep",
+                smelt_hir::AsyncOp::ExitDrain => "async_exit_drain",
                 smelt_hir::AsyncOp::SetTimeout => "async_set_timeout",
                 smelt_hir::AsyncOp::ClearTimeout => "async_clear_timeout",
                 smelt_hir::AsyncOp::SetInterval => "async_set_interval",
@@ -1434,6 +1811,7 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 smelt_hir::AsyncOp::Resolve => "async_resolve",
                 smelt_hir::AsyncOp::Reject => "async_reject",
                 smelt_hir::AsyncOp::HttpGetText => "async_http_get_text",
+                smelt_hir::AsyncOp::HttpFetch => "async_http_fetch",
             };
             let arg_list = args.iter().map(operand_text).collect::<Vec<_>>().join(", ");
             format!("{op_text}({arg_list})")
@@ -1529,10 +1907,22 @@ fn callee_text(callee: &Callee) -> String {
     match callee {
         Callee::Static(func) => format!("fn{}", func.0),
         Callee::Indirect(operand) => operand_text(operand),
-        Callee::Builtin(BuiltinFn::ConsoleLog) => "@console_log".to_owned(),
+        // The absent spelling is part of the callee but not part of the MIR
+        // dump: it is a property of the site's language, and printing it would
+        // churn every fixture that logs an optional without telling a reader
+        // anything the file path does not already say.
+        Callee::Builtin(BuiltinFn::ConsoleLog { .. }) => "@console_log".to_owned(),
         Callee::Builtin(BuiltinFn::ConsoleWrite) => "@console_write".to_owned(),
         Callee::Builtin(BuiltinFn::ConsoleErrorWrite) => "@console_error_write".to_owned(),
         Callee::Builtin(BuiltinFn::JsonParse) => "@json_parse".to_owned(),
+        Callee::Builtin(BuiltinFn::Base64(op)) => format!("@{}", op.name()),
+        Callee::Builtin(BuiltinFn::UriDecode(op)) => match op {
+            smelt_hir::UriTranscodeOp::Decode => "@decode_uri".to_owned(),
+            smelt_hir::UriTranscodeOp::DecodeComponent => "@decode_uri_component".to_owned(),
+            // The encoding direction is infallible and never becomes a callee.
+            smelt_hir::UriTranscodeOp::Encode
+            | smelt_hir::UriTranscodeOp::EncodeComponent => "@encode_uri".to_owned(),
+        },
     }
 }
 
@@ -1556,6 +1946,12 @@ fn place_text(place: &Place) -> String {
         Place::Local(local) => local_ref(*local),
         Place::Field { base, field } => format!("{}.field{}", local_ref(*base), field.0),
         Place::Index { base, index, .. } => format!("{}[{}]", local_ref(*base), operand_text(index)),
+        Place::Global { base, projection } => match projection {
+            GlobalProjection::Field(field) => format!("global{base}.field{}", field.0),
+            GlobalProjection::Index { index, .. } => {
+                format!("global{base}[{}]", operand_text(index))
+            }
+        },
     }
 }
 

@@ -1,0 +1,191 @@
+interface InitLike
+
+fn header_of (FuncId(0)) -> String
+  locals
+    %0 param arg: Float | Response | InitLike<Float>
+    %1 param name: String
+    %2 user copied: Headers
+    %3 temp: Bool
+    %4 temp: Bool
+    %5 temp: Response | InitLike<Float>
+    %6 temp: Bool
+    %7 temp: Optional<List<(String, String)> | Dict<String, String> | Headers>
+    %8 temp: Response
+    %9 temp: Headers
+    %10 temp: InitLike<Float>
+    %11 temp: Optional<List<(String, String)> | Dict<String, String> | Headers>
+    %12 temp: Response | InitLike<Float>
+    %13 temp: Bool
+    %14 temp: Optional<List<(String, String)> | Dict<String, String> | Headers>
+    %15 temp: Response
+    %16 temp: Headers
+    %17 temp: InitLike<Float>
+    %18 temp: Optional<List<(String, String)> | Dict<String, String> | Headers>
+    %19 temp: Headers
+    %20 temp: Optional<String>
+    %21 temp: String
+  bb0:
+    %3 = unknown_is Object copy %0
+    switch move %3 ? bb1 : bb2
+  bb1:
+    %5 = unknown_cast copy %0 as t16
+    %6 = instanceof copy %5, class7
+    switch move %6 ? bb3 : bb4
+  bb2:
+    %4 = false
+    goto bb6
+  bb3:
+    %8 = move %5
+    %9 = response_headers move %8
+    %7 = move %9
+    goto bb5
+  bb4:
+    %10 = move %5
+    %7 = copy %10.field12
+    goto bb5
+  bb5:
+    %11 = move %7
+    %4 = move %11
+    goto bb6
+  bb6:
+    switch move %4 ? bb7 : bb8
+  bb7:
+    %12 = unknown_cast copy %0 as t16
+    %13 = instanceof copy %12, class7
+    switch move %13 ? bb9 : bb10
+  bb8:
+    return "none"
+  bb9:
+    %15 = move %12
+    %16 = response_headers move %15
+    %14 = move %16
+    goto bb11
+  bb10:
+    %17 = move %12
+    %14 = copy %17.field12
+    goto bb11
+  bb11:
+    %18 = move %14
+    %19 = headers_new move %18
+    %2 = move %19
+    %20 = headers_get move %2, copy %1
+    %21 = move %20 ?? "none"
+    return move %21
+
+fn status_of (FuncId(1)) -> Float
+  locals
+    %0 param arg: Float | Response | InitLike<Float>
+    %1 temp: Bool
+    %2 temp: Bool
+    %3 temp: Response | InitLike<Float>
+    %4 temp: Bool
+    %5 temp: Bool
+    %6 temp: Bool
+    %7 temp: Response | InitLike<Float>
+    %8 temp: Bool
+    %9 temp: Optional<Float>
+    %10 temp: Response
+    %11 temp: Float
+    %12 temp: InitLike<Float>
+    %13 temp: Optional<Float>
+    %14 temp: Response | InitLike<Float>
+    %15 temp: Bool
+    %16 temp: Optional<Float>
+    %17 temp: Response
+    %18 temp: Float
+    %19 temp: InitLike<Float>
+    %20 temp: Optional<Float>
+  bb0:
+    %1 = unknown_is Object copy %0
+    switch move %1 ? bb1 : bb2
+  bb1:
+    %3 = unknown_cast copy %0 as t16
+    %4 = instanceof move %3, class7
+    %5 = !move %4
+    %2 = move %5
+    goto bb3
+  bb2:
+    %2 = false
+    goto bb3
+  bb3:
+    switch move %2 ? bb4 : bb5
+  bb4:
+    %7 = unknown_cast copy %0 as t16
+    %8 = instanceof copy %7, class7
+    switch move %8 ? bb6 : bb7
+  bb5:
+    %6 = false
+    goto bb9
+  bb6:
+    %10 = move %7
+    %11 = response_status move %10
+    %9 = move %11
+    goto bb8
+  bb7:
+    %12 = move %7
+    %9 = copy %12.field13
+    goto bb8
+  bb8:
+    %13 = move %9
+    %6 = move %13
+    goto bb9
+  bb9:
+    switch move %6 ? bb10 : bb11
+  bb10:
+    %14 = unknown_cast copy %0 as t16
+    %15 = instanceof copy %14, class7
+    switch move %15 ? bb12 : bb13
+  bb11:
+    return 0.0
+  bb12:
+    %17 = move %14
+    %18 = response_status move %17
+    %16 = move %18
+    goto bb14
+  bb13:
+    %19 = move %14
+    %16 = copy %19.field13
+    goto bb14
+  bb14:
+    %20 = move %16
+    return move %20
+
+fn main (FuncId(2)) -> None
+  locals
+    %0 user record_init: InitLike<Float>
+    %1 temp: Dict<String, String>
+    %2 temp: InitLike<Float>
+    %3 temp: String
+    %4 temp: None
+    %5 temp: Float
+    %6 temp: None
+    %7 temp: Dict<String, String>
+    %8 temp: Response
+    %9 temp: String
+    %10 temp: None
+    %11 temp: String
+    %12 temp: None
+  bb0:
+    %1 = {"x-kind": "record"}
+    %2 = {"headers": move %1, "status": 201.0}
+    %0 = move %2
+    %3 = call fn0(copy %0, "x-kind") -> bb1
+  bb1:
+    %4 = call @console_log(move %3) -> bb2
+  bb2:
+    %5 = call fn1(move %0) -> bb3
+  bb3:
+    %6 = call @console_log(move %5) -> bb4
+  bb4:
+    %7 = {"x-kind": "response"}
+    %8 = response_new body="body" headers=move %7
+    %9 = call fn0(move %8, "x-kind") -> bb5
+  bb5:
+    %10 = call @console_log(move %9) -> bb6
+  bb6:
+    %11 = call fn0(404.0, "x-kind") -> bb7
+  bb7:
+    %12 = call @console_log(move %11) -> bb8
+  bb8:
+    return none
+

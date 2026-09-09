@@ -1,10 +1,18 @@
 //! Focused TypeScript standard-library lowering helpers.
 
+mod blob;
 mod buffer;
+mod abort_signal;
+mod crypto;
 pub(in crate::lowering) mod call_dispatch;
 mod collections;
+mod fetch_types;
+mod form_data;
+mod typed_array;
+mod http_server;
 mod numbers_math;
 mod objects;
+mod text_codec;
 
 use oxc::ast::ast::{Argument, CallExpression, Expression, ObjectPropertyKind, PropertyKey};
 use oxc::span::GetSpan;
@@ -1241,10 +1249,30 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let value = self.argument(argument, body)?;
-        if !self.is_json_serializable_type(Self::expr_ty(body, value)) {
+        let value_ty = Self::expr_ty(body, value);
+        if !self.is_json_serializable_type(value_ty) {
+            // Name the offending type. Without it the diagnostic says only that
+            // SOMETHING in a possibly deep union/record is not serializable,
+            // which is the least actionable form of a true statement.
+            // Name the type, and for a union name the ARM that is not
+            // serializable: interned ids ("Union([TypeId(29), TypeId(196), …])")
+            // say only that something somewhere is wrong, which is the least
+            // actionable form of a true statement, and for a union they hide
+            // the one member that has to change.
+            let unserializable = self.first_unserializable_member(value_ty);
             return Err(SmeltError::unsupported(
                 self.span(argument.span().start, argument.span().end),
-                "JSON.stringify() value must be JSON-serializable",
+                match unserializable {
+                    Some(member) if member != value_ty => format!(
+                        "JSON.stringify() value must be JSON-serializable: `{}` is not, in {}",
+                        smelt_hir::type_display(&self.ctx.krate, member),
+                        Self::argument_type_summary(&self.ctx.krate, value_ty),
+                    ),
+                    _ => format!(
+                        "JSON.stringify() value must be JSON-serializable: `{}` is not",
+                        Self::argument_type_summary(&self.ctx.krate, value_ty),
+                    ),
+                },
             ));
         }
         let ty = self.ctx.krate.types.intern(Type::String);
@@ -1377,6 +1405,60 @@ impl ModuleBuilder<'_> {
         ))
     }
 
+    /// Whether a `.test(..)` receiver is a regex with NO `lastIndex` state
+    /// AND no flags the pattern path would drop.
+    ///
+    /// Two questions, and both have to answer yes for `is_match` to be the same
+    /// call:
+    ///
+    /// * **`g` and `y` are the stateful flags.** Both make `test` read and
+    ///   advance `lastIndex`, so a regex carrying either has to run the same
+    ///   search `exec` does. Their absence is what makes the call a pure
+    ///   predicate.
+    /// * **The remaining flags have to survive the trip.**
+    ///   `regexp_pattern_expression` answers a PATTERN STRING, and
+    ///   `regex_literal_pattern_text` folds a literal's `i`/`m`/`s` into it as
+    ///   an inline `(?i)` group — but the `new RegExp(pattern, flags)` arm
+    ///   takes only the pattern argument and drops the flags. So a literal is
+    ///   eligible whatever its non-stateful flags, and a constructed regex only
+    ///   when it names no flags at all. Widening that needs the constructor arm
+    ///   to fold its flags first; taking the fast path without it made
+    ///   `new RegExp("^a+$", "i").test("AAA")` answer `false` where Node
+    ///   answers `true`.
+    ///
+    /// Anything else answers false, including a regex reached through a
+    /// variable: its flags belong to the VALUE, not to this expression, and
+    /// guessing "probably not global" would silently drop the state a `/g`
+    /// regex's caller is relying on.
+    fn regexp_test_is_stateless(receiver: &Expression<'_>) -> bool {
+        /// The flags that give a regex `lastIndex` state.
+        fn has_stateful_flag(flags: &str) -> bool {
+            flags.contains('g') || flags.contains('y')
+        }
+        /// A constructed regex is eligible only with no flags argument at all.
+        fn is_flagless_construction(arguments: &[oxc::ast::ast::Argument<'_>]) -> bool {
+            arguments.len() == 1
+        }
+        match receiver {
+            Expression::RegExpLiteral(literal) => {
+                !has_stateful_flag(&literal.regex.flags.to_string())
+            }
+            Expression::NewExpression(new_expr) => {
+                let Expression::Identifier(callee) = &new_expr.callee else {
+                    return false;
+                };
+                callee.name == "RegExp" && is_flagless_construction(&new_expr.arguments)
+            }
+            Expression::CallExpression(call_expr) => {
+                let Expression::Identifier(callee) = &call_expr.callee else {
+                    return false;
+                };
+                callee.name == "RegExp" && is_flagless_construction(&call_expr.arguments)
+            }
+            _ => false,
+        }
+    }
+
     /// Lower TypeScript `new RegExp(pattern).test(text)` to a regex boolean match.
     pub(super) fn regexp_test_call(
         &mut self,
@@ -1406,30 +1488,53 @@ impl ModuleBuilder<'_> {
                 "RegExp.test() requires a string haystack",
             ));
         };
+        // A STATELESS regex asks a yes/no question, and `is_match` is that
+        // question. The `exec`-and-compare path below exists for the stateful
+        // one: `test` on a `/g` or `/y` regex reads and advances `lastIndex`
+        // (`/a/g` over `"aa"` answers true, true, then FALSE and resets), so it
+        // has to run the same search `exec` does. Without a flag Node leaves
+        // `lastIndex` at 0 and the two are indistinguishable — except in the
+        // generated Rust, where `exec` builds a match object and then erases it
+        // to `SmeltUnknown` purely to compare it against null. That is two
+        // avoidable erasures per call site in the commonest regex shape in
+        // JavaScript. See `blocker-logs/regex-literal-test-erases-match.md`.
+        //
+        // Only a spelling whose flags are VISIBLE here can take the fast path.
+        // A regex reached through a variable keeps `exec`, because its flags are
+        // a runtime property of the value and a `/g` regex must stay stateful.
+        if Self::regexp_test_is_stateless(&member.object) {
+            let Some(pattern) = self.regexp_pattern_expression(&member.object, body, true)? else {
+                return Ok(None);
+            };
+            let ty = self.ctx.krate.types.intern(Type::Bool);
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::RegexIsMatch {
+                    op: RegexMatchOp::Search,
+                    pattern,
+                    haystack,
+                },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
         let receiver = self.expression(&member.object, body)?;
         if matches!(self.ctx.krate.types.get(Self::expr_ty(body, receiver)), Some(Type::Class { name, .. }) if self.ctx.krate.symbols.get(*name).is_some_and(|name| name == "RegExp"))
         {
-            let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
-            let optional_unknown_ty = self.ctx.krate.types.intern(Type::Optional(unknown_ty));
-            let exec = body.push_expr(Expr {
-                kind: ExprKind::RegexExec {
-                    regex: receiver,
-                    haystack,
-                },
-                ty: optional_unknown_ty,
-                span: self.span(call.span.start, call.span.end),
-            });
-            let none = body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::None),
-                ty: self.ctx.krate.types.intern(Type::None),
-                span: self.span(call.span.start, call.span.end),
-            });
+            // A concrete receiver whose flags are NOT readable here — a regex
+            // held in a variable, or built with a computed flags string. Its
+            // `test` may be stateful, so it runs the runtime's own `test`,
+            // which performs the same search `exec` does and updates
+            // `lastIndex` with it.
+            //
+            // This used to be `exec(..) != null`, which built a match object
+            // and erased it to `SmeltUnknown` just to compare against `null`:
+            // two avoidable erasures per call site for an answer the runtime
+            // already had as a `bool`.
             let bool_ty = self.ctx.krate.types.intern(Type::Bool);
             return Ok(Some(body.push_expr(Expr {
-                kind: ExprKind::BinOp {
-                    op: BinOp::NotEq,
-                    lhs: exec,
-                    rhs: none,
+                kind: ExprKind::RegexTest {
+                    regex: receiver,
+                    haystack,
                 },
                 ty: bool_ty,
                 span: self.span(call.span.start, call.span.end),
@@ -1853,7 +1958,7 @@ impl ModuleBuilder<'_> {
 
     /// Return whether a HIR type can be serialized by the JSON mapping.
     fn is_json_serializable_type(&mut self, ty: smelt_hir::TypeId) -> bool {
-        self.is_json_serializable_type_inner(ty, &mut Vec::new())
+        self.is_json_serializable_type_inner(ty, &mut Vec::new(), false)
     }
 
     /// Return whether a HIR type can be serialized without recursing forever.
@@ -1861,6 +1966,7 @@ impl ModuleBuilder<'_> {
         &mut self,
         ty: smelt_hir::TypeId,
         seen: &mut Vec<smelt_hir::Symbol>,
+        nested: bool,
     ) -> bool {
         let Some(ty_kind) = self.ctx.krate.types.get(ty).cloned() else {
             return false;
@@ -1873,38 +1979,153 @@ impl ModuleBuilder<'_> {
             | Type::Unknown
             | Type::TypeParam { .. } => true,
             Type::List(item) | Type::Set(item) | Type::Optional(item) => {
-                self.is_json_serializable_type_inner(item, seen)
+                self.is_json_serializable_type_inner(item, seen, true)
             }
             Type::Tuple(items) => items
                 .iter()
-                .all(|item| self.is_json_serializable_type_inner(*item, seen)),
+                .all(|item| self.is_json_serializable_type_inner(*item, seen, true)),
             Type::Union(items) => items
                 .iter()
-                .all(|item| self.is_json_serializable_type_inner(*item, seen)),
+                .all(|item| self.is_json_serializable_type_inner(*item, seen, true)),
             Type::Dict(key, value) | Type::JsMap(key, value) => {
                 matches!(self.ctx.krate.types.get(key), Some(Type::String))
-                    && self.is_json_serializable_type_inner(value, seen)
+                    && self.is_json_serializable_type_inner(value, seen, true)
             }
             Type::Class { name, args } => {
-                self.json_class_fields(name, &args).is_some_and(|fields| {
-                    if seen.contains(&name) {
+                // A HOST OBJECT serializes as `{}`: none of its state is an own
+                // enumerable property, so JavaScript has nothing to write.
+                // `JSON.stringify(new Blob(['a']))`, `new FormData()`,
+                // `new URLSearchParams('a=1')`, `new Headers([..])` and
+                // `new Request(url)` are all `{}` in Node. Treating "Smelt does
+                // not know this class's fields" as "not serializable" rejected
+                // source that JavaScript accepts, and it is what made a
+                // `BodyInit` union unserializable as a whole.
+                if self
+                    .ctx
+                    .krate
+                    .names
+                    .get(name)
+                    .or_else(|| self.ctx.krate.symbols.get(name))
+                    // A host object serializes cleanly: it erases to a
+                    // byte-backed or marker record whose own enumerable
+                    // properties are what `Serialize for SmeltUnknown` renders
+                    // — a view as its element indices
+                    // (`JSON.stringify(new TextEncoder().encode("hi"))` is
+                    // `{"0":104,"1":105}`), a marker-only host as `{}`.
+                    // Rejecting these made every program that serializes
+                    // encoded bytes a blocker even though the value crosses the
+                    // boundary cleanly.
+                    .is_some_and(|class_name| {
+                        smelt_stdlib::host_object_marker(class_name).is_some()
+                    })
+                {
+                    return true;
+                }
+                if seen.contains(&name) {
+                    // A RECURSIVE shape is serializable exactly when its
+                    // non-recursive parts are: `JSON.stringify` walks a value,
+                    // not a type, and the walk terminates on the value. Hono's
+                    // `JSONObject`/`JSONValue`/`JSONArray` triangle is the
+                    // canonical example, and answering "unserializable" for the
+                    // recursion point made the whole JSON type family
+                    // unserializable.
+                    return true;
+                }
+                // A nominal class standing for a TYPE ALIAS is that alias:
+                // resolve the alias path rather than judging the stand-in. A
+                // recursive alias cannot be expanded at its recursion point, so
+                // it arrives here as a nominal class — `JSONObject` inside
+                // `JSONValue` is exactly that — and asking whether the alias's
+                // own lowered shape is serializable answers the real question.
+                if let Some(alias) = self.find_type_alias(name).cloned() {
+                    seen.push(name);
+                    let serializable = self.is_json_serializable_type_inner(alias.ty, seen, true);
+                    seen.pop();
+                    if serializable {
                         return true;
                     }
+                }
+                self.json_class_fields(name, &args).is_some_and(|fields| {
                     seen.push(name);
                     let serializable = fields
                         .iter()
-                        .all(|field| self.is_json_serializable_type_inner(field.ty, seen));
+                        .all(|field| self.is_json_serializable_type_inner(field.ty, seen, true));
                     seen.pop();
                     serializable
                 })
             }
             Type::None => true,
+            // A FUNCTION-valued member is serializable: `JSON.stringify` drops
+            // a function-valued property and writes `null` for one in an array
+            // — `{a: () => 1, b: 1}` is `{"b":1}` and `[() => 1]` is `[null]`.
+            // Rejecting it made every JSON type family that admits one
+            // unserializable as a whole, which is most of them: Hono's
+            // `InvalidJSONValue` is `undefined | symbol | ((...args) => unknown)`
+            // and appears in `JSONObject`'s index value.
+            //
+            // The TOP-LEVEL argument stays a blocker: `JSON.stringify(fn)`
+            // evaluates to `undefined`, not to a string, so a program that
+            // serializes a bare function is doing something the `string` return
+            // type does not describe and deserves to be told.
+            Type::Function(_) => nested,
             Type::Never
-            | Type::Function(_)
             | Type::Future(_)
             | Type::Generator { .. }
             | Type::GeneratorResult { .. } => false,
         }
+    }
+
+    /// A short description of the argument's type for a diagnostic.
+    ///
+    /// A union of JSON value types expands to thousands of characters once its
+    /// arms are printed — Hono's `JSONValue` alone renders past 8 KB — and a
+    /// message that long is unreadable whether or not it is accurate. So the
+    /// culprit is named exactly and its container only by shape: `a union of 14
+    /// members`, or the type itself when it is small enough to print.
+    fn argument_type_summary(krate: &smelt_hir::Crate, ty: smelt_hir::TypeId) -> String {
+        /// The longest type text worth inlining in one diagnostic line.
+        const MAX_TYPE_TEXT: usize = 120;
+        if let Some(Type::Union(members)) = krate.types.get(ty) {
+            let count = members.len();
+            let text = smelt_hir::type_display(krate, ty);
+            if text.len() > MAX_TYPE_TEXT {
+                return format!("a union of {count} members");
+            }
+            return format!("`{text}`");
+        }
+        let text = smelt_hir::type_display(krate, ty);
+        if text.len() > MAX_TYPE_TEXT {
+            return "the argument's type".to_owned();
+        }
+        format!("`{text}`")
+    }
+
+    /// The innermost member of `ty` that blocks serialization, if any.
+    ///
+    /// Walks the same shapes [`Self::is_json_serializable_type`] accepts and
+    /// answers the first leaf it rejects, so a diagnostic can name the arm of a
+    /// union (or the item of a list) rather than the whole type. Returns `ty`
+    /// itself when the type is unserializable as a whole and has no narrower
+    /// culprit, and `None` when it is serializable.
+    fn first_unserializable_member(
+        &mut self,
+        ty: smelt_hir::TypeId,
+    ) -> Option<smelt_hir::TypeId> {
+        if self.is_json_serializable_type(ty) {
+            return None;
+        }
+        let members = match self.ctx.krate.types.get(ty).cloned()? {
+            Type::Union(items) | Type::Tuple(items) => items,
+            Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item) => {
+                vec![item]
+            }
+            Type::Dict(_, value) | Type::JsMap(_, value) => vec![value],
+            _ => return Some(ty),
+        };
+        members
+            .into_iter()
+            .find_map(|member| self.first_unserializable_member(member))
+            .or(Some(ty))
     }
 
     /// Return fields for class-like TypeScript types that can map to JSON objects.

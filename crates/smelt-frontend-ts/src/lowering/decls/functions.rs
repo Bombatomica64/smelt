@@ -21,7 +21,170 @@ use smelt_hir::{
     ParamSig, Pattern, Span, Stmt, Type, Visibility,
 };
 
+/// What a class field's initializer is lowered from.
+///
+/// A declared field carries a source expression. A method reassigned through
+/// `this` (see [`methods_assigned_on_this`]) is lowered as a function-typed
+/// field whose initializer is the method's own body, so it needs the function
+/// rather than an expression: an inherent Rust method cannot be assigned, and
+/// there is no source expression to point at.
+#[derive(Clone, Copy)]
+pub(in crate::lowering) enum ClassFieldInit<'a> {
+    /// A declared field's `= <expr>` initializer.
+    Expression(&'a Expression<'a>),
+    /// A reassigned method's own body, lowered as a function value.
+    Method(&'a oxc::ast::ast::Function<'a>),
+}
+
+/// The plain source spelling of a property key, when it has one.
+///
+/// Used to match a method against the names collected by
+/// [`methods_assigned_on_this`], which are syntactic: a `this.<name> = ...`
+/// target is always a static identifier or a string-literal key, so those are
+/// the only two spellings that can match. A private name is deliberately
+/// excluded -- `this.#m = ...` targets a private slot, not a method member.
+fn property_key_plain_name<'a>(key: &'a PropertyKey<'a>) -> Option<&'a str> {
+    match key {
+        PropertyKey::StaticIdentifier(ident) => Some(ident.name.as_str()),
+        PropertyKey::StringLiteral(lit) => Some(lit.value.as_str()),
+        _ => None,
+    }
+}
+
+/// Collect the method names a class body reassigns through `this.<name> = ...`.
+///
+/// JavaScript lets an instance replace one of its own methods at runtime, and
+/// Hono's `SmartRouter` does exactly that: it picks a concrete router on the
+/// first request and then rewrites its own `match` so later requests skip the
+/// selection loop (`smart-router/router.ts`). A Rust inherent method cannot be
+/// assigned, so such a member is lowered as a function-typed FIELD initialised
+/// to the method's own body instead, which the emitter already knows how to
+/// carry (an `Rc<dyn Fn(..)>` field, reassignable, with calls dispatching
+/// through it).
+///
+/// The scan is deliberately syntactic and deliberately narrow: only
+/// `this.<name> = ...` inside the class's own body, where the receiver names
+/// the class being lowered without any type resolution. Assignment through an
+/// instance from outside the class (`instance.method = ...`) needs the
+/// receiver's class, which is not knowable from the AST, and stays a named
+/// blocker rather than being guessed at. Every member this converts, that
+/// general rule would also convert, so the narrow form does not have to be
+/// unwound to widen it later.
+///
+/// Walking continues into nested nodes, so an assignment inside a callback,
+/// a loop body or a nested closure in the class body is recorded too.
+fn methods_assigned_on_this(body: &oxc::ast::ast::ClassBody<'_>) -> HashSet<String> {
+    let mut names = HashSet::new();
+    let mut collector = ThisMethodAssignmentCollector { names: &mut names };
+    for element in &body.body {
+        oxc::ast_visit::Visit::visit_class_element(&mut collector, element);
+    }
+    names
+}
+
+/// AST collector for `this.<name> = ...` writes anywhere in a class body.
+struct ThisMethodAssignmentCollector<'names> {
+    /// Accumulates each member name assigned through `this`.
+    names: &'names mut HashSet<String>,
+}
+
+impl<'a> oxc::ast_visit::Visit<'a> for ThisMethodAssignmentCollector<'_> {
+    fn visit_assignment_expression(&mut self, assign: &oxc::ast::ast::AssignmentExpression<'a>) {
+        if let Some(name) = assignment_target_this_member_name(&assign.left) {
+            self.names.insert(name.to_owned());
+        }
+        oxc::ast_visit::walk::walk_assignment_expression(self, assign);
+    }
+}
+
+/// Yield the member name of an assignment target of the form `this.<name>`.
+///
+/// Both the static spelling and a string-literal computed key are recognised,
+/// mirroring `assignment_target_host_global_name`. An optional (`this?.x`) or
+/// dynamically computed target yields nothing.
+fn assignment_target_this_member_name<'a>(
+    target: &'a oxc::ast::ast::AssignmentTarget<'a>,
+) -> Option<&'a str> {
+    use oxc::ast::ast::AssignmentTarget;
+    let (object, property) = match target {
+        AssignmentTarget::StaticMemberExpression(member) if !member.optional => {
+            (&member.object, member.property.name.as_str())
+        }
+        AssignmentTarget::ComputedMemberExpression(member) if !member.optional => {
+            let Expression::StringLiteral(key) = &member.expression else {
+                return None;
+            };
+            (&member.object, key.value.as_str())
+        }
+        _ => return None,
+    };
+    matches!(object, Expression::ThisExpression(_)).then_some(property)
+}
+
 impl ModuleBuilder<'_> {
+    /// Build the HIR function type describing a method's own signature.
+    ///
+    /// Used when a reassigned method is carried as a function-typed field (see
+    /// [`methods_assigned_on_this`]): the field's declared type has to be the
+    /// signature the method itself declares, so a call through the field keeps
+    /// the parameter and return types the source wrote rather than widening to
+    /// the runtime carrier. Parameters and the return follow the same
+    /// annotation-or-`Unknown` rules as an abstract method signature.
+    fn method_signature_function_type(
+        &mut self,
+        method: &oxc::ast::ast::MethodDefinition<'_>,
+    ) -> Result<smelt_hir::TypeId, SmeltError> {
+        let _type_params = self.push_type_parameter_scope(method.value.type_parameters.as_deref())?;
+        let return_ty = method
+            .value
+            .return_type
+            .as_ref()
+            .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+            .transpose()?
+            .unwrap_or_else(|| {
+                let unknown = self.ctx.krate.types.intern(Type::Unknown);
+                if method.value.r#async {
+                    self.ctx.krate.types.intern(Type::Future(unknown))
+                } else {
+                    unknown
+                }
+            });
+        let mut params = Vec::new();
+        for param in &method.value.params.items {
+            let ty = param
+                .type_annotation
+                .as_ref()
+                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                .transpose()?
+                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+            params.push(ty);
+        }
+        // `Function.length` counts the leading parameters before the first
+        // optional or defaulted one, the same rule named-function lowering uses.
+        let required_params = method
+            .value
+            .params
+            .items
+            .iter()
+            .position(|param| param.optional || Self::formal_parameter_has_default(param))
+            .unwrap_or(method.value.params.items.len());
+        let rest = method
+            .value
+            .params
+            .rest
+            .as_ref()
+            .map(|_| params.len().saturating_sub(1));
+        Ok(self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params,
+            rest,
+            required_params: Some(required_params),
+            mutable_params: Vec::new(),
+            return_ty,
+            is_async: method.value.r#async,
+            may_throw: false,
+        })))
+    }
+
     /// Lower a TypeScript function declaration into a HIR function item.
     pub(in crate::lowering) fn function_declaration(
         &mut self,
@@ -1241,6 +1404,101 @@ impl ModuleBuilder<'_> {
         format!("__smelt_anon_class_{}", class.span.start)
     }
 
+    /// Give a named class EXPRESSION its own type symbol when its name is a
+    /// modeled host class.
+    ///
+    /// A named class expression binds its name only inside the class's own
+    /// body, so nothing outside can name it as a type. A modeled host class of
+    /// the same spelling, on the other hand, is named by every reference to the
+    /// host value — and both would otherwise intern the SAME
+    /// `Type::Class { name }`, leaving one type identity standing for two
+    /// different Rust types: the emitted struct and the runtime type the host
+    /// class lowers to.
+    ///
+    /// That is not a theoretical clash. es-toolkit's `isBlob`/`isFile` specs
+    /// install `globalThis.File = class File extends Blob { .. }`; the class
+    /// expression emits a real `File` struct while `new File(..)` in the same
+    /// module keeps dispatching on the host override slot, whose native
+    /// fallback is a `SmeltBlob`. One shared symbol therefore declared the
+    /// struct's constructor result as `SmeltBlob` and the blob fallback as
+    /// `File` — seven `error[E0308]`s in the generated crate, with nothing in
+    /// the compiler able to tell the two meanings apart.
+    ///
+    /// So the host keeps the spelling and the class expression takes an
+    /// internal symbol, the same way a `describe` callback's class declarations
+    /// do (`enter_test_suite_class_scope`). Deliberately NOT applied to a class
+    /// DECLARATION: that name IS in the enclosing scope, the source genuinely
+    /// shadows the host class, and every reference — including from another
+    /// module through an import — must keep resolving to the one symbol.
+    fn host_shadowing_class_expression_name(
+        &mut self,
+        class: &oxc::ast::ast::Class<'_>,
+        class_source_name: &str,
+    ) -> Option<smelt_hir::Symbol> {
+        if class.r#type != oxc::ast::ast::ClassType::ClassExpression {
+            return None;
+        }
+        // Anonymous expressions already get a collision-free synthetic name;
+        // there is no spelling to take away from the host class.
+        class.id.as_ref()?;
+        smelt_stdlib::typescript_stdlib_class(class_source_name)?;
+        let internal_name = format!(
+            "{class_source_name}SmeltClassExprF{}S{}",
+            self.file_id.0, class.span.start,
+        );
+        // The internal name is the Rust-facing RENDERING; the source spelling
+        // stays the recorded original name, because that is what reflection
+        // reads. `__smelt_class` and the `instanceof` class registry both go
+        // through the original name, and JavaScript answers `File` there — the
+        // disambiguation exists for the Rust type system, not for the program.
+        let symbol = self.ctx.krate.symbols.intern(&internal_name);
+        self.ctx.krate.names.record(symbol, class_source_name);
+        Some(symbol)
+    }
+
+    /// The Rust-facing symbol for a source class name, qualified when the name
+    /// is ambiguous across the crate.
+    ///
+    /// Class identity in HIR is the name symbol: `Type::Class { name }` carries
+    /// it and `resolve_method` goes from it back to the class item. Two modules
+    /// exporting a class of the same name therefore shared one symbol for two
+    /// different classes, and every method of the loser reported "unknown class
+    /// method" — Hono's two `Node` classes, which stopped the router slice
+    /// transpiling. `HirCtx::class_renames` is the crate-wide answer to "is
+    /// this name ambiguous, and what is this module's rendering of it",
+    /// computed before any module lowers.
+    ///
+    /// Returns `None` for an unambiguous name so it keeps its bare spelling and
+    /// every existing golden stays byte-identical. When it does rename, the
+    /// SOURCE spelling is recorded as the symbol's original name, exactly as
+    /// [`Self::host_shadowing_class_expression_name`] does: `instanceof` and
+    /// `__smelt_class` read that, and JavaScript answers `Node` for both
+    /// classes. Only the Rust type name differs.
+    ///
+    /// For an ambiguous name it also answers `Some` for the module whose
+    /// rendering IS the bare spelling — the symbol is then the same one
+    /// `intern_type_name` would give, so nothing about the emitted crate
+    /// changes, but the caller binds the name in this module's own scope. That
+    /// binding is the point: without it a reference to the name resolved
+    /// through the crate-wide by-name item map, whose entry for an ambiguous
+    /// spelling is whichever module registered last, so Hono's trie router
+    /// resolved its own `Node<T>` annotation to the reg-exp router's class and
+    /// read that class's fields (H61).
+    pub(in crate::lowering) fn module_qualified_class_name(
+        &mut self,
+        class_source_name: &str,
+    ) -> Option<smelt_hir::Symbol> {
+        let rendered = self
+            .ctx
+            .class_renames
+            .get(&self.path)
+            .and_then(|renames| renames.get(class_source_name))?
+            .clone();
+        let symbol = self.ctx.krate.symbols.intern(&rendered);
+        self.ctx.krate.names.record(symbol, class_source_name);
+        Some(symbol)
+    }
+
     /// Lower a class declaration to HIR.
     ///
     /// Anonymous classes (`class {}` in an expression position) are named with a
@@ -1254,19 +1512,61 @@ impl ModuleBuilder<'_> {
         // fall back to a synthetic name so the class still registers and can be
         // referenced as a value. The name is owned here and borrowed as
         // `class_text` for the rest of lowering.
+        // A class EXPRESSION initializing a binding is named by that binding
+        // (`class_expression_binding_name`); the name is consumed here so a
+        // class expression nested deeper in the same initializer still falls
+        // back to its synthetic anonymous name. A class DECLARATION always uses
+        // its own identifier.
         let class_source_name = class.id.as_ref().map_or_else(
-            || Self::anonymous_class_name(class),
+            || {
+                self.class_expression_binding_name
+                    .take()
+                    .unwrap_or_else(|| Self::anonymous_class_name(class))
+            },
             |id| id.name.to_string(),
         );
-        let class_name = self.classes.scoped_type_name(&class_source_name)
-            .unwrap_or_else(|| self.intern_type_name(&class_source_name));
-        let class_name_owned = self
-            .ctx
-            .krate
-            .symbols
-            .get(class_name)
-            .unwrap_or(&class_source_name)
-            .to_owned();
+        let scoped_or_host_name = self
+            .classes
+            .scoped_type_name(&class_source_name)
+            .or_else(|| self.host_shadowing_class_expression_name(class, &class_source_name));
+        // `module_qualified_class_name` changes the class's RUST NAME and
+        // nothing else, so the module-local string-keyed metadata below stays
+        // under the SOURCE spelling. Every reader of those maps derives its key
+        // from the source name — either directly, or through
+        // `krate.names.get(symbol)`, which answers the recorded original name —
+        // so keying them by the qualified rendering silently missed: a renamed
+        // class's own `this.#items.push(v)` stopped finding its field metadata
+        // and lowered as an erased dynamic call, which is a wrong answer rather
+        // than a blocker. `registry_text` is `Some` only for that case.
+        let (class_name, registry_text) = match scoped_or_host_name {
+            Some(name) => (name, None),
+            None => match self.module_qualified_class_name(&class_source_name) {
+                // A renamed class must still answer to its source spelling
+                // inside its own module: `new Node()` and a `Node` type
+                // annotation both resolve through the scoped type name, and the
+                // class item registers under the source name (see the
+                // `classes.register` at the end of this function), so binding
+                // the two together here is what keeps the module internally
+                // consistent while the Rust type is `Node_1`. Deliberately not
+                // done for the host-shadowing case above, whose whole point is
+                // that the spelling keeps resolving to the HOST class outside
+                // the class expression's own body.
+                Some(qualified) => {
+                    self.classes
+                        .bind_scoped_type_name(class_source_name.clone(), qualified);
+                    (qualified, Some(class_source_name.clone()))
+                }
+                None => (self.intern_type_name(&class_source_name), None),
+            },
+        };
+        let class_name_owned = registry_text.unwrap_or_else(|| {
+            self.ctx
+                .krate
+                .symbols
+                .get(class_name)
+                .unwrap_or(&class_source_name)
+                .to_owned()
+        });
         let class_text = class_name_owned.as_str();
         let class_span = self.span(class.span.start, class.span.end);
         let materialized = self.materialized_class(&class_source_name).cloned();
@@ -1299,6 +1599,11 @@ impl ModuleBuilder<'_> {
                 .set_base(class_text.to_owned(), base_name, base_args.clone());
         }
         let mut fields = Vec::new();
+        // Methods this class reassigns through `this`, which are carried as
+        // function-typed fields instead of inherent methods. Scanned once here
+        // because both loops below need it: the field loop converts them, the
+        // method loop skips them.
+        let assigned_methods = methods_assigned_on_this(&class.body);
         let mut field_initializers = Vec::new();
         let mut constructor = None;
         let mut methods = Vec::new();
@@ -1319,6 +1624,34 @@ impl ModuleBuilder<'_> {
 
         for element in &class.body.body {
             match element {
+                // A method this class reassigns through `this` is carried as a
+                // function-typed field rather than as an inherent method, which
+                // cannot be assigned. The field's type is the method's own
+                // signature and its initializer is the method's own body, so a
+                // class that never actually assigns behaves exactly as before.
+                ClassElement::MethodDefinition(method)
+                    if !method.r#static
+                        && method.kind == MethodDefinitionKind::Method
+                        && method.value.body.is_some()
+                        && property_key_plain_name(&method.key)
+                            .is_some_and(|name| assigned_methods.contains(name)) =>
+                {
+                    let name = self.property_key_symbol(&method.key)?;
+                    let ty = self.method_signature_function_type(method)?;
+                    field_initializers.push((
+                        name,
+                        ClassFieldInit::Method(&method.value),
+                        ty,
+                        self.span(method.span.start, method.span.end),
+                    ));
+                    fields.push(Field {
+                        name,
+                        ty,
+                        visibility: visibility(method.accessibility),
+                        optional: false,
+                        span: self.span(method.span.start, method.span.end),
+                    });
+                }
                 ClassElement::PropertyDefinition(property) => {
                     if !property.decorators.is_empty() && materialized.is_none() {
                         return Err(SmeltError::specialization_required(
@@ -1389,7 +1722,7 @@ impl ModuleBuilder<'_> {
                     if let Some(value) = &property.value {
                         field_initializers.push((
                             name,
-                            value,
+                            ClassFieldInit::Expression(value),
                             ty,
                             self.span(property.span.start, property.span.end),
                         ));
@@ -1607,6 +1940,16 @@ impl ModuleBuilder<'_> {
             match element {
                 ClassElement::PropertyDefinition(_) => {}
                 ClassElement::MethodDefinition(method) => {
+                    // Already lowered as a function-typed field above, because
+                    // this class assigns over it through `this`.
+                    if !method.r#static
+                        && method.kind == MethodDefinitionKind::Method
+                        && method.value.body.is_some()
+                        && property_key_plain_name(&method.key)
+                            .is_some_and(|name| assigned_methods.contains(name))
+                    {
+                        continue;
+                    }
                     // An overload declaration has no JavaScript body. TypeScript
                     // validates overload applicability before Smelt runs; when
                     // the class also contains the matching concrete method, only
@@ -1622,15 +1965,10 @@ impl ModuleBuilder<'_> {
                             class_text,
                         ));
                     }
-                    // Plain source getters are lowered as `&self` methods and
-                    // registered as accessor descriptors below; setters still need
-                    // the write path that is not modeled yet.
-                    if materialized.is_none() && method.kind == MethodDefinitionKind::Set {
-                        return Err(SmeltError::unsupported(
-                            self.span(method.span.start, method.span.end),
-                            "setters are not lowered yet",
-                        ));
-                    }
+                    // Plain source getters AND setters are lowered as class
+                    // methods (`__smelt_get_x` / `__smelt_set_x`) and registered
+                    // as one accessor descriptor per property name below, which
+                    // is what routes `obj.x` and `obj.x = v` to them.
                     if method.computed && !self.is_resolvable_property_key(&method.key) {
                         return Err(SmeltError::unsupported(
                             self.span(method.span.start, method.span.end),
@@ -1718,26 +2056,104 @@ impl ModuleBuilder<'_> {
                             ));
                         }
                         // Register a source-level accessor descriptor for a plain
-                        // getter so member reads dispatch to the computed method.
-                        if materialized.is_none() && method.kind == MethodDefinitionKind::Get {
+                        // getter or setter so member reads dispatch to the
+                        // computed method and member WRITES dispatch to the
+                        // setter. A property with both accessors is ONE
+                        // descriptor carrying both halves, whichever order the
+                        // two appear in the class body, because that is what the
+                        // read and write emitters look up by property name.
+                        if materialized.is_none()
+                            && matches!(
+                                method.kind,
+                                MethodDefinitionKind::Get | MethodDefinitionKind::Set
+                            )
+                        {
                             let name = self.property_key_symbol(&method.key)?;
-                            let read_ty = method
-                                .value
-                                .return_type
-                                .as_ref()
-                                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                                .transpose()?
-                                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
-                            source_descriptors.push(smelt_hir::Descriptor {
-                                name,
-                                read_ty,
-                                write_ty: None,
-                                getter: Some(item),
-                                setter: None,
-                                data_descriptor: false,
-                                is_static: false,
-                                value_fields: Vec::new(),
-                            });
+                            match method.kind {
+                                MethodDefinitionKind::Get => {
+                                    // `Unknown` is interned only when an
+                                    // accessor genuinely has no annotation:
+                                    // interning it unconditionally would add an
+                                    // `Unknown` entry to the type table of every
+                                    // crate that declares any class method,
+                                    // which flips crate-wide erasure decisions
+                                    // (record backing, the erased prelude) for
+                                    // code that has no erased value at all.
+                                    let read_ty = match method.value.return_type.as_ref() {
+                                        Some(annotation) => {
+                                            self.ts_type_to_hir(&annotation.type_annotation)?
+                                        }
+                                        None => self.ctx.krate.types.intern(Type::Unknown),
+                                    };
+                                    if let Some(existing) = source_descriptors
+                                        .iter_mut()
+                                        .find(|descriptor| descriptor.name == name)
+                                    {
+                                        existing.read_ty = read_ty;
+                                        existing.getter = Some(item);
+                                    } else {
+                                        source_descriptors.push(smelt_hir::Descriptor {
+                                            name,
+                                            read_ty,
+                                            write_ty: None,
+                                            getter: Some(item),
+                                            setter: None,
+                                            data_descriptor: false,
+                                            is_static: false,
+                                            value_fields: Vec::new(),
+                                        });
+                                    }
+                                }
+                                MethodDefinitionKind::Set => {
+                                    // The written type is the setter's own
+                                    // parameter type; a setter takes exactly one
+                                    // parameter, and an unannotated one is the
+                                    // erased boundary the same way an
+                                    // unannotated getter return is.
+                                    let write_ty = match method
+                                        .value
+                                        .params
+                                        .items
+                                        .first()
+                                        .and_then(|param| param.type_annotation.as_ref())
+                                    {
+                                        Some(annotation) => {
+                                            self.ts_type_to_hir(&annotation.type_annotation)?
+                                        }
+                                        None => self.ctx.krate.types.intern(Type::Unknown),
+                                    };
+                                    if let Some(existing) = source_descriptors
+                                        .iter_mut()
+                                        .find(|descriptor| descriptor.name == name)
+                                    {
+                                        existing.write_ty = Some(write_ty);
+                                        existing.setter = Some(item);
+                                    } else {
+                                        source_descriptors.push(smelt_hir::Descriptor {
+                                            name,
+                                            // A set-only property has no getter,
+                                            // so no READ ever dispatches through
+                                            // this descriptor (a getterless
+                                            // descriptor read is an emit error,
+                                            // and JavaScript answers `undefined`
+                                            // for one). The slot mirrors the
+                                            // written type rather than interning
+                                            // `Unknown`, which would add an
+                                            // erased entry to the crate's type
+                                            // table for a value that never
+                                            // exists.
+                                            read_ty: write_ty,
+                                            write_ty: Some(write_ty),
+                                            getter: None,
+                                            setter: Some(item),
+                                            data_descriptor: false,
+                                            is_static: false,
+                                            value_fields: Vec::new(),
+                                        });
+                                    }
+                                }
+                                _ => {}
+                            }
                         }
                         methods.push(item);
                         item
@@ -2289,7 +2705,7 @@ impl ModuleBuilder<'_> {
         class_name: smelt_hir::Symbol,
         class_ty: smelt_hir::TypeId,
         has_base: bool,
-        field_initializers: &[(smelt_hir::Symbol, &Expression<'_>, smelt_hir::TypeId, Span)],
+        field_initializers: &[(smelt_hir::Symbol, ClassFieldInit<'_>, smelt_hir::TypeId, Span)],
         span: Span,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let saved_locals = self.scope.take_bindings();
@@ -2354,7 +2770,7 @@ impl ModuleBuilder<'_> {
         &mut self,
         this_local: smelt_hir::LocalId,
         class_ty: smelt_hir::TypeId,
-        field_initializers: &[(smelt_hir::Symbol, &Expression<'_>, smelt_hir::TypeId, Span)],
+        field_initializers: &[(smelt_hir::Symbol, ClassFieldInit<'_>, smelt_hir::TypeId, Span)],
         body: &mut Body,
     ) -> Result<(), SmeltError> {
         for (field, initializer, field_ty, span) in field_initializers {
@@ -2378,7 +2794,21 @@ impl ModuleBuilder<'_> {
             // empty `new Map()` for a `Map<T, string>` field infers
             // `Map<Unknown, Unknown>`, forcing a lossy key conversion at the
             // assignment that cannot collect into the generic field type (E0277).
-            let value = self.expression_with_hint(initializer, body, Some(*field_ty))?;
+            let value = match initializer {
+                ClassFieldInit::Expression(expression) => {
+                    self.expression_with_hint(expression, body, Some(*field_ty))?
+                }
+                // A method reassigned through `this` is carried as a
+                // function-typed field, so its own body becomes the field's
+                // initializer: the class still behaves as declared until
+                // something assigns over it. Lowered as a function VALUE (the
+                // same path a `f = function () {..}` field initializer takes)
+                // rather than as an inherent method, because an inherent method
+                // is what cannot be assigned in the first place.
+                ClassFieldInit::Method(function) => {
+                    self.function_expression_value(function, Some(*field_ty), function.span, body)?
+                }
+            };
             body.push_stmt(Stmt::Assign { target, value });
         }
         Ok(())
@@ -2738,7 +3168,7 @@ impl ModuleBuilder<'_> {
         class_ty: smelt_hir::TypeId,
         method: &oxc::ast::ast::MethodDefinition<'_>,
         is_constructor: bool,
-        field_initializers: &[(smelt_hir::Symbol, &Expression<'_>, smelt_hir::TypeId, Span)],
+        field_initializers: &[(smelt_hir::Symbol, ClassFieldInit<'_>, smelt_hir::TypeId, Span)],
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         self.class_function_impl(
             class_text,
@@ -2766,7 +3196,7 @@ impl ModuleBuilder<'_> {
         method: &oxc::ast::ast::MethodDefinition<'_>,
         is_constructor: bool,
         is_static: bool,
-        field_initializers: &[(smelt_hir::Symbol, &Expression<'_>, smelt_hir::TypeId, Span)],
+        field_initializers: &[(smelt_hir::Symbol, ClassFieldInit<'_>, smelt_hir::TypeId, Span)],
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let Some(function_body) = &method.value.body else {
             return Err(SmeltError::unsupported(

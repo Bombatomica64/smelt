@@ -101,7 +101,12 @@ fn promote_body(
                         Place::Field { base, .. } | Place::Index { base, .. } => {
                             mutated.insert(*base);
                         }
-                        Place::Local(_) => {}
+                        // This analysis tracks mutated LOCALS so an erased
+                        // record can be promoted back to a struct. A
+                        // global-rooted write mutates a `thread_local!` cell,
+                        // which is not a local and is never a promotion
+                        // candidate, so it contributes nothing here.
+                        Place::Local(_) | Place::Global { .. } => {}
                     }
                     // A value erased through an explicit cast escapes by reference.
                     if let Rvalue::UnknownCast {

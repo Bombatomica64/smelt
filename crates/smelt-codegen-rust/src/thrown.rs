@@ -116,8 +116,32 @@ pub(crate) fn panic_payload_record_expr(message_text: &str) -> String {
 /// lets a `catch` observe a runtime-raised error exactly as it observes a
 /// source-level `throw new SyntaxError(..)`.
 pub(crate) fn error_payload_record_expr(class: &str, message_text: &str) -> String {
+    error_payload_record_expr_dyn(&format!("{class:?}"), message_text)
+}
+
+/// Renders the erased error record with both fields given as Rust expressions.
+///
+/// The class is a *rendered expression* rather than a literal, which is what the
+/// panic route needs: a caught panic's class is only known at run time, from the
+/// payload that crossed the unwind. [`error_payload_record_expr`] is the literal
+/// spelling of the same record.
+pub(crate) fn error_payload_record_expr_dyn(class_text: &str, message_text: &str) -> String {
     format!(
-        "SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"__smelt_error\".to_owned(), SmeltUnknown::String({class:?}.into())), (\"message\".to_owned(), SmeltUnknown::String({message_text}.into())), (\"stack\".to_owned(), SmeltUnknown::Undefined), (\"cause\".to_owned(), SmeltUnknown::Undefined)])))"
+        "SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"__smelt_error\".to_owned(), SmeltUnknown::String({class_text}.into())), (\"message\".to_owned(), SmeltUnknown::String({message_text}.into())), (\"stack\".to_owned(), SmeltUnknown::Undefined), (\"cause\".to_owned(), SmeltUnknown::Undefined)])))"
+    )
+}
+
+/// Renders an erased `DOMException` record: an error record plus the marker.
+///
+/// A `DOMException` is an `Error` for every purpose a generated program can
+/// observe -- `.name` and `.message` read off the error fields, and a `catch`
+/// binding inspects it like any other -- and it is ALSO a distinct identity, so
+/// `reason instanceof DOMException` has to answer true. Carrying both the error
+/// brand and the host marker is what makes both true at once, and it is how the
+/// WebCrypto and AbortSignal reasons are built.
+pub(crate) fn dom_exception_record_expr(name: &str, message: &str) -> String {
+    format!(
+        "SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"__smelt_error\".to_owned(), SmeltUnknown::String({name:?}.into())), (\"__smelt_domexception\".to_owned(), SmeltUnknown::Bool(true)), (\"message\".to_owned(), SmeltUnknown::String({message:?}.into())), (\"stack\".to_owned(), SmeltUnknown::Undefined), (\"cause\".to_owned(), SmeltUnknown::Undefined)])))"
     )
 }
 
@@ -143,13 +167,117 @@ pub(crate) fn emit_json_parse_support(writer: &mut CodeWriter) {
     ));
 }
 
+/// Name of the generated fallible `decodeURI` adapter.
+pub(crate) const DECODE_URI_FN: &str = "smelt_decode_uri_throwing";
+
+/// Name of the generated fallible `decodeURIComponent` adapter.
+pub(crate) const DECODE_URI_COMPONENT_FN: &str = "smelt_decode_uri_component_throwing";
+
+/// Emits the fallible URI-decoder adapters into the generated prelude.
+///
+/// The runtime decoders answer `Option<String>` — `None` for malformed
+/// percent-encoding — and JavaScript answers that same input with a *catchable*
+/// `URIError`. These adapters convert one into the other through the ABI a
+/// source-level `throw` uses, so a `catch` binding cannot tell a
+/// runtime-raised `URIError` from a hand-written one, exactly as
+/// [`emit_json_parse_support`] arranges for `SyntaxError`.
+///
+/// Before this existed the emitter wrote
+/// `smelt_decode_uri(..).expect("URIError: URI malformed")`, which does not
+/// merely fail to be catchable: the handler block ends up with no predecessor,
+/// MIR drops it, and a `try`/`catch` the source wrote is *absent* from the
+/// generated crate. Hono's `tryDecode` is that shape.
+pub(crate) fn emit_uri_decode_support(writer: &mut CodeWriter) {
+    use smelt_stdlib::runtime_symbols::strings;
+
+    for (adapter, inner) in [
+        (DECODE_URI_FN, strings::DECODE_URI),
+        (DECODE_URI_COMPONENT_FN, strings::DECODE_URI_COMPONENT),
+    ] {
+        writer.blank_line();
+        writer.line(format!(
+            "/// `{inner}`: decode percent-encoding, throwing a catchable `URIError`."
+        ));
+        writer.line(format!(
+            "fn {adapter}(value: &str) -> Result<String, Box<dyn ::std::error::Error>> {{ \
+             match {inner}(value) {{ \
+             Some(decoded) => Ok(decoded), \
+             None => Err({THROW_FN}({})) }} }}",
+            error_payload_record_expr("URIError", "\"URI malformed\".to_owned()")
+        ));
+    }
+}
+
+/// Name of the generated fallible `btoa` adapter.
+pub(crate) const BTOA_FN: &str = "smelt_btoa_throwing";
+
+/// Name of the generated fallible `atob` adapter.
+pub(crate) const ATOB_FN: &str = "smelt_atob_throwing";
+
+/// Emits the fallible base64 adapters into the generated prelude.
+///
+/// Both directions throw the spec's branded `InvalidCharacterError`
+/// `DOMException`, and both reach a `catch` through the same ABI a source-level
+/// `throw` uses, so a `catch` binding cannot tell a runtime-raised one from a
+/// hand-written `new DOMException(msg, 'InvalidCharacterError')`.
+///
+/// `btoa` maps each code point to one byte, which is only possible up to
+/// U+00FF; anything above has no byte and is the spec's
+/// `InvalidCharacterError`. The output is padded, which is what
+/// `btoa("\u{00ff} ")` being `"/yA="` means.
+///
+/// `atob` implements WHATWG **forgiving-base64** rather than canonical base64,
+/// and the difference is observable in three places a stricter decoder gets
+/// wrong: `atob("aGVsbG8")` (no padding) decodes, `atob("YR==")`
+/// (non-canonical trailing bits) decodes, and `atob("aGVs bG8=")` (embedded
+/// whitespace) decodes — while `atob("YR=")` and `atob("a")` throw. The
+/// algorithm is the spec's, in its order: strip the five ASCII whitespace code
+/// points, drop up to two `=` only when the length is a multiple of four,
+/// refuse a length of `4n + 1`, refuse any character outside the standard
+/// alphabet, then decode.
+///
+/// The decoded bytes come back as a BYTE STRING — one code point per byte, the
+/// inverse of `btoa` — not as UTF-8 text, because that is what `atob` answers:
+/// `atob(btoa(s)) === s` has to hold for every `s` the encoder accepted, and a
+/// UTF-8 reinterpretation would break it for every byte above 0x7F.
+pub(crate) fn emit_base64_support(writer: &mut CodeWriter) {
+    // The decode engine is configured for the forgiving algorithm: padding is
+    // already removed by the steps above, and non-canonical trailing bits are
+    // the spec's business rather than an error.
+    writer.blank_line();
+    writer.line("/// The forgiving-base64 decode engine `atob` is specified against.");
+    writer.line(
+        "const SMELT_BASE64_FORGIVING: base64::engine::GeneralPurpose = base64::engine::GeneralPurpose::new(&base64::alphabet::STANDARD, base64::engine::GeneralPurposeConfig::new().with_encode_padding(false).with_decode_padding_mode(base64::engine::DecodePaddingMode::RequireNone).with_decode_allow_trailing_bits(true));",
+    );
+    writer.blank_line();
+    writer.line(
+        "/// `btoa`: base64 of a byte string, throwing a catchable `InvalidCharacterError`.",
+    );
+    writer.line(format!(
+        "fn {BTOA_FN}(value: &str) -> Result<String, Box<dyn ::std::error::Error>> {{          use base64::Engine as _;          let mut bytes = Vec::with_capacity(value.len());          for ch in value.chars() {{          let point = ch as u32;          if point > 0xFF {{ return Err({THROW_FN}({invalid})); }}          bytes.push(point as u8);          }}          Ok(base64::engine::general_purpose::STANDARD.encode(bytes)) }}",
+        invalid = dom_exception_record_expr("InvalidCharacterError", "Invalid character"),
+    ));
+    writer.blank_line();
+    writer.line(
+        "/// `atob`: WHATWG forgiving-base64, throwing a catchable `InvalidCharacterError`.",
+    );
+    writer.line(format!(
+        "fn {ATOB_FN}(value: &str) -> Result<String, Box<dyn ::std::error::Error>> {{          use base64::Engine as _;          let mut chars: Vec<char> = value.chars().filter(|ch| !matches!(ch, ' ' | '\\t' | '\\n' | '\\r' | '\\u{{000c}}')).collect();          if chars.len() % 4 == 0 {{          if chars.ends_with(&['=', '=']) {{ chars.truncate(chars.len() - 2); }}          else if chars.ends_with(&['=']) {{ chars.truncate(chars.len() - 1); }}          }}          if chars.len() % 4 == 1 {{ return Err({THROW_FN}({malformed})); }}          if !chars.iter().all(|ch| ch.is_ascii_alphanumeric() || *ch == '+' || *ch == '/') {{ return Err({THROW_FN}({invalid})); }}          let encoded: String = chars.into_iter().collect();          match SMELT_BASE64_FORGIVING.decode(encoded.as_bytes()) {{          Ok(bytes) => Ok(bytes.into_iter().map(char::from).collect()),          Err(_) => Err({THROW_FN}({invalid})) }} }}",
+        invalid = dom_exception_record_expr("InvalidCharacterError", "Invalid character"),
+        malformed = dom_exception_record_expr(
+            "InvalidCharacterError",
+            "The string to be decoded is not correctly encoded.",
+        ),
+    ));
+}
+
 /// Emits the exception-payload ABI into the generated runtime prelude.
 ///
 /// Only called from inside the prelude's `needs_unknown` region: the payload is
 /// a `SmeltUnknown`, so these items are only well-formed where that enum exists.
 /// Throw sites in a program with no erased values keep the plain string
 /// `std::io::Error` form (see `FunctionEmitter::throw_terminator_text`).
-pub(crate) fn emit_thrown_payload_support(writer: &mut CodeWriter) {
+pub(crate) fn emit_thrown_payload_support(writer: &mut CodeWriter, needs_panic_route: bool) {
     writer.blank_line();
     writer.line("/// A JavaScript `throw` payload travelling Smelt's `Box<dyn Error>` channel.");
     writer.line("///");
@@ -193,5 +321,199 @@ pub(crate) fn emit_thrown_payload_support(writer: &mut CodeWriter) {
     writer.line(format!(
         "fn {THROWN_VALUE_FN}(error: &(dyn ::std::error::Error + 'static)) -> SmeltUnknown {{ if let Some(thrown) = error.downcast_ref::<{THROWN_TYPE}>() {{ return thrown.value.clone(); }} {} }}",
         panic_payload_record_expr("error.to_string()")
+    ));
+    // The panic route's payload projection reads a thrown value through
+    // `smelt_thrown_value` above, so it belongs to the same gated region; it
+    // also names `SmeltPanic`, so it is only well-formed when the route's own
+    // items are emitted.
+    if needs_panic_route {
+        emit_panic_payload_projection(writer);
+    }
+}
+
+/// Name of the generated `Send` panic payload that carries a throw's identity.
+const PANIC_TYPE: &str = "SmeltPanic";
+
+/// Name of the thread-local slot holding a panic-routed throw's value.
+const PANIC_VALUE_SLOT: &str = "SMELT_PANIC_VALUE";
+
+/// Name of the generated adapter that routes a Smelt error through `panic!`.
+///
+/// `smelt_panic_throw(error: Box<dyn Error>) -> !`. The emit sites spell the
+/// name literally, inside their own `format!` templates; this constant is the
+/// single definition the prelude emits against.
+const PANIC_THROW_FN: &str = "smelt_panic_throw";
+
+/// Name of the generated helper that recovers a caught panic's message text.
+const PANIC_MESSAGE_FN: &str = "smelt_panic_message";
+
+/// Name of the generated helper that recovers a caught panic's error class.
+const PANIC_CLASS_FN: &str = "smelt_panic_class";
+
+/// Name of the generated helper that builds a `SmeltPanic` from a channel error.
+const PANIC_PAYLOAD_FN: &str = "smelt_panic_payload";
+
+/// Name of the generated helper that presents a caught panic as an erased error.
+const PANIC_ERROR_VALUE_FN: &str = "smelt_panic_error_value";
+
+/// Name of the generated one-shot panic-hook installer.
+const PANIC_HOOK_FN: &str = "smelt_install_panic_hook";
+
+/// Renders the message text a `catch` observes for a caught panic.
+///
+/// `panic_text` names the `Box<dyn Any + Send>` a `catch_unwind` answered with.
+pub(crate) fn caught_panic_message_expr(panic_text: &str) -> String {
+    format!("{PANIC_MESSAGE_FN}(&*{panic_text})")
+}
+
+/// Renders the erased error record a `catch` observes for a caught panic.
+///
+/// Unlike [`panic_payload_record_expr`], the class is recovered from the panic
+/// payload rather than hard-coded to `Error`, so a `URIError` routed through the
+/// panic channel still answers `error.name === 'URIError'`.
+pub(crate) fn caught_panic_error_value_expr(panic_text: &str) -> String {
+    format!("{PANIC_ERROR_VALUE_FN}(&*{panic_text})")
+}
+
+/// Emits the panic-route support items into the generated prelude.
+///
+/// # Why the panic channel exists at all
+///
+/// A generated function whose body cannot propagate an error — because its own
+/// type says `may_throw: false`, which is the case for every closure coerced to
+/// a declared non-throwing callback parameter type — still has to report a
+/// `throw`. It does so by panicking, and an enclosing `try` catches it with
+/// `std::panic::catch_unwind`. That route is why the generated `Cargo.toml` must
+/// never set `panic = "abort"`; `emitted_manifest_never_aborts_on_panic` pins it.
+///
+/// # Why the panic payload is a class plus a message
+///
+/// `std::panic::panic_any` requires `Any + Send`, and a `SmeltUnknown` holds
+/// `Rc` handles, so the thrown value cannot ride the unwind itself.
+/// `SmeltPanic` carries the two parts that *are* `Send`: the error class brand
+/// and the message. Before this existed the route panicked with
+/// `format!("{}", error)`, so every panic-routed throw arrived at its `catch` as
+/// a bare `Error` — `error.name` was wrong for `URIError`, `TypeError`, and
+/// every user error class.
+///
+/// # And why the VALUE still arrives
+///
+/// The value travels beside the panic rather than inside it, in a thread-local
+/// slot (`SMELT_PANIC_VALUE`): a routed throw parks it, and the `catch_unwind`
+/// that receives the panic takes it. That is sound because the two are the same
+/// thread by construction — the `catch_unwind` is emitted around the call in the
+/// same generated function — so `Send` is a static bound on the panic payload
+/// and not a claim about where this value goes.
+///
+/// This is what makes a panic-routed `throw "text"` arrive at its `catch` as
+/// that string rather than as an `Error` whose message happens to be it, and
+/// what lets a thrown class instance keep its own fields. `AbortSignal`'s
+/// `throwIfAborted()` is the shape that needed it: the spec throws the REASON,
+/// which is any JavaScript value, and a string reason is the commonest kind.
+///
+/// # The hook
+///
+/// Routing control flow through panics otherwise prints a panic line and the
+/// backtrace note on ordinary caught input — per request, for a router decoding
+/// untrusted path segments. The installed hook suppresses output *only* for a
+/// `SmeltPanic` payload and delegates everything else to the previous hook, so a
+/// genuine panic stays as loud as it was.
+///
+/// `needs_unknown` selects the panic-payload builder's body: the structured form
+/// projects the thrown payload's class, and is emitted by
+/// [`emit_thrown_payload_support`] because it names `SmeltUnknown`. A crate with
+/// no erased values has no structured payloads either — its throw sites carry
+/// plain message strings — so the class is `Error` there by construction.
+pub(crate) fn emit_panic_route_support(writer: &mut CodeWriter, needs_unknown: bool) {
+    // No leading blank line: the caller has just written the crate attribute
+    // block, which already ends with one.
+    writer.line("/// A Smelt `throw` crossing an unwind boundary, keeping its class.");
+    writer.line("#[derive(Debug)]");
+    writer.line(format!(
+        "struct {PANIC_TYPE} {{ class: String, message: String }}"
+    ));
+    writer.line(format!(
+        "impl ::std::fmt::Display for {PANIC_TYPE} {{ fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {{ write!(formatter, \"{{}}: {{}}\", self.class, self.message) }} }}"
+    ));
+    writer.line("static SMELT_PANIC_HOOK: ::std::sync::Once = ::std::sync::Once::new();");
+    writer.line("/// Silence the panic report for Smelt-thrown payloads only.");
+    writer.line(format!(
+        "fn {PANIC_HOOK_FN}() {{ SMELT_PANIC_HOOK.call_once(|| {{ let previous = ::std::panic::take_hook(); ::std::panic::set_hook(Box::new(move |info| {{ if info.payload().downcast_ref::<{PANIC_TYPE}>().is_some() {{ return; }} previous(info); }})); }}); }}"
+    ));
+    writer.line("/// Report a Smelt error through the panic channel, keeping its identity.");
+    writer.line(format!(
+        "fn {PANIC_THROW_FN}(error: Box<dyn ::std::error::Error>) -> ! {{ {PANIC_HOOK_FN}(); ::std::panic::panic_any({PANIC_PAYLOAD_FN}(&*error)) }}"
+    ));
+    writer.line("/// Recover the message text a `catch` observes from a caught panic.");
+    writer.line(format!(
+        "fn {PANIC_MESSAGE_FN}(panic: &(dyn ::std::any::Any + Send)) -> String {{ if let Some(payload) = panic.downcast_ref::<{PANIC_TYPE}>() {{ return payload.message.clone(); }} if let Some(message) = panic.downcast_ref::<String>() {{ return message.clone(); }} if let Some(message) = panic.downcast_ref::<&'static str>() {{ return (*message).to_owned(); }} \"JavaScript exception\".to_owned() }}"
+    ));
+    writer.line("/// Recover the error class a `catch` observes from a caught panic.");
+    writer.line(format!(
+        "fn {PANIC_CLASS_FN}(panic: &(dyn ::std::any::Any + Send)) -> String {{ panic.downcast_ref::<{PANIC_TYPE}>().map_or_else(|| \"Error\".to_owned(), |payload| payload.class.clone()) }}"
+    ));
+    if !needs_unknown {
+        writer.line("/// Build the unwind payload for a crate with no erased values.");
+        writer.line(format!(
+            "fn {PANIC_PAYLOAD_FN}(error: &(dyn ::std::error::Error + 'static)) -> {PANIC_TYPE} {{ {PANIC_TYPE} {{ class: \"Error\".to_owned(), message: error.to_string() }} }}"
+        ));
+    }
+}
+
+/// Emits the payload-projecting halves of the panic route.
+///
+/// Only well-formed inside the prelude's `needs_unknown` region: both items name
+/// `SmeltUnknown`. See [`emit_panic_route_support`] for the design.
+fn emit_panic_payload_projection(writer: &mut CodeWriter) {
+    writer.blank_line();
+    writer.line("/// Project a channel error's class and message across an unwind.");
+    writer.line("///");
+    writer.line("/// The class brand is the one `new <ErrorClass>(message)` writes; a thrown");
+    writer.line("/// class instance is read through its `name` property instead, which is what");
+    writer.line("/// JavaScript reports for `error.name` on a user error class.");
+    // The thrown VALUE, parked for the catch that is about to run.
+    //
+    // `panic_any` needs `Any + Send` and a `SmeltUnknown` holds `Rc` handles,
+    // so the value cannot ride the unwind itself — but it does not have to.
+    // A panic-routed throw and the `catch_unwind` that receives it are the same
+    // thread by construction (the `catch_unwind` is emitted around the call, in
+    // the same generated function), so a thread-local slot hands the value
+    // across without ever crossing a thread boundary. `Send` is a static bound
+    // on the panic payload, not a description of where this value goes.
+    //
+    // Nesting is safe because throw/catch is strictly nested on one thread and
+    // each catch TAKES the slot: an inner catch cannot see an outer throw's
+    // value, and a panic that is not a `SmeltPanic` finds the slot empty and
+    // falls back to the class-and-message record.
+    writer.line("/// The thrown value a panic-routed `throw` parked for its `catch`.");
+    writer.line(format!(
+        "thread_local! {{ static {PANIC_VALUE_SLOT}: ::std::cell::RefCell<Option<SmeltUnknown>> = const {{ ::std::cell::RefCell::new(None) }}; }}"
+    ));
+    writer.line(format!(
+        "fn {PANIC_PAYLOAD_FN}(error: &(dyn ::std::error::Error + 'static)) -> {PANIC_TYPE} {{ \
+         let value = {THROWN_VALUE_FN}(error); \
+         let message = {THROWN_MESSAGE_FN}(&value); \
+         let mut class = \"Error\".to_owned(); \
+         if let SmeltUnknown::Object(object) = &value {{ \
+         if let Some(SmeltUnknown::String(name)) = object.get(\"__smelt_error\") {{ class = name.to_string(); }} \
+         else if let Some(SmeltUnknown::String(name)) = object.get(\"name\") {{ class = name.to_string(); }} }} \
+         {PANIC_VALUE_SLOT}.with(|slot| {{ *slot.borrow_mut() = Some(value); }}); \
+         {PANIC_TYPE} {{ class, message }} }}"
+    ));
+    writer.line("/// Present a caught panic as the value a `catch` binds.");
+    writer.line("///");
+    writer.line("/// The parked value when the throw took the panic route, so a thrown");
+    writer.line("/// string arrives at the `catch` as that string and a thrown class");
+    writer.line("/// instance keeps its own fields. The class-and-message record otherwise:");
+    writer.line("/// a panic that is not a routed `throw` has no JavaScript value behind it.");
+    writer.line(format!(
+        "fn {PANIC_ERROR_VALUE_FN}(panic: &(dyn ::std::any::Any + Send)) -> SmeltUnknown {{ \
+         if let Some(value) = {PANIC_VALUE_SLOT}.with(|slot| slot.borrow_mut().take()) {{ \
+         if panic.downcast_ref::<{PANIC_TYPE}>().is_some() {{ return value; }} }} \
+         {} }}",
+        error_payload_record_expr_dyn(
+            &format!("{PANIC_CLASS_FN}(panic)"),
+            &format!("{PANIC_MESSAGE_FN}(panic)")
+        )
     ));
 }

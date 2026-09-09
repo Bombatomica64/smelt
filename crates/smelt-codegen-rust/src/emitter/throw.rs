@@ -171,6 +171,13 @@ fn local_read_counts(function: &MirFunction) -> HashMap<LocalId, usize> {
             Place::Local(local) | Place::Field { base: local, .. } => {
                 *counts.entry(*local).or_default() += 1;
             }
+            // No base local to count; the index operand is counted below by
+            // the same rule the local-rooted index arm uses.
+            Place::Global { projection, .. } => {
+                if let smelt_mir::GlobalProjection::Index { index, .. } = projection {
+                    count_operand(counts, index);
+                }
+            }
             Place::Index { base, index, .. } => {
                 *counts.entry(*base).or_default() += 1;
                 count_operand(counts, index);
@@ -199,6 +206,11 @@ fn local_read_counts(function: &MirFunction) -> HashMap<LocalId, usize> {
                     match place {
                         Place::Local(_) => {}
                         Place::Field { base, .. } => *counts.entry(*base).or_default() += 1,
+                        Place::Global { projection, .. } => {
+                            if let smelt_mir::GlobalProjection::Index { index, .. } = projection {
+                                count_operand(&mut counts, index);
+                            }
+                        }
                         Place::Index { base, index, .. } => {
                             *counts.entry(*base).or_default() += 1;
                             count_operand(&mut counts, index);

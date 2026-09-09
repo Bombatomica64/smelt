@@ -109,6 +109,62 @@ impl TypedArrayElement {
         }
     }
 
+    /// Whether `DataView` has a `get`/`set` accessor pair for this element.
+    ///
+    /// True for every element type but `Uint8Clamped`: clamping is a WRITE
+    /// POLICY of the `Uint8ClampedArray` view, not a width, so `DataView` —
+    /// which chooses a width per call and has no view identity to carry a
+    /// policy — has no `getUint8Clamped`. The exclusion lives here rather than
+    /// at the dispatch site so the accessor rule stays derived from the
+    /// element table.
+    #[must_use]
+    pub const fn has_data_view_accessor(self) -> bool {
+        !matches!(self, Self::Uint8Clamped)
+    }
+
+    /// This element's CamelCase name: `Int8`, `Float64`, `BigUint64`.
+    ///
+    /// One spelling, two consumers: it is the view class's name minus the
+    /// `Array` (`Int16Array`), which is also the suffix `DataView`'s accessors
+    /// carry (`getInt16`), and it is the variant name the generated
+    /// `SmeltTypedArrayKind` enum uses. Deriving all three from here is what
+    /// keeps a dispatch site, an accessor rule and an emitted enum from naming
+    /// the same element differently.
+    #[must_use]
+    pub const fn element_name(self) -> &'static str {
+        match self {
+            Self::Int8 => "Int8",
+            Self::Uint8 => "Uint8",
+            Self::Uint8Clamped => "Uint8Clamped",
+            Self::Int16 => "Int16",
+            Self::Uint16 => "Uint16",
+            Self::Int32 => "Int32",
+            Self::Uint32 => "Uint32",
+            Self::Float32 => "Float32",
+            Self::Float64 => "Float64",
+            Self::BigInt64 => "BigInt64",
+            Self::BigUint64 => "BigUint64",
+        }
+    }
+
+    /// Every element type, in table order.
+    #[must_use]
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Int8,
+            Self::Uint8,
+            Self::Uint8Clamped,
+            Self::Int16,
+            Self::Uint16,
+            Self::Int32,
+            Self::Uint32,
+            Self::Float32,
+            Self::Float64,
+            Self::BigInt64,
+            Self::BigUint64,
+        ]
+    }
+
     /// A stable lowercase tag naming this element type.
     ///
     /// The generated runtime dispatches its decode/encode on this string, so the
@@ -181,6 +237,22 @@ pub struct HostObject {
     /// `new Float32Array(arrayBuffer)` see two elements where
     /// `new Uint8Array(arrayBuffer)` sees eight.
     pub element: Option<TypedArrayElement>,
+    /// Whether the record's METHODS are bound by a runtime helper rather than
+    /// being members of the record itself.
+    ///
+    /// `false` for the identity-only host objects, where a record carrying the
+    /// marker is the whole value: `new WeakMap()` has nothing a bare marker
+    /// record fails to answer.
+    ///
+    /// `true` where the marker record is only the identity half and a subsystem
+    /// owns the behaviour — `AbortController`'s `abort()` and `AbortSignal`'s
+    /// `addEventListener` are bound by `smelt_abort_method` when the field is
+    /// READ, not stored in the record. Such an identity must never be built
+    /// reflectively from its class name alone (`new (proto.constructor)()`,
+    /// which es-toolkit's `clone` uses): the record would answer `instanceof`
+    /// correctly and then have no state for any of those methods to act on.
+    /// [`reflectively_constructible`] is that question.
+    pub helper_backed_methods: bool,
 }
 
 /// Concise constructor for a host-object registry entry.
@@ -192,6 +264,7 @@ const fn host(class_name: &'static str, marker: &'static str) -> HostObject {
         to_string_tag: class_name,
         byte_buffer: None,
         element: None,
+        helper_backed_methods: false,
     }
 }
 
@@ -214,6 +287,7 @@ const fn byte_buffer(
         to_string_tag,
         byte_buffer: Some(role),
         element,
+        helper_backed_methods: false,
     }
 }
 
@@ -235,6 +309,7 @@ const fn typed_array(
         to_string_tag: class_name,
         byte_buffer: Some(ByteBufferRole::View),
         element: Some(element),
+        helper_backed_methods: false,
     }
 }
 
@@ -247,6 +322,25 @@ const fn boxed(class_name: &'static str, marker: &'static str) -> HostObject {
         to_string_tag: class_name,
         byte_buffer: None,
         element: None,
+        helper_backed_methods: false,
+    }
+}
+
+/// Concise constructor for an identity whose METHODS a subsystem owns.
+///
+/// See [`HostObject::helper_backed_methods`]. The record is the identity half
+/// only, so it belongs in this registry — `instanceof`, the spec tag and the
+/// enumeration filters all want it — while reflective construction from the
+/// class name alone must not stand in for the surface.
+const fn helper_backed(class_name: &'static str, marker: &'static str) -> HostObject {
+    HostObject {
+        class_name,
+        marker,
+        is_boxed_primitive: false,
+        to_string_tag: class_name,
+        byte_buffer: None,
+        element: None,
+        helper_backed_methods: true,
     }
 }
 
@@ -257,6 +351,16 @@ const fn boxed(class_name: &'static str, marker: &'static str) -> HostObject {
 /// host identity here automatically wires it into the frontend construction
 /// helper, the `instanceof` lowering, and the runtime host-marker registry.
 pub const HOST_OBJECTS: &[HostObject] = &[
+    // `AbortController` and `AbortSignal`. Their markers used to be answered
+    // from a hand-written subsystem table inside the `instanceof` lowering,
+    // which meant the registry did not know these identities existed: the
+    // enumeration filters left `__smelt_abortcontroller` and
+    // `__smelt_abort_listeners` visible to `for...in`, where Node shows no own
+    // keys at all. They are registry entries now, and
+    // `helper_backed_methods` is what keeps reflective construction from
+    // building a signal with no listener list.
+    helper_backed("AbortController", "__smelt_abortcontroller"),
+    helper_backed("AbortSignal", "__smelt_abortsignal"),
     byte_buffer(
         "ArrayBuffer",
         "__smelt_arraybuffer",
@@ -347,11 +451,54 @@ pub const HOST_OBJECTS: &[HostObject] = &[
     host("File", "__smelt_file"),
     host("Blob", "__smelt_blob"),
     // Fetch API `Request` host object. Source code (es-toolkit's `isPlainObject`
-    // spec) constructs it only to probe host identity
-    // (`isPlainObject(new Request('...')) === false`); none of its structural
-    // surface is read, so it is a marker-only host object like `WeakMap` /
-    // `DataView`. `instanceof Request` resolves through this marker.
+    // The concrete fetch types. Unlike the marker-only entries above, these have
+    // real generated runtime types (`SmeltHeaders`, `SmeltUrlSearchParams`) and
+    // their structural surface IS read — through typed methods, not through the
+    // record. They are registered here for what happens at the erased boundary:
+    // the marker is what makes the internal `entries` slot non-enumerable in
+    // `for...in` (a real header list enumerates nothing) and what `instanceof`
+    // resolves through. Their construction never takes the marker-only path.
+    host("Headers", "__smelt_headers"),
+    host("URLSearchParams", "__smelt_urlsearchparams"),
+    // `Request` and `Response` moved up from the marker-only group when they
+    // gained real runtime types (`SmeltRequest`/`SmeltResponse`). The marker
+    // still does the same two jobs — `instanceof` resolves through it and
+    // `isPlainObject(new Request('...'))` is `false` because of it — but it is
+    // now stamped by the type's own erasure adapter rather than by a
+    // marker-record constructor, so the concrete value is what the program
+    // holds and the record exists only at the boundary.
     host("Request", "__smelt_request"),
+    host("Response", "__smelt_response"),
+    // The six modeled classes whose state is NOT a record: the text codecs, the
+    // `node:events` emitter, and the three `node:http` types. They were the last
+    // modeled classes with no registry marker, and the consequence was that
+    // erasing one went through the generic struct path — which stamps
+    // `__smelt_class` and reads DECLARED FIELDS, of which a prelude type has
+    // none — so the erased value carried no identity and `instanceof` on it
+    // could not be answered at all. `instance_of_text` folded it to `false` and
+    // silently deleted the branch until round 10 turned that into a blocker;
+    // these entries are what retire it.
+    //
+    // Their state is closures, cells and a tokio shutdown sender, so unlike
+    // `Headers` or `Blob` they cannot be REBUILT from a record. Their erasure
+    // therefore retains the live value in `SMELT_HOST_ORIGINS` keyed by the
+    // record's object id, and `SmeltFromUnknown` hands back that same object —
+    // which is what JavaScript erasure does anyway: `const x: unknown = emitter`
+    // must reach the same listener list.
+    host("TextEncoder", "__smelt_textencoder"),
+    host("TextDecoder", "__smelt_textdecoder"),
+    host("EventEmitter", "__smelt_eventemitter"),
+    host("Server", "__smelt_httpserver"),
+    host("IncomingMessage", "__smelt_incomingmessage"),
+    host("ServerResponse", "__smelt_serverresponse"),
+    // The two `BodyInit` arms whose surfaces are not modeled yet. They are here
+    // for identity only -- `Object.prototype.toString` tags them, `instanceof`
+    // resolves through them, and `JSON.stringify` answers `{}` because a host
+    // object has no own enumerable properties. `reflected_construct_kind`
+    // excludes both, so no dynamic `new FormData()` builds a record that would
+    // pretend to have `append`.
+    host("FormData", "__smelt_formdata"),
+    host("ReadableStream", "__smelt_readablestream"),
     host("DOMException", "__smelt_domexception"),
     // ECMA-402 `Intl` namespace constructors. Source code constructs these only
     // to probe host identity (`isPlainObject(new Intl.Locale('en')) === false`);
@@ -393,6 +540,21 @@ pub fn host_object_by_class(class_name: &str) -> Option<&'static HostObject> {
 #[must_use]
 pub fn host_object_marker(class_name: &str) -> Option<&'static str> {
     host_object_by_class(class_name).map(|entry| entry.marker)
+}
+
+/// Return whether `new (proto.constructor)()` may build this identity's record.
+///
+/// Reflective construction has only a class NAME to work from, so for a host
+/// class it builds a record carrying that class's marker. That is right for an
+/// identity-only host object and wrong for one whose behaviour a subsystem owns
+/// (see [`HostObject::helper_backed_methods`]): the record would answer
+/// `instanceof` and then have no state behind any of its methods.
+///
+/// Answers `true` for a name that is not in this registry at all, so a caller
+/// deciding about some other kind of class is unaffected.
+#[must_use]
+pub fn reflectively_constructible(class_name: &str) -> bool {
+    host_object_by_class(class_name).is_none_or(|entry| !entry.helper_backed_methods)
 }
 
 /// Every host-object identity marker key, for the runtime host-marker registry.
@@ -446,6 +608,32 @@ pub fn typed_array_host_objects() -> impl Iterator<Item = (&'static str, TypedAr
 #[must_use]
 pub fn typed_array_element(class_name: &str) -> Option<TypedArrayElement> {
     host_object_by_class(class_name).and_then(|entry| entry.element)
+}
+
+/// Resolve a `DataView` accessor name into its direction and element type.
+///
+/// `Some((true, Float64))` for `"setFloat64"`, `Some((false, Int16))` for
+/// `"getInt16"`, `None` for anything else — including `getUint8Clamped`, which
+/// `DataView` does not have (see
+/// [`TypedArrayElement::has_data_view_accessor`]).
+///
+/// This is a RULE, not a table of eighteen entries: the accessor's name is
+/// `get`/`set` plus the element's own spelling, so the element table is the
+/// single source of truth and a new element type would get its accessors for
+/// free. The dispatch site asks this instead of matching names itself.
+#[must_use]
+pub fn data_view_accessor(member: &str) -> Option<(bool, TypedArrayElement)> {
+    let (write, suffix) = if let Some(suffix) = member.strip_prefix("get") {
+        (false, suffix)
+    } else if let Some(suffix) = member.strip_prefix("set") {
+        (true, suffix)
+    } else {
+        return None;
+    };
+    TypedArrayElement::all()
+        .iter()
+        .find(|element| element.has_data_view_accessor() && element.element_name() == suffix)
+        .map(|element| (write, *element))
 }
 
 #[cfg(test)]

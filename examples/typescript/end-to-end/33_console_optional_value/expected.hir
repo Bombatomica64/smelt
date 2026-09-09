@@ -1,0 +1,62 @@
+module examples/typescript/end-to-end/33_console_optional_value/input.ts (ModuleId(0))
+  body BodyId(1)
+  items
+    fn label_of owner Module
+  locals
+    %0 const scores: Map<String, Float>
+    %1 const explicit: Optional<String>
+  exprs
+    #0: String = "ada"
+    #1: fn(Optional<String>) -> Optional<String> = @0(label_of)
+    #2: Optional<String> = call #1(#0)
+    #3: None = @1(console_log)
+    #4: None = call #3(#2)
+    #5: fn(Optional<String>) -> Optional<String> = @0(label_of)
+    #6: Optional<String> = call #5()
+    #7: None = @2(console_log)
+    #8: None = call #7(#6)
+    #9: String = "a"
+    #10: Float = 1.0
+    #11: Map<String, Float> = {#9: #10}
+    #12: Map<String, Float> = %0
+    #13: String = "a"
+    #14: Optional<Float> = dict_get #12, #13, _
+    #15: None = @3(console_log)
+    #16: None = call #15(#14)
+    #17: Map<String, Float> = %0
+    #18: String = "z"
+    #19: Optional<Float> = dict_get #17, #18, _
+    #20: None = @4(console_log)
+    #21: None = call #20(#19)
+    #22: String = "set"
+    #23: Optional<String> = %1
+    #24: None = @5(console_log)
+    #25: None = call #24(#23)
+    #26: String = "ada"
+    #27: fn(Optional<String>) -> Optional<String> = @0(label_of)
+    #28: Optional<String> = call #27(#26)
+    #29: fn(Optional<String>) -> Optional<String> = @0(label_of)
+    #30: Optional<String> = call #29()
+    #31: Optional<String> = %1
+    #32: None = @6(console_log)
+    #33: None = call #32(#28, #30, #31)
+  stmts
+    s0: #4
+    s1: #8
+    s2: let %0: Map<String, Float> = #11
+    s3: #16
+    s4: #21
+    s5: let %1: Optional<String> = #22
+    s6: #25
+    s7: #33
+
+interned types
+  t0 = Float
+  t1 = String
+  t2 = Dict<String, Float>
+  t3 = Map<String, Float>
+  t4 = None
+  t5 = Optional<String>
+  t6 = fn(Optional<String>) -> Optional<String>
+  t7 = fn(Optional<String>) -> Optional<String>
+  t8 = Optional<Float>

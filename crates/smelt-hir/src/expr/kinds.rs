@@ -1,10 +1,23 @@
 use super::{
     AsyncOp, BinOp, BoolFoldOp, ClosureExpr, DatePart, DictProjectionOp,
     ListCallbackOp, ListProjectionOp, ListSearchOp, Literal, NumericExtremaOp, NumericPredicateOp,
-    NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp, RegexMatchOp, SetBinaryOp,
+    NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp, RegexMatchOp, RegexReplaceArg,
+    SetBinaryOp,
     SetProjectionOp, SetRelationOp, SetRemoveOp, StringAffixOp, StringCaseOp, StringNormalizeForm,
     StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, UnaryOp,
-    UnknownKind, UrlField,
+    EventEmitterOp as EventEmitterOpKind, HeadersOp as HeadersOpKind,
+    HttpServerOp as HttpServerOpKind, IncomingMessageOp as IncomingMessageOpKind,
+    ServerResponseOp as ServerResponseOpKind,
+    RequestOp as RequestOpKind, ResponseOp as ResponseOpKind,
+    UnknownKind, UriTranscodeOp,
+    UrlField,
+    AbortSignalOp as AbortSignalOpKind,
+    CryptoOp as CryptoOpKind,
+    FormDataOp as FormDataOpKind,
+    UrlSearchParamsOp as UrlSearchParamsOpKind,
+    Base64Op as Base64OpKind, BlobOp as BlobOpKind, ByteArrayOp as ByteArrayOpKind,
+    TextDecoderOp as TextDecoderOpKind,
+    TextEncoderOp as TextEncoderOpKind,
 };
 use crate::ids::{BlockId, BodyId, ExprId, ItemId, LocalId, Symbol, TypeId};
 use serde::{Deserialize, Serialize};
@@ -255,10 +268,13 @@ pub enum ExprKind {
         form: StringNormalizeForm,
         operand: ExprId,
     },
-    /// JavaScript `encodeURI(operand)`: percent-encode the string, leaving the
-    /// URI-reserved and unreserved characters of the `encodeURI` character set
-    /// intact (see the runtime `smelt_encode_uri` helper for the exact set).
-    UriEncode {
+    /// One of the four ECMA-262 URI transcoding globals applied to `operand`:
+    /// `encodeURI`, `encodeURIComponent`, `decodeURI`, `decodeURIComponent`.
+    /// `op` carries which; see [`UriTranscodeOp`] for why one node covers all
+    /// four, and the `smelt_encode_uri*` / `smelt_decode_uri*` runtime helpers
+    /// for the exact character sets.
+    UriTranscode {
+        op: UriTranscodeOp,
         operand: ExprId,
     },
     /// JavaScript `Object.prototype.toString.call(operand)`: the classic
@@ -337,6 +353,10 @@ pub enum ExprKind {
         pattern: ExprId,
         haystack: ExprId,
         callback: ExprId,
+        /// The ECMA-262 replacer arguments the callback declared, in order.
+        /// Resolved in the frontend from the pattern's capture-group count and
+        /// the callback's arity; see [`RegexReplaceArg`].
+        args: Vec<RegexReplaceArg>,
     },
     RegexReplaceFirstMatchUppercase {
         pattern: ExprId,
@@ -351,6 +371,18 @@ pub enum ExprKind {
         haystack: ExprId,
     },
     RegexExec {
+        regex: ExprId,
+        haystack: ExprId,
+    },
+    /// `regex.test(haystack)` on a CONCRETE `RegExp` receiver.
+    ///
+    /// Answers a `bool` directly. Distinct from [`Self::RegexIsMatch`], which
+    /// takes a pattern STRING and is a pure predicate: this one is the stateful
+    /// spelling, so a `/g` or `/y` receiver reads and advances its `lastIndex`
+    /// exactly as `exec` does. Distinct from [`Self::RegexExec`] because the
+    /// answer is the boolean, not the match — building a match object and then
+    /// erasing it to compare against `null` is what this replaced.
+    RegexTest {
         regex: ExprId,
         haystack: ExprId,
     },
@@ -420,6 +452,277 @@ pub enum ExprKind {
     SetProjection {
         op: SetProjectionOp,
         set: ExprId,
+    },
+    /// `new Headers(init?)`.
+    ///
+    /// `init` is a record, a list of name/value pairs, or another `Headers`
+    /// value; which one is decided from the initializer's static type, so the
+    /// construction stays a concrete typed value with no runtime tag test.
+    HeadersNew {
+        /// Optional initializer expression.
+        init: Option<ExprId>,
+    },
+    /// `new URLSearchParams(init?)`.
+    ///
+    /// `init` is a query string, a record, a list of name/value pairs, or
+    /// another `URLSearchParams`; the initializer's static type selects the
+    /// conversion.
+    UrlSearchParamsNew {
+        /// Optional initializer expression.
+        init: Option<ExprId>,
+    },
+    /// `new TextEncoder()`.
+    ///
+    /// No initializer: the spec gives the constructor no arguments and fixes
+    /// the encoding at UTF-8.
+    TextEncoderNew,
+    /// `new TextDecoder(label?)`.
+    ///
+    /// `label` is the encoding label. Only the UTF-8 labels are modeled; any
+    /// other label is a named blocker at lowering rather than a decoder that
+    /// silently decodes as UTF-8.
+    TextDecoderNew {
+        /// The optional encoding-label expression.
+        label: Option<ExprId>,
+    },
+    /// A `TextEncoder` member on a concrete receiver.
+    TextEncoderOp {
+        /// Which member this reads or calls.
+        op: TextEncoderOpKind,
+        /// The `TextEncoder` receiver.
+        encoder: ExprId,
+        /// Operation arguments (the string to encode, or none).
+        args: Vec<ExprId>,
+    },
+    /// A `TextDecoder` member on a concrete receiver.
+    TextDecoderOp {
+        /// Which member this reads or calls.
+        op: TextDecoderOpKind,
+        /// The `TextDecoder` receiver.
+        decoder: ExprId,
+        /// Operation arguments (the byte view to decode, or none).
+        args: Vec<ExprId>,
+    },
+    /// One direction of the base64 codec (`btoa` / `atob`).
+    ///
+    /// Both directions throw, so both reach MIR as a call terminator rather
+    /// than an rvalue — see `Base64Op`.
+    Base64Transcode {
+        /// Which direction this call runs.
+        op: Base64OpKind,
+        /// The string to encode or decode.
+        operand: ExprId,
+    },
+    /// Construct a value of the concrete typed-array family.
+    ///
+    /// One node for all twelve source constructors — the eleven views and
+    /// `ArrayBuffer` — because the element kind is a runtime property selected
+    /// by the name, not a different operation. Codegen reads the name to pick
+    /// the kind (or the storage half) and the ARGUMENT TYPES to pick the
+    /// spelling: a number is a length, a list is elements, a buffer is a
+    /// re-view over shared storage, another view is an element-by-element
+    /// conversion, and an erased value is the one honest dynamic boundary.
+    TypedArrayNew {
+        /// The source constructor name, as written.
+        class_name: String,
+        /// The constructor arguments, as written.
+        args: Vec<ExprId>,
+    },
+    /// A `DataView` element accessor: `getInt16(offset, littleEndian?)` or
+    /// `setFloat64(offset, value, littleEndian?)`.
+    ///
+    /// One node for all eighteen accessors, carrying the source MEMBER
+    /// spelling for the same reason [`Self::TypedArrayNew`] carries the source
+    /// class name: the width, the signedness and the direction are all encoded
+    /// in that one name, the registry already knows how to read it, and a
+    /// variant per accessor would be eighteen ways to say one operation. The
+    /// element kind is not a property of the receiver here — the same view
+    /// answers `getInt16` and `getFloat64` — which is exactly why `DataView`
+    /// cannot share [`Self::ByteArrayOp`]'s shape, where the kind rides on the
+    /// value.
+    DataViewAccess {
+        /// The source accessor name, as written (`"getInt16"`, `"setUint8"`).
+        member: String,
+        /// The `DataView` receiver.
+        view: ExprId,
+        /// The accessor arguments, as written.
+        args: Vec<ExprId>,
+    },
+    /// A member read or method call on the concrete typed-array family.
+    ByteArrayOp {
+        /// Which member this reads or calls.
+        op: ByteArrayOpKind,
+        /// The view (or byte-storage) receiver.
+        bytes: ExprId,
+        /// Operation arguments (a range, a value, a source view, or none).
+        args: Vec<ExprId>,
+    },
+    /// A `URLSearchParams` method call on a concrete receiver.
+    UrlSearchParamsOp {
+        /// Which operation this call performs.
+        op: UrlSearchParamsOpKind,
+        /// The `URLSearchParams` receiver.
+        params: ExprId,
+        /// Operation arguments (name, or name and value).
+        args: Vec<ExprId>,
+    },
+    /// An `AbortSignal` static call (`AbortSignal.abort(reason?)`,
+    /// `AbortSignal.timeout(ms)`).
+    ///
+    /// No receiver operand: see [`AbortSignalOpKind`].
+    AbortSignalOp {
+        /// Which static this call performs.
+        op: AbortSignalOpKind,
+        /// Operation arguments, in source order.
+        args: Vec<ExprId>,
+    },
+    /// A `WebCrypto` call (`crypto.randomUUID()`, `crypto.getRandomValues(view)`,
+    /// `crypto.subtle.digest(algorithm, data)`).
+    ///
+    /// No receiver operand: see [`CryptoOpKind`].
+    CryptoOp {
+        /// Which operation this call performs.
+        op: CryptoOpKind,
+        /// Operation arguments, in source order.
+        args: Vec<ExprId>,
+    },
+    /// `new FormData()`.
+    ///
+    /// No initializer: the spec's constructor takes an optional `HTMLFormElement`
+    /// only, which is DOM and outside the profile, so a form is always built
+    /// empty and filled with `append`.
+    FormDataNew,
+    /// A `FormData` method call on a concrete receiver.
+    FormDataOp {
+        /// Which operation this call performs.
+        op: FormDataOpKind,
+        /// The `FormData` receiver.
+        form: ExprId,
+        /// Operation arguments (name; name and value; or a callback).
+        args: Vec<ExprId>,
+    },
+    /// `new Response(body?, init?)`.
+    ///
+    /// The init object's keys are lowered to their own fields rather than kept
+    /// as a record: `status`, `statusText` and `headers` have exact source types
+    /// (`number`, `string`, `HeadersInit`), and keeping them typed here is what
+    /// lets codegen build the concrete `SmeltResponse` without re-deriving a
+    /// shape from an erased record at run time. An init that is not an object
+    /// literal cannot be split this way and is a named blocker in the frontend.
+    ResponseNew {
+        /// The body argument, when the source passed one.
+        body: Option<ExprId>,
+        /// `init.status`, when the init literal set it.
+        status: Option<ExprId>,
+        /// `init.statusText`, when the init literal set it.
+        status_text: Option<ExprId>,
+        /// `init.headers`, when the init literal set it.
+        headers: Option<ExprId>,
+    },
+    /// `new EventEmitter()`.
+    ///
+    /// No options are modeled: the constructor's only argument is
+    /// `{ captureRejections }`, which changes how a rejected promise returned
+    /// by a listener is reported and has no meaning until listeners can be
+    /// async here.
+    EventEmitterNew,
+    /// An `EventEmitter` member operation on a concrete emitter receiver.
+    ///
+    /// The receiver is any value whose class
+    /// [`has_event_emitter`](smelt_stdlib::StdlibClass::has_event_emitter) — an
+    /// `EventEmitter` itself, or a `node:http` `IncomingMessage`, which holds
+    /// one by composition.
+    EventEmitterOp {
+        /// Which operation this member performs.
+        op: EventEmitterOpKind,
+        /// The emitter receiver.
+        emitter: ExprId,
+        /// The event name, followed by the operation's own arguments.
+        args: Vec<ExprId>,
+    },
+    /// `createServer(handler)` from `node:http`.
+    ///
+    /// The handler is stored CONCRETELY: unlike an event listener, its
+    /// signature is fixed by the module — `(IncomingMessage, ServerResponse)` —
+    /// so it needs none of the erasure the emitter's listener list needs.
+    HttpCreateServer {
+        /// The request handler, called once per accepted request.
+        handler: ExprId,
+    },
+    /// A `node:http` `Server` member operation.
+    HttpServerOp {
+        /// Which operation this member performs.
+        op: HttpServerOpKind,
+        /// The server receiver.
+        server: ExprId,
+        /// The operation's arguments: `listen` takes a port, an optional host,
+        /// and an optional listening callback; the others take none.
+        args: Vec<ExprId>,
+    },
+    /// A `node:http` `IncomingMessage` property read.
+    IncomingMessageOp {
+        /// Which property this reads.
+        op: IncomingMessageOpKind,
+        /// The request receiver.
+        message: ExprId,
+    },
+    /// A `node:http` `ServerResponse` member operation.
+    ServerResponseOp {
+        /// Which operation this member performs.
+        op: ServerResponseOpKind,
+        /// The response receiver.
+        response: ExprId,
+        /// The operation's arguments, in source order.
+        args: Vec<ExprId>,
+    },
+    /// `new Request(input, init?)`.
+    ///
+    /// `input` is the request URL; `method`, `headers` and `body` come from the
+    /// init literal's keys, split into typed fields for the same reason
+    /// [`Self::ResponseNew`] splits its own.
+    RequestNew {
+        /// The URL argument.
+        input: ExprId,
+        /// `init.method`, when the init literal set it.
+        method: Option<ExprId>,
+        /// `init.headers`, when the init literal set it.
+        headers: Option<ExprId>,
+        /// `init.body`, when the init literal set it.
+        body: Option<ExprId>,
+        /// `init.signal`, when the init literal set it.
+        ///
+        /// The request's own signal is not this value: the spec makes it a
+        /// DEPENDENT signal that follows this one, so `request.signal` is a
+        /// distinct object that aborts when this one does. See
+        /// `blocker-logs/abort-signal-reason-and-statics.md`.
+        signal: Option<ExprId>,
+    },
+    /// A `Request` member operation on a concrete `Request` receiver.
+    RequestOp {
+        /// Which operation this member performs.
+        op: RequestOpKind,
+        /// The `Request` receiver.
+        request: ExprId,
+        /// Operation arguments; every modeled member is nullary today.
+        args: Vec<ExprId>,
+    },
+    /// A `Response` member operation on a concrete `Response` receiver.
+    ResponseOp {
+        /// Which operation this member performs.
+        op: ResponseOpKind,
+        /// The `Response` receiver.
+        response: ExprId,
+        /// Operation arguments; every modeled member is nullary today.
+        args: Vec<ExprId>,
+    },
+    /// A WHATWG `Headers` method call on a concrete `Headers` receiver.
+    HeadersOp {
+        /// Which header operation this call performs.
+        op: HeadersOpKind,
+        /// The `Headers` receiver.
+        headers: ExprId,
+        /// Operation arguments (name, or name and value).
+        args: Vec<ExprId>,
     },
     ListConcat {
         left: ExprId,
@@ -819,6 +1122,15 @@ pub enum ExprKind {
         blob_type: ExprId,
         name: Option<ExprId>,
         last_modified: Option<ExprId>,
+    },
+    /// A `Blob`/`File` member on a concrete receiver.
+    BlobOp {
+        /// Which member this reads or calls.
+        op: BlobOpKind,
+        /// The `Blob` receiver.
+        blob: ExprId,
+        /// Operation arguments (`slice`'s range and content type, or none).
+        args: Vec<ExprId>,
     },
     /// Construct a modeled host object of a *registry* identity from its
     /// constructor arguments (`new ArrayBuffer(8)`, `new DataView(buf, 1, 2)`).

@@ -3,6 +3,8 @@
 //! This module defines the fundamental types and structures used in the MIR representation,
 //! including functions, basic blocks, locals, and various statements and expressions.
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 use smelt_hir::{BodyId, PropertyLookup, Span, Symbol, TypeId, Visibility};
 
@@ -48,6 +50,17 @@ pub struct Mir {
     /// in the crate. `Rvalue::GlobalGet`/`Rvalue::GlobalSet` reference entries by
     /// index, and codegen emits one thread-local cell per entry.
     pub globals: Vec<MirGlobal>,
+    /// Source path of every file the crate was lowered from, keyed by the
+    /// [`smelt_hir::FileId`] its spans carry.
+    ///
+    /// MIR is flattened, so once lowering is done a diagnostic has a span but
+    /// no way to say WHICH file it points into. Every `Span` carries a
+    /// `FileId`, and the HIR crate's modules carry `FileId -> path`, so this
+    /// preserves that one mapping across the boundary. It exists so an
+    /// `EmitError` can name its site: before it, a codegen blocker in a closure
+    /// could only report `<unnamed>`, and pinning one in a corpus the size of
+    /// Hono took a manifest-level bisection.
+    pub file_paths: HashMap<smelt_hir::FileId, String>,
     /// Type interner for interned types.
     pub types: smelt_hir::TypeInterner,
     /// Symbol interner for interned identifiers.
@@ -65,16 +78,31 @@ pub struct Mir {
 pub struct MirGlobal {
     /// The binding's name symbol.
     pub name: Symbol,
-    /// The binding's primitive type (Float, Int, Bool, or String in V1).
+    /// The binding's type.
     pub ty: TypeId,
-    /// The binding's literal initializer.
-    pub init: Constant,
+    /// How the binding's initial value is produced.
+    pub init: MirGlobalInit,
+}
+
+/// How a mutable global's cell is initialized in generated Rust.
+///
+/// A `thread_local!` initializer is an arbitrary Rust expression evaluated once
+/// per thread on first access, so both forms below are legal there; the split
+/// only records whether the value is a constant or has to be computed.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum MirGlobalInit {
+    /// A constant, emitted inline (and inside a `const` block where the type
+    /// allows it).
+    Constant(Constant),
+    /// A call to the synthesized nullary initializer function the frontend
+    /// built from the binding's initializer expression.
+    Call(FuncId),
 }
 
 impl Mir {
     /// Creates a new empty MIR crate with the given type and symbol interners.
     #[must_use]
-    pub const fn new(
+    pub fn new(
         types: smelt_hir::TypeInterner,
         symbols: smelt_hir::SymbolInterner,
         names: smelt_hir::OriginalNameTable,
@@ -85,6 +113,7 @@ impl Mir {
             interfaces: Vec::new(),
             closures: Vec::new(),
             globals: Vec::new(),
+            file_paths: HashMap::new(),
             types,
             symbols,
             names,
@@ -171,6 +200,11 @@ pub struct MirClosure {
     /// identity (`===`). The `ItemId` index is crate-unique, so it is a safe
     /// accessor key across all references.
     pub function_item_key: Option<usize>,
+    /// How this closure body's source language spells an absent value.
+    ///
+    /// See `MirFunction::absent`. A closure body is emitted through its own
+    /// synthesized `MirFunction`, so the spelling has to travel with it.
+    pub absent: AbsentSpelling,
 }
 
 /// One explicit MIR closure capture.
@@ -334,6 +368,16 @@ pub struct MirFunction {
     pub blocks: Vec<BasicBlock>,
     /// Entry block ID.
     pub entry: BlockId,
+    /// How this body's SOURCE LANGUAGE spells an absent value.
+    ///
+    /// Same rule, and the same reason, as `BuiltinFn::ConsoleLog`'s own field:
+    /// stringifying an `Optional` that holds nothing is `undefined` in
+    /// JavaScript and `None` in Python, and the disagreement is not observable
+    /// from the operand or its type. It is carried per BODY rather than per
+    /// node because a body comes from exactly one source file while the sites
+    /// that need the answer -- `String(x)`, a template interpolation, a `+`
+    /// concatenation -- are ordinary rvalues that no one would widen for it.
+    pub absent: AbsentSpelling,
 }
 
 impl MirFunction {
@@ -366,6 +410,10 @@ impl MirFunction {
                 span,
             }],
             entry: BlockId(0),
+            // Overwritten by lowering from the body's own file; the default is
+            // the TypeScript-shaped answer, matching `absent_spelling`'s own
+            // fallback for a synthesized span with no source module.
+            absent: AbsentSpelling::Undefined,
         }
     }
 
@@ -513,6 +561,94 @@ pub enum Place {
         /// What a negative index means at this site.
         negative: NegativeIndex,
     },
+    /// A field or index projection rooted at a module-level mutable global.
+    ///
+    /// Distinct from the local-rooted variants because the base is not a local
+    /// at all: it is a `thread_local!` cell, and the whole point of the variant
+    /// is to mutate the value INSIDE that cell rather than a copy read out of
+    /// it. A `GlobalGet` yields a clone, which shares the store for a handle
+    /// type (`SmeltRecord`) and deep-copies for a value type (`HashMap`), so a
+    /// write through a materialized copy is correct for one and silently lost
+    /// for the other. Naming the cell as the assignment root avoids having to
+    /// answer which case applies. See
+    /// `blocker-logs/hono-h6-place-global.md`.
+    ///
+    /// Whole-binding assignment is NOT this variant: `x = e` lowers to
+    /// `ExprKind::GlobalSet`, which replaces the cell's value and needs no
+    /// projection.
+    Global {
+        /// Index into [`Mir::globals`].
+        base: u32,
+        /// What is written inside the cell.
+        projection: GlobalProjection,
+    },
+}
+
+/// What a [`Place::Global`] writes inside a mutable global's cell.
+///
+/// One level only. A nested write (`cache[a][b] = v`) is not this shape: the
+/// inner `cache[a]` has to produce a value, and whether that value shares with
+/// the cell is the same handle-versus-value question `Place::Global` exists to
+/// avoid asking. Nested writes keep their frontend blocker.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum GlobalProjection {
+    /// `global.field = value`.
+    Field(Symbol),
+    /// `global[index] = value`.
+    Index {
+        /// The index expression.
+        index: Box<Operand>,
+        /// What a negative index means at this site.
+        negative: NegativeIndex,
+    },
+}
+
+/// How a source language spells a value that is absent.
+///
+/// Only reached when printing an `Optional<T>` that holds nothing. A Rust
+/// `Option` has no place in program output -- `{:?}` on one printed
+/// `Some("ada")` / `None`, a shape no source language produces -- so the
+/// present arm prints the value inside and the absent arm prints this word.
+///
+/// TypeScript's `null` and `undefined` both intern to `Type::None`, so
+/// `T | null` and `T | undefined` are one type by the time this is chosen, and
+/// `Undefined` is the answer for both: it is what nearly every operation that
+/// *produces* an optional in TypeScript returns (`find`, `pop`, `Map.get`, an
+/// optional property or parameter, `?.`, `process.env.X`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AbsentSpelling {
+    /// JavaScript/TypeScript: `undefined`.
+    Undefined,
+    /// Python: `None`.
+    None,
+}
+
+impl AbsentSpelling {
+    /// The word this language prints for an absent value.
+    #[must_use]
+    pub const fn text(self) -> &'static str {
+        match self {
+            Self::Undefined => "undefined",
+            Self::None => "None",
+        }
+    }
+
+    /// The word this language prints for an explicit NULL value.
+    ///
+    /// JavaScript distinguishes the two — `String(null)` is `"null"` while
+    /// `String(undefined)` is `"undefined"` — and Python has only one absent
+    /// value, so both words are `None` there. The distinction is observable
+    /// wherever the value still carries its runtime tag
+    /// (`SmeltUnknown::Null` vs `SmeltUnknown::Undefined`); a typed `Optional`
+    /// has erased it and uses [`Self::text`], which is the common case in
+    /// TypeScript (`find`, `Map.get`, an optional property, `?.`).
+    #[must_use]
+    pub const fn null_text(self) -> &'static str {
+        match self {
+            Self::Undefined => "null",
+            Self::None => "None",
+        }
+    }
 }
 
 /// What a negative element index means at an indexed place.
@@ -923,10 +1059,14 @@ pub enum Rvalue {
         /// String compared against the receiver.
         right: Operand,
     },
-    /// Percent-encode a string per JavaScript `encodeURI` (the full-URI
-    /// character set; see the runtime `smelt_encode_uri` helper).
-    UriEncode {
-        /// String operand to encode.
+    /// One of the four ECMA-262 URI transcoding globals (`encodeURI`,
+    /// `encodeURIComponent`, `decodeURI`, `decodeURIComponent`); see
+    /// `smelt_hir::UriTranscodeOp` and the `smelt_encode_uri*` /
+    /// `smelt_decode_uri*` runtime helpers.
+    UriTranscode {
+        /// Which of the four globals this is.
+        op: smelt_hir::UriTranscodeOp,
+        /// String operand to transcode.
         operand: Operand,
     },
     /// Resolve the JavaScript `Object.prototype.toString.call(x)` tag
@@ -1044,6 +1184,11 @@ pub enum Rvalue {
         haystack: Operand,
         /// Callback receiving the matched text and returning replacement text.
         callback: Operand,
+        /// The ECMA-262 replacer arguments the callback declared, in order —
+        /// `(matched, p1, …, pN, position, string)` truncated to its arity.
+        /// Resolved in the frontend, where the pattern's capture-group count is
+        /// known, so the emitter only has to render each role.
+        args: Vec<smelt_hir::RegexReplaceArg>,
     },
     /// Replace the first regex match with its uppercase text.
     RegexReplaceFirstMatchUppercase {
@@ -1068,6 +1213,14 @@ pub enum Rvalue {
     },
     /// Execute a JavaScript-like `RegExp` value and return a match object.
     RegexExec {
+        /// `RegExp` value.
+        regex: Operand,
+        /// String value to search.
+        haystack: Operand,
+    },
+    /// `regex.test(haystack)` on a concrete `RegExp` receiver, answering a
+    /// `bool` (see `smelt_hir::ExprKind::RegexTest`).
+    RegexTest {
         /// `RegExp` value.
         regex: Operand,
         /// String value to search.
@@ -1193,6 +1346,219 @@ pub enum Rvalue {
         op: smelt_hir::SetProjectionOp,
         /// Set value to project.
         set: Operand,
+    },
+    /// Construct a WHATWG `URLSearchParams` value.
+    /// Build an empty `EventEmitter`.
+    EventEmitterNew,
+    /// An `EventEmitter` member operation on a concrete emitter receiver.
+    EventEmitterOp {
+        /// Which operation this member performs.
+        op: smelt_hir::EventEmitterOp,
+        /// The emitter receiver.
+        emitter: Operand,
+        /// The event name, followed by the operation's own arguments.
+        args: Vec<Operand>,
+    },
+    /// `createServer(handler)`: build a `node:http` server.
+    HttpCreateServer {
+        /// The request handler, called once per accepted request.
+        handler: Operand,
+    },
+    /// A `node:http` `Server` member operation.
+    HttpServerOp {
+        /// Which operation this member performs.
+        op: smelt_hir::HttpServerOp,
+        /// The server receiver.
+        server: Operand,
+        /// The operation's arguments.
+        args: Vec<Operand>,
+    },
+    /// A `node:http` `IncomingMessage` property read.
+    IncomingMessageOp {
+        /// Which property this reads.
+        op: smelt_hir::IncomingMessageOp,
+        /// The request receiver.
+        message: Operand,
+    },
+    /// A `node:http` `ServerResponse` member operation.
+    ServerResponseOp {
+        /// Which operation this member performs.
+        op: smelt_hir::ServerResponseOp,
+        /// The response receiver.
+        response: Operand,
+        /// The operation's arguments, in source order.
+        args: Vec<Operand>,
+    },
+    /// Build a concrete `Request` value.
+    ///
+    /// The init literal's keys arrive as separate operands, like
+    /// [`Self::ResponseNew`].
+    RequestNew {
+        /// The URL argument.
+        input: Operand,
+        /// `init.method`, when the init literal set it.
+        method: Option<Operand>,
+        /// `init.headers`, when the init literal set it.
+        headers: Option<Operand>,
+        /// `init.body`, when the init literal set it.
+        body: Option<Operand>,
+        /// `init.signal`, when the init literal set it.
+        ///
+        /// The request's own signal FOLLOWS this one rather than being it (see
+        /// `smelt_hir::ExprKind::RequestNew`).
+        signal: Option<Operand>,
+    },
+    /// A `Request` member operation on a concrete `Request` receiver.
+    RequestOp {
+        /// Which operation this member performs.
+        op: smelt_hir::RequestOp,
+        /// The `Request` receiver.
+        request: Operand,
+        /// Operation arguments; every modeled member is nullary today.
+        args: Vec<Operand>,
+    },
+    /// Build a concrete `Response` value.
+    ///
+    /// The init literal's keys arrive as separate operands rather than as a
+    /// record, so the emitter builds the concrete runtime value without
+    /// re-deriving a shape at run time. See `ExprKind::ResponseNew`.
+    ResponseNew {
+        /// The body argument, when the source passed one.
+        body: Option<Operand>,
+        /// `init.status`, when the init literal set it.
+        status: Option<Operand>,
+        /// `init.statusText`, when the init literal set it.
+        status_text: Option<Operand>,
+        /// `init.headers`, when the init literal set it.
+        headers: Option<Operand>,
+    },
+    /// A `Response` member operation on a concrete `Response` receiver.
+    ResponseOp {
+        /// Which operation this member performs.
+        op: smelt_hir::ResponseOp,
+        /// The `Response` receiver.
+        response: Operand,
+        /// Operation arguments; every modeled member is nullary today.
+        args: Vec<Operand>,
+    },
+    /// Construct a WHATWG `TextEncoder` value.
+    TextEncoderNew,
+    /// Construct a WHATWG `TextDecoder` value.
+    TextDecoderNew {
+        /// Optional encoding-label value.
+        label: Option<Operand>,
+    },
+    /// Apply a `TextEncoder` member to a concrete receiver.
+    TextEncoderOp {
+        /// Member to read or call.
+        op: smelt_hir::TextEncoderOp,
+        /// `TextEncoder` receiver.
+        encoder: Operand,
+        /// Operation arguments (the string to encode, or none).
+        args: Vec<Operand>,
+    },
+    /// Apply a `TextDecoder` member to a concrete receiver.
+    TextDecoderOp {
+        /// Member to read or call.
+        op: smelt_hir::TextDecoderOp,
+        /// `TextDecoder` receiver.
+        decoder: Operand,
+        /// Operation arguments (the byte view to decode, or none).
+        args: Vec<Operand>,
+    },
+    /// Construct a value of the concrete typed-array family.
+    TypedArrayNew {
+        /// The source constructor name — one of the eleven views, or
+        /// `ArrayBuffer`.
+        class_name: String,
+        /// The constructor arguments, as written.
+        args: Vec<Operand>,
+    },
+    /// Read or write one element through a `DataView`.
+    DataViewAccess {
+        /// The source accessor name (`"getInt16"`, `"setUint8"`), which is
+        /// what carries the width, the signedness and the direction.
+        member: String,
+        /// The `DataView` receiver.
+        view: Operand,
+        /// The accessor arguments: a byte offset, a value for a write, and an
+        /// optional little-endian flag.
+        args: Vec<Operand>,
+    },
+    /// Read a member of, or call a method on, the concrete typed-array family.
+    ByteArrayOp {
+        /// Member to read or call.
+        op: smelt_hir::ByteArrayOp,
+        /// The view (or byte-storage) receiver.
+        bytes: Operand,
+        /// Operation arguments (a range, a value, a source view, or none).
+        args: Vec<Operand>,
+    },
+    /// Apply an `AbortSignal` static.
+    ///
+    /// No receiver operand: the two statics BUILD a signal (see
+    /// `smelt_hir::AbortSignalOp`).
+    AbortSignalOp {
+        /// Which static to apply.
+        op: smelt_hir::AbortSignalOp,
+        /// Operation arguments, in source order.
+        args: Vec<Operand>,
+    },
+    /// Apply a `WebCrypto` operation.
+    ///
+    /// No receiver operand: the `crypto` namespace holds no state a program can
+    /// observe, so the call is its arguments (see `smelt_hir::CryptoOp`).
+    CryptoOp {
+        /// Operation to apply.
+        op: smelt_hir::CryptoOp,
+        /// Operation arguments, in source order.
+        args: Vec<Operand>,
+    },
+    /// Construct an empty WHATWG `FormData` value.
+    ///
+    /// No initializer: the spec's only constructor argument is an
+    /// `HTMLFormElement`, which is DOM and outside the profile.
+    FormDataNew,
+    /// Apply a `FormData` operation to a concrete receiver.
+    FormDataOp {
+        /// Operation to apply.
+        op: smelt_hir::FormDataOp,
+        /// `FormData` receiver.
+        form: Operand,
+        /// Operation arguments (name; name and value; or a callback).
+        args: Vec<Operand>,
+    },
+    /// Construct a WHATWG `URLSearchParams` value.
+    UrlSearchParamsNew {
+        /// Optional initializer value.
+        init: Option<Operand>,
+    },
+    /// Apply a `URLSearchParams` operation to a concrete receiver.
+    UrlSearchParamsOp {
+        /// Operation to apply.
+        op: smelt_hir::UrlSearchParamsOp,
+        /// `URLSearchParams` receiver.
+        params: Operand,
+        /// Operation arguments (name, or name and value).
+        args: Vec<Operand>,
+    },
+    /// Construct a WHATWG `Headers` value.
+    ///
+    /// The initializer's static type selects the conversion at emit time (a
+    /// record, a list of name/value pairs, or another `Headers`), so no runtime
+    /// tag test decides how the value is built.
+    HeadersNew {
+        /// Optional initializer value.
+        init: Option<Operand>,
+    },
+    /// Apply a WHATWG `Headers` operation to a concrete `Headers` receiver.
+    HeadersOp {
+        /// Operation to apply.
+        op: smelt_hir::HeadersOp,
+        /// `Headers` receiver.
+        headers: Operand,
+        /// Operation arguments (name, or name and value).
+        args: Vec<Operand>,
     },
     /// Concatenate two lists into a new list.
     ListConcat {
@@ -1795,8 +2161,22 @@ pub enum Rvalue {
         text: Operand,
     },
     /// Construct a modeled host `Blob`/`File` marker record from constructor parts.
+    /// Apply a `Blob`/`File` member to a concrete receiver.
+    BlobOp {
+        /// Member to read or call.
+        op: smelt_hir::BlobOp,
+        /// `Blob` receiver.
+        blob: Operand,
+        /// Operation arguments (`slice`'s range and content type, or none).
+        args: Vec<Operand>,
+    },
+    /// Construct a WHATWG `Blob` or `File` from its constructor arguments.
+    ///
+    /// The parts operand's TYPE selects the conversion: a list of strings or a
+    /// list of blobs is consumed directly, and only a heterogeneous array is
+    /// erased and walked at runtime. See `emitter::blob::blob_new_text`.
     BlobFromParts {
-        /// Erased `BlobPart` array (strings and other `Blob`/`File` records).
+        /// `BlobPart` array: string parts, blob parts, or an erased mixed array.
         parts: Operand,
         /// Resolved MIME `type` string.
         blob_type: Operand,
@@ -2069,7 +2449,17 @@ pub enum Callee {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BuiltinFn {
     /// Print to the console.
-    ConsoleLog,
+    ///
+    /// Carries how the SOURCE LANGUAGE spells an absent value, because both
+    /// frontends lower to this one builtin and they disagree: printing a
+    /// `string | undefined` that holds nothing is `undefined` in JavaScript and
+    /// `None` in Python. The disagreement is not observable from the operand or
+    /// its type, so -- exactly like [`NegativeIndex`] -- the rule belongs to the
+    /// site's language, which only lowering still knows.
+    ConsoleLog {
+        /// How this call site's language spells an absent value.
+        absent: AbsentSpelling,
+    },
     /// Write exact text to stdout.
     ConsoleWrite,
     /// Write exact text to stderr.
@@ -2081,4 +2471,46 @@ pub enum BuiltinFn {
     /// and `Terminator::Await` carry an `unwind` edge, so a fallible operation
     /// has to be a call to reach an enclosing `try`.
     JsonParse,
+    /// `decodeURI` / `decodeURIComponent`, which throw a catchable `URIError`
+    /// on malformed percent-encoding.
+    ///
+    /// A builtin for exactly the reason [`Self::JsonParse`] is. The encoding
+    /// direction stays [`Rvalue::UriTranscode`] and gets no unwind edge:
+    /// `UriTranscodeOp::is_fallible` is the single place that distinction is
+    /// recorded, and it has always said only the two decoders can throw.
+    ///
+    /// Before this existed, a decoder emitted
+    /// `smelt_decode_uri(..).expect("URIError: URI malformed")` — so source
+    /// that catches a `URIError` did not merely fail to catch it: the handler
+    /// block had no predecessor, MIR dropped it, and the fallback the source
+    /// wrote was absent from the generated crate. Hono's `tryDecode` is that
+    /// shape.
+    UriDecode(smelt_hir::UriTranscodeOp),
+    /// `btoa` / `atob`, which throw a catchable `InvalidCharacterError`
+    /// `DOMException` on input their direction cannot represent.
+    ///
+    /// A builtin for the reason [`Self::JsonParse`] is, and for BOTH directions
+    /// rather than one: `btoa` refuses a code point above U+00FF and `atob`
+    /// refuses a malformed base64 string, so neither has an infallible rvalue
+    /// form to keep.
+    Base64(smelt_hir::Base64Op),
+}
+
+impl BuiltinFn {
+    /// Return whether this builtin can leave through the error channel.
+    ///
+    /// Asked by the throwing pass, so a fallible builtin with no handler in
+    /// scope marks its enclosing function `can_throw`. That used to be a
+    /// `matches!` naming `JsonParse` alone, which is why `decodeURI` in a
+    /// function with no `try` emitted `smelt_decode_uri_throwing(..)?` inside a
+    /// signature that returns no `Result` (E0277): every fallible builtin added
+    /// after `JSON.parse` was invisible to the pass. Stating it on the enum is
+    /// what makes the next one impossible to forget.
+    #[must_use]
+    pub const fn is_fallible(self) -> bool {
+        match self {
+            Self::JsonParse | Self::UriDecode(_) | Self::Base64(_) => true,
+            Self::ConsoleLog { .. } | Self::ConsoleWrite | Self::ConsoleErrorWrite => false,
+        }
+    }
 }

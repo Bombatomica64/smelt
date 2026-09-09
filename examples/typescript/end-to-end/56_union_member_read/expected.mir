@@ -1,0 +1,227 @@
+interface InitLike
+
+fn header_of (FuncId(0)) -> String
+  locals
+    %0 param arg: InitLike | Response
+    %1 param name: String
+    %2 user headers: Optional<Headers>
+    %3 temp: Bool
+    %4 temp: Optional<Headers>
+    %5 temp: Response
+    %6 temp: Headers
+    %7 temp: InitLike
+    %8 temp: Optional<Headers>
+    %9 temp: Bool
+    %10 temp: Headers
+    %11 temp: Optional<String>
+    %12 temp: String
+  bb0:
+    %3 = instanceof copy %0, class2
+    switch move %3 ? bb1 : bb2
+  bb1:
+    %5 = copy %0
+    %6 = response_headers move %5
+    %4 = move %6
+    goto bb3
+  bb2:
+    %7 = copy %0
+    %4 = copy %7.field9
+    goto bb3
+  bb3:
+    %8 = move %4
+    %2 = move %8
+    %9 = copy %2 == undefined
+    switch move %9 ? bb4 : bb5
+  bb4:
+    return "none"
+  bb5:
+    %10 = move %2
+    %11 = headers_get move %10, copy %1
+    %12 = move %11 ?? "none"
+    return move %12
+
+fn status_header_of (FuncId(1)) -> String
+  locals
+    %0 param arg: Float | InitLike | Response
+    %1 user headers: Optional<Headers>
+    %2 temp: Bool
+    %3 temp: InitLike | Response
+    %4 temp: Bool
+    %5 temp: Optional<Headers>
+    %6 temp: Response
+    %7 temp: Headers
+    %8 temp: InitLike
+    %9 temp: Optional<Headers>
+    %10 temp: Bool
+    %11 temp: Headers
+    %12 temp: Optional<String>
+    %13 temp: String
+  bb0:
+    %2 = unknown_is Object copy %0
+    switch move %2 ? bb1 : bb2
+  bb1:
+    %3 = unknown_cast copy %0 as t7
+    %4 = instanceof copy %3, class2
+    switch move %4 ? bb3 : bb4
+  bb2:
+    return "not-an-object"
+  bb3:
+    %6 = move %3
+    %7 = response_headers move %6
+    %5 = move %7
+    goto bb5
+  bb4:
+    %8 = move %3
+    %5 = copy %8.field9
+    goto bb5
+  bb5:
+    %9 = move %5
+    %1 = move %9
+    %10 = copy %1 != undefined
+    switch move %10 ? bb6 : bb7
+  bb6:
+    %11 = move %1
+    %12 = headers_get move %11, "x-b"
+    %13 = move %12 ?? "none"
+    return move %13
+  bb7:
+    goto bb2
+
+fn status_of (FuncId(2)) -> Float
+  locals
+    %0 param arg: Float | InitLike | Response
+    %1 temp: Bool
+    %2 temp: InitLike | Response
+    %3 temp: Bool
+    %4 temp: Optional<Float>
+    %5 temp: Response
+    %6 temp: Float
+    %7 temp: InitLike
+    %8 temp: Optional<Float>
+    %9 temp: Float
+    %10 temp: Float
+    %11 temp: Float
+  bb0:
+    %1 = unknown_is Object copy %0
+    switch move %1 ? bb1 : bb2
+  bb1:
+    %2 = unknown_cast copy %0 as t7
+    %3 = instanceof copy %2, class2
+    switch move %3 ? bb3 : bb4
+  bb2:
+    %11 = unknown_cast copy %0 as t0
+    return move %11
+  bb3:
+    %5 = move %2
+    %6 = response_status move %5
+    %4 = move %6
+    goto bb5
+  bb4:
+    %7 = move %2
+    %4 = copy %7.field10
+    goto bb5
+  bb5:
+    %8 = move %4
+    %9 = -1.0
+    %10 = move %8 ?? move %9
+    return move %10
+
+fn main (FuncId(3)) -> None
+  locals
+    %0 user init: InitLike
+    %1 temp: List<String>
+    %2 temp: List<List<String>>
+    %3 temp: Headers
+    %4 temp: InitLike
+    %5 temp: String
+    %6 temp: None
+    %7 temp: Dict<String, String>
+    %8 temp: Response
+    %9 temp: String
+    %10 temp: None
+    %11 temp: Dict<String, Float>
+    %12 temp: String
+    %13 temp: None
+    %14 temp: List<String>
+    %15 temp: List<List<String>>
+    %16 temp: Headers
+    %17 temp: Dict<String, Headers>
+    %18 temp: String
+    %19 temp: None
+    %20 temp: Dict<String, String>
+    %21 temp: Response
+    %22 temp: String
+    %23 temp: None
+    %24 temp: Dict<String, Float>
+    %25 temp: String
+    %26 temp: None
+    %27 temp: String
+    %28 temp: None
+    %29 temp: Dict<String, Float>
+    %30 temp: Float
+    %31 temp: None
+    %32 temp: Response
+    %33 temp: Float
+    %34 temp: None
+    %35 temp: Float
+    %36 temp: None
+  bb0:
+    %1 = ["x-a", "from-init"]
+    %2 = [move %1]
+    %3 = headers_new move %2
+    %4 = {"headers": move %3}
+    %0 = move %4
+    %5 = call fn0(move %0, "x-a") -> bb1
+  bb1:
+    %6 = call @console_log(move %5) -> bb2
+  bb2:
+    %7 = {"x-a": "from-response"}
+    %8 = response_new body="body" headers=move %7
+    %9 = call fn0(move %8, "x-a") -> bb3
+  bb3:
+    %10 = call @console_log(move %9) -> bb4
+  bb4:
+    %11 = {"status": 204.0}
+    %12 = call fn0(move %11, "x-a") -> bb5
+  bb5:
+    %13 = call @console_log(move %12) -> bb6
+  bb6:
+    %14 = ["x-b", "init"]
+    %15 = [move %14]
+    %16 = headers_new move %15
+    %17 = {"headers": move %16}
+    %18 = call fn1(move %17) -> bb7
+  bb7:
+    %19 = call @console_log(move %18) -> bb8
+  bb8:
+    %20 = {"x-b": "response"}
+    %21 = response_new body="body" headers=move %20
+    %22 = call fn1(move %21) -> bb9
+  bb9:
+    %23 = call @console_log(move %22) -> bb10
+  bb10:
+    %24 = {"status": 201.0}
+    %25 = call fn1(move %24) -> bb11
+  bb11:
+    %26 = call @console_log(move %25) -> bb12
+  bb12:
+    %27 = call fn1(204.0) -> bb13
+  bb13:
+    %28 = call @console_log(move %27) -> bb14
+  bb14:
+    %29 = {"status": 201.0}
+    %30 = call fn2(move %29) -> bb15
+  bb15:
+    %31 = call @console_log(move %30) -> bb16
+  bb16:
+    %32 = response_new body="body"
+    %33 = call fn2(move %32) -> bb17
+  bb17:
+    %34 = call @console_log(move %33) -> bb18
+  bb18:
+    %35 = call fn2(418.0) -> bb19
+  bb19:
+    %36 = call @console_log(move %35) -> bb20
+  bb20:
+    return none
+

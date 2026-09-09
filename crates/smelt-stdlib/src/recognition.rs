@@ -22,6 +22,53 @@ pub enum TypeScriptReceiverKind {
     Map,
     /// A source `Set<T>` value.
     Set,
+    /// A WHATWG `Headers` value.
+    Headers,
+    /// A WHATWG `URLSearchParams` value.
+    UrlSearchParams,
+    /// A WHATWG `FormData` value.
+    FormData,
+    /// A WHATWG `Response` value.
+    Response,
+    /// A WHATWG `Request` value.
+    Request,
+    /// A `node:events` `EventEmitter` value.
+    EventEmitter,
+    /// A `node:http` `Server` value.
+    HttpServer,
+    /// A `node:http` `ServerResponse` value.
+    ///
+    /// `IncomingMessage` has no receiver kind of its own: every method on it is
+    /// an emitter method, so it dispatches through
+    /// [`TypeScriptReceiverKind::EventEmitter`] and its non-method members
+    /// (`method`, `url`, `headers`) are property reads rather than calls.
+    ServerResponse,
+    /// A WHATWG `TextEncoder` value.
+    TextEncoder,
+    /// A WHATWG `TextDecoder` value.
+    TextDecoder,
+    /// A WHATWG `Blob` or `File` value.
+    ///
+    /// One receiver kind for both spellings: a `File` IS a `Blob` in the spec
+    /// and shares its whole method surface, so keying the methods on two kinds
+    /// would duplicate every entry to say the same thing.
+    Blob,
+    /// A `DataView` value.
+    ///
+    /// Its own kind because the surface has nothing in common with the typed
+    /// arrays': every member is a per-call-width accessor, and `DataView` has
+    /// none of `subarray`/`set`/`fill`.
+    DataView,
+    /// A value of the concrete typed-array family: one of the eleven views, or
+    /// the `ArrayBuffer` storage behind them.
+    ///
+    /// One receiver kind for both halves, for the same reason `Blob` and `File`
+    /// share one: the members they both have (`byteLength`, `slice`) are the
+    /// same spec member with the same meaning, and the receiver's own type
+    /// decides which implementation runs. A member only one half has
+    /// (`byteOffset`, `set`, `fill`, `subarray`) declines at the type check in
+    /// the dispatch rather than needing a second kind here.
+    TypedArray,
 }
 
 /// Receiver-method call shape recognized after a frontend knows the receiver type.
@@ -43,6 +90,19 @@ pub struct MethodRecognition {
 pub const TYPESCRIPT_CALLS: &[CallRecognition] = &[
     free("fetch", RuleId::TsFetch),
     free("structuredClone", RuleId::TsStructuredClone),
+    // The base64 globals. Free functions rather than members of a namespace:
+    // they are `globalThis.btoa` / `globalThis.atob` in every runtime that has
+    // them, and a source binding of either name shadows the global the way it
+    // does for every other entry here.
+    free("btoa", RuleId::TsBase64),
+    free("atob", RuleId::TsBase64),
+    // `createServer` from `node:http`. A modeled host-module export is
+    // recognized at its USE site rather than at its binding (see
+    // `classify_pending_host_imports`), which is why the module's only free
+    // function appears in this table alongside the real globals. The dispatch
+    // site still refuses a `createServer` that resolves to a source function,
+    // so a program with its own is unaffected.
+    free("createServer", RuleId::TsHttpCreateServer),
     // `Object(value)` — the boxing call, not the `Object.*` statics. Recognized
     // here as a free call because the callee is a bare `Object` identifier.
     free("Object", RuleId::TsObjectBox),
@@ -104,6 +164,23 @@ pub const TYPESCRIPT_CALLS: &[CallRecognition] = &[
     static_call("Buffer", "alloc", RuleId::TsBufferStatic),
     static_call("Buffer", "concat", RuleId::TsBufferStatic),
     static_call("Buffer", "isBuffer", RuleId::TsBufferStatic),
+    // WebCrypto. `crypto` is an ambient global AND a `node:crypto` export, so
+    // both spellings appear: the dotted forms for the global object, and the
+    // free forms for `import { randomUUID } from "node:crypto"`, whose modeled
+    // export is recognized at its USE site (see `createServer` above).
+    static_call("crypto", "randomUUID", RuleId::TsCryptoRandomUuid),
+    static_call("crypto", "getRandomValues", RuleId::TsCryptoGetRandomValues),
+    // A DOTTED receiver: `crypto.subtle` is the namespace and `digest` the
+    // member. Receivers here are matched against the whole dotted path a chain
+    // of identifier member reads spells, so a nested namespace needs no shape
+    // of its own in this table.
+    static_call("crypto.subtle", "digest", RuleId::TsCryptoDigest),
+    // The two `AbortSignal` statics. Both answer a signal; only `timeout`
+    // needs the timer queue.
+    static_call("AbortSignal", "abort", RuleId::TsAbortSignalAbort),
+    static_call("AbortSignal", "timeout", RuleId::TsAbortSignalTimeout),
+    free("randomUUID", RuleId::TsCryptoRandomUuid),
+    free("getRandomValues", RuleId::TsCryptoGetRandomValues),
 ];
 
 /// TypeScript receiver-method spellings keyed by known receiver type.
@@ -139,6 +216,316 @@ pub const TYPESCRIPT_METHODS: &[MethodRecognition] = &[
         "entries",
         RuleId::TsSetProjection,
     ),
+    method(TypeScriptReceiverKind::Headers, "get", RuleId::TsHeadersGet),
+    method(TypeScriptReceiverKind::Headers, "has", RuleId::TsHeadersHas),
+    method(
+        TypeScriptReceiverKind::Headers,
+        "set",
+        RuleId::TsHeadersMutation,
+    ),
+    method(
+        TypeScriptReceiverKind::Headers,
+        "append",
+        RuleId::TsHeadersMutation,
+    ),
+    method(
+        TypeScriptReceiverKind::Headers,
+        "delete",
+        RuleId::TsHeadersMutation,
+    ),
+    method(
+        TypeScriptReceiverKind::Headers,
+        "keys",
+        RuleId::TsHeadersProjection,
+    ),
+    method(
+        TypeScriptReceiverKind::Headers,
+        "values",
+        RuleId::TsHeadersProjection,
+    ),
+    method(
+        TypeScriptReceiverKind::Headers,
+        "entries",
+        RuleId::TsHeadersProjection,
+    ),
+    method(
+        TypeScriptReceiverKind::Headers,
+        "getSetCookie",
+        RuleId::TsHeadersProjection,
+    ),
+    method(
+        TypeScriptReceiverKind::UrlSearchParams,
+        "get",
+        RuleId::TsUrlSearchParamsRead,
+    ),
+    method(
+        TypeScriptReceiverKind::UrlSearchParams,
+        "getAll",
+        RuleId::TsUrlSearchParamsRead,
+    ),
+    method(
+        TypeScriptReceiverKind::UrlSearchParams,
+        "has",
+        RuleId::TsUrlSearchParamsRead,
+    ),
+    method(
+        TypeScriptReceiverKind::UrlSearchParams,
+        "set",
+        RuleId::TsUrlSearchParamsMutation,
+    ),
+    method(
+        TypeScriptReceiverKind::UrlSearchParams,
+        "append",
+        RuleId::TsUrlSearchParamsMutation,
+    ),
+    method(
+        TypeScriptReceiverKind::UrlSearchParams,
+        "delete",
+        RuleId::TsUrlSearchParamsMutation,
+    ),
+    method(
+        TypeScriptReceiverKind::UrlSearchParams,
+        "sort",
+        RuleId::TsUrlSearchParamsMutation,
+    ),
+    // The text codecs. `encode`/`decode` are also ordinary user method names,
+    // so — like every entry in this table — recognition is receiver-typed: the
+    // pair only fires once the receiver has lowered to the modeled class.
+    method(
+        TypeScriptReceiverKind::TextEncoder,
+        "encode",
+        RuleId::TsTextEncoderEncode,
+    ),
+    method(
+        TypeScriptReceiverKind::TextDecoder,
+        "decode",
+        RuleId::TsTextDecoderDecode,
+    ),
+    // The `Blob`/`File` surface. `text`/`slice`/`bytes` are ordinary user
+    // method names, so — like every entry here — the pair only fires once the
+    // receiver has lowered to the modeled class.
+    method(TypeScriptReceiverKind::Blob, "text", RuleId::TsBlobBodyRead),
+    method(
+        TypeScriptReceiverKind::Blob,
+        "arrayBuffer",
+        RuleId::TsBlobBodyRead,
+    ),
+    method(TypeScriptReceiverKind::Blob, "bytes", RuleId::TsBlobBodyRead),
+    method(TypeScriptReceiverKind::Blob, "slice", RuleId::TsBlobSlice),
+    // The concrete typed-array family. `slice` is deliberately shared between
+    // the view and its storage — one spec member, one entry — and `subarray`
+    // is the view-only form that shares storage rather than copying.
+    method(
+        TypeScriptReceiverKind::TypedArray,
+        "subarray",
+        RuleId::TsTypedArrayMethod,
+    ),
+    method(
+        TypeScriptReceiverKind::TypedArray,
+        "slice",
+        RuleId::TsTypedArrayMethod,
+    ),
+    method(
+        TypeScriptReceiverKind::TypedArray,
+        "set",
+        RuleId::TsTypedArrayMethod,
+    ),
+    method(
+        TypeScriptReceiverKind::TypedArray,
+        "fill",
+        RuleId::TsTypedArrayMethod,
+    ),
+    method(
+        TypeScriptReceiverKind::UrlSearchParams,
+        "keys",
+        RuleId::TsUrlSearchParamsProjection,
+    ),
+    method(
+        TypeScriptReceiverKind::UrlSearchParams,
+        "values",
+        RuleId::TsUrlSearchParamsProjection,
+    ),
+    method(
+        TypeScriptReceiverKind::UrlSearchParams,
+        "entries",
+        RuleId::TsUrlSearchParamsProjection,
+    ),
+    method(
+        TypeScriptReceiverKind::UrlSearchParams,
+        "toString",
+        RuleId::TsUrlSearchParamsToString,
+    ),
+    // `FormData`. The same ordered name/value pair list `Headers` and
+    // `URLSearchParams` are, with two differences that both come from the spec:
+    // names are case-SENSITIVE (a header list's are not), and an entry's value
+    // is `string | File` rather than a string.
+    method(TypeScriptReceiverKind::FormData, "get", RuleId::TsFormDataRead),
+    method(TypeScriptReceiverKind::FormData, "getAll", RuleId::TsFormDataRead),
+    method(TypeScriptReceiverKind::FormData, "has", RuleId::TsFormDataRead),
+    method(TypeScriptReceiverKind::FormData, "set", RuleId::TsFormDataMutation),
+    method(
+        TypeScriptReceiverKind::FormData,
+        "append",
+        RuleId::TsFormDataMutation,
+    ),
+    method(
+        TypeScriptReceiverKind::FormData,
+        "delete",
+        RuleId::TsFormDataMutation,
+    ),
+    method(
+        TypeScriptReceiverKind::FormData,
+        "keys",
+        RuleId::TsFormDataProjection,
+    ),
+    method(
+        TypeScriptReceiverKind::FormData,
+        "values",
+        RuleId::TsFormDataProjection,
+    ),
+    method(
+        TypeScriptReceiverKind::FormData,
+        "entries",
+        RuleId::TsFormDataProjection,
+    ),
+    method(
+        TypeScriptReceiverKind::FormData,
+        "forEach",
+        RuleId::TsFormDataProjection,
+    ),
+    method(
+        TypeScriptReceiverKind::Response,
+        "text",
+        RuleId::TsResponseBodyRead,
+    ),
+    method(
+        TypeScriptReceiverKind::Response,
+        "formData",
+        RuleId::TsResponseBodyRead,
+    ),
+    // The two BYTE body readers. `arrayBuffer()` answers storage and `bytes()`
+    // an element view: one spec member each, distinguishable since the byte
+    // family became concrete.
+    method(
+        TypeScriptReceiverKind::Response,
+        "arrayBuffer",
+        RuleId::TsResponseBodyRead,
+    ),
+    method(
+        TypeScriptReceiverKind::Response,
+        "bytes",
+        RuleId::TsResponseBodyRead,
+    ),
+    method(
+        TypeScriptReceiverKind::Response,
+        "clone",
+        RuleId::TsResponseClone,
+    ),
+    method(
+        TypeScriptReceiverKind::Request,
+        "text",
+        RuleId::TsRequestBodyRead,
+    ),
+    method(
+        TypeScriptReceiverKind::Request,
+        "formData",
+        RuleId::TsRequestBodyRead,
+    ),
+    method(
+        TypeScriptReceiverKind::Request,
+        "arrayBuffer",
+        RuleId::TsRequestBodyRead,
+    ),
+    method(
+        TypeScriptReceiverKind::Request,
+        "bytes",
+        RuleId::TsRequestBodyRead,
+    ),
+    method(
+        TypeScriptReceiverKind::Request,
+        "clone",
+        RuleId::TsRequestClone,
+    ),
+    method(
+        TypeScriptReceiverKind::EventEmitter,
+        "on",
+        RuleId::TsEventEmitterRegister,
+    ),
+    method(
+        TypeScriptReceiverKind::EventEmitter,
+        "addListener",
+        RuleId::TsEventEmitterRegister,
+    ),
+    method(
+        TypeScriptReceiverKind::EventEmitter,
+        "once",
+        RuleId::TsEventEmitterRegister,
+    ),
+    method(
+        TypeScriptReceiverKind::EventEmitter,
+        "off",
+        RuleId::TsEventEmitterRemove,
+    ),
+    method(
+        TypeScriptReceiverKind::EventEmitter,
+        "removeListener",
+        RuleId::TsEventEmitterRemove,
+    ),
+    method(
+        TypeScriptReceiverKind::EventEmitter,
+        "removeAllListeners",
+        RuleId::TsEventEmitterRemove,
+    ),
+    method(
+        TypeScriptReceiverKind::EventEmitter,
+        "emit",
+        RuleId::TsEventEmitterEmit,
+    ),
+    method(
+        TypeScriptReceiverKind::EventEmitter,
+        "listenerCount",
+        RuleId::TsEventEmitterRead,
+    ),
+    method(
+        TypeScriptReceiverKind::HttpServer,
+        "listen",
+        RuleId::TsHttpServerListen,
+    ),
+    method(
+        TypeScriptReceiverKind::HttpServer,
+        "close",
+        RuleId::TsHttpServerClose,
+    ),
+    method(
+        TypeScriptReceiverKind::HttpServer,
+        "address",
+        RuleId::TsHttpServerAddress,
+    ),
+    method(
+        TypeScriptReceiverKind::ServerResponse,
+        "setHeader",
+        RuleId::TsServerResponseHeader,
+    ),
+    method(
+        TypeScriptReceiverKind::ServerResponse,
+        "getHeader",
+        RuleId::TsServerResponseHeader,
+    ),
+    method(
+        TypeScriptReceiverKind::ServerResponse,
+        "writeHead",
+        RuleId::TsServerResponseWriteHead,
+    ),
+    method(
+        TypeScriptReceiverKind::ServerResponse,
+        "write",
+        RuleId::TsServerResponseWrite,
+    ),
+    method(
+        TypeScriptReceiverKind::ServerResponse,
+        "end",
+        RuleId::TsServerResponseEnd,
+    ),
 ];
 
 /// Return the shared rule for an exact TypeScript global or static namespace call.
@@ -153,6 +540,15 @@ pub fn typescript_call_rule(receiver: Option<&str>, member: &str) -> Option<Rule
 /// Return the shared rule for a TypeScript receiver-method call.
 #[must_use]
 pub fn typescript_method_rule(receiver: TypeScriptReceiverKind, member: &str) -> Option<RuleId> {
+    // `DataView`'s eighteen accessors are a RULE over the element table, not
+    // eighteen entries: `crate::data_view_accessor` reads the direction and
+    // the width straight off the name, so adding an element type would add its
+    // accessors without touching this table.
+    if receiver == TypeScriptReceiverKind::DataView
+        && crate::data_view_accessor(member).is_some()
+    {
+        return Some(RuleId::TsDataViewAccess);
+    }
     TYPESCRIPT_METHODS
         .iter()
         .find(|entry| entry.receiver == receiver && entry.member == member)

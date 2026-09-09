@@ -21,7 +21,7 @@
 //! imports, so a name can be in both sets. That is the existing behaviour and
 //! this struct preserves it rather than tightening it.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// Source-name provenance for one module being lowered.
 #[derive(Debug, Default)]
@@ -37,6 +37,23 @@ pub(in crate::lowering) struct ImportScope {
     test_builtins: HashSet<String>,
     /// Local names bound to `tz` from the `@date-fns/tz` package.
     date_fns_timezone_factories: HashSet<String>,
+    /// Value imports whose module is neither a source file nor an implemented
+    /// host-module export, mapped to the blocker message their first *use*
+    /// must report.
+    ///
+    /// Importing such a name is free (a type-only or unused import must not
+    /// fail); reading it as a value is the blocker, which is why the message is
+    /// stored here instead of being raised at the import statement.
+    unresolved_value_imports: HashMap<String, String>,
+    /// The module specifier each imported local name came from.
+    ///
+    /// Recorded for every named/namespace import, value or type-only, because
+    /// the question it answers is about the NAME's provenance rather than about
+    /// how the name is used: "which module was this supposed to come from?" A
+    /// type reference that resolves to no declaration needs it to say so
+    /// usefully — naming the module is the difference between "unknown type" and
+    /// "that module is not in the crate".
+    import_sources: HashMap<String, String>,
     /// Local names statically known to alias the ambient global object.
     ///
     /// Populated for `const g = globalThis;` style bindings so that global-path
@@ -47,6 +64,16 @@ pub(in crate::lowering) struct ImportScope {
 }
 
 impl ImportScope {
+    /// Record which module specifier an imported local name came from.
+    pub(in crate::lowering) fn record_import_source(&mut self, local: String, source: String) {
+        self.import_sources.insert(local, source);
+    }
+
+    /// Return the module specifier an imported local name came from.
+    pub(in crate::lowering) fn import_source(&self, name: &str) -> Option<&str> {
+        self.import_sources.get(name).map(String::as_str)
+    }
+
     /// Record a local name imported as a runtime value.
     pub(in crate::lowering) fn mark_value(&mut self, local: String) {
         self.values.insert(local);
@@ -100,6 +127,25 @@ impl ImportScope {
     /// Return whether a name is a `@date-fns/tz` timezone factory.
     pub(in crate::lowering) fn is_date_fns_timezone_factory(&self, name: &str) -> bool {
         self.date_fns_timezone_factories.contains(name)
+    }
+
+    /// Record a value import that has no modeled runtime surface.
+    ///
+    /// `blocker` is the message [`Self::unresolved_value_import`] hands to the
+    /// diagnostic raised where the name is first used as a value.
+    pub(in crate::lowering) fn mark_unresolved_value_import(
+        &mut self,
+        local: String,
+        blocker: String,
+    ) {
+        self.unresolved_value_imports.insert(local, blocker);
+    }
+
+    /// Return the blocker message for a value import with no runtime surface.
+    pub(in crate::lowering) fn unresolved_value_import(&self, name: &str) -> Option<&str> {
+        self.unresolved_value_imports
+            .get(name)
+            .map(String::as_str)
     }
 
     /// Record a local statically known to alias the ambient global object.

@@ -1,0 +1,74 @@
+class HTTPException fields [Public name: String, Public message: String, Public stack: Optional<String>, Public cause: Unknown, Public status: Float] constructor Some(FuncId(0)) methods []
+class GatewayError fields [] constructor Some(FuncId(1)) methods []
+interface HTTPExceptionOptions
+
+fn new (FuncId(0)) -> HTTPException
+  locals
+    %0 user this: HTTPException
+    %1 param status: Float
+    %2 param options: Optional<HTTPExceptionOptions>
+    %3 temp: Optional<String>
+    %4 temp: String
+  bb0:
+    %0 = struct0 {}
+    %0.field9 = "Error"
+    %3 = copy %2?.field3
+    %4 = move %3 ?? ""
+    %0.field3 = move %4
+    %0.field10 = ""
+    %0.field5 = copy %1
+    return move %0
+
+fn new (FuncId(1)) -> GatewayError
+  locals
+    %0 user this: GatewayError
+    %1 param options: Optional<HTTPExceptionOptions>
+    %2 user __smelt_super: HTTPException
+    %3 temp: HTTPException
+  bb0:
+    %0 = struct1 {}
+    %3 = call fn0(502.0, copy %1) -> bb1
+  bb1:
+    %2 = move %3
+    %0.field9 = copy %2.field9
+    %0.field3 = copy %2.field3
+    %0.field10 = copy %2.field10
+    %0.field11 = copy %2.field11
+    %0.field5 = copy %2.field5
+    return move %0
+
+fn main (FuncId(2)) -> None
+  locals
+    %0 user described: HTTPException
+    %1 user bare: HTTPException
+    %2 user gateway: GatewayError
+    %3 temp: Dict<String, String>
+    %4 temp: HTTPException
+    %5 temp: None
+    %6 temp: HTTPException
+    %7 temp: String
+    %8 temp: None
+    %9 temp: GatewayError
+    %10 temp: String
+    %11 temp: None
+  bb0:
+    %3 = {"message": "not found"}
+    %4 = call fn0(404.0, move %3) -> bb1
+  bb1:
+    %0 = move %4
+    %5 = call @console_log(copy %0.field5, copy %0.field3, copy %0.field9) -> bb2
+  bb2:
+    %6 = call fn0(500.0) -> bb3
+  bb3:
+    %1 = move %6
+    %7 = json_stringify copy %1.field3
+    %8 = call @console_log(copy %1.field5, move %7) -> bb4
+  bb4:
+    %9 = call fn1() -> bb5
+  bb5:
+    %2 = move %9
+    %10 = json_stringify copy %2.field3
+    %11 = call @console_log(copy %2.field5, move %10) -> bb6
+  bb6:
+    return none
+

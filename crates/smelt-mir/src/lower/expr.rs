@@ -626,15 +626,59 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
-            ExprKind::UriEncode { operand } => {
+            ExprKind::UriTranscode { op, operand } => {
                 let lowered_operand = self.lower_expr(*operand)?;
-                self.assign_temp(
-                    expr.ty,
-                    expr.span,
-                    Rvalue::UriEncode {
-                        operand: lowered_operand,
-                    },
-                )?
+                if op.is_fallible() {
+                    // `decodeURI`/`decodeURIComponent` throw a catchable
+                    // `URIError` on malformed input, so they need the call
+                    // terminator's unwind edge for the same reason
+                    // `JSON.parse` does (see the `JsonParse` arm below): a
+                    // `Statement::Assign` has none, the catch block would end
+                    // up with no predecessor, and MIR would drop the handler
+                    // the source wrote.
+                    //
+                    // The ENCODING direction is infallible and deliberately
+                    // keeps the rvalue form, so it gets no unwind edge at all.
+                    // `is_fallible` is the one place that split is recorded.
+                    let dest = self.push_temp(expr.ty, expr.span);
+                    let target = self.function.push_block(expr.span);
+                    self.set_terminator(Terminator::Call {
+                        callee: Callee::Builtin(BuiltinFn::UriDecode(*op)),
+                        args: vec![lowered_operand],
+                        dest,
+                        target,
+                        unwind: self.current_exception_handler(),
+                    })?;
+                    self.current_block = target;
+                    Operand::Copy(Place::Local(dest))
+                } else {
+                    self.assign_temp(
+                        expr.ty,
+                        expr.span,
+                        Rvalue::UriTranscode {
+                            op: *op,
+                            operand: lowered_operand,
+                        },
+                    )?
+                }
+            }
+            ExprKind::Base64Transcode { op, operand } => {
+                // Both directions throw, so both need the call terminator's
+                // unwind edge — the same reason `JSON.parse` and the URI
+                // decoders do. A `Statement::Assign` has none, so a `try` the
+                // source wrote around `atob` would lose its handler.
+                let lowered_operand = self.lower_expr(*operand)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                let target = self.function.push_block(expr.span);
+                self.set_terminator(Terminator::Call {
+                    callee: Callee::Builtin(BuiltinFn::Base64(*op)),
+                    args: vec![lowered_operand],
+                    dest,
+                    target,
+                    unwind: self.current_exception_handler(),
+                })?;
+                self.current_block = target;
+                Operand::Copy(Place::Local(dest))
             }
             ExprKind::ObjectToStringTag { operand } => {
                 let lowered_operand = self.lower_expr(*operand)?;
@@ -827,6 +871,7 @@ impl LoweringCtx<'_> {
                 pattern,
                 haystack,
                 callback,
+                args,
             } => {
                 let pattern_operand = self.lower_expr(*pattern)?;
                 let haystack_operand = self.lower_expr(*haystack)?;
@@ -839,6 +884,7 @@ impl LoweringCtx<'_> {
                         pattern: pattern_operand,
                         haystack: haystack_operand,
                         callback: callback_operand,
+                        args: args.clone(),
                     },
                 )?
             }
@@ -874,6 +920,18 @@ impl LoweringCtx<'_> {
                     expr.span,
                     Rvalue::RegexFind {
                         pattern: pattern_operand,
+                        haystack: haystack_operand,
+                    },
+                )?
+            }
+            ExprKind::RegexTest { regex, haystack } => {
+                let regex_operand = self.lower_expr(*regex)?;
+                let haystack_operand = self.lower_expr(*haystack)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::RegexTest {
+                        regex: regex_operand,
                         haystack: haystack_operand,
                     },
                 )?
@@ -1074,6 +1132,358 @@ impl LoweringCtx<'_> {
                     Rvalue::SetProjection {
                         op: *op,
                         set: set_operand,
+                    },
+                )?
+            }
+            ExprKind::EventEmitterNew => {
+                self.assign_temp(expr.ty, expr.span, Rvalue::EventEmitterNew)?
+            }
+            ExprKind::EventEmitterOp { op, emitter, args } => {
+                let emitter_operand = self.lower_expr(*emitter)?;
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::EventEmitterOp {
+                        op: *op,
+                        emitter: emitter_operand,
+                        args: arg_operands,
+                    },
+                )?
+            }
+            ExprKind::HttpCreateServer { handler } => {
+                let handler_operand = self.lower_expr(*handler)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::HttpCreateServer {
+                        handler: handler_operand,
+                    },
+                )?
+            }
+            ExprKind::HttpServerOp { op, server, args } => {
+                let server_operand = self.lower_expr(*server)?;
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::HttpServerOp {
+                        op: *op,
+                        server: server_operand,
+                        args: arg_operands,
+                    },
+                )?
+            }
+            ExprKind::IncomingMessageOp { op, message } => {
+                let message_operand = self.lower_expr(*message)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::IncomingMessageOp {
+                        op: *op,
+                        message: message_operand,
+                    },
+                )?
+            }
+            ExprKind::ServerResponseOp { op, response, args } => {
+                let response_operand = self.lower_expr(*response)?;
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ServerResponseOp {
+                        op: *op,
+                        response: response_operand,
+                        args: arg_operands,
+                    },
+                )?
+            }
+            ExprKind::RequestNew {
+                input,
+                method,
+                headers,
+                body,
+                signal,
+            } => {
+                let input_operand = self.lower_expr(*input)?;
+                let mut lower_optional = |expr: &Option<smelt_hir::ExprId>| {
+                    expr.as_ref()
+                        .map_or(Ok(None), |expr| self.lower_expr(*expr).map(Some))
+                };
+                let method_operand = lower_optional(method)?;
+                let headers_operand = lower_optional(headers)?;
+                let body_operand = lower_optional(body)?;
+                let signal_operand = lower_optional(signal)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::RequestNew {
+                        input: input_operand,
+                        method: method_operand,
+                        headers: headers_operand,
+                        body: body_operand,
+                        signal: signal_operand,
+                    },
+                )?
+            }
+            ExprKind::RequestOp { op, request, args } => {
+                let request_operand = self.lower_expr(*request)?;
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::RequestOp {
+                        op: *op,
+                        request: request_operand,
+                        args: arg_operands,
+                    },
+                )?
+            }
+            ExprKind::ResponseNew {
+                body,
+                status,
+                status_text,
+                headers,
+            } => {
+                let mut lower_optional = |expr: &Option<smelt_hir::ExprId>| {
+                    expr.as_ref()
+                        .map_or(Ok(None), |expr| self.lower_expr(*expr).map(Some))
+                };
+                let body_operand = lower_optional(body)?;
+                let status_operand = lower_optional(status)?;
+                let status_text_operand = lower_optional(status_text)?;
+                let headers_operand = lower_optional(headers)?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ResponseNew {
+                        body: body_operand,
+                        status: status_operand,
+                        status_text: status_text_operand,
+                        headers: headers_operand,
+                    },
+                )?
+            }
+            ExprKind::ResponseOp { op, response, args } => {
+                let response_operand = self.lower_expr(*response)?;
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ResponseOp {
+                        op: *op,
+                        response: response_operand,
+                        args: arg_operands,
+                    },
+                )?
+            }
+            ExprKind::TextEncoderNew => {
+                self.assign_temp(expr.ty, expr.span, Rvalue::TextEncoderNew)?
+            }
+            ExprKind::TextDecoderNew { label } => {
+                let label_operand = match label {
+                    Some(label) => Some(self.lower_expr(*label)?),
+                    None => None,
+                };
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::TextDecoderNew {
+                        label: label_operand,
+                    },
+                )?
+            }
+            ExprKind::TextEncoderOp { op, encoder, args } => {
+                let encoder_operand = self.lower_expr(*encoder)?;
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::TextEncoderOp {
+                        op: *op,
+                        encoder: encoder_operand,
+                        args: arg_operands,
+                    },
+                )?
+            }
+            ExprKind::TextDecoderOp { op, decoder, args } => {
+                let decoder_operand = self.lower_expr(*decoder)?;
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::TextDecoderOp {
+                        op: *op,
+                        decoder: decoder_operand,
+                        args: arg_operands,
+                    },
+                )?
+            }
+            ExprKind::TypedArrayNew { class_name, args } => {
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::TypedArrayNew {
+                        class_name: class_name.clone(),
+                        args: arg_operands,
+                    },
+                )?
+            }
+            ExprKind::DataViewAccess { member, view, args } => {
+                let view_operand = self.lower_expr(*view)?;
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::DataViewAccess {
+                        member: member.clone(),
+                        view: view_operand,
+                        args: arg_operands,
+                    },
+                )?
+            }
+            ExprKind::ByteArrayOp { op, bytes, args } => {
+                let bytes_operand = self.lower_expr(*bytes)?;
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::ByteArrayOp {
+                        op: *op,
+                        bytes: bytes_operand,
+                        args: arg_operands,
+                    },
+                )?
+            }
+            ExprKind::AbortSignalOp { op, args } => {
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::AbortSignalOp {
+                        op: *op,
+                        args: arg_operands,
+                    },
+                )?
+            }
+            ExprKind::CryptoOp { op, args } => {
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::CryptoOp {
+                        op: *op,
+                        args: arg_operands,
+                    },
+                )?
+            }
+            ExprKind::FormDataNew => {
+                self.assign_temp(expr.ty, expr.span, Rvalue::FormDataNew)?
+            }
+            ExprKind::FormDataOp { op, form, args } => {
+                let form_operand = self.lower_expr(*form)?;
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::FormDataOp {
+                        op: *op,
+                        form: form_operand,
+                        args: arg_operands,
+                    },
+                )?
+            }
+            ExprKind::UrlSearchParamsNew { init } => {
+                let init_operand = match init {
+                    Some(init) => Some(self.lower_expr(*init)?),
+                    None => None,
+                };
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::UrlSearchParamsNew { init: init_operand },
+                )?
+            }
+            ExprKind::UrlSearchParamsOp { op, params, args } => {
+                let params_operand = self.lower_expr(*params)?;
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::UrlSearchParamsOp {
+                        op: *op,
+                        params: params_operand,
+                        args: arg_operands,
+                    },
+                )?
+            }
+            ExprKind::HeadersNew { init } => {
+                let init_operand = match init {
+                    Some(init) => Some(self.lower_expr(*init)?),
+                    None => None,
+                };
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::HeadersNew { init: init_operand },
+                )?
+            }
+            ExprKind::HeadersOp { op, headers, args } => {
+                let headers_operand = self.lower_expr(*headers)?;
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::HeadersOp {
+                        op: *op,
+                        headers: headers_operand,
+                        args: arg_operands,
                     },
                 )?
             }
@@ -2140,6 +2550,22 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
+            ExprKind::BlobOp { op, blob, args } => {
+                let blob_operand = self.lower_expr(*blob)?;
+                let arg_operands = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.assign_temp(
+                    expr.ty,
+                    expr.span,
+                    Rvalue::BlobOp {
+                        op: *op,
+                        blob: blob_operand,
+                        args: arg_operands,
+                    },
+                )?
+            }
             ExprKind::BlobFromParts {
                 parts,
                 blob_type,
@@ -2480,7 +2906,9 @@ impl LoweringCtx<'_> {
             return Err(self.error("callee has an unknown symbol", Some(expr.span)));
         };
         if name == smelt_hir::CONSOLE_LOG_SYMBOL {
-            Ok(Callee::Builtin(BuiltinFn::ConsoleLog))
+            Ok(Callee::Builtin(BuiltinFn::ConsoleLog {
+                absent: self.absent_spelling(expr.span),
+            }))
         } else if name == smelt_hir::CONSOLE_WRITE_SYMBOL {
             Ok(Callee::Builtin(BuiltinFn::ConsoleWrite))
         } else if name == smelt_hir::CONSOLE_ERROR_WRITE_SYMBOL {
@@ -2629,7 +3057,7 @@ impl LoweringCtx<'_> {
             return Ok((self.lower_expr(expr_id)?, None));
         }
 
-        let place = self.lower_place(expr_id)?;
+        let (place, writebacks) = self.lower_place(expr_id)?;
         if matches!(place, Place::Local(_)) {
             return Ok((Operand::Copy(place), None));
         }
@@ -2639,7 +3067,32 @@ impl LoweringCtx<'_> {
             dest: local,
             value: Rvalue::Use(Operand::Copy(place.clone())),
         });
+        // The receiver's OWN base may itself have been a projection copied into
+        // a temporary (`a.b.list.push(x)`); those inner levels commit first, so
+        // this receiver's writeback lands in a base that is still live. The
+        // mutation arms replay the returned entry after the mutation statement.
+        self.write_back_place_receivers(writebacks)?;
         Ok((Operand::Copy(Place::Local(local)), Some((place, local))))
+    }
+
+    /// Commits every copied projection of a place write back through its own
+    /// place, INNERMOST FIRST.
+    ///
+    /// `PlaceWritebacks` explains why the copies exist and why they must be
+    /// committed. Innermost first is what makes a nested receiver work: the
+    /// entries were pushed outermost-to-innermost as the projection was walked
+    /// down, and committing `a.b.c` before `a.b` would store a stale `a.b`.
+    pub(super) fn write_back_place_receivers(
+        &mut self,
+        writebacks: super::PlaceWritebacks,
+    ) -> Result<(), LowerError> {
+        for (place, local) in writebacks.into_iter().rev() {
+            self.block_mut()?.statements.push(Statement::AssignPlace {
+                place,
+                value: Rvalue::Use(Operand::Copy(Place::Local(local))),
+            });
+        }
+        Ok(())
     }
 
     /// Writes a mutated temporary collection back through its original place.
@@ -2654,23 +3107,6 @@ impl LoweringCtx<'_> {
             });
         }
         Ok(())
-    }
-
-    /// Extracts a local variable ID from an operand or returns an error.
-    pub(super) fn local_operand(&self, operand: Operand, span: Span) -> Result<LocalId, LowerError> {
-        match operand {
-            Operand::Copy(place) | Operand::Move(place) => match place {
-                Place::Local(local) => Ok(local),
-                Place::Field { .. } | Place::Index { .. } => Err(self.error(
-                    "field and index reads currently require a local receiver",
-                    Some(span),
-                )),
-            },
-            Operand::Const(_) => Err(self.error(
-                "field and index reads currently require a local receiver",
-                Some(span),
-            )),
-        }
     }
 
     /// Materializes an operand into a local so it can be used as a MIR place base.

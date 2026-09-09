@@ -3,6 +3,33 @@
 use super::*;
 
 impl FunctionEmitter<'_> {
+    /// Name the source site of the function currently being emitted.
+    ///
+    /// An `EmitError` raised deep in emission used to identify itself only by
+    /// the enclosing function's NAME, which is `<unnamed>` for every closure.
+    /// A blocker inside a callback therefore said nothing about where it was,
+    /// and pinning one in a corpus the size of Hono meant bisecting the
+    /// manifest's `exclude` list one directory at a time.
+    ///
+    /// MIR is flattened and carries no per-statement spans, but the entry
+    /// BLOCK has one, and `Mir::file_paths` preserves `FileId -> path`, so a
+    /// file and byte offset are recoverable. That is block granularity, not
+    /// statement granularity -- enough to name the function in the source,
+    /// which is what a reader needs to find it.
+    pub(super) fn current_function_site(&self) -> String {
+        let name = self.symbol_name(self.function.name).unwrap_or("<unnamed>");
+        let Some(block) = self.function.blocks.first() else {
+            return format!("`{name}`");
+        };
+        let span = block.span;
+        match self.mir.file_paths.get(&span.file) {
+            Some(path) => format!("`{name}` at {path}:{}..{}", span.start, span.end),
+            // A synthesized function (a generic instantiation, a closure the
+            // emitter built) has no source file of its own.
+            None => format!("`{name}` at byte {}..{}", span.start, span.end),
+        }
+    }
+
     /// The `thread_local!` slot identifier for a host constructor's override
     /// state (`SMELT_HOST_OVERRIDE_<NAME>`).
     fn host_override_slot_ident(&self, class: Symbol) -> Result<String, EmitError> {
@@ -165,11 +192,23 @@ impl FunctionEmitter<'_> {
     pub(super) fn global_get_text(&self, global: u32) -> Result<String, EmitError> {
         let name = crate::global_static_name(self.mir, global);
         let ty = self.global_ty(global)?;
-        if matches!(self.mir.types.get(ty), Some(Type::String)) {
-            Ok(format!("{name}.with(|value| value.borrow().clone())"))
-        } else {
+        if Self::global_uses_copy_cell(self.mir.types.get(ty)) {
             Ok(format!("{name}.with(::std::cell::Cell::get)"))
+        } else {
+            Ok(format!("{name}.with(|value| value.borrow().clone())"))
         }
+    }
+
+    /// Whether a mutable global of this type is backed by a `Cell` rather than
+    /// a `RefCell`.
+    ///
+    /// Kept in sync with `emit_mutable_globals`, which decides the cell type:
+    /// only the `Copy` primitives get a `Cell`, because a `Cell` read moves the
+    /// value out and a non-`Copy` value cannot be read that way. Everything
+    /// else — a `String`, a record, a list, a map — uses a `RefCell` and is read
+    /// by cloning the borrow.
+    fn global_uses_copy_cell(ty: Option<&Type>) -> bool {
+        matches!(ty, Some(Type::Float | Type::Int | Type::Bool))
     }
 
     /// Emit a store into a mutable global's thread-local cell.
@@ -177,19 +216,97 @@ impl FunctionEmitter<'_> {
     /// The stored value is hoisted to a temporary so the block evaluates to the
     /// stored value, letting `++`/`+=` compose as expressions. Copy primitives
     /// use `Cell::set`; strings replace the `RefCell<String>` contents.
-    pub(super) fn global_set_text(&self, global: u32, value: &Operand) -> Result<String, EmitError> {
+    ///
+    /// The value is STORED at the global's declared type and the block's result
+    /// is then produced at `dest_ty`, which are not always the same type. In
+    /// JavaScript `x = v` evaluates to `v`, so the assignment can be consumed
+    /// somewhere that erased it — a `Record<string, RegExp>` global assigned
+    /// where the surrounding expression is typed `unknown` yielded the concrete
+    /// record into a `SmeltUnknown` slot (2 errors in the hono slice). Coercing
+    /// the trailing value separately keeps the store precise while letting the
+    /// expression's own type decide what the block hands back; where the two
+    /// agree the coercion renders nothing.
+    pub(super) fn global_set_text(
+        &self,
+        global: u32,
+        value: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
         let name = crate::global_static_name(self.mir, global);
         let ty = self.global_ty(global)?;
         let value_text = self.value_at_type(value, ty)?;
-        if matches!(self.mir.types.get(ty), Some(Type::String)) {
+        let result_text = self.value_at_type_text("smelt_global_value", ty, dest_ty)?;
+        if Self::global_uses_copy_cell(self.mir.types.get(ty)) {
             Ok(format!(
-                "{{ let smelt_global_value = {value_text}; {name}.with(|value| *value.borrow_mut() = smelt_global_value.clone()); smelt_global_value }}"
+                "{{ let smelt_global_value = {value_text}; {name}.with(|value| value.set(smelt_global_value)); {result_text} }}"
             ))
         } else {
             Ok(format!(
-                "{{ let smelt_global_value = {value_text}; {name}.with(|value| value.set(smelt_global_value)); smelt_global_value }}"
+                "{{ let smelt_global_value = {value_text}; {name}.with(|value| *value.borrow_mut() = smelt_global_value.clone()); {result_text} }}"
             ))
         }
+    }
+
+    /// Emit a write *through* a mutable global into its `thread_local!` cell.
+    ///
+    /// The whole statement is one `with` closure so the `RefCell` borrow lives
+    /// exactly as long as the mutation and no copy of the contained value is
+    /// ever made. That is the point of `Place::Global`: a `GlobalGet` would
+    /// clone, which shares the store for a handle type (`SmeltRecord`) and
+    /// deep-copies for a value type (`HashMap`), so a write applied to the
+    /// clone is correct for one and silently lost for the other.
+    ///
+    /// # Both operands are evaluated before `borrow_mut()`
+    ///
+    /// If the index or the right-hand side themselves read the same global
+    /// (`cache[cache_key()] = v`), evaluating them inside the borrow is a
+    /// `RefCell` double-borrow **panic at runtime**, not a compile error. So
+    /// they are hoisted to `let` bindings above the borrow. This is the one
+    /// detail that cannot be left to the reader.
+    ///
+    /// A `Cell` global never reaches here: a `Cell` holds only `Copy`
+    /// primitives, and a primitive can be neither indexed nor have a field
+    /// written, so the path is `RefCell`-only by construction. That is checked
+    /// rather than assumed.
+    pub(super) fn global_place_assign_text(
+        &self,
+        global: u32,
+        projection: &smelt_mir::GlobalProjection,
+        value: &Rvalue,
+    ) -> Result<String, EmitError> {
+        use smelt_mir::GlobalProjection;
+
+        let name = crate::global_static_name(self.mir, global);
+        let ty = self.global_ty(global)?;
+        if Self::global_uses_copy_cell(self.mir.types.get(ty)) {
+            return Err(EmitError::new(
+                "internal: a write through a mutable global reached a Copy-primitive cell,                  which has no field or index to write",
+            ));
+        }
+        let Some(Type::Dict(key_ty, item_ty)) = self.mir.types.get(ty).cloned() else {
+            // Only the map-like shapes are lowered. Anything else (a list, a
+            // class instance, an erased value) would need its own write
+            // spelling, and guessing one is how a wrong value gets emitted with
+            // no diagnostic. The frontend keeps a blocker for these.
+            return Err(EmitError::new(format!(
+                "write through a mutable global is only lowered for Record/Map globals                  (global {global} is {:?})",
+                self.mir.types.get(ty)
+            )));
+        };
+        let rendered_value = self.rvalue_text_for_dest(value, item_ty)?;
+        let key_text = match projection {
+            GlobalProjection::Field(field) => self.dict_field_key_text(key_ty, *field)?,
+            GlobalProjection::Index { index, .. } => {
+                if self.mir.types.get(key_ty) == Some(&Type::String) {
+                    self.string_like_operand_text(index, "global index")?
+                } else {
+                    self.value_at_type(index, key_ty)?
+                }
+            }
+        };
+        Ok(format!(
+            "{name}.with(|smelt_global_cell| {{              let smelt_global_key = {key_text};              let smelt_global_value = {rendered_value};              smelt_global_cell.borrow_mut().insert(smelt_global_key, smelt_global_value); }})"
+        ))
     }
 
     /// Look up the primitive type of a mutable global by index.

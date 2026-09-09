@@ -1,0 +1,238 @@
+fn tag_of (FuncId(0)) -> String
+  locals
+    %0 param value: Unknown
+    %1 temp: String
+  bb0:
+    %1 = object_to_string_tag copy %0
+    return move %1
+
+fn width_of (FuncId(1)) -> Float
+  locals
+    %0 param value: Unknown
+    %1 temp: Bool
+    %2 temp: Float
+    %3 temp: DataView
+    %4 temp: Float
+    %5 temp: Float
+  bb0:
+    %1 = instanceof copy %0, class5
+    switch move %1 ? bb1 : bb2
+  bb1:
+    %3 = unknown_cast copy %0 as t8
+    %4 = byte_array_byte_length move %3
+    %2 = move %4
+    goto bb3
+  bb2:
+    %5 = -1.0
+    %2 = move %5
+    goto bb3
+  bb3:
+    return move %2
+
+fn main (FuncId(2)) -> None
+  locals
+    %0 user shared: SharedArrayBuffer
+    %1 user plain: ArrayBuffer
+    %2 user over_shared: Uint8Array
+    %3 user copied: SharedArrayBuffer
+    %4 user buffer: ArrayBuffer
+    %5 user view: DataView
+    %6 user windowed: DataView
+    %7 user shared_view: DataView
+    %8 temp: SharedArrayBuffer
+    %9 temp: ArrayBuffer
+    %10 temp: Float
+    %11 temp: Float
+    %12 temp: None
+    %13 temp: Bool
+    %14 temp: Bool
+    %15 temp: None
+    %16 temp: Bool
+    %17 temp: Bool
+    %18 temp: None
+    %19 temp: String
+    %20 temp: String
+    %21 temp: None
+    %22 temp: Uint8Array
+    %23 temp: ArrayBuffer
+    %24 temp: Bool
+    %25 temp: None
+    %26 temp: SharedArrayBuffer
+    %27 temp: Float
+    %28 temp: Bool
+    %29 temp: None
+    %30 temp: ArrayBuffer
+    %31 temp: DataView
+    %32 temp: Float
+    %33 temp: Float
+    %34 temp: ArrayBuffer
+    %35 temp: Bool
+    %36 temp: None
+    %37 temp: Bool
+    %38 temp: String
+    %39 temp: None
+    %40 temp: Float
+    %41 temp: None
+    %42 temp: Float
+    %43 temp: Float
+    %44 temp: None
+    %45 temp: Float
+    %46 temp: Float
+    %47 temp: None
+    %48 temp: Float
+    %49 temp: None
+    %50 temp: Float
+    %51 temp: Float
+    %52 temp: None
+    %53 temp: Float
+    %54 temp: Float
+    %55 temp: None
+    %56 temp: None
+    %57 temp: Float
+    %58 temp: Float
+    %59 temp: None
+    %60 temp: None
+    %61 temp: Float
+    %62 temp: None
+    %63 temp: DataView
+    %64 temp: Float
+    %65 temp: Float
+    %66 temp: None
+    %67 temp: None
+    %68 temp: Float
+    %69 temp: Float
+    %70 temp: None
+    %71 temp: DataView
+    %72 temp: ArrayBuffer
+    %73 temp: Bool
+    %74 temp: Float
+    %75 temp: None
+    %76 temp: Float
+    %77 temp: None
+    %78 temp: String
+    %79 temp: List<String>
+    %80 temp: Float
+    %81 temp: None
+    %82 temp: String
+    %83 temp: String
+    %84 temp: None
+    %85 temp: Float
+    %86 temp: Float
+    %87 temp: None
+  bb0:
+    %8 = typed_array_new SharedArrayBuffer 8.0
+    %0 = move %8
+    %9 = typed_array_new ArrayBuffer 8.0
+    %1 = move %9
+    %10 = byte_array_byte_length copy %0
+    %11 = byte_array_byte_length copy %1
+    %12 = call @console_log(move %10, move %11) -> bb1
+  bb1:
+    %13 = instanceof copy %0, class0
+    %14 = instanceof copy %0, class1
+    %15 = call @console_log(move %13, move %14) -> bb2
+  bb2:
+    %16 = instanceof copy %1, class1
+    %17 = instanceof copy %1, class0
+    %18 = call @console_log(move %16, move %17) -> bb3
+  bb3:
+    %19 = primitive_cast_string copy %0
+    %20 = primitive_cast_string move %1
+    %21 = call @console_log(move %19, move %20) -> bb4
+  bb4:
+    %22 = typed_array_new Uint8Array copy %0
+    %2 = move %22
+    %2[0.0] = 7.0
+    %23 = byte_array_buffer copy %2
+    %24 = instanceof move %23, class0
+    %25 = call @console_log(copy %2[0.0], move %24) -> bb5
+  bb5:
+    %26 = byte_array_slice copy %0 0.0 4.0
+    %3 = move %26
+    %27 = byte_array_byte_length copy %3
+    %28 = instanceof move %3, class0
+    %29 = call @console_log(move %27, move %28) -> bb6
+  bb6:
+    %30 = typed_array_new ArrayBuffer 16.0
+    %4 = move %30
+    %31 = typed_array_new DataView copy %4
+    %5 = move %31
+    %32 = byte_array_byte_length copy %5
+    %33 = byte_array_byte_offset copy %5
+    %34 = byte_array_buffer copy %5
+    %35 = move %34 == copy %4
+    %36 = call @console_log(move %32, move %33, move %35) -> bb7
+  bb7:
+    %37 = instanceof copy %5, class5
+    %38 = primitive_cast_string copy %5
+    %39 = call @console_log(move %37, move %38, true) -> bb8
+  bb8:
+    %40 = -2.0
+    %41 = data_view_setInt16 copy %5 0.0 move %40
+    %42 = data_view_getInt16 copy %5 0.0
+    %43 = data_view_getUint16 copy %5 0.0
+    %44 = call @console_log(move %42, move %43) -> bb9
+  bb9:
+    %45 = data_view_getUint8 copy %5 0.0
+    %46 = data_view_getUint8 copy %5 1.0
+    %47 = call @console_log(move %45, move %46) -> bb10
+  bb10:
+    %48 = -2.0
+    %49 = data_view_setInt16 copy %5 2.0 move %48 true
+    %50 = data_view_getUint8 copy %5 2.0
+    %51 = data_view_getUint8 copy %5 3.0
+    %52 = call @console_log(move %50, move %51) -> bb11
+  bb11:
+    %53 = data_view_getInt16 copy %5 2.0 true
+    %54 = data_view_getInt16 copy %5 2.0 false
+    %55 = call @console_log(move %53, move %54) -> bb12
+  bb12:
+    %56 = data_view_setUint32 copy %5 4.0 4294967295.0
+    %57 = data_view_getUint32 copy %5 4.0
+    %58 = data_view_getInt32 copy %5 4.0
+    %59 = call @console_log(move %57, move %58) -> bb13
+  bb13:
+    %60 = data_view_setFloat64 copy %5 8.0 1.5
+    %61 = data_view_getFloat64 copy %5 8.0
+    %62 = call @console_log(move %61) -> bb14
+  bb14:
+    %63 = typed_array_new DataView copy %4 8.0 4.0
+    %6 = move %63
+    %64 = byte_array_byte_offset copy %6
+    %65 = byte_array_byte_length copy %6
+    %66 = call @console_log(move %64, move %65) -> bb15
+  bb15:
+    %67 = data_view_setInt8 copy %6 0.0 7.0
+    %68 = data_view_getInt8 copy %5 8.0
+    %69 = data_view_getInt8 move %6 0.0
+    %70 = call @console_log(move %68, move %69) -> bb16
+  bb16:
+    %71 = typed_array_new DataView copy %0
+    %7 = move %71
+    %72 = byte_array_buffer copy %7
+    %73 = instanceof move %72, class0
+    %74 = byte_array_byte_length copy %7
+    %75 = call @console_log(move %73, move %74) -> bb17
+  bb17:
+    %76 = data_view_getUint8 move %7 0.0
+    %77 = call @console_log(move %76) -> bb18
+  bb18:
+    %78 = json_stringify copy %5
+    %79 = []
+    %80 = len move %79
+    %81 = call @console_log(move %78, move %80) -> bb19
+  bb19:
+    %82 = call fn0(copy %5) -> bb20
+  bb20:
+    %83 = call fn0(move %0) -> bb21
+  bb21:
+    %84 = call @console_log(move %82, move %83) -> bb22
+  bb22:
+    %85 = call fn1(move %5) -> bb23
+  bb23:
+    %86 = call fn1(move %4) -> bb24
+  bb24:
+    %87 = call @console_log(move %85, move %86) -> bb25
+  bb25:
+    return none
+

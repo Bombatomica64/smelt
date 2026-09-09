@@ -1,0 +1,199 @@
+interface Opts
+
+fn show_fn (FuncId(0)) -> String
+  locals
+    %0 param opts: Opts
+    %1 temp: Float
+    %2 temp: String
+    %3 temp: String
+    %4 temp: String
+    %5 temp: String
+  bb0:
+    %1 = copy %0.field3 ?? 0.0
+    %2 = "fn " + move %1
+    %3 = move %2 + " "
+    %4 = copy %0.field4 ?? "-"
+    %5 = move %3 + move %4
+    return move %5
+
+fn main (FuncId(1)) -> None
+  locals
+    %0 user show_optional: fn(Optional<Opts>) -> String
+    %1 user show_required: fn(Opts) -> String
+    %2 user total: fn(List<Opts>) -> Float
+    %3 temp: fn(Optional<Opts>) -> String
+    %4 temp: Opts
+    %5 temp: String
+    %6 temp: None
+    %7 temp: Opts
+    %8 temp: String
+    %9 temp: None
+    %10 temp: fn(Opts) -> String
+    %11 temp: Opts
+    %12 temp: String
+    %13 temp: None
+    %14 temp: fn(Opts) -> String
+    %15 temp: Opts
+    %16 temp: String
+    %17 temp: None
+    %18 temp: String
+    %19 temp: None
+    %20 temp: fn(List<Opts>) -> Float
+    %21 temp: Opts
+    %22 temp: Opts
+    %23 temp: List<Opts>
+    %24 temp: Float
+    %25 temp: None
+  bb0:
+    %3 = closure ClosureId(0) []
+    %0 = move %3
+    %4 = {"status": 8.0, "label": "fn"}
+    %5 = call fn0(move %4) -> bb1
+  bb1:
+    %6 = call @console_log(move %5) -> bb2
+  bb2:
+    %7 = {"status": 7.0, "label": "opt"}
+    %8 = closure_call copy %0(move %7)
+    %9 = call @console_log(move %8) -> bb3
+  bb3:
+    %10 = closure ClosureId(1) []
+    %11 = {"status": 9.0, "label": "req"}
+    %12 = closure_call move %10(move %11)
+    %13 = call @console_log(move %12) -> bb4
+  bb4:
+    %14 = closure ClosureId(2) []
+    %15 = {"label": "partial"}
+    %16 = closure_call move %14(move %15)
+    %17 = call @console_log(move %16) -> bb5
+  bb5:
+    %18 = closure_call move %0()
+    %19 = call @console_log(move %18) -> bb6
+  bb6:
+    %20 = closure ClosureId(3) []
+    %2 = move %20
+    %21 = {"status": 1.0}
+    %22 = {"status": 2.0, "label": "two"}
+    %23 = [move %21, move %22]
+    %24 = closure_call move %2(move %23)
+    %25 = call @console_log(move %24) -> bb7
+  bb7:
+    return none
+
+closure ClosureId(0) -> String
+  locals
+    %0 param opts: Optional<Opts>
+    %1 temp: Optional<Float>
+    %2 temp: Float
+    %3 temp: String
+    %4 temp: String
+    %5 temp: Optional<String>
+    %6 temp: String
+    %7 temp: String
+  bb0:
+    %1 = copy %0?.field3
+    %2 = copy %1 ?? 0.0
+    %3 = "optional " + copy %2
+    %4 = copy %3 + " "
+    %5 = copy %0?.field4
+    %6 = copy %5 ?? "-"
+    %7 = copy %4 + copy %6
+    return copy %7
+
+closure ClosureId(1) -> String
+  locals
+    %0 param __callback_param_0: Opts
+    %1 temp: Bool
+    %2 temp: Optional<Float>
+    %3 temp: String
+    %4 temp: String
+    %5 temp: Bool
+    %6 temp: Optional<String>
+    %7 temp: String
+  bb0:
+    %1 = copy %0.field3 != none
+    switch copy %1 ? bb1 : bb2
+  bb1:
+    %2 = copy %0.field3
+    goto bb3
+  bb2:
+    %2 = 0.0
+    goto bb3
+  bb3:
+    %3 = "required " + copy %2
+    %4 = copy %3 + " "
+    %5 = copy %0.field4 != none
+    switch copy %5 ? bb4 : bb5
+  bb4:
+    %6 = copy %0.field4
+    goto bb6
+  bb5:
+    %6 = "-"
+    goto bb6
+  bb6:
+    %7 = copy %4 + copy %6
+    return copy %7
+
+closure ClosureId(2) -> String
+  locals
+    %0 param __callback_param_0: Opts
+    %1 temp: Bool
+    %2 temp: Optional<Float>
+    %3 temp: String
+    %4 temp: String
+    %5 temp: Bool
+    %6 temp: Optional<String>
+    %7 temp: String
+  bb0:
+    %1 = copy %0.field3 != none
+    switch copy %1 ? bb1 : bb2
+  bb1:
+    %2 = copy %0.field3
+    goto bb3
+  bb2:
+    %2 = 0.0
+    goto bb3
+  bb3:
+    %3 = "required " + copy %2
+    %4 = copy %3 + " "
+    %5 = copy %0.field4 != none
+    switch copy %5 ? bb4 : bb5
+  bb4:
+    %6 = copy %0.field4
+    goto bb6
+  bb5:
+    %6 = "-"
+    goto bb6
+  bb6:
+    %7 = copy %4 + copy %6
+    return copy %7
+
+closure ClosureId(3) -> Float
+  locals
+    %0 param items: List<Opts>
+    %1 user sum: Float
+    %2 user item: Opts
+    %3 temp: Float
+    %4 temp: Float
+    %5 temp: Bool
+    %6 temp: Float
+    %7 temp: Float
+  bb0:
+    %1 = 0.0
+    %3 = 0.0
+    goto bb1
+  bb1:
+    %4 = len copy %0
+    %5 = copy %3 < copy %4
+    switch copy %5 ? bb2 : bb4
+  bb2:
+    %2 = copy %0[copy %3]
+    %6 = copy %2.field3 ?? 0.0
+    %7 = copy %1 + copy %6
+    %1 = copy %7
+    goto bb3
+  bb3:
+    %3 = copy %3 + 1.0
+    goto bb1
+  bb4:
+    return copy %1
+

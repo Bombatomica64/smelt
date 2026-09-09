@@ -11,7 +11,9 @@ const text = value.toString();
 ",
     );
 
-    assert!(source.contains(".to_string()"));
+    // `Number.prototype.toString` is JavaScript's own rule, not Rust's
+    // `Display`: they part company at `1e21` and `1e-7`.
+    assert!(source.contains("smelt_number_to_string(value)"));
 }
 
 #[test]
@@ -284,7 +286,7 @@ const no = isBlob(1);
 }
 
 #[test]
-fn emits_blob_record_helper_for_file_constructor() {
+fn file_construction_is_concrete_and_answers_both_identities_statically() {
     let source = source_for(
         r#"
 const file = new File(["content"], "file.txt", { type: "text/plain" });
@@ -293,22 +295,26 @@ const isBlob = file instanceof Blob;
 "#,
     );
 
-    // Construction routes through the shared runtime helper (which stamps
-    // `__smelt_file` on top of `__smelt_blob`), and both instanceof checks
-    // resolve through their marker keys.
-    assert!(
-        source.contains("fn smelt_blob_record_from_parts("),
-        "{source}"
-    );
-    assert!(source.contains("smelt_blob_record_from_parts(("), "{source}");
-    assert!(
-        source.contains("value.contains_key(\"__smelt_file\")"),
-        "{source}"
-    );
-    assert!(
-        source.contains("value.contains_key(\"__smelt_blob\")"),
-        "{source}"
-    );
+    // Construction is the concrete `SmeltBlob`, and the string parts keep their
+    // type: `BlobPart` is `Blob | BufferSource | string`, and the two modeled
+    // arms reach their own typed constructors rather than the erased walk.
+    assert!(source.contains("SmeltBlob::from_string_parts("), "{source}");
+    assert!(source.contains("pub struct SmeltBlob"), "{source}");
+    // Both identities are then STATIC facts about a concretely-typed receiver:
+    // a blob always is a `Blob`, and it is a `File` exactly when its optional
+    // name is present. Neither needs the erased marker probe.
+    // `is_file()` is the static answer for `instanceof File` on a concrete
+    // receiver, and `true` for `instanceof Blob`. Asserted positively rather
+    // than by the absence of a marker probe: `contains_key("__smelt_file")`
+    // also appears in the shared runtime prelude (the `toStringTag` table, the
+    // host-marker filters), so a negative string assertion would be testing the
+    // prelude rather than the call site.
+    assert!(source.contains(".is_file()"), "{source}");
+    assert!(source.contains("_smelt_tmp_6: bool = true;"), "{source}");
+    // The erased record still carries both markers, for a blob that crosses a
+    // dynamic boundary.
+    assert!(source.contains("\"__smelt_file\".to_owned()"), "{source}");
+    assert!(source.contains("\"__smelt_blob\".to_owned()"), "{source}");
 }
 
 #[test]
@@ -444,7 +450,7 @@ fn list_slice_borrows_its_receiver_instead_of_cloning_it() {
     // remeda's `chunk` is the real-world case -- that makes a linear algorithm
     // quadratic. See `benchmarks/FINDINGS.md`.
     let source = source_for(
-        r#"
+        r"
 export function chunkNumbers(data: number[], size: number): number[][] {
   const chunks = Math.ceil(data.length / size);
   const result: number[][] = [];
@@ -454,7 +460,7 @@ export function chunkNumbers(data: number[], size: number): number[][] {
   }
   return result;
 }
-"#,
+",
     );
 
     // The slice still lowers to the same borrow-based iterator pipeline...
@@ -899,4 +905,256 @@ const cause = error.cause;
     assert!(source.contains("\"__smelt_error\""), "{source}");
     assert!(source.contains("\"cause\""), "{source}");
     assert!(source.contains("\"errors\""), "{source}");
+}
+
+
+/// A module-level `const` holding a modeled host value, read from a FUNCTION,
+/// reaches a module-global slot rather than the declared type's default.
+///
+/// The read used to fabricate an empty erased record cast to the class: the
+/// initializer's value was silently gone, AND for `Headers` the cast was
+/// emitted at the record type rather than at `SmeltUnknown`, so the generated
+/// crate did not compile. See
+/// `blocker-logs/standards-module-const-host-value.md`.
+#[test]
+fn module_const_host_value_reaches_a_slot_when_read_from_a_function() {
+    let source = source_for(
+        r#"
+const encoder = new TextEncoder();
+const headers = new Headers({ "content-type": "text/plain" });
+
+export function encoded(text: string): number {
+  return encoder.encode(text).length;
+}
+
+export function contentType(): string {
+  return headers.get("content-type") ?? "none";
+}
+"#,
+    );
+
+    // One `thread_local` slot per binding, lazily initialized by CALLING the
+    // nullary function the frontend synthesized from the initializer.
+    assert!(
+        source.contains("static SMELT_GLOBAL_ENCODER_0: ::std::cell::RefCell<SmeltTextEncoder>"),
+        "{source}"
+    );
+    assert!(
+        source.contains("static SMELT_GLOBAL_HEADERS_1: ::std::cell::RefCell<SmeltHeaders>"),
+        "{source}"
+    );
+    // Each initializer is a real function item, and its name carries the
+    // global's ITEM INDEX rather than the module's absolute path — a path in a
+    // symbol both leaks the build machine's filesystem and makes any golden
+    // containing it unreproducible elsewhere.
+    assert!(
+        source.contains("fn smelt_global_init__encoder__0()"),
+        "{source}"
+    );
+    assert!(
+        source.contains("fn smelt_global_init__headers__1()"),
+        "{source}"
+    );
+    assert!(!source.contains("__module_"), "{source}");
+    // Both functions read THROUGH the slot, so they see one object.
+    assert_eq!(
+        source
+            .matches("SMELT_GLOBAL_HEADERS_1.with(|value| value.borrow().clone())")
+            .count(),
+        1,
+        "{source}"
+    );
+}
+
+/// A module-level binding used ONLY in the module body keeps its ordinary
+/// module-body local, so the slot machinery is confined to the shape that was
+/// broken and no existing lowering moves.
+#[test]
+fn module_const_host_value_used_only_in_the_module_body_stays_a_local() {
+    let source = source_for(
+        r#"
+const headers = new Headers({ "content-type": "text/plain" });
+console.log(headers.get("content-type") ?? "none");
+"#,
+    );
+
+    assert!(!source.contains("SMELT_GLOBAL_HEADERS"), "{source}");
+    assert!(source.contains("let headers: SmeltHeaders"), "{source}");
+}
+/// `x instanceof <concrete host class>` narrows an ERASED `x` in the true
+/// branch, so the member read that follows is a concrete typed read rather
+/// than an erased field probe that answers `undefined`.
+///
+/// See `blocker-logs/standards-instanceof-narrowing.md`: the equivalent user
+/// type predicate (`x is Headers`) already narrowed and emitted exactly this
+/// checked cast, so only the inline `instanceof` form was wrong.
+#[test]
+fn instanceof_a_host_class_narrows_an_erased_local() {
+    let source = source_for(
+        r#"
+const direct: unknown = new Headers({ a: "b" });
+if (direct instanceof Headers) {
+  console.log(direct.get("a") ?? "null");
+}
+"#,
+    );
+
+    // The guard is the marker probe, and the narrowed body materializes the
+    // class through its checked adapter.
+    assert!(
+        source.contains("value.contains_key(\"__smelt_headers\")"),
+        "{source}"
+    );
+    assert!(
+        source.contains("<SmeltHeaders as SmeltFromUnknown>::smelt_from_unknown(direct"),
+        "{source}"
+    );
+    // The erased field read that used to answer `undefined` is gone.
+    assert!(
+        !source.contains("smelt_get_unknown_field(&direct.clone(), \"get\")"),
+        "the erased member path must not be reached after narrowing\n{source}"
+    );
+}
+
+
+/// The six modeled classes whose state is not a record now erase through their
+/// own adapter, carrying a registry identity marker.
+///
+/// Before this, erasing one fell through to the generic struct path — which
+/// reads declared fields and stamps `__smelt_class`, and a prelude type has no
+/// declared fields — so the erased value carried no host identity and
+/// `instanceof` on it could not be answered at all.
+#[test]
+fn host_value_erasure_stamps_the_registry_marker() {
+    let source = source_for(
+        r"
+const enc: unknown = new TextEncoder();
+console.log(enc instanceof TextEncoder);
+",
+    );
+
+    // The adapter, not the declared-field record builder.
+    assert!(
+        source.contains("impl IntoSmeltUnknown for SmeltTextEncoder"),
+        "{source}"
+    );
+    assert!(
+        source.contains("(\"__smelt_textencoder\".to_owned(), SmeltUnknown::Bool(true))"),
+        "{source}"
+    );
+    // The erased record keeps the value's OWN object id, so erasing one value
+    // twice yields two `===`-equal objects.
+    assert!(
+        source.contains("SmeltObject::with_id(smelt_id,"),
+        "{source}"
+    );
+    // And the live value is retained, so narrowing hands back the same object.
+    assert!(
+        source.contains("smelt_register_host_origin(smelt_id, self.clone())"),
+        "{source}"
+    );
+    // The check is the shared marker probe, no longer a folded `false`.
+    assert!(
+        source.contains("value.contains_key(\"__smelt_textencoder\")"),
+        "{source}"
+    );
+    assert!(
+        !source.contains("(\"__smelt_class\".to_owned(), SmeltUnknown::String(\"TextEncoder\""),
+        "the generic struct erasure must not claim a host runtime type\n{source}"
+    );
+}
+
+/// A `node:http` `Server` erases but does NOT recover.
+///
+/// A server is a live listening socket with a handler closure and a tokio
+/// shutdown sender; there is no empty server to fall back to, so rather than
+/// fabricate one that is not listening the emitter writes no `SmeltFromUnknown`
+/// and `StdlibClass::narrows_from_erased` excludes it. Its `instanceof` is
+/// still answered, because identity is knowable where reconstruction is not.
+#[test]
+fn a_server_erases_but_does_not_recover() {
+    let source = source_for(
+        r#"
+import { createServer } from "node:http";
+
+const server = createServer((_req, res) => {
+  res.end("ok");
+});
+const erased: unknown = server;
+console.log(erased instanceof Server);
+"#,
+    );
+
+    assert!(
+        source.contains("impl IntoSmeltUnknown for SmeltHttpServer"),
+        "{source}"
+    );
+    assert!(
+        !source.contains("impl SmeltFromUnknown for SmeltHttpServer"),
+        "a server has no honest empty value to recover to\n{source}"
+    );
+    assert!(
+        source.contains("value.contains_key(\"__smelt_httpserver\")"),
+        "{source}"
+    );
+}
+
+/// The host-origin registry is pay-for-use.
+///
+/// Only the six classes whose state is not a record retain their live value, so
+/// a program that erases none of them must not carry the registry — sixteen
+/// example goldens grew by it before the gate was added.
+#[test]
+fn the_host_origin_registry_is_pay_for_use() {
+    let without = source_for(
+        r"
+const value: unknown = { a: 1 };
+console.log(value);
+",
+    );
+    assert!(!without.contains("SMELT_HOST_ORIGINS"), "{without}");
+
+    let with = source_for(
+        r"
+const enc: unknown = new TextEncoder();
+console.log(enc);
+",
+    );
+    assert!(with.contains("SMELT_HOST_ORIGINS"), "{with}");
+}
+
+/// A class backed by a generated runtime type is not reflectively constructible
+/// as a marker record.
+///
+/// Reflected construction has only a class NAME to work from, so for a host
+/// class it builds a record carrying that class's marker. For a runtime-typed
+/// class that record would answer `instanceof` correctly and then silently fail
+/// every method called on it. `Blob` is the deliberate exception: its reflected
+/// constructor shares one record definition with its erasure.
+#[test]
+fn runtime_typed_host_classes_are_not_reflectively_constructible() {
+    let source = source_for(
+        r"
+const value: unknown = new TextEncoder();
+console.log(value);
+",
+    );
+
+    let table = source
+        .lines()
+        .find(|line| line.contains("fn smelt_builtin_construct_kind"))
+        .unwrap_or_default();
+    for excluded in [
+        "TextEncoder",
+        "TextDecoder",
+        "EventEmitter",
+        "IncomingMessage",
+        "ServerResponse",
+    ] {
+        assert!(
+            !table.contains(&format!("(\"{excluded}\"")),
+            "{excluded} must not be reflectively constructible as a marker record\n{table}"
+        );
+    }
+    assert!(table.contains("(\"Blob\", \"blob\")"), "{table}");
 }

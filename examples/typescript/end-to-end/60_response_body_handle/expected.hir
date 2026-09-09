@@ -1,0 +1,43 @@
+module examples/typescript/end-to-end/60_response_body_handle/input.ts (ModuleId(0))
+  body BodyId(3)
+  items
+    interface BoomOptions fields [Public res?: Optional<Response>, Public message?: Optional<String>] methods []
+    class Boom fields [Public res?: Optional<Response>, Public status: Float, Public message: String] constructor Some(ItemId(2)) methods [ItemId(3)] implements []
+    fn run owner Module
+  exprs
+    #0: async fn() -> Future<None> = @0(run)
+    #1: Future<None> = call #0()
+    #2: None = await #1
+    #3: Future<None> = async_exit_drain()
+    #4: None = await #3
+  stmts
+    s0: #2
+    s1: #4
+  async state machine
+    states [state0, state1, state2]
+    suspend #2 on #1 -> state3
+    suspend #4 on #3 -> state5
+
+interned types
+  t0 = None
+  t1 = Future<None>
+  t2 = async fn() -> Future<None>
+  t3 = Response
+  t4 = Optional<Response>
+  t5 = String
+  t6 = Optional<String>
+  t7 = Boom
+  t8 = Float
+  t9 = Optional<Float>
+  t10 = BoomOptions
+  t11 = Optional<BoomOptions>
+  t12 = Bool
+  t13 = ReadableStream
+  t14 = Optional<ReadableStream>
+  t15 = Headers
+  t16 = Dict<String, String>
+  t17 = Unknown
+  t18 = Dict<String, Unknown>
+  t19 = fn() -> Response
+  t20 = Future<String>
+  t21 = async fn() -> Future<None>

@@ -256,6 +256,13 @@ fn reads_local(operand: &Operand, local: LocalId) -> bool {
         Operand::Copy(place) | Operand::Move(place) => match place {
             Place::Local(candidate) | Place::Field { base: candidate, .. } => *candidate == local,
             Place::Index { base, index, .. } => *base == local || reads_local(index, local),
+            // A global-rooted place has no local base -- the root is a
+            // `thread_local!` cell -- so only its index expression can read a
+            // local, and a field projection reads none at all.
+            Place::Global { projection, .. } => match projection {
+                smelt_mir::GlobalProjection::Field(_) => false,
+                smelt_mir::GlobalProjection::Index { index, .. } => reads_local(index, local),
+            },
         },
         Operand::Const(_) => false,
     }
@@ -270,6 +277,12 @@ fn count_place_reads(place: &Place, count: &mut impl FnMut(&Operand)) {
             count(&Operand::Copy(Place::Local(*base)));
             count(index);
         }
+        // The base is a global cell rather than a local, so the only read to
+        // count is the index expression a subscript projection evaluates.
+        Place::Global { projection, .. } => match projection {
+            smelt_mir::GlobalProjection::Field(_) => {}
+            smelt_mir::GlobalProjection::Index { index, .. } => count(index),
+        },
     }
 }
 

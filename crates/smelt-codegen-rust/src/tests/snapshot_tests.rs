@@ -186,11 +186,15 @@ function lookup(): number | undefined {
 
 /// Snapshot set construction and membership emission.
 ///
-/// Uses a `Set<string>`, whose value-equality element type keeps the plain
-/// `HashSet` backing (and therefore a small prelude). Non-primitive sets route
-/// through the `SmeltJsSet` runtime container, which pulls in the unknown
-/// carrier; that path is covered by the dedicated `emits_smelt_js_set_container`
-/// unit test and the end-to-end fixture instead of this whole-module snapshot.
+/// Uses a `Set<string>`, whose value-equality element type takes the
+/// `SmeltPrimSet` backing: insertion-ordered like every source `Set`, but
+/// hashing its members directly rather than erasing them, so the prelude stays
+/// small. That is the whole reason two set containers exist — merging them onto
+/// `SmeltJsSet` took this snapshot from 18 lines to over 450, because its
+/// SameValueZero membership pulls in the erased-value carrier. Non-primitive
+/// sets do route through `SmeltJsSet`; that path is covered by the dedicated
+/// `emits_smelt_js_set_container` unit test and the end-to-end fixtures instead
+/// of this whole-module snapshot.
 #[test]
 fn set_collection_emission() {
     assert_emitted_source_snapshot(

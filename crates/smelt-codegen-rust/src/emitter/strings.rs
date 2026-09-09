@@ -50,15 +50,54 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Converts JavaScript `encodeURI(value)` to a call to the runtime
-    /// percent-encoding helper (`smelt_encode_uri`), which implements the
-    /// ECMA-262 `encodeURI` character-set rules.
-    pub(super) fn uri_encode_text(&self, operand: &Operand) -> Result<String, EmitError> {
-        let receiver_text = self.string_like_operand_text(operand, "encodeURI")?;
-        Ok(format!(
-            "{encode_uri}({receiver_text}.as_str())",
-            encode_uri = smelt_stdlib::runtime_symbols::strings::ENCODE_URI,
-        ))
+    /// Converts one of the four JavaScript URI transcoding globals to a call to
+    /// its runtime helper.
+    ///
+    /// The encoders are total. The decoders return `None` for input ECMA-262
+    /// rejects with a `URIError`, and that failure is currently rendered as an
+    /// `.expect(...)` — a PANIC, not a catchable throw. That is deliberate and
+    /// matches the existing `JSON.parse` emission
+    /// Only the INFALLIBLE direction reaches this rvalue path.
+    /// `decodeURI`/`decodeURIComponent` lower to
+    /// `Terminator::Call { Callee::Builtin(BuiltinFn::UriDecode(op)), unwind }`
+    /// so their `URIError` is catchable — a fallible rvalue has no unwind edge,
+    /// which used to leave a `try`/`catch` around a decode with no predecessor
+    /// for its handler, so MIR dropped the fallback the source wrote. Encoding
+    /// cannot fail for well-formed UTF-16 input, so it needs no such edge and
+    /// keeps the cheaper form.
+    pub(super) fn uri_transcode_text(
+        &self,
+        op: smelt_hir::UriTranscodeOp,
+        operand: &Operand,
+    ) -> Result<String, EmitError> {
+        use smelt_hir::UriTranscodeOp;
+        use smelt_stdlib::runtime_symbols::strings;
+
+        let name = match op {
+            UriTranscodeOp::Encode => "encodeURI",
+            UriTranscodeOp::EncodeComponent => "encodeURIComponent",
+            UriTranscodeOp::Decode => "decodeURI",
+            UriTranscodeOp::DecodeComponent => "decodeURIComponent",
+        };
+        let receiver_text = self.string_like_operand_text(operand, name)?;
+        let helper = match op {
+            UriTranscodeOp::Encode => strings::ENCODE_URI,
+            UriTranscodeOp::EncodeComponent => strings::ENCODE_URI_COMPONENT,
+            UriTranscodeOp::Decode => strings::DECODE_URI,
+            UriTranscodeOp::DecodeComponent => strings::DECODE_URI_COMPONENT,
+        };
+        if op.is_fallible() {
+            // A fallible op must have been routed to the call terminator by
+            // `lower/expr.rs`. Arriving here means the two decisions have
+            // drifted apart, and the old behaviour -- an `.expect(...)` that
+            // aborts where JavaScript would let a `catch` run -- is exactly
+            // what this reports instead of re-emitting.
+            return Err(EmitError::new(format!(
+                "internal: fallible `{name}` reached the infallible rvalue path; \
+                 it must lower to BuiltinFn::UriDecode"
+            )));
+        }
+        Ok(format!("{helper}({receiver_text}.as_str())"))
     }
 
     /// Converts JavaScript `left.localeCompare(right)` to a call to the runtime
@@ -352,12 +391,17 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a regex replacement callback operation to Rust text.
+    ///
+    /// `args` names the ECMA-262 replacer arguments the callback declared, in
+    /// order, as resolved by the frontend; each is rendered from the `regex`
+    /// crate's `Captures` and from the subject string.
     pub(super) fn regex_replace_callback_text(
         &self,
         op: smelt_hir::StringReplaceOp,
         pattern: &Operand,
         haystack: &Operand,
         callback: &Operand,
+        args: &[smelt_hir::RegexReplaceArg],
     ) -> Result<String, EmitError> {
         self.require_string_operands(&[pattern, haystack], "regex replace callback")?;
         let regex_text = format!(
@@ -368,6 +412,7 @@ impl FunctionEmitter<'_> {
         let callback_text = self
             .closure_operand_text(callback)
             .or_else(|_| self.operand_text(callback))?;
+        let arg_texts = self.regex_replacer_argument_texts(args, callback)?;
         // JavaScript `String.prototype.replace(re, fn)` converts the callback's
         // return value to a string (ToString) before substituting it. The Rust
         // `regex` `Replacer` closure must therefore yield a `String`
@@ -375,19 +420,86 @@ impl FunctionEmitter<'_> {
         // yields `SmeltUnknown`, which is not `AsRef<str>`. When the callback
         // does not already return `String`, route its result through the erase +
         // String-extract boundary so the closure hands `replace` a real string.
-        let call_expr = format!(
-            "({callback_text})(caps.get(0).expect(\"regex match missing\").as_str().to_string())"
-        );
+        let call_expr = format!("({callback_text})({})", arg_texts.join(", "));
         let replacement_expr = self.regex_replacement_as_string(call_expr, callback)?;
         let replacement = format!("|caps: &regex::Captures<'_>| {replacement_expr}");
-        Ok(match op {
-            smelt_hir::StringReplaceOp::First => {
-                format!("{regex_text}.replace(&{haystack_text}, {replacement}).to_string()")
-            }
-            smelt_hir::StringReplaceOp::All => {
-                format!("{regex_text}.replace_all(&{haystack_text}, {replacement}).to_string()")
-            }
-        })
+        // The subject string is bound once, before the replace call, because a
+        // `position`/`string` argument reads it from INSIDE the replacer closure
+        // and re-rendering the operand there would evaluate it a second time.
+        let method = match op {
+            smelt_hir::StringReplaceOp::First => "replace",
+            smelt_hir::StringReplaceOp::All => "replace_all",
+        };
+        Ok(format!(
+            "{{ let smelt_subject: String = {haystack_text}.to_string(); \
+             {regex_text}.{method}(&smelt_subject, {replacement}).to_string() }}"
+        ))
+    }
+
+    /// Renders each declared replacer argument as Rust text at the callback's
+    /// own parameter type.
+    ///
+    /// Every role has one natural Rust rendering and one natural Smelt type:
+    ///
+    /// | role | rendering | type |
+    /// | --- | --- | --- |
+    /// | `Matched` | capture group 0's text | `string` |
+    /// | `Capture(n)` | group `n`'s text, `None` when it did not participate | `string \| undefined` |
+    /// | `Position` | characters before the match in the subject | `number` |
+    /// | `Source` | the whole subject string | `string` |
+    ///
+    /// The callback may nonetheless have annotated a parameter differently (its
+    /// contextual type is only a *hint*), so each rendering is routed through
+    /// `value_at_type_text` to the declared parameter type. A callback whose
+    /// parameter types are not recoverable keeps the natural rendering, which is
+    /// what an erased-callback ABI expects anyway.
+    ///
+    /// `Position` counts CHARACTERS rather than bytes, matching the index
+    /// convention the string helpers in this module already use; JavaScript
+    /// counts UTF-16 code units, so the two agree outside astral planes.
+    fn regex_replacer_argument_texts(
+        &self,
+        args: &[smelt_hir::RegexReplaceArg],
+        callback: &Operand,
+    ) -> Result<Vec<String>, EmitError> {
+        let param_tys = match self.mir.types.get(self.operand_ty(callback)?) {
+            Some(Type::Function(function)) => function.params.clone(),
+            _ => Vec::new(),
+        };
+        let string_ty = self.existing_type_id(Type::String);
+        let float_ty = self.existing_type_id(Type::Float);
+        let optional_string_ty =
+            string_ty.and_then(|inner| self.existing_type_id(Type::Optional(inner)));
+        let mut texts = Vec::with_capacity(args.len());
+        for (index, arg) in args.iter().enumerate() {
+            let (natural_text, natural_ty) = match arg {
+                smelt_hir::RegexReplaceArg::Matched => (
+                    "caps.get(0).expect(\"regex match missing\").as_str().to_string()".to_owned(),
+                    string_ty,
+                ),
+                smelt_hir::RegexReplaceArg::Capture(group) => (
+                    format!("caps.get({group}).map(|smelt_group| smelt_group.as_str().to_string())"),
+                    optional_string_ty,
+                ),
+                smelt_hir::RegexReplaceArg::Position => (
+                    "smelt_subject[..caps.get(0).expect(\"regex match missing\").start()]\
+                     .chars().count() as f64"
+                        .to_owned(),
+                    float_ty,
+                ),
+                smelt_hir::RegexReplaceArg::Source => {
+                    ("smelt_subject.clone()".to_owned(), string_ty)
+                }
+            };
+            let text = match (natural_ty, param_tys.get(index)) {
+                (Some(source), Some(&target)) if source != target => {
+                    self.value_at_type_text(&natural_text, source, target)?
+                }
+                _ => natural_text,
+            };
+            texts.push(text);
+        }
+        Ok(texts)
     }
 
     /// Coerce a regex replacement callback's return value to a Rust `String`.
@@ -489,6 +601,24 @@ impl FunctionEmitter<'_> {
             return Ok(format!("{call}.map(SmeltMatch::into_smelt_unknown)"));
         }
         Ok(call)
+    }
+
+    /// Converts `regex.test(haystack)` on a concrete receiver to a `bool`.
+    ///
+    /// `SmeltRegExp::test` is the runtime's own method and already carries the
+    /// stateful semantics: it runs the same search `exec` does, so a `/g` or
+    /// `/y` receiver reads and advances its `lastIndex`. What it does NOT do is
+    /// build a match object — which is what the previous lowering did, and then
+    /// erased that object to `SmeltUnknown` purely to compare it against
+    /// `null`, at two avoidable erasures per call site.
+    pub(super) fn regex_test_text(
+        &self,
+        regex: &Operand,
+        haystack: &Operand,
+    ) -> Result<String, EmitError> {
+        let regex_text = self.regexp_operand_text(regex)?;
+        let haystack_text = self.string_like_operand_text(haystack, "regex test")?;
+        Ok(format!("{regex_text}.test(&{haystack_text})"))
     }
 
     /// Converts JavaScript `String.prototype.matchAll` to concrete match results.
@@ -608,10 +738,44 @@ impl FunctionEmitter<'_> {
     /// `scrutinee_text` must be an owned `SmeltUnknown` expression (the match
     /// arms consume string payloads). The mapping mirrors JS primitive string
     /// coercion; structured values use the platform object placeholder.
-    pub(super) fn js_string_coercion_match_text(scrutinee_text: &str) -> String {
+    pub(super) fn js_string_coercion_match_text(
+        &self,
+        scrutinee_text: &str,
+        absent: AbsentSpelling,
+    ) -> String {
         let error_arm = Self::js_error_to_string_arm_text();
+        let null_text = absent.null_text();
+        // A `URLSearchParams` overrides `toString` in the spec: `String(params)`
+        // and `${params}` are its QUERY STRING, not `[object Object]`. The
+        // erased record narrows back to the concrete list (the origin registry,
+        // else its own pairs) and answers `to_text()`, so the encoding rule
+        // lives in one place. Gated on the params prelude being emitted at all:
+        // the fetch types are pay-for-use, and this match is not.
+        let params_arm = if crate::stdlib::needs_url_search_params_runtime(self.mir) {
+            "SmeltUnknown::Object(value) if value.contains_key(\"__smelt_urlsearchparams\") => <SmeltUrlSearchParams as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(value)).to_text(),"
+        } else {
+            ""
+        };
+        // A typed-array VIEW overrides `toString` too: it IS
+        // `Array.prototype.toString`, so `String(view)` and `${view}` are the
+        // joined elements. The concrete face answers this from its own
+        // `to_js_string`; this is the same rule for a view that has crossed
+        // into `SmeltUnknown`, so the two faces cannot disagree about one
+        // value. Byte STORAGE has no elements and is deliberately not here.
+        // Gated on the byte prelude being emitted at all, like the params arm
+        // above.
+        let byte_view_arm = if crate::stdlib::needs_unknown_type(self.mir) {
+            format!(
+                "SmeltUnknown::Object(value) if {is_view}(&SmeltUnknown::Object(value.clone())) => {elements}(&SmeltUnknown::Object(value)).unwrap_or_default().into_iter().map(|element| match element {{ SmeltUnknown::Number(element) => element.to_string(), _ => String::new() }}).collect::<Vec<_>>().join(\",\"),",
+                is_view = smelt_stdlib::runtime_symbols::byte_buffer::IS_VIEW,
+                elements = smelt_stdlib::runtime_symbols::byte_buffer::ELEMENTS,
+            )
+        } else {
+            String::new()
+        };
+        let undefined_text = absent.text();
         format!(
-            "match {scrutinee_text} {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_regexp\") => smelt_regexp_literal(&value), {error_arm}SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}"
+            "match {scrutinee_text} {{ {params_arm} {byte_view_arm} SmeltUnknown::Null => \"{null_text}\".to_owned(), SmeltUnknown::Undefined => \"{undefined_text}\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_regexp\") => smelt_regexp_literal(&value), {error_arm}SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}"
         )
     }
 
@@ -631,25 +795,80 @@ impl FunctionEmitter<'_> {
                 Operand::Move(place) => self.place_text(place),
                 Operand::Const(_) => self.operand_text(operand),
             },
-            Some(Type::Bool | Type::Int | Type::Float) => {
-                Ok(format!("{}.to_string()", self.operand_text(operand)?))
-            }
+            Some(Type::Bool) => Ok(format!("{}.to_string()", self.operand_text(operand)?)),
+            // A NUMBER goes through JavaScript's own rule, which parts company
+            // with Rust's `Display` at both ends of the range (`1e+21`, `1e-7`).
+            // `Int` is included because a source `number` that Smelt typed as
+            // an integer is still a JavaScript number: `String(x)` must not
+            // depend on which of the two Smelt inferred, and a JS number is an
+            // `f64` in any case.
+            Some(Type::Int) => Ok(format!(
+                "{fn_name}({text} as f64)",
+                fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+                text = self.operand_text(operand)?,
+            )),
+            Some(Type::Float) => Ok(format!(
+                "{fn_name}({text})",
+                fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+                text = self.operand_text(operand)?,
+            )),
             Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
                 let text = self
                     .erase_concrete_union_text(&self.operand_text(operand)?, self.operand_ty(operand)?);
-                Ok(Self::js_string_coercion_match_text(&text))
+                Ok(self.js_string_coercion_match_text(&text, self.absent_spelling()))
             }
             Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)? => {
                 Ok(Self::regexp_literal_text(&self.operand_text(operand)?))
             }
-            Some(Type::None | Type::Never) => Ok("String::new()".to_owned()),
+            // A value the source spelled `null` stringifies as the WORD, not as
+            // the empty string: `String(null)` is `"null"` in JavaScript and
+            // `str(None)` is `"None"` in Python. `Never` is unreachable code and
+            // keeps the empty placeholder.
+            Some(Type::None) => Ok(format!("{:?}.to_owned()", self.absent_spelling().null_text())),
+            Some(Type::Never) => Ok("String::new()".to_owned()),
+            // A typed-array VIEW stringifies as its joined elements, because
+            // `TypedArray.prototype.toString` is `Array.prototype.toString`;
+            // byte STORAGE has no elements and keeps the object tag, which for
+            // it is `[object ArrayBuffer]`.
+            Some(Type::Class { name, .. })
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::TypedArray) =>
+            {
+                Ok(format!("{}.to_js_string()", self.operand_text(operand)?))
+            }
+            // Storage keeps the object tag, and the tag is the VALUE's class
+            // name rather than a fixed word: `SharedArrayBuffer` shares this
+            // Rust type and stringifies as `[object SharedArrayBuffer]`.
+            Some(Type::Class { name, .. })
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::ArrayBuffer) =>
+            {
+                Ok(format!(
+                    "format!(\"[object {{}}]\", {}.class_name())",
+                    self.operand_text(operand)?
+                ))
+            }
+            // A `DataView` has no elements to join, so it keeps its tag too.
+            Some(Type::Class { name, .. })
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::DataView) =>
+            {
+                Ok("\"[object DataView]\".to_owned()".to_owned())
+            }
             Some(Type::List(_) | Type::Set(_) | Type::Dict(_, _) | Type::Class { .. }) => {
                 Ok("\"[object Object]\".to_owned()".to_owned())
             }
             Some(Type::JsMap(_, _)) => Ok("\"[object Map]\".to_owned()".to_owned()),
-            Some(Type::Optional(inner)) if self.mir.types.get(*inner) == Some(&Type::String) => Ok(
-                format!("{}.unwrap_or_default()", self.operand_text(operand)?),
-            ),
+            // An ABSENT optional stringifies as the language's absent word, not
+            // as the empty string: `unwrap_or_default()` answered `""` for
+            // every `${maybeString}` in the corpus.
+            Some(Type::Optional(inner)) if self.mir.types.get(*inner) == Some(&Type::String) => {
+                Ok(format!(
+                    "{}.unwrap_or_else(|| {:?}.to_owned())",
+                    self.operand_text(operand)?,
+                    self.absent_spelling().text(),
+                ))
+            }
             Some(Type::Optional(inner))
                 if matches!(
                     self.mir.types.get(*inner),
@@ -662,13 +881,40 @@ impl FunctionEmitter<'_> {
                 // string-coercion match.
                 let scrutinee = self.erase_concrete_union_text("value", *inner);
                 let error_arm = Self::js_error_to_string_arm_text();
+                // The absent arm carries no runtime tag, so it takes the
+                // language's absent word; the present arms still distinguish
+                // `null` from `undefined`, which the tag does know.
+                let absent_text = self.absent_spelling().text();
+                let null_text = self.absent_spelling().null_text();
                 Ok(format!(
-                    "{text}.map_or_else(String::new, |value| match {scrutinee} {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), {error_arm}SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }})"
+                    "{text}.map_or_else(|| \"{absent_text}\".to_owned(), |value| match {scrutinee} {{ SmeltUnknown::Null => \"{null_text}\".to_owned(), SmeltUnknown::Undefined => \"{absent_text}\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), {error_arm}SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }})"
                 ))
             }
-            Some(Type::Tuple(_) | Type::Optional(_) | Type::Future(_)) => {
-                Ok("String::new()".to_owned())
+            // An optional PRIMITIVE stringifies its value or the absent word.
+            // This is the `${maybeNumber}` / `${maybeFlag}` shape, and it used
+            // to fall into the placeholder below and render nothing at all.
+            Some(Type::Optional(inner))
+                if matches!(
+                    self.mir.types.get(*inner),
+                    Some(Type::Bool | Type::Int | Type::Float)
+                ) =>
+            {
+                Ok(format!(
+                    "{}.map_or_else(|| {:?}.to_owned(), |value| value.to_string())",
+                    self.operand_text(operand)?,
+                    self.absent_spelling().text(),
+                ))
             }
+            // An optional whose payload is a structured value keeps the empty
+            // placeholder for the PRESENT arm — JavaScript renders a list as
+            // its joined elements and an object as `[object Object]`, neither of
+            // which this seam models yet — but the absent arm is the word.
+            Some(Type::Optional(_)) => Ok(format!(
+                "{}.map_or_else(|| {:?}.to_owned(), |_| String::new())",
+                self.operand_text(operand)?,
+                self.absent_spelling().text(),
+            )),
+            Some(Type::Tuple(_) | Type::Future(_)) => Ok("String::new()".to_owned()),
             Some(Type::Function(_) | Type::Generator { .. } | Type::GeneratorResult { .. })
             | None => {
                 Ok("String::new()".to_owned())
@@ -892,7 +1138,7 @@ impl FunctionEmitter<'_> {
             let separator_unknown = self
                 .erase_concrete_union_text(&self.operand_text(separator)?, self.operand_ty(separator)?);
             format!(
-                "{{ let smelt_haystack = {haystack_text}; match {separator_unknown} {{ SmeltUnknown::Object(smelt_object) if smelt_object.contains_key(\"source\") => SmeltRegExp::new(match smelt_object.get(\"source\").cloned() {{ Some(SmeltUnknown::String(source)) => source.to_string(), _ => String::new() }}, match smelt_object.get(\"flags\").cloned() {{ Some(SmeltUnknown::String(flags)) => flags.to_string(), _ => String::new() }}).split_string(&smelt_haystack), smelt_separator_unknown => {{ let smelt_separator = match smelt_separator_unknown {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}; if smelt_separator.is_empty() {{ if smelt_haystack.is_empty() {{ Vec::new() }} else {{ smelt_haystack.chars().map(|ch| ch.to_string()).collect::<Vec<_>>() }} }} else {{ smelt_haystack.split(&smelt_separator).map(str::to_owned).collect::<Vec<_>>() }} }} }} }}"
+                "{{ let smelt_haystack = {haystack_text}; match {separator_unknown} {{ SmeltUnknown::Object(smelt_object) if smelt_object.contains_key(\"source\") => SmeltRegExp::new(match smelt_object.get(\"source\").cloned() {{ Some(SmeltUnknown::String(source)) => source.to_string(), _ => String::new() }}, match smelt_object.get(\"flags\").cloned() {{ Some(SmeltUnknown::String(flags)) => flags.to_string(), _ => String::new() }}).split_string(&smelt_haystack), smelt_separator_unknown => {{ let smelt_separator = match smelt_separator_unknown {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}; if smelt_separator.is_empty() {{ if smelt_haystack.is_empty() {{ Vec::new() }} else {{ smelt_haystack.chars().map(|ch| ch.to_string()).collect::<Vec<_>>() }} }} else {{ smelt_haystack.split(&smelt_separator).map(str::to_owned).collect::<Vec<_>>() }} }} }} }}"
             )
         } else {
             let separator_text = self.string_like_operand_text(separator, "string split")?;
@@ -993,14 +1239,32 @@ impl FunctionEmitter<'_> {
             return Ok(format!("{items_text}.join(&{separator_text})"));
         }
         let item_text = match self.mir.types.get(*item_ty) {
-            Some(Type::Bool | Type::Int | Type::Float) => "item.to_string()".to_owned(),
+            Some(Type::Bool) => "item.to_string()".to_owned(),
+            // `[1e21].join(",")` stringifies each item the way `String(item)`
+            // does, so the numeric arms take the same helper.
+            Some(Type::Int) => format!(
+                "{fn_name}(*item as f64)",
+                fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+            ),
+            Some(Type::Float) => format!(
+                "{fn_name}(*item)",
+                fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+            ),
             Some(Type::Unknown) => {
-                "match item { SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }".to_owned()
+                "match item { SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }".to_owned()
             }
             Some(Type::Optional(inner)) => match self.mir.types.get(*inner) {
-                Some(Type::Bool | Type::Int | Type::Float) => {
+                Some(Type::Bool) => {
                     "item.as_ref().map_or_else(String::new, |value| value.to_string())".to_owned()
                 }
+                Some(Type::Int) => format!(
+                    "item.as_ref().map_or_else(String::new, |value| {fn_name}(*value as f64))",
+                    fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+                ),
+                Some(Type::Float) => format!(
+                    "item.as_ref().map_or_else(String::new, |value| {fn_name}(*value))",
+                    fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+                ),
                 Some(Type::String) => {
                     "item.as_ref().map_or_else(String::new, Clone::clone)".to_owned()
                 }

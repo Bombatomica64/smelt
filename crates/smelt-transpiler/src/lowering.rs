@@ -45,7 +45,9 @@ impl SourceLang {
             return Ok(Self::PythonDeclaration);
         }
         match Path::new(path).extension().and_then(|e| e.to_str()) {
-            Some("ts") => Ok(Self::TypeScript),
+            // `.mts`/`.cts` are the ESM/CommonJS-pinned TypeScript inputs a
+            // NodeNext project writes; they parse exactly like `.ts`.
+            Some("ts" | "mts" | "cts") => Ok(Self::TypeScript),
             Some("py") => Ok(Self::Python),
             _ => Err(format!("unsupported source extension: {path}").into()),
         }
@@ -121,6 +123,24 @@ struct FrontendLoweringState {
     /// in a spec file activates the dynamic override machinery in the predicate
     /// module even though that module lowers first.
     ts_written_host_globals: std::collections::HashSet<String>,
+    /// Project source files the dependency closure did not reach.
+    ///
+    /// The manifest's source roots minus its excludes, minus the crate's own
+    /// sources: files this project owns that are not in the crate. Seeded once
+    /// before lowering so a type reference can say "that module is yours but
+    /// the crate does not have it" instead of erasing to a nominal class; see
+    /// `HirCtx::project_sources_outside_crate`.
+    ts_project_sources_outside_crate: std::collections::HashSet<String>,
+    /// Rust-facing class names for class names declared by more than one module,
+    /// keyed by module path then source class name.
+    ///
+    /// Seeded once before lowering begins, so whether a name is ambiguous never
+    /// depends on lowering order; see `HirCtx::class_renames` and
+    /// [`manifest_class_renames`].
+    ts_class_renames: HashMap<String, HashMap<String, String>>,
+    /// Crate-unique module identity per module path, from
+    /// [`manifest_module_names`]; see `HirCtx::module_identities`.
+    ts_module_identities: HashMap<String, String>,
     /// Python module/package namespaces visible through `import package`.
     py_module_namespaces: HashMap<String, HashMap<String, smelt_hir::ItemId>>,
     /// Python `IntEnum` member values visible to later manifest entries.
@@ -283,7 +303,9 @@ fn lower_typescript_file_with_dependencies(
 /// isolated lowering.
 fn ordered_dependency_paths(target: PathBuf) -> Option<Vec<PathBuf>> {
     let root = read_manifest_source(target).ok()?;
-    let sources = dependency_closure(vec![root]).ok()?;
+    // No manifest is in scope here (this is the single-file fallback path),
+    // so there are no exclude globs to apply.
+    let sources = dependency_closure(vec![root], &[], Path::new(".")).ok()?;
     let ordered = order_manifest_sources(&sources).ok()?;
     Some(
         ordered
@@ -473,7 +495,7 @@ pub(crate) fn lower_manifest_entries(
             .collect::<Result<Vec<_>, _>>()
     })?;
     let sources = timing::measure("manifest.dependency_closure", || {
-        dependency_closure(root_sources)
+        dependency_closure(root_sources, config.source_excludes(), manifest_dir)
     })?;
 
     let ordered_sources = timing::measure("manifest.order_sources", || {
@@ -498,8 +520,12 @@ pub(crate) fn lower_manifest_entries(
     let specialization = timing::measure("manifest.specialize", || {
         crate::specialization::prepare(config, manifest_path, &ordered_sources)
     })?;
+    // Which of this project's own sources the crate does NOT have. Computed
+    // here because it needs both halves: the manifest's declared source roots
+    // (minus excludes) and the dependency closure that was actually lowered.
+    let outside_crate = sources_outside_crate(config, manifest_dir, &ordered_sources);
     timing::measure("manifest.frontend_lower", || {
-        lower_ordered_manifest_sources(&ordered_sources, &specialization)
+        lower_ordered_manifest_sources(&ordered_sources, &specialization, outside_crate)
     })
 }
 
@@ -602,7 +628,7 @@ fn collect_matching_test_paths(
 /// Supported syntax is intentionally narrow: `*` matches any characters inside
 /// one path segment and `**` matches zero or more path segments. Patterns are
 /// evaluated with `/` separators regardless of platform.
-fn path_matches_glob(path: &Path, pattern: &str) -> bool {
+pub(crate) fn path_matches_glob(path: &Path, pattern: &str) -> bool {
     let path_segments = path
         .components()
         .filter_map(|component| component.as_os_str().to_str())
@@ -670,6 +696,129 @@ fn seed_written_host_globals(sources: &[&ManifestSource], state: &mut FrontendLo
     }
 }
 
+/// Crate-unique module identity for each source path.
+///
+/// Pairs each source with the collision-free module name
+/// [`manifest_module_names`] already computes for module BODIES, so a
+/// module-private item's qualified Rust name depends on the module's place in
+/// the crate rather than on the absolute path the compiler was handed (H55).
+fn manifest_module_identities(sources: &[&ManifestSource]) -> HashMap<String, String> {
+    manifest_module_names(sources)
+        .into_iter()
+        .zip(sources.iter())
+        .map(|(name, source)| (source.path.display().to_string(), name))
+        .collect()
+}
+
+/// Rust-facing class names for class names that more than one module declares.
+///
+/// Class identity in HIR is the class's name symbol, so two modules exporting a
+/// class of the same name interned ONE symbol for two different classes and
+/// every method of the loser reported "unknown class method". Hono's two `Node`
+/// classes (`router/trie-router/node.ts` and `router/reg-exp-router/node.ts`)
+/// are the case that found it.
+///
+/// The scheme is the one [`manifest_module_names`] already uses for module
+/// bodies, for the same reason and with the same shape: a name declared by
+/// exactly one module is absent from the result and keeps its bare spelling, so
+/// every existing golden stays byte-identical, and among several declarations
+/// the LAST in dependency order keeps the bare name while earlier ones take a
+/// stable ordinal suffix (`Node_1`, `Node_2`, ...).
+///
+/// The result maps EVERY module that declares an ambiguous name, including the
+/// one whose rendering is the bare spelling (which maps the name to itself).
+/// The map is therefore also the answer to "does this module declare this
+/// ambiguous name", which is what makes the frontend bind the name in the
+/// module's own scope rather than resolve it through the crate-wide by-name
+/// item map — see the frontend's `class_declaration`.
+///
+/// Only the Rust rendering changes; the frontend records the source spelling as
+/// the symbol's original name, because `instanceof` and `__smelt_class` read
+/// that and JavaScript answers `Node` for both classes.
+fn manifest_class_renames(
+    sources: &[&ManifestSource],
+) -> HashMap<String, HashMap<String, String>> {
+    let declared = sources
+        .iter()
+        .map(|source| {
+            let path = source.path.display().to_string();
+            if SourceLang::from_path(&path).is_ok_and(SourceLang::is_typescript) {
+                smelt_frontend_ts::scan_declared_class_names(&source.source, &path)
+            } else {
+                Vec::new()
+            }
+        })
+        .collect::<Vec<_>>();
+    let mut totals = HashMap::<&str, usize>::new();
+    for name in declared.iter().flatten() {
+        let total = totals.entry(name.as_str()).or_insert(0);
+        *total = total.saturating_add(1);
+    }
+    let mut seen = HashMap::<&str, usize>::new();
+    let mut renames = HashMap::<String, HashMap<String, String>>::new();
+    for (source, names) in sources.iter().zip(&declared) {
+        for name in names {
+            let total = totals.get(name.as_str()).copied().unwrap_or(1);
+            if total == 1 {
+                continue;
+            }
+            let ordinal = seen.entry(name.as_str()).or_insert(0);
+            *ordinal = ordinal.saturating_add(1);
+            // The module that keeps the BARE spelling gets an entry too,
+            // mapping the name to itself. It is not a rename — the Rust name is
+            // unchanged — but it is what tells the frontend "this module
+            // declares this ambiguous name", so the frontend binds the name in
+            // the module's own scope instead of resolving it through the
+            // crate-wide by-name item map, whose entry for an ambiguous
+            // spelling is whichever module registered last. Without it, the
+            // winner's own `Node<T>` annotation resolved to the LOSER's class
+            // (Hono's trie router read the reg-exp router's `#children`).
+            let rendered = if *ordinal == total {
+                name.clone()
+            } else {
+                format!("{name}_{ordinal}")
+            };
+            renames
+                .entry(source.path.display().to_string())
+                .or_default()
+                .insert(name.clone(), rendered);
+        }
+    }
+    renames
+}
+
+/// Canonical paths of project sources the dependency closure did not reach.
+///
+/// The manifest's source roots (with `[sources] exclude` already applied by
+/// [`discover_source_files`]) minus the sources being lowered. A module in this
+/// set is one this project owns and the crate does not have, which is the one
+/// case where a type reference to a name imported from it can say so instead of
+/// erasing to a nominal class (`HirCtx::project_sources_outside_crate`).
+///
+/// Paths are canonicalized so they match the module keys the frontend builds
+/// for an import specifier (`resolved_module_export_keys`). A path that cannot
+/// be canonicalized is skipped rather than compared in a second spelling: a key
+/// that never matches would only make the check silently inert.
+fn sources_outside_crate(
+    config: &crate::config::Config,
+    manifest_dir: &Path,
+    lowered: &[&ManifestSource],
+) -> std::collections::HashSet<String> {
+    let Ok(project_sources) = discover_source_files(config, manifest_dir) else {
+        return std::collections::HashSet::new();
+    };
+    let in_crate = lowered
+        .iter()
+        .filter_map(|source| fs::canonicalize(&source.path).ok())
+        .collect::<std::collections::HashSet<_>>();
+    project_sources
+        .into_iter()
+        .filter_map(|path| fs::canonicalize(path).ok())
+        .filter(|path| !in_crate.contains(path))
+        .map(|path| path.display().to_string())
+        .collect()
+}
+
 /// Predeclare type aliases and class method surfaces across the TypeScript manifest.
 ///
 /// This gives strongly connected import components the same declaration
@@ -702,6 +851,9 @@ fn predeclare_manifest_type_declarations(
         callable_fields: state.ts_callable_fields,
         callable_object_aliases: state.ts_callable_object_aliases,
         written_host_globals: state.ts_written_host_globals,
+        project_sources_outside_crate: state.ts_project_sources_outside_crate,
+        class_renames: state.ts_class_renames,
+        module_identities: state.ts_module_identities,
     };
     for (idx, source) in sources.iter().enumerate() {
         let path = source.path.display().to_string();
@@ -741,6 +893,9 @@ fn predeclare_manifest_type_declarations(
     state.ts_callable_fields = ctx.callable_fields;
     state.ts_callable_object_aliases = ctx.callable_object_aliases;
     state.ts_written_host_globals = ctx.written_host_globals;
+    state.ts_project_sources_outside_crate = ctx.project_sources_outside_crate;
+    state.ts_class_renames = ctx.class_renames;
+    state.ts_module_identities = ctx.module_identities;
     Ok((krate, state))
 }
 
@@ -749,10 +904,16 @@ fn predeclare_manifest_type_declarations(
 fn lower_ordered_manifest_sources(
     sources: &[&ManifestSource],
     specialization: &crate::specialization::PreparedSpecialization,
+    outside_crate: std::collections::HashSet<String>,
 ) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
     let mut krate = smelt_hir::Crate::new();
-    let mut state = FrontendLoweringState::default();
+    let mut state = FrontendLoweringState {
+        ts_project_sources_outside_crate: outside_crate,
+        ..FrontendLoweringState::default()
+    };
     seed_written_host_globals(sources, &mut state);
+    state.ts_class_renames = manifest_class_renames(sources);
+    state.ts_module_identities = manifest_module_identities(sources);
     (krate, state) = predeclare_manifest_type_declarations(krate, state, sources)?;
     let mut modules = Vec::new();
     let module_names = manifest_module_names(sources);
@@ -800,7 +961,7 @@ pub(crate) fn collect_manifest_diagnostics(
         .into_iter()
         .map(read_manifest_source)
         .collect::<Result<Vec<_>, _>>()?;
-    let sources = dependency_closure(root_sources)?;
+    let sources = dependency_closure(root_sources, config.source_excludes(), manifest_dir)?;
     let ordered_sources = order_manifest_sources(&sources)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?
         .into_iter()
@@ -812,6 +973,8 @@ pub(crate) fn collect_manifest_diagnostics(
     let mut krate = smelt_hir::Crate::new();
     let mut state = FrontendLoweringState::default();
     seed_written_host_globals(&ordered_sources, &mut state);
+    state.ts_class_renames = manifest_class_renames(&ordered_sources);
+    state.ts_module_identities = manifest_module_identities(&ordered_sources);
     (krate, state) = predeclare_manifest_type_declarations(krate, state, &ordered_sources)?;
     let mut diagnostics = Vec::new();
     for (idx, source) in ordered_sources.iter().enumerate() {
@@ -891,6 +1054,9 @@ fn lower_manifest_source(
                 callable_fields: state.ts_callable_fields,
                 callable_object_aliases: state.ts_callable_object_aliases,
                 written_host_globals: state.ts_written_host_globals,
+                project_sources_outside_crate: state.ts_project_sources_outside_crate,
+                class_renames: state.ts_class_renames,
+                module_identities: state.ts_module_identities,
             };
             let outcome = smelt_frontend_ts::to_hir_with_options(
                 &source.source,
@@ -899,6 +1065,7 @@ fn lower_manifest_source(
                 &mut ctx,
                 smelt_frontend_ts::FrontendOptions {
                     specialization: specialization.typescript.as_ref(),
+                    excluded_modules: &source.excluded_imports,
                 },
             )
             .map_err(|errors| {
@@ -930,6 +1097,9 @@ fn lower_manifest_source(
                 ts_callable_fields: ctx.callable_fields,
                 ts_callable_object_aliases: ctx.callable_object_aliases,
                 ts_written_host_globals: ctx.written_host_globals,
+                ts_project_sources_outside_crate: ctx.project_sources_outside_crate,
+                ts_class_renames: ctx.class_renames,
+                ts_module_identities: ctx.module_identities,
                 py_module_namespaces: state.py_module_namespaces,
                 py_enum_members: state.py_enum_members,
             };
@@ -967,6 +1137,9 @@ fn lower_manifest_source(
                 ts_callable_fields: state.ts_callable_fields,
                 ts_callable_object_aliases: state.ts_callable_object_aliases,
                 ts_written_host_globals: state.ts_written_host_globals,
+                ts_project_sources_outside_crate: state.ts_project_sources_outside_crate,
+                ts_class_renames: state.ts_class_renames,
+                ts_module_identities: state.ts_module_identities,
                 py_module_namespaces,
                 py_enum_members,
             };

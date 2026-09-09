@@ -1,0 +1,13 @@
+https://a.test/one POST t
+true false
+payload
+true true
+https://a.test/two DELETE u
+https://a.test/three PATCH 1
+HEAD false false
+true
+https://a.test/five from init
+https://a.test/six?q=1 PUT
+https://a.test/seven GET
+https://a.test/eight GET
+https://a.test/nine GET

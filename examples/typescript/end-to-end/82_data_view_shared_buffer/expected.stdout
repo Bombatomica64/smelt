@@ -1,0 +1,21 @@
+8 8
+true false
+true false
+[object SharedArrayBuffer] [object ArrayBuffer]
+7 true
+4 true
+16 0 true
+true [object DataView] true
+-2 65534
+255 254
+254 255
+-2 -257
+4294967295 -1
+1.5
+8 4
+7 7
+true 8
+7
+{} 0
+[object DataView] [object SharedArrayBuffer]
+16 -1

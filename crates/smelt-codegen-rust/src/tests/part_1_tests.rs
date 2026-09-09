@@ -41,7 +41,9 @@ fn emits_main_with_console_log() {
 
     assert!(source.contains("fn main() {"));
     assert!(source.contains("let count: f64 = 42.0;"));
-    assert!(source.contains("let _ = { println!(\"{}\", count); };"));
+    // A number prints through the console's own formatter, which is
+    // JavaScript's `Number::toString` plus `util.inspect`'s `-0`.
+    assert!(source.contains("let _ = { println!(\"{}\", smelt_console_number(count)); };"));
 }
 
 #[test]
@@ -62,7 +64,7 @@ fn exact_console_write_uses_debug_format_for_lists() {
     for function in &mut mir.functions {
         for block in &mut function.blocks {
             if let Some(Terminator::Call { callee, .. }) = &mut block.terminator
-                && matches!(callee, Callee::Builtin(BuiltinFn::ConsoleLog))
+                && matches!(callee, Callee::Builtin(BuiltinFn::ConsoleLog { .. }))
             {
                 *callee = Callee::Builtin(BuiltinFn::ConsoleWrite);
             }
@@ -610,8 +612,13 @@ function label(prefix: string, value: string | undefined): string {
 ",
     );
 
+    // The ABSENT arm appends the language's absent word, not nothing:
+    // `"p" + undefined` is `"pundefined"` in JavaScript. `unwrap_or_default()`
+    // (which this test used to pin) appended the empty string.
     assert!(
-        source.contains("prefix.clone() + &value.clone().unwrap_or_default()"),
+        source.contains(
+            "prefix.clone() + &value.clone().unwrap_or_else(|| \"undefined\".to_owned())"
+        ),
         "{source}"
     );
 }
@@ -857,7 +864,7 @@ const text = whole.toString();
 
     assert!(source.contains("value / 1000.0;"));
     assert!(source.contains("_smelt_tmp_3.trunc();"));
-    assert!(source.contains("whole.to_string();"));
+    assert!(source.contains("smelt_number_to_string(whole);"));
     assert!(!source.contains("= 0_i64;"));
     assert!(!source.contains("= 0.0;"));
 }
@@ -1140,8 +1147,11 @@ const result = lastSeparator("a,b", { separator: "," });
 "#,
     );
 
+    // Same property as before — the narrowed optional is extracted rather than
+    // passed as an `Option` — with the absent arm's word updated by the
+    // nullish-stringify fix.
     assert!(
-        source.contains("map_or_else(String::new"),
+        source.contains("map_or_else(|| \"undefined\".to_owned()"),
         "narrowed optional dynamic string values must be extracted for string methods"
     );
 }
@@ -1276,7 +1286,7 @@ const asBool = Boolean("");
 "#,
     );
 
-    assert!(source.contains(".to_string()"));
+    assert!(source.contains("smelt_number_to_string(value)"));
     assert!(source.contains("smelt_text.is_empty() { 0.0 }"));
     assert!(source.contains(".parse::<f64>().unwrap_or(f64::NAN)"));
     assert!(!source.contains("float() parse failed"));
@@ -1407,7 +1417,7 @@ export function firstBad(values: unknown[]): number {
 
     assert!(source.contains("find_map("), "{source}");
     assert!(
-        source.contains(".unwrap_or_else(|error: Box<dyn std::error::Error>| panic!"),
+        source.contains(".unwrap_or_else(|error: Box<dyn std::error::Error>| smelt_panic_throw"),
         "fallible predicate result was not unwrapped before boolean use: {source}"
     );
 }
@@ -1546,8 +1556,11 @@ export function firstLower(words: string[]): string {
 ",
     );
 
+    // The load-bearing half is that the option is UNWRAPPED rather than routed
+    // through the erased extraction match; the absent arm's word changed with
+    // the nullish-stringify fix (`String(undefined)` is `"undefined"`).
     assert!(
-        source.contains("first.unwrap_or_default()"),
+        source.contains("first.map_or_else(|| \"undefined\".to_owned()"),
         "concrete Option<String> source was not unwrapped for string coercion: {source}"
     );
     assert!(

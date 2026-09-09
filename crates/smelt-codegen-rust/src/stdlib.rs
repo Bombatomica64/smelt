@@ -31,11 +31,44 @@ pub(crate) fn backend_dependencies(mir: &Mir) -> Vec<BackendDependency> {
     if any_rvalue_needs(mir, rvalue_needs_chrono_tz) || needs_unknown_type(mir) {
         deps.push(BackendDependency::ChronoTz);
     }
-    if any_rvalue_needs(mir, rvalue_needs_url) {
+    // `SmeltFormData` carries the urlencoded parser its `formData()` reader
+    // needs, and that parser is `url::form_urlencoded` — so a crate that holds
+    // a form needs the crate even when it never names `URL` or params.
+    if any_rvalue_needs(mir, rvalue_needs_url)
+        || needs_url_search_params_runtime(mir)
+        || needs_request_runtime(mir)
+        || needs_form_data_runtime(mir)
+    {
         deps.push(BackendDependency::Url);
     }
     if any_rvalue_needs(mir, rvalue_needs_unicode_normalization) {
         deps.push(BackendDependency::UnicodeNormalization);
+    }
+    if needs_http_server_runtime(mir) {
+        deps.push(BackendDependency::Hyper);
+    }
+    // WebCrypto, one crate per member rather than one per surface: the three
+    // members share a namespace and nothing else, so a program that only asks
+    // for a UUID must not carry two hash crates to get it.
+    if any_rvalue_needs(mir, |rvalue| {
+        matches!(
+            rvalue,
+            Rvalue::CryptoOp {
+                op: smelt_hir::CryptoOp::RandomUuid,
+                ..
+            }
+        )
+    }) {
+        deps.push(BackendDependency::Uuid);
+    }
+    if needs_crypto_random_values_runtime(mir) {
+        deps.push(BackendDependency::GetRandom);
+    }
+    if needs_crypto_digest_runtime(mir) {
+        deps.push(BackendDependency::Sha);
+    }
+    if needs_base64_runtime(mir) {
+        deps.push(BackendDependency::Base64);
     }
     deps
 }
@@ -89,13 +122,389 @@ fn rvalue_needs_regex(rvalue: &Rvalue, _mir: &Mir) -> bool {
         rvalue,
         Rvalue::RegexIsMatch { .. }
             | Rvalue::RegexReplace { .. }
+            // `regex_replace_callback_text` emits both `regex::Regex::new` and a
+            // `|caps: &regex::Captures<'_>|` replacer, so it needs the crate as
+            // much as its siblings do. It was missing here and only compiled
+            // because a replacer callback used to be erased, which pulled the
+            // dependency in through `needs_unknown_type`; a callback with
+            // concrete parameter types does not, and the omission surfaced as
+            // `cannot find module or crate regex`.
+            | Rvalue::RegexReplaceCallback { .. }
             | Rvalue::RegexReplaceFirstMatchUppercase { .. }
             | Rvalue::RegexSplit { .. }
             | Rvalue::RegexFind { .. }
             | Rvalue::RegexExec { .. }
+            // `regex.test(haystack)` is the one RegExp operation whose RESULT
+            // type mentions nothing regex-shaped -- it is a `bool` -- so a
+            // program whose only regex use is a `test` still needs the
+            // `SmeltRegExp` runtime and the `fancy_regex` crate its `test`
+            // compiles through. Omitting it emitted `SmeltRegExp::new(..)`
+            // against an empty prelude.
+            | Rvalue::RegexTest { .. }
             | Rvalue::RegexMatchAll { .. }
             | Rvalue::StringSplit { .. }
     )
+}
+
+/// Returns true when generated Rust needs the `SmeltHeaders` runtime type.
+///
+/// Either the program performs a `Headers` operation, or it merely names the
+/// type (a parameter, field or annotation): both reference `SmeltHeaders`, so
+/// the type table is consulted alongside the rvalues. Everything else pays
+/// nothing for the fetch types.
+pub(crate) fn needs_headers_runtime(mir: &Mir) -> bool {
+    // A `Response`/`Request` HAS a header list, so carrying one carries
+    // `SmeltHeaders` whether or not the program names `Headers` itself. So does
+    // a `node:http` server: `res.writeHead(status, init)` runs its second
+    // argument through the same `HeadersInit` conversion `new Headers(init)`
+    // uses, rather than through a second reader that could drift from it.
+    needs_response_runtime(mir)
+        || needs_request_runtime(mir)
+        || needs_http_server_runtime(mir)
+        || any_rvalue_needs(mir, |rvalue| {
+            matches!(
+                rvalue,
+                Rvalue::HeadersNew { .. } | Rvalue::HeadersOp { .. }
+            )
+        })
+        || mir
+            .types
+            .all()
+            .iter()
+            .any(|ty| is_headers_type(mir, ty))
+}
+
+/// Returns true when generated Rust needs the `SmeltResponse` runtime type.
+///
+/// Same pay-for-use rule as [`needs_headers_runtime`]: either a `Response`
+/// operation or a mention of the type in the type table.
+pub(crate) fn needs_response_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| {
+        matches!(
+            rvalue,
+            Rvalue::ResponseNew { .. }
+                | Rvalue::ResponseOp { .. }
+                // `fetch` BUILDS a response, so a program that only calls it
+                // and never names the type still carries the runtime type.
+                | Rvalue::AsyncOp {
+                    op: AsyncOp::HttpFetch,
+                    ..
+                }
+        )
+    }) || mir
+        .types
+        .all()
+        .iter()
+        .any(|ty| is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::Response))
+}
+
+/// Returns true when generated Rust needs the `SmeltRequest` runtime type.
+///
+/// Same pay-for-use rule as [`needs_response_runtime`].
+pub(crate) fn needs_request_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| {
+        matches!(
+            rvalue,
+            Rvalue::RequestNew { .. } | Rvalue::RequestOp { .. }
+        )
+    }) || mir
+        .types
+        .all()
+        .iter()
+        .any(|ty| is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::Request))
+}
+
+/// Returns true when generated Rust needs the `SmeltEventEmitter` type.
+///
+/// Same pay-for-use rule as the fetch types, plus the `node:http` server: a
+/// `SmeltIncomingMessage` COMPOSES an emitter (Node's `IncomingMessage` extends
+/// `EventEmitter`), so a program that serves needs the emitter even when it
+/// never writes `new EventEmitter()`.
+pub(crate) fn needs_event_emitter_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| {
+        matches!(
+            rvalue,
+            Rvalue::EventEmitterNew | Rvalue::EventEmitterOp { .. }
+        )
+    }) || mir
+        .types
+        .all()
+        .iter()
+        .any(|ty| is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::EventEmitter))
+        || needs_http_server_runtime(mir)
+}
+
+/// Returns true when generated Rust needs the `node:http` server runtime.
+///
+/// The gate for the whole prelude AND for the `hyper` dependency, so a crate
+/// cannot end up with the types but not the crates that back them. Any of the
+/// four server rvalues, or a value of any of the three modeled classes, is
+/// enough: a program can receive a `ServerResponse` from a helper without
+/// calling `createServer` in the same function.
+pub(crate) fn needs_http_server_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| {
+        matches!(
+            rvalue,
+            Rvalue::HttpCreateServer { .. }
+                | Rvalue::HttpServerOp { .. }
+                | Rvalue::IncomingMessageOp { .. }
+                | Rvalue::ServerResponseOp { .. }
+        )
+    }) || mir.types.all().iter().any(|ty| {
+        is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::HttpServer)
+            || is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::IncomingMessage)
+            || is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::ServerResponse)
+    })
+}
+
+/// Returns true when generated Rust needs the `SmeltBody` runtime type.
+///
+/// `SmeltBody` has no source spelling of its own — no program says `new
+/// Body()` — so its gate is exactly "some type that HAS a body is present".
+/// `Response` and `Request` are those types today; `IncomingMessage` joins this
+/// list rather than growing its own copy of the body.
+pub(crate) fn needs_body_runtime(mir: &Mir) -> bool {
+    needs_response_runtime(mir) || needs_request_runtime(mir)
+}
+
+/// Returns true when generated Rust needs the `SmeltUrlSearchParams` type.
+///
+/// Same pay-for-use rule as [`needs_headers_runtime`]: either an operation or a
+/// mention of the type in the type table.
+pub(crate) fn needs_url_search_params_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| {
+        matches!(
+            rvalue,
+            Rvalue::UrlSearchParamsNew { .. } | Rvalue::UrlSearchParamsOp { .. }
+        )
+    }) || mir
+        .types
+        .all()
+        .iter()
+        .any(|ty| is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::UrlSearchParams))
+}
+
+/// Returns true when generated Rust needs the `getRandomValues` fill helper.
+///
+/// Keyed on the OPERATION rather than on a type, unlike the value surfaces:
+/// `crypto` is a namespace with no modeled type, so there is nothing in the
+/// type table to look for and a call is the only evidence.
+pub(crate) fn needs_crypto_random_values_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| {
+        matches!(
+            rvalue,
+            Rvalue::CryptoOp {
+                op: smelt_hir::CryptoOp::GetRandomValues,
+                ..
+            }
+        )
+    })
+}
+
+/// Returns true when generated Rust needs the `subtle.digest` helper.
+///
+/// Separate from [`needs_crypto_random_values_runtime`] because the two pull
+/// different crates: a program that only hashes must not carry `getrandom`, and
+/// one that only fills a view must not carry `sha1`/`sha2`.
+pub(crate) fn needs_crypto_digest_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| {
+        matches!(
+            rvalue,
+            Rvalue::CryptoOp {
+                op: smelt_hir::CryptoOp::Digest,
+                ..
+            }
+        )
+    })
+}
+
+/// Returns true when generated Rust needs the `SmeltFormData` type.
+///
+/// Same pay-for-use rule as [`needs_headers_runtime`]: either a form operation
+/// or a mention of the type in the type table. A `Response`/`Request`
+/// `formData()` read is one of those operations, and it is what pulls the
+/// multipart and urlencoded parsers into a crate that never says `FormData`.
+pub(crate) fn needs_form_data_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| {
+        matches!(rvalue, Rvalue::FormDataNew | Rvalue::FormDataOp { .. })
+            || matches!(
+                rvalue,
+                Rvalue::ResponseOp {
+                    op: smelt_hir::ResponseOp::FormData,
+                    ..
+                } | Rvalue::RequestOp {
+                    op: smelt_hir::RequestOp::FormData,
+                    ..
+                }
+            )
+    }) || mir
+        .types
+        .all()
+        .iter()
+        .any(|ty| is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::FormData))
+}
+
+/// Returns true when generated Rust needs the `SmeltTextEncoder` type.
+///
+/// Same pay-for-use rule as [`needs_headers_runtime`]: either a `TextEncoder`
+/// member, or a mention of the type in the type table.
+pub(crate) fn needs_text_encoder_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| {
+        matches!(
+            rvalue,
+            Rvalue::TextEncoderNew | Rvalue::TextEncoderOp { .. }
+        )
+    }) || mir
+        .types
+        .all()
+        .iter()
+        .any(|ty| is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::TextEncoder))
+}
+
+/// Returns true when generated Rust needs the `SmeltTextDecoder` type.
+pub(crate) fn needs_text_decoder_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| {
+        matches!(
+            rvalue,
+            Rvalue::TextDecoderNew { .. } | Rvalue::TextDecoderOp { .. }
+        )
+    }) || mir
+        .types
+        .all()
+        .iter()
+        .any(|ty| is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::TextDecoder))
+}
+
+/// Returns true when generated Rust needs the concrete typed-array family
+/// (`SmeltTypedArrayKind`, `SmeltArrayBuffer`, `SmeltTypedArray`).
+///
+/// The gate is "some type that PRODUCES or CONSUMES a view or its storage is
+/// present", plus a mention of either class in the type table for a value that
+/// is only named (a parameter or a field). The two halves share one gate
+/// because they are emitted together: a view answers `.buffer` as an
+/// `SmeltArrayBuffer` and storage is constructed into a view, so neither
+/// type-checks without the other.
+pub(crate) fn needs_byte_array_runtime(mir: &Mir) -> bool {
+    needs_text_encoder_runtime(mir)
+        || needs_text_decoder_runtime(mir)
+        // `blob.arrayBuffer()` / `blob.bytes()` answer a byte view.
+        || needs_blob_runtime(mir)
+        // Both `crypto` members answer or fill a family value.
+        || needs_crypto_random_values_runtime(mir)
+        || needs_crypto_digest_runtime(mir)
+        || any_rvalue_needs(mir, |rvalue| {
+            matches!(
+                rvalue,
+                Rvalue::ByteArrayOp { .. }
+                    | Rvalue::TypedArrayNew { .. }
+                    | Rvalue::DataViewAccess { .. }
+            )
+        })
+        || mir
+            .types
+            .all()
+            .iter()
+            .any(|ty| {
+                is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::TypedArray)
+                    || is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::ArrayBuffer)
+                    || is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::DataView)
+            })
+}
+
+/// Returns true when generated Rust needs the `SmeltDataView` runtime type.
+///
+/// Gated apart from the rest of the family because most programs that hold a
+/// typed array never mention a `DataView`: an accessor call, or the spelling in
+/// the type table.
+pub(crate) fn needs_data_view_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| {
+        matches!(rvalue, Rvalue::DataViewAccess { .. })
+    }) || mir
+        .types
+        .all()
+        .iter()
+        .any(|ty| is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::DataView))
+}
+
+/// Returns true when generated Rust needs the `SmeltBlob` runtime type.
+///
+/// Same pay-for-use rule as [`needs_headers_runtime`]: a blob construction, a
+/// blob member, or a mention of either spelling in the type table. `Blob` and
+/// `File` share the runtime type, so both spellings answer here.
+pub(crate) fn needs_blob_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| {
+        matches!(
+            rvalue,
+            Rvalue::BlobFromParts { .. } | Rvalue::BlobOp { .. }
+        )
+    }) || mir.types.all().iter().any(|ty| {
+        let Type::Class { name, .. } = ty else {
+            return false;
+        };
+        stdlib_class_of_class_symbol(mir, *name)
+            .is_some_and(smelt_stdlib::StdlibClass::is_blob_runtime_type)
+    })
+    // A form entry's value is `string | File`, so the blob runtime type is part
+    // of `SmeltFormData` whether or not the program ever names `Blob`.
+    || needs_form_data_runtime(mir)
+}
+
+/// Resolve a class symbol to its shared stdlib class identity, if any.
+///
+/// The one place that answers "is this `Type::Class` a modeled host class",
+/// so the pay-for-use gates, the type resolver and the member emitters cannot
+/// disagree about it.
+///
+/// Declines for a name the SOURCE declares as a class. A program that writes
+/// its own `class File extends Blob` owns that name: the crate emits a real
+/// `File` struct, `Type::Class { File }` means that struct, and the modeled
+/// host class of the same spelling is not in play. Without the check the two
+/// halves of one statement disagreed -- the declaration's type came from this
+/// resolver (`SmeltBlob`) while the constructor came from the class item
+/// (`File::new(..)`), which is `error[E0308]` in the generated crate -- and the
+/// pay-for-use gate pulled in a runtime type the crate never uses.
+///
+/// A named class EXPRESSION never reaches this check: its name is bound only
+/// inside the class's own body, so the frontend gives it its own type symbol
+/// (`host_shadowing_class_expression_name`) rather than taking the spelling
+/// away from the host class.
+///
+/// Interfaces are deliberately NOT consulted. A source `interface Headers`
+/// declares a shape over the host value rather than replacing it, and the
+/// ambient `ResponseInit`/`RequestInit` interfaces resolve through here on
+/// purpose.
+pub(crate) fn stdlib_class_of_class_symbol(
+    mir: &Mir,
+    name: smelt_hir::Symbol,
+) -> Option<smelt_stdlib::StdlibClass> {
+    if mir.classes.iter().any(|class| class.name == name) {
+        return None;
+    }
+    // The RENDERING decides this, not the recorded original name: a class
+    // expression that took an internal type symbol keeps the source spelling as
+    // its original name so reflection can answer `File`, and asking the
+    // original name here would hand that class the host runtime type again.
+    mir.symbols
+        .get(name)
+        .or_else(|| mir.names.get(name))
+        .and_then(smelt_stdlib::typescript_stdlib_class)
+}
+
+/// Returns true when a type names the WHATWG `Headers` class.
+///
+/// The class identity comes from the shared stdlib registry
+/// (`smelt_stdlib::typescript_stdlib_class`), never from a name comparison
+/// spelled here, so the frontend, this gate and the emitter all agree.
+fn is_headers_type(mir: &Mir, ty: &Type) -> bool {
+    is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::Headers)
+}
+
+/// Returns true when a type names a given shared stdlib class.
+fn is_stdlib_class(mir: &Mir, ty: &Type, class: smelt_stdlib::StdlibClass) -> bool {
+    let Type::Class { name, .. } = ty else {
+        return false;
+    };
+    stdlib_class_of_class_symbol(mir, *name) == Some(class)
 }
 
 /// Returns true when a MIR rvalue uses Unicode normalization APIs.
@@ -103,10 +512,23 @@ fn rvalue_needs_unicode_normalization(rvalue: &Rvalue) -> bool {
     matches!(rvalue, Rvalue::StringNormalize { .. })
 }
 
-/// Returns true when generated Rust needs the `smelt_encode_uri` runtime helper
-/// backing JavaScript `encodeURI`.
+/// Returns true when generated Rust needs the URI transcoding runtime helpers
+/// backing JavaScript `encodeURI`, `encodeURIComponent`, `decodeURI` and
+/// `decodeURIComponent`.
+///
+/// One gate for all four: the helpers are small, they share the decoder, and a
+/// per-variant gate would multiply the prelude bookkeeping without shrinking
+/// any realistic program (a project that percent-encodes usually decodes too).
 pub(crate) fn needs_uri_encode_runtime(mir: &Mir) -> bool {
-    any_rvalue_needs(mir, |rvalue| matches!(rvalue, Rvalue::UriEncode { .. }))
+    // The DECODERS are no longer rvalues -- they lower to a
+    // `Terminator::Call { Callee::Builtin(BuiltinFn::UriDecode(op)) }` so their
+    // `URIError` is catchable -- so an rvalue-only scan misses them, and the
+    // throwing adapters this group backs would call helpers that were never
+    // emitted (E0425 in the generated crate). A decode-only program is the
+    // common case in a router, so this is not a corner: it is what a fixture
+    // with no `encodeURI` in it does.
+    any_rvalue_needs(mir, |rvalue| matches!(rvalue, Rvalue::UriTranscode { .. }))
+        || needs_uri_decode_runtime(mir)
 }
 
 /// Returns true when generated Rust needs the `smelt_locale_compare` runtime
@@ -243,7 +665,18 @@ pub(crate) fn host_override_slot_suffix(name: &str) -> String {
 
 /// Returns true when a MIR rvalue uses Url APIs.
 fn rvalue_needs_url(rvalue: &Rvalue) -> bool {
-    matches!(rvalue, Rvalue::UrlField { .. })
+    // `SmeltUrlSearchParams` parses and serializes through
+    // `url::form_urlencoded`, so any params value needs the crate — including a
+    // program that only constructs one and reads it back.
+    // A `Request` serializes its input through `url::Url`, which is what makes
+    // `new Request('https://a.test').url` read back `https://a.test/`.
+    matches!(
+        rvalue,
+        Rvalue::UrlField { .. }
+            | Rvalue::UrlSearchParamsNew { .. }
+            | Rvalue::UrlSearchParamsOp { .. }
+            | Rvalue::RequestNew { .. }
+    )
 }
 
 /// Returns true when a MIR rvalue uses Rand APIs.
@@ -273,6 +706,42 @@ pub(crate) fn needs_json_parse_runtime(mir: &Mir) -> bool {
     })
 }
 
+/// Whether the program calls a fallible URI decoder.
+///
+/// `decodeURI`/`decodeURIComponent` are `Terminator::Call`s to
+/// [`BuiltinFn::UriDecode`] rather than rvalues (they need an unwind edge), so
+/// the rvalue-based dependency scan cannot see them; the throwing adapters in
+/// the prelude are gated on this instead. The ENCODING direction stays an
+/// rvalue and is still found by that scan.
+#[must_use]
+pub(crate) fn needs_uri_decode_runtime(mir: &Mir) -> bool {
+    terminators(mir).any(|terminator| {
+        matches!(
+            terminator,
+            Terminator::Call {
+                callee: Callee::Builtin(BuiltinFn::UriDecode(_)),
+                ..
+            }
+        )
+    })
+}
+
+/// Returns true when generated Rust needs the fallible base64 adapters.
+///
+/// Keyed on the call, like [`needs_uri_decode_runtime`]: `btoa`/`atob` have no
+/// modeled type to look for in the type table, so a call is the only evidence.
+pub(crate) fn needs_base64_runtime(mir: &Mir) -> bool {
+    terminators(mir).any(|terminator| {
+        matches!(
+            terminator,
+            Terminator::Call {
+                callee: Callee::Builtin(BuiltinFn::Base64(_)),
+                ..
+            }
+        )
+    })
+}
+
 /// Iterates over every block terminator in the program, functions and closures.
 fn terminators(mir: &Mir) -> impl Iterator<Item = &Terminator> {
     mir.functions
@@ -296,10 +765,27 @@ fn rvalue_needs_reqwest(rvalue: &Rvalue) -> bool {
         rvalue,
         Rvalue::HttpGetText { .. }
             | Rvalue::AsyncOp {
-                op: AsyncOp::HttpGetText,
+                op: AsyncOp::HttpGetText | AsyncOp::HttpFetch,
                 ..
             }
     )
+}
+
+/// Returns true when generated Rust needs the insertion-ordered primitive set.
+///
+/// A source `Set` whose element type can key a Rust hash map is emitted as
+/// `SmeltPrimSet` (entries `Vec` plus a hash index), because JavaScript
+/// specifies `Set` iteration as insertion order and a bare `HashSet` has none.
+/// Every other element type routes through `SmeltJsSet`, which is ordered too
+/// but lives behind the `needs_unknown` gate: its membership erases each element
+/// for SameValueZero, so it would pull the whole erased-value carrier into any
+/// program holding a set of strings.
+#[must_use]
+pub(crate) fn needs_prim_set(mir: &Mir) -> bool {
+    mir.types
+        .all()
+        .iter()
+        .any(|ty| matches!(ty, Type::Set(item) if module_hash_set_key_safe(mir, *item)))
 }
 
 /// Returns whether a set element type backs a plain Rust `HashSet`.
@@ -321,6 +807,33 @@ fn module_hash_set_key_safe(mir: &Mir, ty: smelt_hir::TypeId) -> bool {
 
 /// Returns true when generated Rust needs the opaque `unknown` carrier type.
 #[must_use]
+/// Answers whether the crate needs the panic-route support items.
+///
+/// A `throw` reported by a body that cannot propagate a `Result` travels as a
+/// Rust panic, and an enclosing `try` recovers it with `catch_unwind` (see
+/// `thrown::emit_panic_route_support`). Both ends of that route only appear when
+/// something in the crate can throw at all: the throw adapter is emitted on an
+/// `unwrap_or_else` over a fallible callee, and the recovery helpers are emitted
+/// at a throwing call's exception handler. So one predicate covers both —
+/// anything in the crate whose signature admits a throw, whether that is a
+/// function item, a closure, or an interned function type reached through a
+/// callback parameter.
+pub(crate) fn needs_panic_route(mir: &Mir) -> bool {
+    // `needs_unknown` is part of the gate rather than a separate concern: the
+    // erased-function ABI answers `Result<SmeltUnknown, Box<dyn Error>>`, and the
+    // prelude helpers that invoke one -- the reflection getter dispatch, the
+    // function-object bridge, the timer callback -- unwrap it through the route
+    // unconditionally. Leaving them out made a program with a reflected getter
+    // and no throwing signature of its own emit a call to a function that was
+    // never declared (E0425).
+    needs_unknown_type(mir)
+        || mir.functions.iter().any(|function| function.can_throw)
+        || mir.closures.iter().any(|closure| closure.can_throw)
+        || mir.types.all().iter().any(|ty| {
+            matches!(ty, smelt_hir::Type::Function(function) if function.may_throw)
+        })
+}
+
 pub(crate) fn needs_unknown_type(mir: &Mir) -> bool {
     // `Type::Union` values are emitted as `SmeltUnknown` (see the type-text
     // helper) and their members are erased into that carrier, so a union
@@ -353,6 +866,19 @@ pub(crate) fn needs_unknown_type(mir: &Mir) -> bool {
             .all()
             .iter()
             .any(|ty| matches!(ty, Type::Unknown | Type::Never | Type::Union(_)))
+        // A THROWN value is a JavaScript error object, which is carried as a
+        // `SmeltUnknown` — so a program that can throw needs the carrier and
+        // the payload ABI, both of which live in the `needs_unknown` prelude
+        // block. `JSON.parse` gets there for free because its own return type
+        // IS `Type::Unknown`; a URI decoder returns a `String`, so without this
+        // clause its throwing adapter would be emitted into a block the program
+        // never enters and the generated crate would not compile (E0425).
+        || needs_uri_decode_runtime(mir)
+        // The base64 codec is the same case: both directions answer a `String`
+        // and only their THROW crosses the erased channel, so without this the
+        // adapters would be emitted into a prelude block the program never
+        // enters, and the generated crate would not compile (E0425).
+        || needs_base64_runtime(mir)
         // A `Set` whose element type is not a value-equality primitive is
         // emitted as the `SmeltJsSet` runtime container, whose SameValueZero
         // membership projects elements through `IntoSmeltUnknown`. That carrier
@@ -394,10 +920,39 @@ pub(crate) fn needs_unknown_type(mir: &Mir) -> bool {
                     matches!(
                         statement,
                         Statement::Assign {
-                            value: Rvalue::UnknownCast { .. } | Rvalue::UnknownIs { .. },
+                            value: Rvalue::UnknownCast { .. }
+                                | Rvalue::UnknownIs { .. }
+                                // `JSON.stringify` serializes THROUGH the erased
+                                // carrier, always: its output is ECMA-262's, and
+                                // every one of those rules lives in `Serialize
+                                // for SmeltUnknown` (see `json_stringify_text`).
+                                // A wholly-typed program that stringifies —
+                                // `JSON.stringify({a: 1})` and nothing else
+                                // erased — would otherwise name a carrier that
+                                // was never emitted (E0433). The corpus never
+                                // hit it because its programs erase elsewhere.
+                                | Rvalue::JsonStringify { .. },
                             ..
                         } | Statement::AssignPlace {
-                            value: Rvalue::UnknownCast { .. } | Rvalue::UnknownIs { .. },
+                            value: Rvalue::UnknownCast { .. }
+                                | Rvalue::UnknownIs { .. }
+                                | Rvalue::JsonStringify { .. },
+                            ..
+                        }
+                    )
+                })
+            })
+        })
+        || mir.closures.iter().any(|closure| {
+            closure.blocks.iter().any(|block| {
+                block.statements.iter().any(|statement| {
+                    matches!(
+                        statement,
+                        Statement::Assign {
+                            value: Rvalue::JsonStringify { .. },
+                            ..
+                        } | Statement::AssignPlace {
+                            value: Rvalue::JsonStringify { .. },
                             ..
                         }
                     )

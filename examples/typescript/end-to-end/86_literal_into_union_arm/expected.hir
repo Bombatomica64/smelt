@@ -1,0 +1,108 @@
+module examples/typescript/end-to-end/86_literal_into_union_arm/input.ts (ModuleId(0))
+  body BodyId(4)
+  items
+    type Slot = Float | List<(String, Float)>
+    fn describe owner Module
+    type Rows = String | List<(Float, Float)>
+    fn total owner Module
+    type Either = List<Float | String>
+    fn first_of owner Module
+  locals
+    %0 const pairs: List<(String, Float)>
+  exprs
+    #0: String = "direct: "
+    #1: String = "a"
+    #2: Float = 1.0
+    #3: (String, Float) = (#1, #2)
+    #4: String = "b"
+    #5: Float = 2.0
+    #6: (String, Float) = (#4, #5)
+    #7: List<(String, Float)> = [#3, #6]
+    #8: fn(Float | List<(String, Float)>) -> String = @6(describe)
+    #9: String = call #8(#7)
+    #10: String = Add #0, #9
+    #11: None = @12(console_log)
+    #12: None = call #11(#10)
+    #13: String = "a"
+    #14: Float = 1.0
+    #15: (String, Float) = (#13, #14)
+    #16: String = "b"
+    #17: Float = 2.0
+    #18: (String, Float) = (#16, #17)
+    #19: List<(String, Float)> = [#15, #18]
+    #20: String = "bound: "
+    #21: List<(String, Float)> = %0
+    #22: fn(Float | List<(String, Float)>) -> String = @6(describe)
+    #23: String = call #22(#21)
+    #24: String = Add #20, #23
+    #25: None = @13(console_log)
+    #26: None = call #25(#24)
+    #27: String = "other arm: "
+    #28: Float = 7.0
+    #29: fn(Float | List<(String, Float)>) -> String = @6(describe)
+    #30: String = call #29(#28)
+    #31: String = Add #27, #30
+    #32: None = @14(console_log)
+    #33: None = call #32(#31)
+    #34: String = "nested: "
+    #35: Float = 2.0
+    #36: Float = 3.0
+    #37: (Float, Float) = (#35, #36)
+    #38: Float = 4.0
+    #39: Float = 5.0
+    #40: (Float, Float) = (#38, #39)
+    #41: List<(Float, Float)> = [#37, #40]
+    #42: fn(String | List<(Float, Float)>) -> String = @7(total)
+    #43: String = call #42(#41)
+    #44: String = Add #34, #43
+    #45: None = @15(console_log)
+    #46: None = call #45(#44)
+    #47: String = "string arm: "
+    #48: String = "none"
+    #49: fn(String | List<(Float, Float)>) -> String = @7(total)
+    #50: String = call #49(#48)
+    #51: String = Add #47, #50
+    #52: None = @16(console_log)
+    #53: None = call #52(#51)
+    #54: String = "ambiguous: "
+    #55: String = "a"
+    #56: String = "b"
+    #57: List<Float | String> = [#55, #56]
+    #58: fn(List<Float | String>) -> String = @8(first_of)
+    #59: String = call #58(#57)
+    #60: String = Add #54, #59
+    #61: None = @17(console_log)
+    #62: None = call #61(#60)
+  stmts
+    s0: #12
+    s1: let %0: List<(String, Float)> = #19
+    s2: #26
+    s3: #33
+    s4: #46
+    s5: #53
+    s6: #62
+
+interned types
+  t0 = Float
+  t1 = String
+  t2 = (String, Float)
+  t3 = List<(String, Float)>
+  t4 = Float | List<(String, Float)>
+  t5 = (Float, Float)
+  t6 = List<(Float, Float)>
+  t7 = String | List<(Float, Float)>
+  t8 = List<String>
+  t9 = List<Float>
+  t10 = Float | String
+  t11 = List<Float | String>
+  t12 = fn(Float | List<(String, Float)>) -> String
+  t13 = fn(String | List<(Float, Float)>) -> String
+  t14 = fn(List<Float | String>) -> String
+  t15 = Bool
+  t16 = Int
+  t17 = Unknown
+  t18 = fn((String, Float), Int, List<(String, Float)>) -> String
+  t19 = fn(Float | List<(String, Float)>) -> String
+  t20 = None
+  t21 = fn(String | List<(Float, Float)>) -> String
+  t22 = fn(List<Float | String>) -> String

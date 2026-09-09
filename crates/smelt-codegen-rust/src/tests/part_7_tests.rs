@@ -107,6 +107,48 @@ export function cycle(): unknown {
     assert!(!source.contains("expect(\"missing field\") ="), "{source}");
 }
 
+/// A class EXPRESSION calling a method it INHERITS resolves that method, and
+/// the call stays a direct method call.
+///
+/// A class expression's members lower before its own item is registered, so the
+/// receiver's class is "in progress" and its own metadata lists only the
+/// methods it declares. An inherited name fell through to the dynamic path,
+/// which lowers a member READ and calls it — and the emitter renders that read
+/// as a struct field of a name the class has as a METHOD:
+/// `E0615: attempted to take value of method `build_all_matchers``, the last
+/// non-H42 error in the Hono router slice (H44). Hono's shape is
+/// `const X = class<T> extends RegExpRouter<T> { … this.buildAllMatchers() }`.
+#[test]
+fn class_expression_call_to_an_inherited_method_stays_a_method_call() {
+    let source = source_for(
+        r"
+class Counter {
+  #hits: string[] = [];
+
+  add(key: string): void {
+    this.#hits.push(key);
+  }
+
+  protected tally(): string {
+    return this.#hits.join(',');
+  }
+}
+
+const Reporting = class extends Counter {
+  report(): string {
+    return this.tally();
+  }
+};
+
+export const reported = new Reporting().report();
+",
+    );
+
+    // A direct call on the receiver, not a field read dispatched dynamically.
+    assert!(source.contains("self.tally()"), "{source}");
+    assert!(!source.contains("self.tally.clone()"), "{source}");
+}
+
 /// A `return <literal>` statement inside an `async` function returns the
 /// *resolved* value, not a promise: the async lowering wraps the whole body
 /// into the future. When the declared return type is `Promise<[null, T]>` the
@@ -1064,13 +1106,11 @@ export function pick(
 
 #[test]
 fn emits_runtime_sized_numeric_typed_array_constructors() {
-    // `new Uint8Array(count)` allocates `count` *elements*. This used to emit a
-    // `vec![0.0; count]` numeric list, which is why every view reported tag
-    // `[object Array]` and a byte count for its `length`; the views are now
-    // byte-backed host objects, so the runtime length allocation moved into the
-    // one shared byte-buffer constructor (which multiplies by the element's
-    // `BYTES_PER_ELEMENT`). The assertions below track the same property — a
-    // *runtime* count, never an unrolled literal — at its new home.
+    // `new Uint8Array(count)` allocates `count` *elements*, at a RUNTIME count
+    // and never as an unrolled literal. The view is a concrete
+    // `SmeltTypedArray` now (increment 3), so the allocation is the family's
+    // own `with_length` — which multiplies by the kind's `BYTES_PER_ELEMENT` —
+    // and the indexed write encodes one element at that width.
     let source = source_for(
         r"
 export function make(count: number): number[] {
@@ -1084,29 +1124,26 @@ export function make(count: number): number[] {
     );
 
     assert!(
-        source.contains(
-            "smelt_reflected_construct(\"uint8array\", vec![SmeltUnknown::Number(count as f64)])"
-        ),
+        source.contains("SmeltTypedArray::with_length(SmeltTypedArrayKind::Uint8, ((count"),
         "{source}"
     );
     assert!(!source.contains("vec![0.0, 0.0, 0.0, 0.0"), "{source}");
     // The allocation is by element count times the element stride, so a wider
     // view over the same count is wider in bytes.
     assert!(
-        source.contains("vec![SmeltUnknown::Number(0.0); count * stride]"),
+        source.contains("vec![0_u8; length * kind.byte_width()]"),
         "{source}"
     );
+    assert!(source.contains(".set_index("), "{source}");
 }
 
 #[test]
 fn emits_bigint_typed_array_constructor_through_the_shared_host_constructor() {
     // `BigInt64Array` / `BigUint64Array` were previously omitted from the
     // typed-array recognizer, so `new BigUint64Array(...)` aborted the build as
-    // an "unresolved class". They now share the byte-buffer host-object model with
-    // the other nine views — an eight-byte element type, so three elements are 24
-    // bytes and `.length` still reads 3. (The assertion moved off "emits a `Vec`
-    // literal": the element list is now an argument to the shared constructor
-    // rather than the constructed value itself.)
+    // an "unresolved class". They share the concrete family with the other nine
+    // views — an eight-byte element type, so three elements are 24 bytes and
+    // `.length` still reads 3.
     let source = source_for(
         r"
 export function make(): number {
@@ -1117,19 +1154,20 @@ export function make(): number {
     );
 
     assert!(
-        source.contains("smelt_reflected_construct(\"biguint64array\""),
+        source.contains("SmeltTypedArray::with_elements(SmeltTypedArrayKind::BigUint64"),
         "{source}"
     );
+    assert!(source.contains(".length()"), "{source}");
     assert!(!source.contains("unresolved"), "{source}");
 }
 
 #[test]
 fn emits_typed_array_from_element_literal_through_the_element_codec() {
-    // `new Uint8Array([1, 2, 3])` passes its element list to the shared byte-buffer
-    // constructor, which encodes each element at the view's own width; an indexed
-    // read decodes it back. It used to emit a bare `vec![10.0, 20.0, 30.0]` numeric
-    // list, which is why the view had no identity, no `.buffer`, and a byte count
-    // for its `length`.
+    // `new Uint8Array([1, 2, 3])` hands its element list to the family's
+    // element constructor, which encodes each element at the view's own width;
+    // an indexed read decodes it back at that same width. It used to emit a
+    // bare `vec![10.0, 20.0, 30.0]` numeric list, which is why the view had no
+    // identity, no `.buffer`, and a byte count for its `length`.
     let source = source_for(
         r"
 export function first(): number {
@@ -1141,10 +1179,16 @@ export function first(): number {
 
     assert!(source.contains("vec![10.0, 20.0, 30.0]"), "{source}");
     assert!(
-        source.contains("smelt_reflected_construct(\"uint8array\""),
+        source.contains("SmeltTypedArray::with_elements(SmeltTypedArrayKind::Uint8"),
         "{source}"
     );
-    assert!(source.contains("smelt_host_buffer_element("), "{source}");
+    assert!(source.contains("values.get("), "{source}");
+    // The codec is the kind's, in one place, so every width and signedness
+    // decodes the way the spec says.
+    assert!(
+        source.contains("pub fn decode(self, bytes: &[u8], at: usize) -> f64"),
+        "{source}"
+    );
 }
 
 #[test]
@@ -1254,7 +1298,7 @@ const locale: Locale = { formatDistance: localizeDistance };
     );
 
     assert!(
-        source.contains("unwrap_or_else(|error| panic!(\"{}\", error))"),
+        source.contains("unwrap_or_else(|error| smelt_panic_throw(error))"),
         "{source}"
     );
     assert!(
@@ -1294,7 +1338,7 @@ const number = +value;
 fn emits_no_arg_external_constructor_with_valid_empty_arg_tuple() {
     let source = source_for(
         r#"
-import { UTCDate } from "@date-fns/utc";
+import { UTCDate } from "./utc-date";
 const date = new UTCDate();
 "#,
     );
@@ -1310,7 +1354,7 @@ const date = new UTCDate();
 }
 
 #[test]
-fn emits_object_literal_as_destination_interface_record() {
+fn emits_object_literal_as_destination_interface_struct() {
     let source = source_for(
         r#"
 interface Options {
@@ -1327,16 +1371,341 @@ export function run(): string {
 "#,
     );
 
-    assert!(
-        source.contains(
-            "Options { width: smelt_record_map.get(\"width\").cloned().map(|value| value) }"
-        ),
-        "{source}"
-    );
+    // The literal IS the struct: `Options { width: Some(..) }`, with no
+    // `SmeltRecord<String, SmeltUnknown>` materialized and reconstructed. The
+    // reconstruction this used to assert read three keys per field and
+    // funnelled every tag through `to_string()`, which is a wrong value for any
+    // non-string optional field.
+    assert!(source.contains("Options { width: Some("), "{source}");
+    assert!(!source.contains("smelt_record_map"), "{source}");
     assert!(
         !source.contains("format(::std::collections::HashMap::from"),
         "{source}"
     );
+}
+
+#[test]
+fn types_a_string_predicate_callback_result_as_a_bool() {
+    // `StringAffix` yields a concrete `bool`. Typing the node with the
+    // surrounding expectation instead declared the temporary `SmeltUnknown`
+    // while the expression that filled it stayed a Rust `bool`, so the emitted
+    // crate did not compile (E0308) -- and repairing that at the boundary would
+    // still have left an erase-then-truthiness round trip for a value that was
+    // statically boolean.
+    let source = source_for(
+        r#"
+export function firstA(names: string[]): string | undefined {
+  return names.find((name: string) => name.startsWith("a"));
+}
+"#,
+    );
+
+    assert!(
+        source.contains("let _smelt_tmp_3: bool = closure_arg_0.clone().starts_with("),
+        "{source}"
+    );
+    // Scoped to the emitted function: the runtime prelude legitimately spells
+    // both `SmeltUnknown::Bool(..)` and the truthiness match.
+    let body = source
+        .split_once("fn first_a(")
+        .map_or("", |(_, tail)| tail);
+    assert!(
+        !body.contains("SmeltUnknown"),
+        "the predicate must not erase: {source}"
+    );
+}
+
+#[test]
+fn lowers_a_unique_symbol_keyed_class_member_and_its_read() {
+    // A module-level `const` bound to a unique `Symbol()` is evaluated once, so
+    // it is a stable static key: the member is ordinary, and so is the read.
+    // Both halves were missing -- the declaration was rejected outright, and
+    // once it lowered the read still answered `undefined`.
+    let source = source_for(
+        r"
+const KEY = Symbol();
+
+class Holder {
+  get [KEY](): number {
+    return 41;
+  }
+}
+
+export function read(holder: Holder): number {
+  return holder[KEY];
+}
+",
+    );
+
+    assert!(source.contains("__smelt_symbol_unique_"), "{source}");
+    assert!(!source.contains("SmeltUnknown::Undefined;"), "{source}");
+}
+
+#[test]
+fn keeps_lifting_a_module_arrow_over_scalars() {
+    // The counter-case to the lift refusal. A scalar has no identity, so
+    // re-materializing one inside a lifted function is indistinguishable from
+    // reading it, and such an arrow is still free to lift. The refusal is about
+    // reference identity, not about module-level arrows in general.
+    let source = source_for(
+        r#"
+const label = "scale";
+
+const scaled = (value: number): string => `${label}:${value * 2}`;
+
+const useScaled = (value: number): string => apply(scaled, value);
+
+function apply(f: (value: number) => string, value: number): string {
+  return f(value);
+}
+
+export function run(): string {
+  return useScaled(3);
+}
+"#,
+    );
+
+    assert!(source.contains("fn scaled__module_"), "{source}");
+}
+
+#[test]
+fn awaits_a_value_or_promise_union_to_its_joined_type() {
+    // `await` unwraps the promise arms and passes the others through. The value
+    // arm has to survive: asserting the whole union to be a future selected the
+    // promise arm and `unreachable!`-ed the half that needs no waiting.
+    let source = source_for(
+        r"
+class Cell {
+  value: number;
+  constructor(value: number) {
+    this.value = value;
+  }
+}
+
+function pick(sync: boolean): Cell | Promise<Cell> {
+  return sync ? new Cell(1) : Promise.resolve(new Cell(2));
+}
+
+export async function run(): Promise<number> {
+  const cell = await pick(true);
+  return cell.value;
+}
+",
+    );
+
+    assert!(source.contains("let cell: Cell"), "{source}");
+    assert!(
+        source.contains("SmeltFuture::<Cell>::resolved(value)"),
+        "the value arm must become an already-resolved handle: {source}"
+    );
+    assert!(
+        !source.contains("let cell: SmeltUnknown"),
+        "the awaited union must not erase: {source}"
+    );
+}
+
+#[test]
+fn lowers_a_computed_method_call_over_known_members() {
+    // `receiver[key]()` on a receiver whose member set is known is a choice
+    // among known methods and lowers as one. Before this, the computed read
+    // answered `unknown`, an `unknown` callee became `undefined`, and the whole
+    // body collapsed to a default value with no diagnostic.
+    let source = source_for(
+        r"
+class Body {
+  json(): string {
+    return 'json-body';
+  }
+  text(): string {
+    return 'text-body';
+  }
+}
+
+export function read(body: Body, key: 'json' | 'text'): string {
+  return body[key]();
+}
+",
+    );
+
+    assert!(source.contains("body.json()"), "{source}");
+    assert!(source.contains("body.text()"), "{source}");
+    assert!(source.contains("\"json\".to_owned()"), "{source}");
+    // The defect: the body must not be a default value.
+    assert!(
+        !source.contains("fn read(body: Body, key: String) -> String {\n    return String::new();"),
+        "{source}"
+    );
+}
+
+#[test]
+fn leaves_a_computed_method_call_with_arguments_alone() {
+    // The negative half. Arguments are lowered once and would be referenced
+    // from every arm of the chain, so the desugar declines a call that has
+    // any -- binding them to temporaries first is a separate change, and
+    // silently evaluating an argument once per arm would be worse than the
+    // existing lowering.
+    let source = source_for(
+        r"
+class Body {
+  json(prefix: string): string {
+    return prefix + 'json';
+  }
+  text(prefix: string): string {
+    return prefix + 'text';
+  }
+}
+
+export function read(body: Body, key: 'json' | 'text'): string {
+  return body[key]('p');
+}
+",
+    );
+
+    assert!(!source.contains("body.json("), "{source}");
+}
+
+#[test]
+fn keeps_a_module_scope_reassignment() {
+    // Every annotated or literal-initialized module-level binding has its
+    // declared type recorded so a function body can look it up. That record was
+    // read as "this name has no storage", so a top-level `x = e` evaluated `e`
+    // for its side effects and discarded the write: `let n: number | undefined;
+    // n = 5` still read `undefined`, with no diagnostic. Membership in that
+    // table says nothing about storage; a module-scope `let` has a local, and
+    // the write belongs to it.
+    let source = source_for(
+        r"
+let annotated: number | undefined;
+annotated = 5;
+
+let initialized: number = 1;
+initialized = 6;
+",
+    );
+
+    assert!(source.contains("annotated = Some(5.0)"), "{source}");
+    assert!(source.contains("initialized = 6.0"), "{source}");
+}
+
+#[test]
+fn types_an_iife_returned_arrow_from_the_assignment_target() {
+    // A contextual type flows through an immediately-invoked function
+    // expression's return position, so the arrow the IIFE returns takes its
+    // parameter types from the target rather than erasing to `SmeltUnknown`.
+    // The rule is one rule for all four spellings: `const f: T = (..)()`,
+    // `f = (..)()`, `f ||= (..)()` and `f ??= (..)()` reach it through the same
+    // contextual type.
+    let source = source_for(
+        r"
+type Sizer = (value: string) => number;
+
+let viaAssign: Sizer | undefined;
+viaAssign = (() => {
+  const offset = 10;
+  return (value) => value.length + offset;
+})();
+
+let viaOrAssign: Sizer | undefined;
+viaOrAssign ||= (() => {
+  const offset = 20;
+  return (value) => value.length + offset;
+})();
+
+const direct: Sizer = (() => {
+  const offset = 30;
+  return (value) => value.length + offset;
+})();
+",
+    );
+
+    assert!(!source.contains("closure_arg_0: &SmeltUnknown"), "{source}");
+    assert_eq!(
+        source.matches("closure_arg_0: String").count(),
+        3,
+        "each of the three IIFE-returned arrows takes a typed parameter: {source}"
+    );
+}
+
+#[test]
+fn an_annotated_iife_callee_keeps_its_own_return_type() {
+    // The negative half. An explicit return-type annotation on the callee wins
+    // over the contextual type, exactly as it does in TypeScript; handing an
+    // already-annotated callee a second, contextual answer only creates a way
+    // for the two to disagree.
+    let source = source_for(
+        r"
+export function run(): number {
+  const value: number = (function (): number { return 3; })();
+  return value;
+}
+",
+    );
+
+    assert!(source.contains("fn run()"), "{source}");
+}
+
+#[test]
+fn matches_object_literal_keys_to_interface_fields_by_source_spelling() {
+    // A JavaScript property key is case-sensitive and never case-folded; an
+    // interface FIELD has two spellings, the source name and the Rust-safe
+    // rendering the struct field carries. Matching the literal's keys against
+    // the RENDERED spelling silently dropped every field whose source name is
+    // not already a valid Rust name: the field looked absent, took the optional
+    // default, and the program printed `undefined` where Node prints the value.
+    let source = source_for(
+        r#"
+interface Shape {
+  plain?: number;
+  camelCase?: string;
+  snake_case?: string;
+}
+
+export function build(): Shape {
+  return { plain: 1, camelCase: "a", snake_case: "b" };
+}
+"#,
+    );
+
+    assert!(
+        source.contains(
+            "Shape { plain: Some(1.0), camel_case: Some(\"a\".to_owned()), snake_case: Some(\"b\".to_owned()) }"
+        ),
+        "{source}"
+    );
+    // The specific defect: a camelCase key must not fall through to the
+    // optional default.
+    assert!(!source.contains("camel_case: None"), "{source}");
+}
+
+#[test]
+fn builds_a_nested_optional_interface_literal_as_a_struct() {
+    // The nested literal receives the field's type as its own hint, so both
+    // levels are built directly. Without it the inner literal lowered as a
+    // `Dict`, which made the OUTER literal unbuildable as a struct too, and
+    // both ends went through the erased `SmeltRecord` reconstruction.
+    let source = source_for(
+        r#"
+interface Inner {
+  camelCase?: string;
+  count?: number;
+}
+
+interface Outer {
+  innerShape?: Inner;
+}
+
+export function build(): Outer {
+  return { innerShape: { camelCase: "deep", count: 2 } };
+}
+"#,
+    );
+
+    assert!(
+        source.contains("Inner { camel_case: Some(\"deep\".to_owned()), count: Some(2.0) }"),
+        "{source}"
+    );
+    assert!(source.contains("Outer { inner_shape: Some("), "{source}");
+    assert!(!source.contains("smelt_record_map"), "{source}");
 }
 
 #[test]
@@ -1370,7 +1739,7 @@ export function run(formatLong: FormatLong): string {
 }
 
 #[test]
-fn emits_empty_object_literal_as_optional_interface_record_defaults() {
+fn emits_empty_object_literal_as_optional_interface_struct_defaults() {
     let source = source_for(
         r"
 interface Duration {
@@ -1384,20 +1753,18 @@ export function make(): Duration {
 ",
     );
 
-    // The erased projection consults the prototype slots after the own key
-    // misses, matching `smelt_get_object_field`; see `crate::class_proto`.
+    // An empty literal for an all-optional interface is the struct with every
+    // field absent -- what a hand-writing Rust team would spell. It used to
+    // build an erased record and then project each field back out of it,
+    // consulting `__smelt_proto:`/`__smelt_method:` slots for keys the
+    // interface declares and the literal simply does not set.
+    // `None::<f64>` rather than a bare `None`: the field's own type annotation
+    // is what makes the absent arm inferable at the construction site.
     assert!(
-        source.contains(
-            "Duration { years: smelt_record_map.get(\"years\").or_else(|| smelt_record_map.get(\"__smelt_proto:years\")).or_else(|| smelt_record_map.get(\"__smelt_method:years\")).cloned().map(|value|"
-        ),
+        source.contains("Duration { years: None::<f64>, months: None::<f64> }"),
         "{source}"
     );
-    assert!(
-        source.contains(
-            "months: smelt_record_map.get(\"months\").or_else(|| smelt_record_map.get(\"__smelt_proto:months\")).or_else(|| smelt_record_map.get(\"__smelt_method:months\")).cloned().map(|value|"
-        ),
-        "{source}"
-    );
+    assert!(!source.contains("smelt_record_map"), "{source}");
 }
 
 #[test]
@@ -1623,7 +1990,7 @@ function run(values: string[]): string[] {
     assert!(
         source.contains(".map(|(index, item)| { ((smelt_callback)(")
             && source.contains(
-                ")).unwrap_or_else(|error: Box<dyn std::error::Error>| panic!(\"{}\", error))"
+                ")).unwrap_or_else(|error: Box<dyn std::error::Error>| smelt_panic_throw(error))"
             ),
         "{source}"
     );
@@ -1660,7 +2027,7 @@ export const localize: Localize = {
     );
 
     assert!(
-        source.contains("number.to_string() + &match suffix"),
+        source.contains("smelt_number_to_string(number) + &match suffix"),
         "{source}"
     );
     assert!(
@@ -2697,7 +3064,7 @@ function keyed(key: unknown): unknown {
         "{source}"
     );
     assert!(
-        source.contains("SmeltUnknown::Number(value) => value.to_string()"),
+        source.contains("SmeltUnknown::Number(value) => smelt_number_to_string(value)"),
         "{source}"
     );
 }
@@ -4119,7 +4486,7 @@ const firstValue = first.value;
     assert!(source.contains("self_owned.value"), "{source}");
     assert!(source.contains("value.__smelt_symbol_iterator()"), "{source}");
     assert!(
-        source.contains("value.unwrap_or_else(|error| panic!(\"{}\", error))"),
+        source.contains("value.unwrap_or_else(|error| smelt_panic_throw(error))"),
         "{source}"
     );
     assert!(
@@ -5239,6 +5606,90 @@ function make(parser: Parser): ValueSetter {
 }
 
 #[test]
+fn narrows_a_typeof_only_local_to_a_static_str() {
+    let source = source_for(
+        r"
+export function sameKind(a: unknown, b: unknown): boolean {
+  if (typeof a !== typeof b) {
+    return false;
+  }
+  switch (typeof a) {
+    case 'string':
+    case 'boolean':
+      return true;
+    default:
+      return false;
+  }
+}
+",
+    );
+
+    // A local defined only by a `typeof`, and read only by an equality and a
+    // string `switch`, carries the `&'static str` the helper returns -- no
+    // owned copy, and no `.as_str()` on a value that is already a `&str`.
+    assert!(
+        source.contains("let _smelt_tmp_2: &'static str = smelt_typeof(&a);"),
+        "{source}"
+    );
+    assert!(
+        source.contains("let _smelt_tmp_3: &'static str = smelt_typeof(&b);"),
+        "{source}"
+    );
+    assert!(
+        source.contains("let _smelt_tmp_5: &'static str;")
+            && source.contains("_smelt_tmp_5 = smelt_typeof(&a);"),
+        "{source}"
+    );
+    assert!(!source.contains("smelt_typeof(&a).to_owned()"), "{source}");
+    // The equality compares the two borrowed spellings directly, and the
+    // `switch` matches the binding rather than an `.as_str()` it does not have.
+    assert!(
+        source.contains("_smelt_tmp_2 != _smelt_tmp_3") && source.contains("match _smelt_tmp_5 {"),
+        "{source}"
+    );
+}
+
+#[test]
+fn keeps_an_owned_string_when_a_typeof_local_escapes() {
+    let source = source_for(
+        r"
+export function kindOf(value: unknown): string {
+  return typeof value;
+}
+",
+    );
+
+    // Returned as the function's `String`, which is not a read this analysis
+    // knows how to spell against a `&'static str`, so the local keeps the owned
+    // form. The whitelist falls back rather than guessing.
+    assert!(
+        source.contains("let _smelt_tmp_1: String = smelt_typeof(&value).to_owned();"),
+        "{source}"
+    );
+}
+
+#[test]
+fn emits_union_typeof_as_borrowed_static_str_match() {
+    let source = source_for(
+        r"
+function describe(value: string | number[]): string {
+  return typeof value;
+}
+",
+    );
+
+    // A concrete union decides its arms per member type, so the match stays at
+    // the site -- but it selects a `&'static str` and borrows its scrutinee.
+    assert!(!source.contains("\"string\".to_owned(), "), "{source}");
+    assert!(
+        source.contains("= match &value { SmeltUnion")
+            && source.contains("::M0(_) => \"string\", ")
+            && source.contains("::M1(_) => \"object\" }.to_owned();"),
+        "{source}"
+    );
+}
+
+#[test]
 fn emits_unknown_index_assignment_as_object_mutation() {
     let source = source_for(
         r"
@@ -5324,90 +5775,6 @@ function mapType(values: unknown[]): string[] {
     // through instead of being borrowed a second time.
     assert!(
         source.contains("smelt_typeof(closure_arg_0).to_owned()"),
-        "{source}"
-    );
-}
-
-#[test]
-fn narrows_a_typeof_only_local_to_a_static_str() {
-    let source = source_for(
-        r"
-export function sameKind(a: unknown, b: unknown): boolean {
-  if (typeof a !== typeof b) {
-    return false;
-  }
-  switch (typeof a) {
-    case 'string':
-    case 'boolean':
-      return true;
-    default:
-      return false;
-  }
-}
-",
-    );
-
-    // A local defined only by a `typeof`, and read only by an equality and a
-    // string `switch`, carries the `&'static str` the helper returns -- no
-    // owned copy, and no `.as_str()` on a value that is already a `&str`.
-    assert!(
-        source.contains("let _smelt_tmp_2: &'static str = smelt_typeof(&a);"),
-        "{source}"
-    );
-    assert!(
-        source.contains("let _smelt_tmp_3: &'static str = smelt_typeof(&b);"),
-        "{source}"
-    );
-    assert!(
-        source.contains("let _smelt_tmp_5: &'static str;")
-            && source.contains("_smelt_tmp_5 = smelt_typeof(&a);"),
-        "{source}"
-    );
-    assert!(!source.contains("smelt_typeof(&a).to_owned()"), "{source}");
-    // The equality compares the two borrowed spellings directly, and the
-    // `switch` matches the binding rather than an `.as_str()` it does not have.
-    assert!(
-        source.contains("_smelt_tmp_2 != _smelt_tmp_3") && source.contains("match _smelt_tmp_5 {"),
-        "{source}"
-    );
-}
-
-#[test]
-fn keeps_an_owned_string_when_a_typeof_local_escapes() {
-    let source = source_for(
-        r"
-export function kindOf(value: unknown): string {
-  return typeof value;
-}
-",
-    );
-
-    // Returned as the function's `String`, which is not a read this analysis
-    // knows how to spell against a `&'static str`, so the local keeps the owned
-    // form. The whitelist falls back rather than guessing.
-    assert!(
-        source.contains("let _smelt_tmp_1: String = smelt_typeof(&value).to_owned();"),
-        "{source}"
-    );
-}
-
-#[test]
-fn emits_union_typeof_as_borrowed_static_str_match() {
-    let source = source_for(
-        r"
-function describe(value: string | number[]): string {
-  return typeof value;
-}
-",
-    );
-
-    // A concrete union decides its arms per member type, so the match stays at
-    // the site -- but it selects a `&'static str` and borrows its scrutinee.
-    assert!(!source.contains("\"string\".to_owned(), "), "{source}");
-    assert!(
-        source.contains("= match &value { SmeltUnion")
-            && source.contains("::M0(_) => \"string\", ")
-            && source.contains("::M1(_) => \"object\" }.to_owned();"),
         "{source}"
     );
 }
@@ -6378,6 +6745,34 @@ const isSignal = signal instanceof AbortSignal;
 }
 
 #[test]
+fn abort_signal_timeout_carries_the_timer_helpers_it_calls() {
+    // `AbortSignal.timeout(ms)` arms a timer: it schedules its own abort on the
+    // promise-task queue (`smelt_spawn_promise_task` + `smelt_sleep_ms`). Its
+    // RESULT is a signal and mentions nothing async, so the timer prelude's
+    // demand analysis — which keyed on `AsyncOp` rvalues — did not see it, and a
+    // program whose only timer is a timeout signal emitted both calls against a
+    // prelude that defined neither: E0425 twice, in a crate that otherwise
+    // compiled. The program below is that isolate; it has no other async
+    // surface at all.
+    let source = source_for(
+        r"
+const timed = AbortSignal.timeout(5);
+const aborted = timed.aborted;
+",
+    );
+
+    assert!(
+        source.contains("async fn smelt_sleep_ms(")
+            && source.contains("fn smelt_spawn_promise_task("),
+        "a timeout signal must bring the timer helpers it calls\n{source}"
+    );
+    assert!(
+        source.contains("smelt_abort_timeout_reason"),
+        "the scheduled abort must fire with the spec's TimeoutError reason\n{source}"
+    );
+}
+
+#[test]
 fn lowers_numeric_truthy_condition_inside_callback() {
     // A non-boolean numeric value used as a callback condition (the common
     // `(value, index) => index ? a : b` index-guard idiom) lowers to an
@@ -7050,7 +7445,7 @@ function pick(opts: { flag?: boolean | number }): boolean {
         "flag should keep its concrete-union storage: {source}"
     );
     assert!(
-        source.contains("match flag.into_smelt_unknown()"),
+        source.contains("match flag.clone().into_smelt_unknown()"),
         "a concrete-union operand must be erased before the truthiness match: {source}"
     );
 }
@@ -7101,6 +7496,80 @@ export function pick(keys: Array<string | number>, i: number): string | number {
     assert!(
         !source.contains(".cloned().unwrap_or(SmeltUnknown::Undefined)"),
         "concrete-union element default must not be the erased undefined: {source}"
+    );
+}
+
+#[test]
+fn recovers_concrete_union_tuple_arms_by_arity() {
+    // Two tuple arms of different length carry the SAME runtime tag
+    // (`SmeltUnknown::Array`), so recovery on the tag alone always chose the
+    // first arm: `['y', 2, true]` came back as the 2-tuple with its third
+    // element silently dropped, and `.length` answered 2 where Node answers 3.
+    //
+    // A tuple's arity is part of its type, so it is the discriminant. This is
+    // the tuple counterpart of the class arm's field-presence guard.
+    let source = source_for(
+        r"
+type Pair = [string, number];
+type Triple = [string, number, boolean];
+export function put(table: Record<string, Pair | Triple>): void {
+  table['b'] = ['y', 2, true];
+}
+",
+    );
+
+    assert!(source.contains("pub enum SmeltUnion"), "{source}");
+    // The enabling condition: both arms really do share the `Array` runtime tag,
+    // so the tag test alone must NOT be the whole guard. That tag-only spelling
+    // is exactly what chose the wrong arm, so asserting its absence is what
+    // makes this test non-vacuous.
+    assert!(
+        !source.contains("if matches!(value, SmeltUnknown::Array(_)) { return"),
+        "a tag-only guard cannot separate two Array-tagged tuple arms: {source}"
+    );
+    assert!(
+        source.contains("smelt_arms.len() == 2"),
+        "the 2-tuple arm must be guarded by its arity: {source}"
+    );
+}
+
+#[test]
+fn erasing_a_concrete_union_for_inspection_does_not_move_it() {
+    // `into_smelt_unknown` takes `self` by value and `SmeltUnion…` is not
+    // `Copy`, so erasing a concrete union in order to INSPECT it moved out of
+    // the source place. Reading the same local twice — once indexed, once for
+    // `.length` — then emitted `first.into_smelt_unknown()` at both sites and
+    // the second was a use-after-move (E0382).
+    let source = source_for(
+        r"
+type Pair = [string, number];
+type Triple = [string, number, boolean];
+export function read(table: Record<string, Pair | Triple>): string {
+  const first = table['a'];
+  return first[0] + ',' + first.length;
+}
+",
+    );
+
+    assert!(source.contains("pub enum SmeltUnion"), "{source}");
+    // The enabling condition: the local really is erased at TWO sites, which is
+    // what made the move observable — one erasure could never fail to compile.
+    let erasures_of_first = source
+        .match_indices("into_smelt_unknown()")
+        .filter(|(at, _)| {
+            source[..*at]
+                .trim_end_matches('.')
+                .trim_end_matches(".clone()")
+                .ends_with("first")
+        })
+        .count();
+    assert_eq!(
+        erasures_of_first, 2,
+        "the union local must be erased at both inspection sites: {source}"
+    );
+    assert!(
+        !source.contains("first.into_smelt_unknown()"),
+        "erasing a union place for inspection must not move it: {source}"
     );
 }
 
@@ -7674,7 +8143,7 @@ function sortMixed(values: Array<string | number>): Array<string | number> {
         "union default sort should compare erased string coercions\n{source}"
     );
     assert!(
-        source.contains("SmeltUnknown::Number(value) => value.to_string()"),
+        source.contains("SmeltUnknown::Number(value) => smelt_number_to_string(value)"),
         "the coercion match should stringify numeric elements\n{source}"
     );
 }
@@ -9585,7 +10054,10 @@ const value = new C();
 ",
     );
 
-    assert!(source.contains("let __smelt_super: A = "), "{source}");
+    // The `super()` result is bound at the base-most type. A constructor body
+    // predeclares its locals like any other method body, so the binding and its
+    // assignment are two statements; what matters is the TYPE of the binding.
+    assert!(source.contains("let __smelt_super: A"), "{source}");
     assert!(source.contains("B::new()"), "{source}");
     // `C::new` copies BOTH inherited slots out of the constructed `B`, so the
     // base-most field reaches the leaf instance.
@@ -9822,33 +10294,52 @@ export function clearSlot(handle: unknown): number {
 }
 
 #[test]
-fn byte_buffer_hosts_construct_through_the_shared_reflected_constructor() {
-    // `new ArrayBuffer(8)` / `new SharedArrayBuffer(8)` / `new DataView(buf, 1, 2)`
-    // all lower to `smelt_reflected_construct`, the *same* runtime constructor the
-    // reflected `new Object.getPrototypeOf(x).constructor(...)` path calls. That
-    // shared constructor is what makes a directly built record indistinguishable
-    // from a reflectively built one — es-toolkit's `clone` uses the reflected form
-    // where its `cloneDeepWith` uses the direct one, and its specs compare the two
-    // results against each other.
-    for (source, kind) in [
-        (
-            "export function f() { return new ArrayBuffer(8); }",
-            "arraybuffer",
-        ),
+fn every_byte_buffer_host_constructs_its_concrete_value() {
+    // The whole byte family is concrete now, and each half in the shape its
+    // surface asks for: `SharedArrayBuffer` is the storage type with its
+    // species flag set (the two constructors differ in a tag, an `instanceof`
+    // answer and the growth members, and in nothing about the bytes), while
+    // `DataView` is its own type because its element width is an argument of
+    // every accessor rather than a field of the value.
+    //
+    // The erased byte-backed record is what each reaches through its own
+    // boundary adapter, and it is built by the SAME record builder
+    // `smelt_reflected_construct` uses — which is what keeps a directly built
+    // record indistinguishable from a reflectively built one. es-toolkit's
+    // `clone` takes the reflected form where its `cloneDeepWith` takes the
+    // direct one, and its specs compare the two results against each other.
+    for (source, expected) in [
         (
             "export function f() { return new SharedArrayBuffer(8); }",
-            "sharedarraybuffer",
+            "SmeltArrayBuffer::new_shared(",
         ),
         (
             "export function f() { return new DataView(new ArrayBuffer(8), 1, 2); }",
-            "dataview",
+            "SmeltDataView::over_buffer(",
+        ),
+        (
+            "export function f() { return new ArrayBuffer(8); }",
+            "SmeltArrayBuffer::new(",
+        ),
+        (
+            "export function f() { return new Uint8Array(8); }",
+            "SmeltTypedArray::with_length(",
         ),
     ] {
         let generated = source_for(source);
         assert!(
-            generated.contains(&format!("smelt_reflected_construct(\"{kind}\"")),
-            "expected `{source}` to construct through the shared `{kind}` host constructor:\n{generated}"
+            generated.contains(expected),
+            "expected `{source}` to construct `{expected}`:\n{generated}"
         );
+        // Not through the erased host constructor: the assertion names the
+        // CALL spelling, since the prelude's own definition of that helper is
+        // still emitted for the reflected path.
+        for kind in ["sharedarraybuffer", "dataview", "arraybuffer", "uint8array"] {
+            assert!(
+                !generated.contains(&format!("smelt_reflected_construct(\"{kind}\"")),
+                "a concrete construction must not route through the erased `{kind}` constructor:\n{generated}"
+            );
+        }
     }
 }
 
@@ -10162,9 +10653,29 @@ fn typed_array_construction_views_storage_but_converts_elements() {
     let generated = source_for(
         "export function f(buffer: any): any { return new Float32Array(buffer as any); }",
     );
+    // An argument whose type carries no shape is the one place the choice is
+    // made at RUN time, through the family's single `from_erased` boundary.
     assert!(
-        generated.contains("smelt_reflected_construct(\"float32array\""),
-        "`new Float32Array(x)` must route through the shared host constructor:\n{generated}"
+        generated.contains("SmeltTypedArray::from_erased(SmeltTypedArrayKind::Float32"),
+        "an erased source must go through the one runtime boundary:\n{generated}"
+    );
+    // The same two meanings, chosen STATICALLY when the argument has a type:
+    // storage is re-viewed (shared, not copied) and another view is converted
+    // element by element.
+    let typed = source_for(
+        r"
+export function f(buffer: ArrayBuffer, view: Int8Array): number {
+  return new Float32Array(buffer).length + new Uint8Array(view).length;
+}
+",
+    );
+    assert!(
+        typed.contains("SmeltTypedArray::over_buffer(SmeltTypedArrayKind::Float32"),
+        "an `ArrayBuffer` source must be re-viewed over the same storage:\n{typed}"
+    );
+    assert!(
+        typed.contains("SmeltTypedArray::with_elements(SmeltTypedArrayKind::Uint8, &view"),
+        "a view source must be converted element by element:\n{typed}"
     );
     assert!(
         generated.contains("fn smelt_host_buffer_is_storage(value: &SmeltUnknown) -> bool")
@@ -10186,6 +10697,10 @@ fn typed_array_construction_views_storage_but_converts_elements() {
     assert!(
         generated.contains("vec![SmeltUnknown::Number(0.0); count * stride]"),
         "`new Ctor(n)` must allocate `n` elements:\n{generated}"
+    );
+    assert!(
+        typed.contains("vec![0_u8; length * kind.byte_width()]"),
+        "the concrete family must allocate `n` elements too:\n{typed}"
     );
 }
 
@@ -10789,7 +11304,7 @@ console.log(out);
         "the finalizer's Map delete must be emitted, got:\n{body}"
     );
     assert!(
-        body.contains("7"),
+        body.contains('7'),
         "the try body's return value must survive the finalizer, got:\n{body}"
     );
 }
@@ -11035,7 +11550,7 @@ console.log(attempt(5));
 /// `unwind: _` — throwing the exception handler away. The call then went through
 /// `closure_call_text_for_dest`, whose single difference from the function-level
 /// path is that it rewrites a trailing `?` into
-/// `unwrap_or_else(|error| panic!(..))`. So a nested function whose body wrapped
+/// `unwrap_or_else(|error| smelt_panic_throw(error))`. So a nested function whose body wrapped
 /// a throwing call in `try`/`catch` did not run its `catch` at all: it aborted
 /// the process on the first throw.
 ///
@@ -11079,7 +11594,7 @@ console.log(outer(5));
         "the `catch` handler must be emitted inside the closure body:\n{body}"
     );
     assert!(
-        !body.contains("unwrap_or_else(|error| panic!"),
+        !body.contains("unwrap_or_else(|error| smelt_panic_throw"),
         "a caught throwing call must not be emitted as a panicking unwrap, which \
          is the handler being discarded:\n{body}"
     );
@@ -11163,7 +11678,7 @@ export function guard(cb: (x: number) => string, v: number): string {
 /// Adapting a throwing function into a callback slot wraps it in a closure whose
 /// Rust signature is `-> Result<T, Box<dyn std::error::Error>>`. The call inside
 /// that body was still rewritten from `?` to
-/// `unwrap_or_else(|error| panic!(..))`, which turned a recoverable JavaScript
+/// `unwrap_or_else(|error| smelt_panic_throw(error))`, which turned a recoverable JavaScript
 /// exception into an abort even though the enclosing signature could carry it.
 /// The `panic!` belongs only where the surrounding Rust signature genuinely
 /// cannot carry an error.
@@ -11471,8 +11986,11 @@ export function head<T>(arr: readonly T[]): T | undefined {
         !source.contains("unwrap_or(Default::default())"),
         "an out-of-range element must be `None`, not the element default:\n{source}"
     );
+    // Counted in the PROGRAM half only: the shared runtime prelude has its own
+    // `.cloned()` calls (the erased promise's continuation members clone their
+    // handler arguments), and this assertion is about the two lowered functions.
     assert_eq!(
-        source.matches(".cloned();").count(),
+        program_body(&source).matches(".cloned();").count(),
         2,
         "both functions must return the bare `get(..).cloned()` option:\n{source}"
     );
@@ -12035,7 +12553,7 @@ class C(B):
     );
 
     assert!(
-        source.contains("let __smelt_super: B = "),
+        source.contains("let __smelt_super: B"),
         "`C` must construct its immediate base `B`:\n{source}"
     );
     // `C::new` copies BOTH inherited slots out of the constructed `B`, so the
@@ -12381,6 +12899,79 @@ const r = use1(pick(true));
     );
 }
 
+/// A conditional with ONE declared-class branch unifies to the union too.
+///
+/// The sibling test above required BOTH branches to be declared classes, and
+/// that is what the rule required as well — so `flag ? new Doc() : "text"` at a
+/// `string | Doc` type still fell into the string-compatible test, still
+/// unified to `String`, and still emitted `let mut _smelt_tmp: String;` with a
+/// `Doc` assigned into it. That is the commoner shape of the two: a union of a
+/// class and a primitive is how a "value or message" result is usually spelled.
+///
+/// Every closer unification is tried before this arm is reached, so a declared
+/// class here means the two branches are genuinely two union members.
+#[test]
+fn conditional_over_a_class_and_a_string_unifies_to_a_union() {
+    let source = source_for(
+        r#"
+class Doc { name(): string { return "d"; } }
+function pick(flag: boolean): string | Doc { return flag ? new Doc() : "text"; }
+function show(value: string | Doc): string {
+  return typeof value === "string" ? value : value.name();
+}
+const r = show(pick(true));
+"#,
+    );
+
+    let pick_body = source
+        .split("fn pick(")
+        .nth(1)
+        .and_then(|rest| rest.split("\nfn ").next())
+        .unwrap_or_else(|| panic!("expected a generated `pick`:\n{source}"));
+    assert!(
+        !pick_body.contains("let mut _smelt_tmp_1: String;"),
+        "a class branch must not be assigned into a `String` local:\n{source}"
+    );
+    assert!(
+        pick_body.contains("::M0(") && pick_body.contains("::M1("),
+        "each branch must be wrapped into its own union arm:\n{source}"
+    );
+}
+
+/// `instanceof` narrows an OPTIONAL union by matching the arm under `Some`.
+///
+/// `form.get(name)` is `string | File | null`, so `entry instanceof File` asks
+/// about an `Option<SmeltUnion…>`. The marker probe claimed it — every
+/// `Optional` operand counted as dynamic — and emitted a `SmeltUnknown::Object`
+/// pattern against a value of that type, which does not compile. The union arm
+/// answers it now, one optional deep: an absent value is simply not one of the
+/// accepted patterns, which is also the right answer, since `null instanceof
+/// File` is `false` in JavaScript.
+#[test]
+fn instanceof_narrows_an_optional_union_through_its_arm() {
+    let source = source_for(
+        r#"
+const form = new FormData();
+form.append("doc", new File(["hi"], "note.txt"));
+const entry = form.get("doc");
+if (entry instanceof File) {
+  console.log(entry.name);
+} else {
+  console.log("not a file");
+}
+"#,
+    );
+
+    assert!(
+        !source.contains("Some(SmeltUnknown::Object(value))"),
+        "an optional union must not be probed as an erased record:\n{source}"
+    );
+    assert!(
+        source.contains("matches!(entry.clone(), Some(SmeltUnion"),
+        "the check must match the union arm under `Some`:\n{source}"
+    );
+}
+
 /// An unannotated arrow passed to a *generic* function is contextually typed
 /// from the instantiation its sibling arguments imply, not from the callee's
 /// raw type parameters.
@@ -12605,7 +13196,7 @@ m.set(pick(true), 1);
 /// intersection of a plain callable and its own properties (which is how the
 /// underlying function object is modeled), and an overload signature that
 /// narrows that value to the interface.
-const CALLABLE_OVERLOAD_PRELUDE: &str = r#"
+const CALLABLE_OVERLOAD_PRELUDE: &str = r"
 const curryPlaceholder: unique symbol = Symbol('curry.placeholder');
 type __ = typeof curryPlaceholder;
 
@@ -12657,7 +13248,7 @@ export function byArgumentType(): ((...args: any[]) => any) & { placeholder: unk
   wrapper.placeholder = curryPlaceholder;
   return wrapper;
 }
-"#;
+";
 
 /// A call to an overloaded callable interface must not stop at the first
 /// overload that merely shares the call's arity.
@@ -12838,6 +13429,182 @@ export function countBy<T, K extends PropertyKey>(
     );
 }
 
+/// A method body predeclares its function-scope locals (H22).
+///
+/// MIR locals are function-scoped; generated Rust branch bodies are lexically
+/// scoped. A free function body has always predeclared the locals first assigned
+/// outside its entry block, but a METHOD body did not, so a temporary first
+/// assigned inside one `if` arm was declared *inside* that arm and the sibling
+/// arm's assignment named something out of scope — E0425 in the generated crate,
+/// 19053 of them in Hono's routers, with no diagnostic before rustc.
+#[test]
+fn a_method_body_predeclares_locals_assigned_in_more_than_one_branch() {
+    let source = source_for(
+        r"
+class Counter {
+  total = 0;
+
+  step(flag: boolean, amount: number): number {
+    let next: number;
+    if (flag) {
+      next = this.total + amount;
+    } else {
+      next = this.total - amount;
+    }
+    this.total = next;
+    return next;
+  }
+}
+const counter = new Counter();
+console.log(counter.step(true, 2));
+",
+    );
+
+    let body = emitted_function_body(&source, "fn step(");
+    let branch_start = body
+        .find("if flag {")
+        .expect("the branch is emitted: {body}");
+    let (prelude, branches) = body.split_at(branch_start);
+    assert!(
+        prelude.contains("let _smelt_tmp_4: f64;"),
+        "the branch temporary is declared before the branch: {body}"
+    );
+    assert!(
+        !branches
+            .lines()
+            .any(|line| line.trim_start().starts_with("let _smelt_tmp_")),
+        "no temporary is introduced inside a branch arm: {body}"
+    );
+    assert!(
+        branches.contains("_smelt_tmp_4 =") && branches.contains("_smelt_tmp_5 ="),
+        "both arms assign their predeclared temporary: {body}"
+    );
+}
+
+/// A write through a receiver that is still optional-typed is an lvalue (H23).
+///
+/// `tsc` proved the receiver present (the assignment above narrows it), so the
+/// write unwraps in place — `as_mut()`, never a copy, which would drop the
+/// write — and a REFERENCE class keeps its handle (`.0.borrow_mut()`). Before
+/// this the lvalue fell through to the field READ expression, which is not an
+/// lvalue at all (E0070), and the read spelled a field of the handle rather than
+/// of its interior (E0609).
+#[test]
+fn a_field_write_through_an_optional_receiver_unwraps_in_place() {
+    let source = source_for(
+        r"
+class Slot {
+  label = '';
+}
+export function label(slots: Record<string, Slot>, key: string, text: string): string {
+  let slot: Slot | undefined = slots[key];
+  if (!slot) {
+    slot = new Slot();
+    slots[key] = slot;
+  }
+  slot.label = text;
+  return slot.label;
+}
+console.log(label({}, 'a', 'x'));
+",
+    );
+
+    let body = emitted_function_body(&source, "fn label(");
+    assert!(
+        body.contains("expect(\"optional value was absent after narrowing\")"),
+        "the receiver is unwrapped where `tsc` proved it present: {body}"
+    );
+    assert!(
+        body.contains(".0.borrow_mut().label ="),
+        "the write goes through the reference class's handle: {body}"
+    );
+    assert!(
+        body.contains("_smelt_value.0.borrow().label.clone()"),
+        "so does the read through the optional receiver: {body}"
+    );
+    assert!(
+        !body.contains("_smelt_value.label.clone()"),
+        "no field of the handle itself is ever named: {body}"
+    );
+}
+
+/// A value asked for at `bool` is a truthiness test, not a cast (H24).
+///
+/// Wherever JavaScript expects a boolean it applies truthiness, and for a class
+/// instance the answer is "present". The coercion used to hand the value back
+/// unchanged, so an `Option<Node>` in a boolean position emitted
+/// `.map_or(false, |value| value)` — E0308, 48 sites in Hono's trie router.
+#[test]
+fn a_class_valued_optional_in_a_boolean_position_tests_presence() {
+    let source = source_for(
+        r"
+class Node {
+  key = '';
+}
+export function has(nodes: Record<string, Node>, key: string): boolean {
+  const found: Node | undefined = nodes[key];
+  const present = !!found;
+  return present;
+}
+console.log(has({}, 'a'));
+",
+    );
+
+    let body = emitted_function_body(&source, "fn has(");
+    assert!(
+        !body.contains("|value| value)"),
+        "the class value is not handed back where a bool is expected: {body}"
+    );
+    assert!(
+        body.contains("is_some()"),
+        "presence is the truthiness of a class-valued optional: {body}"
+    );
+}
+
+/// A callee read out of a `RefCell` is CLONED out of the guard, not moved.
+///
+/// H17 bound such a callee to a `let` so the read's `Ref` guard drops before the
+/// call runs (a class-field arrow's body mutates the same cell). A SHARED
+/// CLOSURE CAPTURE renders as `(*cell.borrow())`, whose `Rc<dyn Fn ..>` is not
+/// `Copy`, so the plain binding was a move out of a `Ref` deref — E0507, which
+/// stopped the whole es-toolkit probe crate from compiling. Cloning bumps a
+/// refcount and still drops the guard.
+#[test]
+fn a_recursive_capture_callee_is_cloned_out_of_its_borrow_guard() {
+    let source = source_for(
+        r"
+export function flattenAll(values: unknown[], depth: number): unknown[] {
+  const walk = (items: unknown[], level: number): unknown[] => {
+    const out: unknown[] = [];
+    for (const item of items) {
+      if (Array.isArray(item) && level < depth) {
+        for (const nested of walk(item as unknown[], level + 1)) {
+          out.push(nested);
+        }
+      } else {
+        out.push(item);
+      }
+    }
+    return out;
+  };
+  return walk(values, 0);
+}
+console.log(flattenAll([1, [2, [3]]], 2).length);
+",
+    );
+
+    assert!(
+        !source.contains("let smelt_callable = (*"),
+        "a callable is never moved out of a `Ref` deref: {source}"
+    );
+    if source.contains("smelt_callable") {
+        assert!(
+            source.contains("let smelt_callable = ::std::clone::Clone::clone(&"),
+            "the guarded callee is cloned before the call: {source}"
+        );
+    }
+}
+
 #[test]
 fn erased_object_field_list_alias_push_writes_back_an_aliasing_array() {
     // `pipe`'s hot loop in remeda: destructure an array field off an erased
@@ -12890,5 +13657,430 @@ function record(holder: Holder, value: string): void {
             "let smelt_value = SmeltUnknown::Array(items.clone().into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect());"
         ),
         "{source}"
+    );
+}
+
+/// H30a: a subclass of a reference class is itself a reference class.
+///
+/// A classification trigger fires on the class that DECLARES the mutated field,
+/// so a subclass that only inherits mutated state is never named by one. It is
+/// still the same kind of object, and Smelt re-emits every inherited method body
+/// into the subclass's own `impl` -- bodies written against the base's handle
+/// representation. Hono's `class<T> extends RegExpRouter<T>` was emitted as a
+/// value struct carrying inherited bodies that read `self.0.borrow()._tries`:
+/// `no field 0 on __smelt_anon_class_3050<T>` (E0609 x9 on the router slice).
+#[test]
+fn a_subclass_of_a_reference_class_is_a_reference_class() {
+    let source = source_for(
+        r"
+class Store {
+  entries: Record<string, number> = {};
+
+  put(key: string, value: number): void {
+    this.entries[key] = value;
+  }
+}
+
+class CountingStore extends Store {
+  reads = 0;
+
+  total(): number {
+    let sum = 0;
+    for (const key of Object.keys(this.entries)) {
+      sum += this.entries[key];
+    }
+    return sum;
+  }
+}
+
+const store = new CountingStore();
+store.put('a', 2);
+console.log(store.total());
+",
+    );
+
+    // The base really is lifted, so the subclass assertion is about propagation
+    // and not about a shape that was never a handle.
+    assert!(
+        source.contains("struct Store(::std::rc::Rc<::std::cell::RefCell<StoreInner>>)"),
+        "the base class is not a reference class here, so nothing propagates:\n{source}"
+    );
+    assert!(
+        source.contains(
+            "struct CountingStore(::std::rc::Rc<::std::cell::RefCell<CountingStoreInner>>)"
+        ),
+        "a subclass of a reference class was emitted by value:\n{source}"
+    );
+    // And the inherited state is reached through the handle in the subclass's
+    // own methods, which is what failed to compile before.
+    assert!(
+        source.contains("self.0.borrow().entries"),
+        "the inherited field is not read through the subclass's handle:\n{source}"
+    );
+}
+
+/// H30b: a method VALUE read off a reference class captures the handle.
+///
+/// Reading a method as a value (`this.match`, passed on as a callback) captures
+/// a receiver. For a value class that capture re-instantiates the struct field
+/// by field; a reference class has exactly one field -- the `Rc<RefCell<..>>` --
+/// so the rebuild could not be spelled at all (`struct PatternRouter<SmeltUnknown>
+/// has no field named _routes`, E0560/E0609). Cloning the handle is also the only
+/// capture with the right meaning: a method read off an object is bound to THAT
+/// object, and a rebuild would hand the closure a copy whose mutations no one
+/// ever sees.
+#[test]
+fn a_method_value_of_a_reference_class_captures_the_handle() {
+    let source = source_for(
+        r"
+type Handler = (key: string) => number;
+
+class Counter {
+  hits: Record<string, number> = {};
+
+  bump(key: string): number {
+    this.hits[key] = 1;
+    return 1;
+  }
+
+  handler(): Handler {
+    return this.bump;
+  }
+}
+
+const counter = new Counter();
+const bump = counter.handler();
+console.log(bump('a'));
+",
+    );
+
+    assert!(
+        source.contains("struct Counter(::std::rc::Rc<::std::cell::RefCell<CounterInner>>)"),
+        "the class under test is not a reference class:\n{source}"
+    );
+    assert!(
+        source.contains("let smelt_receiver = self.clone();"),
+        "the method value did not capture the handle:\n{source}"
+    );
+    assert!(
+        !source.contains("let smelt_receiver = Counter {"),
+        "the method value still rebuilds the struct field by field:\n{source}"
+    );
+}
+
+#[test]
+fn a_generic_class_spells_its_derived_impls_instead_of_deriving_them() {
+    // H29. `#[derive(Clone)]` on a generic struct generates `impl<T: Clone>` —
+    // its own bound and nothing more. That cannot satisfy a field whose type is
+    // another generated class, because those carry the full generated bound set,
+    // so hono's `class TrieRouter<T> { root: Node<T> }` reported "the trait
+    // `Clone`/`Default`/`IntoSmeltUnknown`/`SmeltFromUnknown` is not implemented
+    // for `T`" once per derive.
+    //
+    // The impls are spelled out with a field-type `where` clause: that is the
+    // exact requirement of a field-by-field body, where bounding `T` says either
+    // too little or too much.
+    let source = source_for(
+        r"
+class Leaf<T> {
+  items: T[] = [];
+}
+class Trunk<T> {
+  leaf: Leaf<T> = new Leaf<T>();
+}
+export function hold<T>(trunk: Trunk<T>): Trunk<T> {
+  return trunk;
+}
+",
+    );
+
+    // The enabling condition: the class really is generic, which is the shape the
+    // derives could not bound.
+    assert!(
+        source.contains("struct Trunk<T>"),
+        "the fixture must produce a generic class: {source}"
+    );
+    assert!(
+        !source.contains("#[derive(Clone, Debug, Default, PartialEq)]\n#[allow(dead_code)]\nstruct Trunk<T>"),
+        "a generic value class must not rely on the derives: {source}"
+    );
+    for spelled in [
+        "impl<T> Clone for Trunk<T>",
+        "impl<T> PartialEq for Trunk<T>",
+    ] {
+        assert!(
+            source.contains(spelled),
+            "expected a spelled-out `{spelled}` impl: {source}"
+        );
+    }
+    // `Default` keeps the bound a derive would have imposed, so a consumer that
+    // can only prove `T: Default` is no worse off than before.
+    assert!(
+        source.contains("impl<T: Default> Default for Trunk<T>"),
+        "a generic value class keeps derive-equivalent `Default` bounds: {source}"
+    );
+}
+
+#[test]
+fn an_erased_adapter_recovers_a_tuple_parameter_element_wise() {
+    // The mirror of the tuple ERASURE fix: a Rust tuple has no
+    // `SmeltFromUnknown` impl, so the blanket
+    // `SmeltFromUnknown::smelt_from_unknown(..)` an erased method adapter
+    // reaches for does not compile against a tuple parameter. It is recovered
+    // from the erased array it was written as instead.
+    let source = source_for(
+        r"
+type Entry = [string, number];
+export class Bag {
+  seen: string = '';
+  take(entry: Entry): string {
+    this.seen = entry[0];
+    return this.seen;
+  }
+}
+export function use(bag: Bag): string {
+  return bag.take(['a', 1]);
+}
+",
+    );
+
+    // The enabling condition: an erased method adapter is actually emitted for
+    // this class, which is the only place the blanket recovery appeared.
+    assert!(
+        source.contains("__smelt_method:take"),
+        "the fixture must emit an erased method adapter: {source}"
+    );
+    assert!(
+        source.contains("if let SmeltUnknown::Array(smelt_tuple_values)"),
+        "a tuple parameter must be recovered element-wise: {source}"
+    );
+}
+
+/// A getter that can throw is emitted returning `Result`, so reading the
+/// property has to propagate with `?` like any other fallible call.
+///
+/// Without the `?` the read hands its consumer the `Result` itself. The first
+/// thing done to a read value is usually `.clone()`, and `Box<dyn Error>` is
+/// not `Clone`, so this surfaced as `E0599` on the `Result` rather than as a
+/// type mismatch naming the property -- 1 error in the hono slice, on a
+/// throwing `get activeRouter()` spread into an object.
+#[test]
+fn a_throwing_getter_read_propagates_with_question_mark() {
+    let source = source_for(
+        r"
+export class Holder {
+  tag: unknown = 0;
+  private inner: string = 'a';
+  private get active(): string {
+    if (this.inner === '') {
+      throw new Error('empty');
+    }
+    return this.inner;
+  }
+  spread(): unknown {
+    return { ...this.active };
+  }
+}
+",
+    );
+
+    // The enabling condition: the getter really is emitted as fallible. If this
+    // stops holding the assertion below would pass for the wrong reason.
+    assert!(
+        source
+            .contains("fn __smelt_get_active(&self) -> Result<String, Box<dyn std::error::Error>>"),
+        "a throwing getter must be emitted returning Result: {source}"
+    );
+    assert!(
+        source.contains("self.__smelt_get_active()?"),
+        "a throwing getter read must propagate with `?`: {source}"
+    );
+    assert!(
+        !source.contains("self.__smelt_get_active().clone()"),
+        "a throwing getter read must not clone the Result: {source}"
+    );
+}
+
+/// A method the class reassigns through `this` becomes a function-typed field;
+/// a sibling method that is never assigned stays an inherent method.
+///
+/// JavaScript lets an instance replace its own method, and Hono's
+/// `SmartRouter` does it to skip its router-selection loop after the first
+/// request (`smart-router/router.ts`). A Rust inherent method cannot be
+/// assigned, so the write emitted `self.match_ = ...` against a method and
+/// failed with `E0615`.
+///
+/// The scoping half of the rule is the point of the sibling assertion: this
+/// must not turn every method into an `Rc<dyn Fn>` field, because that would
+/// trade a static call for a dynamic one everywhere and is the opposite of
+/// carrying a concrete type down to runtime.
+#[test]
+fn a_method_reassigned_through_this_becomes_a_callable_field() {
+    let source = source_for(
+        r"
+export class Picker {
+  tag: unknown = 0;
+  pick(value: string): string { return value; }
+  other(value: string): string { return value + '?'; }
+  run(value: string): string {
+    this.pick = (v: string) => v + '!';
+    return this.pick(value) + this.other(value);
+  }
+}
+",
+    );
+
+    // The reassigned method is a field of the method's own signature ...
+    assert!(
+        source.contains("pick: ::std::rc::Rc<dyn Fn(String) -> String>"),
+        "a reassigned method must become a function-typed field: {source}"
+    );
+    // ... initialised to the method's own body, so a class that never assigns
+    // still behaves as declared ...
+    assert!(
+        source.contains("this.0.borrow_mut().pick = "),
+        "the field must be initialised in the constructor: {source}"
+    );
+    // ... and the assignment writes that field rather than a method.
+    assert!(
+        source.contains("self.0.borrow_mut().pick = "),
+        "the reassignment must write the field: {source}"
+    );
+
+    // The untouched sibling keeps its inherent method and its STATIC call.
+    assert!(
+        source.contains("fn other(&self, value: String) -> String"),
+        "an unassigned sibling must stay an inherent method: {source}"
+    );
+    assert!(
+        source.contains("self.other(value.clone())"),
+        "an unassigned sibling must keep a static call: {source}"
+    );
+    assert!(
+        !source.contains("other: ::std::rc::Rc<dyn Fn"),
+        "an unassigned sibling must NOT become a field: {source}"
+    );
+}
+
+/// A mutable global's assignment STORES at the global's declared type but
+/// yields the assignment expression's own type, which need not be the same.
+///
+/// In JavaScript `x = v` evaluates to `v`, so an assignment can be consumed
+/// somewhere that erased it. Hono's `wildcardRegExpCache = createNullObject()`
+/// assigns a declared `unknown` into a `Record<string, RegExp>` global: the
+/// store recovers the concrete record, but the expression is typed `unknown`,
+/// and the block handed the concrete record back into a `SmeltUnknown` slot --
+/// 2 errors in the hono slice.
+#[test]
+fn a_global_assignment_yields_the_expressions_own_type() {
+    let source = source_for(
+        r"
+declare function createNullObject(): unknown;
+let cache: Record<string, number> = {};
+export function reset(key: string): number {
+  cache = createNullObject();
+  return cache[key];
+}
+",
+    );
+
+    // The enabling condition: the store really does recover the concrete
+    // record, so the trailing value starts out at the global's type.
+    let store = "*value.borrow_mut() = smelt_global_value.clone());";
+    let at = source
+        .find(store)
+        .unwrap_or_else(|| panic!("no mutable-global store was emitted: {source}"));
+    let tail = &source[at + store.len()..];
+
+    // What the block hands back is erased, not the bare record.
+    assert!(
+        tail.trim_start().starts_with("{ let smelt_record = smelt_global_value.clone();"),
+        "a global assignment consumed as `unknown` must erase its result: {tail:.200}"
+    );
+    assert!(
+        !tail.trim_start().starts_with("smelt_global_value }"),
+        "the concrete record must not be yielded into an erased slot: {tail:.200}"
+    );
+}
+
+/// A non-boolean operand asked for at `bool` is a truthiness test, at the
+/// OPERAND entry point of the coercion as well as the text one.
+///
+/// `value_at_type` has its own arms and then falls through to the raw operand,
+/// so a coercion it had no arm for handed the value back unchanged. A `&&`
+/// chain whose middle operand is a string is the case that found it: hono's
+/// trie-router `insert` writes
+/// `getPattern(p, nextP) || (nextP === undefined && p && …)`, whose chain value
+/// lands in a `bool` local, and the branch emitted `p.clone()` (E0308).
+#[test]
+fn a_string_operand_at_bool_is_a_truthiness_test() {
+    let source = source_for(
+        r"
+export function pick(parts: string[], index: number): string | null {
+  const p: string = parts[index];
+  const nextP: string | undefined = parts[index + 1];
+  return nextP === undefined && p && p.indexOf('*') === p.length - 1 ? p : null;
+}
+",
+    );
+
+    // The enabling condition: the chain's value really is held in a `bool`
+    // local, which is what makes the branch a coercion to `bool` at all.
+    assert!(
+        source.contains("let _smelt_tmp_6: bool = if"),
+        "the `&&` chain must lower its value into a bool local: {source}"
+    );
+    assert!(
+        source.contains("!(p.clone()).is_empty()"),
+        "a string in a boolean position must test truthiness: {source}"
+    );
+    assert!(
+        !source.contains("bool = if _smelt_tmp_5 { p.clone() }"),
+        "the raw string must not be handed back at `bool`: {source}"
+    );
+}
+
+/// An array literal whose destination is an OPTIONAL tuple renders a Rust
+/// tuple, not a homogeneous `vec![..]`.
+///
+/// The tuple arm renders a literal into a Rust tuple when the destination is
+/// one, but an optional destination has to reach it through the
+/// `Type::Optional` recursion, and `Type::Tuple` was missing from that arm's
+/// list. The literal then fell through to the `vec![..]` fallback, which infers
+/// its element type from the FIRST element and rejects the rest -- hono's
+/// `Matcher<T> = [RegExp, HandlerData<T>[][], StaticMap<T>]`, returned as
+/// `Matcher<T> | null`, reported it as "expected SmeltRegExp, found
+/// SmeltList<SmeltUnknown>" on element 2.
+#[test]
+fn an_array_literal_at_an_optional_tuple_renders_a_tuple() {
+    let source = source_for(
+        r"
+type Triple = [string, number[], boolean];
+
+export function build(label: string, flag: boolean): Triple | null {
+  if (!flag) {
+    return null;
+  }
+  return [label, [1, 2], flag];
+}
+",
+    );
+
+    // The enabling condition: the destination really is an optional tuple, so
+    // the literal has to travel through the `Optional` recursion to reach the
+    // tuple rendering.
+    assert!(
+        source.contains("-> Option<(String, SmeltList<f64>, bool)>"),
+        "the return really must be an optional tuple: {source}"
+    );
+    assert!(
+        source.contains("Some((label.clone(),"),
+        "an array literal at an optional tuple must render `Some((..))`: {source}"
+    );
+    // The homogeneous fallback would have annotated a Vec of one element type,
+    // which is what could not hold the heterogeneous elements.
+    assert!(
+        !source.contains("let smelt_list_items: Vec<String> = vec![label.clone()"),
+        "the literal must not go through the homogeneous Vec fallback: {source}"
     );
 }

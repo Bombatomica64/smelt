@@ -28,6 +28,26 @@ impl ModuleBuilder<'_> {
         symbol
     }
 
+    /// Intern an ECMAScript PRIVATE name (`#status`) in its own namespace.
+    ///
+    /// A private name is not a property name: `class C { #x; get x() {} }`
+    /// declares two entirely unrelated members, `obj['#x']` is `undefined`, and
+    /// a private name never appears in `Object.keys`/`JSON`. The parser hands
+    /// the bare text (`"x"`) for both spellings, so interning the private one
+    /// through [`Self::intern_source_name`] ALIASED them: the accessor pair on
+    /// Hono's `Context` (`get res()` / `set res()`) collided with its `#res`
+    /// slot, which made a read skip the getter, a write skip the setter, and —
+    /// once setters lowered — `set res(v) { this.#res = v }` recurse into
+    /// itself.
+    ///
+    /// Keeping the `#` in the symbol's identity is what separates them. The
+    /// Rust rendering is the sanitized form (`#res` -> `_res`), so a private
+    /// slot and a public property of the same source name are distinct struct
+    /// fields, and the `#` spelling is what a reader sees in a diagnostic.
+    pub(in crate::lowering) fn intern_private_name(&mut self, name: &str) -> smelt_hir::Symbol {
+        self.intern_source_name(&format!("#{name}"))
+    }
+
     /// Intern a generated source name without case-folding it.
     ///
     /// Synthetic object function-table entries need exact key spelling because
@@ -338,6 +358,18 @@ impl ModuleBuilder<'_> {
                 let ty = self.ctx.krate.types.intern(Type::Unknown);
                 return self.module_global_expression(name, ty, start, end, body);
             }
+            // A value import with no modeled runtime surface is a blocker at its
+            // first USE, not at its import: the import statement alone is free
+            // (an unused or type-position-only binding must not fail), while
+            // reading it as a value is the point where Smelt would otherwise
+            // fabricate an erased no-op. `missing-stdlib` is the bucket, because
+            // the gap is a host surface Smelt should grow.
+            if let Some(blocker) = self.imports.unresolved_value_import(name) {
+                return Err(SmeltError::missing_stdlib(
+                    self.span(start, end),
+                    blocker.to_owned(),
+                ));
+            }
             if self.imports.is_value(name) {
                 let ty = self.ctx.krate.types.intern(Type::Unknown);
                 return self.module_global_expression(name, ty, start, end, body);
@@ -353,6 +385,18 @@ impl ModuleBuilder<'_> {
                     ty,
                     span: self.span(start, end),
                 }));
+            }
+            // A name the profile declares ABSENT is not an unresolved
+            // identifier: Smelt knows the global and knows the non-DOM host
+            // does not have it. JavaScript reading such a name throws
+            // `ReferenceError`, and so does calling it, so the faithful
+            // lowering is a throw — not a blocker (the program is correct, and
+            // Hono's `hono-base.ts` calls `addEventListener` under its own
+            // `@ts-ignore` in a position that tolerates the throw) and
+            // certainly not an erased no-op (that would silently skip the
+            // registration and report nothing).
+            if smelt_stdlib::global_is_absent(name) {
+                return self.absent_global_throw(name, start, end, body);
             }
             return Err(SmeltError::for_unresolved_name(
                 self.span(start, end),
@@ -416,6 +460,50 @@ impl ModuleBuilder<'_> {
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::UnknownCast {
                     value: local_expr,
+                    target: ty,
+                },
+                ty,
+                span: self.span(start, end),
+            }));
+        }
+        // Narrowing an OPTIONAL UNION local to one CONCRETE arm takes two
+        // steps, and only both together are a value the backend can call a
+        // method on. `string | File | undefined` narrowed to `File` — the shape
+        // a `FormData` entry read has after a null check and a
+        // `typeof === "string"` check — needs the `Option` unwrapped AND the
+        // surviving union arm projected out of the payload. Each step alone is
+        // already supported: a bare local read at the payload type is the
+        // narrowing unwrap the backend renders as `.expect(..)`, and an
+        // `UnknownCast` off the payload is the arm projection. Emitting the
+        // read at the narrowed arm type directly left the local's
+        // `Option<SmeltUnion…>` in place and the generated Rust called the
+        // arm's methods straight on the `Option`.
+        //
+        // Only a NOMINAL CLASS arm takes this path, and the seam is what
+        // decides that. A class member is rendered as an INHERENT Rust method
+        // call on the raw receiver text — `blob_op_text` is
+        // `format!("{receiver}.file_name()")` — so nothing downstream can fix
+        // up a receiver of the wrong type, and the value has to already BE the
+        // arm. Every other arm shape reaches its members through a
+        // type-directed coercion (`value_at_type`) that unwraps the optional
+        // payload itself, so a second HIR step there buys nothing and its extra
+        // temporary just holds an erased value: 85 of those across es-toolkit's
+        // optional erased callbacks, which the erasure ratchet counts as
+        // avoidable.
+        if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(base_ty).cloned()
+            && ty != inner
+            && ty != base_ty
+            && matches!(self.ctx.krate.types.get(inner), Some(Type::Union(_)))
+            && matches!(self.ctx.krate.types.get(ty), Some(Type::Class { .. }))
+        {
+            let payload = body.push_expr(Expr {
+                kind: ExprKind::Local(local),
+                ty: inner,
+                span: self.span(start, end),
+            });
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::UnknownCast {
+                    value: payload,
                     target: ty,
                 },
                 ty,
@@ -610,18 +698,60 @@ impl ModuleBuilder<'_> {
             // the same transparent result, and `typeof Proxy === 'function'`
             // holds because the value is a real function.
             "Proxy" => self.transparent_proxy_value_closure_expression(span, outer_body),
-            // `encodeURI` used as a value (`values.map(encodeURI)`, a native-
-            // function table entry). The closure runs the same IR op as the
-            // direct-call lowering (`uri_encode_call`), with a concrete `string`
-            // parameter so the percent-encoding runs on the real string.
-            "encodeURI" => {
+            // A URI transcoding global used as a VALUE rather than called:
+            // `values.map(encodeURI)`, `tryDecode(str, decodeURI)` (Hono's
+            // `utils/url.ts`), a native-function table entry. The closure runs
+            // the same IR op as the direct-call lowering (`uri_encode_call`),
+            // with a concrete `string` parameter so the transcoding runs on the
+            // real string instead of an erased value.
+            "encodeURI" | "encodeURIComponent" | "decodeURI" | "decodeURIComponent" => {
+                let op = Self::uri_transcode_global(name)?;
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                // NOTE: the closure is deliberately NOT marked `may_throw`,
+                // even though a decoder can throw `URIError`. Marking it makes
+                // the value incompatible with the declared callback parameter
+                // type it is passed to — TypeScript has no way to spell "this
+                // callback throws", so `(value: string) => string` wins and the
+                // coercion adapter inserts an unwrap against a non-throwing
+                // Rust closure (E0599). A decoder called DIRECTLY inside a
+                // `try` is catchable (that is the `BuiltinFn::UriDecode`
+                // terminator); reached through a callback value it still
+                // aborts. Closing that needs `may_throw` inference through
+                // callback parameter types — see
+                // `blocker-logs/hono-fallible-ops.md` §8.
+                self.builtin_unary_closure_expression(
+                    string_ty,
+                    string_ty,
+                    span,
+                    outer_body,
+                    |value_expr| ExprKind::UriTranscode {
+                        op,
+                        operand: value_expr,
+                    },
+                )
+            }
+            // A base64 global used as a VALUE rather than called:
+            // `values.map(atob)`, a native-function table entry. The closure
+            // runs the same IR op the direct-call lowering does, with a
+            // concrete `string` parameter.
+            //
+            // NOTE: like the URI decoders above, the closure is deliberately
+            // NOT marked `may_throw` — TypeScript cannot spell "this callback
+            // throws", so the declared `(value: string) => string` wins and a
+            // `may_throw` closure would fail the coercion into it (E0599). A
+            // base64 call made DIRECTLY inside a `try` is catchable (that is
+            // the `BuiltinFn::Base64` terminator); reached through a callback
+            // value it still aborts, which is the same standing limitation.
+            "btoa" | "atob" => {
+                let op = Self::base64_global(name)?;
                 let string_ty = self.ctx.krate.types.intern(Type::String);
                 self.builtin_unary_closure_expression(
                     string_ty,
                     string_ty,
                     span,
                     outer_body,
-                    |value_expr| ExprKind::UriEncode {
+                    |value_expr| ExprKind::Base64Transcode {
+                        op,
                         operand: value_expr,
                     },
                 )
@@ -852,10 +982,20 @@ impl ModuleBuilder<'_> {
         end: u32,
         body: &mut Body,
     ) -> Option<smelt_hir::ExprId> {
-        if !matches!(
-            name,
-            "Math" | "JSON" | "Reflect" | "Atomics" | "Intl" | "Promise" | "Array" | "Function"
-        ) && !Self::is_known_defined_global_constructor(name)
+        // The namespace objects come from the registry
+        // (`smelt_stdlib::GLOBAL_NAMESPACES`) rather than from a list repeated
+        // here: a global that IS an object has the same three answers whatever
+        // Smelt models of its members (`typeof` is `"object"`, it is truthy,
+        // and it is not `undefined`), so every entry belongs to one rule.
+        // `crypto` was missing from the local list, which is why Hono's
+        // `if (crypto && crypto.subtle)` reported an unresolved identifier for a
+        // global whose members Smelt already lowers.
+        //
+        // `Promise`/`Array`/`Function` stay listed here: they are CONSTRUCTORS,
+        // not namespace objects, and keep the value model they had.
+        if smelt_stdlib::global_namespace(name).is_none()
+            && !matches!(name, "Promise" | "Array" | "Function")
+            && !Self::is_known_defined_global_constructor(name)
             && name != "Blob"
             && name != "ArrayBuffer"
             && name != "DOMException"
@@ -875,6 +1015,78 @@ impl ModuleBuilder<'_> {
             ty: unknown_ty,
             span,
         }))
+    }
+
+    /// Lower a member read of a modeled SUB-NAMESPACE (`crypto.subtle`).
+    ///
+    /// A namespace object's namespace-valued member is an object like its
+    /// parent, so the same three answers hold of it: `typeof crypto.subtle` is
+    /// `"object"`, it is truthy, and it is not `undefined`. Hono's `createHash`
+    /// is the shape that needs it — `if (crypto && crypto.subtle) { await
+    /// crypto.subtle.digest(..) }` — where an `undefined` member read would
+    /// take the else branch and skip the digest Smelt does model. The CALL
+    /// keeps its own rule; this is only the value.
+    ///
+    /// `None` for anything else, including a member the registry does not list
+    /// as a namespace, so an unmodeled property keeps whatever the ordinary
+    /// property paths answer for it.
+    pub(in crate::lowering) fn builtin_namespace_member_read(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        let namespace = self.builtin_namespace_receiver_name(&member.object)?;
+        if !smelt_stdlib::global_namespace_member_is_namespace(
+            &namespace,
+            member.property.name.as_str(),
+        ) {
+            return None;
+        }
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let span = self.span(member.span.start, member.span.end);
+        Some(body.push_expr(Expr {
+            kind: ExprKind::BuiltinNamespace {
+                name: format!("{namespace}.{}", member.property.name),
+            },
+            ty: unknown_ty,
+            span,
+        }))
+    }
+
+    /// The global namespace a member-read receiver names, if it names one.
+    ///
+    /// Both spellings of the same global: the bare name (`crypto.subtle`) and
+    /// the qualified one (`globalThis.crypto.subtle`). A name the module
+    /// declares or imports shadows the global and answers `None`, so a local
+    /// `const crypto = …` keeps its own meaning.
+    fn builtin_namespace_receiver_name(
+        &self,
+        receiver: &oxc::ast::ast::Expression<'_>,
+    ) -> Option<String> {
+        match receiver {
+            oxc::ast::ast::Expression::Identifier(identifier) => {
+                let name = identifier.name.as_str();
+                if self.scope.lookup(name).is_some()
+                    || self.imports.is_imported_binding(name)
+                    || self.items.contains_key(name)
+                {
+                    return None;
+                }
+                smelt_stdlib::global_namespace(name).map(|namespace| namespace.name.to_owned())
+            }
+            oxc::ast::ast::Expression::StaticMemberExpression(member) => {
+                let object = match &member.object {
+                    oxc::ast::ast::Expression::Identifier(identifier) => identifier.name.as_str(),
+                    _ => return None,
+                };
+                if !self.imports.is_global_object_alias(object) && object != "globalThis" {
+                    return None;
+                }
+                smelt_stdlib::global_namespace(member.property.name.as_str())
+                    .map(|namespace| namespace.name.to_owned())
+            }
+            _ => None,
+        }
     }
 
     /// Lower a bare `process` reference to the modeled Node `process` object.
@@ -1231,6 +1443,29 @@ impl ModuleBuilder<'_> {
         outer_body: &mut Body,
         make_body: impl FnOnce(smelt_hir::ExprId) -> ExprKind,
     ) -> smelt_hir::ExprId {
+        self.builtin_unary_closure_expression_with_throw(
+            param_ty, return_ty, span, outer_body, false, make_body,
+        )
+    }
+
+    /// [`Self::builtin_unary_closure_expression`], with the throwing flag.
+    ///
+    /// A builtin that can throw needs `may_throw: true` on the closure's
+    /// function type, or the propagation pass gives the indirect call no unwind
+    /// edge and the backend renders the fallible call as a panicking unwrap —
+    /// so `tryDecode(str, decodeURIComponent)` would abort where the source
+    /// wrote a `catch`. Separate from the plain constructor because five of its
+    /// six callers are infallible and threading a `false` through each of them
+    /// reads as noise.
+    pub(in crate::lowering) fn builtin_unary_closure_expression_with_throw(
+        &mut self,
+        param_ty: smelt_hir::TypeId,
+        return_ty: smelt_hir::TypeId,
+        span: Span,
+        outer_body: &mut Body,
+        may_throw: bool,
+        make_body: impl FnOnce(smelt_hir::ExprId) -> ExprKind,
+    ) -> smelt_hir::ExprId {
         let value_name = self.intern_source_name("value");
         let mut closure_body = Body::new(None, span);
         let value_local = closure_body.push_local(LocalDecl {
@@ -1259,7 +1494,7 @@ impl ModuleBuilder<'_> {
             mutable_params: Vec::new(),
             return_ty,
             is_async: false,
-            may_throw: false,
+            may_throw,
         }));
         outer_body.push_expr(Expr {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {
@@ -1461,10 +1696,63 @@ impl ModuleBuilder<'_> {
         if let Some(Type::Function(function)) = self.ctx.krate.types.get(ty).cloned() {
             return self.module_global_function_expression(&function, ty, start, end, body);
         }
-        if matches!(
-            self.ctx.krate.types.get(ty),
-            Some(Type::Class { .. } | Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) {
+        // A CLASS INSTANCE has no meaningful default. Fabricating one here —
+        // an empty erased record cast to the class — silently discarded the
+        // value the module's initializer produced, and emitted the cast at the
+        // record type rather than at `SmeltUnknown`, so the generated crate did
+        // not even compile (`blocker-logs/standards-module-const-host-value.md`).
+        //
+        // Such a binding now lifts to a module-global slot in
+        // `ModuleBuilder::collect_class_value_globals`, and the read resolves
+        // through `GlobalGet` before ever reaching here. What still arrives is
+        // a binding that pass could not lift, and for those a named blocker is
+        // the honest answer.
+        //
+        // An AMBIENT binding is the exception, and not an arbitrary one: a
+        // `declare const x: SomeInterface` has no initializer at all, so there
+        // is no value to lose. It is a claim that the HOST provides `x`, and
+        // when the profile models no such global the erased record IS the
+        // honest representation of an opaque host value — `declare const
+        // memoize: Memoize` reaching `new memoize.Cache()` is the shape that
+        // depends on it. The defect this blocker replaces was specifically a
+        // binding whose OWN initializer ran and was then thrown away.
+        // Scoped to a MODELED class — one the stdlib registry knows, whose
+        // values have a concrete generated Rust representation. Any other
+        // `Type::Class` keeps the erased record: a user class, and also an
+        // INTERSECTION ALIAS (`type C = A & B` lowers to a nominal class), for
+        // which the empty record is the existing representation and changing it
+        // is not what this fixes.
+        if let Some(Type::Class { name: class_name, .. }) = self.ctx.krate.types.get(ty)
+            && self.stdlib_class_of_type(ty).is_some()
+            && !self.ambient_value_declarations.contains(name)
+        {
+            let class = self
+                .ctx
+                .krate
+                .symbols
+                .get(*class_name)
+                .unwrap_or("<unknown>")
+                .to_owned();
+            return Err(SmeltError::unsupported(
+                self.span(start, end),
+                format!(
+                    "module-level binding `{name}` holds a `{class}` instance that cannot be \
+                     read from here; a class-typed module binding is read through a module \
+                     slot, which needs an initializer expression and a name the reading \
+                     function does not also bind itself"
+                ),
+            ));
+        }
+        // Every class-typed binding the blocker above did not claim keeps the
+        // erased record: an ambient one (host-provided, no initializer to lose),
+        // a user class, an intersection alias.
+        let is_record_class = matches!(self.ctx.krate.types.get(ty), Some(Type::Class { .. }));
+        if is_record_class
+            || matches!(
+                self.ctx.krate.types.get(ty),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            )
+        {
             let key_ty = self.ctx.krate.types.intern(Type::String);
             let value_ty = self.ctx.krate.types.intern(Type::Unknown);
             let dict_ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
@@ -1715,10 +2003,74 @@ impl ModuleBuilder<'_> {
                     span,
                 }));
             }
-            _ => {
+            // A function declared to return `never` cannot return a value at
+            // all, so a stub for it must not try: the honest body is a throw.
+            // This is the same shape an absent global lowers to, and it is
+            // reached whenever such a closure is forward-referenced.
+            Some(Type::Never) => {
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                let message = body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::String(
+                        "TypeError: a function declared `never` was called".to_owned(),
+                    )),
+                    ty: string_ty,
+                    span,
+                });
+                body.push_stmt(Stmt::Throw(message));
+                // The throw is the body's terminator, but the caller appends a
+                // `return`, so an expression of the declared type is still
+                // needed as the (unreachable) operand. `None` is the smallest
+                // one that type-checks and can never be observed.
+                let none_ty = self.ctx.krate.types.intern(Type::None);
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::None),
+                    ty: none_ty,
+                    span,
+                }));
+            }
+            // A union's default is the default of the arm that has one. `None`
+            // wins when the union admits it (`T | undefined` defaults to
+            // `undefined`, which is what JavaScript would answer); otherwise
+            // the first arm with a representable default is used, so a
+            // `string | number` stub answers `""` rather than blocking.
+            Some(Type::Union(arms)) => {
+                let none_ty = self.ctx.krate.types.intern(Type::None);
+                if arms.contains(&none_ty) {
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::None),
+                        ty: none_ty,
+                        span,
+                    }));
+                }
+                for arm in arms {
+                    if let Ok(value) = self.default_module_global_value(arm, span, body) {
+                        return Ok(value);
+                    }
+                }
                 return Err(SmeltError::unsupported(
                     span,
-                    "module-level function return type needs a supported default value",
+                    "module-level function returns a union with no representable default value",
+                ));
+            }
+            Some(Type::Set(_)) => ExprKind::SetLit(Vec::new()),
+            // Each element gets its own default, recursively.
+            Some(Type::Tuple(element_tys)) => {
+                let mut elements = Vec::with_capacity(element_tys.len());
+                for element_ty in element_tys {
+                    elements.push(self.default_module_global_value(element_ty, span, body)?);
+                }
+                ExprKind::TupleLit(elements)
+            }
+            // Naming the type is the difference between a blocker someone can
+            // act on and one that needs a debugger to reproduce; the round-1
+            // `JSON.stringify` diagnostic taught the same lesson.
+            other => {
+                return Err(SmeltError::unsupported(
+                    span,
+                    format!(
+                        "module-level function return type needs a supported default value \
+                         (got {other:?})"
+                    ),
                 ));
             }
         };
@@ -1839,6 +2191,78 @@ impl ModuleBuilder<'_> {
     pub(in crate::lowering) fn expression_span(&self, expression: &Expression<'_>) -> Span {
         let span = expression.span();
         self.span(span.start, span.end)
+    }
+
+    /// Lower a reference to a global the non-DOM profile declares absent into a
+    /// thrown `ReferenceError`.
+    ///
+    /// JavaScript has one answer for a name that is not defined, and it is the
+    /// same whether the name is read or called: `ReferenceError: X is not
+    /// defined`. Node throws it for the DOM `EventTarget` surface
+    /// (`addEventListener` and friends) exactly as it does for a typo, so this
+    /// is not a Smelt gap to report — the *program* is what throws.
+    ///
+    /// # Why a closure rather than a statement
+    ///
+    /// A reference appears in expression position (`addEventListener(a, b)`
+    /// resolves the callee first; `const f = addEventListener` reads it as a
+    /// value), and [`Stmt::Throw`] is a statement. Wrapping the throw in a
+    /// nullary closure that is the expression's value gives one lowering that
+    /// works in every position, and it is the same shape
+    /// `new Function(...)` already uses for unsupported dynamic evaluation.
+    /// The closure's type is marked `may_throw`, so the throwing-function
+    /// propagation pass gives it an unwind edge and an enclosing `try` can
+    /// catch it — the whole point of throwing rather than aborting.
+    fn absent_global_throw(
+        &mut self,
+        name: &str,
+        start: u32,
+        end: u32,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(start, end);
+        // The body unconditionally throws, so the closure returns `never`, not
+        // `unknown`. The distinction is load-bearing: a lifted closure with an
+        // `unknown` return type needs a default value to return on the
+        // fall-through path, and there is no sensible default — while `never`
+        // says correctly that there is no such path. Getting this wrong turned
+        // the `addEventListener` blocker into a "module-level function return
+        // type needs a supported default value" blocker in the same file.
+        let never_ty = self.ctx.krate.types.intern(Type::Never);
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let mut closure_body = Body::new(None, span);
+        let message = closure_body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String(format!(
+                "ReferenceError: {name} is not defined"
+            ))),
+            ty: string_ty,
+            span,
+        });
+        closure_body.push_stmt(Stmt::Throw(message));
+        let body_id = self.ctx.krate.push_body(closure_body);
+        let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params: Vec::new(),
+            rest: None,
+            required_params: None,
+            mutable_params: Vec::new(),
+            return_ty: never_ty,
+            is_async: false,
+            may_throw: true,
+        }));
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::Closure(smelt_hir::ClosureExpr {
+                params: Vec::new(),
+                rest: None,
+                required_params: None,
+                return_ty: never_ty,
+                captures: Vec::new(),
+                body: body_id,
+                function_item: None,
+                span,
+            }),
+            ty: closure_ty,
+            span,
+        }))
     }
 
     // Continued in the next split builder file.

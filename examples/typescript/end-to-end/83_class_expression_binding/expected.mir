@@ -1,0 +1,222 @@
+class __smelt_anon_class_1394 fields [Public items: List<T>] constructor Some(FuncId(1)) methods [FuncId(0)]
+class Counter fields [Hidden #hits: List<String>] constructor Some(FuncId(4)) methods [FuncId(2), FuncId(3)]
+class DeclaredReporting fields [] constructor Some(FuncId(5)) methods [FuncId(6)]
+class Reporting fields [] constructor Some(FuncId(7)) methods [FuncId(8)]
+class Boxed fields [Public items: List<T>] constructor Some(FuncId(10)) methods [FuncId(9)]
+
+fn push (FuncId(0)) -> Float
+  locals
+    %0 param this: __smelt_anon_class_1394<T>
+    %1 param item: T
+    %2 temp: List<T>
+    %3 temp: Float
+    %4 temp: Float
+  bb0:
+    %2 = copy %0.field6
+    %3 = list_push copy %2, copy %1
+    %0.field6 = move %2
+    %4 = len copy %0.field6
+    return move %4
+
+fn new (FuncId(1)) -> __smelt_anon_class_1394<T>
+  locals
+    %0 user this: __smelt_anon_class_1394<T>
+    %1 temp: List<T>
+  bb0:
+    %0 = struct4 {}
+    %1 = []
+    %0.field6 = move %1
+    return move %0
+
+fn add (FuncId(2)) -> None
+  locals
+    %0 param this: Counter
+    %1 param key: String
+    %2 temp: List<String>
+    %3 temp: Float
+  bb0:
+    %2 = copy %0.field13
+    %3 = list_push copy %2, copy %1
+    %0.field13 = move %2
+    return none
+
+fn tally (FuncId(3)) -> String
+  locals
+    %0 param this: Counter
+    %1 temp: String
+  bb0:
+    %1 = string_join copy %0.field13, ","
+    return move %1
+
+fn new (FuncId(4)) -> Counter
+  locals
+    %0 user this: Counter
+    %1 temp: List<String>
+  bb0:
+    %0 = struct1 {}
+    %1 = []
+    %0.field13 = move %1
+    return move %0
+
+fn new (FuncId(5)) -> DeclaredReporting
+  locals
+    %0 user this: DeclaredReporting
+    %1 user __smelt_super: Counter
+    %2 temp: Counter
+  bb0:
+    %0 = struct3 {}
+    %2 = call fn4() -> bb1
+  bb1:
+    %1 = move %2
+    %0.field13 = copy %1.field13
+    return move %0
+
+fn report (FuncId(6)) -> String
+  locals
+    %0 param this: DeclaredReporting
+    %1 temp: String
+  bb0:
+    %1 = call fn3(copy %0) -> bb1
+  bb1:
+    return move %1
+
+fn new (FuncId(7)) -> Reporting
+  locals
+    %0 user this: Reporting
+    %1 user __smelt_super: Counter
+    %2 temp: Counter
+  bb0:
+    %0 = struct2 {}
+    %2 = call fn4() -> bb1
+  bb1:
+    %1 = move %2
+    %0.field13 = copy %1.field13
+    return move %0
+
+fn report (FuncId(8)) -> String
+  locals
+    %0 param this: Reporting
+    %1 temp: String
+  bb0:
+    %1 = call fn3(copy %0) -> bb1
+  bb1:
+    return move %1
+
+fn push (FuncId(9)) -> Float
+  locals
+    %0 param this: Boxed<T>
+    %1 param item: T
+    %2 temp: List<T>
+    %3 temp: Float
+    %4 temp: Float
+  bb0:
+    %2 = copy %0.field6
+    %3 = list_push copy %2, copy %1
+    %0.field6 = move %2
+    %4 = len copy %0.field6
+    return move %4
+
+fn new (FuncId(10)) -> Boxed<T>
+  locals
+    %0 user this: Boxed<T>
+    %1 temp: List<T>
+  bb0:
+    %0 = struct12 {}
+    %1 = []
+    %0.field6 = move %1
+    return move %0
+
+fn main (FuncId(11)) -> None
+  locals
+    %0 user reporting: Reporting
+    %1 user declared: DeclaredReporting
+    %2 user numbers: Boxed<Float>
+    %3 temp: Reporting
+    %4 temp: None
+    %5 temp: None
+    %6 temp: String
+    %7 temp: String
+    %8 temp: None
+    %9 temp: DeclaredReporting
+    %10 temp: None
+    %11 temp: String
+    %12 temp: String
+    %13 temp: None
+    %14 temp: Boxed<Float>
+    %15 temp: Float
+    %16 temp: String
+    %17 temp: String
+    %18 temp: String
+    %19 temp: List<Float>
+    %20 temp: String
+    %21 temp: String
+    %22 temp: None
+    %23 temp: Bool
+    %24 temp: String
+    %25 temp: String
+    %26 temp: None
+    %27 temp: String
+    %28 temp: None
+    %29 temp: String
+    %30 temp: None
+    %31 temp: String
+    %32 temp: None
+  bb0:
+    %3 = call fn7() -> bb1
+  bb1:
+    %0 = move %3
+    %4 = call fn2(copy %0, "a") -> bb2
+  bb2:
+    %5 = call fn2(copy %0, "b") -> bb3
+  bb3:
+    %6 = call fn8(move %0) -> bb4
+  bb4:
+    %7 = "expression subclass: " + move %6
+    %8 = call @console_log(move %7) -> bb5
+  bb5:
+    %9 = call fn5() -> bb6
+  bb6:
+    %1 = move %9
+    %10 = call fn2(copy %1, "c") -> bb7
+  bb7:
+    %11 = call fn6(move %1) -> bb8
+  bb8:
+    %12 = "declared subclass: " + move %11
+    %13 = call @console_log(move %12) -> bb9
+  bb9:
+    %14 = call fn10() -> bb10
+  bb10:
+    %2 = move %14
+    %15 = call fn9(copy %2, 7.0) -> bb11
+  bb11:
+    %16 = primitive_cast_string move %15
+    %17 = "generic: " + move %16
+    %18 = move %17 + " "
+    %19 = copy %2.field6
+    %20 = primitive_cast_string copy %19[0.0]
+    %21 = move %18 + move %20
+    %22 = call @console_log(move %21) -> bb12
+  bb12:
+    %23 = instanceof move %2, class12
+    switch move %23 ? bb13 : bb14
+  bb13:
+    %24 = "yes"
+    goto bb15
+  bb14:
+    %24 = "no"
+    goto bb15
+  bb15:
+    %25 = "instanceof: " + move %24
+    %26 = call @console_log(move %25) -> bb16
+  bb16:
+    %27 = "typeof expression class: " + "function"
+    %28 = call @console_log(move %27) -> bb17
+  bb17:
+    %29 = "typeof declared class: " + "function"
+    %30 = call @console_log(move %29) -> bb18
+  bb18:
+    %31 = "typeof instance: " + "object"
+    %32 = call @console_log(move %31) -> bb19
+  bb19:
+    return none
+

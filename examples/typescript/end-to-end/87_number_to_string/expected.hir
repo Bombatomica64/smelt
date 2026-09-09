@@ -1,0 +1,127 @@
+module examples/typescript/end-to-end/87_number_to_string/input.ts (ModuleId(0))
+  body BodyId(0)
+  locals
+    %0 const values: List<Float>
+    %1 let value: Float
+    %2 const keyed: Dict<String, Float>
+  exprs
+    #0: Float = 0.0
+    #1: Float = 0.0
+    #2: Float = Neg #1
+    #3: Float = 1.0
+    #4: Float = 1.0
+    #5: Float = Neg #4
+    #6: Float = 0.5
+    #7: Float = 100.0
+    #8: Float = 1000000.0
+    #9: Float = 100000000000000000000.0
+    #10: Float = 1000000000000000000000.0
+    #11: Float = 10000000000000000000000.0
+    #12: Float = 0.000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000005
+    #13: Float = 0.000001
+    #14: Float = 0.0000001
+    #15: Float = 179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0
+    #16: Float = 0.1
+    #17: Float = 2.0
+    #18: Float = 3.0
+    #19: Float = Div #17, #18
+    #20: Float = 255.0
+    #21: Float = 1000000000000000000000.0
+    #22: Float = Neg #21
+    #23: Float = 0.00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001
+    #24: List<Float> = [#0, #2, #3, #5, #6, #7, #8, #9, #10, #11, #12, #13, #14, #15, #16, #19, #20, #22, #23]
+    #25: List<Float> = %0
+    #26: String = ""
+    #27: Float = %1
+    #28: String = Add #26, #27
+    #29: String = "|"
+    #30: String = Add #28, #29
+    #31: Float = %1
+    #32: String = primitive_cast_string #31
+    #33: String = Add #30, #32
+    #34: String = "|"
+    #35: String = Add #33, #34
+    #36: Float = %1
+    #37: String = primitive_cast_string #36
+    #38: String = Add #35, #37
+    #39: None = @0(console_log)
+    #40: None = call #39(#38)
+    #41: Float = 0.0
+    #42: Float = 0.0
+    #43: Float = Neg #42
+    #44: Float = 1000000000000000000000.0
+    #45: Float = 0.0000001
+    #46: None = @1(console_log)
+    #47: None = call #46(#41, #43, #44, #45)
+    #48: Float = 0.0
+    #49: Float = Neg #48
+    #50: String = primitive_cast_string #49
+    #51: String = ""
+    #52: Float = 0.0
+    #53: Float = Neg #52
+    #54: String = Add #51, #53
+    #55: None = @2(console_log)
+    #56: None = call #55(#50, #54)
+    #57: Float = NaN
+    #58: Float = inf
+    #59: Float = inf
+    #60: Float = Neg #59
+    #61: None = @3(console_log)
+    #62: None = call #61(#57, #58, #60)
+    #63: Float = NaN
+    #64: String = primitive_cast_string #63
+    #65: Float = inf
+    #66: String = primitive_cast_string #65
+    #67: Float = inf
+    #68: Float = Neg #67
+    #69: String = primitive_cast_string #68
+    #70: None = @4(console_log)
+    #71: None = call #70(#64, #66, #69)
+    #72: List<Float> = %0
+    #73: String = " "
+    #74: String = string_join #72, #73
+    #75: None = @5(console_log)
+    #76: None = call #75(#74)
+    #77: Dict<String, Float> = {}
+    #78: Dict<String, Float> = %2
+    #79: Float = 1000000000000000000000.0
+    #80: Float = #78[#79]
+    #81: Float = 1.0
+    #82: Dict<String, Float> = %2
+    #83: List<String> = dict_keys #82
+    #84: Float = 0.0
+    #85: String = #83[#84]
+    #86: None = @6(console_log)
+    #87: None = call #86(#85)
+    #88: String = "big"
+    #89: Float = 1000000000000000000000.0
+    #90: String = "small"
+    #91: Float = 0.0000001
+    #92: Dict<String, Float> = {#88: #89, #90: #91}
+    #93: String = json_stringify #92
+    #94: None = @7(console_log)
+    #95: None = call #94(#93)
+  stmts
+    s0: let %0: List<Float> = #24
+    s1: #40
+    s2: for %1 in #25 BlockId(1)
+    s3: #47
+    s4: #56
+    s5: #62
+    s6: #71
+    s7: #76
+    s8: let %2: Dict<String, Float> = #77
+    s9: #80 = #81
+    s10: #87
+    s11: #95
+
+interned types
+  t0 = Float
+  t1 = List<Float>
+  t2 = String
+  t3 = Unknown
+  t4 = Dict<String, Unknown>
+  t5 = List<Unknown>
+  t6 = Dict<String, Float>
+  t7 = None
+  t8 = List<String>

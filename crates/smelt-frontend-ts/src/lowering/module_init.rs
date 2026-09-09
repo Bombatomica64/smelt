@@ -11,6 +11,7 @@ use super::state::class_registry::ClassRegistry;
 use super::state::interface_registry::InterfaceRegistry;
 use super::state::const_registry::ConstRegistry;
 use super::state::function_registry::FunctionRegistry;
+use super::PendingHostImport;
 use super::state::import_scope::ImportScope;
 use super::state::local_scope::LocalScope;
 use super::state::type_scope::TypeScope;
@@ -41,9 +42,128 @@ use smelt_hir::{
 /// both assignment left-hand sides and increment/decrement arguments, since the
 /// default traversal routes both through a simple assignment target. Walking
 /// continues into nested nodes so function and method bodies are covered.
+/// Collects the identifiers READ inside a hoisted item body that the item does
+/// not bind itself.
+///
+/// The mirror of [`MutatedNameCollector`] for the read direction, and driven by
+/// the same hoisted-body traversal: a module-level binding read from a position
+/// that lowers to an ITEM (a function or class declaration, or a `const`
+/// arrow/function initializer) has no module-body local to read through, which
+/// is the condition [`ModuleBuilder::collect_class_value_globals`] lifts on.
+///
+/// # Shadowing
+///
+/// `bound` records every name the item introduces anywhere inside itself — a
+/// parameter, a `let`/`const`/`var`, a catch binding, a nested function's name
+/// — and [`Self::into_free_names`] subtracts it from the reads. A function
+/// whose PARAMETER happens to share a module binding's name does not read that
+/// module binding, and counting it would lift a binding nothing outside the
+/// module body ever looks at.
+///
+/// The subtraction ignores the block structure that would make shadowing exact,
+/// so the error is one-directional: a name both bound somewhere in the item AND
+/// read as the module binding elsewhere in it is treated as not read. That
+/// shape — one identifier meaning two different things in one function, one of
+/// them a module-level class instance — leaves the read on the old path, which
+/// is now a NAMED BLOCKER rather than a fabricated empty record, so the honest
+/// failure is what a miss produces.
+struct ReadNameCollector {
+    /// Identifier names referenced inside the item.
+    names: HashSet<String>,
+    /// Names the item binds itself, at any depth.
+    bound: HashSet<String>,
+}
+
+impl ReadNameCollector {
+    /// The names read but not bound by the item.
+    fn into_free_names(self) -> HashSet<String> {
+        let Self { names, bound } = self;
+        names.difference(&bound).cloned().collect()
+    }
+}
+
+impl<'a> oxc::ast_visit::Visit<'a> for ReadNameCollector {
+    fn visit_identifier_reference(
+        &mut self,
+        identifier: &oxc::ast::ast::IdentifierReference<'a>,
+    ) {
+        self.names.insert(identifier.name.as_str().to_owned());
+    }
+
+    fn visit_binding_identifier(&mut self, binding: &oxc::ast::ast::BindingIdentifier<'a>) {
+        self.bound.insert(binding.name.as_str().to_owned());
+    }
+}
+
+/// The names a module's statements assign to, and how deeply.
+///
+/// One pass collects all three sets so a module-level binding's treatment --
+/// a reassigned cell, a write THROUGH a cell, or a nested write the lowering
+/// still refuses -- is decided from the whole module rather than per statement.
 struct MutatedNameCollector {
     /// Names observed as an assignment or update target.
     names: HashSet<String>,
+    /// Names observed as the DIRECT base of a member or index assignment
+    /// target — `name[key] = …`, `name.field = …`, one projection deep.
+    ///
+    /// Tracked separately from [`Self::names`] because the two need different
+    /// treatments for a mutable global: reassigning the binding replaces the
+    /// cell's whole value (`GlobalSet`), while writing *through* it mutates the
+    /// value the cell holds. `Place::Global` lowers exactly this one-deep shape
+    /// by naming the cell as the assignment root, so these no longer block.
+    mutated_through: HashSet<String>,
+    /// Names reached as the base of a NESTED assignment target — `name[a][b] =
+    /// …`, `name.a.b = …`.
+    ///
+    /// Still blocks. The inner projection has to produce a value, and whether
+    /// that value shares storage with the cell is the handle-versus-value
+    /// question `Place::Global` exists to avoid asking; guessing it is how a
+    /// write gets silently lost. See `blocker-logs/hono-h6-place-global.md`.
+    mutated_through_nested: HashSet<String>,
+}
+
+impl MutatedNameCollector {
+    /// Record the root identifier of a member/index assignment target's object,
+    /// unwrapping the type-level wrappers that never change the value.
+    fn record_write_through_base(
+        &mut self,
+        object: &oxc::ast::ast::Expression<'_>,
+        direct: bool,
+    ) {
+        match object {
+            Expression::Identifier(identifier) => {
+                let name = identifier.name.as_str().to_owned();
+                if direct {
+                    self.mutated_through.insert(name);
+                } else {
+                    self.mutated_through_nested.insert(name);
+                }
+            }
+            // Type-level wrappers never change the value, so they do not make a
+            // direct write nested.
+            Expression::ParenthesizedExpression(parenthesized) => {
+                self.record_write_through_base(&parenthesized.expression, direct);
+            }
+            Expression::TSAsExpression(as_expr) => {
+                self.record_write_through_base(&as_expr.expression, direct);
+            }
+            Expression::TSSatisfiesExpression(satisfies) => {
+                self.record_write_through_base(&satisfies.expression, direct);
+            }
+            Expression::TSNonNullExpression(non_null) => {
+                self.record_write_through_base(&non_null.expression, direct);
+            }
+            // A nested base (`a[b][c] = …`, `a.b.c = …`) still bottoms out at a
+            // root identifier, and that root is the binding being mutated.
+            Expression::ComputedMemberExpression(member) => {
+                self.record_write_through_base(&member.object, false);
+            }
+            Expression::StaticMemberExpression(member) => {
+                self.record_write_through_base(&member.object, false);
+            }
+            _ => {}
+        }
+    }
 }
 
 impl<'a> oxc::ast_visit::Visit<'a> for MutatedNameCollector {
@@ -51,10 +171,17 @@ impl<'a> oxc::ast_visit::Visit<'a> for MutatedNameCollector {
         &mut self,
         target: &oxc::ast::ast::SimpleAssignmentTarget<'a>,
     ) {
-        if let oxc::ast::ast::SimpleAssignmentTarget::AssignmentTargetIdentifier(identifier) =
-            target
-        {
-            self.names.insert(identifier.name.as_str().to_owned());
+        match target {
+            oxc::ast::ast::SimpleAssignmentTarget::AssignmentTargetIdentifier(identifier) => {
+                self.names.insert(identifier.name.as_str().to_owned());
+            }
+            oxc::ast::ast::SimpleAssignmentTarget::ComputedMemberExpression(member) => {
+                self.record_write_through_base(&member.object, true);
+            }
+            oxc::ast::ast::SimpleAssignmentTarget::StaticMemberExpression(member) => {
+                self.record_write_through_base(&member.object, true);
+            }
+            _ => {}
         }
         oxc::ast_visit::walk::walk_simple_assignment_target(self, target);
     }
@@ -77,7 +204,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
             };
             let Some(class) = class else { continue };
             let Some(id) = &class.id else { continue };
-            let name = self.intern_type_name(id.name.as_str());
+            // Same symbol the declaration will use, so a crate-ambiguous class
+            // name attaches its predeclared method surface to ITS class rather
+            // than to the other module's class of the same spelling (see
+            // `module_qualified_class_name`).
+            let name = self
+                .module_qualified_class_name(id.name.as_str())
+                .unwrap_or_else(|| self.intern_type_name(id.name.as_str()));
             if self
                 .push_type_parameter_scope(class.type_parameters.as_deref())
                 .is_err()
@@ -121,6 +254,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         source: String,
         ctx: &'ctx mut HirCtx,
         specialization: Option<SpecializationData>,
+        excluded_modules: Vec<String>,
     ) -> Self {
         let (items, classes, interfaces) = Self::visible_items(ctx);
         let const_literals = Self::visible_const_literals(ctx);
@@ -168,6 +302,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             current_arguments_arities: Vec::new(),
             current_statement_block: None,
             deferred_postfix_updates: None,
+            class_expression_binding_name: None,
             asymmetric_matchers_lowered: 0,
             forward_referenced_locals: HashSet::new(),
             defining_local_functions: Vec::new(),
@@ -183,6 +318,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             ),
             functions: FunctionRegistry::new(function_overloads, function_rests),
             specialization,
+            pending_host_imports: Vec::new(),
+            excluded_modules,
         }
     }
 
@@ -270,6 +407,17 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let span = self.span(program.span.start, program.span.end);
         let mut body = Body::new(None, span);
         let mut errors = Vec::new();
+        // Top-level code is the program's ENTRY POINT, so it may await: the
+        // module body becomes the emitted `main`, which is a
+        // `#[tokio::main] async fn` whenever it needs to be. Awaiting here was
+        // rejected outright ("await expressions are only lowered inside async
+        // functions"), which is not a rule any runtime has -- ES modules have
+        // had top-level await since ES2022 and Node runs it.
+        //
+        // Restored after the body so a nested non-async function still rejects
+        // `await` in its own body.
+        let previous_async = self.current_async;
+        self.current_async = true;
 
         let mut module = Module::new(
             "main",
@@ -289,12 +437,15 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 self.import_declaration(import, &mut module);
             }
         }
+        let test_module = self.is_test_tier_program(program);
+        self.classify_pending_host_imports(test_module);
         let implemented_functions = implemented_function_names(program);
         self.shadow_cross_module_overloads(&implemented_functions);
         self.predeclare_type_alias_items(program);
         self.collect_module_enums(program);
         self.collect_module_globals(program);
         self.collect_mutable_globals(program, &mut module, &mut errors);
+        self.collect_class_value_globals(program, &mut module);
         // A module top-level `function Foo(){ this.a = … }` used with `new Foo()`,
         // `x instanceof Foo`, or `Foo.prototype.m = …` is a JavaScript
         // constructor function, not a plain function. Both name sets are handed
@@ -321,6 +472,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         self.collect_function_static_properties(program, &mut errors);
         let mut forward_arrow_consts = self.forward_arrow_const_names(program);
         forward_arrow_consts.extend(Self::object_namespace_arrow_const_names(program));
+        // An arrow that reads a module binding with REFERENCE IDENTITY cannot be
+        // lifted: see `identity_bearing_module_binding_names`.
+        self.retain_capturable_arrow_consts(program, &mut forward_arrow_consts);
         let mut pending_arrows = program
             .body
             .iter()
@@ -611,9 +765,112 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
         self.record_module_exports(&module, &previous_export_aliases);
 
+        self.current_async = previous_async;
+        // The body needs the async runtime when it awaits, or when it starts
+        // work the event loop must finish before the program exits: a floating
+        // promise (`run();` on an async function, whose result nobody awaits)
+        // or a timer. Without this the emitted `main` returned while the work
+        // sat queued, and an async top-level program printed nothing at all.
+        module.is_async = self.body_needs_async_runtime(&body);
+        if module.is_async {
+            self.append_module_exit_drain(&mut body, span);
+            // Every async body carries its await-point metadata; the module
+            // body is no exception, and MIR rejects an async body without it.
+            body.build_async_state_machine();
+        }
         let body_id = self.ctx.krate.push_body(body);
         module.body = Some(body_id);
         Ok(self.ctx.krate.push_module(module))
+    }
+
+    /// Append the event-loop drain that runs before the program exits.
+    ///
+    /// JavaScript does not exit while work is queued: Node drains its microtask
+    /// queue and runs due timers, which is why a floating promise
+    /// (`run();` on an async function) still prints there. Smelt returned from
+    /// `main` immediately, so such a program printed NOTHING.
+    ///
+    /// The drain is [`smelt_hir::AsyncOp::ExitDrain`] — the runtime's
+    /// run-until-idle entry, which polls queued promise tasks and fires due
+    /// timers until neither has anything left, AND THEN stays alive while a
+    /// referenced handle is open. Lowering it as the body's last statement
+    /// rather than wrapping the emitted `main` keeps it part of what the
+    /// program does: it composes with the body's own return, and it is an
+    /// ordinary awaited op, so the throwing analysis treats it like any other
+    /// and `main`'s signature stays consistent with its body.
+    ///
+    /// It used to be `await sleep(0)`, which is only the first half. Node also
+    /// keeps the process alive while a handle is open — a listening
+    /// `http.Server` is one — and with the drain spelled as a sleep,
+    /// `createServer(..).listen(3000)` returned from `main` immediately instead
+    /// of serving. A mid-program `await sleep(0)` must NOT wait on handles, so
+    /// the exit drain needed an operation of its own rather than a flag on
+    /// `Sleep`.
+    ///
+    /// A module body has no early `return` to skip it — `return` at module
+    /// scope is not legal TypeScript — so appending once at the end is enough.
+    fn append_module_exit_drain(&mut self, body: &mut Body, span: smelt_hir::Span) {
+        let none_ty = self.ctx.krate.types.intern(Type::None);
+        let future_ty = self.ctx.krate.types.intern(Type::Future(none_ty));
+        let sleep = body.push_expr(Expr {
+            kind: ExprKind::AsyncOp {
+                op: smelt_hir::AsyncOp::ExitDrain,
+                args: Vec::new(),
+            },
+            ty: future_ty,
+            span,
+        });
+        let awaited = body.push_expr(Expr {
+            kind: ExprKind::Await(sleep),
+            ty: none_ty,
+            span,
+        });
+        // `push_stmt` adds to the root block, which is the module body itself.
+        body.push_stmt(smelt_hir::Stmt::Expr(awaited));
+    }
+
+    /// Return whether a module body needs the async runtime.
+    ///
+    /// Three things put work on the event loop, and each means the entry point
+    /// cannot be a plain synchronous `fn main`:
+    ///
+    /// * an `await` -- the body suspends;
+    /// * a value of future type produced anywhere in it. A floating promise
+    ///   (`run();` where `run` is `async`) is exactly this: nothing awaits the
+    ///   future, so only a drain at exit can run it. Node drains its microtask
+    ///   queue before exiting, which is why the same program prints there;
+    /// * a timer, whose callback likewise runs on the loop.
+    ///
+    /// Deliberately a scan of the lowered body rather than a flag threaded
+    /// through every lowering path: the question is "did anything in here reach
+    /// the event loop", and a body that did cannot be missed by a scan of what
+    /// it actually produced.
+    fn body_needs_async_runtime(&self, body: &Body) -> bool {
+        body.exprs.iter().any(|expr| {
+            // An `AsyncOp` covers the timers (`Sleep`, `SetTimeout`) as well as
+            // the HTTP operations, so one arm answers for every op that reaches
+            // the loop directly.
+            if matches!(expr.kind, ExprKind::Await(_) | ExprKind::AsyncOp { .. }) {
+                return true;
+            }
+            // A `node:http` server is event-loop work with no `await` in sight:
+            // `createServer(handler).listen(3000)` is a complete Node program
+            // that runs forever, and its accept loop is a spawned task. Without
+            // this arm such a program emitted a SYNCHRONOUS `main` — no runtime
+            // for `spawn_local` to attach to, and no exit drain to keep the
+            // process alive — so it bound a socket and returned immediately.
+            if matches!(
+                expr.kind,
+                ExprKind::HttpCreateServer { .. } | ExprKind::HttpServerOp { .. }
+            ) {
+                return true;
+            }
+            // A value of FUTURE type anywhere in the body is a promise that
+            // something has to drive. The floating case is the one that was
+            // silently dropped: `run();` on an async function produces a future
+            // nobody awaits, and only a drain at exit runs it.
+            matches!(self.ctx.krate.types.get(expr.ty), Some(Type::Future(_)))
+        })
     }
 
     /// Record item exports lowered from the current source path.
@@ -717,23 +974,37 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
     /// Collect class names declared in the current module before lowering eager arrow bodies.
     pub(super) fn program_class_names(program: &Program<'_>) -> HashSet<String> {
-        program
-            .body
-            .iter()
-            .filter_map(|statement| {
-                let class = match statement {
-                    Statement::ClassDeclaration(class) => class,
-                    Statement::ExportDeclaration(export) => {
-                        let Declaration::ClassDeclaration(class) = &export.declaration else {
-                            return None;
-                        };
-                        class
-                    }
-                    _ => return None,
-                };
-                class.id.as_ref().map(|id| id.name.to_string())
-            })
-            .collect()
+        let mut names = HashSet::new();
+        for statement in &program.body {
+            let exported = match statement {
+                Statement::ExportDeclaration(export) => Some(&export.declaration),
+                _ => None,
+            };
+            let class = match (statement, exported) {
+                (Statement::ClassDeclaration(class), _) => Some(class.as_ref()),
+                (_, Some(Declaration::ClassDeclaration(class))) => Some(class.as_ref()),
+                _ => None,
+            };
+            if let Some(id) = class.and_then(|class| class.id.as_ref()) {
+                names.insert(id.name.to_string());
+            }
+            // `const Foo = class { … }` declares a class named `Foo` (see
+            // `ModuleBuilder::class_expression_binding_name`), so the name is
+            // pending from the prepass exactly like a `class Foo {}`
+            // declaration and a `new Foo()` lowered earlier in the module still
+            // resolves nominally.
+            let variable = match (statement, exported) {
+                (Statement::VariableDeclaration(variable), _) => Some(variable.as_ref()),
+                (_, Some(Declaration::VariableDeclaration(variable))) => Some(variable.as_ref()),
+                _ => None,
+            };
+            for declarator in variable.iter().flat_map(|variable| &variable.declarations) {
+                if let Some((name, _)) = Self::const_class_expression(declarator) {
+                    names.insert(name.to_owned());
+                }
+            }
+        }
+        names
     }
 
     /// Collect interface names declared in the current module before lowering.
@@ -1015,7 +1286,20 @@ impl<'ctx> ModuleBuilder<'ctx> {
         module: &mut Module,
         errors: &mut Vec<SmeltError>,
     ) {
-        let mutated = Self::collect_mutated_names(program);
+        let (reassigned, mutated_through, mutated_through_nested) =
+            Self::collect_mutated_names(program);
+        // A binding is module state if it is mutated AT ALL, and a write
+        // *through* it counts: `let cache: Record<string, number> = {}` that is
+        // only ever `cache[k] = v` is still state that every function shares.
+        // Before `Place::Global` such a binding could not be lowered anyway, so
+        // requiring a whole-binding reassignment to lift it was harmless; now
+        // it would silently leave the write on a module-local copy, which is
+        // exactly the class of defect this family exists to prevent.
+        let mutated: HashSet<String> = reassigned
+            .into_iter()
+            .chain(mutated_through.iter().cloned())
+            .chain(mutated_through_nested.iter().cloned())
+            .collect();
         if mutated.is_empty() {
             return;
         }
@@ -1025,6 +1309,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     self.register_mutable_global_decl(
                         variable,
                         &mutated,
+                        &mutated_through_nested,
                         Visibility::Private,
                         module,
                         errors,
@@ -1035,6 +1320,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         self.register_mutable_global_decl(
                             variable,
                             &mutated,
+                            &mutated_through_nested,
                             Visibility::Public,
                             module,
                             errors,
@@ -1046,11 +1332,198 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
+    /// Lift each module-level binding whose value is a CLASS INSTANCE to the
+    /// same module-global slot the mutable-global family uses.
+    ///
+    /// The rule is stated over the binding's TYPE, not over any class list or
+    /// any library spelling: a module-level binding typed `Type::Class` is
+    /// lifted when it is not already a mutable global and its initializer is a
+    /// real expression. That covers every modeled host class (`Headers`,
+    /// `URLSearchParams`, `Request`, `Response`, `TextEncoder`,
+    /// `TextDecoder`, `Blob`/`File`, …) and every user class alike.
+    ///
+    /// # Why a slot, and not the const-inlining path
+    ///
+    /// A `const` binding normally reaches its use sites by having its
+    /// initializer expression CLONED into each of them
+    /// (`ModuleBuilder::const_item_expression`), which is what lets a const of
+    /// any expression shape cross a module boundary. For a class instance that
+    /// is not merely a cost — it is a WRONG VALUE. Every non-primitive in the
+    /// generated runtime carries a JavaScript reference identity, so
+    ///
+    /// ```ts
+    /// const headers = new Headers({ "content-type": "text/plain" });
+    /// function add() { headers.set("x-extra", "1"); }
+    /// function read() { return headers.get("x-extra"); }
+    /// ```
+    ///
+    /// has ONE header list that both functions see. Re-running the initializer
+    /// per use site gives each function its own, so the write is invisible to
+    /// the read. The const's STORAGE, not its expression, is what has to be
+    /// shared — which is exactly what a module-global slot is. A `GlobalGet`
+    /// hands back `.borrow().clone()`, and a runtime clone PRESERVES reference
+    /// identity (it shares the `Rc` interior; `fresh_copy()` is the separate
+    /// seam that mints a new one), so the slot gives the source's single object
+    /// with no new mechanism.
+    ///
+    /// # What it replaces
+    ///
+    /// Before this pass such a binding was registered only in
+    /// `module_globals`, and `ModuleBuilder::module_global_expression`
+    /// fabricated the declared type's DEFAULT for it: an empty `DictLit`
+    /// wrapped in an `UnknownCast`. That was wrong twice over — the
+    /// initializer's value was silently gone, AND the cast was emitted at the
+    /// record type rather than at `SmeltUnknown`, so the generated crate did
+    /// not even compile (`blocker-logs/standards-module-const-host-value.md`).
+    ///
+    /// A `let`/`var` that IS mutated has already been lifted by
+    /// [`Self::collect_mutable_globals`]; one that is not is a `const` in all
+    /// but spelling and lifts here, so the rule does not depend on which
+    /// keyword the source used.
+    fn collect_class_value_globals(&mut self, program: &Program<'_>, module: &mut Module) {
+        let read_in_items = Self::collect_hoisted_body_reads(program);
+        if read_in_items.is_empty() {
+            return;
+        }
+        for statement in &program.body {
+            match statement {
+                Statement::VariableDeclaration(variable) => {
+                    self.register_class_value_global_decl(
+                        variable,
+                        &read_in_items,
+                        Visibility::Private,
+                        module,
+                    );
+                }
+                Statement::ExportDeclaration(export) => {
+                    if let Declaration::VariableDeclaration(variable) = &export.declaration {
+                        self.register_class_value_global_decl(
+                            variable,
+                            &read_in_items,
+                            Visibility::Public,
+                            module,
+                        );
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Lift each class-instance binding in one declaration to a module global.
+    ///
+    /// Registers the item with a [`smelt_hir::MutableGlobalInit::Pending`]
+    /// initializer; the expression is lowered into its own nullary function
+    /// item when the module body reaches this same declarator, by the shared
+    /// [`Self::lower_pending_mutable_global_init`].
+    fn register_class_value_global_decl(
+        &mut self,
+        decl: &oxc::ast::ast::VariableDeclaration<'_>,
+        read_in_items: &HashSet<String>,
+        visibility: Visibility,
+        module: &mut Module,
+    ) {
+        // An ambient declaration never creates a binding, and its name resolves
+        // through the host rather than through a slot of ours.
+        if decl.declare {
+            return;
+        }
+        for declarator in &decl.declarations {
+            let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
+                continue;
+            };
+            let name = binding.name.as_str();
+            // The condition the whole pass turns on: the binding is READ from a
+            // hoisted item body, where there is no module-body local to read
+            // through. A binding used only in module-body statements keeps its
+            // ordinary local and lowers byte-identically to before, which is
+            // what confines this change to the shape that was broken.
+            if !read_in_items.contains(name) {
+                continue;
+            }
+            // Already a mutable global: that pass owns the slot.
+            if self.mutable_global_items.contains_key(name) {
+                continue;
+            }
+            // A binding whose name already resolves to some other module item
+            // (a function, a class declaration, a const item) is not ours.
+            if self.items.contains_key(name) {
+                continue;
+            }
+            let Some(init) = &declarator.init else {
+                continue;
+            };
+            // A class-typed binding whose initializer is a FUNCTION is a
+            // callable, not an instance, and reaches its uses through the
+            // function-value path.
+            if matches!(
+                init,
+                Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)
+            ) {
+                continue;
+            }
+            // A binding some OTHER const path already lowers is not ours. The
+            // regexp path is the one that matters: `const P = /x/g` read from
+            // two functions deliberately rebuilds its `SmeltRegExp` wrapper at
+            // each use site, because `lastIndex` is observable per object and a
+            // shared wrapper would fuse two source objects' scan positions —
+            // see `blocker-logs/module-const-construction-cost.md`, which
+            // measured that decision. A slot would be the more faithful
+            // reading of `const P = /x/g` (JavaScript really does have ONE
+            // object there), but changing it is that note's decision to revisit,
+            // not this pass's to override silently.
+            if self.consts.regexp(name).is_some()
+                || self.consts.literal(name).is_some()
+                || self.consts.object(name).is_some()
+                || self.consts.collection(name).is_some()
+            {
+                continue;
+            }
+            // The type `collect_module_globals` already inferred for this
+            // binding is the one the slot gets, so the slot and the old
+            // fabricated default agree on the type and only the VALUE changes.
+            let Some(ty) = self.module_globals.get(name).copied() else {
+                continue;
+            };
+            // A MODELED class: one whose values have a concrete generated Rust
+            // representation carrying a JavaScript reference identity, which the
+            // stdlib registry answers. That is exactly the set whose reads
+            // fabricated an empty erased record, and exactly the set for which
+            // per-use re-creation loses a shared object.
+            //
+            // A USER class instance at module scope has the same fabricated
+            // default and plausibly the same fix, but its representation and its
+            // identity rules are the class emitter's, not the registry's, so it
+            // is left on the existing path rather than moved on an untested
+            // assumption. It now fails with the named blocker in
+            // `module_global_expression` instead of a wrong value.
+            if self.stdlib_class_of_type(ty).is_none() {
+                continue;
+            }
+            let span = self.span(binding.span.start, binding.span.end);
+            let symbol = self.intern_source_name(name);
+            let item = self
+                .ctx
+                .krate
+                .push_item(Item::MutableGlobal(smelt_hir::MutableGlobalItem {
+                    name: symbol,
+                    ty,
+                    init: smelt_hir::MutableGlobalInit::Pending,
+                    visibility,
+                    span,
+                }));
+            module.items.push(item);
+            self.items.insert(name.to_owned(), item);
+            self.mutable_global_items.insert(name.to_owned(), item);
+        }
+    }
+
     /// Lift each mutated identifier binding in one declaration to a global.
     fn register_mutable_global_decl(
         &mut self,
         decl: &oxc::ast::ast::VariableDeclaration<'_>,
         mutated: &HashSet<String>,
+        mutated_through_nested: &HashSet<String>,
         visibility: Visibility,
         module: &mut Module,
         errors: &mut Vec<SmeltError>,
@@ -1079,29 +1552,74 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }
             let span = self.span(binding.span.start, binding.span.end);
             let Some(init) = &declarator.init else {
+                // `let x;` with no initializer is `undefined`, which has no
+                // type to give the cell. Left as a blocker rather than guessed.
                 errors.push(SmeltError::unsupported(
                     span,
                     "module-level mutable binding initializer must be a literal for now",
                 ));
                 continue;
             };
-            let Some(literal) = self.mutable_global_literal_init(init) else {
-                errors.push(SmeltError::unsupported(
-                    span,
-                    "module-level mutable binding initializer must be a literal for now",
-                ));
-                continue;
+            // A literal initializer is stored inline. Anything else is an
+            // EXPRESSION that has to run, and it cannot be lowered here: this
+            // pass runs before imports and function items are resolvable (see
+            // `Self::program`), so `let cache: Record<string, RegExp> =
+            // createNullObject()` would resolve its callee to an erased import
+            // placeholder. The item is registered `Pending` — reads and writes
+            // of the binding need it now — and the initializer is lowered when
+            // the module body reaches this same declaration.
+            let (init_kind, literal_ty) = match self.mutable_global_literal_init(init) {
+                Some(literal) => (
+                    smelt_hir::MutableGlobalInit::Literal(literal.literal.clone()),
+                    Some(literal.ty),
+                ),
+                None => (smelt_hir::MutableGlobalInit::Pending, None),
             };
-            let ty = match &declarator.type_annotation {
-                Some(annotation) => self
+            let ty = match (&declarator.type_annotation, literal_ty) {
+                (Some(annotation), fallback) => self
                     .ts_type_to_hir(&annotation.type_annotation)
-                    .unwrap_or(literal.ty),
-                None => literal.ty,
+                    .ok()
+                    .or(fallback),
+                (None, fallback) => fallback,
             };
-            if !self.mutable_global_type_is_primitive(ty) {
+            let Some(ty) = ty else {
+                // No annotation and no literal to infer from: the cell's type
+                // is genuinely unknown at this point in the pass order. An
+                // honest blocker rather than an erased cell.
                 errors.push(SmeltError::unsupported(
                     span,
-                    "module-level mutable bindings support primitive types for now",
+                    "module-level mutable binding with a non-literal initializer needs an \
+                     explicit type annotation",
+                ));
+                continue;
+            };
+            // A ONE-DEEP write through the binding (`cache[key] = value`,
+            // `cache.field = value`) is lowered: `Place::Global` names the
+            // cell as the assignment root, so the mutation happens inside the
+            // cell and no copy is made. See
+            // `blocker-logs/hono-h6-place-global.md`.
+            //
+            // A NESTED write (`cache[a][b] = value`) still blocks. Its inner
+            // projection has to produce a value, and whether that value shares
+            // storage with the cell is the handle-versus-value question
+            // `Place::Global` exists to avoid asking — a `SmeltRecord` clone
+            // shares the store while a `HashMap` clone deep-copies, so
+            // guessing loses the write for one of them with no diagnostic.
+            // A `Copy` primitive can be written through at neither depth, so
+            // the restriction is exactly: a non-`Copy` global written through a
+            // nested projection.
+            let is_copy_primitive = matches!(
+                self.ctx.krate.types.get(ty),
+                Some(Type::Float | Type::Int | Type::Bool)
+            );
+            if !is_copy_primitive && mutated_through_nested.contains(name) {
+                errors.push(SmeltError::unsupported(
+                    span,
+                    format!(
+                        "module-level mutable binding `{name}` is written through a nested \
+                         projection (`{name}[a][b] = …` or `{name}.a.b = …`); only a \
+                         one-deep write through a non-primitive mutable global is lowered"
+                    ),
                 ));
                 continue;
             }
@@ -1109,7 +1627,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             let item = self.ctx.krate.push_item(Item::MutableGlobal(smelt_hir::MutableGlobalItem {
                 name: symbol,
                 ty,
-                init: literal.literal.clone(),
+                init: init_kind,
                 visibility,
                 span,
             }));
@@ -1117,6 +1635,90 @@ impl<'ctx> ModuleBuilder<'ctx> {
             self.items.insert(name.to_owned(), item);
             self.mutable_global_items.insert(name.to_owned(), item);
         }
+    }
+
+    /// Lower a mutable global's non-literal initializer, once the module body
+    /// reaches the binding's own declaration.
+    ///
+    /// The initializer becomes a synthesized nullary function item returning
+    /// the expression, and the global's `init` moves from
+    /// [`smelt_hir::MutableGlobalInit::Pending`] to `Initializer(item)`. Going
+    /// through a real function item means the expression reaches codegen by the
+    /// ordinary function path — MIR assigns it a `FuncId`, the emitter emits its
+    /// body — and the cell's lazy initializer only has to call it.
+    ///
+    /// Called from the declarator-skip site (see
+    /// [`Self::is_lifted_global_declarator`]), which is where the binding's own
+    /// declaration is recognized and otherwise dropped. Returns `Ok(())` for a
+    /// global whose initializer is already a literal, so the caller does not
+    /// have to know which kind it is.
+    pub(in crate::lowering) fn lower_pending_mutable_global_init(
+        &mut self,
+        name: &str,
+        init: &Expression<'_>,
+    ) -> Result<(), SmeltError> {
+        let Some(item) = self.mutable_global_items.get(name).copied() else {
+            return Ok(());
+        };
+        let (global_ty, span) = match self.item_ref(item) {
+            Item::MutableGlobal(global)
+                if matches!(global.init, smelt_hir::MutableGlobalInit::Pending) =>
+            {
+                (global.ty, global.span)
+            }
+            _ => return Ok(()),
+        };
+        let mut init_body = Body::new(None, span);
+        // The initializer becomes a SEPARATE function item, so the module
+        // body's locals are not in scope inside it — and its `LocalId`s do not
+        // even exist in this fresh body, so leaving them registered makes name
+        // resolution hand back an id that indexes nothing (it panicked in
+        // `local_ty`). Emptying the scope for the duration is both the fix and
+        // the correct rule: an initializer that references a module-body local
+        // now reports an unresolved name instead of mis-resolving one.
+        let saved_locals = self.scope.take_bindings();
+        let lowered = self.expression_with_hint(init, &mut init_body, Some(global_ty));
+        self.scope.restore_bindings(saved_locals);
+        let value = lowered?;
+        init_body.push_stmt(smelt_hir::Stmt::Return(Some(value)));
+        let body_id = self.ctx.krate.push_body(init_body);
+        // The synthesized name is derived from the binding and the global's own
+        // HIR item index, so two modules' same-named globals get distinct
+        // initializers, and is interned exactly so no later name-keyed lookup
+        // can collide with a source function.
+        //
+        // The index, not the module PATH: the path is absolute, so putting it in
+        // a symbol both leaked a build-machine filesystem path into every
+        // generated crate and made any golden containing the symbol
+        // unreproducible outside the directory it was generated in. The item
+        // index is unique crate-wide and deterministic for a given program,
+        // which is all the disambiguation this needs.
+        let init_name = self.intern_source_name(&format!("smelt_global_init__{name}__{}", item.0));
+        let init_item = self
+            .ctx
+            .krate
+            .push_item(Item::Function(smelt_hir::Function {
+                name: init_name,
+                span,
+                type_params: Vec::new(),
+                params: Vec::new(),
+                rest: None,
+                required_params: Some(0),
+                return_ty: global_ty,
+                is_async: false,
+                is_test: false,
+                body: Some(body_id),
+                owner: smelt_hir::FunctionOwner::Module,
+            }));
+        if let Some(Item::MutableGlobal(global)) = self
+            .ctx
+            .krate
+            .items
+            .get_mut(usize::try_from(item.0).unwrap_or(usize::MAX))
+        {
+            global.init = smelt_hir::MutableGlobalInit::Initializer(init_item);
+        }
+        Ok(())
     }
 
     /// Accept only a direct number/string/bool literal initializer (through
@@ -1151,14 +1753,6 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
-    /// Return whether a lowered type is a primitive a mutable global supports.
-    fn mutable_global_type_is_primitive(&self, ty: smelt_hir::TypeId) -> bool {
-        matches!(
-            self.ctx.krate.types.get(ty),
-            Some(Type::Float | Type::Int | Type::Bool | Type::String)
-        )
-    }
-
     /// Collect the names of every binding reassigned or updated inside a
     /// hoisted item body: top-level function declarations, class declarations,
     /// and `const` arrow/function initializers (all of which lower to items
@@ -1172,10 +1766,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// over-approximation (it ignores inner shadowing scopes), which is
     /// sufficient to decide which module-level `let`/`var` bindings need the
     /// mutable-global lift.
-    fn collect_mutated_names(program: &Program<'_>) -> HashSet<String> {
+    fn collect_mutated_names(
+        program: &Program<'_>,
+    ) -> (HashSet<String>, HashSet<String>, HashSet<String>) {
         use oxc::ast_visit::Visit;
         let mut collector = MutatedNameCollector {
             names: HashSet::new(),
+            mutated_through: HashSet::new(),
+            mutated_through_nested: HashSet::new(),
         };
         for statement in &program.body {
             let declaration = match statement {
@@ -1208,7 +1806,100 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 _ => {}
             }
         }
-        collector.names
+        (
+            collector.names,
+            collector.mutated_through,
+            collector.mutated_through_nested,
+        )
+    }
+
+    /// Collect every identifier name read inside a hoisted item body.
+    ///
+    /// Same statement dispatch as [`Self::collect_mutated_names`] — top-level
+    /// function and class declarations, exported or not, plus `const`
+    /// arrow/function initializers — because "positions that lower to an item"
+    /// is the same set for reads as for writes. Statements of the module body
+    /// itself are NOT visited: a binding used only there keeps its ordinary
+    /// module-body local and lowers byte-identically to before.
+    fn collect_hoisted_body_reads(program: &Program<'_>) -> HashSet<String> {
+        use oxc::ast_visit::Visit;
+        let mut collector = ReadNameCollector {
+            names: HashSet::new(),
+            bound: HashSet::new(),
+        };
+        for statement in &program.body {
+            let declaration = match statement {
+                Statement::FunctionDeclaration(function) => {
+                    collector.visit_function(function, oxc::semantic::ScopeFlags::Function);
+                    continue;
+                }
+                Statement::ClassDeclaration(class) => {
+                    collector.visit_class(class);
+                    continue;
+                }
+                Statement::VariableDeclaration(decl) => {
+                    Self::collect_hoisted_reads_in_const_callables(&mut collector, decl);
+                    continue;
+                }
+                Statement::ExportDeclaration(export) => Some(&export.declaration),
+                Statement::ExportDefaultDeclaration(_) => None,
+                _ => None,
+            };
+            match declaration {
+                Some(Declaration::FunctionDeclaration(function)) => {
+                    collector.visit_function(function, oxc::semantic::ScopeFlags::Function);
+                }
+                Some(Declaration::ClassDeclaration(class)) => {
+                    collector.visit_class(class);
+                }
+                Some(Declaration::VariableDeclaration(decl)) => {
+                    Self::collect_hoisted_reads_in_const_callables(&mut collector, decl);
+                }
+                _ => {}
+            }
+        }
+        collector.into_free_names()
+    }
+
+    /// Scan module `const` initializers that are REPLAYED inside item bodies.
+    ///
+    /// Two shapes qualify, and for one reason: their initializer expression is
+    /// re-lowered at each use site rather than evaluated once into a
+    /// module-body local, so an identifier it reads is read from wherever that
+    /// use site is — inside a hoisted item body, where there is no module-body
+    /// local to read through.
+    ///
+    /// * an arrow/function initializer, whose body runs at each call;
+    /// * an object or array/`as const` literal, which `self.consts` records and
+    ///   rebuilds per use (`const DATA = { view: VIEW }` read by
+    ///   `Object.values(DATA)` from another item rebuilds the literal there, and
+    ///   with it the read of `VIEW`).
+    ///
+    /// Missing the second shape is what made a module-level
+    /// `const VIEW = new Uint8Array(1)` referenced from an exported object
+    /// literal report the class-typed-module-binding blocker: the slot pass
+    /// declined the binding because it saw no item-body read, and then the read
+    /// happened in an item body anyway.
+    fn collect_hoisted_reads_in_const_callables(
+        collector: &mut ReadNameCollector,
+        decl: &oxc::ast::ast::VariableDeclaration<'_>,
+    ) {
+        use oxc::ast_visit::Visit;
+        if decl.kind != oxc::ast::ast::VariableDeclarationKind::Const {
+            return;
+        }
+        for declarator in &decl.declarations {
+            if let Some(
+                init @ (Expression::ArrowFunctionExpression(_)
+                | Expression::FunctionExpression(_)
+                | Expression::ObjectExpression(_)
+                | Expression::ArrayExpression(_)
+                | Expression::TSAsExpression(_)),
+            ) = &declarator.init
+            {
+                collector.visit_expression(init);
+            }
+        }
     }
 
     /// Scan `const name = <arrow/function>` initializers for mutation targets.
@@ -2314,7 +3005,16 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 self.imports.mark_type_only(local.clone());
             } else {
                 self.imports.mark_value(local.clone());
-                if source == "@date-fns/tz" && imported == "tz" {
+                // `tz` from `@date-fns/tz` is a MODELED host-module export (see
+                // `smelt_stdlib::host_modules`); the factory marker is driven by
+                // that registry rather than by a package-name test here, so a
+                // package spelling lives in exactly one place.
+                if matches!(
+                    smelt_stdlib::host_module_export(source, &imported),
+                    Some(export)
+                        if export.surface == smelt_stdlib::HostSurface::Modeled
+                            && imported == "tz"
+                ) {
                     self.imports.mark_date_fns_timezone_factory(local.clone());
                 }
                 // An imported binding that the source module resolved to the
@@ -2323,6 +3023,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     self.imports.mark_global_object_alias(local.clone());
                 }
             }
+            self.imports
+                .record_import_source(local.clone(), source.to_owned());
             let name = self.intern_source_name(&imported);
             let alias = (local != imported).then(|| self.intern_source_name(&local));
             module.imports.push(Import {
@@ -2338,11 +3040,124 @@ impl<'ctx> ModuleBuilder<'ctx> {
             } else if imported != "*" {
                 self.alias_imported_item(source, &imported, &local);
                 if !self.imports.is_type_only(&local) && !self.import_alias_resolved(&local) {
-                    let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
-                    self.module_globals.insert(local.clone(), unknown_ty);
+                    self.pending_host_imports.push(PendingHostImport {
+                        module: source.to_owned(),
+                        imported: imported.clone(),
+                        local: local.clone(),
+                    });
                 }
             }
         }
+    }
+
+    /// Classify the value imports that resolved to no local source item.
+    ///
+    /// Runs once, after every import statement of the module has been seen, so
+    /// the decision can depend on the module as a whole (see the test-tier
+    /// carve-out below) rather than on statement order. Each pending binding
+    /// falls into one of three cases, decided by the host-module registry
+    /// (`smelt_stdlib::host_modules`) rather than by package-name tests:
+    ///
+    /// - the module models the export: the binding keeps the erased module
+    ///   global it has always had, because the rule that models the export
+    ///   recognizes the *use* site, not the binding;
+    /// - the module is modeled but the export is only declared: the binding
+    ///   records the blocker its first use must report, and deliberately gets
+    ///   NO module global. Inserting `Type::Unknown` here is what let
+    ///   `import { DatabaseSync } from "node:sqlite"` transpile into a crate of
+    ///   no-op dynamic lookups with zero blockers;
+    /// - the module is not modeled at all: same blocker, *except* in the test
+    ///   tier and for relative specifiers (both below).
+    ///
+    /// # Two deliberate carve-outs
+    ///
+    /// A **relative or absolute specifier** (`./falsey`, `/abs/x`) never blocks:
+    /// by construction it names a source file, which the manifest resolver owns.
+    /// A module lowered on its own (a unit test, or one file of a larger graph)
+    /// legitimately sees such an import unresolved, and that is not a host-module
+    /// gap.
+    ///
+    /// The one exception is a specifier the manifest *excluded*: there the
+    /// resolver deliberately produced no source file, so the carve-out's
+    /// premise does not hold, and using an imported value has to report the
+    /// exclusion instead of erasing the binding. That check runs first.
+    ///
+    /// A **test module** never blocks either. Test code routinely reaches for
+    /// assertion and fixture libraries Smelt does not model (`chai`, `yup`,
+    /// `@date-fns/utc`), and those values only ever flow into matchers that are
+    /// already erased. `CLAUDE.md` sanctions exactly this exception ("everything
+    /// must lower through general rules, except test functions"). Program code
+    /// gets no such pass: a framework import that drives the program is the
+    /// false green this classification exists to stop.
+    fn classify_pending_host_imports(&mut self, test_module: bool) {
+        let pending = std::mem::take(&mut self.pending_host_imports);
+        for candidate in pending {
+            // A specifier the manifest excluded is neither a missing file nor a
+            // host package: the scope decision is recorded, so the blocker can
+            // name it precisely. This runs BEFORE the relative-specifier
+            // carve-out below, which exists for source files the manifest
+            // resolver owns — an excluded module is exactly the case where the
+            // resolver deliberately did not produce one. Type-only imports
+            // never reach here (the push site skips them), so `import type`
+            // and `export type` re-exports from an excluded module stay free,
+            // which is what keeps a barrel's type surface usable.
+            if self.excluded_modules.contains(&candidate.module) {
+                let blocker = format!(
+                    "`{name}` is imported from `{module}`, which the manifest excludes",
+                    name = candidate.imported,
+                    module = candidate.module,
+                );
+                self.imports
+                    .mark_unresolved_value_import(candidate.local, blocker);
+                continue;
+            }
+            let bare_package = !candidate.module.starts_with('.')
+                && !candidate.module.starts_with('/');
+            let blocker = if bare_package {
+                smelt_stdlib::host_value_blocker(&candidate.module, &candidate.imported)
+            } else {
+                None
+            };
+            // A modeled host module with a declared-only export is a known gap
+            // in Smelt's own surface, so it blocks in the test tier too: no
+            // matcher erasure can stand in for `node:sqlite`.
+            let modeled_module = smelt_stdlib::is_host_module(&candidate.module);
+            let blocker = match blocker {
+                Some(blocker)
+                    if modeled_module
+                        || (!test_module
+                            && smelt_stdlib::unmodeled_package_use_blocks()) =>
+                {
+                    Some(blocker)
+                }
+                _ => None,
+            };
+            if let Some(blocker) = blocker {
+                self.imports
+                    .mark_unresolved_value_import(candidate.local, blocker);
+                continue;
+            }
+            let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+            self.module_globals.insert(candidate.local, unknown_ty);
+        }
+    }
+
+    /// Return whether a program belongs to the test tier.
+    ///
+    /// Either the source path is a test file, or the module imports a
+    /// Vitest-compatible framework. Both spellings appear in the corpora Smelt
+    /// tracks, and the answer is needed before any body is lowered.
+    fn is_test_tier_program(&self, program: &Program<'_>) -> bool {
+        if Self::is_declaration_type_test_path(&self.path)
+            || self.path.ends_with(".spec.ts")
+            || self.path.ends_with(".test-d.tsx")
+        {
+            return true;
+        }
+        program.body.iter().any(|statement| {
+            matches!(statement, Statement::ImportDeclaration(import)
+                if test_support::is_vitest_compatible_module(import.source.value.as_str()))
+        })
     }
 
     /// Return whether an imported local already resolves to concrete frontend metadata.
@@ -2630,6 +3445,26 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 items.push(item);
                 continue;
             }
+            // `export const enc = encodeURIComponent;` — a bare reference to a
+            // JavaScript GLOBAL, aliasing it under a shorter name (Hono's
+            // `utils/url.ts` does exactly this, with the comment
+            // "`decodeURIComponent` is a long name"). This is the identifier
+            // twin of the member-access arm above: general expression lowering
+            // already produces the global's value (a builtin function value
+            // closure, a namespace, or the erased `Unknown` at a real dynamic
+            // boundary), so route it there instead of demanding a literal. The
+            // literal folder cannot help — a function is not a literal — and
+            // rejecting left the module unbuildable.
+            if let Some(identifier) = Self::bare_identifier_initializer(init)
+                && smelt_stdlib::globals::is_javascript_global_builtin(identifier)
+                && !self.scope.is_bound(identifier)
+                && !self.items.contains_key(identifier)
+                && self.literal_const_expression(init).is_err()
+            {
+                let item = self.push_expression_const_item(binding, init)?;
+                items.push(item);
+                continue;
+            }
             let value = match self.literal_const_expression(init) {
                 Ok(value) => value,
                 Err(error) if Self::is_known_non_importable_exported_const(init) => {
@@ -2737,6 +3572,37 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// handled earlier by [`Self::is_resolvable_module_reference`]; this catches
     /// the remaining statically resolvable member expressions that the
     /// well-known Number/Math folder would otherwise reject.
+    /// The name of a bare-identifier initializer, unwrapping the type-level
+    /// wrappers that never change the value (`as`, `satisfies`, `!`,
+    /// parentheses).
+    ///
+    /// Returns `None` for anything that is not just a name, so a caller can ask
+    /// "is this initializer an alias to some other binding?" without
+    /// re-implementing the unwrapping each time.
+    pub(super) fn bare_identifier_initializer<'a>(init: &'a Expression<'a>) -> Option<&'a str> {
+        match init {
+            Expression::Identifier(identifier) => Some(identifier.name.as_str()),
+            Expression::ParenthesizedExpression(parenthesized) => {
+                Self::bare_identifier_initializer(&parenthesized.expression)
+            }
+            Expression::TSAsExpression(as_expr) => {
+                Self::bare_identifier_initializer(&as_expr.expression)
+            }
+            Expression::TSSatisfiesExpression(satisfies) => {
+                Self::bare_identifier_initializer(&satisfies.expression)
+            }
+            Expression::TSNonNullExpression(non_null) => {
+                Self::bare_identifier_initializer(&non_null.expression)
+            }
+            _ => None,
+        }
+    }
+
+    /// Return whether an initializer reads a MEMBER of something.
+    ///
+    /// Looks through the wrappers that do not change what the expression reads
+    /// -- parentheses, `as`, `satisfies` -- so a member read does not stop
+    /// being recognized because the source annotated it.
     pub(super) fn is_member_access_initializer(init: &Expression<'_>) -> bool {
         match init {
             Expression::StaticMemberExpression(_) | Expression::ComputedMemberExpression(_) => true,
@@ -2969,6 +3835,120 @@ impl<'ctx> ModuleBuilder<'ctx> {
             .collect()
     }
 
+    /// Drop from `candidates` every arrow whose body reads a module-level
+    /// binding that has reference identity.
+    ///
+    /// Lifting a module-level `const` arrow turns it into a named MIR function,
+    /// which has no capture environment: a module binding it reads is resolved
+    /// by re-materializing that binding's initializer inside the function. For a
+    /// scalar that is the same value either way. For an array, `Set`, `Map` or
+    /// object it is a SECOND, PRIVATE value, so every write through the lifted
+    /// function lands somewhere the module never sees:
+    ///
+    /// ```ts
+    /// const rem: string[] = [];
+    /// const second = () => { rem.push("second"); };
+    /// const outer = () => { rem.push("first"); take(second); };
+    /// ```
+    ///
+    /// printed `first` where Node prints `first,second`. Nothing failed to
+    /// compile and nothing reported a blocker; the program simply answered a
+    /// different value. `outer` was never lifted and captured `rem` correctly,
+    /// which is the shape the refusal restores for `second` too.
+    ///
+    /// Refusing the lift is the conservative half of the choice
+    /// `blocker-logs/module-arrow-lifted-capture.md` states: keep the capture,
+    /// or do not lift. A genuine forward reference that also captures such a
+    /// binding now fails to resolve instead of diverging silently, which is the
+    /// honest failure.
+    ///
+    /// Source-text containment matches the surrounding heuristics in this pass
+    /// (`forward_arrow_const_names`, `arrow_const_dependencies_are_lowered`)
+    /// deliberately: over-refusing costs a closure, and a closure is always
+    /// correct here.
+    fn retain_capturable_arrow_consts(
+        &self,
+        program: &Program<'_>,
+        candidates: &mut HashSet<String>,
+    ) {
+        let identity_bindings = Self::identity_bearing_module_binding_names(program);
+        if identity_bindings.is_empty() {
+            return;
+        }
+        let mut refused = HashSet::new();
+        for statement in &program.body {
+            let variable = match statement {
+                Statement::VariableDeclaration(variable) => variable,
+                Statement::ExportDeclaration(export) => {
+                    let Declaration::VariableDeclaration(variable) = &export.declaration else {
+                        continue;
+                    };
+                    variable
+                }
+                _ => continue,
+            };
+            for declarator in &variable.declarations {
+                let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
+                    continue;
+                };
+                let Some(Expression::ArrowFunctionExpression(arrow)) = &declarator.init else {
+                    continue;
+                };
+                if !candidates.contains(binding.name.as_str()) {
+                    continue;
+                }
+                let text = self
+                    .source
+                    .get(
+                        usize::try_from(arrow.span.start).unwrap_or(usize::MAX)
+                            ..usize::try_from(arrow.span.end).unwrap_or(usize::MAX),
+                    )
+                    .unwrap_or_default();
+                if identity_bindings.iter().any(|name| text.contains(name)) {
+                    refused.insert(binding.name.as_str().to_owned());
+                }
+            }
+        }
+        candidates.retain(|name| !refused.contains(name));
+    }
+
+    /// Module-level binding names whose value has reference identity.
+    ///
+    /// An array, `Set`, `Map`, typed array or object literal is one value that
+    /// every reader shares; a re-materialized copy is a different value with the
+    /// same contents, and the difference is only observable through mutation --
+    /// which is exactly the case that goes silently wrong. Scalars are excluded
+    /// because re-materializing one is indistinguishable from reading it.
+    fn identity_bearing_module_binding_names(program: &Program<'_>) -> HashSet<String> {
+        let mut names = HashSet::new();
+        for statement in &program.body {
+            let variable = match statement {
+                Statement::VariableDeclaration(variable) => variable,
+                Statement::ExportDeclaration(export) => {
+                    let Declaration::VariableDeclaration(variable) = &export.declaration else {
+                        continue;
+                    };
+                    variable
+                }
+                _ => continue,
+            };
+            for declarator in &variable.declarations {
+                let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
+                    continue;
+                };
+                let Some(init) = &declarator.init else {
+                    continue;
+                };
+                if Self::is_module_global_array_initializer(init)
+                    || Self::object_const_initializer(init).is_some()
+                {
+                    names.insert(binding.name.as_str().to_owned());
+                }
+            }
+        }
+        names
+    }
+
     /// Find arrow consts used as values in exported object function tables.
     ///
     /// Date-fns-style tables export objects whose properties point at local
@@ -3097,6 +4077,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
         Some(ObjectConst { entries, ty })
     }
 
+    /// Return the object literal a module-level `const` is initialized with.
+    ///
+    /// Looks through the annotation wrappers, so a literal does not stop being
+    /// recognized because the source wrote `as const` or `satisfies T` on it.
     pub(super) fn object_const_initializer<'a>(
         expression: &'a Expression<'a>,
     ) -> Option<&'a oxc::ast::ast::ObjectExpression<'a>> {

@@ -1,0 +1,144 @@
+module examples/typescript/end-to-end/53_top_level_try_tail/input.ts (ModuleId(0))
+  body BodyId(1)
+  items
+    fn work owner Module
+  locals
+    %0 let outcome: String
+    %1 const after: String
+    %2 let thrown: String
+    %3 const last: String
+    %4 let nested: String
+    %5 let final: String
+  exprs
+    #0: String = "not run"
+    #1: String = %0
+    #2: Bool = false
+    #3: async fn(Bool) -> Future<String> = @0(work)
+    #4: Future<String> = call #3(#2)
+    #5: String = await #4
+    #6: String = %0
+    #7: String = "caught"
+    #8: String = %0
+    #9: None = @1(console_log)
+    #10: None = call #9(#8)
+    #11: Bool = false
+    #12: async fn(Bool) -> Future<String> = @0(work)
+    #13: Future<String> = call #12(#11)
+    #14: String = await #13
+    #15: String = %1
+    #16: None = @2(console_log)
+    #17: None = call #16(#15)
+    #18: String = %1
+    #19: Float = len #18
+    #20: String = %0
+    #21: Float = len #20
+    #22: Float = Add #19, #21
+    #23: None = @3(console_log)
+    #24: None = call #23(#22)
+    #25: String = "not run"
+    #26: String = %2
+    #27: Bool = true
+    #28: async fn(Bool) -> Future<String> = @0(work)
+    #29: Future<String> = call #28(#27)
+    #30: String = await #29
+    #31: String = %2
+    #32: String = "caught"
+    #33: String = %2
+    #34: None = @4(console_log)
+    #35: None = call #34(#33)
+    #36: Bool = false
+    #37: async fn(Bool) -> Future<String> = @0(work)
+    #38: Future<String> = call #37(#36)
+    #39: String = await #38
+    #40: String = %3
+    #41: String = %2
+    #42: Float = len #41
+    #43: None = @5(console_log)
+    #44: None = call #43(#40, #42)
+    #45: String = "not run"
+    #46: String = %4
+    #47: Bool = true
+    #48: async fn(Bool) -> Future<String> = @0(work)
+    #49: Future<String> = call #48(#47)
+    #50: String = await #49
+    #51: String = %4
+    #52: String = "inner"
+    #53: String = %4
+    #54: String = %4
+    #55: String = "|"
+    #56: String = Add #54, #55
+    #57: Bool = false
+    #58: async fn(Bool) -> Future<String> = @0(work)
+    #59: Future<String> = call #58(#57)
+    #60: String = await #59
+    #61: String = Add #56, #60
+    #62: String = %4
+    #63: String = "outer"
+    #64: String = %4
+    #65: None = @6(console_log)
+    #66: None = call #65(#64)
+    #67: String = "not run"
+    #68: String = %5
+    #69: Bool = true
+    #70: async fn(Bool) -> Future<String> = @0(work)
+    #71: Future<String> = call #70(#69)
+    #72: String = await #71
+    #73: String = %5
+    #74: String = "last caught"
+    #75: String = %5
+    #76: None = @7(console_log)
+    #77: None = call #76(#75)
+    #78: Future<None> = async_exit_drain()
+    #79: None = await #78
+  stmts
+    s0: let %0: String = #0
+    s1: #1 = #5
+    s2: #6 = #7
+    s3: try BlockId(1) catch BlockId(2)
+    s4: #10
+    s5: let %1: String = #14
+    s6: #17
+    s7: #24
+    s8: let %2: String = #25
+    s9: #26 = #30
+    s10: #31 = #32
+    s11: try BlockId(3) catch BlockId(4)
+    s12: #35
+    s13: let %3: String = #39
+    s14: #44
+    s15: let %4: String = #45
+    s16: #46 = #50
+    s17: #51 = #52
+    s18: try BlockId(6) catch BlockId(7)
+    s19: #53 = #61
+    s20: #62 = #63
+    s21: try BlockId(5) catch BlockId(8)
+    s22: #66
+    s23: let %5: String = #67
+    s24: #68 = #72
+    s25: #73 = #74
+    s26: try BlockId(9) catch BlockId(10)
+    s27: #77
+    s28: #79
+  async state machine
+    states [state0, state1, state2, state3, state4, state5, state6, state7, state8]
+    suspend #5 on #4 -> state6
+    suspend #14 on #13 -> state15
+    suspend #30 on #29 -> state31
+    suspend #39 on #38 -> state40
+    suspend #50 on #49 -> state51
+    suspend #60 on #59 -> state61
+    suspend #72 on #71 -> state73
+    suspend #79 on #78 -> state80
+
+interned types
+  t0 = String
+  t1 = Unknown
+  t2 = Bool
+  t3 = Future<String>
+  t4 = async fn(Bool) -> Future<String>
+  t5 = Dict<String, Unknown>
+  t6 = async fn(Bool) -> Future<String>
+  t7 = None
+  t8 = Float
+  t9 = Future<None>

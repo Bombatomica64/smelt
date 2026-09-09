@@ -117,6 +117,47 @@ type MutationWriteback = Option<(Place, LocalId)>;
 /// Lowered collection mutation receiver and its optional writeback.
 type LoweredMutationReceiver = (Operand, MutationWriteback);
 
+/// Copies of PROJECTED assignment receivers that a place write must commit back,
+/// outermost first.
+///
+/// A MIR place is rooted at a local, so `a.b[i] = v` materializes `a.b` into a
+/// temporary and writes through that. Whether the write reaches `a` then depends
+/// on the receiver's REPRESENTATION: a Smelt collection handle (`SmeltList`,
+/// `SmeltRecord`, a reference class) shares its storage across clones, so the
+/// write lands in the original, while a value representation (a plain
+/// `HashMap`/`Vec` field, a value-class struct) is deep-copied and the write is
+/// silently lost -- with no rustc error, because the generated code type-checks
+/// perfectly. MIR cannot tell the two apart: which Rust type a `Dict`/`List`
+/// becomes is a codegen representation choice.
+///
+/// So the assignment path does what the collection-mutation path already does
+/// (`lower_mutation_receiver`): it records the projection it copied and stores
+/// the temporary back through it once the write has been emitted. Correct for
+/// both representations -- committing a handle stores an equal handle, and
+/// committing a value commits the copy -- and it needs no answer to the
+/// representation question. Nested receivers (`a.b.c[i] = v`) push one entry per
+/// level and are replayed INNERMOST FIRST, so each level commits into a base
+/// that is itself still live.
+///
+/// See `blocker-logs/hono-h31-projected-receiver-writeback.md`.
+type PlaceWritebacks = Vec<(Place, LocalId)>;
+
+/// A lowered assignment target: the place to write, and the receiver copies that
+/// write must commit back afterwards.
+///
+/// The pair is what [`LoweringCtx::lower_place`] hands its callers, and the two
+/// halves are useless apart: writing the place without replaying the writebacks
+/// is exactly the silently-lost write H31 fixed.
+type LoweredPlace = (Place, PlaceWritebacks);
+
+/// A place ROOT: the local a projection is rooted at, and the receiver copies
+/// reaching that root left behind.
+///
+/// Same contract as [`LoweredPlace`] one level down -- the root is a local, so
+/// callers can hand it straight to `Place::Field`/`Place::Index` -- and it is
+/// what `place_base_local` and `narrowed_receiver_base` return.
+type LoweredPlaceBase = (LocalId, PlaceWritebacks);
+
 
 /// Synthetic MIR helper types shared by every body lowered in one run.
 ///
@@ -161,6 +202,13 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
         krate.symbols.clone(),
         krate.names.clone(),
     );
+    // Carry FileId -> path across the HIR/MIR boundary so a later diagnostic
+    // can name its source file; see `Mir::file_paths`.
+    mir.file_paths = krate
+        .modules
+        .iter()
+        .map(|module| (module.source.file, module.source.path.clone()))
+        .collect();
     let helpers = HelperTypes {
         none: mir.types.intern(Type::None),
         loop_index_ty: mir.types.intern(Type::Float),
@@ -169,7 +217,7 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
     let mut errors = Vec::new();
 
     let item_functions = assign_function_ids(krate)?;
-    let global_ids = lower_globals(krate, &mut mir);
+    let global_ids = lower_globals(krate, &mut mir, &item_functions, &mut errors);
     let languages = index_source_languages(krate);
     let tables = LoweringTables {
         item_functions: &item_functions,
@@ -262,6 +310,8 @@ fn index_source_languages(
 fn lower_globals(
     krate: &smelt_hir::Crate,
     mir: &mut Mir,
+    item_functions: &FunctionIds,
+    errors: &mut Vec<LowerError>,
 ) -> HashMap<smelt_hir::ItemId, u32> {
     let mut global_ids = HashMap::new();
     for (idx, item) in krate.items.iter().enumerate() {
@@ -275,10 +325,37 @@ fn lower_globals(
         else {
             continue;
         };
+        // A `Pending` initializer means the frontend registered the global but
+        // never reached its own declaration to lower the initializer
+        // expression. That is a compiler bug, not a source problem, so it is
+        // reported rather than defaulted to some value the source never wrote.
+        let init = match &global.init {
+            smelt_hir::MutableGlobalInit::Literal(literal) => {
+                crate::MirGlobalInit::Constant(lower_literal(literal))
+            }
+            smelt_hir::MutableGlobalInit::Initializer(init_item) => {
+                let Some(func_id) = item_functions.get(init_item) else {
+                    errors.push(LowerError {
+                        message: "mutable global initializer function has no MIR function id"
+                            .to_owned(),
+                        span: Some(global.span),
+                    });
+                    continue;
+                };
+                crate::MirGlobalInit::Call(*func_id)
+            }
+            smelt_hir::MutableGlobalInit::Pending => {
+                errors.push(LowerError {
+                    message: "mutable global initializer expression was never lowered".to_owned(),
+                    span: Some(global.span),
+                });
+                continue;
+            }
+        };
         mir.globals.push(crate::MirGlobal {
             name: global.name,
             ty: global.ty,
-            init: lower_literal(&global.init),
+            init,
         });
         global_ids.insert(smelt_hir::ItemId(item_index), global_index);
     }
@@ -537,12 +614,26 @@ fn lower_module_bodies(
             function_id,
             body_id,
             name,
+            // An async module body still RETURNS nothing: it is driven by the
+            // emitted `#[tokio::main]`, not awaited by a caller, so the return
+            // type stays `none` rather than being wrapped in a future. That
+            // also keeps the emitter's `main` recognition (which tests for a
+            // `none` return) working for both shapes.
             return_ty: helpers.none,
             owner: smelt_hir::FunctionOwner::Module,
-            is_async: false,
+            is_async: module.is_async,
         };
         match LoweringCtx::new(shared, spec, body).and_then(LoweringCtx::lower) {
-            Ok((function, closures)) => {
+            Ok((mut function, closures)) => {
+                // An async module body awaits, and a statement-form await is
+                // emitted as `future.await?` -- so the entry point's signature
+                // has to carry the error channel its own body uses. The
+                // throwing pass counts only the TERMINATOR form of await, which
+                // is right for ordinary functions (widening every awaiting
+                // function would change signatures across the crate for no
+                // gain) but leaves the one function whose signature is decided
+                // here unmarked.
+                function.can_throw = function.can_throw || function.is_async;
                 mir.closures.extend(closures);
                 mir.push_function(function);
             }
@@ -560,6 +651,7 @@ fn lower_module_bodies(
 /// operational type normalization then run once over the finalized MIR.
 fn run_finalization_passes(mir: &mut Mir) {
     intern_fallible_builtin_return_types(mir);
+    passes::generic_records::intern_generic_record_instantiations(mir);
     closures::mark_escaping_closures(mir);
     passes::throwing::propagate_throwing_functions(mir);
     closures::widen_throwing_closure_types(mir);
@@ -574,27 +666,38 @@ fn run_finalization_passes(mir: &mut Mir) {
 /// A `Terminator::Call` records the destination's type, not the callee's, so a
 /// builtin whose own return type appears nowhere else in the program would
 /// leave that type absent from the table — and the backend, which asks for the
-/// callee's return type to coerce the call result, would find nothing. The one
-/// such builtin today is `JSON.parse`, whose result is a dynamic JavaScript
-/// value (`Type::Unknown`) regardless of the destination it is asserted into.
+/// callee's return type to coerce the call result, would find nothing.
+///
+/// There are two such builtins: `JSON.parse`, whose result is a dynamic
+/// JavaScript value (`Type::Unknown`) regardless of the destination it is
+/// asserted into, and the URI decoders, which answer a `String`. Collecting the
+/// types first and interning afterwards keeps this a scan rather than a
+/// hard-coded pair, so a third fallible builtin needs only its own arm.
 fn intern_fallible_builtin_return_types(mir: &mut Mir) {
-    let calls_json_parse = mir
+    let mut needed = Vec::new();
+    for terminator in mir
         .functions
         .iter()
         .flat_map(|function| function.blocks.iter())
         .chain(mir.closures.iter().flat_map(|closure| closure.blocks.iter()))
         .filter_map(|block| block.terminator.as_ref())
-        .any(|terminator| {
-            matches!(
-                terminator,
-                Terminator::Call {
-                    callee: Callee::Builtin(BuiltinFn::JsonParse),
-                    ..
-                }
-            )
-        });
-    if calls_json_parse {
-        mir.types.intern(Type::Unknown);
+    {
+        if let Terminator::Call {
+            callee: Callee::Builtin(builtin),
+            ..
+        } = terminator
+        {
+            match builtin {
+                BuiltinFn::JsonParse => needed.push(Type::Unknown),
+                BuiltinFn::UriDecode(_) | BuiltinFn::Base64(_) => needed.push(Type::String),
+                BuiltinFn::ConsoleLog { .. }
+                | BuiltinFn::ConsoleWrite
+                | BuiltinFn::ConsoleErrorWrite => {}
+            }
+        }
+    }
+    for ty in needed {
+        mir.types.intern(ty);
     }
 }
 

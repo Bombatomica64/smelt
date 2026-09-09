@@ -1,0 +1,78 @@
+fn label (FuncId(0)) -> String
+  locals
+    %0 param prefix: String
+    %1 param value: Optional<String>
+    %2 temp: String
+  bb0:
+    %2 = copy %0 + copy %1
+    return move %2
+
+fn main (FuncId(1)) -> None
+  locals
+    %0 user missing_text: Optional<String>
+    %1 user present_text: Optional<String>
+    %2 user missing_count: Optional<Float>
+    %3 user present_count: Optional<Float>
+    %4 user nothing: None
+    %5 temp: String
+    %6 temp: None
+    %7 temp: String
+    %8 temp: None
+    %9 temp: String
+    %10 temp: None
+    %11 temp: String
+    %12 temp: None
+    %13 temp: String
+    %14 temp: None
+    %15 temp: String
+    %16 temp: None
+    %17 temp: String
+    %18 temp: None
+    %19 temp: String
+    %20 temp: String
+    %21 temp: None
+    %22 temp: String
+    %23 temp: None
+    %24 temp: String
+    %25 temp: None
+  bb0:
+    %0 = undefined
+    %5 = primitive_cast_string copy %0
+    %6 = call @console_log(move %5) -> bb1
+  bb1:
+    %7 = "" + move %0
+    %8 = call @console_log(move %7) -> bb2
+  bb2:
+    %1 = "here"
+    %9 = primitive_cast_string copy %1
+    %10 = call @console_log(move %9) -> bb3
+  bb3:
+    %11 = "" + move %1
+    %12 = call @console_log(move %11) -> bb4
+  bb4:
+    %2 = undefined
+    %13 = "count=" + move %2
+    %14 = call @console_log(move %13) -> bb5
+  bb5:
+    %3 = 3.0
+    %15 = "count=" + move %3
+    %16 = call @console_log(move %15) -> bb6
+  bb6:
+    %4 = none
+    %17 = "" + copy %4
+    %18 = call @console_log(move %17) -> bb7
+  bb7:
+    %19 = "" + move %4
+    %20 = "x" + move %19
+    %21 = call @console_log(move %20) -> bb8
+  bb8:
+    %22 = call fn0("p:", "v") -> bb9
+  bb9:
+    %23 = call @console_log(move %22) -> bb10
+  bb10:
+    %24 = call fn0("p:", undefined) -> bb11
+  bb11:
+    %25 = call @console_log(move %24) -> bb12
+  bb12:
+    return none
+

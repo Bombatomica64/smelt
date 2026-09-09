@@ -388,6 +388,16 @@ impl FunctionEmitter<'_> {
         strict_nullish: bool,
         inner: TypeId,
     ) -> Result<String, EmitError> {
+        // A CONCRETE payload can never hold a nullish tag, so the comparison is
+        // presence and nothing else: `res.body === null` on an
+        // `Option<SmeltBody>` is `res.body.is_none()`. Matching `SmeltUnknown`
+        // patterns against such a payload does not even type-check, which is
+        // what a body handle (`StdlibClass::ReadableStream`) hit first.
+        if self.static_tag_check(inner, smelt_hir::UnknownKind::Null) == Some(false)
+            && self.static_tag_check(inner, smelt_hir::UnknownKind::Undefined) == Some(false)
+        {
+            return Ok(format!("{option_text}.is_none()"));
+        }
         let pattern = if strict_nullish {
             if matches!(singleton, Operand::Const(Constant::Undefined)) {
                 "SmeltUnknown::Undefined"
@@ -898,9 +908,11 @@ impl FunctionEmitter<'_> {
                 Some(format!("{text}.id"))
             }
             Type::JsMap(_, _) => Some(format!("{text}.id")),
-            Type::Set(item) if !self.type_is_hash_set_key_safe(*item) => {
-                Some(format!("{text}.id"))
-            }
+            // Both set backings mint a stable object id, so `setA === setB`
+            // compares identity as JavaScript does. Before `SmeltPrimSet` a
+            // primitive set had no id and fell through to structural equality,
+            // which answered `true` for two distinct sets of the same members.
+            Type::Set(_) => Some(format!("{text}.id")),
             // The two prelude-backed builtin classes — `SmeltRegExp` (a source
             // `RegExp`) and `SmeltMatch` (a match result) — both mint an object
             // id on construction and share it through `Clone`, exactly like the
@@ -911,6 +923,35 @@ impl FunctionEmitter<'_> {
                     || self.is_match_class_symbol(*name).unwrap_or(false) =>
             {
                 Some(format!("{text}.id"))
+            }
+            // Every OTHER modeled class backed by a generated runtime type.
+            // Each of those types mints an object id on construction and shares
+            // it through `Clone` — that is what makes them JavaScript reference
+            // values — so their identity is observable and `===` has to read
+            // it. The registry answers which classes those are
+            // (`erases_through_adapter`, the same question that decides whether
+            // a class has an erasure adapter at all), so a class that gains a
+            // runtime type is answered here without touching this function.
+            //
+            // Reached AFTER the `RegExp`/`SmeltMatch` arm above, which spells
+            // its id as a public FIELD rather than an accessor; ordering is what
+            // keeps the two spellings from needing a second predicate.
+            //
+            // Structural `PartialEq` stays for the loose and deep comparisons
+            // (`toEqual`, `isDeepEqual`), which is why these types still derive
+            // it: `expect(encoder.encode("a")).toEqual(new Uint8Array([97]))`
+            // compares contents. `===` never does — before this arm,
+            // `new Blob(["x"]) === new Blob(["x"])` answered `true` where every
+            // JavaScript engine answers `false`, and so did `Headers`,
+            // `FormData`, `Response`, `Request`, the byte view and the codecs.
+            Type::Class { name, .. }
+                if self
+                    .stdlib_class_of_symbol(*name)
+                    .ok()
+                    .flatten()
+                    .is_some_and(smelt_stdlib::StdlibClass::erases_through_adapter) =>
+            {
+                Some(format!("{text}.id()"))
             }
             _ => None,
         }
@@ -935,16 +976,38 @@ impl FunctionEmitter<'_> {
         lhs: &Operand,
         rhs: &Operand,
     ) -> Result<Option<String>, EmitError> {
-        if !matches!(
+        // Two operators reach here, and they are NOT the same operator.
+        //
+        // `StrictEq` is SameValue — `Object.is` — and `JsStrictEq` is the
+        // source's `===`. They agree on reference values and disagree on
+        // exactly two numbers: `Object.is(NaN, NaN)` is `true` where
+        // `NaN === NaN` is `false`, and `Object.is(-0, 0)` is `false` where
+        // `-0 === 0` is `true`. Numbers are the ONLY place they differ, so the
+        // numeric arm below answers for SameValue only and every other arm
+        // answers for both: functions and references compare by identity under
+        // either operator. The reference arm is the one `===` was missing, and
+        // why `===` between two concrete modeled-class values fell through to
+        // structural `PartialEq`.
+        let same_value = matches!(
             op,
             smelt_hir::BinOp::StrictEq | smelt_hir::BinOp::StrictNotEq
-        ) {
+        );
+        if !same_value
+            && !matches!(
+                op,
+                smelt_hir::BinOp::JsStrictEq | smelt_hir::BinOp::JsStrictNotEq
+            )
+        {
             return Ok(None);
         }
+        let negate = matches!(
+            op,
+            smelt_hir::BinOp::StrictNotEq | smelt_hir::BinOp::JsStrictNotEq
+        );
         let lhs_ty = self.operand_ty(lhs)?;
         let rhs_ty = self.operand_ty(rhs)?;
         let equal_text = match (self.mir.types.get(lhs_ty), self.mir.types.get(rhs_ty)) {
-            (Some(Type::Int | Type::Float), Some(Type::Int | Type::Float)) => {
+            (Some(Type::Int | Type::Float), Some(Type::Int | Type::Float)) if same_value => {
                 let lhs_text = self.float_operand_text(lhs)?;
                 let rhs_text = self.float_operand_text(rhs)?;
                 format!(
@@ -973,7 +1036,7 @@ impl FunctionEmitter<'_> {
             }
             _ => return Ok(None),
         };
-        Ok(Some(if op == smelt_hir::BinOp::StrictNotEq {
+        Ok(Some(if negate {
             format!("!({equal_text})")
         } else {
             equal_text

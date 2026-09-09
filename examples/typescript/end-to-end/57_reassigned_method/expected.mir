@@ -1,0 +1,97 @@
+class Router fields [Public log: String, Public pick: fn(String) -> String] constructor Some(FuncId(2)) methods [FuncId(0), FuncId(1)]
+
+fn describe (FuncId(0)) -> String
+  locals
+    %0 param this: Router
+    %1 param path: String
+    %2 temp: String
+    %3 temp: String
+  bb0:
+    %2 = "[" + copy %1
+    %3 = move %2 + "]"
+    return move %3
+
+fn route (FuncId(1)) -> String throws
+  locals
+    %0 param this: Router
+    %1 param path: String
+    %2 user before: String
+    %3 user after: String
+    %4 temp: String
+    %5 temp: fn(String) -> String
+    %6 temp: String
+    %7 temp: String
+    %8 temp: String
+    %9 temp: String
+    %10 temp: String
+  bb0:
+    %4 = closure_call copy %0.field3(copy %1)
+    %2 = move %4
+    %5 = closure ClosureId(0) []
+    %0.field3 = move %5
+    %6 = closure_call copy %0.field3(copy %1)
+    %3 = move %6
+    %7 = call fn0(copy %0, copy %1) -> bb1
+  bb1:
+    %8 = copy %0.field2 + move %7
+    %0.field2 = move %8
+    %9 = move %2 + ","
+    %10 = move %9 + move %3
+    return move %10
+
+fn new (FuncId(2)) -> Router
+  locals
+    %0 user this: Router
+    %1 temp: fn(String) -> String
+  bb0:
+    %0 = struct0 {}
+    %0.field2 = ""
+    %1 = closure ClosureId(1) []
+    %0.field3 = move %1
+    return move %0
+
+fn main (FuncId(3)) -> None throws
+  locals
+    %0 user router: Router
+    %1 user first: String
+    %2 user second: String
+    %3 temp: Router
+    %4 temp: String
+    %5 temp: String
+    %6 temp: None
+    %7 temp: None
+    %8 temp: None
+  bb0:
+    %3 = call fn2() -> bb1
+  bb1:
+    %0 = move %3
+    %4 = call fn1(copy %0, "a") -> bb2
+  bb2:
+    %1 = move %4
+    %5 = call fn1(copy %0, "b") -> bb3
+  bb3:
+    %2 = move %5
+    %6 = call @console_log(move %1) -> bb4
+  bb4:
+    %7 = call @console_log(move %2) -> bb5
+  bb5:
+    %8 = call @console_log(copy %0.field2) -> bb6
+  bb6:
+    return none
+
+closure ClosureId(0) -> String
+  locals
+    %0 param __callback_param_0: String
+    %1 temp: String
+  bb0:
+    %1 = "fast:" + copy %0
+    return copy %1
+
+closure ClosureId(1) -> String
+  locals
+    %0 param path: String
+    %1 temp: String
+  bb0:
+    %1 = "slow:" + copy %0
+    return copy %1
+

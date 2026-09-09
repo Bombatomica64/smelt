@@ -26,6 +26,16 @@ pub(crate) struct ManifestSource {
     imports: Vec<ManifestImport>,
     /// Resolved local dependency paths used for dependency-first ordering.
     pub(crate) dependencies: Vec<PathBuf>,
+    /// Import specifiers in this file that resolve wholly to excluded modules.
+    ///
+    /// `[sources] exclude` prunes the dependency closure, not only the roots
+    /// (see [`DependencyCollector::excluded_target`]), so a specifier can name
+    /// a module that is deliberately out of scope. The frontend needs the
+    /// *specifier as written* to report a useful blocker at the import site,
+    /// and it cannot recompute the mapping itself without duplicating the
+    /// resolver — so the collector, which already resolved every edge, records
+    /// it here.
+    pub(crate) excluded_imports: Vec<String>,
 }
 
 /// Import metadata found while scanning source text.
@@ -86,14 +96,24 @@ pub(crate) fn read_manifest_source(
         lang,
         imports,
         dependencies: Vec::new(),
+        excluded_imports: Vec::new(),
     })
 }
 
 /// Expands root manifest entries with local imports discovered from each source.
+///
+/// `excludes` are the `[sources] exclude` globs, matched against each resolved
+/// dependency relative to `manifest_dir`. An excluded module is pruned from the
+/// closure rather than only from the root set: a module reached transitively is
+/// exactly the case root filtering cannot express, and it is the common one —
+/// a barrel re-export or one value import is enough to drag a whole
+/// out-of-scope surface into the crate.
 pub(crate) fn dependency_closure(
     roots: Vec<ManifestSource>,
+    excludes: &[String],
+    manifest_dir: &Path,
 ) -> Result<Vec<ManifestSource>, Box<dyn std::error::Error>> {
-    let mut collector = DependencyCollector::default();
+    let mut collector = DependencyCollector::new(excludes.to_vec(), manifest_dir.to_path_buf());
     for root in roots {
         collector.collect_source(root)?;
     }
@@ -153,23 +173,58 @@ struct DependencyCollector {
     barrel_exports: HashMap<PathBuf, HashMap<String, String>>,
     /// Bare package import targets discovered from workspace package metadata.
     workspace_packages: HashMap<String, Option<PathBuf>>,
+    /// `[sources] exclude` globs applied to every resolved dependency.
+    excludes: Vec<String>,
+    /// Manifest directory the exclude globs are relative to.
+    manifest_dir: PathBuf,
 }
 
-impl Default for DependencyCollector {
-    /// Creates an empty collector with shared resolver state.
-    fn default() -> Self {
+impl DependencyCollector {
+    /// Creates an empty collector that prunes `excludes` from the closure.
+    fn new(excludes: Vec<String>, manifest_dir: PathBuf) -> Self {
         Self {
             sources: Vec::new(),
             seen: HashSet::new(),
             ts_resolver: typescript_resolver(),
             barrel_exports: HashMap::new(),
             workspace_packages: HashMap::new(),
+            excludes,
+            manifest_dir,
         }
+    }
+
+    /// Returns whether a resolved dependency path is excluded by the manifest.
+    ///
+    /// Resolved paths are canonicalized, so the exclude globs — which are
+    /// written relative to the manifest directory — are matched against the
+    /// canonicalized manifest directory too. Without that, a manifest reached
+    /// through a symlink would silently match nothing.
+    fn excluded_target(&self, path: &Path) -> bool {
+        if self.excludes.is_empty() {
+            return false;
+        }
+        let manifest_dir = self
+            .manifest_dir
+            .canonicalize()
+            .unwrap_or_else(|_| self.manifest_dir.clone());
+        let relative = path.strip_prefix(&manifest_dir).unwrap_or(path);
+        self.excludes
+            .iter()
+            .any(|pattern| crate::lowering::path_matches_glob(relative, pattern))
     }
 }
 
 impl DependencyCollector {
     /// Adds one source and recursively adds local import targets that exist on disk.
+    ///
+    /// Each import edge is resolved and then filtered against the manifest's
+    /// `[sources] exclude` globs. A specifier whose targets are *all* excluded
+    /// is recorded in `excluded_imports` so the frontend can name the manifest
+    /// exclusion when a value imported from it is used; a specifier with a mix
+    /// of excluded and included targets keeps its included targets and is not
+    /// recorded, because at that point the exclusion is a property of
+    /// individual names rather than of the module, and a name that came from a
+    /// pruned file takes the ordinary unresolved-identifier path.
     fn collect_source(
         &mut self,
         mut source: ManifestSource,
@@ -182,14 +237,24 @@ impl DependencyCollector {
         let source_path = source.path.clone();
         let lang = source.lang;
         let mut dependencies = Vec::new();
+        let mut excluded_imports = Vec::new();
         for import in &imports {
-            dependencies.extend(self.resolve_import_to_existing_sources(
-                &source_path,
-                lang,
-                import,
-            )?);
+            let resolved =
+                self.resolve_import_to_existing_sources(&source_path, lang, import)?;
+
+            let (included, excluded): (Vec<PathBuf>, Vec<PathBuf>) = resolved
+                .into_iter()
+                .partition(|path| !self.excluded_target(path));
+            if !excluded.is_empty()
+                && included.is_empty()
+                && !excluded_imports.contains(&import.module)
+            {
+                excluded_imports.push(import.module.clone());
+            }
+            dependencies.extend(included);
         }
         source.dependencies.clone_from(&dependencies);
+        source.excluded_imports = excluded_imports;
         self.sources.push(source);
         for path in dependencies {
             if self.seen.contains(&normalize_path_key(&path)) {
@@ -356,7 +421,14 @@ fn python_relative_base_dir(importer_dir: &Path, level: u32) -> PathBuf {
 /// Builds the resolver options used for TypeScript manifest dependency discovery.
 fn typescript_resolver() -> Resolver {
     Resolver::new(ResolveOptions {
-        extensions: vec![".ts".into(), ".d.ts".into(), ".py".into(), ".pyi".into()],
+        extensions: vec![
+            ".ts".into(),
+            ".mts".into(),
+            ".cts".into(),
+            ".d.ts".into(),
+            ".py".into(),
+            ".pyi".into(),
+        ],
         main_files: vec!["index".into(), "__init__".into()],
         ..ResolveOptions::default()
     })
@@ -429,19 +501,54 @@ fn visit_manifest_source(idx: usize, visit: &mut ManifestGraphVisit<'_>) -> Resu
     Ok(())
 }
 
+/// TypeScript inputs a JavaScript output extension can have come from.
+///
+/// Under `moduleResolution: NodeNext` an ESM import specifier names the file
+/// that will exist *after* compilation, so a TypeScript project spells its own
+/// modules `./app.js` even though the file on disk is `./app.ts`. `tsc` resolves
+/// such a specifier by substituting the input extension; this table is that
+/// substitution, keyed by the output extension the specifier carries. It is a
+/// property of the module system, not of any particular package, so it applies
+/// to every relative specifier Smelt collects.
+const NODE_NEXT_INPUT_EXTENSIONS: &[(&str, &[&str])] = &[
+    ("js", &["ts", "d.ts"]),
+    ("mjs", &["mts", "d.mts"]),
+    ("cjs", &["cts", "d.cts"]),
+];
+
+/// Return the TypeScript input extensions a specifier extension can resolve to.
+fn node_next_input_extensions(extension: &str) -> &'static [&'static str] {
+    NODE_NEXT_INPUT_EXTENSIONS
+        .iter()
+        .find(|(output, _)| *output == extension)
+        .map_or(&[], |(_, inputs)| *inputs)
+}
+
 /// Builds possible source paths for an import specifier.
+///
+/// An extensionless specifier gets the usual per-language extension and
+/// directory-index candidates. A specifier that already carries a JavaScript
+/// output extension additionally gets its `NodeNext` input candidates (see
+/// [`NODE_NEXT_INPUT_EXTENSIONS`]), so `./app.js` finds `./app.ts`.
 fn manifest_import_candidates(base: &Path) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
     candidates.push(base.to_path_buf());
-    if base.extension().is_none() {
-        candidates.push(base.with_extension("ts"));
-        candidates.push(base.with_extension("d.ts"));
-        candidates.push(base.with_extension("py"));
-        candidates.push(base.with_extension("pyi"));
-        candidates.push(base.join("index.ts"));
-        candidates.push(base.join("index.d.ts"));
-        candidates.push(base.join("__init__.py"));
-        candidates.push(base.join("__init__.pyi"));
+    match base.extension().and_then(|extension| extension.to_str()) {
+        None => {
+            candidates.push(base.with_extension("ts"));
+            candidates.push(base.with_extension("d.ts"));
+            candidates.push(base.with_extension("py"));
+            candidates.push(base.with_extension("pyi"));
+            candidates.push(base.join("index.ts"));
+            candidates.push(base.join("index.d.ts"));
+            candidates.push(base.join("__init__.py"));
+            candidates.push(base.join("__init__.pyi"));
+        }
+        Some(extension) => {
+            for input in node_next_input_extensions(extension) {
+                candidates.push(base.with_extension(input));
+            }
+        }
     }
     candidates
 }
@@ -675,7 +782,24 @@ fn typescript_import_statements(source: &str) -> Vec<String> {
         if let Some(buffer) = &mut current {
             buffer.push(' ');
             buffer.push_str(trimmed);
-            if trimmed.ends_with(';') {
+            // A statement ends at its semicolon OR, in a semicolon-free file,
+            // as soon as it has a module specifier: `import {\n A,\n B\n}
+            // from './m'` is complete at the closing line whether or not a `;`
+            // follows.
+            //
+            // Waiting for a semicolon that never comes was not a cosmetic bug:
+            // the buffer swallowed the REST OF THE FILE, so every import after
+            // the first multi-line one in a semicolon-free source was never
+            // seen. Those modules never entered the dependency closure, their
+            // type aliases were never predeclared, and each type imported from
+            // them fell back to a nominal `Type::Class` — which erases, and an
+            // erased member makes a whole union non-concrete. That is how
+            // Hono's `ResponseHeadersInit` reached `new Headers(init)` as
+            // `SmeltUnknown`: `import type { BaseMime } from './utils/mime'`
+            // sits four lines after a multi-line `import type { ... } from
+            // './types'`. See
+            // `blocker-logs/standards-generic-arm-and-typeof-indexed-alias.md`.
+            if trimmed.ends_with(';') || statement_has_module_specifier(buffer) {
                 statements.push(buffer.trim_end_matches(';').trim().to_owned());
                 current = None;
             }
@@ -696,6 +820,19 @@ fn typescript_import_statements(source: &str) -> Vec<String> {
         statements.push(buffer.trim_end_matches(';').trim().to_owned());
     }
     statements
+}
+
+/// Whether a buffered import/export statement already names its module.
+///
+/// The terminator for a semicolon-free multi-line import: everything up to and
+/// including the quoted specifier after the last ` from ` is one complete
+/// statement, so the scanner must stop there instead of appending the next
+/// line.
+fn statement_has_module_specifier(statement: &str) -> bool {
+    statement
+        .rsplit_once(" from ")
+        .and_then(|(_, right)| quoted_module_specifier(right))
+        .is_some()
 }
 
 /// Extracts named imports from a simple TypeScript import clause.
@@ -772,6 +909,41 @@ mod tests {
         }));
     }
 
+    /// A semicolon-free multi-line import must not swallow later imports.
+    ///
+    /// Regression: the scanner only closed a buffered statement on `;`, so in a
+    /// source formatted without semicolons (Hono, and Prettier's `semi: false`
+    /// generally) the first multi-line import consumed the rest of the file.
+    /// Every module imported after it was missing from the dependency closure,
+    /// which is invisible until a type imported from one of them silently
+    /// erases.
+    #[test]
+    fn a_multiline_import_without_semicolons_does_not_swallow_later_imports() {
+        let source = "import { HonoRequest } from './request'\n\
+                      import type {\n\
+                        Env,\n\
+                        Input,\n\
+                      } from './types'\n\
+                      import type { ResponseHeader } from './utils/headers'\n\
+                      import type { BaseMime } from './utils/mime'\n";
+
+        let modules = scan_typescript_imports(source)
+            .into_iter()
+            .map(|import| import.module)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            modules,
+            vec![
+                "./request".to_owned(),
+                "./types".to_owned(),
+                "./utils/headers".to_owned(),
+                "./utils/mime".to_owned(),
+            ],
+            "every import after the multi-line one has to be scanned"
+        );
+    }
+
     #[test]
     fn orders_relative_typescript_dependencies_before_importers() {
         let unique = SystemTime::now()
@@ -799,7 +971,7 @@ mod tests {
         fs::write(&helper, "export const ALL_TYPES_DATA_PROVIDER = [];\n").expect("write helper");
 
         let roots = vec![read_manifest_source(importer.clone()).expect("read importer")];
-        let sources = dependency_closure(roots).expect("collect closure");
+        let sources = dependency_closure(roots, &[], Path::new(".")).expect("collect closure");
         let ordered = order_manifest_sources(&sources).expect("order sources");
         let ordered_paths = ordered
             .into_iter()
@@ -816,5 +988,120 @@ mod tests {
         );
 
         drop(fs::remove_dir_all(root));
+    }
+
+    /// `NodeNext` output extensions map to their TypeScript inputs.
+    #[test]
+    fn node_next_specifiers_map_to_typescript_inputs() {
+        assert_eq!(node_next_input_extensions("js"), &["ts", "d.ts"]);
+        assert_eq!(node_next_input_extensions("mjs"), &["mts", "d.mts"]);
+        assert_eq!(node_next_input_extensions("cjs"), &["cts", "d.cts"]);
+        assert!(node_next_input_extensions("ts").is_empty());
+        assert!(node_next_input_extensions("json").is_empty());
+    }
+
+    /// A `./x.js` specifier proposes `./x.ts` as a candidate source.
+    #[test]
+    fn candidates_include_node_next_inputs() {
+        let candidates = manifest_import_candidates(Path::new("/tmp/pkg/app.js"));
+        assert!(candidates.contains(&PathBuf::from("/tmp/pkg/app.ts")));
+        assert!(candidates.contains(&PathBuf::from("/tmp/pkg/app.d.ts")));
+    }
+
+    /// A `NodeNext` `./dep.js` import resolves to `dep.ts` in the dependency closure.
+    #[test]
+    fn collects_node_next_javascript_specifier_dependencies() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("smelt_manifest_nodenext_{unique}"));
+        let src_dir = root.join("src");
+        fs::create_dir_all(&src_dir).expect("create src test dir");
+        let importer = src_dir.join("main.ts");
+        let dependency = src_dir.join("app.ts");
+        fs::write(
+            &importer,
+            "import { createApp } from './app.js';\nexport const app = createApp();\n",
+        )
+        .expect("write importer");
+        fs::write(&dependency, "export const createApp = () => 1;\n").expect("write dependency");
+
+        let roots = vec![read_manifest_source(importer).expect("read importer")];
+        let sources = dependency_closure(roots, &[], Path::new(".")).expect("collect closure");
+
+        assert!(
+            sources
+                .iter()
+                .any(|source| normalize_path_key(&source.path)
+                    == normalize_path_key(&dependency)),
+            "`./app.js` should resolve to app.ts, got {:?}",
+            sources.iter().map(|source| source.path.clone()).collect::<Vec<_>>()
+        );
+
+        drop(fs::remove_dir_all(root));
+    }
+
+    /// An excluded module is dropped from the closure and its specifier recorded.
+    ///
+    /// The importer is a root, so root filtering would keep the dependency:
+    /// only closure pruning removes it. The recorded specifier is what lets the
+    /// frontend name the exclusion at the import site.
+    #[test]
+    fn excluded_dependency_is_pruned_and_recorded() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("src/client")).expect("create dirs");
+        let importer = root.join("src/main.ts");
+        std::fs::write(
+            &importer,
+            "import { hc } from './client';\nexport const c = hc();\n",
+        )
+        .expect("write importer");
+        std::fs::write(
+            root.join("src/client/index.ts"),
+            "export const hc = () => 1;\n",
+        )
+        .expect("write excluded");
+
+        let roots = vec![read_manifest_source(importer).expect("read importer")];
+        let excludes = vec!["src/client/**".to_owned()];
+        let sources = dependency_closure(roots, &excludes, root).expect("collect closure");
+
+        assert_eq!(sources.len(), 1, "excluded module should not be collected");
+        assert_eq!(
+            sources[0].excluded_imports,
+            vec!["./client".to_owned()],
+            "the excluded specifier should be recorded as written"
+        );
+    }
+
+    /// A specifier whose targets are all included records nothing.
+    #[test]
+    fn included_dependency_is_not_recorded_as_excluded() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("src/lib")).expect("create dirs");
+        let importer = root.join("src/main.ts");
+        std::fs::write(
+            &importer,
+            "import { one } from './lib/helper';\nexport const v = one();\n",
+        )
+        .expect("write importer");
+        std::fs::write(
+            root.join("src/lib/helper.ts"),
+            "export const one = () => 1;\n",
+        )
+        .expect("write helper");
+
+        let roots = vec![read_manifest_source(importer).expect("read importer")];
+        let excludes = vec!["src/client/**".to_owned()];
+        let sources = dependency_closure(roots, &excludes, root).expect("collect closure");
+
+        assert_eq!(sources.len(), 2, "included dependency should be collected");
+        assert!(
+            sources.iter().all(|source| source.excluded_imports.is_empty()),
+            "no specifier should be recorded as excluded"
+        );
     }
 }

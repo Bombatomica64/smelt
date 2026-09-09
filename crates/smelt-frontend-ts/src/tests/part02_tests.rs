@@ -765,10 +765,53 @@ fn lowers_conditional_expression() -> Result<(), String> {
 }
 
 #[test]
-fn rejects_conditional_expression_with_mismatched_branches() -> Result<(), String> {
+fn lowers_conditional_expression_with_unrelated_branches_as_a_union() -> Result<(), String> {
+    // TypeScript types `c ? 1 : "no"` as `number | string`, and that union is
+    // the join -- the same rule `??` applies to two concrete unrelated arms.
+    // This used to be a blocker, which refused well-typed TypeScript.
+    // Inside a function body: an `export const` initializer has its own,
+    // unrelated restriction to primitive literals.
     let mut ctx = HirCtx::new();
-    let errors = lowering_errors(ts!("const value = true ? 1 : \"no\";"), &mut ctx)?;
-    assert_unsupported_ts(&errors, "branches must have the same lowered type")
+    let module_id = lower_ok(
+        ts!(r"
+export function pick(flag: boolean): number | string {
+  return flag ? 1 : 'no';
+}
+"),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_conditional_expression_with_optional_and_bare_numeric_branches()
+-> Result<(), String> {
+    // The Hono `utils/url.ts` shape: a nested ternary makes one branch
+    // `Optional<Float>` (`hashIndex === -1 ? undefined : hashIndex`) and the
+    // other `Float`. TypeScript types that `number | undefined`. The sibling
+    // conditional decision consulted the optional-merge helper all along and
+    // this one did not, so the same source blocked or lowered depending on
+    // which arm of the emitter it reached.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+export function endOf(queryIndex: number, hashIndex: number): number | undefined {
+  return queryIndex === -1
+    ? hashIndex === -1
+      ? undefined
+      : hashIndex
+    : hashIndex === -1
+      ? queryIndex
+      : Math.min(queryIndex, hashIndex);
+}
+"),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
 }
 
 #[test]
@@ -1440,14 +1483,15 @@ let defaultOptions: DefaultOptions = {};
 #[test]
 fn lowers_module_mutable_default_options_accessors() -> Result<(), String> {
     // `defaultOptions` is a module-level `let` mutated inside a function, so it
-    // classifies as a mutable global; its object initializer is outside the V1
-    // literal constraint, producing the named frontend blocker. Before the
-    // mutable-global lift this shape HIR-lowered but the function-body write
-    // had no assignable place, so MIR lowering always aborted with the generic
-    // "only local, field, and index expressions can be assigned" — the named
-    // blocker surfaces the same gap earlier and more precisely.
+    // classifies as a mutable global; its object initializer is not a literal
+    // and its type is not a primitive, so it broke BOTH V1 constraints and was
+    // a named blocker. Both are lifted: the initializer becomes a synthesized
+    // nullary function the cell calls lazily, and the non-`Copy` value is held
+    // in a `RefCell`. Every write here is a whole-value reassignment, which is
+    // the shape that is lowered (a write THROUGH the binding is still a named
+    // blocker — see `module_globals_tests`).
     let mut ctx = HirCtx::new();
-    let errors = lowering_errors(
+    let module_id = lower_ok(
         ts!(r"
 interface LocalizedOptions {
   locale?: string;
@@ -1466,10 +1510,9 @@ function setDefaultOptions(newOptions: DefaultOptions): void {
 "),
         &mut ctx,
     )?;
-    assert_unsupported_ts(
-        &errors,
-        "module-level mutable binding initializer must be a literal for now",
-    )
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
 }
 
 #[test]

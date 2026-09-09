@@ -385,7 +385,7 @@ item_pairs: list[tuple[int, int]] = enumerate(items)
     assert!(source.contains("idx as i64"));
     assert!(
         source.contains(
-            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol:\")).cloned().collect::<Vec<_>>()"
+            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol\")).cloned().collect::<Vec<_>>()"
         ),
         "{source}"
     );
@@ -408,7 +408,7 @@ mixed: list[tuple[str, int]] = zip(lookup, items)
     assert!(source.contains(".iter().cloned().zip("));
     assert!(
         source.contains(
-            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol:\")).cloned().collect::<Vec<_>>()"
+            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol\")).cloned().collect::<Vec<_>>()"
         ),
         "{source}"
     );
@@ -685,15 +685,14 @@ const fromSource = new Set(source);
 ",
     );
 
-    // A `Set<number>` (f64 elements) has no correct `HashSet` backing, so it
-    // uses the `SmeltJsSet` runtime container; a `Set<string>` keeps `HashSet`.
+    // Both set backings are insertion-ordered (H52): a `Set<number>` (f64
+    // elements, no Rust `Eq`/`Hash`) uses `SmeltJsSet` with SameValueZero
+    // membership, and a `Set<string>` uses `SmeltPrimSet`, which hashes the
+    // values directly and so does not drag in the erased-value carrier.
     assert!(source.contains("let values: SmeltJsSet<f64>"), "{source}");
-    assert!(
-        source.contains("let empty: ::std::collections::HashSet<String>"),
-        "{source}"
-    );
+    assert!(source.contains("let empty: SmeltPrimSet<String>"), "{source}");
     assert!(source.contains(".contains(&2.0)"));
-    assert!(source.contains("::std::collections::HashSet::new();"));
+    assert!(source.contains("SmeltPrimSet::new();"));
     assert!(source.contains(".iter().cloned().collect::<SmeltJsSet<_>>()"));
 }
 
@@ -773,7 +772,7 @@ for (const entry: [string, number] of mapping) {
     // per-entry `.clone()`.
     assert!(
         source.contains(
-            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").collect::<Vec<_>>()"
+            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").collect::<Vec<_>>()"
         ),
         "{source}"
     );
@@ -799,7 +798,7 @@ for name in names:
     assert!(source.contains(".iter().cloned().collect::<Vec<_>>()"));
     assert!(
         source.contains(
-            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol:\")).cloned().collect::<Vec<_>>()"
+            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol\")).cloned().collect::<Vec<_>>()"
         ),
         "{source}"
     );
