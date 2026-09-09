@@ -1,0 +1,182 @@
+class Sink fields [] constructor Some(FuncId(3)) methods [FuncId(2)]
+
+fn record (FuncId(0)) -> String
+  locals
+    %0 param method: String
+    %1 param path: String
+    %2 param weight: Float
+    %3 temp: String
+    %4 temp: String
+    %5 temp: String
+    %6 temp: String
+  bb0:
+    %3 = copy %0 + " "
+    %4 = move %3 + copy %1
+    %5 = move %4 + " @"
+    %6 = move %5 + copy %2
+    return move %6
+
+fn make_route (FuncId(1)) -> (String, String, Float)
+  locals
+    %0 temp: Float
+    %1 temp: Float
+    %2 temp: Float
+    %3 temp: (String, String, Float)
+  bb0:
+    %0 = global_get #0
+    %1 = move %0 + 1.0
+    %2 = global_set #0 = move %1
+    %3 = ("PUT", "/once", 3.0)
+    return move %3
+
+fn take (FuncId(2)) -> String
+  locals
+    %0 param this: Sink
+    %1 param method: String
+    %2 param path: String
+    %3 param weight: Float
+    %4 temp: String
+    %5 temp: String
+  bb0:
+    %4 = call fn0(copy %1, copy %2, copy %3) -> bb1
+  bb1:
+    %5 = "method " + move %4
+    return move %5
+
+fn new (FuncId(3)) -> Sink
+  locals
+    %0 user this: Sink
+  bb0:
+    %0 = struct1 {}
+    return move %0
+
+fn main (FuncId(4)) -> None
+  locals
+    %0 user routes: List<(String, String, Float)>
+    %1 user i: Float
+    %2 user __smelt_spread: (String, String, Float)
+    %3 user tail: (String, Float)
+    %4 user __smelt_spread: (String, Float)
+    %5 user via_closure: fn(String, String, Float) -> String
+    %6 user __smelt_spread: (String, String, Float)
+    %7 user sink: Sink
+    %8 user __smelt_spread: (String, String, Float)
+    %9 user __smelt_spread: (String, String, Float)
+    %10 user one_route: List<(String, String, Float)>
+    %11 user __smelt_spread: (String, String, Float)
+    %12 temp: (String, String, Float)
+    %13 temp: (String, String, Float)
+    %14 temp: List<(String, String, Float)>
+    %15 temp: Float
+    %16 temp: Bool
+    %17 temp: String
+    %18 temp: None
+    %19 temp: Float
+    %20 temp: (String, Float)
+    %21 temp: String
+    %22 temp: None
+    %23 temp: fn(String, String, Float) -> String
+    %24 temp: String
+    %25 temp: None
+    %26 temp: Sink
+    %27 temp: String
+    %28 temp: None
+    %29 temp: (String, String, Float)
+    %30 temp: String
+    %31 temp: None
+    %32 temp: Float
+    %33 temp: String
+    %34 temp: None
+    %35 temp: (String, String, Float)
+    %36 temp: List<(String, String, Float)>
+    %37 temp: String
+    %38 temp: None
+  bb0:
+    %12 = ("GET", "/a", 1.0)
+    %13 = ("POST", "/b", 2.0)
+    %14 = [move %12, move %13]
+    %0 = move %14
+    %1 = 0.0
+    goto bb1
+  bb1:
+    %15 = len copy %0
+    %16 = copy %1 < move %15
+    switch move %16 ? bb2 : bb4
+  bb2:
+    %2 = copy %0[copy %1]
+    %17 = call fn0(copy %2[0], copy %2[1], copy %2[2]) -> bb5
+  bb3:
+    %19 = move %1 + 1.0
+    %1 = move %19
+    goto bb1
+  bb4:
+    %20 = ("/c", 7.0)
+    %3 = move %20
+    %4 = move %3
+    %21 = call fn0("DELETE", copy %4[0], copy %4[1]) -> bb7
+  bb5:
+    %18 = call @console_log(move %17) -> bb6
+  bb6:
+    goto bb3
+  bb7:
+    %22 = call @console_log(move %21) -> bb8
+  bb8:
+    %6 = copy %0[0.0]
+    %23 = closure ClosureId(0) []
+    %24 = closure_call move %23(copy %6[0], copy %6[1], copy %6[2])
+    %25 = call @console_log(move %24) -> bb9
+  bb9:
+    %26 = call fn3() -> bb10
+  bb10:
+    %7 = move %26
+    %8 = copy %0[1.0]
+    %27 = call fn2(move %7, copy %8[0], copy %8[1], copy %8[2]) -> bb11
+  bb11:
+    %28 = call @console_log(move %27) -> bb12
+  bb12:
+    %29 = call fn1() -> bb13
+  bb13:
+    %9 = move %29
+    %30 = call fn0(copy %9[0], copy %9[1], copy %9[2]) -> bb14
+  bb14:
+    %31 = call @console_log(move %30) -> bb15
+  bb15:
+    %32 = global_get #0
+    %33 = "evaluations: " + move %32
+    %34 = call @console_log(move %33) -> bb16
+  bb16:
+    %35 = ("PATCH", "/maybe", 4.0)
+    %36 = [move %35]
+    %10 = move %36
+    %11 = copy %10[0.0]
+    %37 = call fn0(copy %11[0], copy %11[1], copy %11[2]) -> bb17
+  bb17:
+    %38 = call @console_log(move %37) -> bb18
+  bb18:
+    return none
+
+closure ClosureId(0) -> String
+  locals
+    %0 param __callback_param_0: String
+    %1 param __callback_param_1: String
+    %2 param __callback_param_2: Float
+    %3 temp: fn(String, String, Float) -> String
+    %4 temp: String
+    %5 temp: String
+  bb0:
+    %3 = closure ClosureId(1) []
+    %4 = closure_call copy %3(copy %0, copy %1, copy %2)
+    %5 = "closure " + copy %4
+    return copy %5
+
+closure ClosureId(1) -> String
+  locals
+    %0 param arg0: String
+    %1 param arg1: String
+    %2 param arg2: Float
+    %3 temp: String
+  bb0:
+    %3 = call fn0(copy %0, copy %1, copy %2) -> bb1
+  bb1:
+    return copy %3
+

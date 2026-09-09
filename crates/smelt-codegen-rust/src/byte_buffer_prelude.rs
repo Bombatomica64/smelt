@@ -197,11 +197,11 @@ fn element_match(arm: impl Fn(TypedArrayElement) -> &'static str, fallback: &str
 /// resolve the record's marker and element stride through the same lookups), so
 /// they are emitted as one block rather than gated individually. They are small
 /// and `dead_code`-allowed like the rest of the prelude.
-pub fn emit(writer: &mut CodeWriter) {
+pub fn emit(writer: &mut CodeWriter, has_concrete_family: bool) {
     emit_identity(writer);
     emit_element_codec(writer);
     emit_record(writer);
-    emit_access(writer);
+    emit_access(writer, has_concrete_family);
     emit_construct(writer);
 }
 
@@ -328,8 +328,17 @@ fn emit_record(writer: &mut CodeWriter) {
     writer.line("/// Passing the *same* storage record two views were built from is what makes");
     writer.line("/// `view.buffer === buffer` hold, which lodash-compatible clone specs assert on");
     writer.line("/// a cloned view.");
+    writer.line(
+        "fn smelt_host_buffer_view_record(marker: &'static str, bytes: Vec<SmeltUnknown>, buffer: Option<SmeltUnknown>, byte_offset: usize) -> SmeltUnknown { smelt_host_buffer_view_record_with_id(smelt_next_object_id(), marker, bytes, buffer, byte_offset) }",
+    );
+    // The same record at a CALLER-CHOSEN identity. The concrete family's
+    // erasure adapters build their record here so a concrete value and an
+    // erased one are byte-identical once erased, and so erasing the same
+    // concrete value twice yields two records that are `===`.
+    writer.line("/// Build a byte-backed host record at a given JS reference id.");
     writer.line(format!(
-        "fn smelt_host_buffer_view_record(marker: &'static str, bytes: Vec<SmeltUnknown>, buffer: Option<SmeltUnknown>, byte_offset: usize) -> SmeltUnknown {{ let byte_length = bytes.len(); let stride = smelt_host_buffer_stride(marker); let mut fields = Vec::from([(marker.to_owned(), SmeltUnknown::Bool(true)), (\"{bytes_key}\".to_owned(), SmeltUnknown::Array(SmeltArray::new(bytes))), (\"byteLength\".to_owned(), SmeltUnknown::Number(byte_length as f64)), (\"length\".to_owned(), SmeltUnknown::Number((byte_length / stride) as f64))]); if let Some(buffer) = buffer {{ fields.push((\"buffer\".to_owned(), buffer)); fields.push((\"byteOffset\".to_owned(), SmeltUnknown::Number(byte_offset as f64))); }} SmeltUnknown::Object(SmeltObject::new(fields)) }}",
+        "fn {with_id}(id: usize, marker: &'static str, bytes: Vec<SmeltUnknown>, buffer: Option<SmeltUnknown>, byte_offset: usize) -> SmeltUnknown {{ let byte_length = bytes.len(); let stride = smelt_host_buffer_stride(marker); let mut fields = Vec::from([(marker.to_owned(), SmeltUnknown::Bool(true)), (\"{bytes_key}\".to_owned(), SmeltUnknown::Array(SmeltArray::new(bytes))), (\"byteLength\".to_owned(), SmeltUnknown::Number(byte_length as f64)), (\"length\".to_owned(), SmeltUnknown::Number((byte_length / stride) as f64))]); if let Some(buffer) = buffer {{ fields.push((\"buffer\".to_owned(), buffer)); fields.push((\"byteOffset\".to_owned(), SmeltUnknown::Number(byte_offset as f64))); }} SmeltUnknown::Object(SmeltObject::with_id(id, fields)) }}",
+        with_id = symbols::VIEW_RECORD_WITH_ID,
         bytes_key = symbols::BYTES_KEY,
     ));
 
@@ -351,6 +360,20 @@ fn emit_record(writer: &mut CodeWriter) {
         elements = symbols::ELEMENTS,
     ));
 
+    writer.line("/// A byte-backed host record's OWN ENUMERABLE property values.");
+    writer.line("///");
+    writer.line("/// Own indexed properties belong to an ELEMENT-TYPED view and to nothing");
+    writer.line("/// else: byte storage (`ArrayBuffer`) and a `DataView` address their bytes");
+    writer.line("/// through accessors, so `Object.keys` / `for...in` / `JSON.stringify` see no");
+    writer.line("/// properties on them at all, exactly as Node does. The array-like face");
+    writer.line("/// above (`ELEMENTS`) answers a different question and must keep decoding");
+    writer.line("/// storage as bytes for iteration and `new Uint8Array(dataView)`.");
+    writer.line(format!(
+        "fn {own_elements}(value: &SmeltUnknown) -> Option<Vec<SmeltUnknown>> {{ let SmeltUnknown::Object(map) = value else {{ return None; }}; let marker = smelt_host_buffer_marker(map)?; if smelt_host_buffer_element_kind(marker).is_none() {{ return Some(Vec::new()); }} {elements}(value) }}",
+        own_elements = symbols::OWN_ELEMENTS,
+        elements = symbols::ELEMENTS,
+    ));
+
     writer.line("/// A byte-backed host record's own enumerable keys: its element indices.");
     writer.line("///");
     writer.line("/// `None` for values that are not byte-backed. A typed array's own properties");
@@ -359,9 +382,9 @@ fn emit_record(writer: &mut CodeWriter) {
     writer.line("/// `Object.keys(new Uint8Array(1))` is `['0']` and a deep-equality walk over");
     writer.line("/// two views compares elements rather than internal storage keys.");
     writer.line(format!(
-        "fn {index_keys}(value: &SmeltUnknown) -> Option<Vec<String>> {{ let count = {elements}(value)?.len(); Some((0..count).map(|index| index.to_string()).collect()) }}",
+        "fn {index_keys}(value: &SmeltUnknown) -> Option<Vec<String>> {{ let count = {own_elements}(value)?.len(); Some((0..count).map(|index| index.to_string()).collect()) }}",
         index_keys = symbols::INDEX_KEYS,
-        elements = symbols::ELEMENTS,
+        own_elements = symbols::OWN_ELEMENTS,
     ));
 
     writer.line("/// The same own-key set, for a byte-backed record reached through the");
@@ -380,14 +403,14 @@ fn emit_record(writer: &mut CodeWriter) {
     writer.line("/// structural `SmeltRecord` ABI. Backs `Object.values`/`Object.entries` over a");
     writer.line("/// view, which pair with the index keys above.");
     writer.line(format!(
-        "fn {record_elements}(record: &SmeltRecord<String, SmeltUnknown>) -> Option<Vec<SmeltUnknown>> {{ {elements}(&SmeltUnknown::Object(SmeltObject::from_unknown_record(record.clone()))) }}",
+        "fn {record_elements}(record: &SmeltRecord<String, SmeltUnknown>) -> Option<Vec<SmeltUnknown>> {{ {own_elements}(&SmeltUnknown::Object(SmeltObject::from_unknown_record(record.clone()))) }}",
         record_elements = symbols::RECORD_ELEMENTS,
-        elements = symbols::ELEMENTS,
+        own_elements = symbols::OWN_ELEMENTS,
     ));
 }
 
 /// Emit slice and indexed element read/write.
-fn emit_access(writer: &mut CodeWriter) {
+fn emit_access(writer: &mut CodeWriter, has_concrete_family: bool) {
     writer.line("/// Slice a byte-backed host record into a fresh record of the same host kind.");
     writer.line("///");
     writer.line("/// `None` for values that are not byte-backed, so `.slice()`/`.subarray()` on");
@@ -423,8 +446,13 @@ fn emit_access(writer: &mut CodeWriter) {
     writer.line("/// record *in place*, so `view[0] = 1` is visible through `view.buffer` and the");
     writer.line("/// buffer keeps its object identity (`view.buffer === buffer` still holds).");
     writer.line(format!(
-        "fn {set_element}(map: &SmeltObject, key: &str, value: SmeltUnknown) -> bool {{ let Some(marker) = smelt_host_buffer_marker(map) else {{ return false; }}; let Ok(index) = key.parse::<usize>() else {{ return false; }}; let Some(SmeltUnknown::Array(values)) = map.get(\"{bytes_key}\") else {{ return false; }}; let mut bytes = values.into_vec(); let (kind, width) = smelt_host_buffer_element_kind(marker).unwrap_or((\"uint8\", 1)); let offset = index * width; if offset + width <= bytes.len() {{ let encoded = smelt_host_buffer_encode_element(kind, &value); for (step, byte) in encoded.iter().enumerate() {{ bytes[offset + step] = byte.clone(); }} map.insert(\"{bytes_key}\".to_owned(), SmeltUnknown::Array(SmeltArray::new(bytes))); smelt_host_buffer_write_through(map, offset, &encoded); }} true }}",
+        "fn {set_element}(map: &SmeltObject, key: &str, value: SmeltUnknown) -> bool {{ let Some(marker) = smelt_host_buffer_marker(map) else {{ return false; }}; let Ok(index) = key.parse::<usize>() else {{ return false; }}; let Some(SmeltUnknown::Array(values)) = map.get(\"{bytes_key}\") else {{ return false; }}; let mut bytes = values.into_vec(); let (kind, width) = smelt_host_buffer_element_kind(marker).unwrap_or((\"uint8\", 1)); let offset = index * width; if offset + width <= bytes.len() {{ let encoded = smelt_host_buffer_encode_element(kind, &value); for (step, byte) in encoded.iter().enumerate() {{ bytes[offset + step] = byte.clone(); }} map.insert(\"{bytes_key}\".to_owned(), SmeltUnknown::Array(SmeltArray::new(bytes))); smelt_host_buffer_write_through(map, offset, &encoded); {origin_write} }} true }}",
         set_element = symbols::SET_ELEMENT,
+        origin_write = if has_concrete_family {
+            "smelt_typed_array_write_origin(map.id, offset, &encoded);"
+        } else {
+            ""
+        },
         bytes_key = symbols::BYTES_KEY,
     ));
 
@@ -437,8 +465,13 @@ fn emit_access(writer: &mut CodeWriter) {
     writer.line("/// break `view.buffer === buf`. `byteOffset` places the window inside the");
     writer.line("/// buffer. A no-op for the byte-addressed kinds, which have no backing buffer.");
     writer.line(format!(
-        "fn smelt_host_buffer_write_through(map: &SmeltObject, offset: usize, encoded: &[SmeltUnknown]) {{ let Some(SmeltUnknown::Object(storage)) = map.get(\"buffer\") else {{ return; }}; let base = match map.get(\"byteOffset\") {{ Some(SmeltUnknown::Number(value)) if value >= 0.0 => value as usize, _ => 0 }}; let Some(SmeltUnknown::Array(values)) = storage.get(\"{bytes_key}\") else {{ return; }}; let mut bytes = values.into_vec(); for (step, byte) in encoded.iter().enumerate() {{ let at = base + offset + step; if at < bytes.len() {{ bytes[at] = byte.clone(); }} }} storage.insert(\"{bytes_key}\".to_owned(), SmeltUnknown::Array(SmeltArray::new(bytes))); }}",
+        "fn smelt_host_buffer_write_through(map: &SmeltObject, offset: usize, encoded: &[SmeltUnknown]) {{ let Some(SmeltUnknown::Object(storage)) = map.get(\"buffer\") else {{ return; }}; let base = match map.get(\"byteOffset\") {{ Some(SmeltUnknown::Number(value)) if value >= 0.0 => value as usize, _ => 0 }}; let Some(SmeltUnknown::Array(values)) = storage.get(\"{bytes_key}\") else {{ return; }}; let mut bytes = values.into_vec(); for (step, byte) in encoded.iter().enumerate() {{ let at = base + offset + step; if at < bytes.len() {{ bytes[at] = byte.clone(); }} }} storage.insert(\"{bytes_key}\".to_owned(), SmeltUnknown::Array(SmeltArray::new(bytes))); {origin_write} }}",
         bytes_key = symbols::BYTES_KEY,
+        origin_write = if has_concrete_family {
+            "smelt_typed_array_write_origin(storage.id, base + offset, encoded);"
+        } else {
+            ""
+        },
     ));
 }
 

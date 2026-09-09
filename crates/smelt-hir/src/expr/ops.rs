@@ -197,6 +197,61 @@ pub enum StringReplaceOp {
     All,
 }
 
+/// One argument a regex replacement CALLBACK receives, in source order.
+///
+/// ECMA-262 `RegExp.prototype[@@replace]` calls the replacer with a fixed
+/// argument list — `(matched, p1, …, pN, position, string)` where `N` is the
+/// pattern's capture-group count — and a callback simply declares a prefix of
+/// it. Recording the resolved *role* of each declared parameter keeps the
+/// spec's positional rule in the frontend, where the pattern's group count is
+/// known, instead of forcing the emitter to re-derive it from the pattern text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RegexReplaceArg {
+    /// The whole matched substring (`matched`, always argument 0).
+    Matched,
+    /// Capture group `n` (1-based), `undefined` when the group did not
+    /// participate in the match.
+    Capture(u32),
+    /// The offset of the match within the subject string (`position`).
+    Position,
+    /// The whole subject string the replacement is running over (`string`).
+    Source,
+}
+
+/// Which of the four ECMA-262 URI transcoding globals an operation is.
+///
+/// ECMA-262 §19.2.6 defines all four from two algorithms (`Encode` / `Decode`)
+/// parameterized by a character set, and the four differ *only* in that set:
+/// the `*Component` pair treats the URI reserved separators
+/// `; / ? : @ & = + $ , #` as ordinary data, while the non-component pair
+/// leaves them alone so a full URI's structure survives a round trip. Carrying
+/// the variant in the IR keeps that one distinction in one place instead of
+/// four near-identical nodes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum UriTranscodeOp {
+    /// `encodeURI(value)` — escape everything outside the full-URI set.
+    Encode,
+    /// `encodeURIComponent(value)` — also escape the reserved separators.
+    EncodeComponent,
+    /// `decodeURI(value)` — unescape everything except the reserved separators.
+    Decode,
+    /// `decodeURIComponent(value)` — unescape everything.
+    DecodeComponent,
+}
+
+impl UriTranscodeOp {
+    /// Whether this operation can fail on malformed input.
+    ///
+    /// Both decoders throw a `URIError` for input that is not well-formed
+    /// percent-encoding; the encoders are total over Rust `&str`, because the
+    /// only ECMA-262 encoding failure is a lone surrogate and a `&str` cannot
+    /// hold one.
+    #[must_use]
+    pub const fn is_fallible(self) -> bool {
+        matches!(self, Self::Decode | Self::DecodeComponent)
+    }
+}
+
 /// A directly lowered string padding operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StringPadOp {
@@ -226,6 +281,508 @@ pub enum RegexMatchOp {
     Match,
     /// Require the match to cover the full string.
     FullMatch,
+}
+
+/// A directly lowered `node:events` `EventEmitter` operation.
+///
+/// The receiver is a concrete emitter, so which member was named is decided
+/// statically, exactly as for the fetch types. What the emitter STORES is
+/// erased, and that is a genuine dynamic boundary rather than a convenience:
+/// a listener's signature is not knowable from the event name (`on('data', cb)`
+/// takes a chunk, `on('end', cb)` takes nothing), `emit` passes an arbitrary
+/// positional list decided by the emitting site, and one emitter holds
+/// listeners for many events at once. The store is therefore heterogeneous and
+/// keyed by a runtime string, which no concrete type, generated union or scoped
+/// generic can express.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EventEmitterOp {
+    /// `on(name, listener)` / `addListener`: append a listener.
+    On,
+    /// `once(name, listener)`: append a listener that fires at most once.
+    Once,
+    /// `off(name, listener)` / `removeListener`: remove one instance.
+    Off,
+    /// `removeAllListeners(name)`: remove every listener for a name.
+    RemoveAll,
+    /// `emit(name, ...args)`: call the registered listeners in order.
+    Emit,
+    /// `listenerCount(name)`.
+    ListenerCount,
+}
+
+/// A directly lowered `node:http` `Server` operation.
+///
+/// Three operations and no more, because that is the whole of what a server
+/// object does once it exists: start, stop, and say where it is bound.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HttpServerOp {
+    /// `listen(port[, host][, callback])`: bind, start accepting, answer the
+    /// server.
+    ///
+    /// Synchronous, exactly as in Node: the bind happens before `listen`
+    /// returns — which is what makes `server.listen(0); server.address()` a
+    /// legal pair — and only the accept loop is deferred. The callback runs
+    /// after the bind, in the same turn.
+    Listen,
+    /// `close()`: stop accepting and release the process.
+    Close,
+    /// `address()`: the bound address, or null when not listening.
+    ///
+    /// Answers the PORT rather than Node's `{ address, family, port }` record,
+    /// because a record would need a generated struct for a shape whose other
+    /// two fields nothing here can vary: the modeled `listen` binds IPv4
+    /// loopback or the given host, and the family follows from the host.
+    Address,
+}
+
+/// A directly lowered `node:http` `IncomingMessage` property read.
+///
+/// Only reads: everything else an `IncomingMessage` does is an
+/// [`EventEmitterOp`], because Node's `IncomingMessage` extends `EventEmitter`
+/// and Smelt models that by composition — the same listener list, reached
+/// through the same operations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum IncomingMessageOp {
+    /// `method`: the request method, uppercased as it arrived.
+    Method,
+    /// `url`: the request target — path and query only, as Node reports it.
+    Url,
+    /// `headers`: the lower-cased header map.
+    ///
+    /// A plain record, NOT a `Headers`. Node's `IncomingMessage.headers` is an
+    /// object with lower-cased keys and no methods; modeling it as the fetch
+    /// `Headers` type would hand the source a `get`/`has` surface the runtime
+    /// it is imitating does not have.
+    Headers,
+}
+
+/// A directly lowered `node:http` `ServerResponse` operation.
+///
+/// The only modeled surface with a WRITE (`res.statusCode = 200`). It is here
+/// rather than in a general member-assignment path because the assignment has
+/// a real operation behind it — the status line of a response that has not been
+/// sent yet — and not a struct field to store into.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ServerResponseOp {
+    /// `statusCode`: read the pending status code.
+    StatusCode,
+    /// `statusCode = n`: set the pending status code.
+    SetStatusCode,
+    /// `setHeader(name, value)`.
+    SetHeader,
+    /// `getHeader(name)`: the pending value, or null.
+    GetHeader,
+    /// `writeHead(status[, headers])`: set the status and merge headers.
+    WriteHead,
+    /// `write(chunk)`: append to the body.
+    Write,
+    /// `end([chunk])`: append and send.
+    End,
+}
+
+/// A directly lowered WHATWG `Request` operation.
+///
+/// The same shape as [`ResponseOp`], and separate from it because the two types
+/// share only their body: a request has a url and a method where a response has
+/// a status line, so one enum covering both would have variants that are
+/// invalid for half its receivers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RequestOp {
+    /// `url`: the WHATWG-serialized request URL.
+    Url,
+    /// `method`: the normalized HTTP method.
+    Method,
+    /// `headers`: the request's `Headers` list.
+    Headers,
+    /// `bodyUsed`: whether a reader has consumed the body.
+    BodyUsed,
+    /// `body`: the body HANDLE, or absent when there is no body.
+    ///
+    /// The spec's `body` is a `ReadableStream | null`, and Smelt models the
+    /// stream as the handle itself (`StdlibClass::ReadableStream`): present or
+    /// absent, passable back to a constructor, and nothing else. `null` is the
+    /// "no body" case — `new Response(null).body` is `null` while
+    /// `new Response("").body` is a stream — which the payload distinguishes,
+    /// so the read answers an `Optional`.
+    Body,
+    /// `text()`: the body decoded as UTF-8. Async, and consumes the body.
+    Text,
+    /// `formData()`: the body parsed as a form. Async, and consumes the body.
+    ///
+    /// Beside `Text` rather than under it because it answers a different type,
+    /// but the same body reader underneath: single-use, and a second call is
+    /// the spec's `TypeError`.
+    FormData,
+    /// `arrayBuffer()`: the body's bytes as storage. Async, and consumes it.
+    ArrayBuffer,
+    /// `bytes()`: the body's bytes as a `Uint8Array`. Async, and consumes it.
+    Bytes,
+    /// `clone()`: a copy whose body is independently readable.
+    Clone,
+    /// `signal`: the request's `AbortSignal`.
+    ///
+    /// Every request HAS one — the member is never `null`, so it is not
+    /// optional — and reads of it answer the SAME signal, which is what
+    /// `request.signal === request.signal` observes.
+    Signal,
+}
+
+/// A directly lowered WHATWG `Response` operation.
+///
+/// One enum for the whole surface, like [`HeadersOp`], and for the same reason:
+/// the receiver is a concrete `Response` value, so which member was named is
+/// decided statically at the call site and the runtime never inspects a tag.
+///
+/// Data properties and methods share the enum because they share that property.
+/// `status` is a read and `text()` is a call in the *source*, but both are one
+/// operation on a concrete receiver here, and splitting them would only mean two
+/// dispatch paths that must agree about the same receiver type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResponseOp {
+    /// `status`: the HTTP status code.
+    Status,
+    /// `ok`: whether `status` is in the 200-299 range.
+    ///
+    /// Derived rather than stored, because the spec derives it: assigning a new
+    /// status has to move `ok` with it.
+    Ok,
+    /// `statusText`: the reason phrase.
+    StatusText,
+    /// `headers`: the response's `Headers` list.
+    Headers,
+    /// `bodyUsed`: whether a reader has consumed the body.
+    BodyUsed,
+    /// `body`: the body HANDLE, or absent when there is no body.
+    ///
+    /// The spec's `body` is a `ReadableStream | null`, and Smelt models the
+    /// stream as the handle itself (`StdlibClass::ReadableStream`): present or
+    /// absent, passable back to a constructor, and nothing else. `null` is the
+    /// "no body" case — `new Response(null).body` is `null` while
+    /// `new Response("").body` is a stream — which the payload distinguishes,
+    /// so the read answers an `Optional`.
+    Body,
+    /// `text()`: the body decoded as UTF-8. Async, and consumes the body.
+    Text,
+    /// `formData()`: the body parsed as a form. Async, and consumes the body.
+    FormData,
+    /// `arrayBuffer()`: the body's bytes as storage. Async, and consumes it.
+    ///
+    /// Its own variant rather than a flavour of [`Self::Bytes`] because the two
+    /// answer DIFFERENT types now that the byte family is concrete: storage
+    /// (`ArrayBuffer.isView` false) against an element view (true). While the
+    /// family was erased the distinction was unobservable and one reader would
+    /// have done for both.
+    ArrayBuffer,
+    /// `bytes()`: the body's bytes as a `Uint8Array`. Async, and consumes it.
+    Bytes,
+    /// `clone()`: a copy whose body is independently readable.
+    Clone,
+}
+
+/// A directly lowered WHATWG `Headers` operation.
+///
+/// One enum for the whole surface, in the shape of the other lowered-intrinsic
+/// operation enums: the receiver is a concrete `Headers` value, so the operation
+/// is selected statically at the call site and the runtime never inspects a tag
+/// to find out which method was called. The WHATWG semantics each variant
+/// carries (case-insensitive names, comma-joined reads, the `Set-Cookie`
+/// carve-out) live in the generated runtime type; this enum only names them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HeadersOp {
+    /// `get(name)`: the comma-joined values for a name, or `null`.
+    Get,
+    /// `has(name)`.
+    Has,
+    /// `set(name, value)`: replace every value for a name.
+    Set,
+    /// `append(name, value)`: add a value, keeping existing ones.
+    Append,
+    /// `delete(name)`.
+    Delete,
+    /// `keys()`: header names, sorted and deduplicated.
+    Keys,
+    /// `values()`: header values in name order.
+    Values,
+    /// `entries()`: name/value pairs in name order.
+    Entries,
+    /// `getSetCookie()`: every `Set-Cookie` value, uncombined.
+    GetSetCookie,
+}
+
+/// A directly lowered WHATWG `URLSearchParams` operation.
+///
+/// Same shape as [`HeadersOp`] and for the same reason: the receiver is a
+/// concrete value, so the operation is selected statically. The semantics differ
+/// from `Headers` in ways the runtime type carries — names are case-SENSITIVE,
+/// `get` answers the FIRST value rather than a comma-joined one, iteration is
+/// insertion-ordered rather than sorted, and the value has a
+/// `application/x-www-form-urlencoded` serialization.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum UrlSearchParamsOp {
+    /// `get(name)`: the first value for a name, or `null`.
+    Get,
+    /// `getAll(name)`: every value for a name, in order.
+    GetAll,
+    /// `has(name)`.
+    Has,
+    /// `set(name, value)`: replace the first value and drop the rest.
+    Set,
+    /// `append(name, value)`.
+    Append,
+    /// `delete(name)`.
+    Delete,
+    /// `sort()`: stable sort by name.
+    Sort,
+    /// `toString()`: the urlencoded serialization.
+    ToText,
+    /// `keys()`: names in insertion order.
+    Keys,
+    /// `values()`: values in insertion order.
+    Values,
+    /// `entries()`: name/value pairs in insertion order.
+    Entries,
+}
+
+/// A directly lowered WHATWG `TextEncoder` member.
+///
+/// Same shape as the other lowered-intrinsic operation enums: the receiver is a
+/// concrete `TextEncoder`, so the member is selected statically. The spec fixes
+/// the encoder's encoding at UTF-8 and gives it no state, so both members are
+/// pure functions of the argument.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TextEncoderOp {
+    /// `encode(input)`: the UTF-8 bytes of a string, as a byte view.
+    Encode,
+    /// `encoding`: always `"utf-8"`.
+    Encoding,
+}
+
+/// A directly lowered WHATWG `TextDecoder` member.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TextDecoderOp {
+    /// `decode(input)`: a byte view read back as a string.
+    ///
+    /// Malformed UTF-8 becomes U+FFFD, which is the spec's non-`fatal`
+    /// behaviour and exactly `String::from_utf8_lossy`.
+    Decode,
+    /// `encoding`: the decoder's normalized encoding label.
+    Encoding,
+}
+
+/// One direction of the base64 codec: `btoa` or `atob`.
+///
+/// Both directions are FALLIBLE, unlike the URI transcoders where only the
+/// decoders can throw: `btoa` refuses a code point above U+00FF because there
+/// is no byte for it, and `atob` refuses a string that is not base64. Each
+/// throws the branded `InvalidCharacterError` `DOMException` the spec names, so
+/// the split that [`UriTranscodeOp::is_fallible`] records has no analogue here
+/// — there is nothing to record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Base64Op {
+    /// `btoa(text)`: the base64 of a byte string (each code unit one byte).
+    Encode,
+    /// `atob(text)`: the byte string a base64 string encodes.
+    Decode,
+}
+
+impl Base64Op {
+    /// The global's source name, which is also how both dumps print the op.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Encode => "btoa",
+            Self::Decode => "atob",
+        }
+    }
+}
+
+/// A directly lowered member of the concrete typed-array family.
+///
+/// One enum for both halves of the family — the element VIEW
+/// (`SmeltTypedArray`) and its byte STORAGE (`SmeltArrayBuffer`) — because
+/// every member here is a spec member whose name the two halves share where
+/// they both have it (`byteLength`, `slice`). The receiver's own type decides
+/// which implementation runs, exactly as it does in JavaScript, so codegen
+/// renders one method call and Rust resolves it; the alternative was two
+/// enums whose overlapping arms could drift.
+///
+/// The element KIND is not here. It is a runtime property of the value, so
+/// `length` (element count) and `byteLength` (byte count) are one op each and
+/// differ at run time by the receiver's width, rather than one op per width.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ByteArrayOp {
+    /// `length`: the element count.
+    Length,
+    /// `byteLength`: the byte count.
+    ByteLength,
+    /// `byteOffset`: where a view starts in its buffer.
+    ByteOffset,
+    /// `buffer`: the view's storage, SHARED rather than copied.
+    Buffer,
+    /// `subarray(start?, end?)`: another view over the SAME storage.
+    Subarray,
+    /// `slice(start?, end?)`: a COPY of a range, in fresh storage.
+    Slice,
+    /// `set(source, offset?)`: copy elements in, converting per element.
+    Set,
+    /// `fill(value, start?, end?)`: write one value across a range.
+    Fill,
+    /// The view's decoded elements, at its own width and signedness.
+    ///
+    /// Not a spec member name: it is what iteration, spreading and
+    /// `Array.from(view)` all need, and giving them one op keeps the decode in
+    /// a single place rather than in each consumer.
+    Elements,
+    /// The view's own enumerable property NAMES: its element indices as strings.
+    ///
+    /// A typed array's own properties are exactly its indexed elements —
+    /// `length`/`byteLength`/`byteOffset`/`buffer` are prototype accessors — so
+    /// `Object.keys(view)` is `["0", "1", ...]`. Answering it from the concrete
+    /// value is what keeps the enumeration off the erased record: the erased
+    /// face computes the same answer from a marker record, and going through
+    /// one for a value whose length is right here is erasure with no boundary.
+    IndexKeys,
+    /// The view's own enumerable entries: `(index-as-string, element)` pairs.
+    ///
+    /// The `Object.entries(view)` form of [`Self::IndexKeys`] and
+    /// [`Self::Elements`], as one op so the two halves of a pair cannot be
+    /// decoded by two different rules.
+    IndexEntries,
+}
+
+impl ByteArrayOp {
+    /// The op's snake-case name, as the HIR and MIR dumps print it.
+    ///
+    /// Shared by both formatters so a new arm cannot be spelled two ways in the
+    /// two golden dumps.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Length => "length",
+            Self::ByteLength => "byte_length",
+            Self::ByteOffset => "byte_offset",
+            Self::Buffer => "buffer",
+            Self::Subarray => "subarray",
+            Self::Slice => "slice",
+            Self::Set => "set",
+            Self::Fill => "fill",
+            Self::Elements => "elements",
+            Self::IndexKeys => "index_keys",
+            Self::IndexEntries => "index_entries",
+        }
+    }
+}
+
+/// A directly lowered `AbortSignal` STATIC.
+///
+/// The two class-side members, which build a signal rather than reading one.
+/// Neither takes a receiver — `AbortSignal` is a constructor used as a
+/// namespace here — so the shape is the arguments alone, like
+/// [`CryptoOp`]'s.
+///
+/// The instance members (`aborted`, `reason`, `addEventListener`,
+/// `throwIfAborted`, ...) are deliberately absent: they are read off the
+/// signal RECORD and bound by the `smelt_abort_method` runtime helper, which
+/// is what lets an optional-chained `signal?.addEventListener(..)` resolve
+/// them. Giving them HIR nodes would mean two dispatch paths for one surface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AbortSignalOp {
+    /// `AbortSignal.abort(reason?)`: a signal that is already aborted.
+    Abort,
+    /// `AbortSignal.timeout(ms)`: a signal that aborts after `ms`, with the
+    /// spec's `TimeoutError` reason.
+    Timeout,
+}
+
+/// A directly lowered `WebCrypto` member.
+///
+/// The three keyless members of the `crypto` global. There is no receiver
+/// operand for any of them: `crypto` is a namespace object with no state a
+/// program can observe, so the call takes only its arguments — the same shape
+/// `Date.now()` and `Math.random()` already have. The key-taking members of
+/// `SubtleCrypto` are deliberately absent; see `CRYPTO_KEY_REASON` in
+/// `smelt_stdlib::host_modules` for why they stay declared.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CryptoOp {
+    /// `crypto.randomUUID()`: a fresh v4 UUID in the spec's lowercase
+    /// hyphenated form.
+    RandomUuid,
+    /// `crypto.getRandomValues(view)`: fill the view with random bytes.
+    ///
+    /// The spec fills the argument IN PLACE and returns that same object, so
+    /// the argument is a mutable place rather than a value: `filled === buffer`
+    /// is `true` in the source and has to stay true in the generated Rust.
+    GetRandomValues,
+    /// `crypto.subtle.digest(algorithm, data)`: hash the bytes. Async.
+    ///
+    /// The algorithm is a run-time STRING (or an object with a `name`), not a
+    /// type, so one call site can name any of SHA-1/256/384/512 and the digest
+    /// width is only known when it runs. That is why the result is a byte value
+    /// rather than a fixed-size one, and why the emitted match carries every
+    /// supported algorithm.
+    Digest,
+}
+
+/// A directly lowered WHATWG `FormData` member.
+///
+/// The same shape as [`UrlSearchParamsOp`] — a pair list's read, mutation and
+/// projection surface — with the spec's two differences carried in the types
+/// rather than here: names are case-SENSITIVE, and an entry's VALUE is
+/// `string | File`, so `Get` answers an optional union and `GetAll` a list of
+/// unions where the params type answers strings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FormDataOp {
+    /// `get(name)`: the first value for a name, or `null`.
+    Get,
+    /// `getAll(name)`: every value for a name, in order.
+    GetAll,
+    /// `has(name)`.
+    Has,
+    /// `set(name, value, filename?)`: replace the first entry and drop the rest.
+    Set,
+    /// `append(name, value, filename?)`.
+    Append,
+    /// `delete(name)`: remove every entry for a name.
+    Delete,
+    /// `keys()`: names in insertion order, one per ENTRY (a duplicated name
+    /// appears once per entry, as the spec's iterator does).
+    Keys,
+    /// `values()`: values in insertion order.
+    Values,
+    /// `entries()`: name/value pairs in insertion order.
+    Entries,
+    /// `forEach(callback)`: the callback receives `(value, name)`.
+    ForEach,
+}
+
+/// A directly lowered WHATWG `Blob`/`File` member.
+///
+/// One enum for both spellings, because a `File` IS a `Blob` and shares its
+/// whole surface; the two `File`-only data properties are variants here rather
+/// than a separate enum, and reading one off a plain `Blob` is refused at
+/// lowering where the receiver's type is still known.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BlobOp {
+    /// `size`: the byte count.
+    Size,
+    /// `type`: the MIME type, `""` when none was supplied.
+    Type,
+    /// `name`: the file name (`File` only).
+    Name,
+    /// `lastModified`: the modification time in epoch milliseconds
+    /// (`File` only).
+    LastModified,
+    /// `text()`: the bytes decoded as UTF-8. Async.
+    Text,
+    /// `arrayBuffer()`: the bytes as an `ArrayBuffer`. Async.
+    ArrayBuffer,
+    /// `bytes()`: the bytes as a `Uint8Array`. Async.
+    Bytes,
+    /// `slice(start?, end?, contentType?)`: a new blob over a byte range.
+    ///
+    /// Not async, and not a `File`: the spec's `slice` always answers a `Blob`,
+    /// so slicing a file drops its name.
+    Slice,
 }
 
 /// A directly lowered local-time `Date` component.

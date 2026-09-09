@@ -1,0 +1,213 @@
+async fn work (FuncId(0)) -> String throws
+  locals
+    %0 param kind: String
+    %1 temp: Bool
+    %2 temp: String
+    %3 temp: Dict<String, Unknown>
+    %4 temp: Unknown
+    %5 temp: String
+  bb0:
+    %1 = copy %0 == "bad"
+    switch move %1 ? bb1 : bb2
+  bb1:
+    %2 = "failed:" + copy %0
+    %3 = {"__smelt_error": "Error", "message": move %2, "stack": undefined, "cause": undefined}
+    %4 = unknown_cast move %3 as t3
+    throw move %4
+  bb2:
+    %5 = "ok:" + copy %0
+    return move %5
+
+fn erase (FuncId(1)) -> Unknown
+  locals
+    %0 param value: Unknown
+  bb0:
+    return copy %0
+
+async fn run (FuncId(2)) -> String throws
+  locals
+    %0 user recovered: String
+    %1 user untouched: String
+    %2 user mapped: String
+    %3 user erased_then: Unknown
+    %4 user erased_caught: Unknown
+    %5 user erased_kept: Unknown
+    %6 temp: Future<String>
+    %7 temp: fn(Unknown) -> String
+    %8 temp: Future<String>
+    %9 temp: String
+    %10 temp: Future<String>
+    %11 temp: fn() -> String
+    %12 temp: Future<String>
+    %13 temp: String
+    %14 temp: Future<String>
+    %15 temp: fn(String) -> String
+    %16 temp: Future<String>
+    %17 temp: String
+    %18 temp: Future<String>
+    %19 temp: Unknown
+    %20 temp: Unknown
+    %21 temp: fn(fn(Unknown) -> String) -> Unknown
+    %22 temp: fn(Unknown) -> String
+    %23 temp: Unknown
+    %24 temp: Future<Unknown>
+    %25 temp: Unknown
+    %26 temp: Future<String>
+    %27 temp: Unknown
+    %28 temp: Unknown
+    %29 temp: fn(fn(Unknown) -> String) -> Unknown
+    %30 temp: fn(Unknown) -> String
+    %31 temp: Unknown
+    %32 temp: Future<Unknown>
+    %33 temp: Unknown
+    %34 temp: Future<String>
+    %35 temp: Unknown
+    %36 temp: Unknown
+    %37 temp: fn(fn() -> String) -> Unknown
+    %38 temp: fn() -> String
+    %39 temp: Unknown
+    %40 temp: Future<Unknown>
+    %41 temp: Unknown
+    %42 temp: String
+    %43 temp: String
+    %44 temp: List<Unknown>
+    %45 temp: String
+  bb0:
+    %6 = call fn0("bad") -> bb1
+  bb1:
+    %7 = closure ClosureId(0) []
+    %8 = async_catch(move %6, move %7)
+    %9 = await move %8
+    %0 = move %9
+    %10 = call fn0("kept") -> bb2
+  bb2:
+    %11 = closure ClosureId(1) []
+    %12 = async_catch(move %10, move %11)
+    %13 = await move %12
+    %1 = move %13
+    %14 = call fn0("mapped") -> bb3
+  bb3:
+    %15 = closure ClosureId(2) []
+    %16 = async_then(move %14, move %15)
+    %17 = await move %16
+    %2 = move %17
+    %18 = call fn0("good") -> bb4
+  bb4:
+    %19 = call fn1(move %18) -> bb5
+  bb5:
+    %20 = copy %19.field10
+    %21 = move %20
+    %22 = closure ClosureId(3) []
+    %23 = closure_call move %21(move %22)
+    %24 = move %23
+    %25 = await move %24
+    %3 = move %25
+    %26 = call fn0("bad") -> bb6
+  bb6:
+    %27 = call fn1(move %26) -> bb7
+  bb7:
+    %28 = copy %27.field13
+    %29 = move %28
+    %30 = closure ClosureId(4) []
+    %31 = closure_call move %29(move %30)
+    %32 = move %31
+    %33 = await move %32
+    %4 = move %33
+    %34 = call fn0("spared") -> bb8
+  bb8:
+    %35 = call fn1(move %34) -> bb9
+  bb9:
+    %36 = copy %35.field13
+    %37 = move %36
+    %38 = closure ClosureId(5) []
+    %39 = closure_call move %37(move %38)
+    %40 = move %39
+    %41 = await move %40
+    %5 = move %41
+    %42 = primitive_cast_string move %4
+    %43 = primitive_cast_string move %5
+    %44 = [move %0, move %1, move %2, move %3, move %42, move %43]
+    %45 = string_join move %44, " | "
+    return move %45
+
+async fn main (FuncId(3)) -> None throws
+  locals
+    %0 temp: Future<String>
+    %1 temp: String
+    %2 temp: None
+    %3 temp: Future<None>
+    %4 temp: None
+  bb0:
+    %0 = call fn2() -> bb1
+  bb1:
+    %1 = await move %0
+    %2 = call @console_log(move %1) -> bb2
+  bb2:
+    %3 = async_exit_drain()
+    %4 = await move %3
+    return none
+
+closure ClosureId(0) -> String
+  locals
+    %0 param __callback_param_0: Unknown
+    %1 temp: Bool
+    %2 temp: String
+    %3 temp: String
+  bb0:
+    %1 = unknown_is Object copy %0
+    switch copy %1 ? bb1 : bb2
+  bb1:
+    %3 = "typed:" + copy %0.field5
+    %2 = copy %3
+    goto bb3
+  bb2:
+    %2 = "typed:other"
+    goto bb3
+  bb3:
+    return copy %2
+
+closure ClosureId(1) -> String
+  bb0:
+    return "not reached"
+
+closure ClosureId(2) -> String
+  locals
+    %0 param __callback_param_0: String
+    %1 temp: String
+  bb0:
+    %1 = copy %0 + "/then"
+    return copy %1
+
+closure ClosureId(3) -> String
+  locals
+    %0 param __callback_param_0: Unknown
+    %1 temp: String
+    %2 temp: String
+  bb0:
+    %1 = primitive_cast_string copy %0
+    %2 = copy %1 + "/erased"
+    return copy %2
+
+closure ClosureId(4) -> String
+  locals
+    %0 param __callback_param_0: Unknown
+    %1 temp: Bool
+    %2 temp: String
+    %3 temp: String
+  bb0:
+    %1 = unknown_is Object copy %0
+    switch copy %1 ? bb1 : bb2
+  bb1:
+    %3 = "erased:" + copy %0.field5
+    %2 = copy %3
+    goto bb3
+  bb2:
+    %2 = "erased:other"
+    goto bb3
+  bb3:
+    return copy %2
+
+closure ClosureId(5) -> String
+  bb0:
+    return "not reached"
+

@@ -1,0 +1,15 @@
+10
+true
+true
+true
+false
+.\+*[^]$()
+3
+a|b|c
+false
+3
+c|a|b
+3
+c|a|b
+h|e|l|o
+true

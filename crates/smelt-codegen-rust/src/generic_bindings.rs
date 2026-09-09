@@ -539,8 +539,8 @@ pub(crate) fn operand_type(
             .get(usize::try_from(local.0).unwrap_or(usize::MAX))
             .map(|decl| decl.ty)
             .ok_or(BindingUnsupportedReason::ShapeMismatch),
-        Operand::Copy(Place::Field { .. } | Place::Index { .. })
-        | Operand::Move(Place::Field { .. } | Place::Index { .. }) => {
+        Operand::Copy(Place::Field { .. } | Place::Index { .. } | Place::Global { .. })
+        | Operand::Move(Place::Field { .. } | Place::Index { .. } | Place::Global { .. }) => {
             Err(BindingUnsupportedReason::ProjectedOperand)
         }
         Operand::Const(constant) => {
@@ -889,6 +889,7 @@ mod tests {
                 })
                 .collect(),
             origin: HirOrigin::Body(smelt_hir::BodyId(id)),
+            absent: smelt_mir::AbsentSpelling::Undefined,
             is_async: false,
             is_generator: false,
             is_test: false,
@@ -1252,13 +1253,13 @@ mod tests {
         let type_param = types.intern(Type::TypeParam { name: Symbol(0) });
         let mut mir = mir_with_types(types);
         let callee = function_with_params(0, &[Symbol(0)], &[type_param], type_param);
-        let caller = function_with_params(1, &[], &[], float);
+        let call_site = function_with_params(1, &[], &[], float);
         mir.functions.push(callee);
 
         let bindings = collect_bindings(
             &mir,
             &mir.functions[0],
-            &caller,
+            &call_site,
             &[Operand::Const(Constant::Float(1.0))],
         );
 
@@ -1285,10 +1286,10 @@ mod tests {
         }));
         let mut mir = mir_with_types(types);
         let callee = function_with_params(0, &[Symbol(0)], &[callback], float);
-        let caller = function_with_params(1, &[], &[], float);
+        let call_site = function_with_params(1, &[], &[], float);
         mir.functions.push(callee);
 
-        let bindings = collect_bindings(&mir, &mir.functions[0], &caller, &[]);
+        let bindings = collect_bindings(&mir, &mir.functions[0], &call_site, &[]);
 
         assert_eq!(bindings.get(Symbol(0)), Some(TypeParamBinding::Unbound));
         assert!(!bindings.all_concrete());
@@ -1318,13 +1319,13 @@ mod tests {
             &[declared_list, declared_callback],
             type_param,
         );
-        let caller = function_with_params(1, &[], &[actual_list, unknown], float);
+        let call_site = function_with_params(1, &[], &[actual_list, unknown], float);
         mir.functions.push(callee);
 
         let bindings = collect_bindings(
             &mir,
             &mir.functions[0],
-            &caller,
+            &call_site,
             &[local_arg(0), local_arg(1)],
         );
 
@@ -1344,13 +1345,13 @@ mod tests {
         let mut callee =
             function_with_params(0, &[Symbol(0)], &[type_param, declared_list], type_param);
         callee.rest = Some(1);
-        let caller = function_with_params(1, &[], &[float, float], float);
+        let call_site = function_with_params(1, &[], &[float, float], float);
         mir.functions.push(callee);
 
         let bindings = collect_bindings(
             &mir,
             &mir.functions[0],
-            &caller,
+            &call_site,
             &[local_arg(0), local_arg(1)],
         );
 
@@ -1370,13 +1371,13 @@ mod tests {
         let type_param = types.intern(Type::TypeParam { name: Symbol(0) });
         let mut mir = mir_with_types(types);
         let callee = function_with_params(0, &[Symbol(0)], &[type_param], type_param);
-        let caller = function_with_params(1, &[], &[float], float);
+        let call_site = function_with_params(1, &[], &[float], float);
         mir.functions.push(callee);
 
         let bindings = collect_bindings(
             &mir,
             &mir.functions[0],
-            &caller,
+            &call_site,
             &[Operand::Copy(Place::Field {
                 base: LocalId(0),
                 field: Symbol(7),
@@ -1693,8 +1694,8 @@ mod tests {
         let mir = mir_with_types(types);
 
         let callee = function_with_params(0, &[Symbol(0)], &[list_param], list_param);
-        let caller = function_with_params(1, &[], &[list_float], list_float);
-        let through_operands = collect_bindings(&mir, &callee, &caller, &[local_arg(0)]);
+        let call_site = function_with_params(1, &[], &[list_float], list_float);
+        let through_operands = collect_bindings(&mir, &callee, &call_site, &[local_arg(0)]);
         let through_types =
             collect_bindings_from_types(&mir, &[Symbol(0)], &[list_param], &[Some(list_float)]);
         assert_eq!(through_operands, through_types);

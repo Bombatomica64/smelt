@@ -1,0 +1,21 @@
+fn main (FuncId(0)) -> None
+  locals
+    %0 user port: Float
+    %1 user zone: String
+    %2 temp: String | Float
+    %3 temp: Float
+    %4 temp: String
+    %5 temp: None
+    %6 temp: None
+  bb0:
+    %2 = undefined ?? 3000.0
+    %3 = primitive_cast_js_number move %2
+    %0 = move %3
+    %4 = "America/Santiago" ?? "UTC"
+    %1 = move %4
+    %5 = call @console_log(move %0) -> bb1
+  bb1:
+    %6 = call @console_log(move %1) -> bb2
+  bb2:
+    return none
+

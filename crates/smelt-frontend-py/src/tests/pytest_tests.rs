@@ -16,10 +16,10 @@ fn annotated_assignment_lowers() -> TestResult {
 
 #[test]
 fn type_annotations_lowered() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 def process(items: list[str], counts: dict[str, int]) -> bool:
     return True
-"#);
+");
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
     Ok(())
@@ -27,10 +27,10 @@ def process(items: list[str], counts: dict[str, int]) -> bool:
 
 #[test]
 fn optional_annotation_lowered() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 def find(x: int) -> str | None:
     return None
-"#);
+");
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
     Ok(())
@@ -123,13 +123,13 @@ fn pytest_plain_assert_lowers_to_conditional_failure() -> TestResult {
 
 #[test]
 fn pytest_assert_not_and_identity_comparisons_lower() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 def test_identity():
     value: None = None
     assert not False
     assert value is None
     assert value is not None
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_path_module(source, "tests/test_identity.py", &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -319,7 +319,7 @@ def test_increment(value, expected):
 
 #[test]
 fn pytest_simple_fixture_binds_test_parameter() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 import pytest
 
 @pytest.fixture
@@ -328,7 +328,7 @@ def answer() -> int:
 
 def test_answer(answer):
     assert answer + 1 == 42
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_path_module(source, "tests/test_fixture.py", &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -375,7 +375,7 @@ def test_answer(scoped_answer):
 
 #[test]
 fn pytest_autouse_fixture_is_called_in_tests() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 import pytest
 
 @pytest.fixture(autouse=True)
@@ -384,7 +384,7 @@ def setup() -> int:
 
 def test_uses_autouse():
     assert True
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_path_module(source, "tests/test_autouse.py", &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -401,7 +401,7 @@ def test_uses_autouse():
 
 #[test]
 fn pytest_skip_skipif_and_xfail_do_not_emit_runnable_tests() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 import pytest
 
 @pytest.mark.skip
@@ -419,7 +419,7 @@ def test_xfail():
 @pytest.mark.skipif(False)
 def test_runs():
     assert True
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_path_module(source, "tests/test_skip.py", &mut ctx)?;
     let module = module(&ctx, module_id)?;

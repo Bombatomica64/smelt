@@ -93,8 +93,12 @@ impl FunctionEmitter<'_> {
                     EmitError::new(format!("tuple index does not fit in runtime number: {err}"))
                 })?;
                 let index_operand = Operand::Const(Constant::Float(f64::from(runtime_index)));
-                let unknown_value =
-                    self.unknown_index_text(&self.operand_text(tuple)?, &index_operand)?;
+                // Same boundary as the erased index read in `place.rs`: a
+                // concrete generated union reaches the runtime-narrowing match
+                // through `IntoSmeltUnknown`, never as itself.
+                let tuple_text =
+                    self.erase_concrete_union_text(&self.operand_text(tuple)?, tuple_ty);
+                let unknown_value = self.unknown_index_text(&tuple_text, &index_operand)?;
                 let unknown_ty = self.type_id(Type::Unknown)?;
                 return self.value_at_type_text(&unknown_value, unknown_ty, dest_ty);
             }
@@ -191,7 +195,7 @@ impl FunctionEmitter<'_> {
                 "tuple-to-set destination must be set of the tuple item type",
             ));
         }
-        Ok(format!("::std::collections::HashSet::from([{items_text}])"))
+        Ok(format!("SmeltPrimSet::from([{items_text}])"))
     }
 
     /// Returns tuple fields and their shared item type for homogeneous tuple conversions.

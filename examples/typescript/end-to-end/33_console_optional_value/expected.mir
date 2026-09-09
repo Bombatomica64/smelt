@@ -1,0 +1,51 @@
+fn label_of (FuncId(0)) -> Optional<String>
+  locals
+    %0 param name: Optional<String>
+  bb0:
+    return copy %0
+
+fn main (FuncId(1)) -> None
+  locals
+    %0 user scores: Map<String, Float>
+    %1 user explicit: Optional<String>
+    %2 temp: Optional<String>
+    %3 temp: None
+    %4 temp: Optional<String>
+    %5 temp: None
+    %6 temp: Map<String, Float>
+    %7 temp: Optional<Float>
+    %8 temp: None
+    %9 temp: Optional<Float>
+    %10 temp: None
+    %11 temp: None
+    %12 temp: Optional<String>
+    %13 temp: Optional<String>
+    %14 temp: None
+  bb0:
+    %2 = call fn0("ada") -> bb1
+  bb1:
+    %3 = call @console_log(move %2) -> bb2
+  bb2:
+    %4 = call fn0() -> bb3
+  bb3:
+    %5 = call @console_log(move %4) -> bb4
+  bb4:
+    %6 = {"a": 1.0}
+    %0 = move %6
+    %7 = dict_get copy %0, "a", _
+    %8 = call @console_log(move %7) -> bb5
+  bb5:
+    %9 = dict_get move %0, "z", _
+    %10 = call @console_log(move %9) -> bb6
+  bb6:
+    %1 = "set"
+    %11 = call @console_log(copy %1) -> bb7
+  bb7:
+    %12 = call fn0("ada") -> bb8
+  bb8:
+    %13 = call fn0() -> bb9
+  bb9:
+    %14 = call @console_log(move %12, move %13, move %1) -> bb10
+  bb10:
+    return none
+

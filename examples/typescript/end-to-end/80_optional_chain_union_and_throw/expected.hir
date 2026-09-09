@@ -1,0 +1,103 @@
+module examples/typescript/end-to-end/80_optional_chain_union_and_throw/input.ts (ModuleId(0))
+  body BodyId(5)
+  items
+    type Slot = Float | List<(String, Float)>
+    fn first_pair owner Module
+    class Registry fields [Hidden #seen: Dict<String, Bool>] constructor Some(ItemId(7)) methods [ItemId(5), ItemId(6)] implements []
+    fn fill owner Module
+  locals
+    %0 const fromNumber: Optional<(String, Float)>
+    %1 const pairs: List<(String, Float)>
+    %2 const fromPairs: Optional<(String, Float)>
+  exprs
+    #0: Float = 7.0
+    #1: fn(Float | List<(String, Float)>) -> Optional<(String, Float)> = @2(first_pair)
+    #2: Optional<(String, Float)> = call #1(#0)
+    #3: String = "number arm: "
+    #4: Optional<(String, Float)> = %0
+    #5: None = undefined
+    #6: Bool = JsStrictEq #4, #5
+    #7: String = "none"
+    #8: (String, Float) = %0
+    #9: Float = 0.0
+    #10: String = tuple_index #8, 0
+    #11: String = if #6 then #7 else #10
+    #12: String = Add #3, #11
+    #13: None = @9(console_log)
+    #14: None = call #13(#12)
+    #15: String = "a"
+    #16: Float = 1.0
+    #17: (String, Float) = (#15, #16)
+    #18: String = "b"
+    #19: Float = 2.0
+    #20: (String, Float) = (#18, #19)
+    #21: List<(String, Float)> = [#17, #20]
+    #22: List<(String, Float)> = %1
+    #23: fn(Float | List<(String, Float)>) -> Optional<(String, Float)> = @2(first_pair)
+    #24: Optional<(String, Float)> = call #23(#22)
+    #25: String = "tuple arm: "
+    #26: Optional<(String, Float)> = %2
+    #27: None = undefined
+    #28: Bool = JsStrictEq #26, #27
+    #29: String = "none"
+    #30: (String, Float) = %2
+    #31: Float = 0.0
+    #32: String = tuple_index #30, 0
+    #33: String = "="
+    #34: String = Add #32, #33
+    #35: (String, Float) = %2
+    #36: Float = 1.0
+    #37: Float = tuple_index #35, 1
+    #38: String = primitive_cast_string #37
+    #39: String = Add #34, #38
+    #40: String = if #28 then #29 else #39
+    #41: String = Add #25, #40
+    #42: None = @10(console_log)
+    #43: None = call #42(#41)
+    #44: String = "no receiver: "
+    #45: None = undefined
+    #46: String = "a"
+    #47: fn(Optional<Registry>, String) -> String = @3(fill)
+    #48: String = call #47(#45, #46)
+    #49: String = Add #44, #48
+    #50: None = @11(console_log)
+    #51: None = call #50(#49)
+    #52: String = "receiver: "
+    #53: Registry = new Registry()
+    #54: String = "a"
+    #55: fn(Optional<Registry>, String) -> String = @3(fill)
+    #56: String = call #55(#53, #54)
+    #57: String = Add #52, #56
+    #58: None = @12(console_log)
+    #59: None = call #58(#57)
+  stmts
+    s0: let %0: Optional<(String, Float)> = #2
+    s1: #14
+    s2: let %1: List<(String, Float)> = #21
+    s3: let %2: Optional<(String, Float)> = #24
+    s4: #43
+    s5: #51
+    s6: #59
+
+interned types
+  t0 = Float
+  t1 = String
+  t2 = (String, Float)
+  t3 = List<(String, Float)>
+  t4 = Float | List<(String, Float)>
+  t5 = Unknown
+  t6 = Dict<String, Unknown>
+  t7 = None
+  t8 = Optional<(String, Float)>
+  t9 = fn(Float | List<(String, Float)>) -> Optional<(String, Float)>
+  t10 = Registry
+  t11 = Optional<Registry>
+  t12 = fn(Optional<Registry>, String) -> String
+  t13 = Bool
+  t14 = Dict<String, Bool>
+  t15 = fn(String, Bool) -> None
+  t16 = Optional<fn(String, Bool) -> None>
+  t17 = Optional<None>
+  t18 = fn(String) -> String
+  t19 = fn(Float | List<(String, Float)>) -> Optional<(String, Float)>
+  t20 = fn(Optional<Registry>, String) -> String

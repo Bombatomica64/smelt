@@ -1,0 +1,65 @@
+module examples/typescript/end-to-end/40_computed_method_over_known_members/input.ts (ModuleId(0))
+  body BodyId(9)
+  items
+    class Body fields [] constructor Some(ItemId(5)) methods [ItemId(2), ItemId(3), ItemId(4)] implements []
+    interface Reader fields [Public head: fn() -> Float, Public tail: fn() -> Float] methods [Public head() -> Float, Public tail() -> Float]
+    class Counter fields [] constructor Some(ItemId(10)) methods [ItemId(8), ItemId(9)] implements [Reader]
+    fn read owner Module
+    fn count owner Module
+  locals
+    %0 const body: Body
+    %1 const counter: Counter
+  exprs
+    #0: Body = new Body()
+    #1: Body = %0
+    #2: String = "json"
+    #3: fn(Body, String) -> String = @0(read)
+    #4: String = call #3(#1, #2)
+    #5: None = @12(console_log)
+    #6: None = call #5(#4)
+    #7: Body = %0
+    #8: String = "text"
+    #9: fn(Body, String) -> String = @0(read)
+    #10: String = call #9(#7, #8)
+    #11: None = @13(console_log)
+    #12: None = call #11(#10)
+    #13: Body = %0
+    #14: String = "raw"
+    #15: fn(Body, String) -> String = @0(read)
+    #16: String = call #15(#13, #14)
+    #17: None = @14(console_log)
+    #18: None = call #17(#16)
+    #19: Counter = new Counter()
+    #20: Counter = %1
+    #21: String = "head"
+    #22: fn(Counter, String) -> Float = @1(count)
+    #23: Float = call #22(#20, #21)
+    #24: None = @15(console_log)
+    #25: None = call #24(#23)
+    #26: Counter = %1
+    #27: String = "tail"
+    #28: fn(Counter, String) -> Float = @1(count)
+    #29: Float = call #28(#26, #27)
+    #30: None = @16(console_log)
+    #31: None = call #30(#29)
+  stmts
+    s0: let %0: Body = #0
+    s1: #6
+    s2: #12
+    s3: #18
+    s4: let %1: Counter = #19
+    s5: #25
+    s6: #31
+
+interned types
+  t0 = Body
+  t1 = Counter
+  t2 = String
+  t3 = fn(Body, String) -> String
+  t4 = Float
+  t5 = fn(Counter, String) -> Float
+  t6 = None
+  t7 = fn() -> Float
+  t8 = Bool
+  t9 = fn(Body, String) -> String
+  t10 = fn(Counter, String) -> Float

@@ -1,0 +1,1 @@
+typed:failed:bad | ok:kept | ok:mapped/then | ok:good/erased | erased:failed:bad | ok:spared

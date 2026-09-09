@@ -190,6 +190,71 @@ pub struct HirCtx {
     /// absent from this set keeps byte-identical presence folding and native
     /// construction (pay-for-use).
     pub written_host_globals: HashSet<String>,
+    /// Project source files that are NOT part of the crate being lowered.
+    ///
+    /// Canonical paths of files the manifest's source roots contain (excludes
+    /// already removed) that the dependency closure did not reach. Seeded once,
+    /// crate-wide, before any module lowers, so the fact is independent of
+    /// lowering order.
+    ///
+    /// It exists to answer one question at a type reference: "is this name
+    /// imported from a module that this project owns but the crate does not
+    /// have?" A reference like that has no declaration to resolve against, and
+    /// the nominal `Type::Class` stand-in it used to get is the worst possible
+    /// answer — a nominal class erases, an erased union member makes the whole
+    /// union non-concrete, and the union reaches the emitter as `SmeltUnknown`
+    /// far from the reference with nothing naming the alias. Hono's five-arm
+    /// `ResponseHeadersInit` erased exactly that way for weeks. Naming it at
+    /// the reference is the difference between a one-line diagnostic and a
+    /// campaign.
+    ///
+    /// Deliberately only the closure GAP: a name imported from a module the
+    /// crate does have, from a bare package (`type-fest`), or from a module the
+    /// manifest excludes keeps the nominal fallback. See
+    /// `blocker-logs/standards-generic-arm-and-typeof-indexed-alias.md`.
+    pub project_sources_outside_crate: HashSet<String>,
+    /// Rust-facing class names for source class names that are AMBIGUOUS across
+    /// the crate, keyed by module path then by source class name.
+    ///
+    /// Class identity in HIR is the class's name symbol (`Type::Class { name }`),
+    /// and method resolution goes from that symbol back to the class item. Two
+    /// modules exporting a class of the same name therefore interned ONE symbol
+    /// for two different classes, and every method of the loser reported
+    /// "unknown class method" — Hono's two `Node` classes
+    /// (`router/trie-router/node.ts` and `router/reg-exp-router/node.ts`) are
+    /// the case that found it, and it stopped the router slice transpiling
+    /// outright.
+    ///
+    /// The transpiler computes this before any module lowers, so the answer
+    /// cannot depend on lowering order: a name declared by exactly one module
+    /// is absent here and keeps its bare spelling (so every existing golden is
+    /// byte-identical), and a name declared by several gets the ordinal suffix
+    /// scheme `manifest_module_names` already uses for module bodies — the last
+    /// declaring module keeps the bare name, earlier ones become `Node_1`,
+    /// `Node_2`, ...
+    ///
+    /// Only the RUST RENDERING changes. The source spelling stays the recorded
+    /// original name (`krate.names`), because that is what reflection reads:
+    /// `instanceof` and `__smelt_class` must still answer `Node`.
+    pub class_renames: HashMap<String, HashMap<String, String>>,
+    /// Crate-unique module identity for each module path.
+    ///
+    /// A module-private helper's Rust item name has to stay distinct after every
+    /// source module is emitted into ONE generated crate — several modules
+    /// legitimately spell a helper `lazyImplementation` — so the name is
+    /// qualified by its module. It used to be qualified by `self.path`, the path
+    /// the compiler was handed, which is absolute in a manifest build: the same
+    /// TypeScript then emitted
+    /// `is_short__module__home_user_project_src_main_ts` in one checkout and a
+    /// different name in another, so generated output was not reproducible and
+    /// no golden could cover the shape (H55).
+    ///
+    /// The transpiler fills this from `manifest_module_names`, the collision-free
+    /// module identities it already computes for module BODIES (`node`,
+    /// `node_1`, ...), so the qualifier is the same everywhere the crate is
+    /// built. Empty when a module is lowered on its own (a unit test,
+    /// `dump-hir`), and then the path is used as before.
+    pub module_identities: HashMap<String, String>,
 }
 
 impl HirCtx {
@@ -218,6 +283,9 @@ impl HirCtx {
             callable_fields: HashMap::new(),
             callable_object_aliases: HashSet::new(),
             written_host_globals: HashSet::new(),
+            project_sources_outside_crate: HashSet::new(),
+            class_renames: HashMap::new(),
+            module_identities: HashMap::new(),
         }
     }
 }

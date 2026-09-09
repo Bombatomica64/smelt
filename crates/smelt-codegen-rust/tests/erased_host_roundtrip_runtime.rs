@@ -91,23 +91,35 @@ fn run_fixture(source: &str, crate_name: &str) {
     let target_dir = root.join("target");
     std::fs::create_dir_all(&crate_dir).expect("create crate dir");
     std::fs::create_dir_all(&target_dir).expect("create target dir");
-    emit_program(source, crate_name, &crate_dir);
-    run_generated_tests(&crate_dir, &target_dir);
-    drop(std::fs::remove_dir_all(&root));
+    let outcome = std::panic::catch_unwind(|| {
+        emit_program(source, crate_name, &crate_dir);
+        run_generated_tests(&crate_dir, &target_dir);
+    });
+    // The scratch root holds a whole nested cargo target directory, so it is
+    // removed on the FAILURE path too: leaving one behind per failing case is
+    // what fills `/tmp`, and an ENOSPC inside a later nested build reads as a
+    // failing assertion rather than as a full disk.
+    // `SMELT_KEEP_RUNTIME_SCRATCH=1` keeps it for a debugging session.
+    if std::env::var_os("SMELT_KEEP_RUNTIME_SCRATCH").is_none() {
+        drop(std::fs::remove_dir_all(&root));
+    }
+    if let Err(payload) = outcome {
+        std::panic::resume_unwind(payload);
+    }
 }
 
 /// A generic identity helper whose body forces its argument through the erased
 /// `unknown` carrier and back — the shape every `clone`/`cloneDeep` helper has.
-const ROUND_TRIP: &str = r#"
+const ROUND_TRIP: &str = r"
 function roundTrip<T>(value: T): T {
   const erased = value as unknown;
   return erased as T;
 }
-"#;
+";
 
 /// es-toolkit `clone`'s error branch, written out: read the value's prototype,
 /// call its `constructor`, then copy `stack` across.
-const REBUILD_ERROR: &str = r#"
+const REBUILD_ERROR: &str = r"
 function rebuild<T>(obj: T): T {
   const prototype = Object.getPrototypeOf(obj);
   const Ctor = prototype.constructor;
@@ -123,7 +135,7 @@ function rebuild<T>(obj: T): T {
   }
   return obj;
 }
-"#;
+";
 
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]

@@ -4,6 +4,7 @@
 //! builtin-call registry routing, immediately-invoked function expressions, and
 //! direct function/method invocation into typed HIR.
 
+use crate::lowering::spread_arguments::CallArg;
 use crate::lowering::{ModuleBuilder, RestParam, stdlib_dispatch};
 use crate::{OverloadSignature, SmeltError, test_support};
 use oxc::ast::ast::{Argument, ArrayExpressionElement, Expression};
@@ -63,7 +64,70 @@ enum StrippedGlobalCallee<'a> {
 }
 
 impl<'builder> ModuleBuilder<'builder> {
+    /// Report the blocker of an import used as a member-call receiver.
+    ///
+    /// Returns `Err` with the import's own blocker message when the callee is a
+    /// member expression whose receiver chain roots in an identifier that
+    /// [`ImportScope::unresolved_value_import`] has marked — `path.join(..)`,
+    /// `errors.ValidationError.of(..)`, `_.map(..)`. The `Ok(None)` case is
+    /// every other callee shape, so the ordinary dispatch chain continues.
+    ///
+    /// The return type is `Option<ExprId>` only so this reads like the other
+    /// handlers in the chain; it never produces an expression.
+    fn blocked_import_member_call(
+        &self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let mut receiver = match &call.callee {
+            Expression::StaticMemberExpression(member) => &member.object,
+            Expression::ComputedMemberExpression(member) => &member.object,
+            _ => return Ok(None),
+        };
+        // Walk to the root of the receiver chain: the blocked binding may sit
+        // any number of member reads below the call.
+        loop {
+            match receiver {
+                Expression::StaticMemberExpression(member) => receiver = &member.object,
+                Expression::ComputedMemberExpression(member) => receiver = &member.object,
+                Expression::Identifier(object) => {
+                    let Some(blocker) = self.imports.unresolved_value_import(object.name.as_str())
+                    else {
+                        return Ok(None);
+                    };
+                    return Err(SmeltError::missing_stdlib(
+                        self.span(object.span.start, object.span.end),
+                        blocker.to_owned(),
+                    ));
+                }
+                _ => return Ok(None),
+            }
+        }
+    }
+
     /// Lower call expressions, including stdlib shims and direct function/method invokes.
+    /// Lower a call expression whose result has a contextual type.
+    ///
+    /// Only the immediately-invoked function form consumes that context today
+    /// (see [`Self::immediately_invoked_function_call_with_hint`]); every other
+    /// callee shape is dispatched by [`Self::call_expression`] unchanged. An
+    /// IIFE callee is an inline function or arrow expression, which none of the
+    /// identifier- and member-callee dispatchers in `call_expression` can match,
+    /// so trying it first changes no other decision.
+    pub(in crate::lowering) fn call_expression_with_hint(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if type_hint.is_some()
+            && let Some(expr) =
+                self.immediately_invoked_function_call_with_hint(call, body, type_hint)?
+        {
+            return Ok(expr);
+        }
+        self.call_expression(call, body)
+    }
+
     pub(in crate::lowering) fn call_expression(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -74,6 +138,24 @@ impl<'builder> ModuleBuilder<'builder> {
         // `expect` used as a receiver rather than as a callee would otherwise
         // fall through to the generic erased-object path and become an empty
         // record. See `ModuleBuilder::vitest_asymmetric_matcher_call`.
+        // A member call whose receiver chain roots in a BLOCKED import is that
+        // import's blocker, reported before any stdlib member rule can claim
+        // it. Without this, the first rule that recognizes the *member* name
+        // wins and reports its own reason: `path.join('/tmp', 'x.json')` was
+        // matched by the static array-join helper form (`_.join(items, sep)`),
+        // which reads the first ARGUMENT as its receiver and rejected the
+        // string with "array join requires an array receiver". That diagnostic
+        // is true of nothing the source wrote. The check belongs here rather
+        // than in each rule: it is one place, and it keeps the blocker's
+        // wording tied to the import that caused it.
+        if let Some(expr) = self.blocked_import_member_call(call)? {
+            return Ok(expr);
+        }
+        if let Expression::ComputedMemberExpression(member) = &call.callee
+            && let Some(expr) = self.computed_method_call_over_members(call, member, body)?
+        {
+            return Ok(expr);
+        }
         if let Some(expr) = self.vitest_asymmetric_matcher_call(call, body)? {
             return Ok(expr);
         }
@@ -156,85 +238,46 @@ impl<'builder> ModuleBuilder<'builder> {
             return Ok(expr);
         }
         if let Expression::StaticMemberExpression(member) = &call.callee {
-            if member.property.name == "next" && call.arguments.is_empty() {
-                let receiver = self.expression(&member.object, body)?;
-                let receiver_ty = Self::expr_ty(body, receiver);
-                if let Some(Type::List(item_ty)) = self.ctx.krate.types.get(receiver_ty) {
-                    let ty = self.ctx.krate.types.intern(Type::Optional(*item_ty));
-                    return Ok(body.push_expr(Expr {
-                        kind: ExprKind::ListNext { list: receiver },
-                        ty,
-                        span: self.span(call.span.start, call.span.end),
-                    }));
-                }
+            return self.member_call(
+                call,
+                &member.object,
+                member.property.name.as_str(),
+                member.span,
+                member.optional,
+                body,
+            );
+        }
+        // `receiver.#method(args)` is the same member call as
+        // `receiver.method(args)`; the only difference is that ES private names
+        // live in a separate namespace, so the property is spelled by a
+        // `PrivateIdentifier` instead of an `IdentifierName`. Class lowering
+        // already registers a private method under its bare source name (see
+        // `PropertyKey::PrivateIdentifier` in `decls/functions.rs`), and
+        // `private_field_member` reads a private FIELD through that same name,
+        // so the call routes through the shared `member_call` path unchanged.
+        // A private name can never denote a builtin namespace or a static
+        // stdlib member, which is why this arm sits after the builtin/static
+        // pre-passes above without needing to consult them.
+        if let Expression::PrivateFieldExpression(member) = &call.callee {
+            // The member name carries the `#`, because a private name is its
+            // own namespace: `this.#newResponse()` must not resolve to the
+            // public `newResponse` field of the same class (Hono's `Context`
+            // declares both, and resolving the private call to the public
+            // arrow — whose body calls the private method — recurses forever).
+            // See `intern_private_name`; a `#`-spelled name matches no builtin
+            // or stdlib member either, which is exactly right.
+            let private_name = format!("#{}", member.field.name.as_str());
+            if let Some(expr) = self.private_callable_field_call(call, member, body)? {
+                return Ok(expr);
             }
-            let receiver = self.expression(&member.object, body)?;
-            let method = self.intern_source_name(member.property.name.as_str());
-            let receiver_ty = Self::expr_ty(body, receiver);
-            let optional_access = call.optional
-                || member.optional
-                || matches!(
-                    self.ctx.krate.types.get(receiver_ty),
-                    Some(Type::Optional(_))
-                );
-            let access_receiver_ty = self.optional_receiver_inner_type(receiver_ty);
-            let (return_ty, method_item) =
-                self.resolve_method(access_receiver_ty, method, member.span)?;
-            let mut args = Vec::new();
-            for arg in &call.arguments {
-                if (member.property.name == "test"
-                    || self.ctx.krate.types.get(return_ty) == Some(&Type::Unknown))
-                    && matches!(
-                        arg,
-                        Argument::ArrowFunctionExpression(_) | Argument::FunctionExpression(_)
-                    )
-                {
-                    let ty = self.ctx.krate.types.intern(Type::Unknown);
-                    args.push(body.push_expr(Expr {
-                        kind: ExprKind::Literal(Literal::None),
-                        ty,
-                        span: self.span(arg.span().start, arg.span().end),
-                    }));
-                } else {
-                    args.push(self.argument(arg, body)?);
-                }
-            }
-            if method_item.0 == u32::MAX
-                && self.ctx.krate.types.get(return_ty) == Some(&Type::Unknown)
-            {
-                let ty = self.ctx.krate.types.intern(Type::Unknown);
-                return Ok(body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::None),
-                    ty,
-                    span: self.span(call.span.start, call.span.end),
-                }));
-            }
-            if optional_access {
-                let receiver = if call.optional || member.optional {
-                    self.optionalize_index_receiver(receiver, body)
-                } else {
-                    receiver
-                };
-                let ty = self.optional_chain_result_type(return_ty);
-                return Ok(body.push_expr(Expr {
-                    kind: ExprKind::OptionalMethod {
-                        receiver,
-                        method,
-                        args,
-                    },
-                    ty,
-                    span: self.span(call.span.start, call.span.end),
-                }));
-            }
-            return Ok(body.push_expr(Expr {
-                kind: ExprKind::Method {
-                    receiver,
-                    method,
-                    args,
-                },
-                ty: return_ty,
-                span: self.span(call.span.start, call.span.end),
-            }));
+            return self.member_call(
+                call,
+                &member.object,
+                &private_name,
+                member.span,
+                member.optional,
+                body,
+            );
         }
         if let Some(expr) = self.local_callable_call(call, body)? {
             return Ok(expr);
@@ -256,18 +299,11 @@ impl<'builder> ModuleBuilder<'builder> {
             ) && let Some(Type::Function(function)) =
                     self.ctx.krate.types.get(function_ty).cloned()
             {
-                let mut args = Vec::new();
-                for (index, argument) in call.arguments.iter().enumerate() {
-                    if let Argument::SpreadElement(spread) = argument {
-                        let _ = self.expression(&spread.argument, body)?;
-                        continue;
-                    }
-                    let lowered = self.argument(argument, body)?;
-                    if index < function.params.len() {
-                        args.push(lowered);
-                    }
+                let expanded = self.expanded_call_arguments(&call.arguments, body)?;
+                let mut args = Vec::with_capacity(function.params.len());
+                for argument in expanded.into_iter().take(function.params.len()) {
+                    args.push(self.lower_call_arg(argument, None, body)?);
                 }
-                args.truncate(function.params.len());
                 return Ok(body.push_expr(Expr {
                     kind: ExprKind::ClosureCall { callee, args },
                     ty: function.return_ty,
@@ -653,11 +689,21 @@ impl<'builder> ModuleBuilder<'builder> {
                     if let Some(Type::Function(function)) =
                         self.ctx.krate.types.get(item_ty).cloned()
                     {
-                        let callee = body.push_expr(Expr {
-                            kind: ExprKind::Literal(Literal::None),
-                            ty: item_ty,
-                            span: self.span(callee_ident.span.start, callee_ident.span.end),
-                        });
+                        // Read the item's VALUE as the callee. This used to push
+                        // `Literal::None` typed as the function — a fabricated
+                        // NULL callee — so `export const alias = original;
+                        // alias(s)` compiled and answered a default-constructed
+                        // value instead of calling anything. `identifier_expression`
+                        // is the general "read this name" path and inlines a
+                        // module const's initializer, so it produces the real
+                        // callable for a const aliasing a function, an arrow, or
+                        // a builtin global.
+                        let callee = self.identifier_expression(
+                            callee_ident.name.as_str(),
+                            callee_ident.span.start,
+                            callee_ident.span.end,
+                            body,
+                        )?;
                         let args = call
                             .arguments
                             .iter()
@@ -850,25 +896,37 @@ impl<'builder> ModuleBuilder<'builder> {
                         implementation_hint
                     }
                 };
-                let fixed_arguments = call
-                    .arguments
+                // Spreads are expanded before the positional walk: a spread of
+                // a tuple contributes one argument PER ELEMENT, so the mapping
+                // from source arguments to parameters is only positional after
+                // expansion. See `lowering::spread_arguments`.
+                let expanded = self.expanded_call_arguments(&call.arguments, body)?;
+                let fixed_arguments = expanded
                     .iter()
+                    .copied()
                     .take(fixed_param_count)
                     .collect::<Vec<_>>();
                 let mut lowered: Vec<Option<smelt_hir::ExprId>> = vec![None; fixed_arguments.len()];
                 let mut deferred: Vec<usize> = Vec::new();
                 for (index, arg) in fixed_arguments.iter().enumerate() {
+                    let CallArg::Source(source) = arg else {
+                        // An expanded spread element is already lowered, and it
+                        // is a tuple field read: never a literal callback, so it
+                        // cannot be deferred and needs no hint.
+                        lowered[index] = Some(self.lower_call_arg(*arg, None, body)?);
+                        continue;
+                    };
                     if defer_literal_callbacks
                         && matches!(
-                            arg,
+                            source,
                             Argument::ArrowFunctionExpression(_) | Argument::FunctionExpression(_)
                         )
                     {
                         deferred.push(index);
                         continue;
                     }
-                    let hint = hint_at(self, index, arg);
-                    lowered[index] = Some(self.argument_with_hint(arg, body, hint)?);
+                    let hint = hint_at(self, index, source);
+                    lowered[index] = Some(self.lower_call_arg(*arg, hint, body)?);
                 }
                 if !deferred.is_empty() {
                     let mut substitutions = HashMap::new();
@@ -883,14 +941,22 @@ impl<'builder> ModuleBuilder<'builder> {
                     }
                     for index in deferred {
                         let arg = fixed_arguments[index];
-                        let hint = hint_at(self, index, arg).map(|hint| {
+                        // Only a `Source` entry is ever deferred (the loop above
+                        // defers literal callbacks, which an expanded spread
+                        // element cannot be), so the hint still has source to
+                        // apply to.
+                        let CallArg::Source(source) = arg else {
+                            lowered[index] = Some(self.lower_call_arg(arg, None, body)?);
+                            continue;
+                        };
+                        let hint = hint_at(self, index, source).map(|hint| {
                             if substitutions.is_empty() {
                                 hint
                             } else {
                                 self.substitute_type_params(hint, &substitutions)
                             }
                         });
-                        lowered[index] = Some(self.argument_with_hint(arg, body, hint)?);
+                        lowered[index] = Some(self.lower_call_arg(arg, hint, body)?);
                     }
                 }
                 let mut args = lowered.into_iter().flatten().collect::<Vec<_>>();
@@ -1000,6 +1066,292 @@ impl<'builder> ModuleBuilder<'builder> {
         ))
     }
 
+    /// Lower a member call `object.property(args)` once the builtin, static and
+    /// namespace pre-passes in [`Self::call_expression`] have all declined it.
+    ///
+    /// The callee's *spelling* is passed apart from its parts so that every
+    /// member-call syntax shares one lowering: a `StaticMemberExpression`
+    /// (`o.m()`) and a `PrivateFieldExpression` (`o.#m()`) differ only in which
+    /// AST node carries the property name, and an ES private method is
+    /// registered under its bare source name exactly like a public one.
+    ///
+    /// * `object` — the receiver expression, lowered first so its type is known.
+    /// * `property_name` — the method's source name, without any `#` sigil.
+    /// * `member_span` — the whole member expression, used for method resolution
+    ///   diagnostics.
+    /// * `member_optional` — whether the ACCESS was optional (`o?.m()`); the
+    ///   CALL's own optionality (`o.m?.()`) is read from `call.optional`.
+    ///
+    /// Three results are possible: `ExprKind::ListNext` for the iterator
+    /// protocol's `next()` on a list receiver, `ExprKind::OptionalMethod` when
+    /// either the access or the receiver type is optional, and
+    /// `ExprKind::Method` otherwise. A call that resolved to neither a concrete
+    /// method item nor a typed return is a dynamic boundary and yields
+    /// `undefined`, matching the surrounding erased-receiver behaviour.
+    fn member_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        object: &Expression<'_>,
+        property_name: &str,
+        member_span: oxc::span::Span,
+        member_optional: bool,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if property_name == "next" && call.arguments.is_empty() {
+            let receiver = self.expression(object, body)?;
+            let receiver_ty = Self::expr_ty(body, receiver);
+            if let Some(Type::List(item_ty)) = self.ctx.krate.types.get(receiver_ty) {
+                let ty = self.ctx.krate.types.intern(Type::Optional(*item_ty));
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::ListNext { list: receiver },
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                }));
+            }
+        }
+        let receiver = self.expression(object, body)?;
+        let method = self.intern_source_name(property_name);
+        let receiver_ty = Self::expr_ty(body, receiver);
+        let optional_access = call.optional
+            || member_optional
+            || matches!(
+                self.ctx.krate.types.get(receiver_ty),
+                Some(Type::Optional(_))
+            );
+        let access_receiver_ty = self.optional_receiver_inner_type(receiver_ty);
+        let (return_ty, method_item) =
+            self.resolve_method(access_receiver_ty, method, member_span)?;
+        // A METHOD callee is the sixth fixed-arity argument collection, and it
+        // needs the same spread expansion as the other five: `sink.take(...triple)`
+        // bound the whole tuple to the first parameter and let the emitter default
+        // the rest. See `lowering::spread_arguments`.
+        let expanded = self.expanded_call_arguments(&call.arguments, body)?;
+        let mut args = Vec::with_capacity(expanded.len());
+        for arg in expanded {
+            if let CallArg::Source(source) = arg
+                && (property_name == "test"
+                    || self.ctx.krate.types.get(return_ty) == Some(&Type::Unknown))
+                && matches!(
+                    source,
+                    Argument::ArrowFunctionExpression(_) | Argument::FunctionExpression(_)
+                )
+            {
+                let ty = self.ctx.krate.types.intern(Type::Unknown);
+                args.push(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::None),
+                    ty,
+                    span: self.span(source.span().start, source.span().end),
+                }));
+            } else {
+                args.push(self.lower_call_arg(arg, None, body)?);
+            }
+        }
+        if method_item.0 == u32::MAX && self.ctx.krate.types.get(return_ty) == Some(&Type::Unknown) {
+            let ty = self.ctx.krate.types.intern(Type::Unknown);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::None),
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            }));
+        }
+        if optional_access {
+            let receiver = if call.optional || member_optional {
+                self.optionalize_index_receiver(receiver, body)
+            } else {
+                receiver
+            };
+            let ty = self.optional_chain_result_type(return_ty);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::OptionalMethod {
+                    receiver,
+                    method,
+                    args,
+                },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            }));
+        }
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::Method {
+                receiver,
+                method,
+                args,
+            },
+            ty: return_ty,
+            span: self.span(call.span.start, call.span.end),
+        }))
+    }
+
+
+    /// Lower `receiver[key]()` over a receiver whose member set is known.
+    ///
+    /// JavaScript reads the property named by `key` and calls it. When the
+    /// receiver's type is a class or interface, that set of names is static, so
+    /// the call is a CHOICE among known methods and lowers as one — a chain of
+    /// `key === "<name>"` tests, each arm the ordinary method call. A dynamic
+    /// lookup is never needed and never emitted.
+    ///
+    /// This is a silent-wrong-value fix, not a missing feature.
+    /// `computed_member` answers `Unknown` for such a read, and the arm below it
+    /// turns an `Unknown` callee into `undefined`, so
+    /// `function pick(req: Req, key: 'json' | 'text'): string { return req[key]() }`
+    /// emitted `return String::new()` — the whole body replaced by a default,
+    /// with no diagnostic. Hono's `await req[cacheKey]()` (`src/request.ts`) is
+    /// that shape.
+    ///
+    /// Deliberately narrow, and each limit is about not evaluating something
+    /// twice rather than about the shape being rare:
+    ///
+    /// * the receiver and the key must both be plain identifier references, so
+    ///   the single lowered expression each produces can be referenced from
+    ///   every arm without being evaluated more than once;
+    /// * the call must take no arguments, for the same reason — an argument
+    ///   would be lowered once and referenced from every arm, and binding it to
+    ///   a temporary first is a separate change. `receiver[key]()` is the
+    ///   accessor-style shape this form is written in;
+    /// * every candidate must answer the same return type, so the chain has one
+    ///   type. Candidates that disagree fall through to the existing lowering
+    ///   rather than being joined into a union here.
+    ///
+    /// The last candidate is the chain's `else` with no test of its own: the
+    /// source's key type says the key is one of these names, and a final
+    /// comparison whose failure has no answer would need a thrown `TypeError`
+    /// the surrounding expression position cannot hold.
+    fn computed_method_call_over_members(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        member: &oxc::ast::ast::ComputedMemberExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if !call.arguments.is_empty() || call.optional || member.optional {
+            return Ok(None);
+        }
+        if !matches!(&member.object, Expression::Identifier(_))
+            || !matches!(&member.expression, Expression::Identifier(_))
+        {
+            return Ok(None);
+        }
+        let receiver = self.expression(&member.object, body)?;
+        let receiver_ty = Self::expr_ty(body, receiver);
+        let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(receiver_ty).cloned() else {
+            return Ok(None);
+        };
+        let mut candidates: Vec<(smelt_hir::Symbol, String)> = Vec::new();
+        if let Some(class) = self.class_by_symbol(name).cloned() {
+            for method_item in &class.methods {
+                let Item::Function(function) = self.item_ref(*method_item) else {
+                    continue;
+                };
+                // A lowered class method carries its receiver as the leading
+                // parameter, so a JavaScript-nullary method has exactly one.
+                // An interface method SIGNATURE does not (see the arm below):
+                // the two shapes count differently and each is checked in its
+                // own terms rather than through one shared number.
+                if function.params.len() > 1 || function.rest.is_some() {
+                    continue;
+                }
+                let method = function.name;
+                let source = self.ctx.krate.symbols.source(method).unwrap_or_default().to_owned();
+                if source.is_empty() {
+                    return Ok(None);
+                }
+                candidates.push((method, source));
+            }
+        } else if let Some(interface) = self.find_interface(name).cloned() {
+            for signature in &interface.methods {
+                if !signature.params.is_empty() || signature.rest.is_some() {
+                    continue;
+                }
+                let source = self
+                    .ctx
+                    .krate
+                    .symbols
+                    .source(signature.name)
+                    .unwrap_or_default()
+                    .to_owned();
+                if source.is_empty() {
+                    return Ok(None);
+                }
+                candidates.push((signature.name, source));
+            }
+        } else {
+            return Ok(None);
+        }
+        if candidates.len() < 2 {
+            return Ok(None);
+        }
+        let member_span = member.span;
+        let mut return_ty = None;
+        for (method, _) in &candidates {
+            let (candidate_ty, _) = self.resolve_method(receiver_ty, *method, member_span)?;
+            if matches!(self.ctx.krate.types.get(candidate_ty), Some(Type::Unknown)) {
+                return Ok(None);
+            }
+            match return_ty {
+                None => return_ty = Some(candidate_ty),
+                Some(existing) if existing == candidate_ty => {}
+                Some(_) => return Ok(None),
+            }
+        }
+        let Some(return_ty) = return_ty else {
+            return Ok(None);
+        };
+        let key = self.expression(&member.expression, body)?;
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        if Self::expr_ty(body, key) != string_ty {
+            return Ok(None);
+        }
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let call_span = self.span(call.span.start, call.span.end);
+        let key_span = self.span(member.expression.span().start, member.expression.span().end);
+        let arm = |builder: &mut Self, target: &mut Body, method: smelt_hir::Symbol| {
+            let _ = builder;
+            target.push_expr(Expr {
+                kind: ExprKind::Method {
+                    receiver,
+                    method,
+                    args: Vec::new(),
+                },
+                ty: return_ty,
+                span: call_span,
+            })
+        };
+        let last_method = candidates
+            .last()
+            .map(|(method, _)| *method)
+            .ok_or_else(|| {
+                SmeltError::unsupported(call_span, "computed method call has no candidate members")
+            })?;
+        let mut expr = arm(self, body, last_method);
+        for (method, source) in candidates.iter().rev().skip(1) {
+            let literal = body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String(source.clone())),
+                ty: string_ty,
+                span: key_span,
+            });
+            let cond = body.push_expr(Expr {
+                kind: ExprKind::BinOp {
+                    op: smelt_hir::BinOp::JsStrictEq,
+                    lhs: key,
+                    rhs: literal,
+                },
+                ty: bool_ty,
+                span: key_span,
+            });
+            let then_expr = arm(self, body, *method);
+            expr = body.push_expr(Expr {
+                kind: ExprKind::Conditional {
+                    cond,
+                    then_expr,
+                    else_expr: expr,
+                },
+                ty: return_ty,
+                span: call_span,
+            });
+        }
+        Ok(Some(expr))
+    }
+
     /// Lower an immediately-invoked function expression (IIFE).
     ///
     /// `(function (a, b) { ... })(1, 2)` and `((a) => ...)(5)` invoke a function
@@ -1013,19 +1365,128 @@ impl<'builder> ModuleBuilder<'builder> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        self.immediately_invoked_function_call_with_hint(call, body, None)
+    }
+
+    /// Lower an immediately-invoked function expression, carrying the call's
+    /// contextual type into the callee's RETURN position.
+    ///
+    /// `const f: (value: string) => number = (() => { .. return (value) => .. })()`
+    /// gives the inner arrow its parameter types in TypeScript, because the
+    /// contextual type of the call flows to the IIFE's return expression. Smelt
+    /// lowered the callee with no hint at all, so the inner arrow's parameters
+    /// erased to `SmeltUnknown` and the value it built was reported as erased --
+    /// for a shape whose type is fully known. The rule is general: it holds for
+    /// `const f: T = (..)()`, for `f = (..)()`, and for `f ||= (..)()` /
+    /// `f ??= (..)()` alike, because all four reach here through the same
+    /// contextual type.
+    ///
+    /// Only the RETURN channel is derivable from a call's context. A call gives
+    /// its callee no contextual PARAMETER types -- TypeScript does not either --
+    /// so the synthesized hint carries an empty parameter list and the callee's
+    /// own annotations and inference supply them (`contextual_param_type_at` is
+    /// index-based, so an empty list is a clean no-op at any arity).
+    pub(in crate::lowering) fn immediately_invoked_function_call_with_hint(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        // An explicit return-type annotation on the callee wins over the
+        // contextual type, exactly as it does in TypeScript. `(function* ():
+        // Generator<number, T, unknown> { .. })()` already says what it returns;
+        // handing it a second, contextual answer only creates a way for the two
+        // to disagree.
+        // `None` means "not an immediately-invoked function expression at all",
+        // which is also the cheap early exit: every other callee shape leaves
+        // before anything is interned.
+        // `None` means "not an immediately-invoked function expression at all",
+        // which is also the cheap early exit: every other callee shape leaves
+        // before anything is interned. `true` means the callee already answers
+        // the question the hint would answer, so the hint is dropped.
+        //
+        // Two ways it already answers it. An explicit RETURN-TYPE ANNOTATION
+        // wins over the contextual type, exactly as in TypeScript; handing an
+        // annotated callee a second answer only creates a way for the two to
+        // disagree (`(function* (): Generator<number, T, unknown> { .. })()`).
+        // And a callee WITH PARAMETERS has a parameter list of its own: the hint
+        // synthesized here can only describe a nullary function, because a call
+        // gives its callee no contextual parameter types, so applying it to a
+        // parameterized callee replaces a real signature with an empty one --
+        // es-toolkit's `(function (..._: unknown[]) { return arguments })(...array)`
+        // kept its rest parameter in the emitted closure while the call site lost
+        // the argument (E0057). A nullary callee is the shape the hint fits
+        // exactly, and it is the shape contextual typing is for.
+        let skip_hint = match &call.callee {
+            Expression::FunctionExpression(function) => Some(
+                function.return_type.is_some()
+                    || !function.params.items.is_empty()
+                    || function.params.rest.is_some(),
+            ),
+            Expression::ArrowFunctionExpression(arrow) => Some(
+                arrow.return_type.is_some()
+                    || !arrow.params.items.is_empty()
+                    || arrow.params.rest.is_some(),
+            ),
+            Expression::ParenthesizedExpression(paren) => match &paren.expression {
+                Expression::FunctionExpression(function) => Some(
+                    function.return_type.is_some()
+                        || !function.params.items.is_empty()
+                        || function.params.rest.is_some(),
+                ),
+                Expression::ArrowFunctionExpression(arrow) => Some(
+                    arrow.return_type.is_some()
+                        || !arrow.params.items.is_empty()
+                        || arrow.params.rest.is_some(),
+                ),
+                _ => None,
+            },
+            _ => None,
+        };
+        let Some(skip_hint) = skip_hint else {
+            return Ok(None);
+        };
+        let type_hint = if skip_hint { None } else { type_hint };
+        // The target's OPTIONALITY does not belong to the callee's return
+        // channel: `let x: T | undefined; x = (() => .. return v ..)()` produces
+        // a `T` and the assignment wraps it. Hinting `T | undefined` instead
+        // makes the callee's emitted tail `Some(<concrete closure>)`, whose
+        // inferred Rust type is `Option<Rc<{closure}>>` rather than the declared
+        // `Option<Rc<dyn Fn..>>` (E0308) -- and it is a less precise contextual
+        // type besides. The arrow's own `return` statements still decide its
+        // real return type, so a callee that really can answer nothing still
+        // infers the optional.
+        let type_hint = type_hint.map(|hint| match self.ctx.krate.types.get(hint) {
+            Some(Type::Optional(inner)) => *inner,
+            _ => hint,
+        });
+        let callee_hint = type_hint.map(|return_ty| {
+            self.ctx
+                .krate
+                .types
+                .intern(Type::Function(smelt_hir::FunctionType {
+                    params: Vec::new(),
+                    rest: None,
+                    required_params: None,
+                    mutable_params: Vec::new(),
+                    return_ty,
+                    is_async: false,
+                    may_throw: false,
+                }))
+        });
         let callee = match &call.callee {
             Expression::FunctionExpression(function) => {
-                self.function_expression_value(function, None, function.span, body)?
+                self.function_expression_value(function, callee_hint, function.span, body)?
             }
             Expression::ArrowFunctionExpression(arrow) => {
-                self.arrow_function_expression(arrow, body)?
+                self.arrow_function_expression_with_hint(arrow, body, callee_hint)?
             }
             Expression::ParenthesizedExpression(paren) => match &paren.expression {
                 Expression::FunctionExpression(function) => {
-                    self.function_expression_value(function, None, function.span, body)?
+                    self.function_expression_value(function, callee_hint, function.span, body)?
                 }
                 Expression::ArrowFunctionExpression(arrow) => {
-                    self.arrow_function_expression(arrow, body)?
+                    self.arrow_function_expression_with_hint(arrow, body, callee_hint)?
                 }
                 _ => return Ok(None),
             },
@@ -1271,8 +1732,8 @@ impl<'builder> ModuleBuilder<'builder> {
         Self::sinon_fake_timers_call,
         Self::structured_clone_call,
         Self::uri_encode_call,
+        Self::base64_call,
         Self::object_prototype_to_string_call,
-        Self::crypto_get_random_values_call,
         Self::unsupported_object_collection_call_entry,
         Self::exact_stdlib_call,
         Self::array_constructor_call,
@@ -1289,7 +1750,30 @@ impl<'builder> ModuleBuilder<'builder> {
         Self::object_get_own_property_symbols_call,
         Self::object_projection_call,
         Self::object_has_own_call,
+        // Before the collection and list dispatches: `slice`, `set` and `fill`
+        // are names those own for other receivers, and the family's receiver
+        // type is what separates them.
+        Self::dispatch_typed_array_method,
+        // Beside the family's methods and for the same reason: `getInt16` and
+        // `setUint8` are ordinary user method names, so the receiver's own
+        // `DataView` type is what admits the accessor.
+        Self::dispatch_data_view_accessor,
         Self::dispatch_collection_method,
+        Self::dispatch_headers_method,
+        Self::dispatch_url_search_params_method,
+        Self::dispatch_form_data_method,
+        Self::dispatch_text_encoder_method,
+        Self::dispatch_text_decoder_method,
+        Self::dispatch_blob_method,
+        Self::dispatch_response_method,
+        Self::dispatch_request_method,
+        // Before the emitter dispatch: an `IncomingMessage` reaches the emitter
+        // through it, and the two `node:http` receivers with methods of their
+        // own must claim those names first.
+        Self::http_create_server_call,
+        Self::dispatch_http_server_method,
+        Self::dispatch_server_response_method,
+        Self::dispatch_event_emitter_method,
         Self::map_projection_call,
         Self::regexp_test_call,
         Self::regexp_exec_call,
@@ -1322,7 +1806,6 @@ impl<'builder> ModuleBuilder<'builder> {
         Self::string_repeat_call,
         Self::string_pad_call,
         Self::string_char_at_call,
-        Self::node_path_static_call,
         Self::string_join_call,
         Self::list_concat_call,
         Self::list_contains_call,
@@ -1567,15 +2050,96 @@ impl<'builder> ModuleBuilder<'builder> {
         })))
     }
 
-    /// Lower `encodeURI(value)` to the URI percent-encoding IR op.
+    /// Which direction of the base64 codec `name` names, if any.
     ///
-    /// JavaScript `encodeURI` percent-encodes a full URI, leaving the
-    /// `encodeURI` unescaped character set intact (see the runtime
-    /// `smelt_encode_uri` helper for the exact set). The operand must be
-    /// string-compatible: a concrete `string` passes through, and an erased or
-    /// string-convertible operand is asserted to `string` first, mirroring how
-    /// other string builtins accept erased operands. The bare-value form of
-    /// `encodeURI` is handled by `builtin_function_value_expression`.
+    /// Asked of the name alone, so the direct-call lowering and the bare-value
+    /// form (`values.map(atob)`) cannot disagree about which global is which
+    /// direction.
+    pub(in crate::lowering) const fn base64_global(name: &str) -> Option<smelt_hir::Base64Op> {
+        match name.as_bytes() {
+            b"btoa" => Some(smelt_hir::Base64Op::Encode),
+            b"atob" => Some(smelt_hir::Base64Op::Decode),
+            _ => None,
+        }
+    }
+
+    /// Lower `btoa(text)` / `atob(text)` to the base64 IR op.
+    ///
+    /// The operand rule is the URI transcoders': a concrete `string` passes
+    /// through and an erased or string-convertible operand is asserted to
+    /// `string` first, because `btoa(1)` is `btoa("1")` in JavaScript. A source
+    /// binding of either name shadows the global and declines here.
+    pub(in crate::lowering) fn base64_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::Identifier(callee) = &call.callee else {
+            return Ok(None);
+        };
+        let name = callee.name.as_str();
+        let Some(op) = Self::base64_global(name) else {
+            return Ok(None);
+        };
+        if self.scope.is_bound(name) || self.items.contains_key(name) {
+            return Ok(None);
+        }
+        let [value_arg] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                format!("{name} requires exactly one string argument"),
+            ));
+        };
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let value = self.argument(value_arg, body)?;
+        let value_ty = Self::expr_ty(body, value);
+        let operand = if self.ctx.krate.types.get(value_ty) == Some(&Type::String) {
+            value
+        } else if self.is_string_compatible_type(value_ty) || self.type_contains_unknown(value_ty) {
+            body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value },
+                ty: string_ty,
+                span: self.span(value_arg.span().start, value_arg.span().end),
+            })
+        } else {
+            return Err(SmeltError::unsupported(
+                self.span(value_arg.span().start, value_arg.span().end),
+                format!("{name} argument must be a string"),
+            ));
+        };
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Base64Transcode { op, operand },
+            ty: string_ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Which of the four ECMA-262 URI transcoding globals `name` is, if any.
+    ///
+    /// The four share one grammar and one operand rule and differ only in the
+    /// character set they treat as structure, so they share one lowering (see
+    /// [`smelt_hir::UriTranscodeOp`]) rather than four near-identical ones.
+    pub(in crate::lowering) const fn uri_transcode_global(
+        name: &str,
+    ) -> Option<smelt_hir::UriTranscodeOp> {
+        match name.as_bytes() {
+            b"encodeURI" => Some(smelt_hir::UriTranscodeOp::Encode),
+            b"encodeURIComponent" => Some(smelt_hir::UriTranscodeOp::EncodeComponent),
+            b"decodeURI" => Some(smelt_hir::UriTranscodeOp::Decode),
+            b"decodeURIComponent" => Some(smelt_hir::UriTranscodeOp::DecodeComponent),
+            _ => None,
+        }
+    }
+
+    /// Lower `encodeURI`/`encodeURIComponent`/`decodeURI`/`decodeURIComponent`
+    /// to the URI transcoding IR op.
+    ///
+    /// The operand must be string-compatible: a concrete `string` passes
+    /// through, and an erased or string-convertible operand is asserted to
+    /// `string` first, mirroring how other string builtins accept erased
+    /// operands. The bare-value form of each is handled by
+    /// `builtin_function_value_expression`, which builds a closure over the
+    /// same op.
     pub(in crate::lowering) fn uri_encode_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -1584,13 +2148,17 @@ impl<'builder> ModuleBuilder<'builder> {
         let Expression::Identifier(callee) = &call.callee else {
             return Ok(None);
         };
-        if callee.name != "encodeURI" || self.scope.is_bound(callee.name.as_str()) {
+        let Some(op) = Self::uri_transcode_global(callee.name.as_str()) else {
+            return Ok(None);
+        };
+        if self.scope.is_bound(callee.name.as_str()) {
             return Ok(None);
         }
+        let name = callee.name.as_str();
         let [value_arg] = call.arguments.as_slice() else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "encodeURI requires exactly one string argument",
+                format!("{name} requires exactly one string argument"),
             ));
         };
         let string_ty = self.ctx.krate.types.intern(Type::String);
@@ -1609,11 +2177,11 @@ impl<'builder> ModuleBuilder<'builder> {
         } else {
             return Err(SmeltError::unsupported(
                 self.span(value_arg.span().start, value_arg.span().end),
-                "encodeURI argument must be a string",
+                format!("{name} argument must be a string"),
             ));
         };
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::UriEncode { operand },
+            kind: ExprKind::UriTranscode { op, operand },
             ty: string_ty,
             span: self.span(call.span.start, call.span.end),
         })))
@@ -1997,9 +2565,15 @@ impl<'builder> ModuleBuilder<'builder> {
                 span: self.span(call.span.start, call.span.end),
             })));
         }
-        let mut args = Vec::new();
-        for arg in &call.arguments {
-            args.push(self.argument(arg, body)?);
+        // A tuple spread distributes positionally here too: this is the path a
+        // FUNCTION-TYPED FIELD callee takes (`router.add(...routes[i])` in
+        // hono's smart router), and treating the spread as one argument put the
+        // whole tuple in parameter 0 and let the emitter pad the rest with
+        // defaults.
+        let expanded = self.expanded_call_arguments(&call.arguments, body)?;
+        let mut args = Vec::with_capacity(expanded.len());
+        for argument in expanded {
+            args.push(self.lower_call_arg(argument, None, body)?);
         }
         let (function_ty, function) =
             if let Some(function_ty) = self.function_member_type(callee_ty) {
@@ -2069,6 +2643,170 @@ impl<'builder> ModuleBuilder<'builder> {
             ty: function.return_ty,
             span,
         })))
+    }
+
+    /// Lower `receiver.#field(args)` where `#field` holds a FUNCTION.
+    ///
+    /// A private name can denote either a method or a field, and a field may
+    /// hold a closure: Hono's `HonoRequest` declares
+    /// `#cachedBody = (key: keyof Body) => ...` and calls `this.#cachedBody('text')`
+    /// from six methods. That is a CALL OF A FIELD, not a method call, and the
+    /// public spelling has always been lowered as one (see
+    /// [`Self::callable_static_member_call`]); the private spelling had no such
+    /// path, so it lowered as `ExprKind::Method` and MIR then failed with
+    /// `class method '#cached_body' is not resolvable` — there is no method of
+    /// that name to resolve. The blocker was masked while `context.ts` and
+    /// `request.ts` still had earlier ones.
+    ///
+    /// Returns `None` when the private member is not a function-typed field, so
+    /// a genuine private METHOD keeps the receiver-first method lowering.
+    ///
+    /// The receiver is restricted to an identifier or `this` — the only shapes
+    /// whose lowering has no side effect — because deciding between the two
+    /// lowerings requires reading the receiver's type, and the method fallback
+    /// lowers the receiver again.
+    fn private_callable_field_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        member: &oxc::ast::ast::PrivateFieldExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if call.optional || member.optional {
+            return Ok(None);
+        }
+        if !matches!(
+            &member.object,
+            Expression::Identifier(_) | Expression::ThisExpression(_)
+        ) {
+            return Ok(None);
+        }
+        let receiver = self.expression(&member.object, body)?;
+        let receiver_ty = Self::expr_ty(body, receiver);
+        let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(receiver_ty).cloned() else {
+            return Ok(None);
+        };
+        let field = self.intern_private_name(member.field.name.as_str());
+        // Only a declared FIELD takes this path. A private METHOD also answers
+        // a function type through `class_field_type` (as a bound method value),
+        // and routing it here would replace its direct receiver-first call with
+        // the erased callable-value ABI. A private name is either a method or a
+        // field, never both, so the field's existence is the whole test — a
+        // field that is CALLED and is not callable is not valid TypeScript.
+        if !self.class_declares_field(name, field) {
+            return Ok(None);
+        }
+        let Ok(callee) = self.private_field_member(
+            &member.object,
+            member.field.name.as_str(),
+            member.span,
+            body,
+        ) else {
+            return Ok(None);
+        };
+        let callee_ty = Self::expr_ty(body, callee);
+        let mut args = Vec::new();
+        for arg in &call.arguments {
+            args.push(self.argument(arg, body)?);
+        }
+        let (function_ty, function) = match self.function_member_type(callee_ty) {
+            Some(function_ty) => {
+                let Some(Type::Function(function)) =
+                    self.ctx.krate.types.get(function_ty).cloned()
+                else {
+                    return Ok(None);
+                };
+                (function_ty, function)
+            }
+            // An ERASED callable field: Hono's `#renderer: Renderer` resolves
+            // through a conditional type (`ContextRenderer extends Function ?
+            // ...`) that carries no callable shape, so the read is `unknown`.
+            // The call is then the dynamic callable boundary, and the ABI is
+            // synthesized from the argument types exactly as the public
+            // callable-field path does for the same shape.
+            None if self.is_nullishable_type(callee_ty)
+                || self.type_contains_unknown(callee_ty) =>
+            {
+                let unknown = self.ctx.krate.types.intern(Type::Unknown);
+                let params = args
+                    .iter()
+                    .map(|arg| Self::expr_ty(body, *arg))
+                    .collect::<Vec<_>>();
+                let function = FunctionType {
+                    params,
+                    rest: None,
+                    required_params: None,
+                    mutable_params: Vec::new(),
+                    return_ty: unknown,
+                    is_async: false,
+                    may_throw: false,
+                };
+                let function_ty = self
+                    .ctx
+                    .krate
+                    .types
+                    .intern(Type::Function(function.clone()));
+                (function_ty, function)
+            }
+            None => return Ok(None),
+        };
+        // `#renderer: Renderer | undefined` is declared optional and assigned
+        // through `??=` before the call, so the read's type is the optional (or
+        // union) that carries the callable. The call site asserts the callable
+        // member, exactly as the public callable-field path does.
+        let callable = if callee_ty == function_ty {
+            callee
+        } else {
+            body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: callee },
+                ty: function_ty,
+                span: self.span(member.span.start, member.span.end),
+            })
+        };
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::ClosureCall {
+                callee: callable,
+                args,
+            },
+            ty: function.return_ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Whether class `class_name` declares a field named `field`.
+    ///
+    /// Both stores are consulted: the sidecar registered while the class is
+    /// still being lowered (a private field is called from the same class's
+    /// methods, so its class item does not exist yet) and the finished class
+    /// item for a class from another module.
+    fn class_declares_field(
+        &self,
+        class_name: smelt_hir::Symbol,
+        field: smelt_hir::Symbol,
+    ) -> bool {
+        let field_ty = self
+            .ctx
+            .krate
+            .names
+            .get(class_name)
+            .or_else(|| self.ctx.krate.symbols.get(class_name))
+            .map(str::to_owned)
+            .and_then(|class_text| self.classes.fields(&class_text).cloned())
+            .and_then(|fields| {
+                fields
+                    .iter()
+                    .find(|candidate| candidate.name == field)
+                    .map(|candidate| candidate.ty)
+            })
+            .or_else(|| {
+                self.class_by_symbol(class_name).and_then(|class| {
+                    class
+                        .fields
+                        .iter()
+                        .find(|candidate| candidate.name == field)
+                        .map(|candidate| candidate.ty)
+                })
+            });
+        field_ty.is_some()
     }
 
     /// Bind `object` as the receiver of an `object.method(..)` callable field read.
@@ -2199,27 +2937,46 @@ impl<'builder> ModuleBuilder<'builder> {
         {
             return false;
         }
-        // A union receiver has no *single* method item — `resolve_method`
-        // deliberately returns `ItemId(u32::MAX)` for it, because dispatch
-        // happens per tagged-union arm rather than through one function. The
-        // item-id test below therefore rejects a perfectly concrete union, and
-        // the caller then lowers the call as a callable *field* read, routing it
-        // through the erased `SmeltUnknown` call ABI: the receiver is converted
-        // with `into_smelt_unknown`, the method looked up as a dynamic object
-        // field, and invoked dynamically — even though every arm is a class with
-        // that method and the emitter can already match the tag and call it
-        // (`union_method_text`).
+        // An `ItemId` answers this question when there is one, but its ABSENCE
+        // does not answer it: `resolve_method` returns `ItemId(u32::MAX)` for
+        // several receivers that do declare the method perfectly concretely, and
+        // for each of them the caller would then lower the call as a callable
+        // *field* read — routing it through the erased `SmeltUnknown` call ABI
+        // (the receiver converted with `into_smelt_unknown`, the method looked
+        // up as a dynamic object field and invoked dynamically) even though the
+        // emitter can dispatch it directly.
         //
-        // So a union whose every arm declares the method counts as concrete
-        // here, exactly as it does on the callback path.
-        if matches!(
-            self.ctx.krate.types.get(receiver_ty),
-            Some(Type::Union(_))
-        ) {
-            return self.receiver_declares_method(receiver_ty, method);
-        }
-        self.resolve_method(receiver_ty, method, member.span)
+        // Two receiver kinds reach that state, and the failure is worse for the
+        // second:
+        //
+        //   * a UNION has no *single* method item by design — dispatch happens
+        //     per tagged-union arm rather than through one function
+        //     (`union_method_text`), so every arm declaring the method is what
+        //     makes it concrete;
+        //   * a class whose own body is STILL BEING LOWERED has no registered
+        //     class item yet, so `class_by_symbol` misses and `resolve_method`
+        //     falls to `in_progress_class_method_return`, which types the call
+        //     but has no item to name. That is every `this.sibling(..)` call
+        //     written inside a class method body. Reading it as a callable field
+        //     did not merely erase the call, it LOST it: the class has no such
+        //     struct field, so the emitter answered the read with a method-value
+        //     stub (`Rc::new(|_| Ok(SmeltUnknown::Null))`), the call returned
+        //     `null`, and the method body never ran — with no diagnostic, in a
+        //     shape as ordinary as a class calling its own helper.
+        //
+        // So the item id is consulted first and the declaration second: whether
+        // the receiver DECLARES the method is the question being asked, and
+        // `receiver_declares_method` answers it for both kinds from the
+        // registries that are populated before any method body is lowered. The
+        // genuine callable-storage fields that must stay closure calls are
+        // already excluded by `receiver_has_callable_storage_field` above.
+        if self
+            .resolve_method(receiver_ty, method, member.span)
             .is_ok_and(|(_, item)| item.0 != u32::MAX)
+        {
+            return true;
+        }
+        self.receiver_declares_method(receiver_ty, method)
     }
 
     /// Return true when a class or inherited base explicitly stores a callable
@@ -3315,6 +4072,12 @@ impl<'builder> ModuleBuilder<'builder> {
             RuleId::TsBufferStatic => self.exact_buffer_static_call(call, body),
             RuleId::TsJsonStringify => self.json_stringify_call(call, body),
             RuleId::TsJsonParse => self.json_parse_call(call, body),
+            RuleId::TsCryptoRandomUuid
+            | RuleId::TsCryptoGetRandomValues
+            | RuleId::TsCryptoDigest => self.crypto_call(rule, call, body),
+            RuleId::TsAbortSignalAbort | RuleId::TsAbortSignalTimeout => {
+                self.abort_signal_static_call(rule, call, body)
+            }
             _ => Ok(None),
         }
     }
@@ -4406,6 +5169,31 @@ impl<'builder> ModuleBuilder<'builder> {
                 span: self.span(call.span.start, call.span.end),
             })));
         }
+        // Spreads are resolved BEFORE the arity checks below, because
+        // `supplied_arg_count` counts a spread as a single argument: a
+        // `sink(...triple)` looked like one argument for three parameters and
+        // took the shortfall branch, which returned an EMPTY argument list that
+        // the emitter then padded with `default_value(..)` per parameter. So
+        // `sink(...triple)` became `sink(String::new(), String::new(), 0.0)` --
+        // every argument a default, the tuple never read, and it COMPILED. A
+        // silent wrong answer is the worst outcome available here.
+        //
+        // A tuple spread has a statically known width, so it distributes
+        // positionally and the call's real arity is known after expansion.
+        // Anything else has no static arity and is a named blocker rather than
+        // a guess.
+        if rest.is_none() && call.arguments.iter().any(Argument::is_spread) {
+            let expanded = self.expanded_call_arguments(&call.arguments, body)?;
+            let mut args = Vec::with_capacity(fixed_param_count);
+            for argument in expanded.into_iter().take(fixed_param_count) {
+                args.push(self.lower_call_arg(argument, None, body)?);
+            }
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::ClosureCall { callee, args },
+                ty: call_return_ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
         let required_arg_count = defaults
             .iter()
             .take(fixed_param_count)
@@ -4429,21 +5217,31 @@ impl<'builder> ModuleBuilder<'builder> {
                 "closure call argument count does not match closure parameters",
             ));
         }
-        if rest.is_none() && call.arguments.iter().any(Argument::is_spread) {
-            return Ok(Some(body.push_expr(Expr {
-                kind: ExprKind::ClosureCall {
-                    callee,
-                    args: Vec::new(),
-                },
-                ty: call_return_ty,
-                span: self.span(call.span.start, call.span.end),
-            })));
-        }
+
+        // Carry the callee's parameter type into each argument, the way the
+        // named-function and `new`-expression paths already do
+        // (`new_expr.rs`'s `params.get(index)`, and the IIFE path above). This
+        // loop lowered its arguments with NO hint, so an object literal written
+        // inline against a closure parameter -- `showRequired({ status: 8 })`
+        // where `showRequired` is a const-bound arrow taking `Opts` -- was
+        // built as a bare record of erased values and only then converted to
+        // the struct, erasing every value on the way in. The parameter type is
+        // right here in `function.params`; a hand-written Rust port would
+        // construct `Opts { .. }` directly, so the hint has to reach the
+        // literal.
         let mut args = call
             .arguments
             .iter()
             .take(fixed_param_count)
-            .map(|arg| self.argument(arg, body))
+            .enumerate()
+            .map(|(index, arg)| {
+                let hint = function
+                    .params
+                    .get(index)
+                    .copied()
+                    .filter(|param| self.hint_preserves_argument_shape(*param));
+                self.argument_with_hint(arg, body, hint)
+            })
             .collect::<Result<Vec<_>, _>>()?;
         for index in supplied_arg_count..fixed_param_count {
             let Some(default) = defaults.get(index).and_then(|default| default.as_ref()) else {
@@ -4479,6 +5277,41 @@ impl<'builder> ModuleBuilder<'builder> {
             ty: call_return_ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Whether a parameter type is worth hinting an argument with, i.e. whether
+    /// it PRESERVES the argument's own shape rather than erasing it.
+    ///
+    /// A hint makes the argument lower AT the hinted type. That is what turns
+    /// an inline object literal into its struct, but it cuts the other way when
+    /// the parameter itself is an erased surface: hinting `unknown[]` at
+    /// `spreadFn([1, 2])` builds `Vec<SmeltUnknown>` directly, erasing each
+    /// element at construction, where the unhinted lowering builds `Vec<f64>`
+    /// and erases at the call through the boundary adapter the emitter already
+    /// generates. Same runtime value, but the erasure moves from an explicit
+    /// boundary into ordinary data flow, which is what the `SmeltUnknown`
+    /// policy forbids — measured as +14 avoidable erasure in es-toolkit's
+    /// `spread.spec.ts` when the hint was passed unconditionally.
+    ///
+    /// So an `unknown`, or a container whose elements/values are `unknown`, is
+    /// not a shape to lower into. Peels `Optional` first, because
+    /// `Optional<Opts>` is a real hint (fixture 66 covers it) while
+    /// `Optional<unknown>` is not.
+    fn hint_preserves_argument_shape(&self, ty: smelt_hir::TypeId) -> bool {
+        let peeled = match self.ctx.krate.types.get(ty) {
+            Some(Type::Optional(inner)) => *inner,
+            _ => ty,
+        };
+        match self.ctx.krate.types.get(peeled) {
+            Some(Type::Unknown) => false,
+            Some(Type::List(item) | Type::Set(item)) => {
+                !matches!(self.ctx.krate.types.get(*item), Some(Type::Unknown))
+            }
+            Some(Type::Dict(_, value) | Type::JsMap(_, value)) => {
+                !matches!(self.ctx.krate.types.get(*value), Some(Type::Unknown))
+            }
+            _ => true,
+        }
     }
 
     /// Return whether a local's structural class type is an erased callable object.
@@ -4979,10 +5812,21 @@ impl<'builder> ModuleBuilder<'builder> {
         // Fixed parameters are those before a rest slot; a rest signature keeps
         // its trailing `List` parameter out of the fixed range.
         let fixed_param_count = function.rest.unwrap_or(function.params.len());
+        // Lower every supplied argument FIRST, expanding a tuple spread into one
+        // argument per element. The loop below is positional -- it pairs
+        // argument `index` with parameter `index` -- so a spread has to have
+        // become its elements before it runs. Treating the spread as a single
+        // argument is what made `sink(...triple)` pair the whole tuple with
+        // parameter 0 and synthesize typed `None` for the other two.
+        let expanded = self.expanded_call_arguments(arguments, body)?;
+        let mut supplied = Vec::with_capacity(expanded.len());
+        for argument in expanded {
+            supplied.push(self.lower_call_arg(argument, None, body)?);
+        }
         let mut args = Vec::with_capacity(function.params.len());
         for index in 0..fixed_param_count {
-            if let Some(argument) = arguments.get(index) {
-                args.push(self.argument(argument, body)?);
+            if let Some(argument) = supplied.get(index).copied() {
+                args.push(argument);
             } else {
                 // Missing optional parameter: synthesize a typed `None` carrying
                 // the parameter's declared type so the closure call stays typed.
@@ -4999,11 +5843,7 @@ impl<'builder> ModuleBuilder<'builder> {
             }
         }
         if let Some(rest_index) = function.rest {
-            let rest_args = arguments
-                .iter()
-                .skip(rest_index)
-                .map(|argument| self.argument(argument, body))
-                .collect::<Result<Vec<_>, _>>()?;
+            let rest_args = supplied.get(rest_index..).unwrap_or_default().to_vec();
             let rest_param_ty = function
                 .params
                 .get(rest_index)

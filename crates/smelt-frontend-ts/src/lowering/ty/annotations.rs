@@ -329,11 +329,43 @@ impl ModuleBuilder<'_> {
         }
     }
 
-    /// Lower `typeof name` type queries for already-known function values.
+    /// Lower a `typeof name` type query to the type of the VALUE it names.
+    ///
+    /// A type query asks for the type of a value binding, so the answer is
+    /// whatever the frontend already resolved that binding to: a function's
+    /// signature, or a module-level binding's own type. Both are known before
+    /// any body is lowered (`predeclare_function_items`,
+    /// `collect_module_globals`).
+    ///
+    /// This is what makes the standard "const object as a closed value set"
+    /// idiom lower to what it denotes:
+    ///
+    /// ```ignore
+    /// const mimes = { json: "application/json" } as const;
+    /// type Mime = (typeof mimes)[keyof typeof mimes];   // -> string
+    /// ```
+    ///
+    /// `keyof T` is already `string` and an indexed access over a `Dict` is
+    /// already its value type, so resolving the query is the only missing link.
+    /// While it answered `Unknown`, an alias written this way erased — and,
+    /// because an erased member makes a whole union non-concrete
+    /// (`union_member_is_concrete`), one such alias inside a union erased the
+    /// union entirely: Hono's `ResponseHeadersInit` reached `new Headers(init)`
+    /// as `SmeltUnknown` for exactly this reason, with no diagnostic naming the
+    /// alias. See `blocker-logs/standards-generic-arm-and-typeof-indexed-alias.md`.
+    ///
+    /// A query naming something with no resolvable value type still answers
+    /// `Unknown`: `typeof SomeClass` is the CONSTRUCTOR, not an instance, and
+    /// that is a separate shape.
     pub(in crate::lowering) fn type_query_to_hir(
         &mut self,
         query: &oxc::ast::ast::TSTypeQuery<'_>,
     ) -> smelt_hir::TypeId {
+        if let TSTypeQueryExprName::IdentifierReference(ident) = &query.expr_name
+            && let Some(value_ty) = self.value_binding_type(ident.name.as_str())
+        {
+            return value_ty;
+        }
         if let TSTypeQueryExprName::IdentifierReference(ident) = &query.expr_name
             && let Some(item) = self.items.get(ident.name.as_str()).copied()
             && let Item::Function(function) = self.item_ref(item)
@@ -350,6 +382,24 @@ return_ty: function.return_ty,
             }));
         }
         self.ctx.krate.types.intern(Type::Unknown)
+    }
+
+    /// The resolved type of a VALUE binding named in a type position.
+    ///
+    /// Only module-level bindings are consulted: they are collected in a
+    /// prepass, so a `typeof` in an annotation sees them regardless of where the
+    /// annotation sits relative to the declaration. A `const` item's own
+    /// recorded type is preferred when both are present because it is the one
+    /// the value's reads use.
+    fn value_binding_type(&self, name: &str) -> Option<smelt_hir::TypeId> {
+        if let Some(item) = self.items.get(name).copied() {
+            match self.item_ref(item) {
+                Item::Const(constant) => return Some(constant.ty),
+                Item::MutableGlobal(global) => return Some(global.ty),
+                _ => {}
+            }
+        }
+        self.module_globals.get(name).copied()
     }
 
     /// Convert a function-type rest parameter annotation into its list type.
@@ -744,7 +794,60 @@ return_ty: function.return_ty,
             return Ok(fields);
         }
 
+        // `Omit<T, K>`: the base's fields minus the named keys. A key set that
+        // is not statically known leaves the base untouched, which is the safe
+        // direction -- a field that should have been removed still resolves,
+        // where dropping the whole table makes every field vanish.
+        if name_text == "Omit" {
+            let [base, keys] = args.as_slice() else {
+                return Ok(Vec::new());
+            };
+            let mut fields = self.type_fields_from_ts(base)?;
+            if let Some(removed) = Self::static_pick_keys(keys) {
+                fields.retain(|field| {
+                    !self
+                        .ctx
+                        .krate
+                        .symbols
+                        .get(field.name)
+                        .is_some_and(|name| removed.iter().any(|key| key == name))
+                });
+            }
+            return Ok(fields);
+        }
+        // `Required<T>` / `Partial<T>` keep the base's fields and change only
+        // their optionality; `Readonly<T>` changes neither. All three are
+        // transparent to a field TABLE, which is what a construction site reads.
+        if matches!(name_text, "Required" | "Partial" | "Readonly") {
+            let [base] = args.as_slice() else {
+                return Ok(Vec::new());
+            };
+            let mut fields = self.type_fields_from_ts(base)?;
+            match name_text {
+                "Required" => {
+                    for field in &mut fields {
+                        field.optional = false;
+                    }
+                }
+                "Partial" => {
+                    for field in &mut fields {
+                        field.optional = true;
+                    }
+                }
+                _ => {}
+            }
+            return Ok(fields);
+        }
+
         let symbol = self.intern_type_name(name_text);
+        // An ambient fetch init is not in the crate, so neither lookup below
+        // can see it. Its fields are declared in the shared registry, and
+        // reading them here is what lets every utility above compose over one:
+        // `Required<Omit<RequestInit, ..>>` is `Omit`'s retain over this table,
+        // with `Required`'s optionality applied on top.
+        if let Some(fields) = self.ambient_fetch_init_fields(name_text) {
+            return Ok(fields);
+        }
         if let Some(interface) = self.find_interface(symbol).cloned() {
             let lowered_args = args
                 .iter()
@@ -1431,10 +1534,22 @@ return_ty: function.return_ty,
             TSTupleElement::TSNamedTupleMember(named) => {
                 self.tuple_element_type_to_hir(&named.element_type)
             }
-            _ => Err(SmeltError::unsupported(
-                self.span(item.span().start, item.span().end),
-                format!("tuple element type is not lowered yet: {item:?}"),
-            )),
+            // A tuple element that is not one of the tuple-only forms above
+            // (`TSOptionalType`, `TSRestType`, `TSNamedTupleMember`) IS an
+            // ordinary type: `TSTupleElement` inherits every `TSType` variant.
+            // The arms above are shortcuts, not the whole grammar, so anything
+            // they do not name is delegated to `ts_type_to_hir` rather than
+            // rejected. Before this, a tuple element written as an intersection
+            // (`[H<E2, P, I> & M1, H<E3, P, I2, R>]`) was refused even though
+            // `ts_type_to_hir` has lowered intersections for a long time — and
+            // so was every other `TSType` shape nobody had happened to add here.
+            element => match element.as_ts_type() {
+                Some(ts_type) => self.ts_type_to_hir(ts_type),
+                None => Err(SmeltError::unsupported(
+                    self.span(item.span().start, item.span().end),
+                    format!("tuple element type is not lowered yet: {item:?}"),
+                )),
+            },
         }
     }
 
@@ -1756,8 +1871,89 @@ return_ty: function.return_ty,
             .as_ref()
             .map(|args| args.params.iter().collect::<Vec<_>>())
             .unwrap_or_default();
+        // An ambient fetch init dictionary becomes a real interface, so a
+        // parameter typed by one is a generated struct rather than an erased
+        // record. Asked before the table below because it declines for a name
+        // the source declares itself, which the table cannot express.
+        if let Some(init_ty) = self.ambient_init_interface_type(&name_text)
+            && args.is_empty()
+        {
+            return Ok(init_ty);
+        }
         match (name_text.as_str(), args.as_slice()) {
             ("RegExp", []) => Ok(self.regexp_type()),
+            // `BodyInit` is a UNION, not an opaque class. Leaving it opaque made
+            // `JSON.stringify(body)` report "value must be JSON-serializable
+            // (got Class `BodyInit`)" for a value that is a `string` on every
+            // path a program actually takes, and it hid the string arm from body
+            // construction. The arms are the spec's, in the spec's order; the
+            // ones Smelt does not model yet are their host classes, which is
+            // what makes them erase honestly rather than disappear.
+            // `ArrayBufferView` is the spec's name for "one of the byte
+            // views", and Smelt models each of those concretely (its own host
+            // identity, element type and marker; see
+            // `smelt_stdlib::host_object`). So the reference is a UNION of
+            // them, exactly as `BodyInit` below is a union of its arms — not an
+            // opaque nominal class, which erases and, as an erased union
+            // member, made every union containing it non-concrete. Hono's
+            // `crypto.ts` hands `JSON.stringify` a
+            // `string | boolean | number | JSONValue | ArrayBufferView | ArrayBuffer`,
+            // and this arm is what makes that union serializable: a view
+            // serializes as its element indices, byte storage as `{}`, which is
+            // what JavaScript does.
+            //
+            // A source declaration of the name wins, the same way the ambient
+            // init dictionaries defer to one.
+            ("ArrayBufferView", []) if !self.source_declares_type("ArrayBufferView") => {
+                let mut members = Vec::new();
+                for view in smelt_stdlib::TYPED_ARRAY_CLASS_NAMES
+                    .iter()
+                    .copied()
+                    .chain(["DataView"])
+                {
+                    let name = self.intern_type_name(view);
+                    members.push(self.ctx.krate.types.intern(Type::Class {
+                        name,
+                        args: Vec::new(),
+                    }));
+                }
+                Ok(self.ctx.krate.types.intern(Type::Union(members)))
+            }
+            ("BodyInit", []) => {
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                let none_ty = self.ctx.krate.types.intern(Type::None);
+                let mut members = vec![string_ty];
+                // The spec's `BodyInit` is
+                // `ReadableStream | XMLHttpRequestBodyInit`, and the second is
+                // `Blob | BufferSource | FormData | URLSearchParams | string`.
+                // `BufferSource` is `ArrayBufferView | ArrayBuffer`, so the
+                // eleven element views belong here too: they are arms a caller
+                // really passes (`new Response(encoder.encode(text))`), and
+                // leaving them out meant a `BodyInit`-annotated parameter never
+                // mentioned the byte family at all.
+                for arm in smelt_stdlib::TYPED_ARRAY_CLASS_NAMES {
+                    let name = self.intern_type_name(arm);
+                    members.push(self.ctx.krate.types.intern(Type::Class {
+                        name,
+                        args: Vec::new(),
+                    }));
+                }
+                for arm in [
+                    "ArrayBuffer",
+                    "Blob",
+                    "FormData",
+                    "URLSearchParams",
+                    "ReadableStream",
+                ] {
+                    let name = self.intern_type_name(arm);
+                    members.push(self.ctx.krate.types.intern(Type::Class {
+                        name,
+                        args: Vec::new(),
+                    }));
+                }
+                members.push(none_ty);
+                Ok(self.ctx.krate.types.intern(Type::Union(members)))
+            }
             ("Capitalize" | "Uncapitalize" | "Uppercase" | "Lowercase", [_]) => {
                 Ok(self.ctx.krate.types.intern(Type::String))
             }
@@ -1970,6 +2166,14 @@ return_ty: function.return_ty,
                     }
                     return Ok(substituted_alias_ty);
                 }
+                if let Some(module) = self.unresolvable_type_import_module(&name_text) {
+                    return Err(SmeltError::unsupported(
+                        self.span(reference.span.start, reference.span.end),
+                        format!(
+                            "the type `{name_text}` is imported from `{module}`, which is one of this project's own sources but is not part of the crate, so nothing declares it: the reference has no shape (a nominal stand-in for it erases every union that contains it)"
+                        ),
+                    ));
+                }
                 let lowered_args = args
                     .iter()
                     .map(|arg| self.ts_type_to_hir(arg))
@@ -1980,6 +2184,45 @@ return_ty: function.return_ty,
                 }))
             }
         }
+    }
+
+    /// The module a type name was imported from when the crate cannot have it.
+    ///
+    /// `Some(specifier)` only for the one case that is a genuine gap rather
+    /// than a modelling choice: the name came from a RELATIVE specifier that
+    /// resolves to a file the manifest's own source roots contain (excludes
+    /// already applied) and that the dependency closure did not reach, so no
+    /// module in the crate declares it and no later module will. That is the
+    /// shape that erased Hono's `ResponseHeadersInit` for weeks — the nominal
+    /// `Type::Class` stand-in erases, an erased member makes the whole union
+    /// non-concrete, and the resulting `SmeltUnknown` surfaces in the emitter
+    /// far from the reference with nothing naming the alias.
+    ///
+    /// Everything else keeps the nominal fallback, deliberately:
+    ///
+    /// * **A cyclic type-only import of an in-crate declaration.** Hono's
+    ///   `types.ts` names `Context` from `./context` while `context.ts` imports
+    ///   `types.ts`; whichever lowers first sees the other's declarations
+    ///   missing. The module IS in the crate, so this returns `None`.
+    /// * **A types-only external package.** remeda imports `Simplify` from
+    ///   `type-fest`, which is not a crate module and never will be. A bare
+    ///   specifier returns `None`.
+    /// * **An excluded module.** `[sources] exclude` promises that excluding a
+    ///   module removes its implementation, not its type surface, so an
+    ///   excluded file is not in the source-root set this consults and returns
+    ///   `None`.
+    fn unresolvable_type_import_module(&self, name_text: &str) -> Option<String> {
+        if self.ctx.project_sources_outside_crate.is_empty() {
+            return None;
+        }
+        let module = self.imports.import_source(name_text)?;
+        if !module.starts_with('.') {
+            return None;
+        }
+        self.resolved_module_export_keys(module)
+            .into_iter()
+            .any(|key| self.ctx.project_sources_outside_crate.contains(&key))
+            .then(|| module.to_owned())
     }
 
     /// Lower a constructor-only interface to its typed constructor slot.
@@ -2737,6 +2980,117 @@ return_ty: function.return_ty,
         })
     }
 
+    /// The declared field table for an ambient fetch init interface.
+    ///
+    /// One table, read two ways: [`Self::fetch_init_field_type`] answers a
+    /// single key for a direct field read, and this answers the whole set so a
+    /// utility type (`Omit`, `Required`, ...) can compose over it. Keeping them
+    /// as one source is the point -- a second table would drift.
+    ///
+    /// Every key is optional, matching the interfaces themselves; `Required<..>`
+    /// is what flips that, and it does so through the shared utility path.
+    pub(in crate::lowering) fn ambient_fetch_init_fields(
+        &mut self,
+        name_text: &str,
+    ) -> Option<Vec<Field>> {
+        let bare = name_text.strip_prefix("globalThis.").unwrap_or(name_text);
+        let keys: &[&str] = match bare {
+            "ResponseInit" => &["status", "statusText", "headers"],
+            "RequestInit" => &["method", "headers", "body"],
+            _ => return None,
+        };
+        let class = self.intern_type_name(bare);
+        let mut fields = Vec::new();
+        for key in keys {
+            let field = self.intern_source_name(key);
+            // The registry answers with the key's OPTIONAL type; a field table
+            // carries the bare type plus an `optional` flag, so unwrap the one
+            // to build the other.
+            let Some(ty) = self.fetch_init_field_type(class, field) else {
+                continue;
+            };
+            let inner = match self.ctx.krate.types.get(ty) {
+                Some(&Type::Optional(inner)) => inner,
+                _ => ty,
+            };
+            fields.push(Field {
+                name: field,
+                ty: inner,
+                optional: true,
+                visibility: smelt_hir::Visibility::Public,
+                span: self.span(0, 0),
+            });
+        }
+        Some(fields)
+    }
+
+    /// Resolve a field on one of the ambient fetch **init** interfaces.
+    ///
+    /// `ResponseInit`, `RequestInit` and `HeadersInit` are declared in
+    /// lib.dom/undici, which Smelt does not import, so a value annotated with
+    /// one is an opaque class with no declared fields and `init.status`
+    /// resolved to `Unknown`. The field types are statically known all the
+    /// same, so they are declared here — the same reason `SmeltMatch`'s and
+    /// `URLSearchParams.size`'s entries exist in this function.
+    ///
+    /// Every key is **optional** (`status?: number`), so each resolves to an
+    /// `Optional<T>`; that is what makes the absent case fall back to the
+    /// spec's default at the construction site rather than to a wrong value.
+    ///
+    /// A key outside the modeled set resolves to `None` here, which leaves the
+    /// ordinary paths to reject the read — an unmodeled init key must not
+    /// silently read as an erased value.
+    fn fetch_init_field_type(
+        &mut self,
+        class: smelt_hir::Symbol,
+        field: smelt_hir::Symbol,
+    ) -> Option<smelt_hir::TypeId> {
+        let class_name = self
+            .ctx
+            .krate
+            .names
+            .get(class)
+            .or_else(|| self.ctx.krate.symbols.get(class))?
+            .to_owned();
+        // Source names are normalized to snake_case in the symbol table, with
+        // the original spelling kept in `names`, so both are accepted: a key
+        // written `statusText` interns as `status_text`, and which one arrives
+        // here depends on the table the caller's symbol came from.
+        let field_name = self
+            .ctx
+            .krate
+            .names
+            .get(field)
+            .or_else(|| self.ctx.krate.symbols.get(field))?
+            .to_owned();
+        // A site may qualify the ambient interface to escape a local one of the
+        // same name (`globalThis.ResponseInit` where the module declares its
+        // own `ResponseInit`). The qualified reference keeps its full path as a
+        // distinct type, which is what makes the two tell apart at all, so the
+        // registry recognizes both spellings of the ambient one.
+        let class_name = class_name
+            .strip_prefix("globalThis.")
+            .unwrap_or(&class_name)
+            .to_owned();
+        let inner = match (class_name.as_str(), field_name.as_str()) {
+            ("ResponseInit", "status") => self.ctx.krate.types.intern(Type::Float),
+            ("ResponseInit", "statusText" | "status_text") | ("RequestInit", "method") => {
+                self.ctx.krate.types.intern(Type::String)
+            }
+            // `body` is a `BodyInit`, whose modeled arm is a string; the other
+            // arms are types Smelt does not model yet, and the construction
+            // site names them rather than guessing.
+            ("RequestInit", "body") => self.ctx.krate.types.intern(Type::String),
+            // `headers` is a `HeadersInit`: a `Headers`, a record, or an array
+            // of pairs. The modeled init type is the concrete `Headers`, which
+            // is what the construction site's conversion accepts directly; the
+            // other spellings reach it as literals, which keep their own types.
+            ("ResponseInit" | "RequestInit", "headers") => self.headers_type(),
+            _ => return None,
+        };
+        Some(self.ctx.krate.types.intern(Type::Optional(inner)))
+    }
+
     /// Return declared fields for built-in classes that Smelt does not import from lib.d.ts.
     pub(in crate::lowering) fn builtin_class_field_type(
         &mut self,
@@ -2747,6 +3101,17 @@ return_ty: function.return_ty,
         // A `.groups` read yields the named-group accessor class; `.index`,
         // `.input`, and `.length` map to their primitive accessor types; and any
         // named-group read on the accessor class yields an optional string.
+        // `URLSearchParams.size` is the one data property the spec defines on a
+        // params value, and it is a number. Resolving it here keeps the HIR type
+        // honest instead of leaving the read `Unknown` for emission to recover.
+        if self.stdlib_class_of_symbol(class) == Some(smelt_stdlib::StdlibClass::UrlSearchParams)
+            && self.ctx.krate.symbols.get(field) == Some("size")
+        {
+            return Some(self.ctx.krate.types.intern(Type::Float));
+        }
+        if let Some(field_ty) = self.fetch_init_field_type(class, field) {
+            return Some(field_ty);
+        }
         match self.match_stdlib_class(class) {
             Some(smelt_stdlib::StdlibClass::Match) => {
                 let field_name = self.ctx.krate.symbols.get(field)?;
@@ -2861,6 +3226,18 @@ return_ty: function.return_ty,
             {
                 return Ok((return_ty, smelt_hir::ItemId(u32::MAX)));
             }
+            // The class is still being lowered and does not DECLARE this method,
+            // so it is inherited: resolve it through the recorded base, exactly
+            // as the lowered-class path below does. Falling through instead
+            // typed the call as the receiver and lowered it as a dynamic call
+            // through a member read, which the emitter renders as a FIELD read
+            // of a name the class has as a method (`E0615: attempted to take
+            // value of method`, H44 — Hono's anonymous
+            // `class<T> extends RegExpRouter<T>` calling the base's protected
+            // `buildAllMatchers`).
+            if let Some(resolved) = self.in_progress_class_base_method(name, method, span) {
+                return Ok(resolved);
+            }
             // An interface-typed receiver has no concrete method item, but its
             // method signatures carry return types. Resolving them keeps the
             // call expression correctly typed (e.g. `counter.count()` is a
@@ -2951,6 +3328,40 @@ return_ty: function.return_ty,
             self.span(0, 0),
             format!("unknown class method `{method_name}`"),
         ))
+    }
+
+    /// Resolve a method an IN-PROGRESS class inherits, through its base class.
+    ///
+    /// A class expression's members lower before its own item is registered, so
+    /// `class_by_symbol` answers `None` for the class currently being lowered
+    /// and its own metadata only lists the methods it declares. Its base,
+    /// however, is fully lowered and recorded by `ClassRegistry::set_base`, so
+    /// an inherited method resolves there and the call keeps a real method item
+    /// instead of erasing to a member read.
+    ///
+    /// Answers `None` — never an error — when there is no base or the base
+    /// chain does not have the method: this is a recovery path, and the caller's
+    /// existing fall-through is still the right answer for a name that is
+    /// genuinely dynamic.
+    fn in_progress_class_base_method(
+        &mut self,
+        class: smelt_hir::Symbol,
+        method: smelt_hir::Symbol,
+        span: oxc::span::Span,
+    ) -> Option<(smelt_hir::TypeId, smelt_hir::ItemId)> {
+        let class_name = self
+            .ctx
+            .krate
+            .names
+            .get(class)
+            .or_else(|| self.ctx.krate.symbols.get(class))
+            .map(str::to_owned)?;
+        let (base, base_args) = self.classes.base(&class_name).cloned()?;
+        let base_ty = self.ctx.krate.types.intern(Type::Class {
+            name: base,
+            args: base_args,
+        });
+        self.resolve_method(base_ty, method, span).ok()
     }
 
     /// Resolve a method return type from metadata collected before a class item exists.
@@ -3286,6 +3697,25 @@ return_ty: function.return_ty,
     /// Both `__SmeltMatch` (the match value) and `__SmeltMatchGroups` (its
     /// named-group accessor) answer `true`; callers that need to distinguish the
     /// two inspect the resolved [`smelt_stdlib::StdlibClass`] directly.
+    /// Resolve a class symbol to its shared stdlib class identity, if any.
+    pub(in crate::lowering) fn stdlib_class_of_symbol(
+        &self,
+        name: smelt_hir::Symbol,
+    ) -> Option<smelt_stdlib::StdlibClass> {
+        let class_name = self
+            .ctx
+            .krate
+            .names
+            .get(name)
+            .or_else(|| self.ctx.krate.symbols.get(name))?;
+        smelt_stdlib::typescript_stdlib_class(class_name)
+    }
+
+    /// Return the stdlib class a type name denotes, keeping only the MATCH pair.
+    ///
+    /// Narrower than the general lookup above: a caller that only cares whether
+    /// a name is a regex match result (or its groups record) gets `None` for
+    /// every other stdlib class, so it need not re-filter.
     pub(in crate::lowering) fn match_stdlib_class(
         &self,
         name: smelt_hir::Symbol,
@@ -3474,4 +3904,169 @@ return_ty: function.return_ty,
             _ => None,
         }
     }
+
+    /// Materialize an ambient fetch INIT dictionary as a real interface.
+    ///
+    /// `ResponseInit` and `RequestInit` are lib.d.ts dictionaries: bags of
+    /// optional keys with no methods and no identity. Round 4 modeled them as
+    /// opaque classes, so a value of one arrived as an erased record and every
+    /// key was read through a checked cast. That made `init.headers` a
+    /// `SmeltUnknown` at a `new Headers(..)` site — the full Hono crate's stop
+    /// — and worse, the cast tried to recover a `Headers` from a plain record
+    /// literal and answered an EMPTY header list: a silent wrong value.
+    ///
+    /// They are declared here instead, as an interface with the spec's optional
+    /// typed keys, so a parameter typed by one is a real generated struct: its
+    /// fields read with their own types, an object literal at the call site
+    /// converts into it through the ordinary record-to-struct adapter, and
+    /// `headers` keeps the union WHATWG gives it (`HeadersInit`) rather than
+    /// being narrowed to the `Headers` arm alone.
+    ///
+    /// A source declaration of the same name always wins: Hono declares its own
+    /// `interface ResponseInit<T extends StatusCode>` and refers to the ambient
+    /// one as `globalThis.ResponseInit` precisely to escape it. The source probe
+    /// is the same one `source_contains_class` uses for the sibling shadowing
+    /// question, because a declaration later in the file must win over a
+    /// reference earlier in it.
+    fn ambient_init_interface_type(&mut self, name_text: &str) -> Option<smelt_hir::TypeId> {
+        let bare = name_text.strip_prefix("globalThis.").unwrap_or(name_text);
+        let keys: &[(&str, AmbientInitKey)] = match bare {
+            "ResponseInit" => &[
+                ("status", AmbientInitKey::Number),
+                ("statusText", AmbientInitKey::Text),
+                ("headers", AmbientInitKey::HeadersInit),
+            ],
+            "RequestInit" => &[
+                ("method", AmbientInitKey::Text),
+                ("headers", AmbientInitKey::HeadersInit),
+                ("body", AmbientInitKey::Text),
+                ("signal", AmbientInitKey::AbortSignal),
+            ],
+            _ => return None,
+        };
+        // A source declaration of the BARE name wins for the bare spelling —
+        // Hono declares its own `interface ResponseInit<T extends StatusCode>`
+        // and must keep it. The `globalThis.`-qualified spelling is the source
+        // asking for the AMBIENT one by name, which is exactly why Hono writes
+        // it at the site that forwards an init to the constructor, so a local
+        // declaration cannot shadow that.
+        if bare == name_text && self.source_declares_type(bare) {
+            return None;
+        }
+        let name = self.intern_type_name(name_text);
+        let ty = self.ctx.krate.types.intern(Type::Class {
+            name,
+            args: Vec::new(),
+        });
+        // Declared once per crate: a second reference finds the interface and
+        // reuses it, which also keeps the emitted struct single.
+        if self.find_interface(name).is_some() {
+            return Some(ty);
+        }
+        let span = self.span(0, 0);
+        let fields = keys
+            .iter()
+            .map(|(key, kind)| {
+                let field_ty = match kind {
+                    AmbientInitKey::Number => self.ctx.krate.types.intern(Type::Float),
+                    AmbientInitKey::Text => self.ctx.krate.types.intern(Type::String),
+                    AmbientInitKey::HeadersInit => self.headers_init_type(),
+                    AmbientInitKey::AbortSignal => {
+                        let signal = self.intern_type_name("AbortSignal");
+                        self.ctx.krate.types.intern(Type::Class {
+                            name: signal,
+                            args: Vec::new(),
+                        })
+                    }
+                };
+                let optional_ty = self.ctx.krate.types.intern(Type::Optional(field_ty));
+                Field {
+                    name: self.intern_source_name(key),
+                    ty: optional_ty,
+                    visibility: Visibility::Public,
+                    optional: true,
+                    span,
+                }
+            })
+            .collect::<Vec<_>>();
+        let item = self.ctx.krate.push_item(Item::Interface(smelt_hir::Interface {
+            name,
+            span,
+            type_params: Vec::new(),
+            extends: Vec::new(),
+            fields,
+            methods: Vec::new(),
+        }));
+        self.interfaces.register_lowered(crate::lowering::state::interface_registry::LoweredInterface {
+            name,
+            name_text: name_text.to_owned(),
+            item,
+            extends: Vec::new(),
+            call_signatures: Vec::new(),
+            construct_signatures: Vec::new(),
+            index_value_ty: None,
+        });
+        Some(ty)
+    }
+
+    /// The `HeadersInit` union: a pair list, a record, or a `Headers`.
+    ///
+    /// WHATWG spells the constructor's argument as a union and so does every
+    /// init dictionary that carries headers, so the arms stay a union here. The
+    /// construction site dispatches on them (see `headers_conversion_text`);
+    /// narrowing this to the `Headers` arm alone is what made a record literal
+    /// recover as an empty header list.
+    fn headers_init_type(&mut self) -> smelt_hir::TypeId {
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let pair_ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Tuple(vec![string_ty, string_ty]));
+        let pair_list_ty = self.ctx.krate.types.intern(Type::List(pair_ty));
+        let record_ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Dict(string_ty, string_ty));
+        let headers_ty = self.headers_type();
+        self.ctx
+            .krate
+            .types
+            .intern(Type::Union(vec![pair_list_ty, record_ty, headers_ty]))
+    }
+
+    /// Whether the source text declares a type of this name.
+    ///
+    /// The same textual probe as [`Self::source_contains_class`], and for the
+    /// same reason: a declaration can appear after the reference that needs to
+    /// know about it, so the interface registry is not yet populated when the
+    /// question is asked.
+    fn source_declares_type(&self, name: &str) -> bool {
+        [
+            format!("interface {name}"),
+            format!("type {name}"),
+            format!("class {name}"),
+            format!("enum {name}"),
+        ]
+        .iter()
+        .any(|needle| self.source.contains(needle.as_str()))
+    }
+
+}
+
+/// The typed shape of one ambient init key.
+///
+/// Small closed set rather than a `TypeId` per key, because the type has to be
+/// interned against the live crate while the key table stays a `const`.
+#[derive(Clone, Copy)]
+enum AmbientInitKey {
+    /// A `number` key (`status`).
+    Number,
+    /// A `string` key (`statusText`, `method`, the modeled `body` arm).
+    Text,
+    /// The `HeadersInit` union.
+    HeadersInit,
+    /// An `AbortSignal` (`RequestInit.signal`).
+    AbortSignal,
 }

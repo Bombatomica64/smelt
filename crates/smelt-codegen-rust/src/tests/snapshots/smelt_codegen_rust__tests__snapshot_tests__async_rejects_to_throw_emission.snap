@@ -52,7 +52,7 @@ async fn test_rejects() -> Result<(), Box<dyn std::error::Error>> {
     }
         }
         Err(__smelt_panic) => {
-            let __smelt_error = if let Some(message) = __smelt_panic.downcast_ref::<String>() { message.clone() } else if let Some(message) = __smelt_panic.downcast_ref::<&'static str>() { (*message).to_owned() } else { "JavaScript exception".to_owned() };
+            let __smelt_error = smelt_panic_message(&*__smelt_panic);
             let error = __smelt_error;
     did_throw = true;
     _smelt_tmp_4 = error.contains(&"boom".to_owned());

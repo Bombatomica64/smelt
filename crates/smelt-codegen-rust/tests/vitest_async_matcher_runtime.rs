@@ -110,10 +110,20 @@ fn run_fixture(source: &str, crate_name: &str) -> (bool, String) {
     let target_dir = root.join("target");
     std::fs::create_dir_all(&crate_dir).expect("create crate dir");
     std::fs::create_dir_all(&target_dir).expect("create target dir");
-    emit_program(source, crate_name, &crate_dir);
-    let outcome = generated_tests_pass(&crate_dir, &target_dir);
-    drop(std::fs::remove_dir_all(&root));
-    outcome
+    let emitted = std::panic::catch_unwind(|| {
+        emit_program(source, crate_name, &crate_dir);
+        generated_tests_pass(&crate_dir, &target_dir)
+    });
+    // Removed on the FAILURE path too -- the root holds a whole nested cargo
+    // target directory, and one leaked per failing case is what fills `/tmp`.
+    // `SMELT_KEEP_RUNTIME_SCRATCH=1` keeps it for a debugging session.
+    if std::env::var_os("SMELT_KEEP_RUNTIME_SCRATCH").is_none() {
+        drop(std::fs::remove_dir_all(&root));
+    }
+    match emitted {
+        Ok(outcome) => outcome,
+        Err(payload) => std::panic::resume_unwind(payload),
+    }
 }
 
 /// Assert the generated suite passes.

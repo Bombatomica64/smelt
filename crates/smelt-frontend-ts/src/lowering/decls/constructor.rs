@@ -381,6 +381,40 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Match `const Foo = class { … }`, answering the binding name and the class.
+    ///
+    /// A class expression bound to a name IS a class declaration under that
+    /// name: TypeScript infers it, and every nominal use of the binding —
+    /// `new Foo()`, `Foo` in type position, `x instanceof Foo`, `extends Foo` —
+    /// depends on it. Lowered as a plain value instead, the binding held a
+    /// placeholder and `new Foo()` erased into a dynamic construction whose
+    /// methods answered `null` (H68).
+    ///
+    /// Wrappers around the class expression are unwrapped exactly as
+    /// [`Self::const_constructor_function`] unwraps them, since the same casts
+    /// (`as any`, `satisfies`, parentheses) appear on class expressions.
+    pub(in crate::lowering) fn const_class_expression<'a>(
+        declarator: &'a oxc::ast::ast::VariableDeclarator<'a>,
+    ) -> Option<(&'a str, &'a oxc::ast::ast::Class<'a>)> {
+        let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
+            return None;
+        };
+        let mut init = declarator.init.as_ref()?;
+        loop {
+            match init {
+                Expression::TSAsExpression(as_expr) => init = &as_expr.expression,
+                Expression::TSSatisfiesExpression(satisfies) => init = &satisfies.expression,
+                Expression::ParenthesizedExpression(parenthesized) => {
+                    init = &parenthesized.expression;
+                }
+                Expression::ClassExpression(class) => {
+                    return Some((binding.name.as_str(), class.as_ref()));
+                }
+                _ => return None,
+            }
+        }
+    }
+
     /// Synthesize classes for `const Foo = function () { … }` constructor
     /// bindings declared in a statement list and used as constructors there.
     pub(in crate::lowering) fn synthesize_const_constructor_functions(

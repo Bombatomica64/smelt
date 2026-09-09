@@ -521,7 +521,7 @@ const mapEntries = mapping.entries();
     // defined over `SmeltJsMap`). Keys therefore have no record-marker filter.
     assert!(
         source.contains(
-            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol:\")).collect::<Vec<_>>()"
+            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol\")).collect::<Vec<_>>()"
         ),
         "{source}"
     );
@@ -530,19 +530,19 @@ const mapEntries = mapping.entries();
     // must not appear in a `SmeltJsMap` keys projection).
     assert!(
         !source.contains(
-            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol:\") && smelt_is_for_in_record_key(&"
+            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol\") && smelt_is_for_in_record_key(&"
         ),
         "{source}"
     );
     assert!(
         source.contains(
-            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").map(|(_, value)| value).collect::<Vec<_>>()"
+            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").map(|(_, value)| value).collect::<Vec<_>>()"
         ),
         "{source}"
     );
     assert!(
         source.contains(
-            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").collect::<Vec<_>>()"
+            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").collect::<Vec<_>>()"
         ),
         "{source}"
     );
@@ -810,7 +810,9 @@ const numberJoined = numbers.join("-");
 
     assert!(source.contains(".join(&\"-\".to_owned());"));
     assert!(source.contains(".join(&\",\".to_owned());"));
-    assert!(source.contains(".iter().map(|item| { item.to_string() })"));
+    // A numeric item stringifies the way `String(item)` does, which is
+    // JavaScript's rule and not Rust's `Display`.
+    assert!(source.contains(".iter().map(|item| { smelt_number_to_string(*item) })"));
 }
 
 #[test]

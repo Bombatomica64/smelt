@@ -29,15 +29,21 @@ fn crate_has_string_literal(ctx: &HirCtx, text: &str) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// `Request` marker host object.
+// `Request` host identity at the erased boundary.
 //
 // es-toolkit's `isPlainObject` spec constructs `new Request('http://localhost')`
-// only to probe host identity. It joins the marker-only host registry, so
-// construction stamps `__smelt_request` on an erased record.
+// only to probe host identity, and the probe reads the `__smelt_request`
+// marker. `Request` now has a concrete runtime type, so construction produces
+// a typed value and the marker is stamped by that type's `IntoSmeltUnknown`
+// adapter when the value crosses into an `unknown` position -- which is where
+// `isPlainObject` sees it. The guarantee is unchanged; only the place that
+// carries it moved. This half asserts the lowering is typed; the marker itself
+// is asserted where it is now emitted, in
+// `smelt-codegen-rust`'s `fetch_types_tests::request_erasure_stamps_the_host_identity_marker`.
 // ---------------------------------------------------------------------------
 
 #[test]
-fn request_construction_stamps_marker_record() -> Result<(), String> {
+fn request_construction_carries_no_marker_record() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r"
@@ -48,8 +54,15 @@ export function make(): unknown {
         &mut ctx,
     )?;
     ensure!(
-        crate_has_string_literal(&ctx, "__smelt_request"),
-        "Request construction should stamp the `__smelt_request` marker",
+        !crate_has_string_literal(&ctx, "__smelt_request"),
+        "construction must not stamp a marker record any more",
+    );
+    ensure!(
+        ctx.krate.bodies.iter().any(|body| body
+            .exprs
+            .iter()
+            .any(|expr| matches!(&expr.kind, ExprKind::RequestNew { .. }))),
+        "construction must lower to a concrete request",
     );
     Ok(())
 }

@@ -2152,10 +2152,60 @@ impl ModuleBuilder<'_> {
                     })
             }
             "undefined" => self.ctx.krate.types.intern(Type::None),
-            "object" => self.ctx.krate.types.intern(Type::Unknown),
+            // `typeof x === 'object'` on a UNION keeps the object-kinded arms
+            // rather than erasing the value. Answering `Unknown` here threw
+            // away everything the union knew — Hono's
+            // `typeof arg === 'object' && arg.headers`, on
+            // `StatusCode | ResponseInit | Response`, left `arg` erased inside
+            // its own guard, so the member read became a runtime property
+            // lookup and every consumer downstream saw `SmeltUnknown`. The
+            // guard PROVES the value is one of the object arms, which is
+            // strictly more than "some runtime value".
+            //
+            // A union with no object arm (or a non-union receiver) still
+            // answers `Unknown`: there is nothing more precise to say, and a
+            // tagged runtime value is the honest type for it.
+            "object" => self
+                .typeof_object_arms(name, body)
+                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown)),
             _ => return None,
         };
         Some((name.to_owned(), ty))
+    }
+
+    /// The object-kinded arms of a union local, as proven by
+    /// `typeof local === 'object'`.
+    ///
+    /// `None` when the local is not a union, or when no arm is object-kinded —
+    /// both cases where the caller has nothing better than the erased boundary
+    /// to narrow to.
+    ///
+    /// An `Optional` wrapper is dropped rather than retained: the absent value
+    /// of an `x?: T` parameter is `undefined`, whose `typeof` is `"undefined"`,
+    /// so the guard excludes it. A `T | null` spelling is a union WITH a `None`
+    /// arm instead, and that arm is retained — `typeof null === "object"` in
+    /// JavaScript.
+    fn typeof_object_arms(&mut self, name: &str, body: &Body) -> Option<smelt_hir::TypeId> {
+        let local = self.scope.lookup(name)?;
+        let local_ty = self
+            .narrowed_type(name)
+            .unwrap_or_else(|| Self::local_ty(body, local));
+        let inner = match self.ctx.krate.types.get(local_ty).cloned() {
+            Some(Type::Optional(inner)) => inner,
+            _ => local_ty,
+        };
+        let Some(Type::Union(items)) = self.ctx.krate.types.get(inner).cloned() else {
+            return None;
+        };
+        let retained = items
+            .into_iter()
+            .filter(|item| self.type_matches_typeof(*item, "object"))
+            .collect::<Vec<_>>();
+        match retained.as_slice() {
+            [] => None,
+            [single] => Some(*single),
+            _ => Some(self.ctx.krate.types.intern(Type::Union(retained))),
+        }
     }
 
     /// Return the local type proven by excluding one `typeof` kind.
@@ -2805,7 +2855,23 @@ impl ModuleBuilder<'_> {
             .narrowed_type(local_name)
             .unwrap_or_else(|| Self::local_ty(body, local));
         let class_name = class.name.as_str();
-        let retained = self.filtered_union_members(ty, |member| {
+        // `instanceof` PROVES the value is present: `null instanceof File` and
+        // `undefined instanceof File` are both `false` in JavaScript, so no
+        // absent value can reach the true branch. That is what lets an OPTIONAL
+        // union narrow to the arm itself rather than to an optional of it —
+        // `form.get(name) instanceof File` gives `File`, not
+        // `File | undefined`.
+        //
+        // The unwrap is HERE and not in `filtered_union_members`, which several
+        // guards share, because only this guard proves presence.
+        // `typeof x !== "string"` does not: `typeof undefined` is
+        // `"undefined"`, which is also not `"string"`, so that guard's filter
+        // has to keep the optional it was given.
+        let ty = match self.ctx.krate.types.get(ty) {
+            Some(Type::Optional(inner)) => *inner,
+            _ => ty,
+        };
+        if let Some(retained) = self.filtered_union_members(ty, |member| {
             matches!(
                 member,
                 Type::Class {
@@ -2813,8 +2879,39 @@ impl ModuleBuilder<'_> {
                     ..
                 } if self.ctx.krate.symbols.get(*class_symbol) == Some(class_name)
             )
-        })?;
-        let narrowed = self.intern_filtered_union(retained)?;
+        }) {
+            let narrowed = self.intern_filtered_union(retained)?;
+            return Some((local_name.to_owned(), narrowed));
+        }
+        // The local is not a union, so there is nothing to filter — which used
+        // to end the narrowing here and leave an ERASED local erased across the
+        // guard. `if (x instanceof Headers)` then read `x.get(..)` through the
+        // erased member path, which has no `get` on the header record and
+        // answered `undefined`: a silently wrong value where the equivalent
+        // user type predicate (`x is Headers`) narrowed correctly and emitted
+        // the right checked cast (`blocker-logs/standards-instanceof-narrowing.md`).
+        //
+        // An erased local narrows to the target class whenever that class can be
+        // recovered from an erased value — `StdlibClass::narrows_from_erased`,
+        // which is true exactly for the classes whose runtime type declares a
+        // `SmeltFromUnknown` adapter next to its host marker. Asking the
+        // registry that question is what keeps this a general rule: the
+        // narrowing is emitted precisely where it can be materialized, and a
+        // class with no adapter still keeps its erased type rather than being
+        // given an invented conversion.
+        //
+        // Only an ERASED local narrows this way. A local already typed as some
+        // concrete thing is not made into something else by an `instanceof`
+        // test: that is either a tautology or dead code, and rewriting its type
+        // would discard what the source said it was.
+        if !matches!(self.ctx.krate.types.get(ty), Some(Type::Unknown)) {
+            return None;
+        }
+        let target = Self::stdlib_class_for_name(class_name)?;
+        if !target.narrows_from_erased() || self.user_class_shadows(class_name) {
+            return None;
+        }
+        let narrowed = self.stdlib_class_type(class_name);
         Some((local_name.to_owned(), narrowed))
     }
 
@@ -3297,6 +3394,15 @@ impl ModuleBuilder<'_> {
             if let BindingPattern::BindingIdentifier(binding) = &declarator.id
                 && self.is_lifted_global_declarator(binding.name.as_str(), binding.span)
             {
+                // A NON-literal initializer could not be lowered by the
+                // classification pass (it runs before imports and function
+                // items resolve), so this is where it happens: the expression
+                // becomes a synthesized nullary initializer function the cell
+                // calls lazily. A literal initializer is already stored on the
+                // item and this is a no-op.
+                if let Some(init) = &declarator.init {
+                    self.lower_pending_mutable_global_init(binding.name.as_str(), init)?;
+                }
                 continue;
             }
             // A `const Foo = function () { … }` binding recognized as a
@@ -3306,6 +3412,20 @@ impl ModuleBuilder<'_> {
                 && Self::const_constructor_function(declarator).is_some()
                 && self.classes.contains(binding.name.as_str())
             {
+                continue;
+            }
+            // `const Foo = class { … }` is a class declaration named `Foo`: it
+            // lowers as one and contributes no runtime binding, exactly like the
+            // constructor-function case above. Lowered as a value instead, the
+            // binding held a placeholder instance and `new Foo()` erased into a
+            // dynamic construction whose methods answered `null` (H68).
+            if let Some((name, class)) = Self::const_class_expression(declarator) {
+                let previous = self
+                    .class_expression_binding_name
+                    .replace(name.to_owned());
+                let lowered = self.class_declaration(class);
+                self.class_expression_binding_name = previous;
+                lowered?;
                 continue;
             }
             // `const { placeholder } = partial;` destructures a static property off

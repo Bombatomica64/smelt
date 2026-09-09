@@ -158,3 +158,136 @@ probe.json
 !blocker-logs/estk-final45-after.md
 /target-gates/
 !blocker-logs/estk-final45-host-gaps.md
+
+# dependencies and local SQLite file are never tracked (dist/ is covered above).
+node_modules/
+!blocker-logs/express-v1-baseline.md
+!blocker-logs/standards-tier-plan.md
+!blocker-logs/standards-tier-progress.md
+!blocker-logs/hono-campaign-plan.md
+
+# Hono probe checkout (see .github/compat/libraries.json for the pinned ref)
+third_party/hono/
+
+# Hono campaign per-family investigation reports
+!blocker-logs/hono-h1-private-method-calls.md
+!blocker-logs/hono-h2-regex-replacer-arguments.md
+!blocker-logs/hono-h3-tuple-element-types.md
+!blocker-logs/hono-h4-union-truthiness.md
+!blocker-logs/hono-h11-string-field-read.md
+!blocker-logs/hono-fetch-demand.md
+!blocker-logs/hono-h10-uri-and-base64-globals.md
+!blocker-logs/hono-h12-const-alias-callee.md
+!blocker-logs/hono-scope.md
+!blocker-logs/hono-h6-module-mutable-globals.md
+!blocker-logs/hono-h5-h8-h9-not-mine.md
+!blocker-logs/hono-current.md
+
+# private cargo target dir for generated-crate gates run locally
+/target-gen-priv/
+# saved smelt binary used while a target dir is cleaned
+/smelt-bin
+# Hono probe checkout is cloned by CI and locally, never tracked
+third_party/hono
+
+# Hono campaign: fallible stdlib ops and absent-global throw design
+!blocker-logs/hono-fallible-ops.md
+
+# Radash self-referential class regression found during the Hono campaign
+!blocker-logs/radash-self-referential-class.md
+
+# H6 Place::Global design (round 3)
+!blocker-logs/hono-h6-place-global.md
+
+# Round 3 item 4 investigation findings
+!blocker-logs/hono-round3-item4-findings.md
+# The three standards-stream repro notes the Hono stream works from. They were
+# written but never committed because the pattern above ignores blocker-logs/*.md
+# by default, so they did not reach the other worktree with the merge.
+!blocker-logs/interface-literal-camel-case.md
+!blocker-logs/find-callback-repro.md
+!blocker-logs/generated-union-generic-member.md
+!blocker-logs/implementer-brief.md
+
+# Hono round 9 notes
+!blocker-logs/hono-h16-nested-callback-destructuring.md
+!blocker-logs/hono-h17-private-field-capture.md
+!blocker-logs/hono-h18-accessors-and-private-names.md
+# Standards round 9 repro notes: three defects found while building the text
+# codecs and the Blob/File upgrade, each pre-existing and each recorded rather
+# than folded into a feature item.
+!blocker-logs/standards-instanceof-narrowing.md
+!blocker-logs/standards-module-const-host-value.md
+!blocker-logs/standards-erased-cast-size-collision.md
+
+# Round 9 progress note: what landed, and the settled design for the items that
+# did not (FormData's multipart pick, crypto's crate picks, the AbortController
+# upgrade, and why the Optional string coercion is blocked on Type::Null).
+!blocker-logs/standards-round9-progress.md
+
+# Round 10 progress note: the two silent-wrong-value defects (module-const
+# slots, instanceof narrowing), why item 6 needs Dict provenance, and the six
+# modeled classes that still cannot answer instanceof on an erased value.
+!blocker-logs/standards-round10-progress.md
+
+# Hono round 10 notes
+!blocker-logs/remeda-symbol-key-regression.md
+!blocker-logs/hono-h19-projected-receiver-places.md
+!blocker-logs/hono-phase2-generated-rust.md
+!blocker-logs/hono-routers-diagnostics.md
+!blocker-logs/es-toolkit-refcell-callable-move.md
+# local clones for corpus gates (radash etc.), never tracked
+/target-compat/
+third_party/es-toolkit-src/
+# The relayed Hono demand item (`new Headers(init)` in `src/context.ts`) checked
+# and found already resolved by round 10, with where the Hono build stops now.
+!blocker-logs/standards-hono-headers-init-resolved.md
+
+# Round 11 progress note: the six modeled classes that could not answer
+# instanceof, the three per-class lists collapsed onto the registry, and why the
+# erasure test lives in a tier rather than the invariant-bound examples corpus.
+!blocker-logs/standards-round11-progress.md
+!blocker-logs/hono-h31-projected-receiver-writeback.md
+!blocker-logs/hono-h25-method-parameter-abi.md
+!blocker-logs/hono-h30-reference-class-heritage.md
+!blocker-logs/hono-h26-concrete-union-boundary.md
+!blocker-logs/hono-h28-h33-tail-branch-and-private-methods.md
+!blocker-logs/hono-h33-sibling-method-call.md
+!blocker-logs/hono-h28-dropped-branch-region.md
+!blocker-logs/hono-h34-union-valued-record.md
+!blocker-logs/hono-h35-union-index-write.md
+!blocker-logs/hono-h27-double-optional-dict-read.md
+!blocker-logs/clippy-all-targets-gate.md
+!blocker-logs/hono-h36-static-tag-check.md
+!blocker-logs/hono-h29-generic-class-bounds.md
+!blocker-logs/hono-h29b-tuple-erasure.md
+# abort-signal-reason-and-statics.md records the AbortSignal reason/statics inventory diffed against Node
+!blocker-logs/abort-signal-reason-and-statics.md
+# top-level-try-await-tail.md documents the module-top-level try/await tail fix
+!blocker-logs/top-level-try-await-tail.md
+# regex-literal-test-erases-match.md documents the RegExp.prototype.test erasure fix
+!blocker-logs/regex-literal-test-erases-match.md
+# standards-narrowing-sweep-and-nullish-stringify.md closes out the narrowing
+# gaps and records the nullish-stringify find
+!blocker-logs/standards-narrowing-sweep-and-nullish-stringify.md
+# standards-ambient-init-dictionaries.md records the ResponseInit/RequestInit
+# generated-struct design and the Hono stop it moved
+!blocker-logs/standards-ambient-init-dictionaries.md
+# standards-erased-host-members.md records the runtime member resolution on
+# erased host records
+!blocker-logs/standards-erased-host-members.md
+# standards-generic-arm-and-typeof-indexed-alias.md records the generic-arm
+# instantiation fix and the (typeof X)[keyof typeof X] alias that actually stops
+# Hono's context.ts
+!blocker-logs/standards-generic-arm-and-typeof-indexed-alias.md
+# standards-typed-array-views-plan.md is the measured inventory and increment
+# plan for the typed-array-views item
+!blocker-logs/standards-typed-array-views-plan.md
+# standards-hono-first-cargo-check.md is the first `cargo check` the COMPLETE
+# Hono crate ever reached, grouped by diagnostic code, so the next rounds can
+# start from the largest class instead of re-measuring it
+!blocker-logs/standards-hono-first-cargo-check.md
+# standards-example-goldens-cover-modules.md records the harness gap that left
+# 34 of 79 example goldens checking only the runtime prelude, and the
+# avoidable-erasure inventory that honest measurement uncovered
+!blocker-logs/standards-example-goldens-cover-modules.md

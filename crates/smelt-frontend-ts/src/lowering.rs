@@ -4,10 +4,12 @@ mod ambient_globals;
 mod arguments_forwarding;
 mod function_statics;
 mod specialization;
+pub(in crate::lowering) mod spread_arguments;
 mod state;
 mod stdlib;
 mod stdlib_dispatch;
 mod support;
+mod union_member_read;
 mod ty;
 use std::{
     collections::{HashMap, HashSet},
@@ -121,6 +123,19 @@ impl ConstLiteral {
     /// ({ [s]: 1 })` declares the very member an inline `[Symbol.iterator]` key
     /// declares. A unique `Symbol('d')` carries a span-tagged spelling and has
     /// fresh identity per evaluation, so it never folds.
+    /// Return the member key a unique `Symbol(...)` bound to a const names.
+    ///
+    /// Separate from [`Self::symbol_literal_member_name`] because it is only
+    /// sound where the binding is evaluated once; see
+    /// `ty::computed_key_symbols::unique_symbol_key`. Only the two
+    /// const-resolving computed-key arms consult it.
+    fn unique_symbol_member_name(&self) -> Option<String> {
+        match &self.literal {
+            Literal::Symbol(value) => ty::computed_key_symbols::unique_symbol_key(value),
+            _ => None,
+        }
+    }
+
     fn symbol_literal_member_name(spelling: &str) -> Option<String> {
         if let Some(description) =
             ty::computed_key_symbols::registry_description_of_symbol_literal(spelling)
@@ -179,6 +194,16 @@ pub struct ConstCollection {
 pub struct FrontendOptions<'manifest> {
     /// Materialized definition-time structure for this source graph.
     pub specialization: Option<&'manifest smelt_specialize::SpecializationManifest>,
+    /// Import specifiers in this file that name modules the manifest excludes.
+    ///
+    /// `[sources] exclude` prunes the dependency closure, so a relative
+    /// specifier can name a module that was deliberately left out of the
+    /// crate. Such a specifier is not a missing file and not a host package:
+    /// it is a scope decision the manifest recorded, and using a *value* from
+    /// it has to say so rather than silently erasing the binding. The
+    /// transpiler resolves the mapping (it already resolved every import edge)
+    /// and passes the specifiers as written so the message can quote them.
+    pub excluded_modules: &'manifest [String],
 }
 
 /// Materialized specialization data owned by one source module builder.
@@ -398,6 +423,7 @@ pub fn to_hir_with_options(
         source.to_owned(),
         ctx,
         specialization,
+        options.excluded_modules.to_vec(),
     );
     builder.program(&parsed.program)
 }
@@ -442,12 +468,15 @@ pub fn predeclare_type_declarations_with_path(
             })
             .collect());
     }
+    // The predeclaration pass only records type and method surfaces; it never
+    // classifies value imports, so it needs no exclusion list.
     let mut builder = ModuleBuilder::new(
         file_id,
         path.to_owned(),
         source.to_owned(),
         ctx,
         None,
+        Vec::new(),
     );
     builder.predeclare_class_method_fields(&parsed.program);
     builder.predeclare_type_alias_items(&parsed.program);
@@ -510,6 +539,57 @@ fn assignment_target_host_global_name<'a>(target: &'a AssignmentTarget<'a>) -> O
         return None;
     }
     (smelt_stdlib::host_object_by_class(property).is_some()).then_some(property)
+}
+
+/// Scan one TypeScript source for the MODULE-SCOPE class names it declares.
+///
+/// The crate-level half lives in the transpiler, which unions these across
+/// every source before lowering begins and hands back a rename for any name
+/// declared by more than one module (see `HirCtx::class_renames`). Doing it as
+/// a pre-pass rather than during lowering is what makes the answer independent
+/// of lowering order: whether `Node` is ambiguous cannot depend on which module
+/// happens to lower first.
+///
+/// Only top-level declarations count, `export class` included. A class
+/// EXPRESSION and a class nested inside a function or a test closure are
+/// deliberately skipped: neither is nameable from another module, so neither
+/// can collide across modules, and both already get their own disambiguation
+/// (`anonymous_class_name`, `enter_test_suite_class_scope`). Parse failures
+/// yield an empty list so scanning never blocks a build.
+#[must_use]
+pub fn scan_declared_class_names(source: &str, path: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    if is_generated_declaration_file(path, source) {
+        return names;
+    }
+    let allocator = Allocator::default();
+    let source_type = if is_typescript_declaration_path(path) {
+        SourceType::d_ts()
+    } else {
+        SourceType::default().with_typescript(true)
+    };
+    let parsed = Parser::new(&allocator, source, source_type)
+        .with_options(ParseOptions::default())
+        .parse();
+    if !parsed.diagnostics.is_empty() {
+        return names;
+    }
+    for statement in &parsed.program.body {
+        let class = match statement {
+            Statement::ClassDeclaration(class) => Some(class),
+            Statement::ExportDeclaration(export) => match &export.declaration {
+                Declaration::ClassDeclaration(class) => Some(class),
+                _ => None,
+            },
+            _ => None,
+        };
+        if let Some(class) = class
+            && let Some(id) = &class.id
+        {
+            names.push(id.name.to_string());
+        }
+    }
+    names
 }
 
 /// AST collector for `globalThis.<HostName> = ...` writes anywhere in a program.
@@ -618,6 +698,15 @@ struct ModuleBuilder<'ctx> {
     current_statement_block: Option<smelt_hir::BlockId>,
     /// Postfix updates waiting for the variable initializer that reads their original value.
     deferred_postfix_updates: Option<Vec<Stmt>>,
+    /// Name a class EXPRESSION takes from the binding it initializes.
+    ///
+    /// `const Foo = class { … }` declares a class named `Foo` — that is the
+    /// name TypeScript infers, and it is what makes `new Foo()`, `Foo` in type
+    /// position, `x instanceof Foo` and `extends Foo` resolve nominally. Set
+    /// around the [`Self::class_declaration`] call for such a declarator and
+    /// consumed by it, so a class expression nested deeper inside the same
+    /// initializer still takes its synthetic anonymous name.
+    class_expression_binding_name: Option<String>,
     /// Number of vitest asymmetric matchers (`expect.any`, `expect.arrayContaining`,
     /// ...) lowered so far in this module.
     ///
@@ -682,6 +771,31 @@ struct ModuleBuilder<'ctx> {
     functions: state::function_registry::FunctionRegistry,
     /// Materialized final definitions for this source module.
     specialization: Option<SpecializationData>,
+    /// Value imports awaiting host-module classification.
+    ///
+    /// Filled while the import statements are read and drained once, right
+    /// after the last of them, by
+    /// `ModuleBuilder::classify_pending_host_imports`. The two-phase shape
+    /// exists because the decision depends on the module as a whole (a test
+    /// module keeps the erased binding), which is not known until every import
+    /// has been seen.
+    pending_host_imports: Vec<PendingHostImport>,
+    /// Import specifiers naming modules the manifest excluded from the crate.
+    ///
+    /// Consulted by `classify_pending_host_imports`; see
+    /// [`FrontendOptions::excluded_modules`].
+    excluded_modules: Vec<String>,
+}
+
+/// One value import whose module resolved to no source item.
+#[derive(Debug, Clone)]
+struct PendingHostImport {
+    /// Module specifier as written in source.
+    module: String,
+    /// Exported name (`"default"` for a default import).
+    imported: String,
+    /// Local binding the importer sees.
+    local: String,
 }
 
 /// Concrete types active while lowering a generator body.

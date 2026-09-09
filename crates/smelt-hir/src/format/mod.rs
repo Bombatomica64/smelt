@@ -8,7 +8,7 @@ mod map;
 mod types;
 
 use crate::body::Body;
-use crate::ids::{ExprId, LocalId, ModuleId, id_index};
+use crate::ids::{ExprId, LocalId, ModuleId, TypeId, id_index};
 use crate::krate::Crate;
 use call::expr_text;
 use control_flow::stmt_text;
@@ -21,6 +21,19 @@ use types::{expr_ref, item_ref, item_text, local_ref, optional_expr_ref, type_re
 /// Append formatted text to the output buffer.
 fn push_fmt(out: &mut String, args: std::fmt::Arguments<'_>) {
     let _ignored = out.write_fmt(args);
+}
+
+/// Format one type as the text the HIR dump uses for it.
+///
+/// The dump's own renderer, exposed so a DIAGNOSTIC can name a type the way a
+/// reader can act on: `String | Dict<String, Float> | Class(ArrayBufferView)`
+/// instead of `Union([TypeId(29), TypeId(196), …])`. A blocker that prints
+/// interned ids tells the reader only that something is wrong somewhere, which
+/// is the least actionable form of a true statement — and for a union it hides
+/// exactly the one arm that has to change.
+#[must_use]
+pub fn type_display(krate: &Crate, ty: TypeId) -> String {
+    types::type_ref(krate, ty)
 }
 
 /// Formats the HIR of the given modules in a compact, human-readable form.

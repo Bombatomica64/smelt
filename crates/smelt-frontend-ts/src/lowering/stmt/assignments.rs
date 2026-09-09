@@ -404,6 +404,13 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.node_process_static_member(member, body) {
             return Ok(expr);
         }
+        // A modeled SUB-NAMESPACE of a global namespace object (`crypto.subtle`).
+        // Placed after the specific modeled reads (`Math.PI`, `process.version`)
+        // so those keep their rules, and before the generic property paths,
+        // which would answer `undefined` for a member the profile does model.
+        if let Some(expr) = self.builtin_namespace_member_read(member, body) {
+            return Ok(expr);
+        }
         if let Some(expr) = self.namespace_member_expression(member, body)? {
             return Ok(expr);
         }
@@ -411,6 +418,20 @@ impl ModuleBuilder<'_> {
             return Ok(expr);
         }
         if let Some(expr) = self.url_field_expression(member, body)? {
+            return Ok(expr);
+        }
+        // A `Response` data property. Placed with the other modeled-receiver
+        // reads and gated on the receiver's lowered type, so `x.status` on
+        // anything else falls through to the ordinary field paths.
+        if let Some(expr) = self.response_property_read(member, body)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.request_property_read(member, body)? {
+            return Ok(expr);
+        }
+        // `req.method`/`req.url`/`req.headers` and `res.statusCode`, gated the
+        // same way on the receiver's lowered type.
+        if let Some(expr) = self.http_property_read(member, body)? {
             return Ok(expr);
         }
         // The exemption an assignment target carries follows the whole target
@@ -439,6 +460,33 @@ impl ModuleBuilder<'_> {
             );
         let access_receiver_ty = self.optional_receiver_inner_type(receiver_ty);
         let field = self.intern_source_name(member.property.name.as_str());
+        // The text-codec and `Blob`/`File` data properties. Placed AFTER the
+        // receiver is lowered, and reusing that receiver, because `length`,
+        // `size`, `type` and `name` are members of almost every value: a
+        // pre-receiver probe would lower the receiver a second time on every
+        // miss, which duplicates its side effects.
+        //
+        // Skipped for an assignment TARGET. Every member both handlers model is
+        // read-only in the spec, so a write to one is not a modeled operation
+        // and must fall through to the ordinary (discarded) write path — a read
+        // expression cannot be assigned to, and claiming one aborted MIR
+        // lowering of es-toolkit's `isBlob` spec, whose `class File extends
+        // Blob` writes `this.name`.
+        if !is_assignment_target {
+            if let Some(expr) =
+                self.typed_array_member_read(member, receiver, access_receiver_ty, body)?
+            {
+                return Ok(expr);
+            }
+            if let Some(expr) =
+                self.text_codec_member_read(member, receiver, access_receiver_ty, body)?
+            {
+                return Ok(expr);
+            }
+            if let Some(expr) = self.blob_member_read(member, receiver, access_receiver_ty, body)? {
+                return Ok(expr);
+            }
+        }
         if member.property.name == "length" && self.supports_stdlib_length(access_receiver_ty)
             || member.property.name == "size" && self.supports_stdlib_size(access_receiver_ty)
         {
@@ -565,6 +613,25 @@ impl ModuleBuilder<'_> {
                     member.property.name
                 ),
             ));
+        }
+        // A tagged-union receiver reads the member off its ARM instead of
+        // erasing the union to look the property up at runtime. Asked here,
+        // after every modeled-receiver handler has refused, because a union's
+        // arms are read through those same rules one arm at a time — and it
+        // answers `None` for any union it cannot fully dispatch, which keeps
+        // the erased fallback below as the only other outcome. See
+        // `lowering::union_member_read`.
+        if !is_assignment_target
+            && !member.optional
+            && let Some(expr) = self.union_member_read(
+                receiver,
+                access_receiver_ty,
+                field,
+                self.span(member.span.start, member.span.end),
+                body,
+            )?
+        {
+            return Ok(expr);
         }
         let field_ty = match self.class_field_type(access_receiver_ty, field) {
             Ok(field_ty) => field_ty,
@@ -1304,18 +1371,28 @@ impl ModuleBuilder<'_> {
             }));
         }
         if Self::is_process_env_member(member) {
-            let ty = self.ctx.krate.types.intern(Type::String);
-            let value = if Self::is_process_env_field(member, "TZ")
+            // `process.env.X` is `string | undefined` in TypeScript, and in the
+            // deterministic profile the answer is known: the profile defines the
+            // timezone and nothing else, so every other variable is *absent*.
+            // Modeling an absent variable as the empty string would make
+            // `process.env.PORT ?? 3000` statically dead and type the join as
+            // `string`; modeling it as `undefined` at `Optional(String)` keeps
+            // both the TypeScript type and the Node behaviour.
+            let string_ty = self.ctx.krate.types.intern(Type::String);
+            let span = self.span(member.span.start, member.span.end);
+            let optional_ty =
+                smelt_hir::type_normalize::optional_of(&mut self.ctx.krate.types, string_ty);
+            let literal = if Self::is_process_env_field(member, "TZ")
                 || Self::is_process_env_field(member, "tz")
             {
-                "America/Santiago".to_owned()
+                Literal::String("America/Santiago".to_owned())
             } else {
-                String::new()
+                Literal::Undefined
             };
             return Some(body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::String(value)),
-                ty,
-                span: self.span(member.span.start, member.span.end),
+                kind: ExprKind::Literal(literal),
+                ty: optional_ty,
+                span,
             }));
         }
         None
@@ -1366,6 +1443,20 @@ impl ModuleBuilder<'_> {
             return self.global_alias_computed_read(member, body);
         }
         let receiver = self.expression(&member.object, body)?;
+        // A computed key that resolves to a STATIC member name is an ordinary
+        // member read written with brackets, so it lowers to the same `Field` a
+        // dot access would. This is what makes a symbol-keyed member usable:
+        // `class C { get [KEY]() { .. } }` declares a member whose name is the
+        // symbol's synthetic key, and `c[KEY]` has to find it. Without this the
+        // declaration lowered and the read did not, so the program answered
+        // `undefined` for a member that exists.
+        //
+        // Placed after the receiver and BEFORE the index so a decline costs no
+        // stray lowered expression: the receiver is lowered once either way, and
+        // the key expression is only lowered on the path that uses it.
+        if let Some(expr) = self.static_computed_member_read(member, receiver, body)? {
+            return Ok(expr);
+        }
         let index = self.expression(&member.expression, body)?;
         let receiver_ty = Self::expr_ty(body, receiver);
         let optional_access = member.optional
@@ -1487,6 +1578,67 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(member.span.start, member.span.end),
         }))
+    }
+
+    /// Lower `receiver[KEY]` as a member read when `KEY` names a static member.
+    ///
+    /// `KEY` is resolved by the same folding the class-member DECLARATION side
+    /// uses (`resolve_static_computed_key_name_expr`), so a const-bound unique
+    /// symbol, a well-known `Symbol.<name>` and a `Symbol.for(..)` registry
+    /// symbol all name the member they declared. Answering `None` leaves the
+    /// ordinary index lowering in charge, which is what every other key gets.
+    ///
+    /// The member must actually exist on the receiver's type: a folded key that
+    /// names nothing is not a member read, and turning it into one would replace
+    /// a runtime lookup with a static error.
+    fn static_computed_member_read(
+        &mut self,
+        member: &oxc::ast::ast::ComputedMemberExpression<'_>,
+        receiver: smelt_hir::ExprId,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let receiver_ty = Self::expr_ty(body, receiver);
+        if !matches!(
+            self.ctx.krate.types.get(self.optional_receiver_inner_type(receiver_ty)),
+            Some(Type::Class { .. })
+        ) {
+            return Ok(None);
+        }
+        // SYMBOL keys only. A string or numeric key resolves through the
+        // ordinary index lowering, and it has to: a class with an index
+        // signature (`[key: string]: T`) answers `class_field_type` for every
+        // name, so folding `bag["a"]` into a named field read would take a
+        // keyed-store read and turn it into a member that does not exist. A
+        // symbol is never an index-signature key, so it is unambiguous -- and it
+        // is the case that had no other path.
+        let Some((name, true)) = self.resolve_static_computed_key_name_expr(&member.expression)
+        else {
+            return Ok(None);
+        };
+        let field = self.intern_source_name(&name);
+        let access_receiver_ty = self.optional_receiver_inner_type(receiver_ty);
+        let Ok(field_ty) = self.class_field_type(access_receiver_ty, field) else {
+            return Ok(None);
+        };
+        let span = self.span(member.span.start, member.span.end);
+        let optional_access = member.optional
+            || matches!(
+                self.ctx.krate.types.get(receiver_ty),
+                Some(Type::Optional(_))
+            );
+        if optional_access {
+            let ty = self.optional_chain_result_type(field_ty);
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::OptionalField { receiver, field },
+                ty,
+                span,
+            })));
+        }
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Field { receiver, field },
+            ty: field_ty,
+            span,
+        })))
     }
 
     /// Lower `Math[method]` for supported numeric method-key unions to a closure.
@@ -1896,6 +2048,12 @@ impl ModuleBuilder<'_> {
         if let Some(write) = self.try_host_global_write_expression(assign, body)? {
             return Ok(Some(write));
         }
+        // `res.statusCode = 200` is a status-line WRITE on a modeled receiver,
+        // not a field store, so it intercepts here alongside the other
+        // desugared member assignments.
+        if let Some(write) = self.try_server_response_assignment_expression(assign, body)? {
+            return Ok(Some(write));
+        }
         let Some(item) = self.assignment_target_mutable_global(&assign.left) else {
             return Ok(None);
         };
@@ -2058,15 +2216,40 @@ impl ModuleBuilder<'_> {
                     span,
                 })
             }
+            // Every compound assignment whose operator has a `BinOp` is the
+            // same rule: `x op= y` is `x = x op y`, and the operator's own
+            // semantics — JS int32 truncation for the bitwise and shift forms,
+            // string concatenation for `+=` — come from the identical `BinOp`
+            // the BINARY path lowers, so there is nothing per-operator to
+            // decide here. Only `%=` and the six bitwise/shift forms were
+            // missing, which is why Hono's `out |= aChar ^ bChar`
+            // (`utils/buffer.ts`, constant-time string compare) was a blocker
+            // while `out = out | (aChar ^ bChar)` next to it was not.
+            // `**=` stays out because `BinOp` has no exponentiation arm; the
+            // binary `**` lowers through its own path.
             AssignmentOperator::Addition
             | AssignmentOperator::Subtraction
             | AssignmentOperator::Multiplication
-            | AssignmentOperator::Division => {
+            | AssignmentOperator::Division
+            | AssignmentOperator::Remainder
+            | AssignmentOperator::ShiftLeft
+            | AssignmentOperator::ShiftRight
+            | AssignmentOperator::ShiftRightZeroFill
+            | AssignmentOperator::BitwiseAnd
+            | AssignmentOperator::BitwiseOR
+            | AssignmentOperator::BitwiseXOR => {
                 let op = match assign.operator {
                     AssignmentOperator::Addition => BinOp::Add,
                     AssignmentOperator::Subtraction => BinOp::Sub,
                     AssignmentOperator::Multiplication => BinOp::Mul,
                     AssignmentOperator::Division => BinOp::Div,
+                    AssignmentOperator::Remainder => BinOp::Rem,
+                    AssignmentOperator::ShiftLeft => BinOp::Shl,
+                    AssignmentOperator::ShiftRight => BinOp::Shr,
+                    AssignmentOperator::ShiftRightZeroFill => BinOp::UShr,
+                    AssignmentOperator::BitwiseAnd => BinOp::BitAnd,
+                    AssignmentOperator::BitwiseOR => BinOp::BitOr,
+                    AssignmentOperator::BitwiseXOR => BinOp::BitXor,
                     other => {
                         return Err(SmeltError::unsupported(
                             self.span(assign.span.start, assign.span.end),
@@ -2085,10 +2268,14 @@ impl ModuleBuilder<'_> {
                     span: self.span(assign.span.start, assign.span.end),
                 })
             }
-            other => {
+            // `**=` is the one compound operator left, and naming it here rather
+            // than catching it with a wildcard keeps the list honest: it is
+            // missing because `BinOp` has no exponentiation arm, so it needs the
+            // same lowering the binary `**` uses, not this rule.
+            AssignmentOperator::Exponential => {
                 return Err(SmeltError::unsupported(
                     self.span(assign.span.start, assign.span.end),
-                    format!("assignment operator is not lowered yet: {other:?}"),
+                    "assignment operator is not lowered yet: Exponential",
                 ));
             }
         };
@@ -2718,6 +2905,314 @@ impl ModuleBuilder<'_> {
         }))
     }
 
+    /// Whether an assignment operator is one of the three LOGICAL assignments,
+    /// which store conditionally and therefore lower through
+    /// [`Self::lower_logical_assignment`] rather than through
+    /// [`Self::assignment_parts`].
+    pub(in crate::lowering) const fn is_logical_assignment_operator(
+        operator: AssignmentOperator,
+    ) -> bool {
+        matches!(
+            operator,
+            AssignmentOperator::LogicalOr
+                | AssignmentOperator::LogicalAnd
+                | AssignmentOperator::LogicalNullish
+        )
+    }
+
+    /// The current-value read a logical assignment tests, with an absent
+    /// record key reading as `undefined`.
+    ///
+    /// `SmeltRecord::get` already answers `Option<V>`; a read whose declared
+    /// type is `V` is the one that appends `unwrap_or(<default>)`. So a record
+    /// element read for `Record<string, number>` answered `0` for a key that
+    /// was never written, and `rec[key] ??= 2` saw a non-nullish `0` and never
+    /// assigned. Declaring the read `Optional(V)` is what makes absence say
+    /// `undefined`, which is what JavaScript reads there.
+    ///
+    /// Only the read the OPERATOR tests changes; the plain read keeps its
+    /// declared type, so no other expression in the crate moves.
+    fn logical_assignment_current_read(
+        &mut self,
+        target: smelt_hir::ExprId,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let target_ty = Self::expr_ty(body, target);
+        if matches!(self.ctx.krate.types.get(target_ty), Some(Type::Optional(_))) {
+            return target;
+        }
+        let Some(target_expr) = body.exprs.get(usize::try_from(target.0).unwrap_or(usize::MAX))
+        else {
+            return target;
+        };
+        let span = target_expr.span;
+        let ExprKind::Index { receiver, index } = target_expr.kind else {
+            return target;
+        };
+        let receiver_ty = Self::expr_ty(body, receiver);
+        let Some(&Type::Dict(_, value_ty)) = self.ctx.krate.types.get(receiver_ty) else {
+            return target;
+        };
+        let optional_ty = self.ctx.krate.types.intern(Type::Optional(value_ty));
+        body.push_expr(Expr {
+            kind: ExprKind::Index { receiver, index },
+            ty: optional_ty,
+            span,
+        })
+    }
+
+    /// Lower `t ||= v`, `t &&= v` and `t ??= v` as the CONDITIONAL store the
+    /// language specifies, in statement or expression position.
+    ///
+    /// `t ||= v` is `t || (t = v)`: the store runs only when the test fails, so
+    /// a logical assignment to an absent record key writes the key for `||=`
+    /// and `??=` and leaves it absent for `&&=`. Lowering all three as the
+    /// unconditional `t = (test ? t : v)` instead made `rec[key] &&= 9` CREATE
+    /// the key it was supposed to leave alone, and together with a
+    /// default-valued read of an absent key it made `rec[key] ??= 2` store
+    /// nothing at all.
+    ///
+    /// One rule for all three operators, both positions, and every target
+    /// shape: locals, fields and record elements. `want_value` says whether the
+    /// surrounding expression needs the assignment's value; a statement
+    /// discards it, and then neither the else arm nor the result temporary is
+    /// emitted.
+    ///
+    /// The right-hand side is lowered INSIDE the then block, so its own
+    /// statements and side effects belong to the branch that stores: a logical
+    /// assignment does not evaluate its right side when the test keeps the
+    /// current value.
+    ///
+    /// The caller must have checked [`Self::is_logical_assignment_operator`].
+    pub(in crate::lowering) fn lower_logical_assignment(
+        &mut self,
+        assign: &oxc::ast::ast::AssignmentExpression<'_>,
+        body: &mut Body,
+        target_block: Option<smelt_hir::BlockId>,
+        want_value: bool,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let span = self.span(assign.span.start, assign.span.end);
+        let target = self.assignment_target_expr(&assign.left, body)?;
+        let target_ty = Self::expr_ty(body, target);
+        let current = self.logical_assignment_current_read(target, body);
+        let current_ty = Self::expr_ty(body, current);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        // Whether to STORE, which is the negation of "keep the current value":
+        // `||=` stores when the current value is falsy, `&&=` when it is truthy,
+        // `??=` when it is `null` or `undefined` (`== null`, the one comparison
+        // true for both).
+        let should_store = match assign.operator {
+            AssignmentOperator::LogicalNullish => {
+                let none = body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::None),
+                    ty: current_ty,
+                    span,
+                });
+                body.push_expr(Expr {
+                    kind: ExprKind::BinOp {
+                        op: BinOp::Eq,
+                        lhs: current,
+                        rhs: none,
+                    },
+                    ty: bool_ty,
+                    span,
+                })
+            }
+            AssignmentOperator::LogicalAnd => {
+                self.lowered_condition_expression(current, span, body)?
+            }
+            _ => {
+                let truthy = self.lowered_condition_expression(current, span, body)?;
+                body.push_expr(Expr {
+                    kind: ExprKind::UnaryOp {
+                        op: smelt_hir::UnaryOp::Not,
+                        operand: truthy,
+                    },
+                    ty: bool_ty,
+                    span,
+                })
+            }
+        };
+        let right_hint = match assign.operator {
+            AssignmentOperator::LogicalNullish => self.non_nullish_type(target_ty),
+            _ => Some(target_ty),
+        };
+        // The result temporary is declared before the branch and assigned in
+        // both arms, which is the shape the emitter already renders for a
+        // conditionally produced value (`let mut _smelt_tmp_N: T;`).
+        let result_local = want_value.then(|| {
+            body.push_local(LocalDecl {
+                name: Some(
+                    self.ctx
+                        .krate
+                        .symbols
+                        .intern(&format!("__smelt_logical_{}", body.locals.len())),
+                ),
+                ty: target_ty,
+                mutable: true,
+                span,
+            })
+        });
+        let then_block = body.push_block(span);
+        let previous_block = self.current_statement_block.replace(then_block);
+        let right = self.expression_with_hint(&assign.right, body, right_hint);
+        self.current_statement_block = previous_block;
+        let right = right?;
+        let right_ty = Self::expr_ty(body, right);
+        // The stored value is bound once: the right side may construct, and
+        // writing it to both the target and the result temporary would build it
+        // twice.
+        let right_local = body.push_local(LocalDecl {
+            name: Some(
+                self.ctx
+                    .krate
+                    .symbols
+                    .intern(&format!("__smelt_logical_value_{}", body.locals.len())),
+            ),
+            ty: right_ty,
+            mutable: false,
+            span,
+        });
+        let right_pat = body.push_pattern(Pattern::Binding(right_local));
+        body.push_stmt_to_block(
+            then_block,
+            Stmt::Let {
+                pat: right_pat,
+                ty: right_ty,
+                value: Some(right),
+            },
+        );
+        let stored = body.push_expr(Expr {
+            kind: ExprKind::Local(right_local),
+            ty: right_ty,
+            span,
+        });
+        body.push_stmt_to_block(
+            then_block,
+            Stmt::Assign {
+                target,
+                value: stored,
+            },
+        );
+        let else_block = result_local.map(|result_local| {
+            let stored_result = body.push_expr(Expr {
+                kind: ExprKind::Local(result_local),
+                ty: target_ty,
+                span,
+            });
+            let stored_again = body.push_expr(Expr {
+                kind: ExprKind::Local(right_local),
+                ty: right_ty,
+                span,
+            });
+            body.push_stmt_to_block(
+                then_block,
+                Stmt::Assign {
+                    target: stored_result,
+                    value: stored_again,
+                },
+            );
+            // The kept value is the target's own declared-type read: this arm
+            // runs only when the test kept the current value, so it is there.
+            let else_block = body.push_block(span);
+            let kept_result = body.push_expr(Expr {
+                kind: ExprKind::Local(result_local),
+                ty: target_ty,
+                span,
+            });
+            body.push_stmt_to_block(
+                else_block,
+                Stmt::Assign {
+                    target: kept_result,
+                    value: target,
+                },
+            );
+            else_block
+        });
+        if let Some(result_local) = result_local {
+            let pat = body.push_pattern(Pattern::Binding(result_local));
+            let declare = Stmt::Let {
+                pat,
+                ty: target_ty,
+                value: None,
+            };
+            self.push_logical_assignment_stmt(body, target_block, declare);
+        }
+        let branch = Stmt::If {
+            cond: should_store,
+            then_block,
+            else_block,
+        };
+        self.push_logical_assignment_stmt(body, target_block, branch);
+        Ok(result_local.map(|result_local| {
+            body.push_expr(Expr {
+                kind: ExprKind::Local(result_local),
+                ty: target_ty,
+                span,
+            })
+        }))
+    }
+
+    /// Push one statement of a lowered logical assignment into the block that
+    /// owns it: the caller's block when it named one, otherwise the block the
+    /// surrounding expression is being lowered into.
+    fn push_logical_assignment_stmt(
+        &self,
+        body: &mut Body,
+        target_block: Option<smelt_hir::BlockId>,
+        stmt: Stmt,
+    ) {
+        if let Some(block) = target_block.or(self.current_statement_block) {
+            body.push_stmt_to_block(block, stmt);
+        } else {
+            body.push_stmt(stmt);
+        }
+    }
+
+    /// Lower an assignment used as an expression VALUE, store included.
+    ///
+    /// JavaScript's assignment is an expression whose value is the assigned
+    /// value and whose effect is the store - `const child = (rec[key] ||= new
+    /// Node())` both writes the record and evaluates to the child. Expression
+    /// position previously kept only the value and dropped the store, for every
+    /// operator and every target: `const got = (a = 5)` left `a` at `0`, and
+    /// Hono's trie `insert`, written exactly in that shape, built a child,
+    /// handed it back and stored nothing, so the whole trie stayed empty.
+    ///
+    /// The store must run inside the current statement block, before the
+    /// enclosing expression finishes evaluating, and the result must be a value
+    /// snapshotted BEFORE the store: a lazy re-read of the target after the
+    /// store would evaluate the target's own subexpressions a second time. This
+    /// is the same shape [`Self::update_expression`] uses for `x++`, which is
+    /// where the correct handling already lived.
+    pub(in crate::lowering) fn assignment_expression_value(
+        &mut self,
+        assign: &oxc::ast::ast::AssignmentExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        // `||=`, `&&=` and `??=` store CONDITIONALLY, so they have their own
+        // rule; every other operator stores unconditionally and evaluates to
+        // the stored value.
+        if Self::is_logical_assignment_operator(assign.operator)
+            && let Some(value) = self.lower_logical_assignment(assign, body, None, true)?
+        {
+            return Ok(value);
+        }
+        let (target, value) = self.assignment_parts(assign, body)?;
+        // The stored value expression is what the surrounding expression
+        // evaluates to. One expression id, referenced by the store and by the
+        // result: MIR lowers an expression once into its own temporary, so this
+        // neither re-evaluates the right-hand side nor needs a temporary of its
+        // own here.
+        let assign_stmt = Stmt::Assign { target, value };
+        if let Some(block) = self.current_statement_block {
+            body.push_stmt_to_block(block, assign_stmt);
+        } else {
+            body.push_stmt(assign_stmt);
+        }
+        Ok(value)
+    }
+
     /// Convert assignment target to expression.
     pub(in crate::lowering) fn assignment_target_expr(
         &mut self,
@@ -2811,7 +3306,9 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let receiver = self.expression(object, body)?;
         let receiver_ty = Self::expr_ty(body, receiver);
-        let field = self.intern_source_name(field_name);
+        // A private name is not the property of the same spelling; see
+        // `intern_private_name`.
+        let field = self.intern_private_name(field_name);
         let ty = self.class_field_type(receiver_ty, field)?;
         Ok(body.push_expr(Expr {
             kind: ExprKind::Field { receiver, field },

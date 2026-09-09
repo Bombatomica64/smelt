@@ -627,16 +627,21 @@ fn new_abort_controller_lowers_to_concrete_marker_record() -> Result<(), String>
     Ok(())
 }
 
-/// The byte-backed host constructors (`ArrayBuffer`, `SharedArrayBuffer`,
-/// `DataView`) lower to `ExprKind::HostConstruct`, which runs the *same* runtime
-/// constructor the reflected `Object.getPrototypeOf(x).constructor` path calls.
+/// Every byte-backed host constructor lowers to `ExprKind::TypedArrayNew`, the
+/// concrete family's own construction node — the erased `HostConstruct` record
+/// is no longer any of their representations.
 ///
-/// A shared constructor is what makes a directly built record indistinguishable
-/// from a reflectively built one, and it is where the record gets real byte
-/// storage — an identity-only marker record could not answer `slice(0)`,
-/// `byteLength`, `byteOffset`, or an indexed element read.
+/// The family took them in one at a time: the eleven views and `ArrayBuffer`
+/// first, then `SharedArrayBuffer` (the storage class with a species flag,
+/// since the two constructors differ in a tag, an `instanceof` answer and the
+/// growth members and in nothing about the bytes) and `DataView` (its own
+/// class, since its element width is an argument of every accessor rather than
+/// a field of the value). The erased record each reaches through its boundary
+/// adapter is still built by the same builder the reflected
+/// `Object.getPrototypeOf(x).constructor` path uses, which is what keeps a
+/// directly built record indistinguishable from a reflectively built one.
 #[test]
-fn new_byte_buffer_host_lowers_to_the_shared_host_constructor() -> Result<(), String> {
+fn new_byte_buffer_host_lowers_to_the_concrete_family() -> Result<(), String> {
     for (source, class_name, arg_count) in [
         (ts!("const buf = new ArrayBuffer(8);"), "ArrayBuffer", 1),
         (
@@ -649,6 +654,7 @@ fn new_byte_buffer_host_lowers_to_the_shared_host_constructor() -> Result<(), St
             "DataView",
             3,
         ),
+        (ts!("const view = new Uint8Array(8);"), "Uint8Array", 1),
     ] {
         let mut ctx = HirCtx::new();
         let module_id = lower_ok(source, &mut ctx)?;
@@ -657,10 +663,17 @@ fn new_byte_buffer_host_lowers_to_the_shared_host_constructor() -> Result<(), St
         ensure!(
             body.exprs.iter().any(|expr| matches!(
                 &expr.kind,
-                ExprKind::HostConstruct { class_name: spelled, args }
+                ExprKind::TypedArrayNew { class_name: spelled, args }
                     if spelled == class_name && args.len() == arg_count
             )),
-            "expected `{source}` to lower to a `{class_name}` HostConstruct with {arg_count} argument(s)",
+            "expected `{source}` to lower to a `{class_name}` TypedArrayNew with {arg_count} argument(s)",
+        );
+        ensure!(
+            !body
+                .exprs
+                .iter()
+                .any(|expr| matches!(&expr.kind, ExprKind::HostConstruct { .. })),
+            "expected `{source}` NOT to lower to an erased HostConstruct",
         );
     }
     Ok(())
@@ -710,13 +723,15 @@ fn object_constructor_passes_object_argument_through() -> Result<(), String> {
     Ok(())
 }
 
-/// `new Blob(parts, options)` lowers to a `BlobFromParts` construction (the
-/// `smelt_blob_record_from_parts` runtime helper builds the marker record with
-/// real `type`/`size`/`content`), retaining the spelled options `type` string,
-/// so `instanceof Blob` keeps a distinct identity and field reads observe real
-/// values instead of a shapeless erased object.
+/// `new Blob(parts, options)` lowers to a `BlobFromParts` construction typed as
+/// the modeled `Blob` CLASS, retaining the spelled options `type` string.
+///
+/// The type is what this pins: the construction used to be typed
+/// `Type::Unknown`, so every read off a blob went through the erased record.
+/// It is now the concrete `SmeltBlob`, which is what gives `size` an `f64`,
+/// `text()` a real future, and `slice` a blob — see `stdlib::blob`.
 #[test]
-fn new_blob_lowers_to_concrete_marker_record() -> Result<(), String> {
+fn new_blob_lowers_to_the_concrete_blob_class() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
         ts!(r#"const b = new Blob(["content"], { type: "text/plain" });"#),
@@ -733,10 +748,10 @@ fn new_blob_lowers_to_concrete_marker_record() -> Result<(), String> {
                     last_modified: None,
                     ..
                 },
-                Some(Type::Unknown)
-            )
+                Some(Type::Class { name, .. })
+            ) if ctx.krate.names.get(*name).or_else(|| ctx.krate.symbols.get(*name)) == Some("Blob")
         )),
-        "expected `new Blob(...)` to lower to a BlobFromParts construction",
+        "expected `new Blob(...)` to lower to a `Blob`-typed BlobFromParts construction",
     );
     ensure!(
         body.exprs.iter().any(|expr| matches!(
@@ -831,10 +846,10 @@ fn new_file_lowers_to_blob_from_parts_with_name() -> Result<(), String> {
                     last_modified: Some(_),
                     ..
                 },
-                Some(Type::Unknown)
-            )
+                Some(Type::Class { name, .. })
+            ) if ctx.krate.names.get(*name).or_else(|| ctx.krate.symbols.get(*name)) == Some("File")
         )),
-        "expected `new File(...)` to lower to BlobFromParts retaining name and lastModified",
+        "expected `new File(...)` to lower to a `File`-typed BlobFromParts construction",
     );
     Ok(())
 }
@@ -980,15 +995,14 @@ export function make(): Object {
 /// Every typed-array view constructor — including the BigInt-backed
 /// `BigInt64Array` / `BigUint64Array` that the previous inline recognizer
 /// omitted and which aborted the es-toolkit build as `unresolved class
-/// BigUint64Array` — lowers to the one shared byte-buffer `HostConstruct` keyed by
-/// its own class name.
+/// BigUint64Array` — lowers to the one `TypedArrayNew` node keyed by its own
+/// class name, and its type is the modeled family class.
 ///
-/// This replaces the old numeric-list model, where all eleven views shared one
-/// `Vec<f64>`: every one of them then reported `Object.prototype.toString` tag
-/// `[object Array]` with the *byte* count as its `length`, so a `Float32Array` and
-/// a `Float64Array` over the same eight bytes were indistinguishable. Naming the
-/// class here is what lets the runtime resolve the view's marker and its element
-/// type from the shared registry.
+/// One node and one class for all eleven, because the element KIND is a runtime
+/// property of the value rather than part of its static identity: the name
+/// carried on the node is what selects the kind at emission, and
+/// `Type::Class { name }` keeps the source spelling so nothing about the view's
+/// name is lost.
 #[test]
 fn typed_array_constructors_lower_to_byte_buffer_host_constructs() -> Result<(), String> {
     for name in smelt_stdlib::TYPED_ARRAY_CLASS_NAMES {
@@ -999,10 +1013,19 @@ fn typed_array_constructors_lower_to_byte_buffer_host_constructs() -> Result<(),
         let body = module_body(&ctx, module)?;
         ensure!(
             body.exprs.iter().any(|expr| matches!(
-                &expr.kind,
-                ExprKind::HostConstruct { class_name, .. } if class_name == name
+                (&expr.kind, ctx.krate.types.get(expr.ty)),
+                (
+                    ExprKind::TypedArrayNew { class_name, .. },
+                    Some(Type::Class { name: spelled, .. }),
+                ) if class_name == name
+                    && ctx.krate.symbols.get(*spelled) == Some(name)
             )),
-            "expected `new {name}(8)` to lower to a `{name}` HostConstruct",
+            "expected `new {name}(8)` to lower to a concrete `{name}` construction",
+        );
+        ensure!(
+            smelt_stdlib::typescript_stdlib_class(name)
+                == Some(smelt_stdlib::StdlibClass::TypedArray),
+            "expected `{name}` to resolve to the concrete typed-array family",
         );
         // The registry must know the view, or the runtime cannot resolve either
         // its identity marker or the element width that makes `length` the
@@ -1016,12 +1039,12 @@ fn typed_array_constructors_lower_to_byte_buffer_host_constructs() -> Result<(),
     Ok(())
 }
 
-/// `new Uint8Array([1, 2, 3])` passes its element list straight to the shared
-/// byte-buffer constructor, which encodes each element at the view's own width.
+/// `new Uint8Array([1, 2, 3])` passes its element list straight to the family's
+/// construction node, which encodes each element at the view's own width.
 ///
-/// The element list is still an ordinary `ListLit` — only its *destination*
-/// changed: it is now a `HostConstruct` argument rather than the constructed value
-/// itself, which is what makes `new Uint8Array([1, 2, 3]).buffer` and
+/// The element list is still an ordinary `ListLit` — only its *destination* is
+/// the construction node rather than the constructed value itself, which is
+/// what makes `new Uint8Array([1, 2, 3]).buffer` and
 /// `Object.prototype.toString.call(...)` answer like a real view.
 #[test]
 fn typed_array_from_literal_passes_its_elements_to_the_host_construct() -> Result<(), String> {
@@ -1033,12 +1056,12 @@ fn typed_array_from_literal_passes_its_elements_to_the_host_construct() -> Resul
         .exprs
         .iter()
         .find_map(|expr| match &expr.kind {
-            ExprKind::HostConstruct { class_name, args } if class_name == "Uint8Array" => {
+            ExprKind::TypedArrayNew { class_name, args } if class_name == "Uint8Array" => {
                 Some(args.clone())
             }
             _ => None,
         })
-        .ok_or_else(|| "expected a `Uint8Array` HostConstruct".to_owned())?;
+        .ok_or_else(|| "expected a `Uint8Array` construction".to_owned())?;
     let [elements] = host_args.as_slice() else {
         return Err("expected exactly one constructor argument".to_owned());
     };
@@ -1250,8 +1273,14 @@ fn encode_uri_call_and_value_forms_lower_to_uri_encode() -> Result<(), String> {
         call_body
             .exprs
             .iter()
-            .any(|expr| matches!(&expr.kind, ExprKind::UriEncode { .. })),
-        "expected `encodeURI('a b')` to lower to the UriEncode op",
+            .any(|expr| matches!(
+                &expr.kind,
+                ExprKind::UriTranscode {
+                    op: smelt_hir::UriTranscodeOp::Encode,
+                    ..
+                }
+            )),
+        "expected `encodeURI('a b')` to lower to the UriTranscode op",
     );
 
     let mut value_ctx = HirCtx::new();

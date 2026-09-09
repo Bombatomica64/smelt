@@ -1,0 +1,72 @@
+fn header_of (FuncId(0)) -> String
+  locals
+    %0 param init: List<(String, String)> | Dict<String, String> | Headers
+    %1 param name: String
+    %2 user copied: Headers
+    %3 temp: Headers
+    %4 temp: Optional<String>
+    %5 temp: String
+  bb0:
+    %3 = headers_new copy %0
+    %2 = move %3
+    %4 = headers_get move %2, copy %1
+    %5 = move %4 ?? "none"
+    return move %5
+
+fn main (FuncId(1)) -> None
+  locals
+    %0 user mimes: Dict<String, String>
+    %1 user declared: String
+    %2 temp: Dict<String, String>
+    %3 temp: Dict<String, String>
+    %4 temp: String
+    %5 temp: None
+    %6 temp: (String, String)
+    %7 temp: List<(String, String)>
+    %8 temp: String
+    %9 temp: None
+    %10 temp: Dict<String, String>
+    %11 temp: String
+    %12 temp: None
+    %13 temp: List<String>
+    %14 temp: List<List<String>>
+    %15 temp: Headers
+    %16 temp: String
+    %17 temp: None
+    %18 temp: Dict<String, String>
+    %19 temp: String
+    %20 temp: None
+  bb0:
+    %2 = {"json": "application/json", "text": "text/plain"}
+    %0 = move %2
+    %1 = copy %0.field9
+    %3 = {"Content-Type": move %1}
+    %4 = call fn0(move %3, "content-type") -> bb1
+  bb1:
+    %5 = call @console_log(move %4) -> bb2
+  bb2:
+    %6 = ("x-kind", "pairs")
+    %7 = [move %6]
+    %8 = call fn0(move %7, "x-kind") -> bb3
+  bb3:
+    %9 = call @console_log(move %8) -> bb4
+  bb4:
+    %10 = {"x-kind": "record"}
+    %11 = call fn0(move %10, "x-kind") -> bb5
+  bb5:
+    %12 = call @console_log(move %11) -> bb6
+  bb6:
+    %13 = ["x-kind", "headers"]
+    %14 = [move %13]
+    %15 = headers_new move %14
+    %16 = call fn0(move %15, "x-kind") -> bb7
+  bb7:
+    %17 = call @console_log(move %16) -> bb8
+  bb8:
+    %18 = {"Content-Type": copy %0.field14}
+    %19 = call fn0(move %18, "x-missing") -> bb9
+  bb9:
+    %20 = call @console_log(move %19) -> bb10
+  bb10:
+    return none
+

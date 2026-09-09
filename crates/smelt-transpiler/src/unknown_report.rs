@@ -595,9 +595,33 @@ fn classify_line(line: &str, in_prelude_helper: bool) -> Category {
 ///
 /// See [`classify_line`] rule 2 for the rationale behind each marker.
 fn is_legitimate_boundary_line(line: &str) -> bool {
-    const BOUNDARY_MARKERS: [&str; 20] = [
+    const BOUNDARY_MARKERS: [&str; 24] = [
         "SmeltUnknown::Function",
         "SmeltUnknown::Promise",
+        // A JavaScript SYMBOL value. `Symbol()` mints a value whose whole
+        // meaning is a unique runtime identity with no static counterpart:
+        // there is no struct, no generated union arm and no scoped generic that
+        // can carry "a fresh identity, distinct from every other", because the
+        // distinctness is a run-time property of the evaluation, not of a type.
+        // The symbol's use as a member KEY is a different thing and is static --
+        // a module-level `const K = Symbol()` folds to a synthetic member name
+        // and the read resolves to that member, with no erasure at all (see
+        // `computed_key_symbols::unique_symbol_key`). What stays erased is only
+        // the symbol as a first-class VALUE. Proven in
+        // `symbol_value_is_a_boundary` below.
+        "SmeltUnknown::Symbol",
+        // Recovering a symbol VALUE from the property key it indexed:
+        // `Object.getOwnPropertySymbols`, `Reflect.ownKeys` and erased-Map
+        // enumeration hand a stored key back to the program AS A SYMBOL, and
+        // `smelt_symbol_keys::own_symbol_key_value` is the one inverse that does
+        // it (round 10; see `blocker-logs/remeda-symbol-key-regression.md`).
+        // The value it produces is a `SmeltUnknown::Symbol` -- the marker
+        // directly above -- for exactly the reason given there: a fresh runtime
+        // identity has no static carrier. The tag now sits INSIDE the helper, so
+        // the call site needs its own marker to keep the classification it had
+        // when the same conversion was spelled inline. Proven in
+        // `symbol_key_inverse_is_a_boundary` below.
+        "smelt_own_symbol_key_value",
         "IntoSmeltUnknown",
         "into_smelt_unknown",
         "to_smelt_unknown",
@@ -722,6 +746,45 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // the classification; the helper call is the same boundary, now spelled
         // once. Proven in `erased_property_read_is_a_boundary` below.
         "smelt_get_unknown_field(",
+        // An error record's `cause` slot. ES2022 types it `cause?: unknown`,
+        // and that spelling is the canonical source-level dynamic boundary: the
+        // value is whatever the program chose to attach to the error, so it is
+        // the thrown-value channel's payload seen from the error object rather
+        // than program storage with a knowable shape. No concrete type,
+        // generated union arm, or scoped generic can carry it — the same
+        // reasoning that keeps `smelt_throw`/`smelt_thrown_value` a boundary
+        // above, and the reason the slot is declared `Type::Unknown` at exactly
+        // one place (`ERROR_MARKER_FIELDS` in
+        // `smelt-frontend-ts/src/lowering/decls/super_call.rs`, whose docstring
+        // spells out why the other three `Error` slots must NOT erase).
+        //
+        // Deliberately narrow: the marker is the field-shaped text `cause:
+        // SmeltUnknown`, so it matches the slot's declaration and the value
+        // written into it and nothing else. An erased local, an erased
+        // parameter, or a `Vec<SmeltUnknown>` next to it stays avoidable, which
+        // is what `error_cause_slot_is_a_boundary` below proves. Without this
+        // rule every `class X extends Error` carried two avoidable lines it can
+        // never remove (the injected slot in each constructor's `this`
+        // literal), which kept `Error` subclasses out of the zero-erasure
+        // examples corpus.
+        "cause: SmeltUnknown",
+        // Handing a value to the JSON serializer. `JSON.stringify` is specified
+        // by ECMA-262, not by serde: an integral number has no fraction, a
+        // non-finite number is `null`, an `undefined`/function/symbol property
+        // is omitted, key order is insertion order, and a byte view serializes
+        // as its element indices. Every one of those rules lives in
+        // `Serialize for SmeltUnknown`, so the emitter erases the value at this
+        // one call site and lets that impl decide — for a union, whose arm is
+        // only known at run time, it is the ONLY place the per-arm answer can
+        // be decided at all.
+        //
+        // That makes the erasure an explicit boundary adapter into the "JSON
+        // value" boundary the policy names, not program storage: the tagged
+        // value exists for the duration of one call and is never read back as
+        // data. The marker is the adapter call itself (`serde_json::to_string(&`),
+        // so a `Vec<SmeltUnknown>` or an erased local NEXT to it stays
+        // avoidable — proven by `json_serializer_argument_is_a_boundary`.
+        "serde_json::to_string(&",
     ];
 
     // A JavaScript update-expression (`x++`/`++x`) used as a value snapshots its
@@ -987,6 +1050,69 @@ mod tests {
         );
     }
 
+    /// An error record's `cause` slot is a boundary.
+    ///
+    /// `cause?: unknown` is the source-level `unknown` spelling itself, so the
+    /// slot and the value written into it are a genuine dynamic edge. The
+    /// marker is field-shaped, so ordinary erased storage and an erased
+    /// parameter beside it stay avoidable — it does not widen to every line
+    /// that happens to mention a cause.
+    #[test]
+    fn error_cause_slot_is_a_boundary() {
+        let slot = "    cause: SmeltUnknown,";
+        assert_eq!(
+            classify_line(slot, false),
+            Category::LegitimateBoundary,
+            "the ES2022 `cause?: unknown` slot is the canonical source-level unknown"
+        );
+        let written = "    let mut this: Self = HTTPException { name: String::new(), message: String::new(), stack: None::<String>, cause: SmeltUnknown::Null, status: 0.0 };";
+        assert_eq!(
+            classify_line(written, false),
+            Category::LegitimateBoundary,
+            "the value written into the cause slot is the same boundary as the slot"
+        );
+        let storage = "    let causes: Vec<SmeltUnknown> = Vec::new();";
+        assert_eq!(
+            classify_line(storage, false),
+            Category::AvoidableErasure,
+            "ordinary erased storage must stay avoidable"
+        );
+        let parameter = "fn describe(cause_of: SmeltUnknown) -> String {";
+        assert_eq!(
+            classify_line(parameter, false),
+            Category::AvoidableErasure,
+            "an erased parameter whose name merely contains `cause` must stay avoidable"
+        );
+    }
+
+    /// Erasing a value to hand it to the JSON serializer is a boundary.
+    ///
+    /// `JSON.stringify`'s output is ECMA-262's, and every one of its rules
+    /// lives in `Serialize for SmeltUnknown`, so the value crosses at this call
+    /// and nowhere else. Ordinary erased storage beside it stays avoidable, so
+    /// the marker does not widen to every line that mentions serde.
+    #[test]
+    fn json_serializer_argument_is_a_boundary() {
+        let stringify = "    _smelt_tmp_3 = serde_json::to_string(&SmeltUnknown::Number(4.0 as f64)).expect(\"JSON serialization failed\");";
+        assert_eq!(
+            classify_line(stringify, false),
+            Category::LegitimateBoundary,
+            "the JSON serializer's argument is the JSON value boundary"
+        );
+        let storage = "    let payloads: Vec<SmeltUnknown> = Vec::new();";
+        assert_eq!(
+            classify_line(storage, false),
+            Category::AvoidableErasure,
+            "ordinary erased storage must stay avoidable"
+        );
+        let parse = "    let parsed: SmeltUnknown = serde_json::from_str(text).unwrap_or(SmeltUnknown::Null);";
+        assert_eq!(
+            classify_line(parse, false),
+            Category::AvoidableErasure,
+            "the marker is the stringify argument, not every serde call"
+        );
+    }
+
     /// A class's erased prototype slot is a boundary.
     ///
     /// The class itself stays concrete — this is only the adapter that lets an
@@ -1093,6 +1219,57 @@ mod tests {
             classify_line(program_error, false),
             Category::AvoidableErasure,
             "an Error record built from program values keeps its classification"
+        );
+    }
+
+
+    /// The inverse direction of the same boundary: a stored property key handed
+    /// back to the program as a symbol VALUE.
+    ///
+    /// `Object.getOwnPropertySymbols` / `Reflect.ownKeys` / erased-Map
+    /// enumeration produce symbols, and round 10 moved that conversion behind
+    /// one prelude helper so the frontend and the runtime derive a symbol's key
+    /// the same way. The `SmeltUnknown::Symbol` tag therefore sits inside the
+    /// helper rather than at the call site, so the call site carries its own
+    /// marker and keeps the classification the inline spelling had.
+    #[test]
+    fn symbol_key_inverse_is_a_boundary() {
+        let own_symbols = "    let keys: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into(record.keys().filter_map(|key| smelt_own_symbol_key_value(&key)).collect::<Vec<_>>());";
+        assert_eq!(
+            classify_line(own_symbols, false),
+            Category::LegitimateBoundary,
+            "recovering a symbol value from its key is the same boundary as minting one"
+        );
+        // A list of erased values built any other way keeps its classification:
+        // the marker names one helper, not "a list of SmeltUnknown".
+        let plain_list = "    let keys: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into(record.keys().map(|key| SmeltUnknown::String(key.into())).collect::<Vec<_>>());";
+        assert_eq!(
+            classify_line(plain_list, false),
+            Category::AvoidableErasure,
+            "a string-keyed projection is still avoidable erasure"
+        );
+    }
+
+    /// A JavaScript symbol VALUE has no static counterpart; its use as a member
+    /// KEY has one and must stay unaffected.
+    #[test]
+    fn symbol_value_is_a_boundary() {
+        let symbol_value =
+            "    let key: SmeltUnknown = SmeltUnknown::Symbol(\"Symbol()@21\".to_owned().into());";
+        assert_eq!(
+            classify_line(symbol_value, false),
+            Category::LegitimateBoundary,
+            "a symbol's identity is a run-time property with no static carrier"
+        );
+        // The KEY side is static and carries no erasure at all: a module-level
+        // `const K = Symbol()` folds to a synthetic member name and the read is
+        // an ordinary field access. Nothing here should reclassify a line that
+        // merely mentions the folded name.
+        let member_read = "    let value: f64 = holder.__smelt_get___smelt_symbol_unique_symbol_21();";
+        assert_eq!(
+            count_occurrences(member_read, "SmeltUnknown"),
+            0,
+            "a symbol-keyed member read is not an erasure site at all"
         );
     }
 

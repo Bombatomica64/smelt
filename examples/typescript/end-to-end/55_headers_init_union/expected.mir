@@ -1,0 +1,143 @@
+interface InitLike
+
+fn content_type_of (FuncId(0)) -> String
+  locals
+    %0 param init: List<(String, String)> | Dict<String, String> | Headers
+    %1 temp: Headers
+    %2 temp: Optional<String>
+    %3 temp: String
+  bb0:
+    %1 = headers_new copy %0
+    %2 = headers_get move %1, "content-type"
+    %3 = move %2 ?? "none"
+    return move %3
+
+fn first_header (FuncId(1)) -> String
+  locals
+    %0 param init: InitLike
+    %1 user copied: Headers
+    %2 temp: Headers
+    %3 temp: Optional<String>
+    %4 temp: String
+  bb0:
+    %2 = headers_new copy %0.field8
+    %1 = move %2
+    %3 = headers_get move %1, "a"
+    %4 = move %3 ?? "none"
+    return move %4
+
+fn main (FuncId(2)) -> None
+  locals
+    %0 user html_pairs: List<(String, String)>
+    %1 user source: Headers
+    %2 user copy: Headers
+    %3 user two_values: List<(String, String)>
+    %4 temp: Dict<String, String>
+    %5 temp: String
+    %6 temp: None
+    %7 temp: (String, String)
+    %8 temp: List<(String, String)>
+    %9 temp: String
+    %10 temp: None
+    %11 temp: List<String>
+    %12 temp: List<List<String>>
+    %13 temp: Headers
+    %14 temp: String
+    %15 temp: None
+    %16 temp: (String, String)
+    %17 temp: List<(String, String)>
+    %18 temp: String
+    %19 temp: None
+    %20 temp: Dict<String, String>
+    %21 temp: InitLike
+    %22 temp: String
+    %23 temp: None
+    %24 temp: InitLike
+    %25 temp: String
+    %26 temp: None
+    %27 temp: List<String>
+    %28 temp: Optional<List<(String, String)> | Dict<String, String> | Headers>
+    %29 temp: InitLike
+    %30 temp: String
+    %31 temp: None
+    %32 temp: List<String>
+    %33 temp: List<List<String>>
+    %34 temp: Headers
+    %35 temp: Headers
+    %36 temp: None
+    %37 temp: Optional<String>
+    %38 temp: None
+    %39 temp: Optional<String>
+    %40 temp: None
+    %41 temp: (String, String)
+    %42 temp: (String, String)
+    %43 temp: List<(String, String)>
+    %44 temp: String
+    %45 temp: None
+  bb0:
+    %4 = {"Content-Type": "text/plain"}
+    %5 = call fn0(move %4) -> bb1
+  bb1:
+    %6 = call @console_log(move %5) -> bb2
+  bb2:
+    %7 = ("content-type", "text/html")
+    %8 = [move %7]
+    %9 = call fn0(move %8) -> bb3
+  bb3:
+    %10 = call @console_log(move %9) -> bb4
+  bb4:
+    %11 = ["Content-Type", "application/json"]
+    %12 = [move %11]
+    %13 = headers_new move %12
+    %14 = call fn0(move %13) -> bb5
+  bb5:
+    %15 = call @console_log(move %14) -> bb6
+  bb6:
+    %16 = ("content-type", "text/html")
+    %17 = [move %16]
+    %0 = move %17
+    %18 = call fn0(move %0) -> bb7
+  bb7:
+    %19 = call @console_log(move %18) -> bb8
+  bb8:
+    %20 = {"a": "1", "b": "2"}
+    %21 = {"headers": move %20}
+    %22 = call fn1(move %21) -> bb9
+  bb9:
+    %23 = call @console_log(move %22) -> bb10
+  bb10:
+    %24 = {}
+    %25 = call fn1(move %24) -> bb11
+  bb11:
+    %26 = call @console_log(move %25) -> bb12
+  bb12:
+    %27 = ["a", "3"]
+    %28 = [move %27]
+    %29 = {"headers": move %28}
+    %30 = call fn1(move %29) -> bb13
+  bb13:
+    %31 = call @console_log(move %30) -> bb14
+  bb14:
+    %32 = ["x-shared", "original"]
+    %33 = [move %32]
+    %34 = headers_new move %33
+    %1 = move %34
+    %35 = headers_new copy %1
+    %2 = move %35
+    %36 = headers_set copy %2, "x-shared", "changed"
+    %37 = headers_get move %1, "x-shared"
+    %38 = call @console_log(move %37) -> bb15
+  bb15:
+    %39 = headers_get move %2, "x-shared"
+    %40 = call @console_log(move %39) -> bb16
+  bb16:
+    %41 = ("content-type", "text/plain")
+    %42 = ("content-type", "text/css")
+    %43 = [move %41, move %42]
+    %3 = move %43
+    %44 = call fn0(move %3) -> bb17
+  bb17:
+    %45 = call @console_log(move %44) -> bb18
+  bb18:
+    return none
+
