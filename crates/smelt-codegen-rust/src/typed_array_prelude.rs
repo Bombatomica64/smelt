@@ -41,21 +41,198 @@ use crate::rust::CodeWriter;
 /// emitted enum cannot name different variants for the same class.
 #[must_use]
 pub fn kind_expression(class_name: &str) -> Option<String> {
-    let element = smelt_stdlib::typed_array_element(class_name)?;
-    Some(format!("SmeltTypedArrayKind::{}", variant_name(element)))
+    Some(element_kind_expression(smelt_stdlib::typed_array_element(
+        class_name,
+    )?))
+}
+
+/// The `SmeltTypedArrayKind` variant expression for a registry element type.
+///
+/// The variant is named by the element's own registry spelling, which is also
+/// what a `DataView` accessor's name carries — so a `getInt16` call and a
+/// `new Int16Array(..)` reach the same variant without either site spelling it.
+#[must_use]
+pub fn element_kind_expression(element: smelt_stdlib::TypedArrayElement) -> String {
+    format!("SmeltTypedArrayKind::{}", element.element_name())
 }
 
 /// Emit the whole concrete typed-array family.
 ///
 /// Order matters: the kind table is referenced by both types, and the view
 /// names the buffer.
-pub fn emit(writer: &mut CodeWriter, needs_unknown: bool) {
+pub fn emit(writer: &mut CodeWriter, needs_unknown: bool, needs_data_view: bool) {
     emit_kind(writer);
     emit_array_buffer(writer, needs_unknown);
     emit_typed_array(writer, needs_unknown);
+    // Pay-for-use: `DataView` names the kind table and the buffer, so it comes
+    // after both, and a program that never mentions one does not carry it.
+    if needs_data_view {
+        emit_data_view(writer, needs_unknown);
+    }
     if needs_unknown {
         emit_origin_write_through(writer);
     }
+}
+
+/// Emit `SmeltDataView`: a window over byte storage with per-CALL element
+/// widths.
+///
+/// The difference from [`emit_typed_array`] is the whole reason this is a
+/// second type rather than a twelfth kind: a typed array's element type is a
+/// property of the VALUE, so it lives in the struct, while a `DataView`'s is an
+/// argument of every accessor — the same view answers `getInt16(0)` and
+/// `getFloat64(0)`. Byte ORDER is a parameter for the same reason, and its
+/// default is the opposite of a typed array's: `DataView` reads BIG-endian
+/// unless the call says otherwise, where every typed array is little-endian.
+///
+/// The decode and encode themselves are the kind table's, reached by reversing
+/// the window for a big-endian call, so the widths and signednesses have one
+/// definition rather than two that can drift.
+fn emit_data_view(writer: &mut CodeWriter, needs_unknown: bool) {
+    writer.line("/// A `DataView`: a window over byte storage, read at a width per call.");
+    writer.line("#[derive(Clone)]");
+    writer.block("pub struct SmeltDataView", |struct_writer| {
+        struct_writer.line("id: usize,");
+        struct_writer.line("/// The storage, SHARED with every other view over it.");
+        struct_writer.line("bytes: ::std::rc::Rc<::std::cell::RefCell<Vec<u8>>>,");
+        struct_writer.line("/// Identity of the buffer this view reports.");
+        struct_writer.line("buffer_id: usize,");
+        struct_writer.line("/// `byteOffset`: where this view starts in the storage.");
+        struct_writer.line("byte_offset: usize,");
+        struct_writer.line("/// `byteLength`: how many bytes this view spans.");
+        struct_writer.line("byte_length: usize,");
+        struct_writer.line("/// Whether the storage behind this view is a `SharedArrayBuffer`.");
+        struct_writer.line("buffer_shared: bool,");
+    });
+    writer.blank_line();
+    // Structural equality over the WINDOW's bytes: two views of the same range
+    // compare equal, which is the answer `toEqual` gives for two `DataView`s.
+    writer.line(
+        "impl PartialEq for SmeltDataView { fn eq(&self, other: &Self) -> bool { self.to_bytes() == other.to_bytes() } }",
+    );
+    writer.line(
+        "impl ::std::fmt::Debug for SmeltDataView { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { write!(formatter, \"DataView {{ byteLength: {} }}\", self.byte_length) } }",
+    );
+    writer.line("impl Default for SmeltDataView { fn default() -> Self { Self::new() } }");
+    writer.line("#[allow(dead_code)]");
+    writer.block("impl SmeltDataView", |impl_writer| {
+        impl_writer.line("/// An empty view over its own empty storage.");
+        impl_writer.line(
+            "pub fn new() -> Self { Self { id: smelt_next_object_id(), bytes: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), buffer_id: smelt_next_object_id(), byte_offset: 0, byte_length: 0, buffer_shared: false } }",
+        );
+        impl_writer.line("/// `new DataView(buffer, byteOffset?, byteLength?)`.");
+        impl_writer.block(
+            "pub fn over_buffer(buffer: &SmeltArrayBuffer, byte_offset: usize, byte_length: Option<usize>) -> Self",
+            |fn_writer| {
+                fn_writer.line("let storage = buffer.storage();");
+                fn_writer.line("let available = storage.borrow().len().saturating_sub(byte_offset);");
+                fn_writer.line("let byte_length = byte_length.map_or(available, |length| length.min(available));");
+                fn_writer.line("Self { id: smelt_next_object_id(), bytes: storage, buffer_id: buffer.id(), byte_offset, byte_length, buffer_shared: buffer.is_shared() }");
+            },
+        );
+        impl_writer.line("/// JS reference identity of this view.");
+        impl_writer.line("pub fn id(&self) -> usize { self.id }");
+        impl_writer.line("/// The constructor name, which is also the `[object X]` tag.");
+        impl_writer.line("pub fn class_name(&self) -> &'static str { \"DataView\" }");
+        impl_writer.line("/// `byteOffset`: where this view starts in its buffer.");
+        impl_writer.line("pub fn byte_offset(&self) -> f64 { self.byte_offset as f64 }");
+        impl_writer.line("/// `byteLength`: the window size in bytes.");
+        impl_writer.line("pub fn byte_length(&self) -> f64 { self.byte_length as f64 }");
+        impl_writer.line("/// `buffer`: the storage this view reads, at its own identity.");
+        impl_writer.line("pub fn buffer(&self) -> SmeltArrayBuffer { SmeltArrayBuffer::from_shared_storage(self.buffer_id, ::std::rc::Rc::clone(&self.bytes), self.buffer_shared) }");
+        impl_writer.line("/// A COPY of the bytes in this view's window.");
+        impl_writer.block("pub fn to_bytes(&self) -> Vec<u8>", |fn_writer| {
+            fn_writer.line("let bytes = self.bytes.borrow();");
+            fn_writer.line("let from = self.byte_offset.min(bytes.len());");
+            fn_writer.line("let to = (self.byte_offset + self.byte_length).min(bytes.len());");
+            fn_writer.line("bytes[from..to].to_vec()");
+        });
+        // `little_endian` is the accessor's third argument, defaulting FALSE —
+        // which is why the window is reversed for the default: the kind table
+        // decodes little-endian, so a big-endian read is the same decode over
+        // reversed bytes. Reversing here rather than duplicating eleven arms is
+        // what keeps one definition of each width and signedness.
+        impl_writer.line("/// `getX(byteOffset, littleEndian?)`: read one element at `kind`'s width.");
+        impl_writer.block(
+            "pub fn get(&self, kind: SmeltTypedArrayKind, offset: usize, little_endian: bool) -> f64",
+            |fn_writer| {
+                fn_writer.line("let width = kind.byte_width();");
+                fn_writer.line("let bytes = self.bytes.borrow();");
+                fn_writer.line("let at = self.byte_offset + offset;");
+                // Out of range is a `RangeError` in JavaScript. Smelt has no
+                // throwing rvalue yet (only fallible CALLS carry an unwind
+                // edge), so an out-of-range accessor answers zero here and the
+                // divergence is recorded rather than hidden; see
+                // `blocker-logs/hono-fetch-demand.md`.
+                fn_writer.line("if offset + width > self.byte_length || at + width > bytes.len() { return 0.0; }");
+                fn_writer.line("let mut window = bytes[at..at + width].to_vec();");
+                fn_writer.line("if !little_endian { window.reverse(); }");
+                fn_writer.line("kind.decode(&window, 0)");
+            },
+        );
+        impl_writer.line("/// `setX(byteOffset, value, littleEndian?)`: write one element.");
+        impl_writer.block(
+            "pub fn set(&self, kind: SmeltTypedArrayKind, offset: usize, value: f64, little_endian: bool)",
+            |fn_writer| {
+                fn_writer.line("let width = kind.byte_width();");
+                fn_writer.line("let at = self.byte_offset + offset;");
+                fn_writer.line("let mut encoded = vec![0_u8; width];");
+                fn_writer.line("kind.encode(value, &mut encoded, 0);");
+                fn_writer.line("if !little_endian { encoded.reverse(); }");
+                fn_writer.line("let mut bytes = self.bytes.borrow_mut();");
+                fn_writer.line("if offset + width > self.byte_length || at + width > bytes.len() { return; }");
+                fn_writer.line("bytes[at..at + width].copy_from_slice(&encoded);");
+            },
+        );
+    });
+    writer.blank_line();
+    if needs_unknown {
+        emit_data_view_adapters(writer);
+    }
+}
+
+/// Emit the `DataView`'s dynamic-boundary adapters.
+///
+/// The erased form is the byte-backed host record every member of the family
+/// crosses through, so a `DataView` that reached `SmeltUnknown` answers
+/// `ArrayBuffer.isView` true, reports `[object DataView]`, and — unlike a typed
+/// array — exposes no index keys, which is what the shared record builder
+/// already produces for a view carrying its own `buffer` and `byteOffset`.
+fn emit_data_view_adapters(writer: &mut CodeWriter) {
+    let marker = smelt_stdlib::host_object_marker("DataView").unwrap_or("__smelt_dataview");
+    writer.line("/// Erase a `DataView` for a dynamic boundary.");
+    writer.block("impl IntoSmeltUnknown for SmeltDataView", |impl_writer| {
+        impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
+            fn_writer.line("smelt_register_host_origin(self.id, self.clone());");
+            fn_writer.line("let storage = self.buffer().into_smelt_unknown();");
+            fn_writer.line(
+                "let elements: Vec<SmeltUnknown> = self.to_bytes().into_iter().map(|byte| SmeltUnknown::Number(f64::from(byte))).collect();",
+            );
+            fn_writer.line(format!(
+                "{with_id}(self.id, {marker:?}, elements, Some(storage), self.byte_offset)",
+                with_id = smelt_stdlib::runtime_symbols::byte_buffer::VIEW_RECORD_WITH_ID,
+            ));
+        });
+    });
+    writer.blank_line();
+    writer.line("/// Rebuild a `DataView` from an erased value.");
+    writer.block("impl SmeltFromUnknown for SmeltDataView", |impl_writer| {
+        impl_writer.block(
+            "fn smelt_from_unknown(value: SmeltUnknown) -> Self",
+            |fn_writer| {
+                fn_writer.line("if let Some(origin) = smelt_restore_host_origin::<Self>(&value) { return origin; }");
+                fn_writer.line("let SmeltUnknown::Object(map) = value else { return Self::new() };");
+                fn_writer.line("let Some(SmeltUnknown::Array(items)) = map.get(\"bytes\") else { return Self::new() };");
+                fn_writer.line("let bytes = items.into_vec().into_iter().map(|item| match item { SmeltUnknown::Number(value) => value as i64 as u8, _ => 0 }).collect::<Vec<u8>>();");
+                // The record's bytes are the WINDOW, so the rebuilt view owns
+                // them from offset zero: the storage it came from is gone once
+                // the origin is, and a window is the most the record carries.
+                fn_writer.line("let byte_length = bytes.len();");
+                fn_writer.line("Self { id: map.id, bytes: ::std::rc::Rc::new(::std::cell::RefCell::new(bytes)), buffer_id: smelt_next_object_id(), byte_offset: 0, byte_length, buffer_shared: false }");
+            },
+        );
+    });
+    writer.blank_line();
 }
 
 /// Emit the bridge from an erased record's index write to its live value.
@@ -225,6 +402,16 @@ fn emit_array_buffer(writer: &mut CodeWriter, needs_unknown: bool) {
         struct_writer.line("id: usize,");
         struct_writer.line("/// The storage, shared by every view over it.");
         struct_writer.line("bytes: ::std::rc::Rc<::std::cell::RefCell<Vec<u8>>>,");
+        // `SharedArrayBuffer` is this same type with the flag set. The two
+        // constructors differ in their `[object X]` tag, their `instanceof`
+        // answer and the growth members - and in nothing about the bytes,
+        // because storage every view writes through is what this already is.
+        // The one behaviour a hand-written Rust pair would differ on is
+        // cross-thread visibility, which a program with no workers cannot
+        // observe. Answering "ArrayBuffer" for a `SharedArrayBuffer` WOULD be
+        // observable, so the flag is not optional.
+        struct_writer.line("/// Whether this storage was constructed as a `SharedArrayBuffer`.");
+        struct_writer.line("shared: bool,");
     });
     writer.blank_line();
     // Structural equality over the bytes, the same rule the byte view uses:
@@ -233,7 +420,7 @@ fn emit_array_buffer(writer: &mut CodeWriter, needs_unknown: bool) {
         "impl PartialEq for SmeltArrayBuffer { fn eq(&self, other: &Self) -> bool { *self.bytes.borrow() == *other.bytes.borrow() } }",
     );
     writer.line(
-        "impl ::std::fmt::Debug for SmeltArrayBuffer { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { write!(formatter, \"ArrayBuffer {{ byteLength: {} }}\", self.bytes.borrow().len()) } }",
+        "impl ::std::fmt::Debug for SmeltArrayBuffer { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { write!(formatter, \"{} {{ byteLength: {} }}\", self.class_name(), self.bytes.borrow().len()) } }",
     );
     writer.line("#[allow(dead_code)]");
     writer.block("impl SmeltArrayBuffer", |impl_writer| {
@@ -243,7 +430,17 @@ fn emit_array_buffer(writer: &mut CodeWriter, needs_unknown: bool) {
         );
         impl_writer.line("/// Storage over owned bytes, with a fresh identity.");
         impl_writer.line(
-            "pub fn from_bytes(bytes: Vec<u8>) -> Self { Self { id: smelt_next_object_id(), bytes: ::std::rc::Rc::new(::std::cell::RefCell::new(bytes)) } }",
+            "pub fn from_bytes(bytes: Vec<u8>) -> Self { Self { id: smelt_next_object_id(), bytes: ::std::rc::Rc::new(::std::cell::RefCell::new(bytes)), shared: false } }",
+        );
+        impl_writer.line("/// Zeroed SHARED storage: `new SharedArrayBuffer(n)`.");
+        impl_writer.line(
+            "pub fn new_shared(byte_length: usize) -> Self { Self { id: smelt_next_object_id(), bytes: ::std::rc::Rc::new(::std::cell::RefCell::new(vec![0_u8; byte_length])), shared: true } }",
+        );
+        impl_writer.line("/// Whether this storage is a `SharedArrayBuffer`.");
+        impl_writer.line("pub fn is_shared(&self) -> bool { self.shared }");
+        impl_writer.line("/// The constructor name, which is also the `[object X]` tag.");
+        impl_writer.line(
+            "pub fn class_name(&self) -> &'static str { if self.shared { \"SharedArrayBuffer\" } else { \"ArrayBuffer\" } }",
         );
         impl_writer.line("/// JS reference identity of this storage.");
         impl_writer.line("pub fn id(&self) -> usize { self.id }");
@@ -257,7 +454,11 @@ fn emit_array_buffer(writer: &mut CodeWriter, needs_unknown: bool) {
         );
         impl_writer.line("/// Storage sharing this buffer's bytes handle and identity.");
         impl_writer.line(
-            "pub fn from_storage(id: usize, bytes: ::std::rc::Rc<::std::cell::RefCell<Vec<u8>>>) -> Self { Self { id, bytes } }",
+            "pub fn from_storage(id: usize, bytes: ::std::rc::Rc<::std::cell::RefCell<Vec<u8>>>) -> Self { Self { id, bytes, shared: false } }",
+        );
+        impl_writer.line("/// Storage sharing a handle and identity, keeping the shared flag.");
+        impl_writer.line(
+            "pub fn from_shared_storage(id: usize, bytes: ::std::rc::Rc<::std::cell::RefCell<Vec<u8>>>, shared: bool) -> Self { Self { id, bytes, shared } }",
         );
         // `ArrayBuffer.prototype.slice` COPIES, and both bounds clamp and count
         // back from the end when negative — the same rule the erased face's
@@ -280,7 +481,10 @@ fn emit_array_buffer(writer: &mut CodeWriter, needs_unknown: bool) {
                 fn_writer.line("let len = bytes.len() as i64;");
                 fn_writer.line("let from = (if start < 0 { len + start } else { start }).clamp(0, len) as usize;");
                 fn_writer.line("let to = end.map_or(len, |end| if end < 0 { len + end } else { end }).clamp(0, len) as usize;");
-                fn_writer.line("Self::from_bytes(bytes[from..to.max(from)].to_vec())");
+                // `SharedArrayBuffer.prototype.slice` answers a
+                // `SharedArrayBuffer`, so the copy keeps the species.
+                fn_writer.line("let copy = Self::from_bytes(bytes[from..to.max(from)].to_vec());");
+                fn_writer.line("Self { shared: self.shared, ..copy }");
             },
         );
     });
@@ -304,6 +508,8 @@ fn emit_array_buffer(writer: &mut CodeWriter, needs_unknown: bool) {
 /// `JSON.stringify`) holds for a concrete buffer that crossed the boundary.
 fn emit_array_buffer_adapters(writer: &mut CodeWriter) {
     let marker = smelt_stdlib::host_object_marker("ArrayBuffer").unwrap_or("__smelt_arraybuffer");
+    let shared_marker = smelt_stdlib::host_object_marker("SharedArrayBuffer")
+        .unwrap_or("__smelt_sharedarraybuffer");
     writer.line("/// Erase byte storage for a dynamic boundary.");
     writer.block("impl IntoSmeltUnknown for SmeltArrayBuffer", |impl_writer| {
         impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
@@ -314,8 +520,14 @@ fn emit_array_buffer_adapters(writer: &mut CodeWriter) {
             );
             // The erased face's OWN record builder, at this value's identity:
             // storage carries no `buffer` of its own and no offset.
+            // The marker is the erased face's IDENTITY, so it has to follow
+            // the flag: a `SharedArrayBuffer` that crossed the boundary and
+            // came back must still answer `instanceof SharedArrayBuffer`.
             fn_writer.line(format!(
-                "{with_id}(self.id, {marker:?}, elements, None, 0)",
+                "let marker = if self.shared {{ {shared_marker:?} }} else {{ {marker:?} }};"
+            ));
+            fn_writer.line(format!(
+                "{with_id}(self.id, marker, elements, None, 0)",
                 with_id = smelt_stdlib::runtime_symbols::byte_buffer::VIEW_RECORD_WITH_ID,
             ));
         });
@@ -334,7 +546,10 @@ fn emit_array_buffer_adapters(writer: &mut CodeWriter) {
                 fn_writer.line("let SmeltUnknown::Object(map) = value else { return Self::new(0) };");
                 fn_writer.line("let Some(SmeltUnknown::Array(items)) = map.get(\"bytes\") else { return Self::new(0) };");
                 fn_writer.line("let bytes = items.into_vec().into_iter().map(|item| match item { SmeltUnknown::Number(value) => value as i64 as u8, _ => 0 }).collect::<Vec<u8>>();");
-                fn_writer.line("Self::from_storage(map.id, ::std::rc::Rc::new(::std::cell::RefCell::new(bytes)))");
+                fn_writer.line(format!(
+                    "let shared = map.contains_key({shared_marker:?});"
+                ));
+                fn_writer.line("Self::from_shared_storage(map.id, ::std::rc::Rc::new(::std::cell::RefCell::new(bytes)), shared)");
             },
         );
     });
@@ -374,6 +589,12 @@ fn emit_typed_array_struct(writer: &mut CodeWriter) {
         struct_writer.line("byte_offset: usize,");
         struct_writer.line("/// `length`: how many elements this view spans.");
         struct_writer.line("length: usize,");
+        // A view over a `SharedArrayBuffer` must report that buffer back:
+        // `new Uint8Array(sab).buffer` is the `SharedArrayBuffer`, so the
+        // species travels with the view rather than being re-derived from
+        // storage it cannot ask.
+        struct_writer.line("/// Whether the storage behind this view is a `SharedArrayBuffer`.");
+        struct_writer.line("buffer_shared: bool,");
     });
     writer.blank_line();
     // Structural equality over the ELEMENTS at this view's kind, which for two
@@ -420,7 +641,7 @@ fn emit_typed_array_inherent_impl(writer: &mut CodeWriter) {
             "pub fn with_bytes(kind: SmeltTypedArrayKind, bytes: Vec<u8>) -> Self",
             |fn_writer| {
                 fn_writer.line("let length = bytes.len() / kind.byte_width();");
-                fn_writer.line("Self { id: smelt_next_object_id(), kind, bytes: ::std::rc::Rc::new(::std::cell::RefCell::new(bytes)), buffer_id: smelt_next_object_id(), byte_offset: 0, length }");
+                fn_writer.line("Self { id: smelt_next_object_id(), kind, bytes: ::std::rc::Rc::new(::std::cell::RefCell::new(bytes)), buffer_id: smelt_next_object_id(), byte_offset: 0, length, buffer_shared: false }");
             },
         );
         // `new Uint8Array(8)` is a LENGTH, not a byte count: for a wider view
@@ -449,7 +670,7 @@ fn emit_typed_array_inherent_impl(writer: &mut CodeWriter) {
                 fn_writer.line("let storage = buffer.storage();");
                 fn_writer.line("let available = storage.borrow().len().saturating_sub(byte_offset) / kind.byte_width();");
                 fn_writer.line("let length = length.map_or(available, |length| length.min(available));");
-                fn_writer.line("Self { id: smelt_next_object_id(), kind, bytes: storage, buffer_id: buffer.id(), byte_offset, length }");
+                fn_writer.line("Self { id: smelt_next_object_id(), kind, bytes: storage, buffer_id: buffer.id(), byte_offset, length, buffer_shared: buffer.is_shared() }");
             },
         );
         impl_writer.line("/// JS reference identity of this view.");
@@ -465,7 +686,7 @@ fn emit_typed_array_inherent_impl(writer: &mut CodeWriter) {
         impl_writer.line("/// `byteOffset`: where this view starts in its buffer.");
         impl_writer.line("pub fn byte_offset(&self) -> f64 { self.byte_offset as f64 }");
         impl_writer.line("/// `buffer`: the storage this view reads, shared not copied.");
-        impl_writer.line("pub fn buffer(&self) -> SmeltArrayBuffer { SmeltArrayBuffer::from_storage(self.buffer_id, ::std::rc::Rc::clone(&self.bytes)) }");
+        impl_writer.line("pub fn buffer(&self) -> SmeltArrayBuffer { SmeltArrayBuffer::from_shared_storage(self.buffer_id, ::std::rc::Rc::clone(&self.bytes), self.buffer_shared) }");
         impl_writer.line("/// A COPY of the bytes this view spans.");
         impl_writer.block("pub fn to_bytes(&self) -> Vec<u8>", |fn_writer| {
             fn_writer.line("let bytes = self.bytes.borrow();");
@@ -534,7 +755,7 @@ fn emit_typed_array_inherent_impl(writer: &mut CodeWriter) {
             "pub fn subarray(&self, start: i64, end: Option<i64>) -> Self",
             |fn_writer| {
                 fn_writer.line("let (from, to) = self.element_range(start, end);");
-                fn_writer.line("Self { id: smelt_next_object_id(), kind: self.kind, bytes: ::std::rc::Rc::clone(&self.bytes), buffer_id: self.buffer_id, byte_offset: self.byte_offset + from * self.kind.byte_width(), length: to.saturating_sub(from) }");
+                fn_writer.line("Self { id: smelt_next_object_id(), kind: self.kind, bytes: ::std::rc::Rc::clone(&self.bytes), buffer_id: self.buffer_id, byte_offset: self.byte_offset + from * self.kind.byte_width(), length: to.saturating_sub(from), buffer_shared: self.buffer_shared }");
             },
         );
         impl_writer.line("/// `slice(start, end)`: a COPY of an element range.");
@@ -664,7 +885,15 @@ fn emit_typed_array_adapters(writer: &mut CodeWriter) {
                 fn_writer.line("let kind = map.iter().find_map(|(key, _)| SmeltTypedArrayKind::from_marker(&key)).unwrap_or(SmeltTypedArrayKind::Uint8);");
                 fn_writer.line("let width = kind.byte_width();");
                 fn_writer.line("let length = bytes.len() / width;");
-                fn_writer.line("Self { id: map.id, kind, bytes: ::std::rc::Rc::new(::std::cell::RefCell::new(bytes)), buffer_id: smelt_next_object_id(), byte_offset: 0, length }");
+                // The record's own marker says whether the storage it came from
+                // was shared, so a `SharedArrayBuffer`-backed view keeps
+                // reporting a `SharedArrayBuffer` after a boundary round-trip.
+                fn_writer.line(format!(
+                    "let buffer_shared = map.contains_key({shared_marker:?});",
+                    shared_marker = smelt_stdlib::host_object_marker("SharedArrayBuffer")
+                        .unwrap_or("__smelt_sharedarraybuffer"),
+                ));
+                fn_writer.line("Self { id: map.id, kind, bytes: ::std::rc::Rc::new(::std::cell::RefCell::new(bytes)), buffer_id: smelt_next_object_id(), byte_offset: 0, length, buffer_shared }");
             },
         );
     });
@@ -698,20 +927,7 @@ fn kind_table() -> Vec<(String, &'static str, &'static str, usize)> {
 /// enum wants `Uint8Clamped`; mapping here keeps the tag as the single source
 /// of the set while the generated code stays idiomatic Rust.
 fn variant_name(element: smelt_stdlib::TypedArrayElement) -> String {
-    match element {
-        smelt_stdlib::TypedArrayElement::Int8 => "Int8",
-        smelt_stdlib::TypedArrayElement::Uint8 => "Uint8",
-        smelt_stdlib::TypedArrayElement::Uint8Clamped => "Uint8Clamped",
-        smelt_stdlib::TypedArrayElement::Int16 => "Int16",
-        smelt_stdlib::TypedArrayElement::Uint16 => "Uint16",
-        smelt_stdlib::TypedArrayElement::Int32 => "Int32",
-        smelt_stdlib::TypedArrayElement::Uint32 => "Uint32",
-        smelt_stdlib::TypedArrayElement::Float32 => "Float32",
-        smelt_stdlib::TypedArrayElement::Float64 => "Float64",
-        smelt_stdlib::TypedArrayElement::BigInt64 => "BigInt64",
-        smelt_stdlib::TypedArrayElement::BigUint64 => "BigUint64",
-    }
-    .to_owned()
+    element.element_name().to_owned()
 }
 
 #[cfg(test)]
@@ -755,7 +971,7 @@ mod tests {
     #[test]
     fn the_emitted_family_keeps_the_byte_view_and_its_storage() {
         let mut writer = CodeWriter::new();
-        emit(&mut writer, true);
+        emit(&mut writer, true, true);
         let text = writer.finish();
         for expected in [
             "pub type SmeltUint8Array = SmeltTypedArray;",
@@ -773,11 +989,72 @@ mod tests {
         // boundary does not emit the carrier, so the impls must not be emitted
         // either.
         let mut typed_only = CodeWriter::new();
-        emit(&mut typed_only, false);
+        emit(&mut typed_only, false, false);
         let typed_only = typed_only.finish();
         assert!(
             !typed_only.contains("impl IntoSmeltUnknown for SmeltTypedArray"),
             "the erasure adapters must stay behind the unknown gate"
         );
+    }
+
+    /// `DataView` is pay-for-use on its own, and its accessors are the kind
+    /// table's decode/encode reached through a byte-order parameter.
+    ///
+    /// Most programs that hold a typed array never mention a `DataView`, so
+    /// emitting it unconditionally would put ~80 lines into every such crate;
+    /// and the accessors must NOT re-derive the widths, which is what the
+    /// window reversal buys.
+    #[test]
+    fn the_data_view_half_is_gated_and_shares_the_kind_table() {
+        let mut with_view = CodeWriter::new();
+        emit(&mut with_view, true, true);
+        let with_view = with_view.finish();
+        for expected in [
+            "pub struct SmeltDataView",
+            "pub fn over_buffer(buffer: &SmeltArrayBuffer, byte_offset: usize, byte_length: Option<usize>) -> Self",
+            "pub fn get(&self, kind: SmeltTypedArrayKind, offset: usize, little_endian: bool) -> f64",
+            "pub fn set(&self, kind: SmeltTypedArrayKind, offset: usize, value: f64, little_endian: bool)",
+            "impl IntoSmeltUnknown for SmeltDataView",
+            "impl SmeltFromUnknown for SmeltDataView",
+            // The whole point: one definition of each width, reached by
+            // reversing the window rather than by a second decode table.
+            "if !little_endian { window.reverse(); }",
+            "kind.decode(&window, 0)",
+        ] {
+            assert!(with_view.contains(expected), "missing `{expected}`");
+        }
+        let mut without = CodeWriter::new();
+        emit(&mut without, true, false);
+        let without = without.finish();
+        assert!(
+            !without.contains("pub struct SmeltDataView"),
+            "the `DataView` half must stay behind its own gate"
+        );
+        // The family's other half is unaffected by that gate.
+        assert!(without.contains("pub struct SmeltTypedArray"));
+    }
+
+    /// A `SharedArrayBuffer` is the storage type with its species flag set, and
+    /// the flag reaches the tag, the marker and `instanceof`.
+    ///
+    /// A concrete type that answered "ArrayBuffer" for a `SharedArrayBuffer`
+    /// would be observably wrong in three places at once, which is why the two
+    /// constructors can share a Rust type at all only if the flag is carried.
+    #[test]
+    fn shared_storage_carries_its_species() {
+        let mut writer = CodeWriter::new();
+        emit(&mut writer, true, false);
+        let text = writer.finish();
+        for expected in [
+            "pub fn new_shared(byte_length: usize) -> Self",
+            "pub fn is_shared(&self) -> bool { self.shared }",
+            "pub fn class_name(&self) -> &'static str { if self.shared { \"SharedArrayBuffer\" } else { \"ArrayBuffer\" } }",
+            // The erased face's identity follows the flag too.
+            "let marker = if self.shared {",
+            // And a view over shared storage reports it back.
+            "buffer_shared: buffer.is_shared()",
+        ] {
+            assert!(text.contains(expected), "missing `{expected}`");
+        }
     }
 }

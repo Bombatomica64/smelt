@@ -1101,6 +1101,10 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 format!("typed_array_new {class_name} {args_text}")
             }
         }
+        Rvalue::DataViewAccess { member, view, args } => {
+            let args_text = args.iter().map(operand_text).collect::<Vec<_>>().join(" ");
+            format!("data_view_{member} {} {args_text}", operand_text(view))
+        }
         Rvalue::ByteArrayOp { op, bytes, args } => {
             let op_name = op.name();
             let receiver = operand_text(bytes);

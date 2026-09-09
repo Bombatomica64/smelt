@@ -822,11 +822,24 @@ impl FunctionEmitter<'_> {
             {
                 Ok(format!("{}.to_js_string()", self.operand_text(operand)?))
             }
+            // Storage keeps the object tag, and the tag is the VALUE's class
+            // name rather than a fixed word: `SharedArrayBuffer` shares this
+            // Rust type and stringifies as `[object SharedArrayBuffer]`.
             Some(Type::Class { name, .. })
                 if self.stdlib_class_of_symbol(*name)?
                     == Some(smelt_stdlib::StdlibClass::ArrayBuffer) =>
             {
-                Ok("\"[object ArrayBuffer]\".to_owned()".to_owned())
+                Ok(format!(
+                    "format!(\"[object {{}}]\", {}.class_name())",
+                    self.operand_text(operand)?
+                ))
+            }
+            // A `DataView` has no elements to join, so it keeps its tag too.
+            Some(Type::Class { name, .. })
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::DataView) =>
+            {
+                Ok("\"[object DataView]\".to_owned()".to_owned())
             }
             Some(Type::List(_) | Type::Set(_) | Type::Dict(_, _) | Type::Class { .. }) => {
                 Ok("\"[object Object]\".to_owned()".to_owned())

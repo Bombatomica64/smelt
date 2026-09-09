@@ -32,6 +32,13 @@ impl FunctionEmitter<'_> {
         class_name: &str,
         args: &[Operand],
     ) -> Result<String, EmitError> {
+        // `new DataView(buffer, byteOffset?, byteLength?)` is the family's one
+        // constructor with no element kind at all: the kind arrives with each
+        // accessor instead, so the construction takes a window and nothing
+        // more. It is asked before the kind lookup because it has none.
+        if class_name == "DataView" {
+            return self.data_view_new_text(args);
+        }
         let Some(kind) = crate::typed_array_prelude::kind_expression(class_name) else {
             return self.array_buffer_new_text(class_name, args);
         };
@@ -111,6 +118,36 @@ impl FunctionEmitter<'_> {
         ))
     }
 
+    /// Emit `new DataView(buffer, byteOffset?, byteLength?)`.
+    ///
+    /// The window's bounds are byte counts the spec clamps, which the prelude's
+    /// `over_buffer` does; a missing length means "to the end of the buffer",
+    /// which is what `None` says. Unlike a typed array's, both bounds are BYTE
+    /// counts here, since a `DataView` has no element width of its own.
+    fn data_view_new_text(&self, args: &[Operand]) -> Result<String, EmitError> {
+        let Some(buffer) = args.first() else {
+            return Ok("SmeltDataView::new()".to_owned());
+        };
+        let buffer_text = self.array_buffer_operand_text(buffer)?;
+        let offset_text = match args.get(1) {
+            Some(offset) => format!(
+                "(({}) as f64).max(0.0) as usize",
+                self.numeric_operand_text(offset)?
+            ),
+            None => "0".to_owned(),
+        };
+        let length_text = match args.get(2) {
+            Some(length) => format!(
+                "Some(((({})) as f64).max(0.0) as usize)",
+                self.numeric_operand_text(length)?
+            ),
+            None => "None".to_owned(),
+        };
+        Ok(format!(
+            "SmeltDataView::over_buffer(&{buffer_text}, {offset_text}, {length_text})"
+        ))
+    }
+
     /// Emit `new ArrayBuffer(byteLength?)`.
     ///
     /// The storage half interprets no bytes, so its only argument is a byte
@@ -123,16 +160,80 @@ impl FunctionEmitter<'_> {
         class_name: &str,
         args: &[Operand],
     ) -> Result<String, EmitError> {
-        if class_name != "ArrayBuffer" {
-            return Err(EmitError::new(format!(
-                "internal: `{class_name}` is not a typed-array family constructor"
-            )));
-        }
+        // `SharedArrayBuffer` is the same storage with the species flag set:
+        // one constructor argument, one byte count, and a tag and `instanceof`
+        // answer that differ. `new SharedArrayBuffer(n, { maxByteLength })` —
+        // the growable form — is NOT modeled: `grow`/`growable`/`maxByteLength`
+        // have no member here, so a program that uses them reports the missing
+        // member rather than silently answering a fixed length.
+        let constructor = match class_name {
+            "ArrayBuffer" => "new",
+            "SharedArrayBuffer" => "new_shared",
+            _ => {
+                return Err(EmitError::new(format!(
+                    "internal: `{class_name}` is not a typed-array family constructor"
+                )));
+            }
+        };
         let byte_length = match args.first() {
             Some(argument) => format!("(({}) as f64).max(0.0) as usize", self.numeric_operand_text(argument)?),
             None => "0".to_owned(),
         };
-        Ok(format!("SmeltArrayBuffer::new({byte_length})"))
+        Ok(format!("SmeltArrayBuffer::{constructor}({byte_length})"))
+    }
+
+    /// Emit a `DataView` accessor call: `getInt16(0)`, `setFloat64(0, x, true)`.
+    ///
+    /// The element kind and the direction come from the accessor's NAME through
+    /// the registry, which is the only place that mapping exists: the emitter
+    /// does not match eighteen spellings, and a `getUint8Clamped` — which
+    /// JavaScript does not define — cannot reach here because the same registry
+    /// rule is what let the frontend lower the call at all.
+    ///
+    /// The byte-order argument defaults to FALSE, the opposite of a typed
+    /// array's fixed little-endian order; that default is the spec's, and it is
+    /// the one thing about `DataView` most easily got wrong.
+    pub(super) fn data_view_access_text(
+        &self,
+        member: &str,
+        view: &Operand,
+        args: &[Operand],
+    ) -> Result<String, EmitError> {
+        let Some((write, element)) = smelt_stdlib::data_view_accessor(member) else {
+            return Err(EmitError::new(format!(
+                "internal: `{member}` is not a `DataView` accessor"
+            )));
+        };
+        let kind = crate::typed_array_prelude::element_kind_expression(element);
+        let view_text = self.operand_text(view)?;
+        let offset = match args.first() {
+            Some(offset) => format!(
+                "(({}) as f64).max(0.0) as usize",
+                self.numeric_operand_text(offset)?
+            ),
+            None => "0".to_owned(),
+        };
+        // A write takes the value between the offset and the flag, so the flag
+        // is the third argument for `set` and the second for `get`.
+        let (value, endian_index) = if write {
+            let value = match args.get(1) {
+                Some(value) => self.numeric_operand_text(value)?,
+                None => "0.0".to_owned(),
+            };
+            (Some(value), 2)
+        } else {
+            (None, 1)
+        };
+        let little_endian = match args.get(endian_index) {
+            Some(flag) => self.truthy_operand_text(flag)?,
+            None => "false".to_owned(),
+        };
+        Ok(match value {
+            Some(value) => {
+                format!("{view_text}.set({kind}, {offset}, {value}, {little_endian})")
+            }
+            None => format!("{view_text}.get({kind}, {offset}, {little_endian})"),
+        })
     }
 
     /// Render an operand as an `SmeltArrayBuffer`.
@@ -226,10 +327,15 @@ impl FunctionEmitter<'_> {
             return Ok(Some("false".to_owned()));
         }
         if self.operand_is_array_buffer(value)? {
-            return Ok(Some(if class_name == "ArrayBuffer" {
-                "true".to_owned()
-            } else {
-                "false".to_owned()
+            // `ArrayBuffer` and `SharedArrayBuffer` are unrelated constructors
+            // in JavaScript, so one storage type answering both would be
+            // wrong: the species flag is what separates them, and every other
+            // class answers false.
+            let text = self.operand_text(value)?;
+            return Ok(Some(match class_name {
+                "ArrayBuffer" => format!("!{text}.is_shared()"),
+                "SharedArrayBuffer" => format!("{text}.is_shared()"),
+                _ => "false".to_owned(),
             }));
         }
         Ok(None)

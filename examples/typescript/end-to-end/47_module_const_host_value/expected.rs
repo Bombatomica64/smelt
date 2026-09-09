@@ -316,16 +316,24 @@ pub struct SmeltArrayBuffer {
     id: usize,
     /// The storage, shared by every view over it.
     bytes: ::std::rc::Rc<::std::cell::RefCell<Vec<u8>>>,
+    /// Whether this storage was constructed as a `SharedArrayBuffer`.
+    shared: bool,
 }
 
 impl PartialEq for SmeltArrayBuffer { fn eq(&self, other: &Self) -> bool { *self.bytes.borrow() == *other.bytes.borrow() } }
-impl ::std::fmt::Debug for SmeltArrayBuffer { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { write!(formatter, "ArrayBuffer {{ byteLength: {} }}", self.bytes.borrow().len()) } }
+impl ::std::fmt::Debug for SmeltArrayBuffer { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { write!(formatter, "{} {{ byteLength: {} }}", self.class_name(), self.bytes.borrow().len()) } }
 #[allow(dead_code)]
 impl SmeltArrayBuffer {
     /// Zeroed storage of `byte_length` bytes.
     pub fn new(byte_length: usize) -> Self { Self::from_bytes(vec![0_u8; byte_length]) }
     /// Storage over owned bytes, with a fresh identity.
-    pub fn from_bytes(bytes: Vec<u8>) -> Self { Self { id: smelt_next_object_id(), bytes: ::std::rc::Rc::new(::std::cell::RefCell::new(bytes)) } }
+    pub fn from_bytes(bytes: Vec<u8>) -> Self { Self { id: smelt_next_object_id(), bytes: ::std::rc::Rc::new(::std::cell::RefCell::new(bytes)), shared: false } }
+    /// Zeroed SHARED storage: `new SharedArrayBuffer(n)`.
+    pub fn new_shared(byte_length: usize) -> Self { Self { id: smelt_next_object_id(), bytes: ::std::rc::Rc::new(::std::cell::RefCell::new(vec![0_u8; byte_length])), shared: true } }
+    /// Whether this storage is a `SharedArrayBuffer`.
+    pub fn is_shared(&self) -> bool { self.shared }
+    /// The constructor name, which is also the `[object X]` tag.
+    pub fn class_name(&self) -> &'static str { if self.shared { "SharedArrayBuffer" } else { "ArrayBuffer" } }
     /// JS reference identity of this storage.
     pub fn id(&self) -> usize { self.id }
     /// `byteLength`: the storage size in bytes.
@@ -335,7 +343,9 @@ impl SmeltArrayBuffer {
     /// The shared storage handle, for a view over it.
     pub fn storage(&self) -> ::std::rc::Rc<::std::cell::RefCell<Vec<u8>>> { ::std::rc::Rc::clone(&self.bytes) }
     /// Storage sharing this buffer's bytes handle and identity.
-    pub fn from_storage(id: usize, bytes: ::std::rc::Rc<::std::cell::RefCell<Vec<u8>>>) -> Self { Self { id, bytes } }
+    pub fn from_storage(id: usize, bytes: ::std::rc::Rc<::std::cell::RefCell<Vec<u8>>>) -> Self { Self { id, bytes, shared: false } }
+    /// Storage sharing a handle and identity, keeping the shared flag.
+    pub fn from_shared_storage(id: usize, bytes: ::std::rc::Rc<::std::cell::RefCell<Vec<u8>>>, shared: bool) -> Self { Self { id, bytes, shared } }
     /// Overwrite bytes at an absolute offset; out-of-range bytes are dropped.
     pub fn write_bytes_at(&self, offset: usize, source: &[u8]) {
         let mut bytes = self.bytes.borrow_mut();
@@ -347,7 +357,8 @@ impl SmeltArrayBuffer {
         let len = bytes.len() as i64;
         let from = (if start < 0 { len + start } else { start }).clamp(0, len) as usize;
         let to = end.map_or(len, |end| if end < 0 { len + end } else { end }).clamp(0, len) as usize;
-        Self::from_bytes(bytes[from..to.max(from)].to_vec())
+        let copy = Self::from_bytes(bytes[from..to.max(from)].to_vec());
+        Self { shared: self.shared, ..copy }
     }
 }
 impl Default for SmeltArrayBuffer { fn default() -> Self { Self::new(0) } }
@@ -366,6 +377,8 @@ pub struct SmeltTypedArray {
     byte_offset: usize,
     /// `length`: how many elements this view spans.
     length: usize,
+    /// Whether the storage behind this view is a `SharedArrayBuffer`.
+    buffer_shared: bool,
 }
 
 impl PartialEq for SmeltTypedArray { fn eq(&self, other: &Self) -> bool { self.kind == other.kind && self.to_elements() == other.to_elements() } }
@@ -389,7 +402,7 @@ impl SmeltTypedArray {
     /// A view of `kind` over owned bytes, in fresh storage.
     pub fn with_bytes(kind: SmeltTypedArrayKind, bytes: Vec<u8>) -> Self {
         let length = bytes.len() / kind.byte_width();
-        Self { id: smelt_next_object_id(), kind, bytes: ::std::rc::Rc::new(::std::cell::RefCell::new(bytes)), buffer_id: smelt_next_object_id(), byte_offset: 0, length }
+        Self { id: smelt_next_object_id(), kind, bytes: ::std::rc::Rc::new(::std::cell::RefCell::new(bytes)), buffer_id: smelt_next_object_id(), byte_offset: 0, length, buffer_shared: false }
     }
     /// A zero-filled view of `kind` holding `length` elements.
     pub fn with_length(kind: SmeltTypedArrayKind, length: usize) -> Self { Self::with_bytes(kind, vec![0_u8; length * kind.byte_width()]) }
@@ -405,7 +418,7 @@ impl SmeltTypedArray {
         let storage = buffer.storage();
         let available = storage.borrow().len().saturating_sub(byte_offset) / kind.byte_width();
         let length = length.map_or(available, |length| length.min(available));
-        Self { id: smelt_next_object_id(), kind, bytes: storage, buffer_id: buffer.id(), byte_offset, length }
+        Self { id: smelt_next_object_id(), kind, bytes: storage, buffer_id: buffer.id(), byte_offset, length, buffer_shared: buffer.is_shared() }
     }
     /// JS reference identity of this view.
     pub fn id(&self) -> usize { self.id }
@@ -420,7 +433,7 @@ impl SmeltTypedArray {
     /// `byteOffset`: where this view starts in its buffer.
     pub fn byte_offset(&self) -> f64 { self.byte_offset as f64 }
     /// `buffer`: the storage this view reads, shared not copied.
-    pub fn buffer(&self) -> SmeltArrayBuffer { SmeltArrayBuffer::from_storage(self.buffer_id, ::std::rc::Rc::clone(&self.bytes)) }
+    pub fn buffer(&self) -> SmeltArrayBuffer { SmeltArrayBuffer::from_shared_storage(self.buffer_id, ::std::rc::Rc::clone(&self.bytes), self.buffer_shared) }
     /// A COPY of the bytes this view spans.
     pub fn to_bytes(&self) -> Vec<u8> {
         let bytes = self.bytes.borrow();
@@ -470,7 +483,7 @@ impl SmeltTypedArray {
     /// `subarray(start, end)`: another view over the SAME storage.
     pub fn subarray(&self, start: i64, end: Option<i64>) -> Self {
         let (from, to) = self.element_range(start, end);
-        Self { id: smelt_next_object_id(), kind: self.kind, bytes: ::std::rc::Rc::clone(&self.bytes), buffer_id: self.buffer_id, byte_offset: self.byte_offset + from * self.kind.byte_width(), length: to.saturating_sub(from) }
+        Self { id: smelt_next_object_id(), kind: self.kind, bytes: ::std::rc::Rc::clone(&self.bytes), buffer_id: self.buffer_id, byte_offset: self.byte_offset + from * self.kind.byte_width(), length: to.saturating_sub(from), buffer_shared: self.buffer_shared }
     }
     /// `slice(start, end)`: a COPY of an element range.
     pub fn slice(&self, start: i64, end: Option<i64>) -> Self {

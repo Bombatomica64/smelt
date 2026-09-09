@@ -384,3 +384,59 @@ es-toolkit and remeda output wholesale, to buy one printed word.
 **Recommendation:** design 1, as its own round. Until then every fixture that
 would print an absent nullable compares against `null` instead, with the reason
 at the line — see `78_request_input_forms` and `77_body_init_buffer_source`.
+
+## Found by standards (round 27, item 3): two divergences the byte family exposed
+
+Both were found while making `DataView` and `SharedArrayBuffer` concrete, and
+neither is about those types. Both are recorded, not fixed.
+
+### 1. An out-of-range `DataView` accessor answers zero where Node throws
+
+| source | Node | Smelt |
+| --- | --- | --- |
+| `new DataView(new ArrayBuffer(2)).getInt32(0)` | `RangeError: Offset is outside the bounds of the DataView` | `0` |
+| `new DataView(new ArrayBuffer(2)).setInt32(0, 1)` | the same `RangeError` | no write |
+
+The in-range surface is exact — widths, signednesses, both byte orders, shared
+windows — and the bound is CHECKED, so nothing is read or written outside the
+window. What is missing is the throw.
+
+**Why it cannot be fixed at the accessor.** A Smelt throw reaches a source
+`catch` in one of two ways: a `Result`-returning CALL whose `?` propagates, or a
+`Terminator::Call` with an `unwind` edge that the emitter wraps in
+`catch_unwind`. Both are properties of a CALL. A `DataView` accessor lowers to
+an `Rvalue` — `Rvalue::DataViewAccess`, assigned into a temp like every other
+member read — and an `Rvalue` has no unwind edge, so a `panic!` from inside one
+would cross an enclosing `try` uncaught. That is a worse divergence than the
+zero: a caught `RangeError` would become a process abort.
+
+**What the fix is.** A throwing RVALUE: the same `can_throw` plumbing
+`BuiltinFn::is_fallible` gives fallible builtins, extended to the member ops
+that the spec makes fallible. `Rvalue::DataViewAccess` is the first case, and
+the typed-array `set`/`fill` bound checks and `ArrayBuffer.prototype.resize`
+would follow. It is its own round: the MIR lowering has to route such an rvalue
+through a call terminator so the handler edge exists at all.
+
+### 2. Numbers never print in exponential form
+
+Not `DataView`'s at all — it just makes the gap easy to hit, because
+`getFloat64` over unrelated bytes lands on subnormals.
+
+| source | Node | Smelt |
+| --- | --- | --- |
+| `console.log(3.13984e-319)` | `3.13984e-319` | `0.000…000313984` (321 chars) |
+| `console.log(1e21)` | `1e+21` | `1000000000000000000000` |
+| `console.log(1e-7)` | `1e-7` | `0.0000001` |
+
+`Number.prototype.toString` switches to exponential notation when the decimal
+exponent is at least 21 or below -7; Smelt emits Rust's `f64` `Display`, which
+never does. So every program that prints a very large or very small number
+prints a different string from Node — a general formatting rule, wrong in one
+shared helper, and independent of every type that reaches it.
+
+**What the fix is.** The number-to-string helper the runtime prelude emits,
+following the spec's `Number::toString` step 5 (the `k`/`n` digit-count rule) —
+which is also what `${}`, `String(x)`, `JSON.stringify` and array joins reach.
+Cheap to write and mechanical to verify against Node; it moves every golden
+that carries the helper, which is why it wants its own commit rather than a
+rider.

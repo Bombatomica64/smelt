@@ -856,6 +856,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "76_base64_globals",
     "77_body_init_buffer_source",
     "78_request_input_forms",
+    "79_data_view_shared_buffer",
 ];
 
 #[test]

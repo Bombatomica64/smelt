@@ -59,8 +59,11 @@ use crate::rust::CodeWriter;
 /// `needs_unknown` gates the erasure adapters (`IntoSmeltUnknown` /
 /// `SmeltFromUnknown`): a program that never crosses the dynamic boundary does
 /// not emit the carrier type, so the impls must not be emitted either.
-pub fn emit_byte_array(writer: &mut CodeWriter, needs_unknown: bool) {
-    crate::typed_array_prelude::emit(writer, needs_unknown);
+/// `needs_data_view` gates the `DataView` half of the family, which is
+/// pay-for-use on its own: most programs that hold a typed array never mention
+/// one.
+pub fn emit_byte_array(writer: &mut CodeWriter, needs_unknown: bool, needs_data_view: bool) {
+    crate::typed_array_prelude::emit(writer, needs_unknown, needs_data_view);
 }
 
 

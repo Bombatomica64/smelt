@@ -528,6 +528,26 @@ pub enum ExprKind {
         /// The constructor arguments, as written.
         args: Vec<ExprId>,
     },
+    /// A `DataView` element accessor: `getInt16(offset, littleEndian?)` or
+    /// `setFloat64(offset, value, littleEndian?)`.
+    ///
+    /// One node for all eighteen accessors, carrying the source MEMBER
+    /// spelling for the same reason [`Self::TypedArrayNew`] carries the source
+    /// class name: the width, the signedness and the direction are all encoded
+    /// in that one name, the registry already knows how to read it, and a
+    /// variant per accessor would be eighteen ways to say one operation. The
+    /// element kind is not a property of the receiver here — the same view
+    /// answers `getInt16` and `getFloat64` — which is exactly why `DataView`
+    /// cannot share [`Self::ByteArrayOp`]'s shape, where the kind rides on the
+    /// value.
+    DataViewAccess {
+        /// The source accessor name, as written (`"getInt16"`, `"setUint8"`).
+        member: String,
+        /// The `DataView` receiver.
+        view: ExprId,
+        /// The accessor arguments, as written.
+        args: Vec<ExprId>,
+    },
     /// A member read or method call on the concrete typed-array family.
     ByteArrayOp {
         /// Which member this reads or calls.

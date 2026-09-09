@@ -1754,6 +1754,10 @@ impl<'builder> ModuleBuilder<'builder> {
         // are names those own for other receivers, and the family's receiver
         // type is what separates them.
         Self::dispatch_typed_array_method,
+        // Beside the family's methods and for the same reason: `getInt16` and
+        // `setUint8` are ordinary user method names, so the receiver's own
+        // `DataView` type is what admits the accessor.
+        Self::dispatch_data_view_accessor,
         Self::dispatch_collection_method,
         Self::dispatch_headers_method,
         Self::dispatch_url_search_params_method,

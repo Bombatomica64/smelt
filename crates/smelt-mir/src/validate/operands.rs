@@ -121,6 +121,12 @@ impl Rvalue {
                     visit(arg);
                 }
             }
+            Self::DataViewAccess { view, args, .. } => {
+                visit(view);
+                for arg in args {
+                    visit(arg);
+                }
+            }
             Self::ByteArrayOp { bytes, args, .. } => {
                 visit(bytes);
                 for arg in args {
@@ -1049,6 +1055,12 @@ impl Rvalue {
             }
             Self::TypedArrayNew { args, .. } => {
                 for arg in args {
+                    visit(arg);
+                }
+            }
+            Self::DataViewAccess { view, args, .. } => {
+                visit(view);
+                for arg in args.iter_mut() {
                     visit(arg);
                 }
             }

@@ -627,22 +627,23 @@ fn new_abort_controller_lowers_to_concrete_marker_record() -> Result<(), String>
     Ok(())
 }
 
-/// The byte-backed host constructors (`ArrayBuffer`, `SharedArrayBuffer`,
-/// `DataView`) lower to `ExprKind::HostConstruct`, which runs the *same* runtime
-/// constructor the reflected `Object.getPrototypeOf(x).constructor` path calls.
+/// Every byte-backed host constructor lowers to `ExprKind::TypedArrayNew`, the
+/// concrete family's own construction node — the erased `HostConstruct` record
+/// is no longer any of their representations.
 ///
-/// A shared constructor is what makes a directly built record indistinguishable
-/// from a reflectively built one, and it is where the record gets real byte
-/// storage — an identity-only marker record could not answer `slice(0)`,
-/// `byteLength`, `byteOffset`, or an indexed element read.
+/// The family took them in one at a time: the eleven views and `ArrayBuffer`
+/// first, then `SharedArrayBuffer` (the storage class with a species flag,
+/// since the two constructors differ in a tag, an `instanceof` answer and the
+/// growth members and in nothing about the bytes) and `DataView` (its own
+/// class, since its element width is an argument of every accessor rather than
+/// a field of the value). The erased record each reaches through its boundary
+/// adapter is still built by the same builder the reflected
+/// `Object.getPrototypeOf(x).constructor` path uses, which is what keeps a
+/// directly built record indistinguishable from a reflectively built one.
 #[test]
-fn new_byte_buffer_host_lowers_to_the_shared_host_constructor() -> Result<(), String> {
-    // `ArrayBuffer` is no longer here: it is modeled concretely (increment 3 of
-    // the typed-array plan) and lowers to `TypedArrayNew`. What remains is the
-    // two byte hosts Smelt does NOT model concretely — cross-thread storage and
-    // a per-call-width window — for which the erased record is still the honest
-    // representation.
+fn new_byte_buffer_host_lowers_to_the_concrete_family() -> Result<(), String> {
     for (source, class_name, arg_count) in [
+        (ts!("const buf = new ArrayBuffer(8);"), "ArrayBuffer", 1),
         (
             ts!("const buf = new SharedArrayBuffer(8);"),
             "SharedArrayBuffer",
@@ -653,6 +654,7 @@ fn new_byte_buffer_host_lowers_to_the_shared_host_constructor() -> Result<(), St
             "DataView",
             3,
         ),
+        (ts!("const view = new Uint8Array(8);"), "Uint8Array", 1),
     ] {
         let mut ctx = HirCtx::new();
         let module_id = lower_ok(source, &mut ctx)?;
@@ -661,10 +663,17 @@ fn new_byte_buffer_host_lowers_to_the_shared_host_constructor() -> Result<(), St
         ensure!(
             body.exprs.iter().any(|expr| matches!(
                 &expr.kind,
-                ExprKind::HostConstruct { class_name: spelled, args }
+                ExprKind::TypedArrayNew { class_name: spelled, args }
                     if spelled == class_name && args.len() == arg_count
             )),
-            "expected `{source}` to lower to a `{class_name}` HostConstruct with {arg_count} argument(s)",
+            "expected `{source}` to lower to a `{class_name}` TypedArrayNew with {arg_count} argument(s)",
+        );
+        ensure!(
+            !body
+                .exprs
+                .iter()
+                .any(|expr| matches!(&expr.kind, ExprKind::HostConstruct { .. })),
+            "expected `{source}` NOT to lower to an erased HostConstruct",
         );
     }
     Ok(())

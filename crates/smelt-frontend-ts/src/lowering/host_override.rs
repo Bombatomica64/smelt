@@ -301,9 +301,11 @@ impl ModuleBuilder<'_> {
             "Buffer" => self.buffer_constructor_expression(new_expr, body)?,
             // The byte-backed host objects other than `Buffer` construct through
             // the shared host constructor (`ExprKind::HostConstruct`).
-            // The concrete family first: an overridden global that names one of
-            // the eleven views or `ArrayBuffer` constructs the Rust value, and
-            // only `SharedArrayBuffer`/`DataView` fall to the erased record.
+            // The concrete family first: an overridden global that names any
+            // of the family's spellings — the eleven views,
+            // `ArrayBuffer`/`SharedArrayBuffer`, `DataView` — constructs the
+            // Rust value. What is left for the erased record below is Node's
+            // `Buffer` and the non-byte hosts.
             _ if self.is_typed_array_family_name(name) => {
                 self.typed_array_constructor_expression(new_expr, name, body)?
             }

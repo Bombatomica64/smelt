@@ -1098,6 +1098,9 @@ impl FunctionEmitter<'_> {
             Rvalue::TypedArrayNew { class_name, args } => {
                 self.typed_array_new_text(class_name, args)
             }
+            Rvalue::DataViewAccess { member, view, args } => {
+                self.data_view_access_text(member, view, args)
+            }
             Rvalue::EventEmitterNew => Ok("SmeltEventEmitter::new()".to_owned()),
             Rvalue::EventEmitterOp { op, emitter, args } => {
                 self.event_emitter_op_text(*op, emitter, args)
