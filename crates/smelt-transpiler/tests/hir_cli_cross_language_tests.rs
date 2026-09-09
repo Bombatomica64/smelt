@@ -554,6 +554,123 @@ clone-strategy = "aggressive"
     Ok(())
 }
 
+/// A renamed generic class that constructs and stores ITSELF.
+///
+/// Trie-shaped, like `router/trie-router/node.ts`: a private record of children
+/// keyed by string, each child a `Node<T>` this method constructs.
+const SELF_CONSTRUCTING_CLASS_TRIE: &str = r#"type Pattern = readonly [string, string, boolean] | "*";
+
+export class Node<T> {
+  #children: Record<string, Node<T>> = {};
+  #pattern?: Pattern | string;
+  #values: T[] = [];
+
+  insert(key: string, pattern: Pattern | string, value: T): void {
+    let child = this.#children[key];
+    if (!child) {
+      child = new Node<T>();
+      this.#children[key] = child;
+    }
+    if (pattern && !child.#pattern) {
+      child.#pattern = pattern;
+    }
+    child.#values.push(value);
+  }
+
+  describe(key: string): string {
+    const child = this.#children[key];
+    if (!child) {
+      return "none";
+    }
+    return child.#pattern === undefined ? "unset" : "set";
+  }
+}
+"#;
+
+/// The same-named class that forces the rename, in another module.
+const SELF_CONSTRUCTING_CLASS_OTHER: &str = r"export class Node {
+  index = 0;
+
+  bump(): number {
+    this.index += 1;
+    return this.index;
+  }
+}
+";
+
+/// An importer that aliases both and exercises the self-constructing one.
+const SELF_CONSTRUCTING_CLASS_MAIN: &str = r"import { Node as TrieNode } from './trie';
+import { Node as RegExpNode } from './regexp';
+
+const trie = new TrieNode<string>();
+trie.insert('a', '*', 'handler');
+console.log(trie.describe('a'));
+console.log(trie.describe('b'));
+
+const regexp = new RegExpNode();
+console.log(regexp.bump());
+";
+
+#[test]
+fn build_runs_a_renamed_class_constructing_itself() -> TestResult {
+    // A `new Node()` inside `Node`'s OWN method resolved to the other module's
+    // `Node`. `ClassRegistry::item` reads a map seeded with every class item in
+    // the crate, and a class's own item is registered only AFTER its members
+    // are lowered, so the seeded entry was the only match while the class was
+    // in progress. While both classes shared one name symbol that was
+    // invisible; giving them distinct symbols (the duplicate-class-name fix
+    // above) turned it into a generated-crate type mismatch,
+    // `expected Option<Node_1<T>>, found Node`.
+    //
+    // A class name bound in the module's own lexical scope now wins over a
+    // crate-wide item of the same spelling, which is what makes a
+    // self-reference resolve to the class being declared.
+    //
+    // Multi-module and build-and-run for the same reasons as the test above:
+    // one module cannot produce a rename, and the symptom is a value.
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "self-constructing-class"
+version = "0.1.0"
+
+[sources]
+roots = ["src"]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "self_constructing_class"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(project_path.join("src/trie.ts"), SELF_CONSTRUCTING_CLASS_TRIE)?;
+    fs::write(
+        project_path.join("src/regexp.ts"),
+        SELF_CONSTRUCTING_CLASS_OTHER,
+    )?;
+    fs::write(project_path.join("src/main.ts"), SELF_CONSTRUCTING_CLASS_MAIN)?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    // `describe('a')` sees the child the insert stored; `describe('b')` sees
+    // nothing. Before the fix the generated crate did not compile at all.
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(&actual_stdout, &"set
+none
+1
+".to_owned(), "unexpected stdout")?;
+
+    Ok(())
+}
+
 /// Every TypeScript end-to-end example the golden suite checks.
 ///
 /// A list rather than a directory scan: an example is only checked once it

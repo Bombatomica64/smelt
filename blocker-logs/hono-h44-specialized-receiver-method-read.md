@@ -75,3 +75,40 @@ ASSIGNED, and is fixed by carrying it as a callable field. This is a method that
 is READ on a specialized receiver, and carrying it as a field would be wrong —
 it is never assigned, and a field would trade a static call for a dynamic one.
 The two must not be folded together.
+
+## Round 25: a fifth attempt, at crate level, and it still does not reproduce
+
+The round-25 ruling was "via a specializer unit fixture if the precondition can
+be reproduced there; otherwise leave numbered". The four fixtures above were
+single-module; this attempt was a whole three-module crate, built and
+`cargo check`ed, because the note says the missing ingredient is a
+specialization decision and that decision is whole-crate:
+
+```
+src/router.ts   interface Router<T> + the `this: R extends Router<T>` free
+                function reading `(this as any).buildAllMatchers()`
+src/regexp.ts   class RegExpRouter<T> implements Router<T>, with a PROTECTED
+                `buildAllMatchers(): T[]` and `match: (…) => T[] = match`
+src/main.ts     instantiates `RegExpRouter<string>` and calls `router.match(…)`
+```
+
+That is Hono's arrangement, module for module. The generated crate fails, but
+with a DIFFERENT error:
+
+```
+error[E0308]: mismatched types: expected `SmeltList<T>`, found `SmeltList<SmeltUnknown>`
+```
+
+which is the H42 `TypeParam` erasure pair, not `E0615`. So the read still takes
+the correct dynamic route here; the precondition needs something the slice has
+and this crate does not, and one more guess is not worth another round.
+
+**H44 therefore stays numbered**, now with the crate-level attempt recorded so
+it is not repeated. The witness remains the slice itself, which is the honest
+place to verify a whole-crate specialization decision.
+
+One thing the attempt did find on the way: Hono spells the wiring
+`match: typeof match<Router<T>, T> = match` (router.ts:129), and a
+value-position instantiation expression — `match<RegExpRouter<T>, T>` — is
+"expression kind is not lowered yet: TSInstantiationExpression". Recorded
+separately as `blocker-logs/hono-h59-instantiation-expression.md`.
