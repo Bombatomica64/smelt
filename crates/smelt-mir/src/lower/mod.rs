@@ -690,6 +690,14 @@ fn intern_fallible_builtin_return_types(mir: &mut Mir) {
             match builtin {
                 BuiltinFn::JsonParse => needed.push(Type::Unknown),
                 BuiltinFn::UriDecode(_) | BuiltinFn::Base64(_) => needed.push(Type::String),
+                // A read answers a number and a write answers `undefined`, and
+                // both spellings are already in the table wherever an accessor
+                // was lowered — the frontend types the node. Interning them
+                // anyway costs nothing and keeps the arm honest about what the
+                // call produces.
+                BuiltinFn::DataViewAccess { write, .. } => {
+                    needed.push(if *write { Type::None } else { Type::Float });
+                }
                 BuiltinFn::ConsoleLog { .. }
                 | BuiltinFn::ConsoleWrite
                 | BuiltinFn::ConsoleErrorWrite => {}

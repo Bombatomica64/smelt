@@ -566,14 +566,20 @@ impl ExprKind {
                     args: mapped,
                 }
             }
-            Self::DataViewAccess { member, view, args } => {
+            Self::DataViewAccess {
+                write,
+                element,
+                view,
+                args,
+            } => {
                 let view = f(view)?;
                 let mut mapped = Vec::with_capacity(args.len());
                 for arg in args {
                     mapped.push(f(arg)?);
                 }
                 Self::DataViewAccess {
-                    member,
+                    write,
+                    element,
                     view,
                     args: mapped,
                 }

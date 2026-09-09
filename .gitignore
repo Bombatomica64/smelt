@@ -291,3 +291,7 @@ third_party/es-toolkit-src/
 # 34 of 79 example goldens checking only the runtime prelude, and the
 # avoidable-erasure inventory that honest measurement uncovered
 !blocker-logs/standards-example-goldens-cover-modules.md
+# standards-throwing-rvalue.md records why a fallible stdlib MEMBER becomes a
+# call terminator rather than a fallible rvalue or a MIR hoisting pass, and
+# where the DataView `RangeError`'s bound, ToIndex and throw each live
+!blocker-logs/standards-throwing-rvalue.md

@@ -4903,6 +4903,12 @@ fn emit_source_with_free_function_router(
         if stdlib::needs_uri_decode_runtime(mir) {
             thrown::emit_uri_decode_support(&mut writer);
         }
+        // The `DataView` accessors, same channel and same ABI dependency. They
+        // name `SmeltDataView` and `SmeltTypedArrayKind`, both emitted with the
+        // byte family above, so they come after it.
+        if stdlib::needs_data_view_access_runtime(mir) {
+            thrown::emit_data_view_access_support(&mut writer);
+        }
         // The base64 codec, same channel and same ABI dependency. Both
         // directions throw, so both adapters are emitted together.
         if stdlib::needs_base64_runtime(mir) {

@@ -1101,10 +1101,6 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 format!("typed_array_new {class_name} {args_text}")
             }
         }
-        Rvalue::DataViewAccess { member, view, args } => {
-            let args_text = args.iter().map(operand_text).collect::<Vec<_>>().join(" ");
-            format!("data_view_{member} {} {args_text}", operand_text(view))
-        }
         Rvalue::ByteArrayOp { op, bytes, args } => {
             let op_name = op.name();
             let receiver = operand_text(bytes);
@@ -1916,6 +1912,11 @@ fn callee_text(callee: &Callee) -> String {
         Callee::Builtin(BuiltinFn::ConsoleErrorWrite) => "@console_error_write".to_owned(),
         Callee::Builtin(BuiltinFn::JsonParse) => "@json_parse".to_owned(),
         Callee::Builtin(BuiltinFn::Base64(op)) => format!("@{}", op.name()),
+        Callee::Builtin(BuiltinFn::DataViewAccess { write, element }) => format!(
+            "@data_view_{}{}",
+            if *write { "set" } else { "get" },
+            element.element_name()
+        ),
         Callee::Builtin(BuiltinFn::UriDecode(op)) => match op {
             smelt_hir::UriTranscodeOp::Decode => "@decode_uri".to_owned(),
             smelt_hir::UriTranscodeOp::DecodeComponent => "@decode_uri_component".to_owned(),

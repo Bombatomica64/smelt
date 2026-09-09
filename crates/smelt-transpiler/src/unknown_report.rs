@@ -595,7 +595,7 @@ fn classify_line(line: &str, in_prelude_helper: bool) -> Category {
 ///
 /// See [`classify_line`] rule 2 for the rationale behind each marker.
 fn is_legitimate_boundary_line(line: &str) -> bool {
-    const BOUNDARY_MARKERS: [&str; 25] = [
+    const BOUNDARY_MARKERS: [&str; 26] = [
         "SmeltUnknown::Function",
         "SmeltUnknown::Promise",
         // A JavaScript SYMBOL value. `Symbol()` mints a value whose whole
@@ -820,6 +820,29 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // `SmeltUnknown`. Proven by
         // `host_brand_instanceof_guard_is_a_boundary` below.
         "if value.contains_key(\"__smelt_",
+        // `instanceof ErrorClass` against an erased operand — the sibling of
+        // the rule directly above, and the case a `catch` binding IS. A
+        // JavaScript error value carries its class in the `__smelt_error` brand
+        // slot (`crates/smelt-codegen-rust/src/thrown.rs`), and
+        // `error instanceof RangeError` is lowered to a guard that reads that
+        // slot back and compares it against the class and its bases.
+        //
+        // TypeScript types a `catch` binding `unknown` by its own rule, so this
+        // is not merely the idiomatic way a program identifies a thrown error —
+        // it is the ONLY way, and the value it inspects arrives on the
+        // exception channel whose payload ABI is already a boundary above
+        // (`smelt_throw` / `smelt_thrown_value`, which carry a branded record
+        // and a bare string down one `Result<_, Box<dyn Error>>` on a run-time
+        // branch). No concrete type, generated union arm, or scoped generic can
+        // carry that, and the class is recovered from the value rather than
+        // from any static fact about it.
+        //
+        // Narrow like its sibling: the marker is the brand PROBE inside the
+        // guard, so it matches this lowering and nothing else — an erased local
+        // beside it stays avoidable, and an `instanceof` over a concrete class
+        // receiver folds to a literal that names no `SmeltUnknown` at all.
+        // Proven by `error_brand_instanceof_guard_is_a_boundary` below.
+        "if matches!(value.get(\"__smelt_error\")",
     ];
 
     // A JavaScript update-expression (`x++`/`++x`) used as a value snapshots its
@@ -1176,6 +1199,39 @@ mod tests {
             classify_line(unbranded, false),
             Category::AvoidableErasure,
             "a `contains_key` that is not a `value`-bound brand guard must stay avoidable"
+        );
+    }
+
+    /// `instanceof ErrorClass` over an erased operand is a boundary.
+    ///
+    /// The sibling of `host_brand_instanceof_guard_is_a_boundary`, and the case
+    /// a `catch` binding is: the guard reads the thrown value's `__smelt_error`
+    /// brand slot back to recover its class. TypeScript types a `catch` binding
+    /// `unknown`, and the exception channel it arrives on carries payloads of
+    /// unrelated shape on a run-time branch, so no concrete type can stand in.
+    ///
+    /// The marker is the brand probe itself, so an erased local beside the
+    /// guard, and an ordinary read of an error record's own `message` field,
+    /// both stay classified as they were.
+    #[test]
+    fn error_brand_instanceof_guard_is_a_boundary() {
+        let guard = "    _smelt_tmp_3 = matches!(error.clone(), SmeltUnknown::Object(value) if matches!(value.get(\"__smelt_error\"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == \"RangeError\"));";
+        assert_eq!(
+            classify_line(guard, false),
+            Category::LegitimateBoundary,
+            "a caught error recovers its class from the thrown value's brand"
+        );
+        let storage = "    let _smelt_tmp_4: SmeltUnknown;";
+        assert_eq!(
+            classify_line(storage, false),
+            Category::AvoidableErasure,
+            "an ordinary erased local must stay avoidable"
+        );
+        let bag = "    let thrown: SmeltRecord<String, SmeltUnknown> = SmeltRecord::new();";
+        assert_eq!(
+            classify_line(bag, false),
+            Category::AvoidableErasure,
+            "an erased record beside the guard must stay avoidable"
         );
     }
 
