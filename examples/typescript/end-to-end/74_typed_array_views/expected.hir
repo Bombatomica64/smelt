@@ -13,6 +13,8 @@ module examples/typescript/end-to-end/74_typed_array_views/input.ts (ModuleId(0)
     %9 const target: Uint8Array
     %10 const collected: List<Float>
     %11 let element: Float
+    %12 const encoder: TextEncoder
+    %13 const encoded: Uint8Array
   exprs
     #0: Float = 1.0
     #1: Float = 2.0
@@ -188,7 +190,7 @@ module examples/typescript/end-to-end/74_typed_array_views/input.ts (ModuleId(0)
     #171: Uint8Array = %0
     #172: Bool = instanceof #171, class0
     #173: Uint8Array = %0
-    #174: Bool = instanceof #173, class7
+    #174: Bool = instanceof #173, class8
     #175: None = @12(console_log)
     #176: None = call #175(#172, #174)
     #177: ArrayBuffer = %2
@@ -277,6 +279,86 @@ module examples/typescript/end-to-end/74_typed_array_views/input.ts (ModuleId(0)
     #260: String = string_join #258, #259
     #261: None = @27(console_log)
     #262: None = call #261(#260)
+    #263: ArrayBuffer = %2
+    #264: List<String> = []
+    #265: String = json_stringify #264
+    #266: None = @28(console_log)
+    #267: None = call #266(#265)
+    #268: ArrayBuffer = %2
+    #269: List<Float> = []
+    #270: String = json_stringify #269
+    #271: None = @29(console_log)
+    #272: None = call #271(#270)
+    #273: ArrayBuffer = %2
+    #274: List<(String, Float)> = []
+    #275: String = json_stringify #274
+    #276: None = @30(console_log)
+    #277: None = call #276(#275)
+    #278: ArrayBuffer = %2
+    #279: List<String> = []
+    #280: String = json_stringify #279
+    #281: None = @31(console_log)
+    #282: None = call #281(#280)
+    #283: Uint32Array = %6
+    #284: List<String> = byte_array_index_keys #283
+    #285: String = json_stringify #284
+    #286: None = @32(console_log)
+    #287: None = call #286(#285)
+    #288: Uint32Array = %6
+    #289: List<Float> = byte_array_elements #288
+    #290: String = json_stringify #289
+    #291: None = @33(console_log)
+    #292: None = call #291(#290)
+    #293: Float = 1.0
+    #294: Float = Neg #293
+    #295: Float = 300.0
+    #296: List<Float> = [#294, #295]
+    #297: Int16Array = typed_array_new Int16Array #296
+    #298: String = json_stringify #297
+    #299: None = @34(console_log)
+    #300: None = call #299(#298)
+    #301: String = "payload"
+    #302: Float = 9.0
+    #303: List<Float> = [#302]
+    #304: Uint8Array = typed_array_new Uint8Array #303
+    #305: Dict<String, Uint8Array> = {#301: #304}
+    #306: String = json_stringify #305
+    #307: None = @35(console_log)
+    #308: None = call #307(#306)
+    #309: TextEncoder = text_encoder_new
+    #310: TextEncoder = %12
+    #311: String = "hi"
+    #312: Uint8Array = text_encoder_encode #310 #311
+    #313: Uint8Array = %13
+    #314: Bool = instanceof #313, class0
+    #315: Uint8Array = %13
+    #316: Float = byte_array_length #315
+    #317: Uint8Array = %13
+    #318: Float = byte_array_byte_length #317
+    #319: None = @36(console_log)
+    #320: None = call #319(#314, #316, #318)
+    #321: Uint8Array = %13
+    #322: String = object_to_string_tag #321
+    #323: None = @37(console_log)
+    #324: None = call #323(#322)
+    #325: Uint8Array = %13
+    #326: String = json_stringify #325
+    #327: None = @38(console_log)
+    #328: None = call #327(#326)
+    #329: TextDecoder = text_decoder_new
+    #330: Uint8Array = %13
+    #331: String = text_decoder_decode #329 #330
+    #332: None = @39(console_log)
+    #333: None = call #332(#331)
+    #334: Uint8Array = %13
+    #335: Float = 1.0
+    #336: Uint8Array = byte_array_subarray #334 #335
+    #337: Float = byte_array_length #336
+    #338: Uint8Array = %13
+    #339: Float = 0.0
+    #340: Unknown = #338[#339]
+    #341: None = @40(console_log)
+    #342: None = call #341(#337, #340)
   stmts
     s0: let %0: Uint8Array = #5
     s1: let %1: Uint8Array = #7
@@ -324,6 +406,21 @@ module examples/typescript/end-to-end/74_typed_array_views/input.ts (ModuleId(0)
     s43: #248
     s44: #256
     s45: #262
+    s46: #267
+    s47: #272
+    s48: #277
+    s49: #282
+    s50: #287
+    s51: #292
+    s52: #300
+    s53: #308
+    s54: let %12: TextEncoder = #309
+    s55: let %13: Uint8Array = #312
+    s56: #320
+    s57: #324
+    s58: #328
+    s59: #333
+    s60: #342
 
 interned types
   t0 = Float
@@ -333,13 +430,17 @@ interned types
   t4 = Unknown
   t5 = Int8Array
   t6 = Uint32Array
-  t7 = Float64Array
-  t8 = None
-  t9 = Uint8ClampedArray
-  t10 = Bool
-  t11 = String
-  t12 = List<String>
-  t13 = (String, Float)
-  t14 = List<(String, Float)>
-  t15 = Int
-  t16 = fn((String, Float), Int, List<(String, Float)>) -> String
+  t7 = TextEncoder
+  t8 = Float64Array
+  t9 = None
+  t10 = Uint8ClampedArray
+  t11 = Bool
+  t12 = String
+  t13 = List<String>
+  t14 = (String, Float)
+  t15 = List<(String, Float)>
+  t16 = Int
+  t17 = fn((String, Float), Int, List<(String, Float)>) -> String
+  t18 = Int16Array
+  t19 = Dict<String, Uint8Array>
+  t20 = TextDecoder

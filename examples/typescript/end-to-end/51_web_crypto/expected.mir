@@ -2,8 +2,8 @@ async fn main (FuncId(0)) -> None throws
   locals
     %0 user id: String
     %1 user groups: List<String>
-    %2 user message: __SmeltUint8Array
-    %3 user empty: __SmeltUint8Array
+    %2 user message: Uint8Array
+    %3 user empty: Uint8Array
     %4 temp: String
     %5 temp: Float
     %6 temp: None
@@ -30,7 +30,7 @@ async fn main (FuncId(0)) -> None throws
     %27 temp: Bool
     %28 temp: None
     %29 temp: TextEncoder
-    %30 temp: __SmeltUint8Array
+    %30 temp: Uint8Array
     %31 temp: Future<ArrayBuffer>
     %32 temp: ArrayBuffer
     %33 temp: Float
@@ -52,7 +52,7 @@ async fn main (FuncId(0)) -> None throws
     %49 temp: Float
     %50 temp: None
     %51 temp: TextEncoder
-    %52 temp: __SmeltUint8Array
+    %52 temp: Uint8Array
     %53 temp: Future<ArrayBuffer>
     %54 temp: ArrayBuffer
     %55 temp: Float

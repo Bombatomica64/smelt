@@ -265,6 +265,16 @@ impl ModuleBuilder<'_> {
         span: oxc::span::Span,
         body: &mut Body,
     ) -> Option<smelt_hir::ExprId> {
+        // Byte STORAGE has no own enumerable properties at all: an
+        // `ArrayBuffer` addresses its bytes through accessors, so
+        // `Object.keys(buffer)` is `[]` and `Object.values(buffer)` is `[]`,
+        // where a view's are its element indices. That is the same distinction
+        // `smelt_host_buffer_own_elements` draws on the erased side, and it is
+        // answerable here without a record round trip because the storage's
+        // emptiness is a property of its CLASS rather than of its bytes.
+        if self.is_array_buffer_type(receiver_ty) {
+            return self.empty_projection_expression(op, span, body);
+        }
         if !self.is_typed_array_view_type(receiver_ty) {
             return None;
         }
@@ -301,6 +311,38 @@ impl ModuleBuilder<'_> {
                 bytes: receiver,
                 args: Vec::new(),
             },
+            ty,
+            span,
+        }))
+    }
+
+    /// The empty list a projection of byte STORAGE answers.
+    ///
+    /// Typed to match the projection, so `Object.keys(buffer).join(",")` still
+    /// sees a `List<String>` and `Object.values(buffer)` a `List<Float>`: an
+    /// empty list of the right element type rather than an erased one.
+    fn empty_projection_expression(
+        &mut self,
+        op: smelt_hir::DictProjectionOp,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        let span = self.span(span.start, span.end);
+        let float_ty = self.ctx.krate.types.intern(Type::Float);
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let item_ty = match op {
+            smelt_hir::DictProjectionOp::Keys | smelt_hir::DictProjectionOp::OwnKeys => string_ty,
+            smelt_hir::DictProjectionOp::Values => float_ty,
+            smelt_hir::DictProjectionOp::Entries => self
+                .ctx
+                .krate
+                .types
+                .intern(Type::Tuple(Vec::from([string_ty, float_ty]))),
+            _ => return None,
+        };
+        let ty = self.ctx.krate.types.intern(Type::List(item_ty));
+        Some(body.push_expr(Expr {
+            kind: ExprKind::ListLit(Vec::new()),
             ty,
             span,
         }))

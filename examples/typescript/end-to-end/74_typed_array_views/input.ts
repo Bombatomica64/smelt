@@ -89,12 +89,43 @@ console.log(Object.values(fromElements).join(","));
 console.log(Object.entries(wide).map(([key, value]) => `${key}=${value}`).join(","));
 console.log(Reflect.ownKeys(wide).join(","));
 
+// Byte STORAGE has no own enumerable properties at all — it addresses its
+// bytes through accessors — so all four projections of it are empty, where a
+// view's are its element indices. Both answers now come from the concrete
+// value: the storage's emptiness is a property of its class, so neither needs
+// a record round trip. (Increment 5: these were runtime-tier cases only
+// because a view used to erase.)
+console.log(JSON.stringify(Object.keys(buffer)));
+console.log(JSON.stringify(Object.values(buffer)));
+console.log(JSON.stringify(Object.entries(buffer)));
+console.log(JSON.stringify(Reflect.ownKeys(buffer)));
+console.log(JSON.stringify(Object.keys(wide)));
+console.log(JSON.stringify(Object.values(wide)));
+
+// The width matters when serializing: a view decodes at its own element size
+// and signedness, so an `Int16Array` reports `-1` and `300` rather than the
+// four bytes underneath them, and a view nested in a record serializes as its
+// indices there too.
+console.log(JSON.stringify(new Int16Array([-1, 300])));
+console.log(JSON.stringify({ payload: new Uint8Array([9]) }));
+
+// `TextEncoder.encode` answers a `Uint8Array` under its own name. It used to
+// answer a reserved synthetic class that was the same Rust type under a
+// spelling no program could write, which existed only while the source
+// spelling still meant the erased record; increment 5 retired it, so a program
+// can annotate what it gets.
+const encoder = new TextEncoder();
+const encoded: Uint8Array = encoder.encode("hi");
+console.log(encoded instanceof Uint8Array, encoded.length, encoded.byteLength);
+console.log(Object.prototype.toString.call(encoded));
+console.log(JSON.stringify(encoded));
+console.log(new TextDecoder().decode(encoded));
+console.log(encoded.subarray(1).length, encoded[0]);
+
 // The rest of the boundary — an erased view's `instanceof`, `isView`,
 // `String()` and `JSON.stringify`, the recovery of a concrete view from an
 // erased buffer, and the two byte hosts that stay erased (`DataView`,
 // `SharedArrayBuffer`) — is exercised in the runtime tier
-// (`crates/smelt-codegen-rust/tests/typed_array_runtime.rs`). It lives there
-// rather than here because those flows are erased by construction and the
-// examples corpus holds a hard `avoidable == 0` invariant; increment 5 of the
-// plan folds them back once the enumeration path answers a concrete view
-// without a record round trip.
+// (`crates/smelt-codegen-rust/tests/typed_array_runtime.rs`). Those flows are
+// erased by construction, and the examples corpus holds a hard
+// `avoidable == 0` invariant.

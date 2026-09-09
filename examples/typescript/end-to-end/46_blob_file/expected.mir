@@ -68,8 +68,8 @@ async fn main (FuncId(0)) -> None throws
     %65 temp: ArrayBuffer
     %66 temp: Float
     %67 temp: None
-    %68 temp: Future<__SmeltUint8Array>
-    %69 temp: __SmeltUint8Array
+    %68 temp: Future<Uint8Array>
+    %69 temp: Uint8Array
     %70 temp: Float
     %71 temp: None
     %72 temp: List<String>

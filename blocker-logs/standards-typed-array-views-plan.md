@@ -124,12 +124,40 @@ that constraint.
     spec's `ArrayBuffer`; `Blob.arrayBuffer()` likewise, where `bytes()` stays a
     view; `crypto.getRandomValues` fills a concrete view's own byte window.
   `SharedArrayBuffer` and `DataView` deliberately keep the erased record.
-* **5 remains** (round 25): fold the runtime tiers back into the corpus. The
-  enumeration half already landed with 3+4 (a concrete view answers its own
-  index keys, elements and entries, so `Object.keys(view)` no longer round-trips
-  through a record); what is left is the erased-boundary cases that
-  `typed_array_runtime.rs` now holds and the `json_stringify_runtime.rs` byte
-  cases, plus re-snapshotting the baselines with the delta.
+* **5 landed** (round 25). What moved and what did not, and why:
+  * `json_stringify_runtime.rs`'s byte-VIEW and byte-STORAGE rows are now
+    corpus fixtures (`74_typed_array_views`), which is a stronger test than a
+    tier one because it also pins the emitted Rust. Byte storage needed one
+    addition to get there: `Object.keys`/`values`/`entries`/`Reflect.ownKeys`
+    on a concrete `ArrayBuffer` answer the EMPTY list from the class rather
+    than through a record — storage addresses its bytes through accessors, so
+    its emptiness is a property of its class and needs no round trip.
+  * The reserved synthetic class name is retired. `TextEncoder.encode`,
+    `TextDecoder.decode`, `Blob.bytes()` and `crypto` answer a `Uint8Array`
+    under that name, so a program can annotate what it gets
+    (`const bytes: Uint8Array = encoder.encode(text)`). The synthetic spelling
+    existed only while the source spelling still meant the erased record; once
+    increment 3 made them the same Rust type it only hid what `encode` answers.
+  * What STAYS in the tiers, and will until `DataView` and `SharedArrayBuffer`
+    are concrete: an erased view's `instanceof`/`isView`/`String()`/
+    `JSON.stringify`, the recovery of a concrete view from an erased buffer, a
+    `DataView`'s own-property answers, an `unknown` or generic stringify
+    operand, and a union with an erased arm. Every one of those is erased BY
+    CONSTRUCTION, so no amount of concreteness in the family moves them; the
+    corpus invariant is `avoidable == 0` and they cannot be zero.
+  * The baselines did NOT move: the cases that changed home were tier-only, so
+    no generated corpus output changed. es-toolkit stays at 32247 (+0), remeda
+    at 24884 (+0), the examples invariant at 0, and es-toolkit's suite at
+    1055 / 4.
+
+## What is left of the family
+
+`SharedArrayBuffer` and `DataView` are the two byte hosts still modeled as the
+erased record. `DataView` is the interesting one: its element width is a
+property of each CALL (`getUint16(0)`, `setFloat64(8, x)`) rather than of the
+value, so it is the one member of the family whose kind cannot be a field.
+Making it concrete means a per-call width parameter on the same shared storage,
+which is a smaller job than increments 3+4 were but is its own item.
 
 Measured at 3+4: es-toolkit 1055 / 4 (unchanged, same four failures) with the
 ratchet FALLING 32438 → 32247; remeda 1789 / 0 with its advisory report falling

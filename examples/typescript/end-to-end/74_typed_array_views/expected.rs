@@ -1574,7 +1574,7 @@ fn smelt_abort_method(object: SmeltObject, method: &str) -> SmeltUnknown { let m
 
 /// The synthesized host method a member read resolves to, if the object
 /// carries a host marker and has no OWN member of that name.
-fn smelt_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if object.contains_key(name) { return None; } if (object.contains_key("__smelt_abortcontroller") || object.contains_key("__smelt_abortsignal")) && matches!(name, "abort" | "addEventListener" | "removeEventListener" | "dispatchEvent" | "throwIfAborted") { return Some(smelt_abort_method(object.clone(), name)); } None }
+fn smelt_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if object.contains_key(name) { return None; } if (object.contains_key("__smelt_abortcontroller") || object.contains_key("__smelt_abortsignal")) && matches!(name, "abort" | "addEventListener" | "removeEventListener" | "dispatchEvent" | "throwIfAborted") { return Some(smelt_abort_method(object.clone(), name)); } if let Some(found) = smelt_text_encoder_host_method(object, name) { return Some(found); } if let Some(found) = smelt_text_decoder_host_method(object, name) { return Some(found); } None }
 
 pub enum SmeltUnknown {
     Null,
@@ -3213,6 +3213,97 @@ fn smelt_typed_array_write_origin(id: usize, offset: usize, encoded: &[SmeltUnkn
     if let Some(storage) = smelt_restore_host_origin_by_id::<SmeltArrayBuffer>(id) { storage.write_bytes_at(offset, &bytes); }
 }
 
+/// A WHATWG `TextEncoder`: a UTF-8 encoder with a JS reference identity.
+#[derive(Clone)]
+pub struct SmeltTextEncoder {
+    id: usize,
+}
+
+impl PartialEq for SmeltTextEncoder { fn eq(&self, _other: &Self) -> bool { true } }
+impl ::std::fmt::Debug for SmeltTextEncoder { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.write_str("TextEncoder { encoding: 'utf-8' }") } }
+impl Default for SmeltTextEncoder { fn default() -> Self { Self::new() } }
+
+#[allow(dead_code)]
+impl SmeltTextEncoder {
+    /// A fresh encoder with a fresh JS reference identity.
+    pub fn new() -> Self { Self { id: smelt_next_object_id() } }
+    /// JS reference identity of this encoder.
+    pub fn id(&self) -> usize { self.id }
+    /// `encoding`: always `"utf-8"` per the spec.
+    pub fn encoding(&self) -> String { "utf-8".to_owned() }
+    /// `encode(input)`: the input's UTF-8 bytes.
+    pub fn encode(&self, input: &str) -> SmeltUint8Array { SmeltUint8Array::from_bytes(input.as_bytes().to_vec()) }
+}
+
+/// Erase a `SmeltTextEncoder` for a dynamic boundary.
+///
+/// Retains the live value under the record's object id, so narrowing the
+/// erased value back hands out the SAME object rather than a copy.
+impl IntoSmeltUnknown for SmeltTextEncoder { fn into_smelt_unknown(self) -> SmeltUnknown { let smelt_id = self.id; smelt_register_host_origin(smelt_id, self.clone()); SmeltUnknown::Object(SmeltObject::with_id(smelt_id, Vec::from([("__smelt_textencoder".to_owned(), SmeltUnknown::Bool(true)), ("encoding".to_owned(), SmeltUnknown::String(self.encoding().into()))]))) } }
+
+/// Recover a `SmeltTextEncoder` from an erased value.
+///
+/// Lossless: the record carries everything the value is, so a record
+/// that did not come from an erasure still recovers correctly.
+impl SmeltFromUnknown for SmeltTextEncoder { fn smelt_from_unknown(value: SmeltUnknown) -> Self { smelt_restore_host_origin::<Self>(&value).unwrap_or_else(|| Self::new()) } }
+
+/// The modeled member of an erased `TextEncoder` record, resolved at run time.
+///
+/// Same dynamic boundary as the sibling host resolvers: the receiver is a
+/// marker-bearing record, so the member is decided by the marker and the
+/// member NAME at run time. A program reaches this only by erasing the codec
+/// on purpose; answering `undefined`, which is what a plain property read
+/// does, made `(encoder as any).encode('ab')` a null rather than the bytes.
+fn smelt_text_encoder_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if !object.contains_key("__smelt_textencoder") || name != "encode" { return None; } let encoder = <SmeltTextEncoder as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(object.clone())); Some(SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let input = args.first().cloned().map_or_else(String::new, smelt_property_key); Ok(encoder.encode(&input).into_smelt_unknown()) }))) }
+
+/// A WHATWG `TextDecoder`: a UTF-8 decoder with a JS reference identity.
+#[derive(Clone)]
+pub struct SmeltTextDecoder {
+    id: usize,
+    /// The decoder's normalized encoding label.
+    encoding: String,
+}
+
+impl PartialEq for SmeltTextDecoder { fn eq(&self, other: &Self) -> bool { self.encoding == other.encoding } }
+impl ::std::fmt::Debug for SmeltTextDecoder { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { write!(formatter, "TextDecoder {{ encoding: '{}', fatal: false, ignoreBOM: false }}", self.encoding) } }
+impl Default for SmeltTextDecoder { fn default() -> Self { Self::new() } }
+
+#[allow(dead_code)]
+impl SmeltTextDecoder {
+    /// A fresh UTF-8 decoder with a fresh JS reference identity.
+    pub fn new() -> Self { Self { id: smelt_next_object_id(), encoding: "utf-8".to_owned() } }
+    /// A decoder for an encoding label, which is always a UTF-8 label.
+    pub fn from_label(_label: &str) -> Self { Self::new() }
+    /// JS reference identity of this decoder.
+    pub fn id(&self) -> usize { self.id }
+    /// `encoding`: the normalized encoding label.
+    pub fn encoding(&self) -> String { self.encoding.clone() }
+    /// `decode(input)`: the bytes read back as a string, substituting
+    /// U+FFFD for ill-formed sequences as the non-`fatal` spec does.
+    pub fn decode(&self, input: &SmeltUint8Array) -> String { String::from_utf8_lossy(&input.to_bytes()).into_owned() }
+}
+
+/// Erase a `SmeltTextDecoder` for a dynamic boundary.
+///
+/// Retains the live value under the record's object id, so narrowing the
+/// erased value back hands out the SAME object rather than a copy.
+impl IntoSmeltUnknown for SmeltTextDecoder { fn into_smelt_unknown(self) -> SmeltUnknown { let smelt_id = self.id; smelt_register_host_origin(smelt_id, self.clone()); SmeltUnknown::Object(SmeltObject::with_id(smelt_id, Vec::from([("__smelt_textdecoder".to_owned(), SmeltUnknown::Bool(true)), ("encoding".to_owned(), SmeltUnknown::String(self.encoding().into()))]))) } }
+
+/// Recover a `SmeltTextDecoder` from an erased value.
+///
+/// Lossless: the record carries everything the value is, so a record
+/// that did not come from an erasure still recovers correctly.
+impl SmeltFromUnknown for SmeltTextDecoder { fn smelt_from_unknown(value: SmeltUnknown) -> Self { smelt_restore_host_origin::<Self>(&value).unwrap_or_else(|| Self::new()) } }
+
+/// The modeled member of an erased `TextDecoder` record, resolved at run time.
+///
+/// Same dynamic boundary as the sibling host resolvers: the receiver is a
+/// marker-bearing record, so the member is decided by the marker and the
+/// member NAME at run time. A program reaches this only by erasing the codec
+/// on purpose; answering `undefined`, which is what a plain property read
+/// does, made `(encoder as any).encode('ab')` a null rather than the bytes.
+fn smelt_text_decoder_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if !object.contains_key("__smelt_textdecoder") || name != "decode" { return None; } let decoder = <SmeltTextDecoder as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(object.clone())); Some(SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let bytes = args.first().cloned().map_or_else(SmeltUint8Array::new, <SmeltUint8Array as SmeltFromUnknown>::smelt_from_unknown); Ok(SmeltUnknown::String(decoder.decode(&bytes).into())) }))) }
+
 // @smelt:prelude-end — generated program below
 fn main() {
     let wide: SmeltTypedArray;
@@ -3221,191 +3312,270 @@ fn main() {
     let target: SmeltTypedArray;
     let mut collected: SmeltList<f64>;
     let mut element: f64;
-    let _smelt_tmp_26: f64;
-    let _smelt_tmp_27: f64;
+    let mut encoder: SmeltTextEncoder;
+    let mut encoded: SmeltTypedArray;
+    let _smelt_tmp_28: f64;
     let _smelt_tmp_29: f64;
-    let _smelt_tmp_30: f64;
     let _smelt_tmp_31: f64;
+    let _smelt_tmp_32: f64;
     let _smelt_tmp_33: f64;
-    let _smelt_tmp_34: f64;
-    let _smelt_tmp_35: SmeltArrayBuffer;
+    let _smelt_tmp_35: f64;
     let _smelt_tmp_36: f64;
+    let _smelt_tmp_37: SmeltArrayBuffer;
     let _smelt_tmp_38: f64;
-    let _smelt_tmp_40: SmeltList<f64>;
-    let _smelt_tmp_41: SmeltTypedArray;
+    let _smelt_tmp_40: f64;
     let _smelt_tmp_42: SmeltList<f64>;
     let _smelt_tmp_43: SmeltTypedArray;
     let _smelt_tmp_44: SmeltList<f64>;
     let _smelt_tmp_45: SmeltTypedArray;
-    let _smelt_tmp_47: SmeltList<f64>;
-    let _smelt_tmp_48: SmeltTypedArray;
-    let _smelt_tmp_49: f64;
-    let _smelt_tmp_50: f64;
-    let _smelt_tmp_53: SmeltTypedArray;
-    let _smelt_tmp_54: f64;
-    let _smelt_tmp_56: SmeltTypedArray;
-    let _smelt_tmp_57: f64;
-    let _smelt_tmp_59: SmeltTypedArray;
-    let _smelt_tmp_60: SmeltTypedArray;
-    let _smelt_tmp_61: ();
-    let _smelt_tmp_63: SmeltTypedArray;
-    let _smelt_tmp_65: bool;
-    let _smelt_tmp_66: bool;
+    let _smelt_tmp_46: SmeltList<f64>;
+    let _smelt_tmp_47: SmeltTypedArray;
+    let _smelt_tmp_49: SmeltList<f64>;
+    let _smelt_tmp_50: SmeltTypedArray;
+    let _smelt_tmp_51: f64;
+    let _smelt_tmp_52: f64;
+    let _smelt_tmp_55: SmeltTypedArray;
+    let _smelt_tmp_56: f64;
+    let _smelt_tmp_58: SmeltTypedArray;
+    let _smelt_tmp_59: f64;
+    let _smelt_tmp_61: SmeltTypedArray;
+    let _smelt_tmp_62: SmeltTypedArray;
+    let _smelt_tmp_63: ();
+    let _smelt_tmp_65: SmeltTypedArray;
+    let _smelt_tmp_67: bool;
     let _smelt_tmp_68: bool;
-    let _smelt_tmp_71: String;
+    let _smelt_tmp_70: bool;
     let _smelt_tmp_73: String;
     let _smelt_tmp_75: String;
     let _smelt_tmp_77: String;
-    let _smelt_tmp_79: SmeltList<f64>;
-    let _smelt_tmp_80: SmeltList<f64>;
-    let mut _smelt_tmp_81: f64;
-    let mut _smelt_tmp_82: f64;
-    let mut _smelt_tmp_83: bool;
+    let _smelt_tmp_79: String;
+    let _smelt_tmp_81: SmeltList<f64>;
+    let _smelt_tmp_82: SmeltList<f64>;
+    let mut _smelt_tmp_83: f64;
     let mut _smelt_tmp_84: f64;
-    let mut _smelt_tmp_85: String;
-    let mut _smelt_tmp_87: SmeltList<f64>;
-    let mut _smelt_tmp_88: String;
-    let mut _smelt_tmp_90: SmeltList<f64>;
-    let mut _smelt_tmp_91: String;
+    let mut _smelt_tmp_85: bool;
+    let mut _smelt_tmp_86: f64;
+    let mut _smelt_tmp_87: String;
+    let mut _smelt_tmp_89: SmeltList<f64>;
+    let mut _smelt_tmp_90: String;
+    let mut _smelt_tmp_92: SmeltList<f64>;
     let mut _smelt_tmp_93: String;
     let mut _smelt_tmp_95: String;
-    let mut _smelt_tmp_97: SmeltList<String>;
-    let mut _smelt_tmp_98: String;
-    let mut _smelt_tmp_100: SmeltList<f64>;
-    let mut _smelt_tmp_101: String;
-    let mut _smelt_tmp_103: SmeltList<(String, f64)>;
-    let mut _smelt_tmp_104: ::std::rc::Rc<dyn Fn((String, f64), i64, &SmeltList<(String, f64)>) -> String> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn((String, f64), i64, &SmeltList<(String, f64)>) -> String> = ::std::rc::Rc::new(move |arg0: (String, f64), arg1: i64, arg2: &SmeltList<(String, f64)>| -> String { String::new() }); smelt_default_callback };
-    let mut _smelt_tmp_105: SmeltList<String>;
-    let mut _smelt_tmp_106: String;
-    let mut _smelt_tmp_108: SmeltList<String>;
-    let mut _smelt_tmp_109: String;
-    let _smelt_tmp_12: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0, 250.0]; smelt_list_items }));
-    let _smelt_tmp_13: SmeltTypedArray = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Uint8, &_smelt_tmp_12.to_vec());
-    let mut from_elements: SmeltTypedArray = _smelt_tmp_13;
-    let _smelt_tmp_14: SmeltTypedArray = SmeltTypedArray::with_length(SmeltTypedArrayKind::Uint8, ((3.0) as f64).max(0.0) as usize);
-    let from_length: SmeltTypedArray = _smelt_tmp_14;
-    let _smelt_tmp_15: SmeltArrayBuffer = SmeltArrayBuffer::new(((8.0) as f64).max(0.0) as usize);
-    let buffer: SmeltArrayBuffer = _smelt_tmp_15;
-    let _smelt_tmp_16: SmeltTypedArray = SmeltTypedArray::over_buffer(SmeltTypedArrayKind::Float64, &buffer.clone(), 0, None);
-    let whole_buffer: SmeltTypedArray = _smelt_tmp_16;
-    let _smelt_tmp_17: SmeltTypedArray = SmeltTypedArray::over_buffer(SmeltTypedArrayKind::Uint8, &buffer.clone(), ((2.0) as f64).max(0.0) as usize, Some((((4.0)) as f64).max(0.0) as usize));
-    let window: SmeltTypedArray = _smelt_tmp_17;
-    let _smelt_tmp_18: f64 = -1.0;
-    let _smelt_tmp_19: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![_smelt_tmp_18]; smelt_list_items }));
-    let _smelt_tmp_20: SmeltTypedArray = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Int8, &_smelt_tmp_19.to_vec());
-    let _smelt_tmp_21: SmeltTypedArray = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Uint8, &_smelt_tmp_20.to_elements());
-    let converted: SmeltTypedArray = _smelt_tmp_21;
-    let _smelt_tmp_22: f64 = from_elements.clone().length();
-    let _smelt_tmp_23: f64 = from_elements.clone().byte_length();
-    let _smelt_tmp_24: f64 = from_elements.clone().byte_offset();
-    let _ = { println!("{} {} {}", _smelt_tmp_22, _smelt_tmp_23, _smelt_tmp_24); };
-    _smelt_tmp_26 = from_length.length();
-    _smelt_tmp_27 = buffer.clone().byte_length();
-    let _ = { println!("{} {}", _smelt_tmp_26, _smelt_tmp_27); };
-    _smelt_tmp_29 = whole_buffer.clone().length();
-    _smelt_tmp_30 = whole_buffer.clone().byte_length();
-    _smelt_tmp_31 = whole_buffer.byte_offset();
-    let _ = { println!("{} {} {}", _smelt_tmp_29, _smelt_tmp_30, _smelt_tmp_31); };
-    _smelt_tmp_33 = window.clone().length();
-    _smelt_tmp_34 = window.clone().byte_offset();
-    _smelt_tmp_35 = window.buffer();
-    _smelt_tmp_36 = _smelt_tmp_35.byte_length();
-    let _ = { println!("{} {} {}", _smelt_tmp_33, _smelt_tmp_34, _smelt_tmp_36); };
-    _smelt_tmp_38 = converted.clone().length();
-    let _ = { println!("{} {}", _smelt_tmp_38, converted.get(0.0).unwrap_or(0.0).clone()); };
-    _smelt_tmp_40 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![200.0]; smelt_list_items }));
-    _smelt_tmp_41 = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Int8, &_smelt_tmp_40.to_vec());
-    _smelt_tmp_42 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![256.0]; smelt_list_items }));
-    _smelt_tmp_43 = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Uint8, &_smelt_tmp_42.to_vec());
-    _smelt_tmp_44 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![300.0]; smelt_list_items }));
-    _smelt_tmp_45 = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Uint8Clamped, &_smelt_tmp_44.to_vec());
-    let _ = { println!("{} {} {}", _smelt_tmp_41.get(0.0).unwrap_or(0.0).clone(), _smelt_tmp_43.get(0.0).unwrap_or(0.0).clone(), _smelt_tmp_45.get(0.0).unwrap_or(0.0).clone()); };
-    _smelt_tmp_47 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0]; smelt_list_items }));
-    _smelt_tmp_48 = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Uint32, &_smelt_tmp_47.to_vec());
-    wide = _smelt_tmp_48;
-    _smelt_tmp_49 = wide.clone().length();
-    _smelt_tmp_50 = wide.clone().byte_length();
-    let _ = { println!("{} {} {}", _smelt_tmp_49, _smelt_tmp_50, wide.get(1.0).unwrap_or(0.0).clone()); };
+    let mut _smelt_tmp_97: String;
+    let mut _smelt_tmp_99: SmeltList<String>;
+    let mut _smelt_tmp_100: String;
+    let mut _smelt_tmp_102: SmeltList<f64>;
+    let mut _smelt_tmp_103: String;
+    let mut _smelt_tmp_105: SmeltList<(String, f64)>;
+    let mut _smelt_tmp_106: ::std::rc::Rc<dyn Fn((String, f64), i64, &SmeltList<(String, f64)>) -> String> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn((String, f64), i64, &SmeltList<(String, f64)>) -> String> = ::std::rc::Rc::new(move |arg0: (String, f64), arg1: i64, arg2: &SmeltList<(String, f64)>| -> String { String::new() }); smelt_default_callback };
+    let mut _smelt_tmp_107: SmeltList<String>;
+    let mut _smelt_tmp_108: String;
+    let mut _smelt_tmp_110: SmeltList<String>;
+    let mut _smelt_tmp_111: String;
+    let mut _smelt_tmp_113: SmeltList<String>;
+    let mut _smelt_tmp_114: String;
+    let mut _smelt_tmp_116: SmeltList<f64>;
+    let mut _smelt_tmp_117: String;
+    let mut _smelt_tmp_119: SmeltList<(String, f64)>;
+    let mut _smelt_tmp_120: String;
+    let mut _smelt_tmp_122: SmeltList<String>;
+    let mut _smelt_tmp_123: String;
+    let mut _smelt_tmp_125: SmeltList<String>;
+    let mut _smelt_tmp_126: String;
+    let mut _smelt_tmp_128: SmeltList<f64>;
+    let mut _smelt_tmp_129: String;
+    let mut _smelt_tmp_131: f64;
+    let mut _smelt_tmp_132: SmeltList<f64>;
+    let mut _smelt_tmp_133: SmeltTypedArray;
+    let mut _smelt_tmp_134: String;
+    let mut _smelt_tmp_136: SmeltList<f64>;
+    let mut _smelt_tmp_137: SmeltTypedArray;
+    let mut _smelt_tmp_138: SmeltRecord<String, SmeltTypedArray>;
+    let mut _smelt_tmp_139: String;
+    let mut _smelt_tmp_141: SmeltTextEncoder;
+    let mut _smelt_tmp_142: SmeltTypedArray;
+    let mut _smelt_tmp_143: bool;
+    let mut _smelt_tmp_144: f64;
+    let mut _smelt_tmp_145: f64;
+    let mut _smelt_tmp_147: String;
+    let mut _smelt_tmp_149: String;
+    let mut _smelt_tmp_151: SmeltTextDecoder;
+    let mut _smelt_tmp_152: String;
+    let mut _smelt_tmp_154: SmeltTypedArray;
+    let mut _smelt_tmp_155: f64;
+    let _smelt_tmp_14: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0, 250.0]; smelt_list_items }));
+    let _smelt_tmp_15: SmeltTypedArray = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Uint8, &_smelt_tmp_14.to_vec());
+    let mut from_elements: SmeltTypedArray = _smelt_tmp_15;
+    let _smelt_tmp_16: SmeltTypedArray = SmeltTypedArray::with_length(SmeltTypedArrayKind::Uint8, ((3.0) as f64).max(0.0) as usize);
+    let from_length: SmeltTypedArray = _smelt_tmp_16;
+    let _smelt_tmp_17: SmeltArrayBuffer = SmeltArrayBuffer::new(((8.0) as f64).max(0.0) as usize);
+    let buffer: SmeltArrayBuffer = _smelt_tmp_17;
+    let _smelt_tmp_18: SmeltTypedArray = SmeltTypedArray::over_buffer(SmeltTypedArrayKind::Float64, &buffer.clone(), 0, None);
+    let whole_buffer: SmeltTypedArray = _smelt_tmp_18;
+    let _smelt_tmp_19: SmeltTypedArray = SmeltTypedArray::over_buffer(SmeltTypedArrayKind::Uint8, &buffer.clone(), ((2.0) as f64).max(0.0) as usize, Some((((4.0)) as f64).max(0.0) as usize));
+    let window: SmeltTypedArray = _smelt_tmp_19;
+    let _smelt_tmp_20: f64 = -1.0;
+    let _smelt_tmp_21: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![_smelt_tmp_20]; smelt_list_items }));
+    let _smelt_tmp_22: SmeltTypedArray = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Int8, &_smelt_tmp_21.to_vec());
+    let _smelt_tmp_23: SmeltTypedArray = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Uint8, &_smelt_tmp_22.to_elements());
+    let converted: SmeltTypedArray = _smelt_tmp_23;
+    let _smelt_tmp_24: f64 = from_elements.clone().length();
+    let _smelt_tmp_25: f64 = from_elements.clone().byte_length();
+    let _smelt_tmp_26: f64 = from_elements.clone().byte_offset();
+    let _ = { println!("{} {} {}", _smelt_tmp_24, _smelt_tmp_25, _smelt_tmp_26); };
+    _smelt_tmp_28 = from_length.length();
+    _smelt_tmp_29 = buffer.clone().byte_length();
+    let _ = { println!("{} {}", _smelt_tmp_28, _smelt_tmp_29); };
+    _smelt_tmp_31 = whole_buffer.clone().length();
+    _smelt_tmp_32 = whole_buffer.clone().byte_length();
+    _smelt_tmp_33 = whole_buffer.byte_offset();
+    let _ = { println!("{} {} {}", _smelt_tmp_31, _smelt_tmp_32, _smelt_tmp_33); };
+    _smelt_tmp_35 = window.clone().length();
+    _smelt_tmp_36 = window.clone().byte_offset();
+    _smelt_tmp_37 = window.buffer();
+    _smelt_tmp_38 = _smelt_tmp_37.byte_length();
+    let _ = { println!("{} {} {}", _smelt_tmp_35, _smelt_tmp_36, _smelt_tmp_38); };
+    _smelt_tmp_40 = converted.clone().length();
+    let _ = { println!("{} {}", _smelt_tmp_40, converted.get(0.0).unwrap_or(0.0).clone()); };
+    _smelt_tmp_42 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![200.0]; smelt_list_items }));
+    _smelt_tmp_43 = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Int8, &_smelt_tmp_42.to_vec());
+    _smelt_tmp_44 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![256.0]; smelt_list_items }));
+    _smelt_tmp_45 = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Uint8, &_smelt_tmp_44.to_vec());
+    _smelt_tmp_46 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![300.0]; smelt_list_items }));
+    _smelt_tmp_47 = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Uint8Clamped, &_smelt_tmp_46.to_vec());
+    let _ = { println!("{} {} {}", _smelt_tmp_43.get(0.0).unwrap_or(0.0).clone(), _smelt_tmp_45.get(0.0).unwrap_or(0.0).clone(), _smelt_tmp_47.get(0.0).unwrap_or(0.0).clone()); };
+    _smelt_tmp_49 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0]; smelt_list_items }));
+    _smelt_tmp_50 = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Uint32, &_smelt_tmp_49.to_vec());
+    wide = _smelt_tmp_50;
+    _smelt_tmp_51 = wide.clone().length();
+    _smelt_tmp_52 = wide.clone().byte_length();
+    let _ = { println!("{} {} {}", _smelt_tmp_51, _smelt_tmp_52, wide.get(1.0).unwrap_or(0.0).clone()); };
     from_elements.set_index(0.0, 9.0);
     let _ = { println!("{} {}", from_elements.get(0.0).unwrap_or(0.0).clone(), from_elements.get(3.0).unwrap_or(0.0).clone()); };
-    _smelt_tmp_53 = from_elements.clone().subarray((1.0) as i64, None);
-    shared = _smelt_tmp_53;
+    _smelt_tmp_55 = from_elements.clone().subarray((1.0) as i64, None);
+    shared = _smelt_tmp_55;
     shared.set_index(0.0, 42.0);
-    _smelt_tmp_54 = shared.clone().byte_offset();
-    let _ = { println!("{} {} {}", from_elements.get(1.0).unwrap_or(0.0).clone(), shared.get(0.0).unwrap_or(0.0).clone(), _smelt_tmp_54); };
-    _smelt_tmp_56 = from_elements.clone().slice((0.0) as i64, Some((2.0) as i64));
-    copied = _smelt_tmp_56;
+    _smelt_tmp_56 = shared.clone().byte_offset();
+    let _ = { println!("{} {} {}", from_elements.get(1.0).unwrap_or(0.0).clone(), shared.get(0.0).unwrap_or(0.0).clone(), _smelt_tmp_56); };
+    _smelt_tmp_58 = from_elements.clone().slice((0.0) as i64, Some((2.0) as i64));
+    copied = _smelt_tmp_58;
     copied.set_index(0.0, 0.0);
-    _smelt_tmp_57 = copied.clone().length();
-    let _ = { println!("{} {} {}", from_elements.get(0.0).unwrap_or(0.0).clone(), copied.get(0.0).unwrap_or(0.0).clone(), _smelt_tmp_57); };
-    _smelt_tmp_59 = SmeltTypedArray::with_length(SmeltTypedArrayKind::Uint8, ((4.0) as f64).max(0.0) as usize);
-    target = _smelt_tmp_59;
-    _smelt_tmp_60 = from_elements.clone().subarray((0.0) as i64, Some((2.0) as i64));
-    _smelt_tmp_61 = target.clone().set_from(&_smelt_tmp_60, ((1.0) as f64).max(0.0) as usize);
+    _smelt_tmp_59 = copied.clone().length();
+    let _ = { println!("{} {} {}", from_elements.get(0.0).unwrap_or(0.0).clone(), copied.get(0.0).unwrap_or(0.0).clone(), _smelt_tmp_59); };
+    _smelt_tmp_61 = SmeltTypedArray::with_length(SmeltTypedArrayKind::Uint8, ((4.0) as f64).max(0.0) as usize);
+    target = _smelt_tmp_61;
+    _smelt_tmp_62 = from_elements.clone().subarray((0.0) as i64, Some((2.0) as i64));
+    _smelt_tmp_63 = target.clone().set_from(&_smelt_tmp_62, ((1.0) as f64).max(0.0) as usize);
     let _ = { println!("{} {} {}", target.get(0.0).unwrap_or(0.0).clone(), target.get(1.0).unwrap_or(0.0).clone(), target.get(2.0).unwrap_or(0.0).clone()); };
-    _smelt_tmp_63 = target.clone().fill(7.0, (2.0) as i64, None);
+    _smelt_tmp_65 = target.clone().fill(7.0, (2.0) as i64, None);
     let _ = { println!("{} {} {}", target.get(1.0).unwrap_or(0.0).clone(), target.get(2.0).unwrap_or(0.0).clone(), target.get(3.0).unwrap_or(0.0).clone()); };
-    _smelt_tmp_65 = from_elements.clone().class_name() == "Uint8Array";
-    _smelt_tmp_66 = from_elements.clone().class_name() == "Float64Array";
-    let _ = { println!("{} {}", _smelt_tmp_65, _smelt_tmp_66); };
-    _smelt_tmp_68 = true;
-    let _ = { println!("{} {}", _smelt_tmp_68, false); };
+    _smelt_tmp_67 = from_elements.clone().class_name() == "Uint8Array";
+    _smelt_tmp_68 = from_elements.clone().class_name() == "Float64Array";
+    let _ = { println!("{} {}", _smelt_tmp_67, _smelt_tmp_68); };
+    _smelt_tmp_70 = true;
+    let _ = { println!("{} {}", _smelt_tmp_70, false); };
     let _ = { println!("{} {}", true, true); };
-    _smelt_tmp_71 = smelt_object_to_string_tag(&(from_elements.clone().into_smelt_unknown()));
-    let _ = { println!("{}", _smelt_tmp_71); };
-    _smelt_tmp_73 = smelt_object_to_string_tag(&(wide.clone().into_smelt_unknown()));
+    _smelt_tmp_73 = smelt_object_to_string_tag(&(from_elements.clone().into_smelt_unknown()));
     let _ = { println!("{}", _smelt_tmp_73); };
-    _smelt_tmp_75 = from_elements.clone().to_js_string();
+    _smelt_tmp_75 = smelt_object_to_string_tag(&(wide.clone().into_smelt_unknown()));
     let _ = { println!("{}", _smelt_tmp_75); };
-    _smelt_tmp_77 = "".to_owned() + &wide.clone().to_js_string();
+    _smelt_tmp_77 = from_elements.clone().to_js_string();
     let _ = { println!("{}", _smelt_tmp_77); };
-    _smelt_tmp_79 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![]; smelt_list_items }));
-    collected = Into::<SmeltList<_>>::into(_smelt_tmp_79);
-    _smelt_tmp_80 = Into::<SmeltList<_>>::into(SmeltList::new(wide.clone().to_elements()));
-    _smelt_tmp_81 = 0.0;
+    _smelt_tmp_79 = "".to_owned() + &wide.clone().to_js_string();
+    let _ = { println!("{}", _smelt_tmp_79); };
+    _smelt_tmp_81 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![]; smelt_list_items }));
+    collected = Into::<SmeltList<_>>::into(_smelt_tmp_81);
+    _smelt_tmp_82 = Into::<SmeltList<_>>::into(SmeltList::new(wide.clone().to_elements()));
+    _smelt_tmp_83 = 0.0;
     loop {
-    _smelt_tmp_82 = _smelt_tmp_80.len() as f64;
-    _smelt_tmp_83 = _smelt_tmp_81 < _smelt_tmp_82;
-    if !(_smelt_tmp_83) { break; }
-    element = _smelt_tmp_80.borrow().get({ let normalized = _smelt_tmp_81 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0);
-    _smelt_tmp_84 = { let smelt_push_item = element; collected.borrow_mut().push(smelt_push_item); collected.len() as f64 };
-    _smelt_tmp_81 = _smelt_tmp_81 + 1.0;
+    _smelt_tmp_84 = _smelt_tmp_82.len() as f64;
+    _smelt_tmp_85 = _smelt_tmp_83 < _smelt_tmp_84;
+    if !(_smelt_tmp_85) { break; }
+    element = _smelt_tmp_82.borrow().get({ let normalized = _smelt_tmp_83 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0);
+    _smelt_tmp_86 = { let smelt_push_item = element; collected.borrow_mut().push(smelt_push_item); collected.len() as f64 };
+    _smelt_tmp_83 = _smelt_tmp_83 + 1.0;
     }
-    _smelt_tmp_85 = collected.borrow().iter().map(|item| { item.to_string() }).collect::<Vec<_>>().join(&"-".to_owned());
-    let _ = { println!("{}", _smelt_tmp_85); };
-    _smelt_tmp_87 = Into::<SmeltList<_>>::into(SmeltList::new(wide.clone().to_elements()));
-    _smelt_tmp_88 = _smelt_tmp_87.borrow().iter().map(|item| { item.to_string() }).collect::<Vec<_>>().join(&"-".to_owned());
-    let _ = { println!("{}", _smelt_tmp_88); };
-    _smelt_tmp_90 = Into::<SmeltList<_>>::into(SmeltList::new(wide.clone().to_elements()));
-    _smelt_tmp_91 = _smelt_tmp_90.borrow().iter().map(|item| { item.to_string() }).collect::<Vec<_>>().join(&"-".to_owned());
-    let _ = { println!("{}", _smelt_tmp_91); };
-    _smelt_tmp_93 = serde_json::to_string(&from_elements.clone().into_smelt_unknown()).expect("JSON serialization failed");
+    _smelt_tmp_87 = collected.borrow().iter().map(|item| { item.to_string() }).collect::<Vec<_>>().join(&"-".to_owned());
+    let _ = { println!("{}", _smelt_tmp_87); };
+    _smelt_tmp_89 = Into::<SmeltList<_>>::into(SmeltList::new(wide.clone().to_elements()));
+    _smelt_tmp_90 = _smelt_tmp_89.borrow().iter().map(|item| { item.to_string() }).collect::<Vec<_>>().join(&"-".to_owned());
+    let _ = { println!("{}", _smelt_tmp_90); };
+    _smelt_tmp_92 = Into::<SmeltList<_>>::into(SmeltList::new(wide.clone().to_elements()));
+    _smelt_tmp_93 = _smelt_tmp_92.borrow().iter().map(|item| { item.to_string() }).collect::<Vec<_>>().join(&"-".to_owned());
     let _ = { println!("{}", _smelt_tmp_93); };
-    _smelt_tmp_95 = serde_json::to_string(&buffer.clone().into_smelt_unknown()).expect("JSON serialization failed");
+    _smelt_tmp_95 = serde_json::to_string(&from_elements.clone().into_smelt_unknown()).expect("JSON serialization failed");
     let _ = { println!("{}", _smelt_tmp_95); };
-    _smelt_tmp_97 = Into::<SmeltList<_>>::into(SmeltList::new((0..from_elements.clone().length() as usize).map(|index| index.to_string()).collect::<Vec<_>>()));
-    _smelt_tmp_98 = _smelt_tmp_97.borrow().join(&",".to_owned());
-    let _ = { println!("{}", _smelt_tmp_98); };
-    _smelt_tmp_100 = Into::<SmeltList<_>>::into(SmeltList::new(from_elements.to_elements()));
-    _smelt_tmp_101 = _smelt_tmp_100.borrow().iter().map(|item| { item.to_string() }).collect::<Vec<_>>().join(&",".to_owned());
-    let _ = { println!("{}", _smelt_tmp_101); };
-    _smelt_tmp_103 = Into::<SmeltList<_>>::into(SmeltList::new(wide.clone().to_elements().into_iter().enumerate().map(|(index, element)| (index.to_string(), element)).collect::<Vec<_>>()));
-    _smelt_tmp_104 = ::std::rc::Rc::new(|closure_arg_0: (String, f64), closure_arg_1: i64, closure_arg_2: &SmeltList<(String, f64)>| {
+    _smelt_tmp_97 = serde_json::to_string(&buffer.clone().into_smelt_unknown()).expect("JSON serialization failed");
+    let _ = { println!("{}", _smelt_tmp_97); };
+    _smelt_tmp_99 = Into::<SmeltList<_>>::into(SmeltList::new((0..from_elements.clone().length() as usize).map(|index| index.to_string()).collect::<Vec<_>>()));
+    _smelt_tmp_100 = _smelt_tmp_99.borrow().join(&",".to_owned());
+    let _ = { println!("{}", _smelt_tmp_100); };
+    _smelt_tmp_102 = Into::<SmeltList<_>>::into(SmeltList::new(from_elements.to_elements()));
+    _smelt_tmp_103 = _smelt_tmp_102.borrow().iter().map(|item| { item.to_string() }).collect::<Vec<_>>().join(&",".to_owned());
+    let _ = { println!("{}", _smelt_tmp_103); };
+    _smelt_tmp_105 = Into::<SmeltList<_>>::into(SmeltList::new(wide.clone().to_elements().into_iter().enumerate().map(|(index, element)| (index.to_string(), element)).collect::<Vec<_>>()));
+    _smelt_tmp_106 = ::std::rc::Rc::new(|closure_arg_0: (String, f64), closure_arg_1: i64, closure_arg_2: &SmeltList<(String, f64)>| {
     let _smelt_tmp_3: String = "".to_owned() + &closure_arg_0.0.clone();
     let _smelt_tmp_4: String = _smelt_tmp_3.clone() + &"=".to_owned();
     let _smelt_tmp_5: String = _smelt_tmp_4.clone() + &closure_arg_0.1.to_string();
     _smelt_tmp_5.clone()
     });
-    _smelt_tmp_105 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: (String, f64), closure_arg_1: i64, closure_arg_2: &SmeltList<(String, f64)>| {
+    _smelt_tmp_107 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: (String, f64), closure_arg_1: i64, closure_arg_2: &SmeltList<(String, f64)>| {
     let _smelt_tmp_3: String = "".to_owned() + &closure_arg_0.0.clone();
     let _smelt_tmp_4: String = _smelt_tmp_3.clone() + &"=".to_owned();
     let _smelt_tmp_5: String = _smelt_tmp_4.clone() + &closure_arg_0.1.to_string();
     _smelt_tmp_5.clone()
-    }); let smelt_array = _smelt_tmp_103; smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>() });
-    _smelt_tmp_106 = _smelt_tmp_105.borrow().join(&",".to_owned());
-    let _ = { println!("{}", _smelt_tmp_106); };
-    _smelt_tmp_108 = Into::<SmeltList<_>>::into(SmeltList::new((0..wide.length() as usize).map(|index| index.to_string()).collect::<Vec<_>>()));
-    _smelt_tmp_109 = _smelt_tmp_108.borrow().join(&",".to_owned());
-    let _ = { println!("{}", _smelt_tmp_109); };
+    }); let smelt_array = _smelt_tmp_105; smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>() });
+    _smelt_tmp_108 = _smelt_tmp_107.borrow().join(&",".to_owned());
+    let _ = { println!("{}", _smelt_tmp_108); };
+    _smelt_tmp_110 = Into::<SmeltList<_>>::into(SmeltList::new((0..wide.clone().length() as usize).map(|index| index.to_string()).collect::<Vec<_>>()));
+    _smelt_tmp_111 = _smelt_tmp_110.borrow().join(&",".to_owned());
+    let _ = { println!("{}", _smelt_tmp_111); };
+    _smelt_tmp_113 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
+    _smelt_tmp_114 = serde_json::to_string(&{ let smelt_l = _smelt_tmp_113; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>())) }).expect("JSON serialization failed");
+    let _ = { println!("{}", _smelt_tmp_114); };
+    _smelt_tmp_116 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![]; smelt_list_items }));
+    _smelt_tmp_117 = serde_json::to_string(&{ let smelt_l = _smelt_tmp_116; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| SmeltUnknown::Number(value as f64)).collect::<Vec<_>>())) }).expect("JSON serialization failed");
+    let _ = { println!("{}", _smelt_tmp_117); };
+    _smelt_tmp_119 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, f64)> = vec![]; smelt_list_items }));
+    _smelt_tmp_120 = serde_json::to_string(&{ let smelt_l = _smelt_tmp_119; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| SmeltUnknown::Array(vec![SmeltUnknown::String((value.0.clone()).into()), SmeltUnknown::Number(value.1.clone() as f64)].into())).collect::<Vec<_>>())) }).expect("JSON serialization failed");
+    let _ = { println!("{}", _smelt_tmp_120); };
+    _smelt_tmp_122 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
+    _smelt_tmp_123 = serde_json::to_string(&{ let smelt_l = _smelt_tmp_122; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>())) }).expect("JSON serialization failed");
+    let _ = { println!("{}", _smelt_tmp_123); };
+    _smelt_tmp_125 = Into::<SmeltList<_>>::into(SmeltList::new((0..wide.clone().length() as usize).map(|index| index.to_string()).collect::<Vec<_>>()));
+    _smelt_tmp_126 = serde_json::to_string(&{ let smelt_l = _smelt_tmp_125; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>())) }).expect("JSON serialization failed");
+    let _ = { println!("{}", _smelt_tmp_126); };
+    _smelt_tmp_128 = Into::<SmeltList<_>>::into(SmeltList::new(wide.to_elements()));
+    _smelt_tmp_129 = serde_json::to_string(&{ let smelt_l = _smelt_tmp_128; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|value| SmeltUnknown::Number(value as f64)).collect::<Vec<_>>())) }).expect("JSON serialization failed");
+    let _ = { println!("{}", _smelt_tmp_129); };
+    _smelt_tmp_131 = -1.0;
+    _smelt_tmp_132 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![_smelt_tmp_131, 300.0]; smelt_list_items }));
+    _smelt_tmp_133 = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Int16, &_smelt_tmp_132.to_vec());
+    _smelt_tmp_134 = serde_json::to_string(&_smelt_tmp_133.clone().into_smelt_unknown()).expect("JSON serialization failed");
+    let _ = { println!("{}", _smelt_tmp_134); };
+    _smelt_tmp_136 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![9.0]; smelt_list_items }));
+    _smelt_tmp_137 = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Uint8, &_smelt_tmp_136.to_vec());
+    _smelt_tmp_138 = SmeltRecord::from([("payload".to_owned(), _smelt_tmp_137)]);
+    _smelt_tmp_139 = serde_json::to_string(&{ let smelt_record = _smelt_tmp_138.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, value.clone().into_smelt_unknown())).collect())) }).expect("JSON serialization failed");
+    let _ = { println!("{}", _smelt_tmp_139); };
+    _smelt_tmp_141 = SmeltTextEncoder::new();
+    encoder = _smelt_tmp_141;
+    _smelt_tmp_142 = encoder.encode(&"hi".to_owned());
+    encoded = _smelt_tmp_142;
+    _smelt_tmp_143 = encoded.clone().class_name() == "Uint8Array";
+    _smelt_tmp_144 = encoded.clone().length();
+    _smelt_tmp_145 = encoded.clone().byte_length();
+    let _ = { println!("{} {} {}", _smelt_tmp_143, _smelt_tmp_144, _smelt_tmp_145); };
+    _smelt_tmp_147 = smelt_object_to_string_tag(&(encoded.clone().into_smelt_unknown()));
+    let _ = { println!("{}", _smelt_tmp_147); };
+    _smelt_tmp_149 = serde_json::to_string(&encoded.clone().into_smelt_unknown()).expect("JSON serialization failed");
+    let _ = { println!("{}", _smelt_tmp_149); };
+    _smelt_tmp_151 = SmeltTextDecoder::new();
+    _smelt_tmp_152 = _smelt_tmp_151.decode(&encoded.clone());
+    let _ = { println!("{}", _smelt_tmp_152); };
+    _smelt_tmp_154 = encoded.clone().subarray((1.0) as i64, None);
+    _smelt_tmp_155 = _smelt_tmp_154.length();
+    let _ = { println!("{} {}", _smelt_tmp_155, encoded.get(0.0).unwrap_or(0.0).clone()); };
     return;
 }

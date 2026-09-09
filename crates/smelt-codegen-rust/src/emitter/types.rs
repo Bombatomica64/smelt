@@ -637,15 +637,6 @@ impl FunctionEmitter<'_> {
                 if self.is_host_object_class(*name) {
                     return true;
                 }
-                // The concrete byte view erases to the same byte-backed host
-                // record a `new Uint8Array(..)` does, so the erased carrier's
-                // `Serialize` renders it identically — as its element indices.
-                // The frontend's matching arm says the same thing.
-                if self.symbol_name(*name).is_ok_and(|class_name| {
-                    class_name == smelt_stdlib::BYTE_ARRAY_CLASS_NAME
-                }) {
-                    return true;
-                }
                 if let Some(class) = self.mir.classes.iter().find(|class| class.name == *name) {
                     crate::classes::effective_class_fields(self.mir, class)
                         .iter()

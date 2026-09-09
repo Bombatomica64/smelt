@@ -2,19 +2,19 @@ module examples/typescript/end-to-end/45_text_codec/input.ts (ModuleId(0))
   body BodyId(0)
   locals
     %0 const encoder: TextEncoder
-    %1 const bytes: __SmeltUint8Array
+    %1 const bytes: Uint8Array
     %2 const decoder: TextDecoder
-    %3 const emoji: __SmeltUint8Array
+    %3 const emoji: Uint8Array
   exprs
     #0: TextEncoder = text_encoder_new
     #1: TextEncoder = %0
     #2: String = "héllo"
-    #3: __SmeltUint8Array = text_encoder_encode #1 #2
-    #4: __SmeltUint8Array = %1
+    #3: Uint8Array = text_encoder_encode #1 #2
+    #4: Uint8Array = %1
     #5: Float = byte_array_length #4
     #6: None = @0(console_log)
     #7: None = call #6(#5)
-    #8: __SmeltUint8Array = %1
+    #8: Uint8Array = %1
     #9: Float = byte_array_byte_length #8
     #10: None = @1(console_log)
     #11: None = call #10(#9)
@@ -25,7 +25,7 @@ module examples/typescript/end-to-end/45_text_codec/input.ts (ModuleId(0))
     #16: String = "UTF8"
     #17: TextDecoder = text_decoder_new #16
     #18: TextDecoder = %2
-    #19: __SmeltUint8Array = %1
+    #19: Uint8Array = %1
     #20: String = text_decoder_decode #18 #19
     #21: None = @3(console_log)
     #22: None = call #21(#20)
@@ -35,32 +35,32 @@ module examples/typescript/end-to-end/45_text_codec/input.ts (ModuleId(0))
     #26: None = call #25(#24)
     #27: TextEncoder = text_encoder_new
     #28: String = ""
-    #29: __SmeltUint8Array = text_encoder_encode #27 #28
+    #29: Uint8Array = text_encoder_encode #27 #28
     #30: Float = byte_array_length #29
     #31: None = @5(console_log)
     #32: None = call #31(#30)
     #33: TextDecoder = text_decoder_new
     #34: TextEncoder = text_encoder_new
     #35: String = "round trip"
-    #36: __SmeltUint8Array = text_encoder_encode #34 #35
+    #36: Uint8Array = text_encoder_encode #34 #35
     #37: String = text_decoder_decode #33 #36
     #38: None = @6(console_log)
     #39: None = call #38(#37)
     #40: TextEncoder = text_encoder_new
     #41: String = "😀"
-    #42: __SmeltUint8Array = text_encoder_encode #40 #41
-    #43: __SmeltUint8Array = %3
+    #42: Uint8Array = text_encoder_encode #40 #41
+    #43: Uint8Array = %3
     #44: Float = byte_array_length #43
     #45: None = @7(console_log)
     #46: None = call #45(#44)
     #47: TextDecoder = text_decoder_new
-    #48: __SmeltUint8Array = %3
+    #48: Uint8Array = %3
     #49: String = text_decoder_decode #47 #48
     #50: None = @8(console_log)
     #51: None = call #50(#49)
   stmts
     s0: let %0: TextEncoder = #0
-    s1: let %1: __SmeltUint8Array = #3
+    s1: let %1: Uint8Array = #3
     s2: #7
     s3: #11
     s4: #15
@@ -69,7 +69,7 @@ module examples/typescript/end-to-end/45_text_codec/input.ts (ModuleId(0))
     s7: #26
     s8: #32
     s9: #39
-    s10: let %3: __SmeltUint8Array = #42
+    s10: let %3: Uint8Array = #42
     s11: #46
     s12: #51
 
@@ -78,6 +78,6 @@ interned types
   t1 = Unknown
   t2 = String
   t3 = TextDecoder
-  t4 = __SmeltUint8Array
+  t4 = Uint8Array
   t5 = Float
   t6 = None

@@ -8,26 +8,29 @@
 //! same impl.
 //!
 //! The cases here are the ones the examples corpus cannot hold, because each
-//! needs a value that is erased today and that corpus keeps a
+//! needs a value that is erased BY CONSTRUCTION and that corpus keeps a
 //! zero-avoidable-erasure invariant. Measured against Node 22 before the fix:
 //!
 //! | value | Node | Smelt (before) |
 //! | --- | --- | --- |
-//! | `new Uint8Array([1,2,3])` | `{"0":1,"1":2,"2":3}` | `{}` |
-//! | `new Int16Array([-1,300])` | `{"0":-1,"1":300}` | `{}` |
-//! | `new ArrayBuffer(2)` | `{}` | `{}` (already right) |
 //! | `new DataView(new ArrayBuffer(2))` | `{}` | `{}` (already right) |
-//! | `Object.keys(new ArrayBuffer(2))` | `[]` | `["0","1"]` |
-//! | `Object.values(new ArrayBuffer(2))` | `[]` | `[0,0]` |
+//! | `Object.keys(new DataView(..))` | `[]` | `["0","1"]` |
 //! | `{a: () => 1, b: 1}` | `{"b":1}` | `{"a":"function () { [native code] }","b":1}` |
 //! | `[() => 1, 1]` | `[null,1]` | `["function () { [native code] }",1]` |
 //! | `{a: Symbol("s"), b: 1}` | `{"b":1}` | `{"a":"Symbol(s)@32","b":1}` |
 //!
-//! The distinction that fixes the first six is that own indexed properties
+//! The distinction that fixes the first two is that own indexed properties
 //! belong to an ELEMENT-TYPED view and to nothing else: byte storage and a
 //! `DataView` address their bytes through accessors, so they have no properties
 //! of their own. `smelt_host_buffer_own_elements` is that rule, and
 //! `Object.keys`, `Object.values`, `for...in` and this serializer all read it.
+//!
+//! The byte-VIEW and byte-STORAGE rows that used to be here moved into the
+//! examples corpus (`74_typed_array_views`) when increment 3 of the typed-array
+//! plan made both concrete: they hold zero avoidable erasure now, and a corpus
+//! fixture is a stronger test than a tier one because it also pins the emitted
+//! Rust. A `DataView` is the one byte host still modeled as the erased record,
+//! so it stays.
 //!
 //! Each case is a TypeScript Vitest test lowered to a crate and executed with
 //! `cargo test`; a green run means every generated `expect(...)` held. The tier
@@ -116,45 +119,27 @@ fn run_fixture(source: &str, crate_name: &str) {
 
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
-fn a_byte_view_serializes_as_its_element_indices() {
-    // The width matters: a view decodes at its own element size and
-    // signedness, so an `Int16Array` reports `-1` and `300` rather than the
-    // four bytes underneath them.
-    let source = r#"
-import { test, expect } from "vitest";
-test("a byte view serializes as its element indices", () => {
-  expect(JSON.stringify(new Uint8Array([1, 2, 3]))).toBe('{"0":1,"1":2,"2":3}');
-  expect(JSON.stringify(new Int16Array([-1, 300]))).toBe('{"0":-1,"1":300}');
-  expect(JSON.stringify({ payload: new Uint8Array([9]) })).toBe('{"payload":{"0":9}}');
-  expect(JSON.stringify([new Uint8Array([9]), 1])).toBe('[{"0":9},1]');
-});
-"#;
-    run_fixture(source, "smelt_json_view_indices");
-}
-
-#[test]
-#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
-fn byte_storage_and_a_data_view_have_no_own_properties() {
+fn a_data_view_has_no_own_properties() {
     // `ArrayBuffer.isView(new DataView(..))` is true, yet a `DataView` has no
     // indexed properties: the own-property face is the ELEMENT-TYPED view's,
     // which is why the rule is keyed on the element type and not on the view
     // role.
+    //
+    // Only the `DataView` half is left here. Byte storage and the element
+    // views are concrete now (increment 3), so their answers moved into the
+    // examples corpus (`74_typed_array_views`) where they hold zero avoidable
+    // erasure; a `DataView` is the one byte host still modeled as the erased
+    // record, so it stays in the tier with it.
     let source = r#"
 import { test, expect } from "vitest";
-test("byte storage and a data view have no own properties", () => {
+test("a data view has no own properties", () => {
   const buffer = new ArrayBuffer(2);
-  expect(JSON.stringify(buffer)).toBe("{}");
   expect(JSON.stringify(new DataView(buffer))).toBe("{}");
-  expect(JSON.stringify(Object.keys(buffer))).toBe("[]");
-  expect(JSON.stringify(Object.values(buffer))).toBe("[]");
   expect(JSON.stringify(Object.keys(new DataView(buffer)))).toBe("[]");
-
-  const view = new Uint8Array([1, 2]);
-  expect(JSON.stringify(Object.keys(view))).toBe('["0","1"]');
-  expect(JSON.stringify(Object.values(view))).toBe("[1,2]");
+  expect(JSON.stringify(Object.values(new DataView(buffer)))).toBe("[]");
 });
 "#;
-    run_fixture(source, "smelt_json_storage_no_own_properties");
+    run_fixture(source, "smelt_json_data_view_no_own_properties");
 }
 
 #[test]
