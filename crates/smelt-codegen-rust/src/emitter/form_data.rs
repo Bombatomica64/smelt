@@ -97,17 +97,61 @@ impl FunctionEmitter<'_> {
                     dest_ty,
                 )
             }
-            // A callback member, and the only one on this surface. It is left a
-            // named blocker rather than approximated: the callback ABI (arity
-            // adaptation, the throwing edge, a captured environment) is the
-            // list-callback machinery, and reaching it from here needs the
-            // desugaring to `entries()` plus a parameter reorder — the spec
-            // calls back with `(value, name, form)`. `entries()` covers the
-            // same ground today with an exact type.
-            smelt_hir::FormDataOp::ForEach => Err(EmitError::new(
-                "`FormData.forEach` is not implemented yet; iterate `form.entries()` instead",
-            )),
+            // The one callback member on this surface. It walks the same
+            // insertion-ordered entry list `entries()` answers and calls back
+            // with the spec's `(value, name, form)`, forwarding as many of the
+            // three as the callback declares — a one-parameter callback is
+            // called with one argument, exactly as JavaScript does.
+            smelt_hir::FormDataOp::ForEach => self.form_data_for_each_text(&receiver, args),
         }
+    }
+
+    /// Emit `FormData.forEach(callback)`.
+    ///
+    /// The entry list is the one `entries()` answers, so the two members cannot
+    /// disagree about order or about what a form holds; each entry's value
+    /// crosses into the `string | File` union through the same adapter every
+    /// other member uses.
+    ///
+    /// The callback's DECLARED parameter count decides how many of
+    /// `(value, name, form)` are forwarded, the way the array-callback emitters
+    /// forward `(item, index, array)`: JavaScript passes all three and a
+    /// callback that declares one takes one, and a generated Rust closure has a
+    /// fixed arity, so the argument list has to match what was declared.
+    fn form_data_for_each_text(
+        &self,
+        receiver: &str,
+        args: &[Operand],
+    ) -> Result<String, EmitError> {
+        let Some(callback) = args.first() else {
+            return Err(EmitError::new("`FormData.forEach` requires a callback"));
+        };
+        let callback_ty = self.operand_ty(callback)?;
+        let Some(Type::Function(function_ty)) = self.mir.types.get(callback_ty).cloned() else {
+            return Err(EmitError::new(
+                "`FormData.forEach` requires a callback with a function type",
+            ));
+        };
+        let closure_text = match self.closure_operand_text_for_declared_type(callback) {
+            Ok(text) => text,
+            Err(_) => self.operand_text(callback)?,
+        };
+        let value_ty = self.form_data_value_type_id()?;
+        let value_arm = self.form_data_value_to_union_text("smelt_entry", value_ty)?;
+        let available = [
+            "smelt_value".to_owned(),
+            "smelt_name.clone()".to_owned(),
+            format!("{receiver}.clone()"),
+        ];
+        let forwarded = available
+            .iter()
+            .take(function_ty.params.len().min(available.len()))
+            .cloned()
+            .collect::<Vec<_>>();
+        let call_text = self.callback_invocation_text(&function_ty, &forwarded.join(", "));
+        Ok(format!(
+            "{{ let smelt_callback = {closure_text}; for (smelt_name, smelt_entry) in {receiver}.entries_in_order() {{ let smelt_value = {value_arm}; let _ = {call_text}; }} () }}"
+        ))
     }
 
     /// Emit a `set`/`append` value argument as a `SmeltFormDataValue`.

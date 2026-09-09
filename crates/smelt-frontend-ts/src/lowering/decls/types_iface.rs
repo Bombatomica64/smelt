@@ -1199,6 +1199,63 @@ impl ModuleBuilder<'_> {
         Ok(())
     }
 
+    /// The key and value types of a KEYED collection, for a `forEach` loop.
+    ///
+    /// `Some` for the collections whose `forEach` callback receives a key as
+    /// its second argument rather than a numeric index: a record, a `Map`, and
+    /// the modeled host collections. One rule, so a host collection's callback
+    /// is typed from its own surface — `FormData`'s entry value is the same
+    /// `string | File` union every other member of that surface answers.
+    fn for_each_keyed_entry_types(
+        &mut self,
+        iter_ty: smelt_hir::TypeId,
+    ) -> Option<(smelt_hir::TypeId, smelt_hir::TypeId)> {
+        if let Some(Type::Dict(key_ty, value_ty) | Type::JsMap(key_ty, value_ty)) =
+            self.ctx.krate.types.get(iter_ty).cloned()
+        {
+            return Some((key_ty, value_ty));
+        }
+        if self.is_form_data_type(iter_ty) {
+            let string_ty = self.ctx.krate.types.intern(Type::String);
+            let value_ty = self.form_data_value_type();
+            return Some((string_ty, value_ty));
+        }
+        None
+    }
+
+    /// Project a keyed collection into its `[key, value]` entries list.
+    ///
+    /// The projection each collection already models, so the loop iterates the
+    /// same insertion-ordered list its own `entries()` answers.
+    fn for_each_entries_projection(
+        &self,
+        receiver: smelt_hir::ExprId,
+        iter_ty: smelt_hir::TypeId,
+        entries_ty: smelt_hir::TypeId,
+        span: smelt_hir::Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        if self.is_form_data_type(iter_ty) {
+            return body.push_expr(Expr {
+                kind: ExprKind::FormDataOp {
+                    op: smelt_hir::FormDataOp::Entries,
+                    form: receiver,
+                    args: Vec::new(),
+                },
+                ty: entries_ty,
+                span,
+            });
+        }
+        body.push_expr(Expr {
+            kind: ExprKind::DictProjection {
+                op: DictProjectionOp::Entries,
+                dict: receiver,
+            },
+            ty: entries_ty,
+            span,
+        })
+    }
+
     /// Lower side-effecting `array.forEach((item) => { ... })` as a normal loop.
     pub(in crate::lowering) fn for_each_statement(
         &mut self,
@@ -1225,11 +1282,18 @@ impl ModuleBuilder<'_> {
         };
         let mut iter = self.expression(&member.object, body)?;
         let iter_ty = Self::expr_ty(body, iter);
-        // `map.forEach((value, key) => …)` receives the *key* as its second
+        // A KEYED collection's `forEach` receives the *key* as its second
         // argument, not a numeric index: iterate the `[key, value]` entries
-        // list and bind both callback parameters from each entry tuple.
-        if let Some(Type::Dict(key_ty, value_ty) | Type::JsMap(key_ty, value_ty)) =
-            self.ctx.krate.types.get(iter_ty).cloned()
+        // list and bind the callback parameters from each entry tuple. Which
+        // collections are keyed comes from
+        // [`Self::for_each_keyed_entry_types`], so a `Map`, a record and a
+        // modeled host collection such as `FormData` share one rule — Hono's
+        // `formData.forEach((value, key) => key.endsWith('[]'))` used to fall
+        // into the ARRAY path below, where the parameters got no type at all
+        // and `key.endsWith` reported "string prefix/suffix methods require
+        // string receiver and argument" for a key the surface has always known
+        // to be a string.
+        if let Some((key_ty, value_ty)) = self.for_each_keyed_entry_types(iter_ty)
             && arrow.params.items.len() >= 2
         {
             let span = self.span(call.span.start, call.span.end);
@@ -1239,14 +1303,44 @@ impl ModuleBuilder<'_> {
                 .types
                 .intern(Type::Tuple(vec![key_ty, value_ty]));
             let entries_ty = self.ctx.krate.types.intern(Type::List(entry_ty));
-            let entries = body.push_expr(Expr {
-                kind: ExprKind::DictProjection {
-                    op: DictProjectionOp::Entries,
-                    dict: iter,
-                },
-                ty: entries_ty,
-                span,
+            // The receiver is bound to a local ONLY when the callback declares
+            // the spec's third parameter (the collection itself): the binding
+            // exists so that parameter can be forwarded without evaluating the
+            // receiver expression twice — `getForm().forEach(..)` must call
+            // `getForm` once — and a callback that does not name it should not
+            // pay for a local nobody reads (an erased map's extra binding is
+            // two more `SmeltUnknown` mentions in the generated crate, which
+            // is a ratchet regression for a value that did not change).
+            let source_local = if arrow.params.items.len() >= 3 {
+                let source_symbol = self.ctx.krate.symbols.intern("__for_each_source");
+                let source_local = body.push_local(LocalDecl {
+                    name: Some(source_symbol),
+                    ty: iter_ty,
+                    mutable: false,
+                    span,
+                });
+                let source_pat = body.push_pattern(Pattern::Binding(source_local));
+                body.push_stmt_to_block(
+                    block,
+                    Stmt::Let {
+                        pat: source_pat,
+                        ty: iter_ty,
+                        value: Some(iter),
+                    },
+                );
+                Some(source_local)
+            } else {
+                None
+            };
+            let projected = source_local.map_or(iter, |local| {
+                body.push_expr(Expr {
+                    kind: ExprKind::Local(local),
+                    ty: iter_ty,
+                    span,
+                })
             });
+            let entries =
+                self.for_each_entries_projection(projected, iter_ty, entries_ty, span, body);
             let entry_symbol = self.ctx.krate.symbols.intern("__for_each_entry");
             let entry_local = body.push_local(LocalDecl {
                 name: Some(entry_symbol),
@@ -1257,15 +1351,38 @@ impl ModuleBuilder<'_> {
             let entry_pat = body.push_pattern(Pattern::Binding(entry_local));
             let loop_body = body.push_block(self.arrow_body_span(arrow));
             let mut param_names = Vec::new();
-            for param in arrow.params.items.iter().take(2) {
+            for param in arrow.params.items.iter().take(3) {
                 Self::binding_pattern_names(&param.pattern, &mut param_names);
             }
             let saved_locals = param_names
                 .iter()
                 .map(|name| (name.clone(), self.scope.lookup(name)))
                 .collect::<Vec<_>>();
-            for (param_index, param) in arrow.params.items.iter().take(2).enumerate() {
-                // Callback order is `(value, key)`; entries are `[key, value]`.
+            for (param_index, param) in arrow.params.items.iter().take(3).enumerate() {
+                // Callback order is `(value, key, collection)`; entries are
+                // `[key, value]`. The third parameter is the collection, which
+                // JavaScript passes to every `forEach` callback and which was
+                // simply left unbound before — a callback that declared it
+                // reported an unresolved identifier for its own parameter.
+                if param_index == 2 {
+                    let Some(local) = source_local else {
+                        continue;
+                    };
+                    let source_read = body.push_expr(Expr {
+                        kind: ExprKind::Local(local),
+                        ty: iter_ty,
+                        span,
+                    });
+                    self.binding_declaration(
+                        &param.pattern,
+                        Some(source_read),
+                        Some(iter_ty),
+                        false,
+                        body,
+                        loop_body,
+                    )?;
+                    continue;
+                }
                 let (tuple_index, ty) = if param_index == 0 {
                     (1_usize, value_ty)
                 } else {
@@ -1330,6 +1447,24 @@ impl ModuleBuilder<'_> {
                     span: self.span(member.object.span().start, member.object.span().end),
                 });
                 item_ty
+            }
+            // A modeled host collection with one callback parameter iterates
+            // its VALUES, the same answer the record arm below gives. Placed
+            // before it because a host collection is a `Type::Class`, which no
+            // structural arm matches.
+            Some(Type::Class { .. }) if self.is_form_data_type(iter_ty) => {
+                let value_ty = self.form_data_value_type();
+                let list_ty = self.ctx.krate.types.intern(Type::List(value_ty));
+                iter = body.push_expr(Expr {
+                    kind: ExprKind::FormDataOp {
+                        op: smelt_hir::FormDataOp::Values,
+                        form: iter,
+                        args: Vec::new(),
+                    },
+                    ty: list_ty,
+                    span: self.span(member.object.span().start, member.object.span().end),
+                });
+                value_ty
             }
             Some(Type::Dict(_, value_ty)) => {
                 let list_ty = self.ctx.krate.types.intern(Type::List(value_ty));

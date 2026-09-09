@@ -80,16 +80,33 @@ impl ModuleBuilder<'_> {
                 format!("`FormData.{member_name}` requires {required} argument(s)"),
             ));
         }
-        // `append`/`set` accept an OPTIONAL third `filename`, so the accepted
-        // count is a range rather than a fixed arity. Extra arguments beyond it
-        // are dropped, as they are for every other modeled member.
-        let accepted = Self::form_data_op_max_arity(op).min(call.arguments.len());
-        let args = call
-            .arguments
-            .iter()
-            .take(accepted)
-            .map(|argument| self.argument(argument, body))
-            .collect::<Result<Vec<_>, _>>()?;
+        // A CALLBACK member's argument is lowered with the parameter types the
+        // modeled surface declares, not as an ordinary value. Without them the
+        // arrow's parameters have no type, so `formData.forEach((value, key) =>
+        // key.endsWith('[]'))` — Hono's `convertFormDataToBodyData` — reported
+        // "string prefix/suffix methods require string receiver and argument"
+        // for a `key` the surface has always known to be a `string`. The types
+        // come from `form_data_op_callback_param_types`, beside the result
+        // types, so a member's callback shape and its result cannot disagree.
+        if std::env::var("SMELT_DBG_FD").is_ok() { eprintln!("FD dispatch op={op:?}"); }
+        let args = if let Some(param_tys) = self.form_data_op_callback_param_types(op) {
+            let Some(argument) = call.arguments.first() else {
+                return Ok(None);
+            };
+            let callback =
+                self.callback_argument(argument, &param_tys, "FormData.forEach", body)?;
+            Vec::from([callback.expr])
+        } else {
+            // `append`/`set` accept an OPTIONAL third `filename`, so the accepted
+            // count is a range rather than a fixed arity. Extra arguments beyond it
+            // are dropped, as they are for every other modeled member.
+            let accepted = Self::form_data_op_max_arity(op).min(call.arguments.len());
+            call.arguments
+                .iter()
+                .take(accepted)
+                .map(|argument| self.argument(argument, body))
+                .collect::<Result<Vec<_>, _>>()?
+        };
         let ty = self.form_data_op_result_type(op);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::FormDataOp {
@@ -183,6 +200,31 @@ impl ModuleBuilder<'_> {
             Op::Set | Op::Append => 3,
             other => Self::form_data_op_required_arity(other),
         }
+    }
+
+    /// The parameter types a form operation's CALLBACK argument declares.
+    ///
+    /// `None` for every member that takes plain values. `forEach` is the one
+    /// callback member on this surface, and the spec calls back with
+    /// `(value, key, form)` — the value being the same `string | File` union
+    /// every other member answers, so a consumer that matches one arm matches
+    /// them all.
+    ///
+    /// Returning the types here rather than at the call site is what lets the
+    /// callback's own parameters be typed before its body is lowered: a
+    /// parameter with no type erases, and an erased `key` cannot answer
+    /// `key.endsWith('[]')`.
+    fn form_data_op_callback_param_types(
+        &mut self,
+        op: smelt_hir::FormDataOp,
+    ) -> Option<Vec<smelt_hir::TypeId>> {
+        if !matches!(op, smelt_hir::FormDataOp::ForEach) {
+            return None;
+        }
+        let value_ty = self.form_data_value_type();
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let form_ty = self.form_data_type();
+        Some(Vec::from([value_ty, string_ty, form_ty]))
     }
 
     /// Return the exact source result type of a form operation.

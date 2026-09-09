@@ -1,0 +1,207 @@
+module examples/typescript/end-to-end/72_form_data_for_each/input.ts (ModuleId(0))
+  body BodyId(0)
+  locals
+    %0 const form: FormData
+    %1 const seen: List<String>
+    %2 const __for_each_entry: (String, String | File)
+    %3 const value: String | File
+    %4 const key: String
+    %5 const values: List<String>
+    %6 const value: String | File
+    %7 let present: Float
+    %8 const __for_each_source: FormData
+    %9 const __for_each_entry: (String, String | File)
+    %10 const value: String | File
+    %11 const key: String
+    %12 const parent: FormData
+    %13 const map: Map<String, Float>
+    %14 const pairs: List<String>
+    %15 const __for_each_entry: (String, Float)
+    %16 const value: Float
+    %17 const key: String
+    %18 let mapSize: Float
+    %19 const __for_each_source: Map<String, Float>
+    %20 const __for_each_entry: (String, Float)
+    %21 const value: Float
+    %22 const key: String
+    %23 const parent: Map<String, Float>
+  exprs
+    #0: FormData = form_data_new
+    #1: FormData = %0
+    #2: FormData = %0
+    #3: FormData = %0
+    #4: String = "a"
+    #5: String = "1"
+    #6: None = form_data_append #3, #4, #5
+    #7: FormData = %0
+    #8: FormData = %0
+    #9: FormData = %0
+    #10: String = "b[]"
+    #11: String = "2"
+    #12: None = form_data_append #9, #10, #11
+    #13: FormData = %0
+    #14: FormData = %0
+    #15: FormData = %0
+    #16: String = "b[]"
+    #17: String = "3"
+    #18: None = form_data_append #15, #16, #17
+    #19: List<String> = []
+    #20: FormData = %0
+    #21: List<(String, String | File)> = form_data_entries #20
+    #22: (String, String | File) = %2
+    #23: String | File = tuple_index #22, 1
+    #24: (String, String | File) = %2
+    #25: String = tuple_index #24, 0
+    #26: List<String> = %1
+    #27: String = ""
+    #28: String = %4
+    #29: String = Add #27, #28
+    #30: String = "="
+    #31: String = Add #29, #30
+    #32: String | File = %3
+    #33: String = primitive_cast_string #32
+    #34: String = Add #31, #33
+    #35: String = ":"
+    #36: String = Add #34, #35
+    #37: String = %4
+    #38: String = "[]"
+    #39: String = assert_type #37
+    #40: String = assert_type #38
+    #41: Bool = string_ends_with #39, #40
+    #42: String = Add #36, #41
+    #43: Float = list_push #26, #42
+    #44: List<String> = %1
+    #45: String = ","
+    #46: String = string_join #44, #45
+    #47: None = @0(console_log)
+    #48: None = call #47(#46)
+    #49: List<String> = []
+    #50: FormData = %0
+    #51: List<String | File> = form_data_values #50
+    #52: List<String> = %5
+    #53: String | File = %6
+    #54: String = primitive_cast_string #53
+    #55: Float = list_push #52, #54
+    #56: List<String> = %5
+    #57: String = ","
+    #58: String = string_join #56, #57
+    #59: None = @1(console_log)
+    #60: None = call #59(#58)
+    #61: Float = 0.0
+    #62: FormData = %0
+    #63: FormData = %8
+    #64: List<(String, String | File)> = form_data_entries #63
+    #65: (String, String | File) = %9
+    #66: String | File = tuple_index #65, 1
+    #67: (String, String | File) = %9
+    #68: String = tuple_index #67, 0
+    #69: FormData = %8
+    #70: FormData = %12
+    #71: FormData = %12
+    #72: FormData = %12
+    #73: FormData = %12
+    #74: String = %11
+    #75: Bool = form_data_has #73, #74
+    #76: Float = %7
+    #77: Float = 1.0
+    #78: Float = Add #76, #77
+    #79: Float = %7
+    #80: None = @2(console_log)
+    #81: None = call #80(#79)
+    #82: String = "x"
+    #83: Float = 1.0
+    #84: String = "y"
+    #85: Float = 2.0
+    #86: Map<String, Float> = {#82: #83, #84: #85}
+    #87: List<String> = []
+    #88: Map<String, Float> = %13
+    #89: List<(String, Float)> = dict_entries #88
+    #90: (String, Float) = %15
+    #91: Float = tuple_index #90, 1
+    #92: (String, Float) = %15
+    #93: String = tuple_index #92, 0
+    #94: List<String> = %14
+    #95: String = ""
+    #96: String = %17
+    #97: String = Add #95, #96
+    #98: String = ":"
+    #99: String = Add #97, #98
+    #100: Float = %16
+    #101: String = Add #99, #100
+    #102: Float = list_push #94, #101
+    #103: List<String> = %14
+    #104: String = ","
+    #105: String = string_join #103, #104
+    #106: None = @3(console_log)
+    #107: None = call #106(#105)
+    #108: Float = 0.0
+    #109: Map<String, Float> = %13
+    #110: Map<String, Float> = %19
+    #111: List<(String, Float)> = dict_entries #110
+    #112: (String, Float) = %20
+    #113: Float = tuple_index #112, 1
+    #114: (String, Float) = %20
+    #115: String = tuple_index #114, 0
+    #116: Map<String, Float> = %19
+    #117: Float = %18
+    #118: Map<String, Float> = %23
+    #119: Float = len #118
+    #120: Float = %18
+    #121: None = @4(console_log)
+    #122: None = call #121(#120)
+  stmts
+    s0: let %0: FormData = #0
+    s1: #6
+    s2: #12
+    s3: #18
+    s4: let %1: List<String> = #19
+    s5: let %3: String | File = #23
+    s6: let %4: String = #25
+    s7: #43
+    s8: for %2 in #21 BlockId(1)
+    s9: #48
+    s10: let %5: List<String> = #49
+    s11: #55
+    s12: for %6 in #51 BlockId(2)
+    s13: #60
+    s14: let %7: Float = #61
+    s15: let %8: FormData = #62
+    s16: let %10: String | File = #66
+    s17: let %11: String = #68
+    s18: let %12: FormData = #69
+    s19: #76 = #78
+    s20: if #75 then BlockId(4)
+    s21: for %9 in #64 BlockId(3)
+    s22: #81
+    s23: let %13: Map<String, Float> = #86
+    s24: let %14: List<String> = #87
+    s25: let %16: Float = #91
+    s26: let %17: String = #93
+    s27: #102
+    s28: for %15 in #89 BlockId(5)
+    s29: #107
+    s30: let %18: Float = #108
+    s31: let %19: Map<String, Float> = #109
+    s32: let %21: Float = #113
+    s33: let %22: String = #115
+    s34: let %23: Map<String, Float> = #116
+    s35: #117 = #119
+    s36: for %20 in #111 BlockId(6)
+    s37: #122
+
+interned types
+  t0 = FormData
+  t1 = String
+  t2 = List<String>
+  t3 = Float
+  t4 = Dict<String, Float>
+  t5 = Map<String, Float>
+  t6 = File
+  t7 = String | File
+  t8 = None
+  t9 = (String, String | File)
+  t10 = List<(String, String | File)>
+  t11 = Bool
+  t12 = List<String | File>
+  t13 = (String, Float)
+  t14 = List<(String, Float)>

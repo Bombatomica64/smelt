@@ -384,7 +384,7 @@ impl FunctionEmitter<'_> {
     /// `SmeltErasedFunction` value rather than a Rust `Fn`, so it must be invoked
     /// through the erased callable ABI (`.call(..)`). Every other callback is a
     /// concrete closure and uses direct call syntax.
-    fn callback_invocation_text(&self, function_ty: &FunctionType, args: &str) -> String {
+    pub(super) fn callback_invocation_text(&self, function_ty: &FunctionType, args: &str) -> String {
         if self.is_erased_unknown_rest_function(function_ty) {
             format!("smelt_callback.call({args})")
         } else {
