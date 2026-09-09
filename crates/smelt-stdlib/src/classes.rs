@@ -81,21 +81,39 @@ pub enum StdlibClass {
     /// WHATWG `TextDecoder`, backed by the generated concrete `SmeltTextDecoder`
     /// runtime type (an encoding label plus the reference identity).
     TextDecoder,
-    /// A concrete byte view: the value `TextEncoder.encode` answers, backed by
-    /// the generated `SmeltUint8Array` runtime type (a shared `Vec<u8>` with a
-    /// JS reference identity).
+    /// The concrete typed-array FAMILY: an element view over byte storage,
+    /// backed by the generated `SmeltTypedArray` runtime type (a kind, a shared
+    /// `Rc<RefCell<Vec<u8>>>`, a byte offset, an element count, and a JS
+    /// reference identity).
     ///
-    /// Reached only through the reserved synthetic name
-    /// [`BYTE_ARRAY_CLASS_NAME`], never through the source spelling
-    /// `Uint8Array`. That separation is deliberate: the eleven typed-array
-    /// VIEWS are still byte-backed host records (`host_object.rs`), because a
-    /// view's identity carries an element type, a byte offset, and a shared
-    /// `ArrayBuffer` that reflective construction reads back at runtime. A
-    /// source `Uint8Array` annotation therefore keeps its erased meaning, and a
-    /// concrete byte view crosses into it through the ordinary
-    /// `IntoSmeltUnknown` boundary adapter. Converting the whole view family to
-    /// concrete Rust is recorded as demand, not done here.
-    ByteArray,
+    /// One stdlib class for all eleven source spellings — `Uint8Array`,
+    /// `Int8Array`, ..., `BigUint64Array` — plus the reserved synthetic
+    /// [`BYTE_ARRAY_CLASS_NAME`] that `TextEncoder.encode` answers. The element
+    /// KIND is deliberately not part of the class identity: it is a runtime
+    /// property of the value (`Object.prototype.toString.call(view)` reports
+    /// it, and reflective construction reads it back off an erased record), so
+    /// the eleven share one Rust type and the constructor site — which knows
+    /// the source name — selects the kind. `Type::Class { name }` still carries
+    /// the source spelling, so nothing about the view's name is lost.
+    ///
+    /// The erased byte-backed host record (`host_object.rs`) is now this
+    /// class's BOUNDARY form, not its representation: a view crosses into
+    /// `SmeltUnknown` through `IntoSmeltUnknown` (which stamps exactly the
+    /// marker record the erased face has always produced) and comes back
+    /// through `SmeltFromUnknown`.
+    TypedArray,
+    /// The concrete byte STORAGE a view reads: `ArrayBuffer`, backed by the
+    /// generated `SmeltArrayBuffer` runtime type.
+    ///
+    /// Separate from [`Self::TypedArray`] because storage interprets no bytes:
+    /// it has `byteLength` and `slice` and no elements, which is why
+    /// `JSON.stringify(buffer)` is `{}` where a view stringifies as its element
+    /// indices. `SharedArrayBuffer` and `DataView` are deliberately NOT here —
+    /// they keep the erased byte-backed record, because neither's surface
+    /// (cross-thread storage; per-call element widths) is modeled concretely
+    /// yet, and a half-modeled concrete face is worse than an honest erased
+    /// one.
+    ArrayBuffer,
     /// WHATWG `Blob`, backed by the generated concrete `SmeltBlob` runtime type
     /// (immutable bytes, a MIME type, and optional `File` metadata).
     Blob,
@@ -162,7 +180,8 @@ impl StdlibClass {
                 | Self::File
                 | Self::RegExp
                 | Self::Match
-                | Self::ByteArray
+                | Self::TypedArray
+                | Self::ArrayBuffer
                 | Self::TextEncoder
                 | Self::TextDecoder
                 | Self::EventEmitter
@@ -183,10 +202,15 @@ impl StdlibClass {
     /// for one backed by a generated runtime type: the record would answer
     /// `instanceof` correctly and then silently fail every method called on it.
     ///
-    /// `Blob` and `File` are the exception among the runtime-typed classes, and
-    /// deliberately: `blob_prelude` emits a reflected constructor that shares
-    /// `smelt_blob_record` with the erasure, so the record it builds is exactly
-    /// the one a real blob erases to and the two cannot drift.
+    /// `Blob`/`File` and the byte family (`TypedArray`/`ArrayBuffer`) are the
+    /// exceptions among the runtime-typed classes, and deliberately: for each,
+    /// the reflected constructor and the erasure adapter build the SAME record
+    /// — `blob_prelude`'s `smelt_blob_record` for a blob, and
+    /// `byte_buffer_prelude`'s `smelt_host_buffer_construct` for a view or its
+    /// storage — so the record a reflected `new` produces is exactly the one a
+    /// real value erases to, and it answers the whole erased surface
+    /// (elements, `slice`, indexed reads, the `[object X]` tag) rather than
+    /// standing in for methods that would fail.
     ///
     /// Asking the registry replaces two hand-maintained exclusion lists in
     /// `reflection_prelude`, which is how five of the six classes registered in
@@ -194,7 +218,11 @@ impl StdlibClass {
     /// as records the moment they gained a marker.
     #[must_use]
     pub const fn reflects_to_marker_record(self) -> bool {
-        !self.erases_through_adapter() || matches!(self, Self::Blob | Self::File)
+        !self.erases_through_adapter()
+            || matches!(
+                self,
+                Self::Blob | Self::File | Self::TypedArray | Self::ArrayBuffer
+            )
     }
 
     /// Return whether an ERASED value can be converted BACK into this class's
@@ -226,6 +254,29 @@ impl StdlibClass {
     #[must_use]
     pub const fn narrows_from_erased(self) -> bool {
         self.erases_through_adapter() && !matches!(self, Self::HttpServer)
+    }
+
+    /// Return whether values of this class are a generated concrete Rust type
+    /// rather than an erased marker record.
+    ///
+    /// The question codegen asks when it has to decide whether a class-typed
+    /// destination can hold a value at all: a class with a concrete runtime type
+    /// is coerced INTO through its `SmeltFromUnknown` recovery, where an erased
+    /// one simply takes the `SmeltUnknown` unchanged. Getting it wrong in the
+    /// "concrete" direction is silent: the emitter erases into a typed slot and
+    /// the generated crate stops compiling (E0308), which is exactly what a
+    /// hand-maintained list of spellings produced the moment `ArrayBuffer`
+    /// became concrete.
+    ///
+    /// It is [`Self::erases_through_adapter`] plus the two classes that have a
+    /// concrete runtime type but no adapter of their own:
+    /// [`Self::MatchGroups`] (the same `SmeltMatch` value under a second name)
+    /// and [`Self::ReadableStream`] (the `SmeltBody` handle, which carries no
+    /// state a record could describe).
+    #[must_use]
+    pub const fn has_concrete_runtime_type(self) -> bool {
+        self.erases_through_adapter()
+            || matches!(self, Self::MatchGroups | Self::ReadableStream)
     }
 
     /// Return whether values of this class are the generated `SmeltBlob` type.
@@ -280,9 +331,10 @@ pub const MATCH_GROUPS_CLASS_NAME: &str = "__SmeltMatchGroups";
 ///
 /// `TextEncoder.encode` answers a value of this class. The name is not writable
 /// in user TypeScript (double-underscore prefix), so it never collides with a
-/// source class, and — unlike the spelling `Uint8Array` — it never collides with
-/// the byte-backed host record the typed-array views still use. See
-/// [`StdlibClass::ByteArray`].
+/// source class. It resolves to the SAME [`StdlibClass::TypedArray`] the eleven
+/// source spellings do — a `Uint8` view is a `Uint8` view however it was
+/// spelled — and survives only because codecs and `crypto` answer a view
+/// without naming one of the source constructors.
 pub const BYTE_ARRAY_CLASS_NAME: &str = "__SmeltUint8Array";
 
 /// Return the stdlib class modeled by a TypeScript class type name.
@@ -316,7 +368,13 @@ pub fn typescript_stdlib_class(name: &str) -> Option<StdlibClass> {
         "ReadableStream" => Some(StdlibClass::ReadableStream),
         "TextEncoder" => Some(StdlibClass::TextEncoder),
         "TextDecoder" => Some(StdlibClass::TextDecoder),
-        BYTE_ARRAY_CLASS_NAME => Some(StdlibClass::ByteArray),
+        BYTE_ARRAY_CLASS_NAME => Some(StdlibClass::TypedArray),
+        // The eleven typed-array views are ONE modeled class, keyed off the
+        // shared registry rather than eleven arms here, so the construction
+        // side, the annotation side and codegen's Rust-type side cannot
+        // disagree about which spellings are the family.
+        name if is_typed_array_class_name(name) => Some(StdlibClass::TypedArray),
+        "ArrayBuffer" => Some(StdlibClass::ArrayBuffer),
         "Blob" => Some(StdlibClass::Blob),
         "File" => Some(StdlibClass::File),
         _ => None,

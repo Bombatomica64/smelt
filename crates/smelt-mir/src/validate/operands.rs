@@ -116,7 +116,17 @@ impl Rvalue {
                     visit(arg);
                 }
             }
-            Self::ByteArrayOp { bytes, .. } => visit(bytes),
+            Self::TypedArrayNew { args, .. } => {
+                for arg in args {
+                    visit(arg);
+                }
+            }
+            Self::ByteArrayOp { bytes, args, .. } => {
+                visit(bytes);
+                for arg in args {
+                    visit(arg);
+                }
+            }
             Self::UrlSearchParamsNew { init } => {
                 if let Some(init) = init {
                     visit(init);
@@ -1037,7 +1047,17 @@ impl Rvalue {
                     visit(arg);
                 }
             }
-            Self::ByteArrayOp { bytes, .. } => visit(bytes),
+            Self::TypedArrayNew { args, .. } => {
+                for arg in args {
+                    visit(arg);
+                }
+            }
+            Self::ByteArrayOp { bytes, args, .. } => {
+                visit(bytes);
+                for arg in args {
+                    visit(arg);
+                }
+            }
             Self::UrlSearchParamsNew { init } => {
                 if let Some(init) = init {
                     visit(init);

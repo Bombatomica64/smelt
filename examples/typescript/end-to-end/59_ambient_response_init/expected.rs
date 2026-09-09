@@ -498,7 +498,17 @@ fn smelt_register_host_origin<T: Clone + 'static>(id: usize, value: T) {
 #[allow(dead_code)]
 fn smelt_restore_host_origin<T: Clone + 'static>(value: &SmeltUnknown) -> Option<T> {
     let SmeltUnknown::Object(map) = value else { return None };
-    SMELT_HOST_ORIGINS.with(|origins| origins.borrow().get(&map.id).and_then(|origin| origin.downcast_ref::<T>()).cloned())
+    smelt_restore_host_origin_by_id::<T>(map.id)
+}
+
+/// The same lookup from an object id alone.
+///
+/// A write THROUGH an erased record needs this: it holds the record's id
+/// (and its storage record's id) rather than a whole value, and it has to
+/// reach the live object those ids stand for.
+#[allow(dead_code)]
+fn smelt_restore_host_origin_by_id<T: Clone + 'static>(id: usize) -> Option<T> {
+    SMELT_HOST_ORIGINS.with(|origins| origins.borrow().get(&id).and_then(|origin| origin.downcast_ref::<T>()).cloned())
 }
 
 thread_local! {
@@ -976,7 +986,9 @@ fn smelt_host_buffer_storage_record(bytes: Vec<SmeltUnknown>) -> SmeltUnknown { 
 /// Passing the *same* storage record two views were built from is what makes
 /// `view.buffer === buffer` hold, which lodash-compatible clone specs assert on
 /// a cloned view.
-fn smelt_host_buffer_view_record(marker: &'static str, bytes: Vec<SmeltUnknown>, buffer: Option<SmeltUnknown>, byte_offset: usize) -> SmeltUnknown { let byte_length = bytes.len(); let stride = smelt_host_buffer_stride(marker); let mut fields = Vec::from([(marker.to_owned(), SmeltUnknown::Bool(true)), ("bytes".to_owned(), SmeltUnknown::Array(SmeltArray::new(bytes))), ("byteLength".to_owned(), SmeltUnknown::Number(byte_length as f64)), ("length".to_owned(), SmeltUnknown::Number((byte_length / stride) as f64))]); if let Some(buffer) = buffer { fields.push(("buffer".to_owned(), buffer)); fields.push(("byteOffset".to_owned(), SmeltUnknown::Number(byte_offset as f64))); } SmeltUnknown::Object(SmeltObject::new(fields)) }
+fn smelt_host_buffer_view_record(marker: &'static str, bytes: Vec<SmeltUnknown>, buffer: Option<SmeltUnknown>, byte_offset: usize) -> SmeltUnknown { smelt_host_buffer_view_record_with_id(smelt_next_object_id(), marker, bytes, buffer, byte_offset) }
+/// Build a byte-backed host record at a given JS reference id.
+fn smelt_host_buffer_view_record_with_id(id: usize, marker: &'static str, bytes: Vec<SmeltUnknown>, buffer: Option<SmeltUnknown>, byte_offset: usize) -> SmeltUnknown { let byte_length = bytes.len(); let stride = smelt_host_buffer_stride(marker); let mut fields = Vec::from([(marker.to_owned(), SmeltUnknown::Bool(true)), ("bytes".to_owned(), SmeltUnknown::Array(SmeltArray::new(bytes))), ("byteLength".to_owned(), SmeltUnknown::Number(byte_length as f64)), ("length".to_owned(), SmeltUnknown::Number((byte_length / stride) as f64))]); if let Some(buffer) = buffer { fields.push(("buffer".to_owned(), buffer)); fields.push(("byteOffset".to_owned(), SmeltUnknown::Number(byte_offset as f64))); } SmeltUnknown::Object(SmeltObject::with_id(id, fields)) }
 /// Return a byte-backed host record's raw storage bytes, or `None`.
 ///
 /// This is the *byte* view of the record, which is what
@@ -1043,7 +1055,7 @@ fn smelt_host_buffer_element(map: &SmeltObject, key: &str) -> Option<SmeltUnknow
 /// fixed-length storage. The write also lands in the view's backing `buffer`
 /// record *in place*, so `view[0] = 1` is visible through `view.buffer` and the
 /// buffer keeps its object identity (`view.buffer === buffer` still holds).
-fn smelt_host_buffer_set_element(map: &SmeltObject, key: &str, value: SmeltUnknown) -> bool { let Some(marker) = smelt_host_buffer_marker(map) else { return false; }; let Ok(index) = key.parse::<usize>() else { return false; }; let Some(SmeltUnknown::Array(values)) = map.get("bytes") else { return false; }; let mut bytes = values.into_vec(); let (kind, width) = smelt_host_buffer_element_kind(marker).unwrap_or(("uint8", 1)); let offset = index * width; if offset + width <= bytes.len() { let encoded = smelt_host_buffer_encode_element(kind, &value); for (step, byte) in encoded.iter().enumerate() { bytes[offset + step] = byte.clone(); } map.insert("bytes".to_owned(), SmeltUnknown::Array(SmeltArray::new(bytes))); smelt_host_buffer_write_through(map, offset, &encoded); } true }
+fn smelt_host_buffer_set_element(map: &SmeltObject, key: &str, value: SmeltUnknown) -> bool { let Some(marker) = smelt_host_buffer_marker(map) else { return false; }; let Ok(index) = key.parse::<usize>() else { return false; }; let Some(SmeltUnknown::Array(values)) = map.get("bytes") else { return false; }; let mut bytes = values.into_vec(); let (kind, width) = smelt_host_buffer_element_kind(marker).unwrap_or(("uint8", 1)); let offset = index * width; if offset + width <= bytes.len() { let encoded = smelt_host_buffer_encode_element(kind, &value); for (step, byte) in encoded.iter().enumerate() { bytes[offset + step] = byte.clone(); } map.insert("bytes".to_owned(), SmeltUnknown::Array(SmeltArray::new(bytes))); smelt_host_buffer_write_through(map, offset, &encoded);  } true }
 /// Mirror an element write into the view's backing `buffer` storage record.
 ///
 /// A typed array is a window onto an `ArrayBuffer`, so a write through the view
@@ -1052,7 +1064,7 @@ fn smelt_host_buffer_set_element(map: &SmeltObject, key: &str, value: SmeltUnkno
 /// in place rather than replaced: replacing it would mint a new object id and
 /// break `view.buffer === buf`. `byteOffset` places the window inside the
 /// buffer. A no-op for the byte-addressed kinds, which have no backing buffer.
-fn smelt_host_buffer_write_through(map: &SmeltObject, offset: usize, encoded: &[SmeltUnknown]) { let Some(SmeltUnknown::Object(storage)) = map.get("buffer") else { return; }; let base = match map.get("byteOffset") { Some(SmeltUnknown::Number(value)) if value >= 0.0 => value as usize, _ => 0 }; let Some(SmeltUnknown::Array(values)) = storage.get("bytes") else { return; }; let mut bytes = values.into_vec(); for (step, byte) in encoded.iter().enumerate() { let at = base + offset + step; if at < bytes.len() { bytes[at] = byte.clone(); } } storage.insert("bytes".to_owned(), SmeltUnknown::Array(SmeltArray::new(bytes))); }
+fn smelt_host_buffer_write_through(map: &SmeltObject, offset: usize, encoded: &[SmeltUnknown]) { let Some(SmeltUnknown::Object(storage)) = map.get("buffer") else { return; }; let base = match map.get("byteOffset") { Some(SmeltUnknown::Number(value)) if value >= 0.0 => value as usize, _ => 0 }; let Some(SmeltUnknown::Array(values)) = storage.get("bytes") else { return; }; let mut bytes = values.into_vec(); for (step, byte) in encoded.iter().enumerate() { let at = base + offset + step; if at < bytes.len() { bytes[at] = byte.clone(); } } storage.insert("bytes".to_owned(), SmeltUnknown::Array(SmeltArray::new(bytes)));  }
 /// Whether an erased value is byte *storage* (an `ArrayBuffer`), not a view.
 ///
 /// This is the distinction that decides what `new Float32Array(source)` means:

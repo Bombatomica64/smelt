@@ -1466,12 +1466,22 @@ pub enum Rvalue {
         /// Operation arguments (the byte view to decode, or none).
         args: Vec<Operand>,
     },
-    /// Read a size member of a concrete byte view.
+    /// Construct a value of the concrete typed-array family.
+    TypedArrayNew {
+        /// The source constructor name — one of the eleven views, or
+        /// `ArrayBuffer`.
+        class_name: String,
+        /// The constructor arguments, as written.
+        args: Vec<Operand>,
+    },
+    /// Read a member of, or call a method on, the concrete typed-array family.
     ByteArrayOp {
-        /// Member to read.
+        /// Member to read or call.
         op: smelt_hir::ByteArrayOp,
-        /// Byte-view receiver.
+        /// The view (or byte-storage) receiver.
         bytes: Operand,
+        /// Operation arguments (a range, a value, a source view, or none).
+        args: Vec<Operand>,
     },
     /// Apply an `AbortSignal` static.
     ///

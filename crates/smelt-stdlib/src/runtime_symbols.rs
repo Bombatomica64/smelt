@@ -294,6 +294,17 @@ pub mod byte_buffer {
     /// decoded elements rather than its internal storage fields.
     pub const RECORD_ELEMENTS: &str = "smelt_host_buffer_record_elements";
 
+    /// Build a byte-backed host record at a GIVEN JavaScript reference id.
+    ///
+    /// The one record builder both faces share. The erased face builds records
+    /// with a fresh id; the concrete family's `IntoSmeltUnknown` adapters build
+    /// the SAME record at the value's own id, so erasing one value twice
+    /// produces two records that are `===`. Without one builder the two shapes
+    /// drifted silently: the storage adapter omitted `length` and the view
+    /// adapter omitted `buffer`/`byteOffset`, which a deep-equality comparison
+    /// of an erased concrete value against an erased record then failed on.
+    pub const VIEW_RECORD_WITH_ID: &str = "smelt_host_buffer_view_record_with_id";
+
     /// The record key holding a byte-backed host object's storage.
     pub const BYTES_KEY: &str = "bytes";
 }

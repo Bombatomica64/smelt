@@ -1470,6 +1470,10 @@ fn emit_source_with_free_function_router(
         // an erased view (`smelt_host_method`) has to act on the SAME value, so
         // they retain their origin too — a `set` through an erased view is
         // visible on the concrete value the program still holds.
+        // The typed-array family joined for the same reason: a write through an
+        // erased view (`(view as any)[0] = 9`) has to reach the SAME storage the
+        // concrete value still holds, and `smelt_typed_array_write_origin` finds
+        // it through this registry.
         if needs_text_encoder
             || needs_text_decoder
             || needs_event_emitter
@@ -1477,6 +1481,7 @@ fn emit_source_with_free_function_router(
             || needs_headers
             || needs_url_search_params
             || needs_form_data
+            || stdlib::needs_byte_array_runtime(mir)
         {
             // Host values whose state is NOT representable as a record.
             //
@@ -1523,7 +1528,17 @@ fn emit_source_with_free_function_router(
             writer.line("#[allow(dead_code)]");
             writer.line("fn smelt_restore_host_origin<T: Clone + 'static>(value: &SmeltUnknown) -> Option<T> {");
             writer.line("    let SmeltUnknown::Object(map) = value else { return None };");
-            writer.line("    SMELT_HOST_ORIGINS.with(|origins| origins.borrow().get(&map.id).and_then(|origin| origin.downcast_ref::<T>()).cloned())");
+            writer.line("    smelt_restore_host_origin_by_id::<T>(map.id)");
+            writer.line("}");
+            writer.blank_line();
+            writer.line("/// The same lookup from an object id alone.");
+            writer.line("///");
+            writer.line("/// A write THROUGH an erased record needs this: it holds the record's id");
+            writer.line("/// (and its storage record's id) rather than a whole value, and it has to");
+            writer.line("/// reach the live object those ids stand for.");
+            writer.line("#[allow(dead_code)]");
+            writer.line("fn smelt_restore_host_origin_by_id<T: Clone + 'static>(id: usize) -> Option<T> {");
+            writer.line("    SMELT_HOST_ORIGINS.with(|origins| origins.borrow().get(&id).and_then(|origin| origin.downcast_ref::<T>()).cloned())");
             writer.line("}");
             writer.blank_line();
         }
@@ -2238,7 +2253,9 @@ fn emit_source_with_free_function_router(
         let host_marker_array = host_marker_registry_array();
         writer.line(format!("fn smelt_object_has_host_marker(object: &SmeltObject) -> bool {{ {host_marker_array}.iter().any(|marker| object.contains_key(marker)) }}"));
         writer.line(format!("fn smelt_record_has_host_marker<V>(record: &SmeltRecord<String, V>) -> bool {{ {host_marker_array}.iter().any(|marker| record.contains_key(*marker)) }}"));
-        byte_buffer_prelude::emit(&mut writer);
+        // The concrete typed-array family's presence decides whether the
+        // erased index write has a live value to write through to.
+        byte_buffer_prelude::emit(&mut writer, stdlib::needs_byte_array_runtime(mir));
         // The `arguments` exotic object. Its indexed elements are enumerable own
         // properties but its `length` is not, which is what makes
         // `isEqual(toArgs([1, 2, 3]), { 0: 1, 1: 2, 2: 3 })` hold: both sides

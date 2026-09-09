@@ -646,12 +646,31 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 format!("text_decoder_{op_name} {} {args_text}", expr_ref(*decoder))
             }
         }
-        ExprKind::ByteArrayOp { op, bytes } => {
-            let op_name = match op {
-                crate::expr::ByteArrayOp::Length => "length",
-                crate::expr::ByteArrayOp::ByteLength => "byte_length",
-            };
-            format!("byte_array_{op_name} {}", expr_ref(*bytes))
+        ExprKind::TypedArrayNew { class_name, args } => {
+            let args_text = args
+                .iter()
+                .map(|arg| expr_ref(*arg))
+                .collect::<Vec<_>>()
+                .join(" ");
+            if args_text.is_empty() {
+                format!("typed_array_new {class_name}")
+            } else {
+                format!("typed_array_new {class_name} {args_text}")
+            }
+        }
+        ExprKind::ByteArrayOp { op, bytes, args } => {
+            let op_name = op.name();
+            let receiver = expr_ref(*bytes);
+            if args.is_empty() {
+                format!("byte_array_{op_name} {receiver}")
+            } else {
+                let args_text = args
+                    .iter()
+                    .map(|arg| expr_ref(*arg))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                format!("byte_array_{op_name} {receiver} {args_text}")
+            }
         }
         ExprKind::FormDataNew => "form_data_new".to_owned(),
         ExprKind::AbortSignalOp { op, args } => {

@@ -33,6 +33,18 @@
 
 use crate::rust::CodeWriter;
 
+/// The `SmeltTypedArrayKind` variant expression for a source constructor name.
+///
+/// `None` for a name that is not one of the eleven views — including
+/// `ArrayBuffer`, which is the storage half and has no element kind. Derived
+/// from the shared host-object registry, so the emitter kind selection and the
+/// emitted enum cannot name different variants for the same class.
+#[must_use]
+pub fn kind_expression(class_name: &str) -> Option<String> {
+    let element = smelt_stdlib::typed_array_element(class_name)?;
+    Some(format!("SmeltTypedArrayKind::{}", variant_name(element)))
+}
+
 /// Emit the whole concrete typed-array family.
 ///
 /// Order matters: the kind table is referenced by both types, and the view
@@ -41,6 +53,36 @@ pub fn emit(writer: &mut CodeWriter, needs_unknown: bool) {
     emit_kind(writer);
     emit_array_buffer(writer, needs_unknown);
     emit_typed_array(writer, needs_unknown);
+    if needs_unknown {
+        emit_origin_write_through(writer);
+    }
+}
+
+/// Emit the bridge from an erased record's index write to its live value.
+///
+/// The boundary is two-way for READS by construction — the record carries the
+/// bytes — but a WRITE through an erased alias (`(view as any)[0] = 9`) lands
+/// in the record, and the concrete value the record was made from is still the
+/// thing every other reference reads. Without this bridge such a write is
+/// silently lost the moment one of the two aliases is concrete, which is a
+/// class of divergence that only appears in a mixed program and never in a
+/// wholly erased or wholly concrete one.
+///
+/// The record's own id and its storage record's id are both tried, because a
+/// view's window and its buffer are two live values with two identities and an
+/// element write is a write to both.
+fn emit_origin_write_through(writer: &mut CodeWriter) {
+    writer.line("/// Write an erased record's encoded bytes through to its live value.");
+    writer.line("#[allow(dead_code)]");
+    writer.block(
+        "fn smelt_typed_array_write_origin(id: usize, offset: usize, encoded: &[SmeltUnknown])",
+        |fn_writer| {
+            fn_writer.line("let bytes: Vec<u8> = encoded.iter().map(|byte| match byte { SmeltUnknown::Number(value) => *value as i64 as u8, _ => 0 }).collect();");
+            fn_writer.line("if let Some(view) = smelt_restore_host_origin_by_id::<SmeltTypedArray>(id) { view.write_bytes_at(offset, &bytes); return; }");
+            fn_writer.line("if let Some(storage) = smelt_restore_host_origin_by_id::<SmeltArrayBuffer>(id) { storage.write_bytes_at(offset, &bytes); }");
+        },
+    );
+    writer.blank_line();
 }
 
 /// Emit the element-kind enum: width, spec tag, and the element codec.
@@ -220,7 +262,17 @@ fn emit_array_buffer(writer: &mut CodeWriter, needs_unknown: bool) {
         // `ArrayBuffer.prototype.slice` COPIES, and both bounds clamp and count
         // back from the end when negative — the same rule the erased face's
         // slice helper applies.
+        // The write side an erased record's index write reaches (see
+        // `smelt_typed_array_write_origin`): absolute byte offsets, because
+        // storage interprets nothing.
+        impl_writer.line("/// Overwrite bytes at an absolute offset; out-of-range bytes are dropped.");
+        impl_writer.block("pub fn write_bytes_at(&self, offset: usize, source: &[u8])", |fn_writer| {
+            fn_writer.line("let mut bytes = self.bytes.borrow_mut();");
+            fn_writer.line("for (step, byte) in source.iter().enumerate() { if let Some(slot) = bytes.get_mut(offset + step) { *slot = *byte; } }");
+        });
         impl_writer.line("/// `slice(start, end)`: a COPY of a byte range in fresh storage.");
+        // Emitted before the closing brace below so `slice` stays last in the
+        // inherent impl; see the `Default` impl after it for why storage has one.
         impl_writer.block(
             "pub fn slice(&self, start: i64, end: Option<i64>) -> Self",
             |fn_writer| {
@@ -232,6 +284,11 @@ fn emit_array_buffer(writer: &mut CodeWriter, needs_unknown: bool) {
             },
         );
     });
+    // Zero-length storage is the empty value the type can hold, and a
+    // monomorphized generic (`clone<T>(x: T): T` instantiated at
+    // `ArrayBuffer`) asks for it by its `Default` bound. The view half already
+    // has one for the same reason.
+    writer.line("impl Default for SmeltArrayBuffer { fn default() -> Self { Self::new(0) } }");
     writer.blank_line();
     if needs_unknown {
         emit_array_buffer_adapters(writer);
@@ -250,13 +307,16 @@ fn emit_array_buffer_adapters(writer: &mut CodeWriter) {
     writer.line("/// Erase byte storage for a dynamic boundary.");
     writer.block("impl IntoSmeltUnknown for SmeltArrayBuffer", |impl_writer| {
         impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
+            fn_writer.line("smelt_register_host_origin(self.id, self.clone());");
             fn_writer.line("let bytes = self.bytes.borrow();");
             fn_writer.line(
                 "let elements: Vec<SmeltUnknown> = bytes.iter().map(|byte| SmeltUnknown::Number(f64::from(*byte))).collect();",
             );
-            fn_writer.line("let count = elements.len() as f64;");
+            // The erased face's OWN record builder, at this value's identity:
+            // storage carries no `buffer` of its own and no offset.
             fn_writer.line(format!(
-                "SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([({marker:?}.to_owned(), SmeltUnknown::Bool(true)), (\"bytes\".to_owned(), SmeltUnknown::Array(elements.into())), (\"byteLength\".to_owned(), SmeltUnknown::Number(count))])))"
+                "{with_id}(self.id, {marker:?}, elements, None, 0)",
+                with_id = smelt_stdlib::runtime_symbols::byte_buffer::VIEW_RECORD_WITH_ID,
             ));
         });
     });
@@ -270,6 +330,7 @@ fn emit_array_buffer_adapters(writer: &mut CodeWriter) {
                 // every view and every buffer carries its storage under
                 // `bytes`, so a view crossing into a buffer parameter reads the
                 // bytes it views rather than becoming empty.
+                fn_writer.line("if let Some(origin) = smelt_restore_host_origin::<Self>(&value) { return origin; }");
                 fn_writer.line("let SmeltUnknown::Object(map) = value else { return Self::new(0) };");
                 fn_writer.line("let Some(SmeltUnknown::Array(items)) = map.get(\"bytes\") else { return Self::new(0) };");
                 fn_writer.line("let bytes = items.into_vec().into_iter().map(|item| match item { SmeltUnknown::Number(value) => value as i64 as u8, _ => 0 }).collect::<Vec<u8>>();");
@@ -362,6 +423,12 @@ fn emit_typed_array_inherent_impl(writer: &mut CodeWriter) {
                 fn_writer.line("Self { id: smelt_next_object_id(), kind, bytes: ::std::rc::Rc::new(::std::cell::RefCell::new(bytes)), buffer_id: smelt_next_object_id(), byte_offset: 0, length }");
             },
         );
+        // `new Uint8Array(8)` is a LENGTH, not a byte count: for a wider view
+        // the storage is `length * BYTES_PER_ELEMENT` bytes, all zero.
+        impl_writer.line("/// A zero-filled view of `kind` holding `length` elements.");
+        impl_writer.line(
+            "pub fn with_length(kind: SmeltTypedArrayKind, length: usize) -> Self { Self::with_bytes(kind, vec![0_u8; length * kind.byte_width()]) }",
+        );
         impl_writer.line("/// A view of `kind` over the given elements, in fresh storage.");
         impl_writer.block(
             "pub fn with_elements(kind: SmeltTypedArrayKind, elements: &[f64]) -> Self",
@@ -414,6 +481,15 @@ fn emit_typed_array_inherent_impl(writer: &mut CodeWriter) {
         });
         // An out-of-range index READ is `undefined` in JavaScript, which is
         // `None` here; an out-of-range WRITE is dropped, not an error.
+        // `TypedArray.prototype.toString` IS `Array.prototype.toString`, so a
+        // view stringifies as its joined elements — `String(view)` and
+        // `${view}` are "1,2,3", not "[object Uint8Array]". (The `[object X]`
+        // tag is a different question, answered by
+        // `Object.prototype.toString.call`.)
+        impl_writer.line("/// `toString()`: the elements joined by commas.");
+        impl_writer.line(
+            "pub fn to_js_string(&self) -> String { self.to_elements().into_iter().map(|element| element.to_string()).collect::<Vec<_>>().join(\",\") }",
+        );
         impl_writer.line("/// An indexed element read; `None` past the end.");
         impl_writer.block("pub fn get(&self, index: f64) -> Option<f64>", |fn_writer| {
             fn_writer.line("if index < 0.0 || index.fract() != 0.0 { return None; }");
@@ -421,6 +497,25 @@ fn emit_typed_array_inherent_impl(writer: &mut CodeWriter) {
             fn_writer.line("if index >= self.length { return None; }");
             fn_writer.line("let bytes = self.bytes.borrow();");
             fn_writer.line("Some(self.kind.decode(&bytes, self.byte_offset + index * self.kind.byte_width()))");
+        });
+        // Writing a whole byte window is what an in-place FILL needs
+        // (`crypto.getRandomValues`): the bytes are already the right width, so
+        // going through `set_index` per element would decode and re-encode
+        // them. It writes only this view's window, so a view over part of a
+        // buffer leaves the rest of the storage alone.
+        impl_writer.line("/// Overwrite this view's byte window; extra source bytes are ignored.");
+        impl_writer.block("pub fn write_bytes(&self, source: &[u8])", |fn_writer| {
+            fn_writer.line("let mut bytes = self.bytes.borrow_mut();");
+            fn_writer.line("let start = self.byte_offset.min(bytes.len());");
+            fn_writer.line("let end = (start + self.length * self.kind.byte_width()).min(bytes.len());");
+            fn_writer.line("let count = (end - start).min(source.len());");
+            fn_writer.line("bytes[start..start + count].copy_from_slice(&source[..count]);");
+        });
+        impl_writer.line("/// Overwrite bytes at an offset WITHIN this view's window.");
+        impl_writer.block("pub fn write_bytes_at(&self, offset: usize, source: &[u8])", |fn_writer| {
+            fn_writer.line("let mut bytes = self.bytes.borrow_mut();");
+            fn_writer.line("let end = self.byte_offset + self.length * self.kind.byte_width();");
+            fn_writer.line("for (step, byte) in source.iter().enumerate() { let at = self.byte_offset + offset + step; if at < end { if let Some(slot) = bytes.get_mut(at) { *slot = *byte; } } }");
         });
         impl_writer.line("/// An indexed element write; dropped past the end.");
         impl_writer.block("pub fn set_index(&self, index: f64, value: f64)", |fn_writer| {
@@ -502,16 +597,53 @@ fn emit_typed_array_adapters(writer: &mut CodeWriter) {
             // The record's `bytes` are the view's OWN bytes and its `length`
             // the element count at its own width, so an erased `Float64Array`
             // enumerates two elements over sixteen bytes rather than sixteen.
+            // Retaining the live value is what makes the boundary two-way: the
+            // record's id is the key, so `SmeltFromUnknown` hands back the SAME
+            // view (sharing its storage) and an index write through the record
+            // reaches the storage the concrete value is still holding.
+            fn_writer.line("smelt_register_host_origin(self.id, self.clone());");
             fn_writer.line("let bytes = self.to_bytes();");
             fn_writer.line(
                 "let elements: Vec<SmeltUnknown> = bytes.iter().map(|byte| SmeltUnknown::Number(f64::from(*byte))).collect();",
             );
-            fn_writer.line("let byte_count = elements.len() as f64;");
-            fn_writer.line("let length = self.length as f64;");
-            fn_writer.line(
-                "SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([(self.kind.marker().to_owned(), SmeltUnknown::Bool(true)), (\"bytes\".to_owned(), SmeltUnknown::Array(elements.into())), (\"byteLength\".to_owned(), SmeltUnknown::Number(byte_count)), (\"length\".to_owned(), SmeltUnknown::Number(length))])))",
-            );
+            // A view's record carries its STORAGE under `buffer`, plus the
+            // offset into it, which is what `view.buffer` and
+            // `view.byteOffset` answer once erased and what a clone that
+            // reconstructs through `Object.getPrototypeOf(x).constructor`
+            // reads back. The storage record is the whole buffer, not the
+            // window: `new Uint8Array(buffer, 2, 4).buffer.byteLength` is the
+            // buffer's length.
+            fn_writer.line("let storage = self.buffer().into_smelt_unknown();");
+            fn_writer.line(format!(
+                "{with_id}(self.id, self.kind.marker(), elements, Some(storage), self.byte_offset)",
+                with_id = smelt_stdlib::runtime_symbols::byte_buffer::VIEW_RECORD_WITH_ID,
+            ));
         });
+    });
+    writer.blank_line();
+    // The one genuine dynamic boundary in construction. `new Uint8Array(x)`
+    // where `x` is `unknown` (or a generic `T`) is a spelling JavaScript
+    // resolves by INSPECTING the argument: a number is a length, an array-like
+    // is elements, another view or a buffer re-views the bytes. There is no
+    // static type to carry that decision, so it is made at run time here —
+    // once, in the prelude — rather than in each generated call site.
+    writer.line("#[allow(dead_code)]");
+    writer.block("impl SmeltTypedArray", |impl_writer| {
+        impl_writer.line("/// Construct a view of `kind` from an argument of unknown shape.");
+        impl_writer.block(
+            "pub fn from_erased(kind: SmeltTypedArrayKind, value: &SmeltUnknown) -> Self",
+            |fn_writer| {
+                fn_writer.line("match value {");
+                fn_writer.line("    SmeltUnknown::Number(length) => Self::with_length(kind, length.max(0.0) as usize),");
+                fn_writer.line("    SmeltUnknown::Array(items) => { let elements = items.iter().map(|item| match item { SmeltUnknown::Number(value) => value, _ => 0.0 }).collect::<Vec<f64>>(); Self::with_elements(kind, &elements) }");
+                fn_writer.line(format!(
+                    "    SmeltUnknown::Object(_) => {{ let source = Self::smelt_from_unknown(value.clone()); if {is_view}(value) {{ Self::with_elements(kind, &source.to_elements()) }} else {{ Self::with_bytes(kind, source.to_bytes()) }} }}",
+                    is_view = smelt_stdlib::runtime_symbols::byte_buffer::IS_VIEW,
+                ));
+                fn_writer.line("    _ => Self::with_length(kind, 0),");
+                fn_writer.line("}");
+            },
+        );
     });
     writer.blank_line();
     writer.line("/// Rebuild a typed-array view from an erased value.");
@@ -525,6 +657,7 @@ fn emit_typed_array_adapters(writer: &mut CodeWriter) {
                 // reads its bytes rather than silently becoming empty. The KIND
                 // comes from whichever marker the record carries, falling back
                 // to `Uint8` — which is what a buffer's bytes are.
+                fn_writer.line("if let Some(origin) = smelt_restore_host_origin::<Self>(&value) { return origin; }");
                 fn_writer.line("let SmeltUnknown::Object(map) = value else { return Self::new() };");
                 fn_writer.line("let Some(SmeltUnknown::Array(items)) = map.get(\"bytes\") else { return Self::new() };");
                 fn_writer.line("let bytes = items.into_vec().into_iter().map(|item| match item { SmeltUnknown::Number(value) => value as i64 as u8, _ => 0 }).collect::<Vec<u8>>();");

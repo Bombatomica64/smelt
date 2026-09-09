@@ -100,11 +100,15 @@ fn emit_random_values(writer: &mut CodeWriter) {
     writer.line("/// `crypto.getRandomValues(view)`: fill in place, answer the same view.");
     writer.line("#[allow(dead_code)]");
     writer.block(
-        "fn smelt_crypto_random_values(view: &SmeltUint8Array) -> SmeltUint8Array",
+        "fn smelt_crypto_random_values(view: &SmeltTypedArray) -> SmeltTypedArray",
         |fn_writer| {
+            // The view's OWN byte window, not the whole storage: a view over
+            // part of an `ArrayBuffer` must not scribble on its siblings.
+            fn_writer.line("let mut bytes = vec![0_u8; view.byte_length() as usize];");
             fn_writer.line(
-                "getrandom::fill(view.bytes.borrow_mut().as_mut_slice()).expect(\"the platform random source is unavailable\");",
+                "getrandom::fill(&mut bytes).expect(\"the platform random source is unavailable\");",
             );
+            fn_writer.line("view.write_bytes(&bytes);");
             fn_writer.line("view.clone()");
         },
     );
@@ -118,7 +122,7 @@ fn emit_random_values(writer: &mut CodeWriter) {
 /// identity carries an element type, a byte offset and a shared `ArrayBuffer`
 /// that reflective construction reads back, so `new Uint8Array(16)` has the
 /// erased type and only `TextEncoder.encode`-shaped values have the concrete
-/// one. See `StdlibClass::ByteArray` in `smelt_stdlib::classes` for that
+/// one. See `StdlibClass::TypedArray` in `smelt_stdlib::classes` for that
 /// decision and the recorded demand to change it.
 ///
 /// `getRandomValues`'s argument is exactly that value in real code — a program
@@ -186,15 +190,17 @@ fn emit_random_values_erased(writer: &mut CodeWriter) {
 /// * an unrecognized name is the spec's `NotSupportedError`, message included,
 ///   branded so a source `catch` reads `error.name === "NotSupportedError"`.
 ///
-/// The result is a `SmeltUint8Array` because that is Smelt's one concrete byte
-/// value; the spec's `ArrayBuffer` and a `Uint8Array` over it differ only in a
-/// view-vs-storage distinction the modeled surface does not observe (the same
-/// call `Blob.arrayBuffer()` already makes).
+/// The result is the spec's `ArrayBuffer` — byte STORAGE, not a view. It used
+/// to be a byte view, because a view was Smelt's only concrete byte value and
+/// the view-vs-storage distinction was unobservable; with the typed-array
+/// family concrete it IS observable (`ArrayBuffer.isView(digest)` is `false`,
+/// and `new Uint8Array(digest)` re-views the same storage rather than copying
+/// elements), so the honest type is the one the spec names.
 fn emit_digest(writer: &mut CodeWriter, throw: DigestThrow) {
     writer.line("/// `crypto.subtle.digest(algorithm, data)`: hash bytes by algorithm name.");
     writer.line("#[allow(dead_code)]");
     writer.block(
-        "fn smelt_crypto_digest(algorithm: &str, data: &[u8]) -> Result<SmeltUint8Array, Box<dyn ::std::error::Error>>",
+        "fn smelt_crypto_digest(algorithm: &str, data: &[u8]) -> Result<SmeltArrayBuffer, Box<dyn ::std::error::Error>>",
         |fn_writer| {
             // One `Digest` import covers both crates: `sha1` and `sha2` are two
             // faces of the same `digest` traits, so `sha1::Digest` IS
@@ -208,7 +214,7 @@ fn emit_digest(writer: &mut CodeWriter, throw: DigestThrow) {
                 ("sha-512", "sha2::Sha512"),
             ] {
                 fn_writer.line(format!(
-                    "if name == \"{spelling}\" {{ let mut hasher = {hasher}::new(); hasher.update(data); return Ok(SmeltUint8Array::from_bytes(hasher.finalize().to_vec())); }}"
+                    "if name == \"{spelling}\" {{ let mut hasher = {hasher}::new(); hasher.update(data); return Ok(SmeltArrayBuffer::from_bytes(hasher.finalize().to_vec())); }}"
                 ));
             }
             fn_writer.line(format!("Err({})", digest_unsupported_expr(throw)));

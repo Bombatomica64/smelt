@@ -58,6 +58,15 @@ impl ModuleBuilder<'_> {
             let source = self.argument(source_arg, body)?;
             let source_ty = self.type_param_constraint_or_self(Self::expr_ty(body, source));
             let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+            // `Array.from(view)` is the view's elements, decoded by the family
+            // rather than read back out of an erased record. Asked before the
+            // arms below, whose class fallback erases.
+            if mapper_arg.is_none()
+                && let span = self.span(call.span.start, call.span.end)
+                && let Some(elements) = self.typed_array_spread_list(source, span, body)
+            {
+                return Ok(Some(elements));
+            }
             let list_ty = match self.ctx.krate.types.get(source_ty).cloned() {
                 Some(Type::List(_)) if mapper_arg.is_none() => return Ok(Some(source)),
                 Some(Type::List(item_ty)) => self.ctx.krate.types.intern(Type::List(item_ty)),
@@ -2935,6 +2944,14 @@ impl ModuleBuilder<'_> {
             && let [ArrayExpressionElement::SpreadElement(spread)] = array.elements.as_slice()
         {
             let spread_value = self.expression(&spread.argument, body)?;
+            // A CONCRETE typed-array view decodes its own elements. Asked here,
+            // where the operand has just been lowered, because the erased
+            // iterable path below would read them back out of a marker record
+            // as `unknown` — an erasure with the answer already in hand.
+            let element_span = self.span(spread.span.start, spread.span.end);
+            if let Some(elements) = self.typed_array_spread_list(spread_value, element_span, body) {
+                return Ok(elements);
+            }
             let value_ty = self.type_param_constraint_or_self(Self::expr_ty(body, spread_value));
             let item_ty = match self.ctx.krate.types.get(value_ty) {
                 Some(Type::List(item_ty) | Type::Set(item_ty)) => *item_ty,
@@ -2969,6 +2986,13 @@ impl ModuleBuilder<'_> {
             match element {
                 ArrayExpressionElement::SpreadElement(spread) => {
                     let spread_value = self.expression(&spread.argument, body)?;
+                    // Same rule for a view spread among other elements
+                    // (`[...view, 0]`): convert it to its elements here, before
+                    // the pieces are unified, so the list stays numeric.
+                    let element_span = self.span(spread.span.start, spread.span.end);
+                    let spread_value = self
+                        .typed_array_spread_list(spread_value, element_span, body)
+                        .unwrap_or(spread_value);
                     pieces.push(SpreadPiece::Spread(spread_value, spread.span));
                 }
                 ArrayExpressionElement::Elision(_) => {

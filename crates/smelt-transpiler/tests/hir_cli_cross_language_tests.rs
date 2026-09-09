@@ -553,6 +553,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "71_const_arrow_literal_hint",
     "72_form_data_for_each",
     "73_set_insertion_order",
+    "74_typed_array_views",
 ];
 
 #[test]

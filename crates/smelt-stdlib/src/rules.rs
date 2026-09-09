@@ -219,6 +219,17 @@ pub enum RuleId {
     TsBlobBodyRead,
     /// TypeScript `Blob.prototype.slice`.
     TsBlobSlice,
+    /// TypeScript typed-array data-property read (`length`, `byteLength`,
+    /// `byteOffset`, `buffer`).
+    TsTypedArrayRead,
+    /// TypeScript typed-array method (`subarray`, `slice`, `set`, `fill`).
+    ///
+    /// Separate from [`Self::TsTypedArrayRead`] because these are CALLS with a
+    /// range or a source operand, where the reads are members with none; the
+    /// dispatch sites are the call-handler chain and the member-read chain
+    /// respectively, and one rule spanning both would make each site accept
+    /// spellings the other owns.
+    TsTypedArrayMethod,
     /// TypeScript `Response` data-property read (`status`, `ok`, `statusText`,
     /// `headers`, `bodyUsed`).
     TsResponseRead,
@@ -413,6 +424,11 @@ impl RuleId {
             | Self::TsBlobRead
             | Self::TsBlobBodyRead
             | Self::TsBlobSlice
+            // The concrete typed-array family is a shared `Vec<u8>` with an
+            // element kind: the whole surface is byte arithmetic in the
+            // generated prelude, so nothing behind it is an external crate.
+            | Self::TsTypedArrayRead
+            | Self::TsTypedArrayMethod
             | Self::TsHeadersProjection
             // `Response` is a generated concrete type: a status line, a
             // `SmeltHeaders`, and a buffered `SmeltBody`. Nothing in that needs
@@ -501,6 +517,8 @@ impl RuleId {
             Self::TsBlobRead => "Blob property read",
             Self::TsBlobBodyRead => "Blob body reader",
             Self::TsBlobSlice => "Blob.slice",
+            Self::TsTypedArrayRead => "typed-array data-property read",
+            Self::TsTypedArrayMethod => "typed-array method",
             Self::TsResponseRead => "Response property read",
             Self::TsResponseBodyRead => "Response body reader",
             Self::TsResponseClone => "Response.clone",

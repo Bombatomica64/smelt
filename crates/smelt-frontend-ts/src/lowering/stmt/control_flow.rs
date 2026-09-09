@@ -438,6 +438,14 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> smelt_hir::ExprId {
         let iter_ty = Self::expr_ty(body, iter);
+        // A typed-array view iterates its ELEMENTS at its own width and
+        // signedness. Asked before the `Type::Class` arm below, which would
+        // otherwise assert the view into an erased list and lose both the
+        // element type and the decode.
+        if self.is_typed_array_view_type(iter_ty) {
+            let span = self.expression_span(source);
+            return self.typed_array_elements_expression(iter, span, body);
+        }
         match self.ctx.krate.types.get(iter_ty).cloned() {
             Some(Type::Set(item_ty)) => {
                 let ty = self.ctx.krate.types.intern(Type::List(item_ty));

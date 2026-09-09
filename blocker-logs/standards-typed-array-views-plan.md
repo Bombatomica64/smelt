@@ -93,6 +93,48 @@ that constraint.
    es-toolkit and remeda should FALL; both baselines get re-snapshotted with
    the delta reported.
 
+## Status
+
+* **1 and 2 landed** (round 23): the concrete family and its boundary adapters,
+  inert by construction because nothing reached the concrete face from source.
+* **3 and 4 landed together** (round 24), as one commit because increment 3
+  cannot land alone: `crypto.subtle.digest` is the first consumer of a concrete
+  view, so the moment `new Uint8Array(..)` stopped being erased the digest's
+  input check had to move with it. What that commit did beyond the list above:
+  * the eleven view spellings and `ArrayBuffer` resolve to two modeled classes
+    (`StdlibClass::TypedArray` / `ArrayBuffer`), keyed off the shared registry
+    rather than a list of names, so `Type::Class { name }` keeps the source
+    spelling while the eleven share one Rust type;
+  * every constructor spelling dispatches on the ARGUMENT TYPE at the call site
+    (a length, an element list, shared storage, another view), with one
+    `from_erased` prelude boundary for an argument whose type carries no shape;
+  * members, methods, indexed read/write, iteration/spread/`Array.from`,
+    `instanceof`, `ArrayBuffer.isView`, `String(view)`, the `[object X]` tag,
+    `Object.keys`/`values`/`entries` and `Reflect.ownKeys` all answer from the
+    concrete value;
+  * `is_erased_class_type`'s hand-maintained list of non-erasing stdlib classes
+    became one registry question (`StdlibClass::has_concrete_runtime_type`) —
+    the list had silently omitted `ArrayBuffer` and the three `node:http`
+    classes, which is an E0308 in generated Rust rather than a warning;
+  * the erased record is built by ONE builder shared with the erased face
+    (`smelt_host_buffer_view_record_with_id`), and the family retains its live
+    value in the host-origin registry so a write through an erased alias reaches
+    the storage the concrete value still holds;
+  * `crypto.subtle.digest` takes a view or an `ArrayBuffer` and answers the
+    spec's `ArrayBuffer`; `Blob.arrayBuffer()` likewise, where `bytes()` stays a
+    view; `crypto.getRandomValues` fills a concrete view's own byte window.
+  `SharedArrayBuffer` and `DataView` deliberately keep the erased record.
+* **5 remains** (round 25): fold the runtime tiers back into the corpus. The
+  enumeration half already landed with 3+4 (a concrete view answers its own
+  index keys, elements and entries, so `Object.keys(view)` no longer round-trips
+  through a record); what is left is the erased-boundary cases that
+  `typed_array_runtime.rs` now holds and the `json_stringify_runtime.rs` byte
+  cases, plus re-snapshotting the baselines with the delta.
+
+Measured at 3+4: es-toolkit 1055 / 4 (unchanged, same four failures) with the
+ratchet FALLING 32438 → 32247; remeda 1789 / 0 with its advisory report falling
+25017 → 24884; radash 84 / 0; the examples invariant still 0.
+
 ## Why it is not one round
 
 Increment 3 alone rewrites every one of the 25 frontend registry consultations
@@ -103,15 +145,10 @@ changes nothing observable, which is exactly what makes them safe to land
 first; landing 3 without 4–5 leaves the corpus fixtures and the routed-around
 arms inconsistent for one round but green.
 
-The item's standing instruction is "complete or not at all". Under that rule
-this round produced the plan rather than a third of the feature. What I need
-from the coordinator is which of these two:
+The coordinator approved the increments across rounds 23–25 with one condition:
+every commit passes every gate, and no commit leaves the family reachable from
+source but half-modeled. That condition is what forced 3 and 4 into one commit.
 
-* **approve the increments** as five commits across rounds 22–24, with 1–2
-  landing immediately (they are inert by construction), or
-* **keep the all-or-nothing rule** and give the feature a whole round with
-  nothing else in it, in which case increments 1–5 land as one commit and the
-  first gate run happens at the end.
-
-Either way the surface above is the contract, and Hono's stop
-(`crypto.subtle.digest` on an erased view) is increment 4.
+Hono's stop (`crypto.subtle.digest` on an erased view) is cleared: the whole
+crate's remaining diagnostics are 8 in 6 files, and the only standards-owned one
+left is `btoa`/`atob` in `src/utils/cookie.ts`.

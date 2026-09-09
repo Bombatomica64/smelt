@@ -2915,6 +2915,12 @@ impl FunctionEmitter<'_> {
                 return Ok("false".to_owned());
             }
         }
+        // A CONCRETE family value answers from its own type, before the erased
+        // marker probes below, which would be handed a `SmeltTypedArray` /
+        // `SmeltArrayBuffer` where they expect a `SmeltUnknown`.
+        if let Some(check) = self.typed_array_instance_of_text(value, class_name)? {
+            return Ok(check);
+        }
         if class_name == "ArrayBuffer"
             && matches!(
                 self.mir.types.get(value_ty),

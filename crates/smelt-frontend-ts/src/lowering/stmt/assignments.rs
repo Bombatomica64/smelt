@@ -474,6 +474,11 @@ impl ModuleBuilder<'_> {
         // Blob` writes `this.name`.
         if !is_assignment_target {
             if let Some(expr) =
+                self.typed_array_member_read(member, receiver, access_receiver_ty, body)?
+            {
+                return Ok(expr);
+            }
+            if let Some(expr) =
                 self.text_codec_member_read(member, receiver, access_receiver_ty, body)?
             {
                 return Ok(expr);

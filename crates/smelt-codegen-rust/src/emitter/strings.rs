@@ -756,9 +756,26 @@ impl FunctionEmitter<'_> {
         } else {
             ""
         };
+        // A typed-array VIEW overrides `toString` too: it IS
+        // `Array.prototype.toString`, so `String(view)` and `${view}` are the
+        // joined elements. The concrete face answers this from its own
+        // `to_js_string`; this is the same rule for a view that has crossed
+        // into `SmeltUnknown`, so the two faces cannot disagree about one
+        // value. Byte STORAGE has no elements and is deliberately not here.
+        // Gated on the byte prelude being emitted at all, like the params arm
+        // above.
+        let byte_view_arm = if crate::stdlib::needs_unknown_type(self.mir) {
+            format!(
+                "SmeltUnknown::Object(value) if {is_view}(&SmeltUnknown::Object(value.clone())) => {elements}(&SmeltUnknown::Object(value)).unwrap_or_default().into_iter().map(|element| match element {{ SmeltUnknown::Number(element) => element.to_string(), _ => String::new() }}).collect::<Vec<_>>().join(\",\"),",
+                is_view = smelt_stdlib::runtime_symbols::byte_buffer::IS_VIEW,
+                elements = smelt_stdlib::runtime_symbols::byte_buffer::ELEMENTS,
+            )
+        } else {
+            String::new()
+        };
         let undefined_text = absent.text();
         format!(
-            "match {scrutinee_text} {{ {params_arm} SmeltUnknown::Null => \"{null_text}\".to_owned(), SmeltUnknown::Undefined => \"{undefined_text}\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_regexp\") => smelt_regexp_literal(&value), {error_arm}SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}"
+            "match {scrutinee_text} {{ {params_arm} {byte_view_arm} SmeltUnknown::Null => \"{null_text}\".to_owned(), SmeltUnknown::Undefined => \"{undefined_text}\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_regexp\") => smelt_regexp_literal(&value), {error_arm}SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}"
         )
     }
 
@@ -795,6 +812,22 @@ impl FunctionEmitter<'_> {
             // keeps the empty placeholder.
             Some(Type::None) => Ok(format!("{:?}.to_owned()", self.absent_spelling().null_text())),
             Some(Type::Never) => Ok("String::new()".to_owned()),
+            // A typed-array VIEW stringifies as its joined elements, because
+            // `TypedArray.prototype.toString` is `Array.prototype.toString`;
+            // byte STORAGE has no elements and keeps the object tag, which for
+            // it is `[object ArrayBuffer]`.
+            Some(Type::Class { name, .. })
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::TypedArray) =>
+            {
+                Ok(format!("{}.to_js_string()", self.operand_text(operand)?))
+            }
+            Some(Type::Class { name, .. })
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::ArrayBuffer) =>
+            {
+                Ok("\"[object ArrayBuffer]\".to_owned()".to_owned())
+            }
             Some(Type::List(_) | Type::Set(_) | Type::Dict(_, _) | Type::Class { .. }) => {
                 Ok("\"[object Object]\".to_owned()".to_owned())
             }

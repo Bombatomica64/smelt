@@ -1064,13 +1064,11 @@ export function pick(
 
 #[test]
 fn emits_runtime_sized_numeric_typed_array_constructors() {
-    // `new Uint8Array(count)` allocates `count` *elements*. This used to emit a
-    // `vec![0.0; count]` numeric list, which is why every view reported tag
-    // `[object Array]` and a byte count for its `length`; the views are now
-    // byte-backed host objects, so the runtime length allocation moved into the
-    // one shared byte-buffer constructor (which multiplies by the element's
-    // `BYTES_PER_ELEMENT`). The assertions below track the same property — a
-    // *runtime* count, never an unrolled literal — at its new home.
+    // `new Uint8Array(count)` allocates `count` *elements*, at a RUNTIME count
+    // and never as an unrolled literal. The view is a concrete
+    // `SmeltTypedArray` now (increment 3), so the allocation is the family's
+    // own `with_length` — which multiplies by the kind's `BYTES_PER_ELEMENT` —
+    // and the indexed write encodes one element at that width.
     let source = source_for(
         r"
 export function make(count: number): number[] {
@@ -1084,29 +1082,26 @@ export function make(count: number): number[] {
     );
 
     assert!(
-        source.contains(
-            "smelt_reflected_construct(\"uint8array\", vec![SmeltUnknown::Number(count as f64)])"
-        ),
+        source.contains("SmeltTypedArray::with_length(SmeltTypedArrayKind::Uint8, ((count"),
         "{source}"
     );
     assert!(!source.contains("vec![0.0, 0.0, 0.0, 0.0"), "{source}");
     // The allocation is by element count times the element stride, so a wider
     // view over the same count is wider in bytes.
     assert!(
-        source.contains("vec![SmeltUnknown::Number(0.0); count * stride]"),
+        source.contains("vec![0_u8; length * kind.byte_width()]"),
         "{source}"
     );
+    assert!(source.contains(".set_index("), "{source}");
 }
 
 #[test]
 fn emits_bigint_typed_array_constructor_through_the_shared_host_constructor() {
     // `BigInt64Array` / `BigUint64Array` were previously omitted from the
     // typed-array recognizer, so `new BigUint64Array(...)` aborted the build as
-    // an "unresolved class". They now share the byte-buffer host-object model with
-    // the other nine views — an eight-byte element type, so three elements are 24
-    // bytes and `.length` still reads 3. (The assertion moved off "emits a `Vec`
-    // literal": the element list is now an argument to the shared constructor
-    // rather than the constructed value itself.)
+    // an "unresolved class". They share the concrete family with the other nine
+    // views — an eight-byte element type, so three elements are 24 bytes and
+    // `.length` still reads 3.
     let source = source_for(
         r"
 export function make(): number {
@@ -1117,19 +1112,20 @@ export function make(): number {
     );
 
     assert!(
-        source.contains("smelt_reflected_construct(\"biguint64array\""),
+        source.contains("SmeltTypedArray::with_elements(SmeltTypedArrayKind::BigUint64"),
         "{source}"
     );
+    assert!(source.contains(".length()"), "{source}");
     assert!(!source.contains("unresolved"), "{source}");
 }
 
 #[test]
 fn emits_typed_array_from_element_literal_through_the_element_codec() {
-    // `new Uint8Array([1, 2, 3])` passes its element list to the shared byte-buffer
-    // constructor, which encodes each element at the view's own width; an indexed
-    // read decodes it back. It used to emit a bare `vec![10.0, 20.0, 30.0]` numeric
-    // list, which is why the view had no identity, no `.buffer`, and a byte count
-    // for its `length`.
+    // `new Uint8Array([1, 2, 3])` hands its element list to the family's
+    // element constructor, which encodes each element at the view's own width;
+    // an indexed read decodes it back at that same width. It used to emit a
+    // bare `vec![10.0, 20.0, 30.0]` numeric list, which is why the view had no
+    // identity, no `.buffer`, and a byte count for its `length`.
     let source = source_for(
         r"
 export function first(): number {
@@ -1141,10 +1137,16 @@ export function first(): number {
 
     assert!(source.contains("vec![10.0, 20.0, 30.0]"), "{source}");
     assert!(
-        source.contains("smelt_reflected_construct(\"uint8array\""),
+        source.contains("SmeltTypedArray::with_elements(SmeltTypedArrayKind::Uint8"),
         "{source}"
     );
-    assert!(source.contains("smelt_host_buffer_element("), "{source}");
+    assert!(source.contains("values.get("), "{source}");
+    // The codec is the kind's, in one place, so every width and signedness
+    // decodes the way the spec says.
+    assert!(
+        source.contains("pub fn decode(self, bytes: &[u8], at: usize) -> f64"),
+        "{source}"
+    );
 }
 
 #[test]
@@ -10251,18 +10253,15 @@ export function clearSlot(handle: unknown): number {
 
 #[test]
 fn byte_buffer_hosts_construct_through_the_shared_reflected_constructor() {
-    // `new ArrayBuffer(8)` / `new SharedArrayBuffer(8)` / `new DataView(buf, 1, 2)`
-    // all lower to `smelt_reflected_construct`, the *same* runtime constructor the
+    // The byte hosts Smelt does NOT model concretely — `SharedArrayBuffer`
+    // (cross-thread storage) and `DataView` (per-call element widths) — still
+    // lower to `smelt_reflected_construct`, the *same* runtime constructor the
     // reflected `new Object.getPrototypeOf(x).constructor(...)` path calls. That
     // shared constructor is what makes a directly built record indistinguishable
     // from a reflectively built one — es-toolkit's `clone` uses the reflected form
     // where its `cloneDeepWith` uses the direct one, and its specs compare the two
     // results against each other.
     for (source, kind) in [
-        (
-            "export function f() { return new ArrayBuffer(8); }",
-            "arraybuffer",
-        ),
         (
             "export function f() { return new SharedArrayBuffer(8); }",
             "sharedarraybuffer",
@@ -10278,6 +10277,14 @@ fn byte_buffer_hosts_construct_through_the_shared_reflected_constructor() {
             "expected `{source}` to construct through the shared `{kind}` host constructor:\n{generated}"
         );
     }
+    // `ArrayBuffer` is the half that IS modeled concretely (increment 3), so it
+    // constructs its own Rust value and reaches the record above only through
+    // the boundary adapter.
+    let generated = source_for("export function f() { return new ArrayBuffer(8); }");
+    assert!(
+        generated.contains("SmeltArrayBuffer::new("),
+        "`new ArrayBuffer(8)` must construct the concrete storage:\n{generated}"
+    );
 }
 
 #[test]
@@ -10590,9 +10597,29 @@ fn typed_array_construction_views_storage_but_converts_elements() {
     let generated = source_for(
         "export function f(buffer: any): any { return new Float32Array(buffer as any); }",
     );
+    // An argument whose type carries no shape is the one place the choice is
+    // made at RUN time, through the family's single `from_erased` boundary.
     assert!(
-        generated.contains("smelt_reflected_construct(\"float32array\""),
-        "`new Float32Array(x)` must route through the shared host constructor:\n{generated}"
+        generated.contains("SmeltTypedArray::from_erased(SmeltTypedArrayKind::Float32"),
+        "an erased source must go through the one runtime boundary:\n{generated}"
+    );
+    // The same two meanings, chosen STATICALLY when the argument has a type:
+    // storage is re-viewed (shared, not copied) and another view is converted
+    // element by element.
+    let typed = source_for(
+        r"
+export function f(buffer: ArrayBuffer, view: Int8Array): number {
+  return new Float32Array(buffer).length + new Uint8Array(view).length;
+}
+",
+    );
+    assert!(
+        typed.contains("SmeltTypedArray::over_buffer(SmeltTypedArrayKind::Float32"),
+        "an `ArrayBuffer` source must be re-viewed over the same storage:\n{typed}"
+    );
+    assert!(
+        typed.contains("SmeltTypedArray::with_elements(SmeltTypedArrayKind::Uint8, &view"),
+        "a view source must be converted element by element:\n{typed}"
     );
     assert!(
         generated.contains("fn smelt_host_buffer_is_storage(value: &SmeltUnknown) -> bool")
@@ -10614,6 +10641,10 @@ fn typed_array_construction_views_storage_but_converts_elements() {
     assert!(
         generated.contains("vec![SmeltUnknown::Number(0.0); count * stride]"),
         "`new Ctor(n)` must allocate `n` elements:\n{generated}"
+    );
+    assert!(
+        typed.contains("vec![0_u8; length * kind.byte_width()]"),
+        "the concrete family must allocate `n` elements too:\n{typed}"
     );
 }
 

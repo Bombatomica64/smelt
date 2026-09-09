@@ -255,6 +255,16 @@ impl ModuleBuilder<'_> {
         };
         let mut dict = self.argument(dict_argument, body)?;
         let dict_ty = Self::expr_ty(body, dict);
+        // A CONCRETE typed-array view answers its own enumeration: its own
+        // properties are exactly its element indices, and both the indices and
+        // the elements are on the value. Erasing it to a `Record<string,
+        // unknown>` first — which is what the arms below do for any class —
+        // would cross the dynamic boundary to compute an answer that is
+        // already here, and would type the values `unknown` where they are
+        // numbers.
+        if let Some(expr) = self.typed_array_projection(op, dict, dict_ty, call.span, body) {
+            return Ok(Some(expr));
+        }
         let (key_type, value_type) = match self.ctx.krate.types.get(dict_ty) {
             Some(Type::Dict(key_type, value_type)) => (*key_type, *value_type),
             Some(
@@ -1308,6 +1318,18 @@ return_ty,
         let value = self.argument(argument, body)?;
         let ty = self.ctx.krate.types.intern(Type::Bool);
         let span = self.span(call.span.start, call.span.end);
+        // A CONCRETE family value answers statically: a view IS a view and byte
+        // storage is not. The disjunction below is for an erased value, whose
+        // markers are the only thing left to ask.
+        let value_ty = Self::expr_ty(body, value);
+        if self.is_typed_array_view_type(value_ty) || self.is_array_buffer_type(value_ty) {
+            let is_view = self.is_typed_array_view_type(value_ty);
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Bool(is_view)),
+                ty,
+                span,
+            })));
+        }
         if matches!(
             self.ctx.krate.types.get(Self::expr_ty(body, value)),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))

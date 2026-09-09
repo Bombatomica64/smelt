@@ -329,3 +329,173 @@ test("instanceof resolves through the view identity", () => {
 "#;
     run_fixture(source, "smelt_typed_array_clone");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn views_over_one_buffer_share_their_storage_across_subarray() {
+    // The property that decides the whole shape of the concrete family
+    // (increment 3): a view is a WINDOW onto shared storage, not a `Vec<u8>`
+    // with a name. `subarray` hands back a second view over the SAME bytes, so
+    // a write through either is visible through the other and through the
+    // buffer; `slice` copies, so a write through the copy is not. A design that
+    // copied bytes per view would pass every test that does not share a buffer
+    // and silently diverge on every test that does — which is why this case is
+    // pinned at run time rather than in a string golden.
+    let source = r#"
+import { test, expect } from "vitest";
+test("subarray shares storage while slice copies", () => {
+  const view = new Uint8Array([1, 2, 3, 4]);
+  const shared = view.subarray(1, 3);
+  expect(shared.length).toBe(2);
+  expect(shared.byteOffset).toBe(1);
+  shared[0] = 99;
+  expect(view[1]).toBe(99);
+  view[2] = 77;
+  expect(shared[1]).toBe(77);
+  const copied = view.slice(1, 3);
+  copied[0] = 5;
+  expect(view[1]).toBe(99);
+  expect(copied.byteOffset).toBe(0);
+});
+test("a subarray of a subarray keeps accumulating the offset", () => {
+  const view = new Uint8Array(8);
+  const first = view.subarray(2);
+  const second = first.subarray(3);
+  expect(first.byteOffset).toBe(2);
+  expect(second.byteOffset).toBe(5);
+  expect(second.length).toBe(3);
+  second[0] = 42;
+  expect(view[5]).toBe(42);
+  expect(first[3]).toBe(42);
+});
+test("views of different widths over one buffer alias its bytes", () => {
+  const buffer = new ArrayBuffer(4);
+  const bytes = new Uint8Array(buffer);
+  const words = new Uint32Array(buffer);
+  bytes[0] = 1;
+  expect(words[0]).toBe(1);
+  words[0] = 256;
+  expect(bytes[0]).toBe(0);
+  expect(bytes[1]).toBe(1);
+  expect(bytes.buffer.byteLength).toBe(4);
+});
+test("a windowed view writes through to its buffer and back", () => {
+  const buffer = new ArrayBuffer(8);
+  const window = new Uint8Array(buffer, 2, 4);
+  const whole = new Uint8Array(buffer);
+  window[0] = 9;
+  expect(whole[2]).toBe(9);
+  whole[5] = 8;
+  expect(window[3]).toBe(8);
+  expect(window.byteLength).toBe(4);
+  expect(window.buffer.byteLength).toBe(8);
+});
+"#;
+    run_fixture(source, "smelt_typed_array_shared_storage");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn set_copies_elements_while_fill_answers_the_view_it_filled() {
+    // The two mutating members, and the two ways they differ from the aliasing
+    // ones above: `set` COPIES its source's elements in (so a later write to the
+    // source is not visible in the target), and `fill` answers the SAME view it
+    // filled rather than a copy — which is what makes `view.fill(0)` an
+    // in-place clear and `const cleared = view.fill(0)` an alias of `view`.
+    let source = r#"
+import { test, expect } from "vitest";
+test("set copies elements in without aliasing the source", () => {
+  const source = new Uint8Array([1, 2]);
+  const target = new Uint8Array(4);
+  target.set(source, 1);
+  source[0] = 7;
+  expect(target[1]).toBe(1);
+  expect(target[2]).toBe(2);
+  expect(target[0]).toBe(0);
+});
+test("set converts per element rather than per byte", () => {
+  const wide = new Uint32Array([1, 2]);
+  const narrow = new Uint8Array(4);
+  narrow.set(wide);
+  expect(narrow[0]).toBe(1);
+  expect(narrow[1]).toBe(2);
+  expect(narrow[2]).toBe(0);
+});
+test("fill answers the same view it filled", () => {
+  const view = new Uint8Array(4);
+  const filled = view.fill(3, 1, 3);
+  expect(filled[1]).toBe(3);
+  expect(view[2]).toBe(3);
+  expect(view[0]).toBe(0);
+  expect(view[3]).toBe(0);
+  filled[0] = 6;
+  expect(view[0]).toBe(6);
+});
+"#;
+    run_fixture(source, "smelt_typed_array_mutation");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn the_erased_face_is_reached_only_through_the_boundary_adapters() {
+    // The other half of increment 3's claim: the erased byte-backed record is
+    // now the concrete family's BOUNDARY form, so a concrete view that has
+    // crossed into `SmeltUnknown` answers exactly what a record built by the
+    // erased face answers — `ArrayBuffer.isView`, `instanceof`, the index keys,
+    // `String()`, `JSON.stringify` — and a concrete view recovers from one.
+    //
+    // These cases live in the tier rather than in the examples corpus because
+    // every flow here is erased by construction (an `unknown` parameter, a
+    // `DataView`), and the corpus holds a hard `avoidable == 0` invariant.
+    // Increment 5 of the plan folds them back.
+    let source = r#"
+import { test, expect } from "vitest";
+function erase(value: unknown): unknown {
+  return value;
+}
+test("an erased view answers the erased face's questions", () => {
+  const buffer = new ArrayBuffer(8);
+  const window = new Uint8Array(buffer, 2, 4);
+  window[0] = 7;
+  expect(ArrayBuffer.isView(erase(window))).toBe(true);
+  expect(ArrayBuffer.isView(erase(buffer))).toBe(false);
+  expect(erase(window) instanceof Uint8Array).toBe(true);
+  expect(erase(buffer) instanceof ArrayBuffer).toBe(true);
+  expect(JSON.stringify(erase(window))).toBe('{"0":7,"1":0,"2":0,"3":0}');
+  expect(JSON.stringify(erase(buffer))).toBe("{}");
+  expect(String(erase(window))).toBe("7,0,0,0");
+  expect(Object.keys(erase(window) as Record<string, unknown>).join(",")).toBe("0,1,2,3");
+});
+test("a concrete view recovers from an erased buffer", () => {
+  const buffer = new ArrayBuffer(4);
+  const bytes = new Uint8Array(buffer);
+  bytes[2] = 5;
+  const recovered = new Uint8Array(erase(buffer) as ArrayBuffer);
+  expect(recovered.length).toBe(4);
+  expect(recovered[2]).toBe(5);
+});
+test("the byte hosts that stay erased still construct and identify", () => {
+  const buffer = new ArrayBuffer(8);
+  const dataView = new DataView(buffer);
+  expect(dataView instanceof DataView).toBe(true);
+  expect(ArrayBuffer.isView(dataView)).toBe(true);
+});
+test("crypto.subtle.digest takes a view or a buffer and answers storage", async () => {
+  const encoded = new TextEncoder().encode("hi");
+  const fromView = await crypto.subtle.digest("SHA-256", encoded);
+  expect(fromView.byteLength).toBe(32);
+  expect(ArrayBuffer.isView(fromView)).toBe(false);
+  const fromBuffer = await crypto.subtle.digest("SHA-256", fromView);
+  expect(fromBuffer.byteLength).toBe(32);
+  const bytes = new Uint8Array(fromView);
+  expect(bytes.length).toBe(32);
+});
+test("crypto.getRandomValues fills a concrete view in place", () => {
+  const view = new Uint8Array(8);
+  const filled = crypto.getRandomValues(view);
+  expect(filled.length).toBe(8);
+  expect(filled.byteLength).toBe(8);
+});
+"#;
+    run_fixture(source, "smelt_typed_array_boundary");
+}

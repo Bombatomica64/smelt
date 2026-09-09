@@ -202,6 +202,15 @@ impl ModuleBuilder<'_> {
         if callee.name == "Object" && !self.classes.contains("Object") {
             return self.object_constructor_expression(new_expr, body, type_hint);
         }
+        // The concrete typed-array family — the eleven views and `ArrayBuffer` —
+        // constructs its own Rust value. Asked BEFORE the erased byte-buffer
+        // path below, which still owns `SharedArrayBuffer` and `DataView`: those
+        // two keep the byte-backed host record because neither surface is
+        // modeled concretely (see `stdlib::typed_array`).
+        if self.is_typed_array_family_name(callee.name.as_str()) {
+            let class_name = callee.name.to_string();
+            return self.typed_array_constructor_expression(new_expr, &class_name, body);
+        }
         // The byte-backed host objects other than Node's `Buffer` (which keeps its
         // own `Buffer.from`/`alloc`/`concat`-shaped lowering) construct through the
         // shared host constructor so their records carry real byte storage.

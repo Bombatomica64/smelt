@@ -552,10 +552,28 @@ impl ExprKind {
                     args: mapped,
                 }
             }
-            Self::ByteArrayOp { op, bytes } => Self::ByteArrayOp {
-                op,
-                bytes: f(bytes)?,
-            },
+            Self::TypedArrayNew { class_name, args } => {
+                let mut mapped = Vec::with_capacity(args.len());
+                for arg in args {
+                    mapped.push(f(arg)?);
+                }
+                Self::TypedArrayNew {
+                    class_name,
+                    args: mapped,
+                }
+            }
+            Self::ByteArrayOp { op, bytes, args } => {
+                let bytes = f(bytes)?;
+                let mut mapped = Vec::with_capacity(args.len());
+                for arg in args {
+                    mapped.push(f(arg)?);
+                }
+                Self::ByteArrayOp {
+                    op,
+                    bytes,
+                    args: mapped,
+                }
+            }
             Self::FormDataNew => Self::FormDataNew,
             Self::AbortSignalOp { op, args } => {
                 let mut mapped = Vec::with_capacity(args.len());
