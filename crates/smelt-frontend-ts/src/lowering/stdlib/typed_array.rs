@@ -170,7 +170,7 @@ impl ModuleBuilder<'_> {
         if !self.is_data_view_type(Self::expr_ty(body, receiver)) {
             return Ok(None);
         }
-        let Some((write, _)) = smelt_stdlib::data_view_accessor(member_name) else {
+        let Some((write, element)) = smelt_stdlib::data_view_accessor(member_name) else {
             return Ok(None);
         };
         // A read takes an offset and an optional flag; a write takes a value
@@ -192,7 +192,8 @@ impl ModuleBuilder<'_> {
         };
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::DataViewAccess {
-                member: member_name.to_owned(),
+                write,
+                element,
                 view: receiver,
                 args,
             },

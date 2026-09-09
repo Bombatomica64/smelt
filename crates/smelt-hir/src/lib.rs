@@ -90,6 +90,9 @@ pub use expr::{
     UnknownKind, UriTranscodeOp, UrlField, bin_op_text,
 };
 pub use format::{format_compact, type_display};
+/// The stdlib element table, re-exported so MIR and codegen name the SAME
+/// type HIR does rather than each reaching for the registry crate.
+pub use smelt_stdlib::TypedArrayElement;
 pub use ids::{
     BlockId, BodyId, ExprId, FileId, ItemId, LocalId, ModuleId, PatternId, Span, StmtId, Symbol,
     TypeId,

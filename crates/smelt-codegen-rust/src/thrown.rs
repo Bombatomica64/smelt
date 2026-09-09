@@ -208,6 +208,48 @@ pub(crate) fn emit_uri_decode_support(writer: &mut CodeWriter) {
     }
 }
 
+/// Name of the generated fallible `DataView` READ adapter.
+pub(crate) const DATA_VIEW_GET_FN: &str = "smelt_data_view_get_throwing";
+
+/// Name of the generated fallible `DataView` WRITE adapter.
+pub(crate) const DATA_VIEW_SET_FN: &str = "smelt_data_view_set_throwing";
+
+/// Emits the fallible `DataView` accessor adapters into the generated prelude.
+///
+/// An offset outside the view is a `RangeError` in JavaScript, and it is the
+/// first stdlib MEMBER to reach a `catch` — `JSON.parse`, the URI decoders and
+/// the base64 pair were all free functions. The route is the same one and for
+/// the same reason: only a call carries an `unwind` edge, so a fallible
+/// operation has to be a call (see
+/// `blocker-logs/standards-throwing-rvalue.md`).
+///
+/// The BOUND is checked here rather than in the infallible members, which stay
+/// as they are: a read or write inside the window is not fallible, and paying
+/// for a `Result` on every element access would put a `?` in every generated
+/// signature that touches one.
+pub(crate) fn emit_data_view_access_support(writer: &mut CodeWriter) {
+    // Node's own message, verbatim, because a program can read it: `catch (e) {
+    // e.message }` is ordinary JavaScript.
+    let payload = error_payload_record_expr(
+        "RangeError",
+        "\"Offset is outside the bounds of the DataView\".to_owned()",
+    );
+    writer.blank_line();
+    writer.line(
+        "/// `DataView.prototype.getX`: read one element, throwing a catchable `RangeError`.",
+    );
+    writer.line(format!(
+        "fn {DATA_VIEW_GET_FN}(view: &SmeltDataView, kind: SmeltTypedArrayKind, offset: usize, little_endian: bool) -> Result<f64, Box<dyn ::std::error::Error>> {{          match view.get_checked(kind, offset, little_endian) {{          Some(value) => Ok(value),          None => Err({THROW_FN}({payload})) }} }}"
+    ));
+    writer.blank_line();
+    writer.line(
+        "/// `DataView.prototype.setX`: write one element, throwing a catchable `RangeError`.",
+    );
+    writer.line(format!(
+        "fn {DATA_VIEW_SET_FN}(view: &SmeltDataView, kind: SmeltTypedArrayKind, offset: usize, value: f64, little_endian: bool) -> Result<(), Box<dyn ::std::error::Error>> {{          if view.set_checked(kind, offset, value, little_endian) {{ Ok(()) }} else {{ Err({THROW_FN}({payload})) }} }}"
+    ));
+}
+
 /// Name of the generated fallible `btoa` adapter.
 pub(crate) const BTOA_FN: &str = "smelt_btoa_throwing";
 

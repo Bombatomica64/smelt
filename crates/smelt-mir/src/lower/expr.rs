@@ -1354,21 +1354,40 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
-            ExprKind::DataViewAccess { member, view, args } => {
+            ExprKind::DataViewAccess {
+                write,
+                element,
+                view,
+                args,
+            } => {
+                // Fallible: an offset outside the view throws a catchable
+                // `RangeError`. A `Statement::Assign` has no unwind edge, so an
+                // rvalue form could never reach an enclosing `try` — the catch
+                // block would have no predecessor and be dropped, turning a
+                // JavaScript-catchable error into an abort. Route it through
+                // the call terminator, exactly as `JSON.parse` above does, so
+                // the handler (or, with none active, the throwing-function
+                // propagation pass) sees the throwing edge. See
+                // `blocker-logs/standards-throwing-rvalue.md`.
                 let view_operand = self.lower_expr(*view)?;
-                let arg_operands = args
-                    .iter()
-                    .map(|arg| self.lower_expr(*arg))
-                    .collect::<Result<Vec<_>, _>>()?;
-                self.assign_temp(
-                    expr.ty,
-                    expr.span,
-                    Rvalue::DataViewAccess {
-                        member: member.clone(),
-                        view: view_operand,
-                        args: arg_operands,
-                    },
-                )?
+                let mut call_args = vec![view_operand];
+                for arg in args {
+                    call_args.push(self.lower_expr(*arg)?);
+                }
+                let dest = self.push_temp(expr.ty, expr.span);
+                let target = self.function.push_block(expr.span);
+                self.set_terminator(Terminator::Call {
+                    callee: Callee::Builtin(BuiltinFn::DataViewAccess {
+                        write: *write,
+                        element: *element,
+                    }),
+                    args: call_args,
+                    dest,
+                    target,
+                    unwind: self.current_exception_handler(),
+                })?;
+                self.current_block = target;
+                Operand::Copy(Place::Local(dest))
             }
             ExprKind::ByteArrayOp { op, bytes, args } => {
                 let bytes_operand = self.lower_expr(*bytes)?;

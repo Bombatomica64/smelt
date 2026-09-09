@@ -862,6 +862,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "81_receiver_capture_in_callback",
     "82_data_view_shared_buffer",
     "83_number_to_string",
+    "84_data_view_range_error",
 ];
 
 /// The generated-Rust goldens cover EVERY emitted file, not just `main.rs`.

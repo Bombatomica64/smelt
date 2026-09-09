@@ -2173,6 +2173,12 @@ fn smelt_panic_payload(error: &(dyn ::std::error::Error + 'static)) -> SmeltPani
 /// a panic that is not a routed `throw` has no JavaScript value behind it.
 fn smelt_panic_error_value(panic: &(dyn ::std::any::Any + Send)) -> SmeltUnknown { if let Some(value) = SMELT_PANIC_VALUE.with(|slot| slot.borrow_mut().take()) { if panic.downcast_ref::<SmeltPanic>().is_some() { return value; } } SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String(smelt_panic_class(panic).into())), ("message".to_owned(), SmeltUnknown::String(smelt_panic_message(panic).into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]))) }
 
+/// `DataView.prototype.getX`: read one element, throwing a catchable `RangeError`.
+fn smelt_data_view_get_throwing(view: &SmeltDataView, kind: SmeltTypedArrayKind, offset: usize, little_endian: bool) -> Result<f64, Box<dyn ::std::error::Error>> {          match view.get_checked(kind, offset, little_endian) {          Some(value) => Ok(value),          None => Err(smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("RangeError".into())), ("message".to_owned(), SmeltUnknown::String("Offset is outside the bounds of the DataView".to_owned().into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]))))) } }
+
+/// `DataView.prototype.setX`: write one element, throwing a catchable `RangeError`.
+fn smelt_data_view_set_throwing(view: &SmeltDataView, kind: SmeltTypedArrayKind, offset: usize, value: f64, little_endian: bool) -> Result<(), Box<dyn ::std::error::Error>> {          if view.set_checked(kind, offset, value, little_endian) { Ok(()) } else { Err(smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("RangeError".into())), ("message".to_owned(), SmeltUnknown::String("Offset is outside the bounds of the DataView".to_owned().into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]))))) } }
+
 impl Eq for SmeltUnknown {}
 
 impl ::std::hash::Hash for SmeltUnknown {
@@ -3310,6 +3316,15 @@ impl SmeltDataView {
         let to = (self.byte_offset + self.byte_length).min(bytes.len());
         bytes[from..to].to_vec()
     }
+    /// Whether `kind` at `offset` lies wholly inside this view.
+    fn in_bounds(&self, kind: SmeltTypedArrayKind, offset: usize) -> bool {
+        let width = kind.byte_width();
+        offset + width <= self.byte_length && self.byte_offset + offset + width <= self.bytes.borrow().len()
+    }
+    /// `getX`, answering `None` when the offset is out of range.
+    pub fn get_checked(&self, kind: SmeltTypedArrayKind, offset: usize, little_endian: bool) -> Option<f64> { if self.in_bounds(kind, offset) { Some(self.get(kind, offset, little_endian)) } else { None } }
+    /// `setX`, answering `false` when the offset is out of range.
+    pub fn set_checked(&self, kind: SmeltTypedArrayKind, offset: usize, value: f64, little_endian: bool) -> bool { if self.in_bounds(kind, offset) { self.set(kind, offset, value, little_endian); true } else { false } }
     /// `getX(byteOffset, littleEndian?)`: read one element at `kind`'s width.
     pub fn get(&self, kind: SmeltTypedArrayKind, offset: usize, little_endian: bool) -> f64 {
         let width = kind.byte_width();
@@ -3364,7 +3379,7 @@ fn smelt_typed_array_write_origin(id: usize, offset: usize, encoded: &[SmeltUnkn
 }
 
 // @smelt:prelude-end — generated program below
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut over_shared: SmeltTypedArray;
     let copied: SmeltArrayBuffer;
     let buffer: SmeltArrayBuffer;
@@ -3392,33 +3407,14 @@ fn main() {
     let _smelt_tmp_37: bool;
     let _smelt_tmp_38: String;
     let _smelt_tmp_40: f64;
-    let _smelt_tmp_41: ();
-    let _smelt_tmp_42: f64;
-    let _smelt_tmp_43: f64;
-    let _smelt_tmp_45: f64;
-    let _smelt_tmp_46: f64;
     let _smelt_tmp_48: f64;
-    let _smelt_tmp_49: ();
-    let _smelt_tmp_50: f64;
-    let _smelt_tmp_51: f64;
-    let _smelt_tmp_53: f64;
-    let _smelt_tmp_54: f64;
-    let _smelt_tmp_56: ();
-    let _smelt_tmp_57: f64;
-    let _smelt_tmp_58: f64;
-    let _smelt_tmp_60: ();
-    let _smelt_tmp_61: f64;
     let _smelt_tmp_63: SmeltDataView;
     let _smelt_tmp_64: f64;
     let _smelt_tmp_65: f64;
-    let _smelt_tmp_67: ();
-    let _smelt_tmp_68: f64;
-    let _smelt_tmp_69: f64;
     let _smelt_tmp_71: SmeltDataView;
     let _smelt_tmp_72: SmeltArrayBuffer;
     let _smelt_tmp_73: bool;
     let _smelt_tmp_74: f64;
-    let _smelt_tmp_76: f64;
     let _smelt_tmp_78: String;
     let _smelt_tmp_79: SmeltList<String>;
     let _smelt_tmp_80: f64;
@@ -3462,36 +3458,36 @@ fn main() {
     _smelt_tmp_38 = "[object DataView]".to_owned();
     let _ = { println!("{} {} {}", _smelt_tmp_37, _smelt_tmp_38, true); };
     _smelt_tmp_40 = -2.0;
-    _smelt_tmp_41 = view.clone().set(SmeltTypedArrayKind::Int16, ((0.0) as f64).max(0.0) as usize, _smelt_tmp_40, false);
-    _smelt_tmp_42 = view.clone().get(SmeltTypedArrayKind::Int16, ((0.0) as f64).max(0.0) as usize, false);
-    _smelt_tmp_43 = view.clone().get(SmeltTypedArrayKind::Uint16, ((0.0) as f64).max(0.0) as usize, false);
+    let _ = smelt_data_view_set_throwing(&view.clone(), SmeltTypedArrayKind::Int16, ((0.0) as f64).max(0.0) as usize, _smelt_tmp_40, false)?;
+    let _smelt_tmp_42: f64 = smelt_data_view_get_throwing(&view.clone(), SmeltTypedArrayKind::Int16, ((0.0) as f64).max(0.0) as usize, false)?;
+    let _smelt_tmp_43: f64 = smelt_data_view_get_throwing(&view.clone(), SmeltTypedArrayKind::Uint16, ((0.0) as f64).max(0.0) as usize, false)?;
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_42), smelt_console_number(_smelt_tmp_43)); };
-    _smelt_tmp_45 = view.clone().get(SmeltTypedArrayKind::Uint8, ((0.0) as f64).max(0.0) as usize, false);
-    _smelt_tmp_46 = view.clone().get(SmeltTypedArrayKind::Uint8, ((1.0) as f64).max(0.0) as usize, false);
+    let _smelt_tmp_45: f64 = smelt_data_view_get_throwing(&view.clone(), SmeltTypedArrayKind::Uint8, ((0.0) as f64).max(0.0) as usize, false)?;
+    let _smelt_tmp_46: f64 = smelt_data_view_get_throwing(&view.clone(), SmeltTypedArrayKind::Uint8, ((1.0) as f64).max(0.0) as usize, false)?;
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_45), smelt_console_number(_smelt_tmp_46)); };
     _smelt_tmp_48 = -2.0;
-    _smelt_tmp_49 = view.clone().set(SmeltTypedArrayKind::Int16, ((2.0) as f64).max(0.0) as usize, _smelt_tmp_48, true);
-    _smelt_tmp_50 = view.clone().get(SmeltTypedArrayKind::Uint8, ((2.0) as f64).max(0.0) as usize, false);
-    _smelt_tmp_51 = view.clone().get(SmeltTypedArrayKind::Uint8, ((3.0) as f64).max(0.0) as usize, false);
+    let _ = smelt_data_view_set_throwing(&view.clone(), SmeltTypedArrayKind::Int16, ((2.0) as f64).max(0.0) as usize, _smelt_tmp_48, true)?;
+    let _smelt_tmp_50: f64 = smelt_data_view_get_throwing(&view.clone(), SmeltTypedArrayKind::Uint8, ((2.0) as f64).max(0.0) as usize, false)?;
+    let _smelt_tmp_51: f64 = smelt_data_view_get_throwing(&view.clone(), SmeltTypedArrayKind::Uint8, ((3.0) as f64).max(0.0) as usize, false)?;
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_50), smelt_console_number(_smelt_tmp_51)); };
-    _smelt_tmp_53 = view.clone().get(SmeltTypedArrayKind::Int16, ((2.0) as f64).max(0.0) as usize, true);
-    _smelt_tmp_54 = view.clone().get(SmeltTypedArrayKind::Int16, ((2.0) as f64).max(0.0) as usize, false);
+    let _smelt_tmp_53: f64 = smelt_data_view_get_throwing(&view.clone(), SmeltTypedArrayKind::Int16, ((2.0) as f64).max(0.0) as usize, true)?;
+    let _smelt_tmp_54: f64 = smelt_data_view_get_throwing(&view.clone(), SmeltTypedArrayKind::Int16, ((2.0) as f64).max(0.0) as usize, false)?;
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_53), smelt_console_number(_smelt_tmp_54)); };
-    _smelt_tmp_56 = view.clone().set(SmeltTypedArrayKind::Uint32, ((4.0) as f64).max(0.0) as usize, 4294967295.0, false);
-    _smelt_tmp_57 = view.clone().get(SmeltTypedArrayKind::Uint32, ((4.0) as f64).max(0.0) as usize, false);
-    _smelt_tmp_58 = view.clone().get(SmeltTypedArrayKind::Int32, ((4.0) as f64).max(0.0) as usize, false);
+    let _ = smelt_data_view_set_throwing(&view.clone(), SmeltTypedArrayKind::Uint32, ((4.0) as f64).max(0.0) as usize, 4294967295.0, false)?;
+    let _smelt_tmp_57: f64 = smelt_data_view_get_throwing(&view.clone(), SmeltTypedArrayKind::Uint32, ((4.0) as f64).max(0.0) as usize, false)?;
+    let _smelt_tmp_58: f64 = smelt_data_view_get_throwing(&view.clone(), SmeltTypedArrayKind::Int32, ((4.0) as f64).max(0.0) as usize, false)?;
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_57), smelt_console_number(_smelt_tmp_58)); };
-    _smelt_tmp_60 = view.clone().set(SmeltTypedArrayKind::Float64, ((8.0) as f64).max(0.0) as usize, 1.5, false);
-    _smelt_tmp_61 = view.clone().get(SmeltTypedArrayKind::Float64, ((8.0) as f64).max(0.0) as usize, false);
+    let _ = smelt_data_view_set_throwing(&view.clone(), SmeltTypedArrayKind::Float64, ((8.0) as f64).max(0.0) as usize, 1.5, false)?;
+    let _smelt_tmp_61: f64 = smelt_data_view_get_throwing(&view.clone(), SmeltTypedArrayKind::Float64, ((8.0) as f64).max(0.0) as usize, false)?;
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_61)); };
     _smelt_tmp_63 = SmeltDataView::over_buffer(&buffer.clone(), ((8.0) as f64).max(0.0) as usize, Some((((4.0)) as f64).max(0.0) as usize));
     windowed = _smelt_tmp_63;
     _smelt_tmp_64 = windowed.clone().byte_offset();
     _smelt_tmp_65 = windowed.clone().byte_length();
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_64), smelt_console_number(_smelt_tmp_65)); };
-    _smelt_tmp_67 = windowed.clone().set(SmeltTypedArrayKind::Int8, ((0.0) as f64).max(0.0) as usize, 7.0, false);
-    _smelt_tmp_68 = view.clone().get(SmeltTypedArrayKind::Int8, ((8.0) as f64).max(0.0) as usize, false);
-    _smelt_tmp_69 = windowed.get(SmeltTypedArrayKind::Int8, ((0.0) as f64).max(0.0) as usize, false);
+    let _ = smelt_data_view_set_throwing(&windowed.clone(), SmeltTypedArrayKind::Int8, ((0.0) as f64).max(0.0) as usize, 7.0, false)?;
+    let _smelt_tmp_68: f64 = smelt_data_view_get_throwing(&view.clone(), SmeltTypedArrayKind::Int8, ((8.0) as f64).max(0.0) as usize, false)?;
+    let _smelt_tmp_69: f64 = smelt_data_view_get_throwing(&windowed, SmeltTypedArrayKind::Int8, ((0.0) as f64).max(0.0) as usize, false)?;
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_68), smelt_console_number(_smelt_tmp_69)); };
     _smelt_tmp_71 = SmeltDataView::over_buffer(&shared.clone(), 0, None);
     shared_view = _smelt_tmp_71;
@@ -3499,7 +3495,7 @@ fn main() {
     _smelt_tmp_73 = _smelt_tmp_72.is_shared();
     _smelt_tmp_74 = shared_view.clone().byte_length();
     let _ = { println!("{} {}", _smelt_tmp_73, smelt_console_number(_smelt_tmp_74)); };
-    _smelt_tmp_76 = shared_view.get(SmeltTypedArrayKind::Uint8, ((0.0) as f64).max(0.0) as usize, false);
+    let _smelt_tmp_76: f64 = smelt_data_view_get_throwing(&shared_view, SmeltTypedArrayKind::Uint8, ((0.0) as f64).max(0.0) as usize, false)?;
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_76)); };
     _smelt_tmp_78 = serde_json::to_string(&view.clone().into_smelt_unknown()).expect("JSON serialization failed");
     _smelt_tmp_79 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
@@ -3511,7 +3507,7 @@ fn main() {
     let _smelt_tmp_85: f64 = width_of(view.clone().into_smelt_unknown());
     let _smelt_tmp_86: f64 = width_of(buffer.clone().into_smelt_unknown());
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_85), smelt_console_number(_smelt_tmp_86)); };
-    return;
+    return Ok(());
 }
 
 // ==== source_main.rs

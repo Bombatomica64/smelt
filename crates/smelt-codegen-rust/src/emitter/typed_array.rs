@@ -184,29 +184,36 @@ impl FunctionEmitter<'_> {
 
     /// Emit a `DataView` accessor call: `getInt16(0)`, `setFloat64(0, x, true)`.
     ///
-    /// The element kind and the direction come from the accessor's NAME through
-    /// the registry, which is the only place that mapping exists: the emitter
-    /// does not match eighteen spellings, and a `getUint8Clamped` — which
-    /// JavaScript does not define — cannot reach here because the same registry
-    /// rule is what let the frontend lower the call at all.
+    /// A FALLIBLE builtin call, so the text ends in `?`: an offset outside the
+    /// view is a catchable `RangeError`, and only a call carries the unwind
+    /// edge that reaches a `try` (see
+    /// `blocker-logs/standards-throwing-rvalue.md`). The adapter owns the
+    /// throw; the prelude's checked pair owns the bound.
     ///
-    /// The byte-order argument defaults to FALSE, the opposite of a typed
-    /// array's fixed little-endian order; that default is the spec's, and it is
-    /// the one thing about `DataView` most easily got wrong.
+    /// The element kind and the direction arrive already resolved, on the
+    /// builtin itself — the registry read the accessor's NAME once, at the
+    /// frontend dispatch — so a `getUint8Clamped`, which JavaScript does not
+    /// define, cannot reach here at all.
+    ///
+    /// `args` is the call's own list: the receiver first, then the accessor's
+    /// arguments as written. The byte-order argument defaults to FALSE, the
+    /// opposite of a typed array's fixed little-endian order; that default is
+    /// the spec's, and it is the one thing about `DataView` most easily got
+    /// wrong.
     pub(super) fn data_view_access_text(
         &self,
-        member: &str,
-        view: &Operand,
+        write: bool,
+        element: smelt_stdlib::TypedArrayElement,
         args: &[Operand],
     ) -> Result<String, EmitError> {
-        let Some((write, element)) = smelt_stdlib::data_view_accessor(member) else {
-            return Err(EmitError::new(format!(
-                "internal: `{member}` is not a `DataView` accessor"
-            )));
+        let Some((view, accessor_args)) = args.split_first() else {
+            return Err(EmitError::new(
+                "internal: a `DataView` accessor call takes its receiver first",
+            ));
         };
         let kind = crate::typed_array_prelude::element_kind_expression(element);
         let view_text = self.operand_text(view)?;
-        let offset = match args.first() {
+        let offset = match accessor_args.first() {
             Some(offset) => format!(
                 "(({}) as f64).max(0.0) as usize",
                 self.numeric_operand_text(offset)?
@@ -216,7 +223,7 @@ impl FunctionEmitter<'_> {
         // A write takes the value between the offset and the flag, so the flag
         // is the third argument for `set` and the second for `get`.
         let (value, endian_index) = if write {
-            let value = match args.get(1) {
+            let value = match accessor_args.get(1) {
                 Some(value) => self.numeric_operand_text(value)?,
                 None => "0.0".to_owned(),
             };
@@ -224,15 +231,22 @@ impl FunctionEmitter<'_> {
         } else {
             (None, 1)
         };
-        let little_endian = match args.get(endian_index) {
+        let little_endian = match accessor_args.get(endian_index) {
             Some(flag) => self.truthy_operand_text(flag)?,
             None => "false".to_owned(),
         };
+        // The trailing `?` is what marks the call fallible to
+        // `emit_throwing_call_terminator`, which renders the shape that binds
+        // the caught `RangeError` and jumps to the handler's catch block.
         Ok(match value {
-            Some(value) => {
-                format!("{view_text}.set({kind}, {offset}, {value}, {little_endian})")
-            }
-            None => format!("{view_text}.get({kind}, {offset}, {little_endian})"),
+            Some(value) => format!(
+                "{adapter}(&{view_text}, {kind}, {offset}, {value}, {little_endian})?",
+                adapter = crate::thrown::DATA_VIEW_SET_FN,
+            ),
+            None => format!(
+                "{adapter}(&{view_text}, {kind}, {offset}, {little_endian})?",
+                adapter = crate::thrown::DATA_VIEW_GET_FN,
+            ),
         })
     }
 

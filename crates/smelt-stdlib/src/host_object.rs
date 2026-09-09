@@ -66,7 +66,7 @@ pub enum ByteBufferRole {
 // these eleven element types, and the codegen crate matches on the variant to
 // derive its decode/encode pair — a wildcard arm there would silently emit a
 // byte-wide codec for a newly added width.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum TypedArrayElement {
     /// Signed 8-bit integer (`Int8Array`).
     Int8,

@@ -395,11 +395,13 @@ pub(crate) fn needs_byte_array_runtime(mir: &Mir) -> bool {
         || any_rvalue_needs(mir, |rvalue| {
             matches!(
                 rvalue,
-                Rvalue::ByteArrayOp { .. }
-                    | Rvalue::TypedArrayNew { .. }
-                    | Rvalue::DataViewAccess { .. }
+                Rvalue::ByteArrayOp { .. } | Rvalue::TypedArrayNew { .. }
             )
         })
+        // An accessor is a fallible CALL, so the rvalue scan above cannot see
+        // it; a program whose only family use is `view.getInt16(0)` still
+        // needs the whole family emitted.
+        || needs_data_view_access_runtime(mir)
         || mir
             .types
             .all()
@@ -417,13 +419,32 @@ pub(crate) fn needs_byte_array_runtime(mir: &Mir) -> bool {
 /// typed array never mention a `DataView`: an accessor call, or the spelling in
 /// the type table.
 pub(crate) fn needs_data_view_runtime(mir: &Mir) -> bool {
-    any_rvalue_needs(mir, |rvalue| {
-        matches!(rvalue, Rvalue::DataViewAccess { .. })
-    }) || mir
-        .types
-        .all()
-        .iter()
-        .any(|ty| is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::DataView))
+    needs_data_view_access_runtime(mir)
+        || mir
+            .types
+            .all()
+            .iter()
+            .any(|ty| is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::DataView))
+}
+
+/// Whether the program calls a fallible `DataView` accessor.
+///
+/// An accessor is a `Terminator::Call` to [`BuiltinFn::DataViewAccess`] rather
+/// than an rvalue (it needs an unwind edge to throw its `RangeError`), so the
+/// rvalue-based dependency scan cannot see it — the same reason
+/// [`needs_uri_decode_runtime`] exists. The throwing adapters in the prelude
+/// are gated on this.
+#[must_use]
+pub(crate) fn needs_data_view_access_runtime(mir: &Mir) -> bool {
+    terminators(mir).any(|terminator| {
+        matches!(
+            terminator,
+            Terminator::Call {
+                callee: Callee::Builtin(BuiltinFn::DataViewAccess { .. }),
+                ..
+            }
+        )
+    })
 }
 
 /// Returns true when generated Rust needs the `SmeltBlob` runtime type.
