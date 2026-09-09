@@ -219,6 +219,87 @@ pub(crate) fn verify_python_end_to_end_example(name: &str) -> TestResult {
     verify_example_dumps(name, &example, &input)
 }
 
+/// The env var that turns the golden comparison into a golden REWRITE.
+///
+/// `scripts/regen-example-rust.sh` sets it. Owning the concatenation format in
+/// exactly one place is the point: a shell script that rebuilt the same
+/// sectioned text would be a second implementation to drift from this one, and
+/// the golden it produced would differ from the one the test demands in ways
+/// nothing would notice until a regeneration broke the suite.
+const UPDATE_EXAMPLE_RUST_VAR: &str = "SMELT_UPDATE_EXAMPLE_RUST";
+
+/// The env var that narrows a run to a few examples, comma-separated.
+///
+/// Only useful together with the rewrite above: the corpus is verified by ONE
+/// `#[test]` looping over every name, so `cargo test`'s own name filter cannot
+/// select a fixture.
+const EXAMPLE_ONLY_VAR: &str = "SMELT_EXAMPLE_ONLY";
+
+/// What the temp project's own directory is written as in a golden.
+const EXAMPLE_PROJECT_PLACEHOLDER: &str = "<example>";
+
+/// Whether this run rewrites the generated-Rust goldens instead of asserting.
+fn update_example_rust() -> bool {
+    std::env::var_os(UPDATE_EXAMPLE_RUST_VAR).is_some()
+}
+
+/// Whether `name` is one of the examples this run was narrowed to.
+///
+/// Unset means every example, which is what `cargo test` always wants.
+pub(crate) fn example_is_selected(name: &str) -> bool {
+    std::env::var(EXAMPLE_ONLY_VAR)
+        .map_or(true, |only| only.split(',').any(|selected| selected.trim() == name))
+}
+
+/// Concatenate every generated `.rs` file under `dist_src` into one text.
+///
+/// The order is deterministic and readable rather than alphabetical:
+/// `main.rs` comes first because it is the crate root — it carries the runtime
+/// prelude and the `mod` declarations that name the rest — and the remaining
+/// files follow sorted by name.
+///
+/// The FIRST section carries no header, so a single-file program's text is
+/// byte-for-byte its `main.rs` and the goldens of the 48 fixtures that never
+/// split did not move when this replaced the `main.rs`-only comparison. Each
+/// later section is introduced by `// ==== <file>`, which is a Rust comment, so
+/// the golden as a whole still reads as Rust.
+///
+/// `project_root` is redacted out of the text. A split module carries a
+/// `// source: <path>` provenance comment naming the file it was lowered from,
+/// and under this harness that path is the temp project's — a directory whose
+/// name holds the test process's PID and a nanosecond timestamp, so leaving it
+/// in would make every golden differ from itself on the next run. The
+/// placeholder is the test's own scratch location standing in for itself and
+/// nothing else; every other byte is the emitter's.
+fn generated_rust_sections(dist_src: &Path, project_root: &Path) -> TestResult<String> {
+    let mut names = Vec::new();
+    for entry in fs::read_dir(dist_src)? {
+        let path = entry?.path();
+        if path.extension().is_some_and(|extension| extension == "rs")
+            && let Some(name) = path.file_name().and_then(|name| name.to_str())
+        {
+            names.push(name.to_owned());
+        }
+    }
+    names.sort();
+    if let Some(index) = names.iter().position(|name| name == "main.rs") {
+        let root = names.remove(index);
+        names.insert(0, root);
+    }
+    let mut sections = String::new();
+    for (index, name) in names.iter().enumerate() {
+        if index > 0 {
+            sections.push('\n');
+            sections.push_str("// ==== ");
+            sections.push_str(name);
+            sections.push('\n');
+        }
+        sections.push_str(&fs::read_to_string(dist_src.join(name))?);
+    }
+    let root = utf8_path(project_root)?;
+    Ok(sections.replace(&root, EXAMPLE_PROJECT_PLACEHOLDER))
+}
+
 /// Verifies the compiled output for a single end-to-end example fixture.
 pub(crate) fn verify_end_to_end_example(name: &str) -> TestResult {
     let example = example_dir(name)?;
@@ -255,13 +336,25 @@ clone-strategy = "aggressive"
     let manifest_arg = utf8_path(&manifest)?;
     smelt(&["--manifest-path", &manifest_arg, "build"])?;
 
-    let expected_rs = fs::read_to_string(example.join("expected.rs"))?;
-    let actual_rs = fs::read_to_string(project_path.join("dist/src/main.rs"))?;
-    ensure_eq(
-        &actual_rs,
-        &expected_rs,
-        format!("Rust mismatch for {name}"),
-    )?;
+    // EVERY generated file, not just `main.rs`. A program whose lowering
+    // splits into modules puts its user code in `source_<entry>.rs` and leaves
+    // `main.rs` holding the prelude and a `mod` declaration — so comparing
+    // `main.rs` alone golden-checked the PRELUDE and nothing the fixture was
+    // written to exercise. 32 of the corpus's 82 fixtures were in that state,
+    // which is why a feature could change its own emitted Rust with every
+    // golden still passing.
+    let golden_path = example.join("expected.rs");
+    let actual_rs = generated_rust_sections(&project_path.join("dist/src"), project_path)?;
+    if update_example_rust() {
+        fs::write(&golden_path, &actual_rs)?;
+    } else {
+        let expected_rs = fs::read_to_string(&golden_path)?;
+        ensure_eq(
+            &actual_rs,
+            &expected_rs,
+            format!("Rust mismatch for {name}"),
+        )?;
+    }
 
     let expected_stdout = fs::read_to_string(example.join("expected.stdout"))?;
     let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;

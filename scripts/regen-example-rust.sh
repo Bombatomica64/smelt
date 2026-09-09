@@ -1,64 +1,40 @@
 #!/usr/bin/env bash
-# Regenerate `expected.rs` (and optionally the HIR/MIR dumps) for the
-# TypeScript end-to-end examples.
+# Regenerate `expected.rs` for the TypeScript end-to-end examples.
 #
-# The examples' `expected.rs` is the whole generated `src/main.rs`, prelude
-# included, so any change to a runtime prelude that a program pays for moves
-# every affected golden at once. Regenerating them one at a time by hand is
-# error-prone; this does it the way the test harness does, through a temporary
-# project with the harness's own `Smelt.toml`.
+# The golden is EVERY generated file, not just `main.rs`: a program whose
+# lowering splits into modules leaves `main.rs` holding the runtime prelude and
+# a `mod` declaration while its user code goes to `source_<entry>.rs`, so a
+# `main.rs`-only golden checked the prelude and nothing the fixture was written
+# to exercise. The files are concatenated in a deterministic order — `main.rs`
+# first, the rest sorted — with each section after the first introduced by a
+# `// ==== <file>` comment line.
+#
+# That concatenation is implemented ONCE, in the test harness
+# (`crates/smelt-transpiler/tests/common/mod.rs`), and this script runs the
+# harness in rewrite mode rather than rebuilding the same text in shell: a
+# second implementation would drift from the one the suite asserts, and the
+# first sign of it would be a regeneration that breaks `cargo test`.
+#
+# Because the goldens are rewritten in place, one pass regenerates every
+# affected example — where the assertion path stops at the first mismatch.
 #
 # Usage:
-#   scripts/regen-example-rust.sh <smelt-binary> <scratch-dir> [example ...]
+#   scripts/regen-example-rust.sh [example ...]
 #
-# With no example names, every directory under examples/typescript/end-to-end
-# that has an `expected.rs` is regenerated. Only files whose bytes actually
-# change are written, so unaffected goldens keep their mtimes.
+# With no example names, every fixture in `END_TO_END_EXAMPLES` is regenerated.
+# Set CARGO_TARGET_DIR/CARGO_INCREMENTAL as usual; the run compiles and RUNS
+# each generated crate, because the harness also checks `expected.stdout`, and a
+# stdout mismatch still fails (this script only rewrites the Rust golden).
 set -euo pipefail
 
-smelt=$1
-scratch=$2
-shift 2
-
-root="examples/typescript/end-to-end"
 if [ "$#" -gt 0 ]; then
-  examples=("$@")
+  only=$(IFS=,; echo "$*")
+  export SMELT_EXAMPLE_ONLY="$only"
+  echo "regenerating: $only"
 else
-  examples=()
-  for dir in "$root"/*/; do
-    name=$(basename "$dir")
-    [ -f "$dir/expected.rs" ] || continue
-    examples+=("$name")
-  done
+  echo "regenerating: every end-to-end example"
 fi
 
-mkdir -p "$scratch/src"
-cat >"$scratch/Smelt.toml" <<'TOML'
-[project]
-name = "example-app"
-version = "0.1.0"
-
-[sources]
-entries = ["src/main.ts"]
-
-[output]
-target = "./dist"
-crate-name = "example_app"
-build = false
-
-[runtime]
-clone-strategy = "aggressive"
-TOML
-
-for name in "${examples[@]}"; do
-  input="$root/$name/input.ts"
-  [ -f "$input" ] || { echo "skip $name (no input.ts)"; continue; }
-  cp "$input" "$scratch/src/main.ts"
-  rm -rf "$scratch/dist"
-  "$smelt" --manifest-path "$scratch/Smelt.toml" build
-  if cmp -s "$scratch/dist/src/main.rs" "$root/$name/expected.rs"; then
-    continue
-  fi
-  cp "$scratch/dist/src/main.rs" "$root/$name/expected.rs"
-  echo "updated $name"
-done
+export SMELT_UPDATE_EXAMPLE_RUST=1
+cargo test -p smelt-transpiler --test hir_cli_cross_language_tests \
+  end_to_end_examples_match_expected_outputs -- --exact
