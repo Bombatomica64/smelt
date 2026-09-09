@@ -232,4 +232,5 @@ mod module_globals_tests;
 mod fetch_types_tests;
 mod host_module_tests;
 mod host_override_tests;
+mod global_namespace_tests;
 mod unresolved_type_import_tests;

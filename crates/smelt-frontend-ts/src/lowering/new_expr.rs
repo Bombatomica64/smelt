@@ -2696,16 +2696,16 @@ impl ModuleBuilder<'_> {
         unary: &oxc::ast::ast::UnaryExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        if let Expression::Identifier(identifier) = &unary.argument
-            && identifier.name == "crypto"
-        {
-            let ty = self.ctx.krate.types.intern(Type::String);
-            return Ok(body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::String("undefined".to_owned())),
-                ty,
-                span: self.span(unary.span.start, unary.span.end),
-            }));
-        }
+        // `typeof crypto` used to fold to `"undefined"` here — a per-name
+        // special case that predated the WebCrypto surface, and one whose
+        // answer was the OPPOSITE of the profile's: the object is
+        // unconditionally present in the target profile (which is what
+        // `global_member_presence("crypto")` has said since that surface
+        // landed), so `typeof crypto === "undefined"` folded true and every
+        // program that guards on it took its no-crypto branch. `crypto` is a
+        // registry namespace now (`smelt_stdlib::GLOBAL_NAMESPACES`), so the
+        // operand lowers to a present object and `typeof` reports `"object"`
+        // through the ordinary rule below, like `Math` and `JSON`.
         // A bare `typeof Blob` references the modeled host constructor, which is
         // a function value in JavaScript. (The `typeof Blob === 'undefined'`
         // support-guard comparison is folded earlier in `unknown_typeof_comparison`.)

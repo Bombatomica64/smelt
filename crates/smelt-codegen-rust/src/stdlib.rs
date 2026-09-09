@@ -847,10 +847,39 @@ pub(crate) fn needs_unknown_type(mir: &Mir) -> bool {
                     matches!(
                         statement,
                         Statement::Assign {
-                            value: Rvalue::UnknownCast { .. } | Rvalue::UnknownIs { .. },
+                            value: Rvalue::UnknownCast { .. }
+                                | Rvalue::UnknownIs { .. }
+                                // `JSON.stringify` serializes THROUGH the erased
+                                // carrier, always: its output is ECMA-262's, and
+                                // every one of those rules lives in `Serialize
+                                // for SmeltUnknown` (see `json_stringify_text`).
+                                // A wholly-typed program that stringifies —
+                                // `JSON.stringify({a: 1})` and nothing else
+                                // erased — would otherwise name a carrier that
+                                // was never emitted (E0433). The corpus never
+                                // hit it because its programs erase elsewhere.
+                                | Rvalue::JsonStringify { .. },
                             ..
                         } | Statement::AssignPlace {
-                            value: Rvalue::UnknownCast { .. } | Rvalue::UnknownIs { .. },
+                            value: Rvalue::UnknownCast { .. }
+                                | Rvalue::UnknownIs { .. }
+                                | Rvalue::JsonStringify { .. },
+                            ..
+                        }
+                    )
+                })
+            })
+        })
+        || mir.closures.iter().any(|closure| {
+            closure.blocks.iter().any(|block| {
+                block.statements.iter().any(|statement| {
+                    matches!(
+                        statement,
+                        Statement::Assign {
+                            value: Rvalue::JsonStringify { .. },
+                            ..
+                        } | Statement::AssignPlace {
+                            value: Rvalue::JsonStringify { .. },
                             ..
                         }
                     )

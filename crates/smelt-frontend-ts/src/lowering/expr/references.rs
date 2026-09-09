@@ -956,10 +956,20 @@ impl ModuleBuilder<'_> {
         end: u32,
         body: &mut Body,
     ) -> Option<smelt_hir::ExprId> {
-        if !matches!(
-            name,
-            "Math" | "JSON" | "Reflect" | "Atomics" | "Intl" | "Promise" | "Array" | "Function"
-        ) && !Self::is_known_defined_global_constructor(name)
+        // The namespace objects come from the registry
+        // (`smelt_stdlib::GLOBAL_NAMESPACES`) rather than from a list repeated
+        // here: a global that IS an object has the same three answers whatever
+        // Smelt models of its members (`typeof` is `"object"`, it is truthy,
+        // and it is not `undefined`), so every entry belongs to one rule.
+        // `crypto` was missing from the local list, which is why Hono's
+        // `if (crypto && crypto.subtle)` reported an unresolved identifier for a
+        // global whose members Smelt already lowers.
+        //
+        // `Promise`/`Array`/`Function` stay listed here: they are CONSTRUCTORS,
+        // not namespace objects, and keep the value model they had.
+        if smelt_stdlib::global_namespace(name).is_none()
+            && !matches!(name, "Promise" | "Array" | "Function")
+            && !Self::is_known_defined_global_constructor(name)
             && name != "Blob"
             && name != "ArrayBuffer"
             && name != "DOMException"
@@ -979,6 +989,78 @@ impl ModuleBuilder<'_> {
             ty: unknown_ty,
             span,
         }))
+    }
+
+    /// Lower a member read of a modeled SUB-NAMESPACE (`crypto.subtle`).
+    ///
+    /// A namespace object's namespace-valued member is an object like its
+    /// parent, so the same three answers hold of it: `typeof crypto.subtle` is
+    /// `"object"`, it is truthy, and it is not `undefined`. Hono's `createHash`
+    /// is the shape that needs it — `if (crypto && crypto.subtle) { await
+    /// crypto.subtle.digest(..) }` — where an `undefined` member read would
+    /// take the else branch and skip the digest Smelt does model. The CALL
+    /// keeps its own rule; this is only the value.
+    ///
+    /// `None` for anything else, including a member the registry does not list
+    /// as a namespace, so an unmodeled property keeps whatever the ordinary
+    /// property paths answer for it.
+    pub(in crate::lowering) fn builtin_namespace_member_read(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        let namespace = self.builtin_namespace_receiver_name(&member.object)?;
+        if !smelt_stdlib::global_namespace_member_is_namespace(
+            &namespace,
+            member.property.name.as_str(),
+        ) {
+            return None;
+        }
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let span = self.span(member.span.start, member.span.end);
+        Some(body.push_expr(Expr {
+            kind: ExprKind::BuiltinNamespace {
+                name: format!("{namespace}.{}", member.property.name),
+            },
+            ty: unknown_ty,
+            span,
+        }))
+    }
+
+    /// The global namespace a member-read receiver names, if it names one.
+    ///
+    /// Both spellings of the same global: the bare name (`crypto.subtle`) and
+    /// the qualified one (`globalThis.crypto.subtle`). A name the module
+    /// declares or imports shadows the global and answers `None`, so a local
+    /// `const crypto = …` keeps its own meaning.
+    fn builtin_namespace_receiver_name(
+        &self,
+        receiver: &oxc::ast::ast::Expression<'_>,
+    ) -> Option<String> {
+        match receiver {
+            oxc::ast::ast::Expression::Identifier(identifier) => {
+                let name = identifier.name.as_str();
+                if self.scope.lookup(name).is_some()
+                    || self.imports.is_imported_binding(name)
+                    || self.items.contains_key(name)
+                {
+                    return None;
+                }
+                smelt_stdlib::global_namespace(name).map(|namespace| namespace.name.to_owned())
+            }
+            oxc::ast::ast::Expression::StaticMemberExpression(member) => {
+                let object = match &member.object {
+                    oxc::ast::ast::Expression::Identifier(identifier) => identifier.name.as_str(),
+                    _ => return None,
+                };
+                if !self.imports.is_global_object_alias(object) && object != "globalThis" {
+                    return None;
+                }
+                smelt_stdlib::global_namespace(member.property.name.as_str())
+                    .map(|namespace| namespace.name.to_owned())
+            }
+            _ => None,
+        }
     }
 
     /// Lower a bare `process` reference to the modeled Node `process` object.

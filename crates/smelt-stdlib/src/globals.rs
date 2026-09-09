@@ -40,6 +40,63 @@ pub const NODE_PROFILE_VERSION: &str = "20.0.0";
 /// The `process.version` spelling of [`NODE_PROFILE_VERSION`] (`v`-prefixed).
 pub const NODE_PROFILE_VERSION_STRING: &str = "v20.0.0";
 
+/// A global that is an OBJECT rather than a constructor or a function.
+///
+/// These are the namespace objects: their members are reached as
+/// `Math.max(..)`, `JSON.parse(..)`, `crypto.subtle.digest(..)`, and the
+/// namespace itself is a value with no call behaviour of its own. That makes
+/// three answers true of every one of them, whatever Smelt models of their
+/// members: `typeof ns` is `"object"`, `Boolean(ns)` is `true`, and
+/// `ns === undefined` is `false`.
+///
+/// The distinction from [`is_javascript_global_builtin`] is deliberate: that
+/// list also holds CONSTRUCTORS (`Array`, `Map`, `Uint8Array`) and plain
+/// functions (`parseInt`), whose `typeof` is `"function"`. Only the entries
+/// here are objects.
+pub struct GlobalNamespace {
+    /// The global's source spelling.
+    pub name: &'static str,
+    /// Members of this namespace that are themselves namespace OBJECTS.
+    ///
+    /// `crypto.subtle` is the only one in the profile today, and it is the
+    /// reason this field exists: Hono's `createHash` guards on
+    /// `crypto && crypto.subtle` before calling `crypto.subtle.digest(..)`, so
+    /// the member read has to be a present object for the guarded call — the
+    /// one Smelt models — to be reached at all.
+    pub namespace_members: &'static [&'static str],
+}
+
+/// The global namespace objects the profile models.
+///
+/// `console` and `process` are namespace objects too, but they already have
+/// dedicated value models (`node_process_value_expression` and the console
+/// builtins) whose members answer more than presence, so they are deliberately
+/// not routed through the generic namespace value.
+pub const GLOBAL_NAMESPACES: &[GlobalNamespace] = &[
+    GlobalNamespace { name: "Math", namespace_members: &[] },
+    GlobalNamespace { name: "JSON", namespace_members: &[] },
+    GlobalNamespace { name: "Reflect", namespace_members: &[] },
+    GlobalNamespace { name: "Atomics", namespace_members: &[] },
+    GlobalNamespace { name: "Intl", namespace_members: &[] },
+    GlobalNamespace { name: "crypto", namespace_members: &["subtle"] },
+];
+
+/// Look up a global namespace object by its source spelling.
+#[must_use]
+pub fn global_namespace(name: &str) -> Option<&'static GlobalNamespace> {
+    GLOBAL_NAMESPACES
+        .iter()
+        .find(|namespace| namespace.name == name)
+}
+
+/// Returns whether `member` of the global namespace `name` is itself a
+/// namespace object (`crypto.subtle`).
+#[must_use]
+pub fn global_namespace_member_is_namespace(name: &str, member: &str) -> bool {
+    global_namespace(name)
+        .is_some_and(|namespace| namespace.namespace_members.contains(&member))
+}
+
 /// Returns whether `name` is one of the modeled ECMAScript `Error` constructors.
 #[must_use]
 pub fn is_error_class_name(name: &str) -> bool {

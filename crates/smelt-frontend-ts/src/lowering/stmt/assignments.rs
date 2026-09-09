@@ -404,6 +404,13 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.node_process_static_member(member, body) {
             return Ok(expr);
         }
+        // A modeled SUB-NAMESPACE of a global namespace object (`crypto.subtle`).
+        // Placed after the specific modeled reads (`Math.PI`, `process.version`)
+        // so those keep their rules, and before the generic property paths,
+        // which would answer `undefined` for a member the profile does model.
+        if let Some(expr) = self.builtin_namespace_member_read(member, body) {
+            return Ok(expr);
+        }
         if let Some(expr) = self.namespace_member_expression(member, body)? {
             return Ok(expr);
         }
