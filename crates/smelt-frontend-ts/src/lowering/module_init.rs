@@ -204,7 +204,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
             };
             let Some(class) = class else { continue };
             let Some(id) = &class.id else { continue };
-            let name = self.intern_type_name(id.name.as_str());
+            // Same symbol the declaration will use, so a crate-ambiguous class
+            // name attaches its predeclared method surface to ITS class rather
+            // than to the other module's class of the same spelling (see
+            // `module_qualified_class_name`).
+            let name = self
+                .module_qualified_class_name(id.name.as_str())
+                .unwrap_or_else(|| self.intern_type_name(id.name.as_str()));
             if self
                 .push_type_parameter_scope(class.type_parameters.as_deref())
                 .is_err()

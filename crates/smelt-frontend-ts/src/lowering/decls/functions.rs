@@ -1456,6 +1456,39 @@ impl ModuleBuilder<'_> {
         Some(symbol)
     }
 
+    /// The Rust-facing symbol for a source class name, qualified when the name
+    /// is ambiguous across the crate.
+    ///
+    /// Class identity in HIR is the name symbol: `Type::Class { name }` carries
+    /// it and `resolve_method` goes from it back to the class item. Two modules
+    /// exporting a class of the same name therefore shared one symbol for two
+    /// different classes, and every method of the loser reported "unknown class
+    /// method" — Hono's two `Node` classes, which stopped the router slice
+    /// transpiling. `HirCtx::class_renames` is the crate-wide answer to "is
+    /// this name ambiguous, and what is this module's rendering of it",
+    /// computed before any module lowers.
+    ///
+    /// Returns `None` for an unambiguous name so it keeps its bare spelling and
+    /// every existing golden stays byte-identical. When it does rename, the
+    /// SOURCE spelling is recorded as the symbol's original name, exactly as
+    /// [`Self::host_shadowing_class_expression_name`] does: `instanceof` and
+    /// `__smelt_class` read that, and JavaScript answers `Node` for both
+    /// classes. Only the Rust type name differs.
+    pub(in crate::lowering) fn module_qualified_class_name(
+        &mut self,
+        class_source_name: &str,
+    ) -> Option<smelt_hir::Symbol> {
+        let rendered = self
+            .ctx
+            .class_renames
+            .get(&self.path)
+            .and_then(|renames| renames.get(class_source_name))?
+            .clone();
+        let symbol = self.ctx.krate.symbols.intern(&rendered);
+        self.ctx.krate.names.record(symbol, class_source_name);
+        Some(symbol)
+    }
+
     /// Lower a class declaration to HIR.
     ///
     /// Anonymous classes (`class {}` in an expression position) are named with a
@@ -1473,18 +1506,48 @@ impl ModuleBuilder<'_> {
             || Self::anonymous_class_name(class),
             |id| id.name.to_string(),
         );
-        let class_name = self
+        let scoped_or_host_name = self
             .classes
             .scoped_type_name(&class_source_name)
-            .or_else(|| self.host_shadowing_class_expression_name(class, &class_source_name))
-            .unwrap_or_else(|| self.intern_type_name(&class_source_name));
-        let class_name_owned = self
-            .ctx
-            .krate
-            .symbols
-            .get(class_name)
-            .unwrap_or(&class_source_name)
-            .to_owned();
+            .or_else(|| self.host_shadowing_class_expression_name(class, &class_source_name));
+        // `module_qualified_class_name` changes the class's RUST NAME and
+        // nothing else, so the module-local string-keyed metadata below stays
+        // under the SOURCE spelling. Every reader of those maps derives its key
+        // from the source name — either directly, or through
+        // `krate.names.get(symbol)`, which answers the recorded original name —
+        // so keying them by the qualified rendering silently missed: a renamed
+        // class's own `this.#items.push(v)` stopped finding its field metadata
+        // and lowered as an erased dynamic call, which is a wrong answer rather
+        // than a blocker. `registry_text` is `Some` only for that case.
+        let (class_name, registry_text) = match scoped_or_host_name {
+            Some(name) => (name, None),
+            None => match self.module_qualified_class_name(&class_source_name) {
+                // A renamed class must still answer to its source spelling
+                // inside its own module: `new Node()` and a `Node` type
+                // annotation both resolve through the scoped type name, and the
+                // class item registers under the source name (see the
+                // `classes.register` at the end of this function), so binding
+                // the two together here is what keeps the module internally
+                // consistent while the Rust type is `Node_1`. Deliberately not
+                // done for the host-shadowing case above, whose whole point is
+                // that the spelling keeps resolving to the HOST class outside
+                // the class expression's own body.
+                Some(qualified) => {
+                    self.classes
+                        .bind_scoped_type_name(class_source_name.clone(), qualified);
+                    (qualified, Some(class_source_name.clone()))
+                }
+                None => (self.intern_type_name(&class_source_name), None),
+            },
+        };
+        let class_name_owned = registry_text.unwrap_or_else(|| {
+            self.ctx
+                .krate
+                .symbols
+                .get(class_name)
+                .unwrap_or(&class_source_name)
+                .to_owned()
+        });
         let class_text = class_name_owned.as_str();
         let class_span = self.span(class.span.start, class.span.end);
         let materialized = self.materialized_class(&class_source_name).cloned();

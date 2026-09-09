@@ -131,6 +131,13 @@ struct FrontendLoweringState {
     /// the crate does not have it" instead of erasing to a nominal class; see
     /// `HirCtx::project_sources_outside_crate`.
     ts_project_sources_outside_crate: std::collections::HashSet<String>,
+    /// Rust-facing class names for class names declared by more than one module,
+    /// keyed by module path then source class name.
+    ///
+    /// Seeded once before lowering begins, so whether a name is ambiguous never
+    /// depends on lowering order; see `HirCtx::class_renames` and
+    /// [`manifest_class_renames`].
+    ts_class_renames: HashMap<String, HashMap<String, String>>,
     /// Python module/package namespaces visible through `import package`.
     py_module_namespaces: HashMap<String, HashMap<String, smelt_hir::ItemId>>,
     /// Python `IntEnum` member values visible to later manifest entries.
@@ -686,6 +693,65 @@ fn seed_written_host_globals(sources: &[&ManifestSource], state: &mut FrontendLo
     }
 }
 
+/// Rust-facing class names for class names that more than one module declares.
+///
+/// Class identity in HIR is the class's name symbol, so two modules exporting a
+/// class of the same name interned ONE symbol for two different classes and
+/// every method of the loser reported "unknown class method". Hono's two `Node`
+/// classes (`router/trie-router/node.ts` and `router/reg-exp-router/node.ts`)
+/// are the case that found it.
+///
+/// The scheme is the one [`manifest_module_names`] already uses for module
+/// bodies, for the same reason and with the same shape: a name declared by
+/// exactly one module is absent from the result and keeps its bare spelling, so
+/// every existing golden stays byte-identical, and among several declarations
+/// the LAST in dependency order keeps the bare name while earlier ones take a
+/// stable ordinal suffix (`Node_1`, `Node_2`, ...).
+///
+/// Only the Rust rendering changes; the frontend records the source spelling as
+/// the symbol's original name, because `instanceof` and `__smelt_class` read
+/// that and JavaScript answers `Node` for both classes.
+fn manifest_class_renames(
+    sources: &[&ManifestSource],
+) -> HashMap<String, HashMap<String, String>> {
+    let declared = sources
+        .iter()
+        .map(|source| {
+            let path = source.path.display().to_string();
+            if SourceLang::from_path(&path).is_ok_and(SourceLang::is_typescript) {
+                smelt_frontend_ts::scan_declared_class_names(&source.source, &path)
+            } else {
+                Vec::new()
+            }
+        })
+        .collect::<Vec<_>>();
+    let mut totals = HashMap::<&str, usize>::new();
+    for name in declared.iter().flatten() {
+        let total = totals.entry(name.as_str()).or_insert(0);
+        *total = total.saturating_add(1);
+    }
+    let mut seen = HashMap::<&str, usize>::new();
+    let mut renames = HashMap::<String, HashMap<String, String>>::new();
+    for (source, names) in sources.iter().zip(&declared) {
+        for name in names {
+            let total = totals.get(name.as_str()).copied().unwrap_or(1);
+            if total == 1 {
+                continue;
+            }
+            let ordinal = seen.entry(name.as_str()).or_insert(0);
+            *ordinal = ordinal.saturating_add(1);
+            if *ordinal == total {
+                continue;
+            }
+            renames
+                .entry(source.path.display().to_string())
+                .or_default()
+                .insert(name.clone(), format!("{name}_{ordinal}"));
+        }
+    }
+    renames
+}
+
 /// Canonical paths of project sources the dependency closure did not reach.
 ///
 /// The manifest's source roots (with `[sources] exclude` already applied by
@@ -751,6 +817,7 @@ fn predeclare_manifest_type_declarations(
         callable_object_aliases: state.ts_callable_object_aliases,
         written_host_globals: state.ts_written_host_globals,
         project_sources_outside_crate: state.ts_project_sources_outside_crate,
+        class_renames: state.ts_class_renames,
     };
     for (idx, source) in sources.iter().enumerate() {
         let path = source.path.display().to_string();
@@ -791,6 +858,7 @@ fn predeclare_manifest_type_declarations(
     state.ts_callable_object_aliases = ctx.callable_object_aliases;
     state.ts_written_host_globals = ctx.written_host_globals;
     state.ts_project_sources_outside_crate = ctx.project_sources_outside_crate;
+    state.ts_class_renames = ctx.class_renames;
     Ok((krate, state))
 }
 
@@ -807,6 +875,7 @@ fn lower_ordered_manifest_sources(
         ..FrontendLoweringState::default()
     };
     seed_written_host_globals(sources, &mut state);
+    state.ts_class_renames = manifest_class_renames(sources);
     (krate, state) = predeclare_manifest_type_declarations(krate, state, sources)?;
     let mut modules = Vec::new();
     let module_names = manifest_module_names(sources);
@@ -866,6 +935,7 @@ pub(crate) fn collect_manifest_diagnostics(
     let mut krate = smelt_hir::Crate::new();
     let mut state = FrontendLoweringState::default();
     seed_written_host_globals(&ordered_sources, &mut state);
+    state.ts_class_renames = manifest_class_renames(&ordered_sources);
     (krate, state) = predeclare_manifest_type_declarations(krate, state, &ordered_sources)?;
     let mut diagnostics = Vec::new();
     for (idx, source) in ordered_sources.iter().enumerate() {
@@ -946,6 +1016,7 @@ fn lower_manifest_source(
                 callable_object_aliases: state.ts_callable_object_aliases,
                 written_host_globals: state.ts_written_host_globals,
                 project_sources_outside_crate: state.ts_project_sources_outside_crate,
+                class_renames: state.ts_class_renames,
             };
             let outcome = smelt_frontend_ts::to_hir_with_options(
                 &source.source,
@@ -987,6 +1058,7 @@ fn lower_manifest_source(
                 ts_callable_object_aliases: ctx.callable_object_aliases,
                 ts_written_host_globals: ctx.written_host_globals,
                 ts_project_sources_outside_crate: ctx.project_sources_outside_crate,
+                ts_class_renames: ctx.class_renames,
                 py_module_namespaces: state.py_module_namespaces,
                 py_enum_members: state.py_enum_members,
             };
@@ -1025,6 +1097,7 @@ fn lower_manifest_source(
                 ts_callable_object_aliases: state.ts_callable_object_aliases,
                 ts_written_host_globals: state.ts_written_host_globals,
                 ts_project_sources_outside_crate: state.ts_project_sources_outside_crate,
+                ts_class_renames: state.ts_class_renames,
                 py_module_namespaces,
                 py_enum_members,
             };

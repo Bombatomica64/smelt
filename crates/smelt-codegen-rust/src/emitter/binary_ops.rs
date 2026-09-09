@@ -908,9 +908,11 @@ impl FunctionEmitter<'_> {
                 Some(format!("{text}.id"))
             }
             Type::JsMap(_, _) => Some(format!("{text}.id")),
-            Type::Set(item) if !self.type_is_hash_set_key_safe(*item) => {
-                Some(format!("{text}.id"))
-            }
+            // Both set backings mint a stable object id, so `setA === setB`
+            // compares identity as JavaScript does. Before `SmeltPrimSet` a
+            // primitive set had no id and fell through to structural equality,
+            // which answered `true` for two distinct sets of the same members.
+            Type::Set(_) => Some(format!("{text}.id")),
             // The two prelude-backed builtin classes — `SmeltRegExp` (a source
             // `RegExp`) and `SmeltMatch` (a match result) — both mint an object
             // id on construction and share it through `Clone`, exactly like the

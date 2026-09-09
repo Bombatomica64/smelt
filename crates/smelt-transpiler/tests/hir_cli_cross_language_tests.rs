@@ -291,6 +291,191 @@ clone-strategy = "aggressive"
     Ok(())
 }
 
+/// A predicate bound to a const, used both directly and by name.
+const NAMED_LOCAL_CALLBACK_MAIN: &str = r#"type Predicate = (value: string) => boolean;
+
+const words = ["a", "abc", "ab", "abcd"];
+
+const isShort = (value: string): boolean => value.length < 3;
+const isShortAnnotated: Predicate = (value: string): boolean => value.length < 3;
+const upper = (value: string): string => value.toUpperCase();
+
+function countMatching(values: string[], predicate: Predicate): number {
+  let total = 0;
+  for (const value of values) {
+    if (predicate(value)) {
+      total += 1;
+    }
+  }
+  return total;
+}
+
+console.log(isShort("ab"));
+console.log(words.filter(isShort).join(","));
+console.log(words.filter(isShortAnnotated).join(","));
+console.log(words.some(isShort));
+console.log(words.every(isShort));
+console.log(words.find(isShort) ?? "none");
+console.log(words.map(upper).join(","));
+console.log(countMatching(words, isShort));
+"#;
+
+#[test]
+fn build_runs_named_local_callback_passed_by_value() -> TestResult {
+    // A callback declaration's local is only a DECLARATION: calls to the name
+    // stay concrete by inlining the callback's body, so the binding is never
+    // assigned a closure unless something needs it as a value. The
+    // array-callback path captured that local anyway, and an unassigned function
+    // local renders as a placeholder default callback (`|_| false`) — so
+    // `words.filter(isShort)` kept NOTHING while the direct call `isShort('ab')`
+    // one line above answered correctly. It compiled, nothing threw, and an
+    // empty result looks like an answer, which is what made it worth fixing over
+    // a blocker.
+    //
+    // A build-and-RUN test rather than an `examples/` fixture, for a reason
+    // worth recording: referencing a module-level arrow as a value lifts it to a
+    // named function whose Rust name embeds the SOURCE PATH it was compiled
+    // from, so the generated Rust is not stable across build directories and
+    // cannot be a golden. See `blocker-logs/hono-h55-path-mangled-lifted-name.md`.
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "named-local-callback"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "named_local_callback"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(project_path.join("src/main.ts"), NAMED_LOCAL_CALLBACK_MAIN)?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    // Every observer has to agree with the direct call on the first line.
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(
+        &actual_stdout,
+        &"true\na,ab\na,ab\ntrue\nfalse\na\nA,ABC,AB,ABCD\n2\n".to_owned(),
+        "unexpected stdout",
+    )?;
+
+    Ok(())
+}
+
+/// The first of two modules that both export a class named `Node`.
+const DUPLICATE_CLASS_ALPHA: &str = r"export class Node {
+  #items: string[] = [];
+
+  push(value: string): void {
+    this.#items.push(value);
+  }
+
+  search(prefix: string): string[] {
+    return this.#items.filter((item) => item.startsWith(prefix));
+  }
+}
+";
+
+/// The second module exporting `Node`, with members disjoint from the first's.
+const DUPLICATE_CLASS_BETA: &str = r"export class Node {
+  index = 0;
+
+  bump(): number {
+    this.index += 1;
+    return this.index;
+  }
+}
+";
+
+/// An importer that aliases both `Node` classes and calls each one's members.
+const DUPLICATE_CLASS_MAIN: &str = r"import { Node as AlphaNode } from './alpha';
+import { Node as BetaNode } from './beta';
+
+const alpha = new AlphaNode();
+alpha.push('abc');
+alpha.push('bcd');
+console.log(alpha.search('a').join(','));
+
+const beta = new BetaNode();
+console.log(beta.bump());
+console.log(beta.bump());
+";
+
+#[test]
+fn build_runs_two_modules_exporting_a_same_named_class() -> TestResult {
+    // Class identity in HIR is the class's name symbol, and method resolution
+    // goes from that symbol back to the class item. Two modules exporting a
+    // class of the same name therefore interned ONE symbol for two different
+    // classes, and every method of the loser reported "unknown class method" —
+    // Hono's two `Node` classes (`router/trie-router/node.ts` and
+    // `router/reg-exp-router/node.ts`), which stopped the router slice
+    // transpiling outright once the import-scanner fix put both in the crate.
+    //
+    // A crate-wide pre-pass now gives an ambiguous class name the same ordinal
+    // suffix scheme `manifest_module_names` uses for module bodies: the last
+    // declaring module keeps the bare name and earlier ones become `Node_1`,
+    // `Node_2`, ... A name declared by exactly one module is untouched, which
+    // is what keeps every existing golden byte-identical.
+    //
+    // This is a multi-module test rather than an `examples/` fixture because
+    // the golden harness copies one `input.ts` into a single-file project and
+    // the whole point here is TWO modules. Building and RUNNING it is what
+    // proves the fix: the failure mode was a wrong method resolution, so the
+    // observable symptom is the value each class answers, not a diagnostic.
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "duplicate-class-name"
+version = "0.1.0"
+
+[sources]
+roots = ["src"]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "duplicate_class_name"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    // Both modules export a class named `Node`, with disjoint members: if the
+    // two collapse onto one identity, at least one call cannot resolve. The
+    // importer aliases them, so this also shows the problem was never import
+    // scope — distinct local names still collided.
+    fs::write(project_path.join("src/alpha.ts"), DUPLICATE_CLASS_ALPHA)?;
+    fs::write(project_path.join("src/beta.ts"), DUPLICATE_CLASS_BETA)?;
+    fs::write(project_path.join("src/main.ts"), DUPLICATE_CLASS_MAIN)?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    // Each class answers with its OWN members. Before the fix this failed to
+    // lower at all ("unknown class method `bump`"); a rename that lost the
+    // declaring module's field metadata instead printed an empty first line.
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(&actual_stdout, &"abc\n1\n2\n".to_owned(), "unexpected stdout")?;
+
+    Ok(())
+}
+
 /// Every TypeScript end-to-end example the golden suite checks.
 ///
 /// A list rather than a directory scan: an example is only checked once it
@@ -367,6 +552,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "70_set_from_iterable",
     "71_const_arrow_literal_hint",
     "72_form_data_for_each",
+    "73_set_insertion_order",
 ];
 
 #[test]

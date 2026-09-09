@@ -685,15 +685,14 @@ const fromSource = new Set(source);
 ",
     );
 
-    // A `Set<number>` (f64 elements) has no correct `HashSet` backing, so it
-    // uses the `SmeltJsSet` runtime container; a `Set<string>` keeps `HashSet`.
+    // Both set backings are insertion-ordered (H52): a `Set<number>` (f64
+    // elements, no Rust `Eq`/`Hash`) uses `SmeltJsSet` with SameValueZero
+    // membership, and a `Set<string>` uses `SmeltPrimSet`, which hashes the
+    // values directly and so does not drag in the erased-value carrier.
     assert!(source.contains("let values: SmeltJsSet<f64>"), "{source}");
-    assert!(
-        source.contains("let empty: ::std::collections::HashSet<String>"),
-        "{source}"
-    );
+    assert!(source.contains("let empty: SmeltPrimSet<String>"), "{source}");
     assert!(source.contains(".contains(&2.0)"));
-    assert!(source.contains("::std::collections::HashSet::new();"));
+    assert!(source.contains("SmeltPrimSet::new();"));
     assert!(source.contains(".iter().cloned().collect::<SmeltJsSet<_>>()"));
 }
 

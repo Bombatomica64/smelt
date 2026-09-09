@@ -135,6 +135,38 @@ the note's exact source; and H15 is blocked for the same reason.
 Work that is designed, justified and deliberately not landed. Each entry names
 what it would fix that the landed floor does not.
 
+### D3 / H49. A global builtin used as a callback erases its operand
+
+`String`, `Number` and `Boolean` passed as callbacks lower to a synthesized
+single-argument closure whose parameter is interned `Type::Unknown`
+(`builtin_cast_closure_expression` in `lowering/expr/references.rs`), so
+`values.filter(Boolean)` on a `(string | undefined)[]` emits
+`Rc<dyn Fn(&SmeltUnknown) -> bool>` and every element is erased on the way in
+and re-tagged at the call.
+
+**Measured, not estimated:** a four-line program that filters with `Boolean` and
+maps with `Number` adds **17 avoidable erasures**. That is why
+`69_asserted_callback_name` keeps the builtin arm out of the examples corpus —
+the corpus is a hard invariant at avoidable == 0 — and asserts it in
+`crates/smelt-frontend-ts/src/tests/asserted_callback_name_tests.rs` instead.
+
+The fix is not a new mechanism: `parseInt`/`parseFloat` in the same file already
+build their closure with a CONCRETE `string` parameter, and their docstring says
+why ("routes the cast through its real numeric-parse emission rather than the
+erased `unknown` fallback"). A callback position knows the receiver's element
+type — `expected_param_tys` is in hand in `callback_identifier_argument` — so
+`Boolean` over a `string | undefined` list is `Fn(&Option<String>) -> bool`, and
+the truthiness coercion on a concrete `Option<String>` is already implemented at
+both coercion entry points.
+
+**Why it is not landed:** it changes every `map(Number)` / `filter(Boolean)` in
+es-toolkit and remeda at once. The expected outcome is a DECREASE in avoidable
+erasure on both, which means a ratchet re-snapshot rather than a green diff, and
+the risk is a generated-Rust type error where a now-concrete operand meets a
+`SmeltUnknown`-typed consumer. That is a round with its own corpus measurement,
+not a rider on a callback-selection fix. Full note:
+`blocker-logs/hono-h49-builtin-callback-operand.md`.
+
 ### D1. Callback `may_throw` inference (`hono-fallible-ops.md` §9.4, §10.5)
 
 A callback parameter's fallibility is not spellable in TypeScript, so it must be
