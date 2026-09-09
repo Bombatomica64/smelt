@@ -772,6 +772,25 @@ impl ModuleBuilder<'_> {
                             span: self.span(new_expr.span.start, new_expr.span.end),
                         })));
                     }
+                    // A string is an iterable of its characters, so
+                    // `new Set('abc')` is the three-element set JavaScript
+                    // builds — Hono's `new Set('.\\+*[^]$()')` (the regexp
+                    // meta-character set in `reg-exp-router/node.ts`) is exactly
+                    // this. The conversion is not written here: it goes through
+                    // `list_expr_from_spread_value`, the same helper that lowers
+                    // `[...iterable]`, so `new Set(x)` and `new Set([...x])`
+                    // cannot disagree about what iterating `x` means.
+                    Some(Type::String) => {
+                        let string_ty = self.ctx.krate.types.intern(Type::String);
+                        let chars_ty = self.ctx.krate.types.intern(Type::List(string_ty));
+                        list = self.list_expr_from_spread_value(
+                            list,
+                            chars_ty,
+                            argument.span(),
+                            body,
+                        )?;
+                        string_ty
+                    }
                     _ if self.erased_or_union_surface(list_ty) => {
                         let item_ty = self.ctx.krate.types.intern(Type::Unknown);
                         let asserted_list_ty = self.ctx.krate.types.intern(Type::List(item_ty));

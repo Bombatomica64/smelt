@@ -364,6 +364,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "67_compound_bitwise_assignment",
     "68_switch_continue_in_loop",
     "69_asserted_callback_name",
+    "70_set_from_iterable",
 ];
 
 #[test]

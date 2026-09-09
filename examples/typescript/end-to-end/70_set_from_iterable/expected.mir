@@ -1,0 +1,156 @@
+fn main (FuncId(0)) -> None
+  locals
+    %0 user reg_exp_meta_chars: Set<String>
+    %1 user repeated: Set<String>
+    %2 user from_array: Set<String>
+    %3 user copied: Set<String>
+    %4 user direct: Set<String>
+    %5 user via_spread: Set<String>
+    %6 temp: List<String>
+    %7 temp: Set<String>
+    %8 temp: Float
+    %9 temp: None
+    %10 temp: Bool
+    %11 temp: None
+    %12 temp: Bool
+    %13 temp: None
+    %14 temp: Bool
+    %15 temp: None
+    %16 temp: Bool
+    %17 temp: None
+    %18 temp: List<String>
+    %19 temp: Set<String>
+    %20 temp: Float
+    %21 temp: None
+    %22 temp: Bool
+    %23 temp: Bool
+    %24 temp: Bool
+    %25 temp: Bool
+    %26 temp: Bool
+    %27 temp: None
+    %28 temp: Bool
+    %29 temp: None
+    %30 temp: Set<String>
+    %31 temp: Float
+    %32 temp: None
+    %33 temp: Set<String>
+    %34 temp: Float
+    %35 temp: None
+    %36 temp: Bool
+    %37 temp: None
+    %38 temp: List<String>
+    %39 temp: Set<String>
+    %40 temp: List<String>
+    %41 temp: Set<String>
+    %42 temp: Float
+    %43 temp: Float
+    %44 temp: Bool
+    %45 temp: None
+    %46 temp: List<String>
+    %47 temp: fn(String, Int, List<String>) -> Bool
+    %48 temp: Bool
+    %49 temp: None
+    %50 temp: List<String>
+    %51 temp: fn(String, Int, List<String>) -> Bool
+    %52 temp: Bool
+    %53 temp: None
+  bb0:
+    %6 = string_chars ".\+*[^]$()"
+    %7 = list_to_set move %6
+    %0 = move %7
+    %8 = len copy %0
+    %9 = call @console_log(move %8) -> bb1
+  bb1:
+    %10 = set_contains copy %0, "*"
+    %11 = call @console_log(move %10) -> bb2
+  bb2:
+    %12 = set_contains copy %0, "$"
+    %13 = call @console_log(move %12) -> bb3
+  bb3:
+    %14 = set_contains copy %0, "("
+    %15 = call @console_log(move %14) -> bb4
+  bb4:
+    %16 = set_contains move %0, "a"
+    %17 = call @console_log(move %16) -> bb5
+  bb5:
+    %18 = string_chars "aabbcc"
+    %19 = list_to_set move %18
+    %1 = move %19
+    %20 = len copy %1
+    %21 = call @console_log(move %20) -> bb6
+  bb6:
+    %22 = set_contains copy %1, "a"
+    switch move %22 ? bb7 : bb8
+  bb7:
+    %24 = set_contains copy %1, "b"
+    %23 = move %24
+    goto bb9
+  bb8:
+    %23 = false
+    goto bb9
+  bb9:
+    %25 = set_contains copy %1, "c"
+    %26 = move %23 && move %25
+    %27 = call @console_log(move %26) -> bb10
+  bb10:
+    %28 = set_contains move %1, "d"
+    %29 = call @console_log(move %28) -> bb11
+  bb11:
+    %30 = set{"a", "b", "a"}
+    %2 = move %30
+    %31 = len copy %2
+    %32 = call @console_log(move %31) -> bb12
+  bb12:
+    %33 = copy %2
+    %3 = move %2
+    %34 = len copy %3
+    %35 = call @console_log(move %34) -> bb13
+  bb13:
+    %36 = set_contains move %3, "b"
+    %37 = call @console_log(move %36) -> bb14
+  bb14:
+    %38 = string_chars "hello"
+    %39 = list_to_set move %38
+    %4 = move %39
+    %40 = string_chars "hello"
+    %41 = list_to_set move %40
+    %5 = move %41
+    %42 = len copy %4
+    %43 = len copy %5
+    %44 = move %42 == move %43
+    %45 = call @console_log(move %44) -> bb15
+  bb15:
+    %46 = set_values copy %4
+    %47 = closure ClosureId(0) [copy %5]
+    %48 = list_every move %46, move %47
+    %49 = call @console_log(move %48) -> bb16
+  bb16:
+    %50 = set_values copy %5
+    %51 = closure ClosureId(1) [copy %4]
+    %52 = list_every move %50, move %51
+    %53 = call @console_log(move %52) -> bb17
+  bb17:
+    return none
+
+closure ClosureId(0) -> Bool
+  locals
+    %0 param __callback_param_0: String
+    %1 param __callback_param_1: Int
+    %2 param __callback_param_2: List<String>
+    %3 user via_spread: Set<String>
+    %4 temp: Bool
+  bb0:
+    %4 = set_contains copy %3, copy %0
+    return copy %4
+
+closure ClosureId(1) -> Bool
+  locals
+    %0 param __callback_param_0: String
+    %1 param __callback_param_1: Int
+    %2 param __callback_param_2: List<String>
+    %3 user direct: Set<String>
+    %4 temp: Bool
+  bb0:
+    %4 = set_contains copy %3, copy %0
+    return copy %4
+
