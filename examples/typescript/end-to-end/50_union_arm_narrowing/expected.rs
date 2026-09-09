@@ -2873,6 +2873,29 @@ impl SmeltFormData {
         let pairs = url::form_urlencoded::parse(bytes).map(|(name, value): (::std::borrow::Cow<'_, str>, ::std::borrow::Cow<'_, str>)| (name.into_owned(), SmeltFormDataValue::Text(value.into_owned()))).collect::<Vec<(String, SmeltFormDataValue)>>();
         Self::from_pairs(pairs)
     }
+    /// Serialize this form as `multipart/form-data` bytes (RFC 7578).
+    pub fn to_multipart(&self, boundary: &str) -> Vec<u8> {
+        let mut bytes: Vec<u8> = Vec::new();
+        for (name, value) in self.entries_in_order() {
+            bytes.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+            match value {
+                SmeltFormDataValue::Text(text) => {
+                    bytes.extend_from_slice(format!("Content-Disposition: form-data; name=\"{name}\"\r\n\r\n").as_bytes());
+                    bytes.extend_from_slice(text.as_bytes());
+                }
+                SmeltFormDataValue::File(file) => {
+                    let file_name = file.file_name();
+                    let content_type = if file.blob_type().is_empty() { "application/octet-stream".to_owned() } else { file.blob_type() };
+                    bytes.extend_from_slice(format!("Content-Disposition: form-data; name=\"{name}\"; filename=\"{file_name}\"\r\n").as_bytes());
+                    bytes.extend_from_slice(format!("Content-Type: {content_type}\r\n\r\n").as_bytes());
+                    bytes.extend_from_slice(&file.to_bytes());
+                }
+            }
+            bytes.extend_from_slice(b"\r\n");
+        }
+        bytes.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+        bytes
+    }
     /// Parse `multipart/form-data` bytes (RFC 7578) into a form.
     ///
     /// A part with a `filename` parameter on its `Content-Disposition`
@@ -2893,6 +2916,10 @@ impl SmeltFormData {
         form
     }
 }
+
+/// A fresh `multipart/form-data` boundary, unique in this program.
+#[allow(dead_code)]
+fn smelt_multipart_boundary() -> String { format!("----SmeltFormBoundary{:016x}", smelt_next_object_id()) }
 
 /// Find `needle` in `haystack` at or after `from`.
 #[allow(dead_code)]

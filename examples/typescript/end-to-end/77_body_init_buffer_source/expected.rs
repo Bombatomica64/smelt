@@ -1595,7 +1595,7 @@ fn smelt_abort_method(object: SmeltObject, method: &str) -> SmeltUnknown { let m
 
 /// The synthesized host method a member read resolves to, if the object
 /// carries a host marker and has no OWN member of that name.
-fn smelt_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if object.contains_key(name) { return None; } if (object.contains_key("__smelt_abortcontroller") || object.contains_key("__smelt_abortsignal")) && matches!(name, "abort" | "addEventListener" | "removeEventListener" | "dispatchEvent" | "throwIfAborted") { return Some(smelt_abort_method(object.clone(), name)); } if let Some(found) = smelt_headers_host_method(object, name) { return Some(found); } if let Some(found) = smelt_form_data_host_method(object, name) { return Some(found); } None }
+fn smelt_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if object.contains_key(name) { return None; } if (object.contains_key("__smelt_abortcontroller") || object.contains_key("__smelt_abortsignal")) && matches!(name, "abort" | "addEventListener" | "removeEventListener" | "dispatchEvent" | "throwIfAborted") { return Some(smelt_abort_method(object.clone(), name)); } if let Some(found) = smelt_headers_host_method(object, name) { return Some(found); } if let Some(found) = smelt_url_search_params_host_method(object, name) { return Some(found); } if let Some(found) = smelt_form_data_host_method(object, name) { return Some(found); } None }
 
 pub enum SmeltUnknown {
     Null,
@@ -3132,6 +3132,116 @@ impl SmeltFromUnknown for SmeltHeaders {
     }
 }
 
+/// A WHATWG `URLSearchParams` list: ordered, case-sensitive
+/// name/value pairs with urlencoded serialization.
+#[derive(Clone)]
+pub struct SmeltUrlSearchParams {
+    id: usize,
+    /// Name/value pairs in insertion order.
+    entries: ::std::rc::Rc<::std::cell::RefCell<Vec<(String, String)>>>,
+}
+
+impl PartialEq for SmeltUrlSearchParams { fn eq(&self, other: &Self) -> bool { *self.entries.borrow() == *other.entries.borrow() } }
+impl ::std::fmt::Debug for SmeltUrlSearchParams { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.write_str(&self.to_text()) } }
+impl Default for SmeltUrlSearchParams { fn default() -> Self { Self::new() } }
+
+#[allow(dead_code)]
+impl SmeltUrlSearchParams {
+    /// An empty parameter list with a fresh JS reference identity.
+    pub fn new() -> Self { Self { id: smelt_next_object_id(), entries: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())) } }
+    /// JS reference identity of this parameter list.
+    pub fn id(&self) -> usize { self.id }
+    /// Build a parameter list from name/value pairs, in order.
+    pub fn from_pairs(pairs: Vec<(String, String)>) -> Self { let params = Self::new(); params.entries.borrow_mut().extend(pairs); params }
+    /// Parse a query string (with or without a leading `?`).
+    ///
+    /// `url::form_urlencoded` owns the decoding: `+` is a space, `%XX` is
+    /// a byte, and a pair with no `=` has the empty string as its value.
+    pub fn from_query(query: &str) -> Self {
+        let trimmed = query.strip_prefix('?').unwrap_or(query);
+        let pairs = url::form_urlencoded::parse(trimmed.as_bytes()).map(|(name, value): (::std::borrow::Cow<'_, str>, ::std::borrow::Cow<'_, str>)| (name.into_owned(), value.into_owned())).collect::<Vec<(String, String)>>();
+        Self::from_pairs(pairs)
+    }
+    /// `get(name)`: the FIRST value for a name, or `null`.
+    pub fn get(&self, name: &str) -> Option<String> { self.entries.borrow().iter().find(|(entry_name, _)| entry_name == name).map(|(_, value)| value.clone()) }
+    /// `getAll(name)`: every value for a name, in order.
+    pub fn get_all(&self, name: &str) -> Vec<String> { self.entries.borrow().iter().filter(|(entry_name, _)| entry_name == name).map(|(_, value)| value.clone()).collect() }
+    /// `has(name)`.
+    pub fn has(&self, name: &str) -> bool { self.entries.borrow().iter().any(|(entry_name, _)| entry_name == name) }
+    /// `append(name, value)`.
+    pub fn append(&self, name: &str, value: &str) { self.entries.borrow_mut().push((name.to_owned(), value.to_owned())); }
+    /// `set(name, value)`: replace the first value, drop the rest.
+    pub fn set(&self, name: &str, value: &str) {
+        let mut entries = self.entries.borrow_mut();
+        let position = entries.iter().position(|(entry_name, _)| entry_name == name);
+        let Some(index) = position else { entries.push((name.to_owned(), value.to_owned())); return; };
+        entries[index] = (name.to_owned(), value.to_owned());
+        let mut kept = false;
+        entries.retain(|(entry_name, _)| { if entry_name != name { return true; } let first = !kept; kept = true; first });
+    }
+    /// `delete(name)`: remove every pair with the name.
+    pub fn delete(&self, name: &str) { self.entries.borrow_mut().retain(|(entry_name, _)| entry_name != name); }
+    /// `sort()`: stable sort by name, keeping equal names in order.
+    pub fn sort(&self) { self.entries.borrow_mut().sort_by(|left, right| left.0.cmp(&right.0)); }
+    /// `toString()`: the urlencoded serialization.
+    pub fn to_text(&self) -> String {
+        let mut serializer = url::form_urlencoded::Serializer::new(String::new());
+        for (name, value) in self.entries.borrow().iter() { serializer.append_pair(name, value); }
+        serializer.finish()
+    }
+    /// `entries()`: the pairs in insertion order.
+    pub fn entries_in_order(&self) -> Vec<(String, String)> { self.entries.borrow().clone() }
+    /// `keys()`: parameter names in insertion order.
+    pub fn keys(&self) -> Vec<String> { self.entries.borrow().iter().map(|(name, _)| name.clone()).collect() }
+    /// `values()`: parameter values in insertion order.
+    pub fn values(&self) -> Vec<String> { self.entries.borrow().iter().map(|(_, value)| value.clone()).collect() }
+    /// `size`: the number of pairs.
+    pub fn size(&self) -> f64 { self.entries.borrow().len() as f64 }
+}
+
+/// Erase a parameter list for a dynamic boundary.
+impl IntoSmeltUnknown for SmeltUrlSearchParams {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        smelt_register_host_origin(self.id, self.clone());
+        let pairs: Vec<SmeltUnknown> = self.entries_in_order().into_iter().map(|(name, value)| SmeltUnknown::Array(Vec::from([SmeltUnknown::String(name.into()), SmeltUnknown::String(value.into())]).into())).collect();
+        SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([("__smelt_urlsearchparams".to_owned(), SmeltUnknown::Bool(true)), ("size".to_owned(), SmeltUnknown::Number(pairs.len() as f64)), ("entries".to_owned(), SmeltUnknown::Array(pairs.into()))])))
+    }
+}
+
+/// The modeled members of an erased `URLSearchParams` record, resolved at run time.
+///
+/// **Dynamic boundary.** The receiver is a marker-bearing record, so the
+/// member it carries is decided by the record's marker and the member NAME,
+/// both of which are runtime values here — a program reaches this only by
+/// erasing the value on purpose (`as any`, an `any`-typed field), since every
+/// ordinary spelling keeps its type through narrowing. Answering `undefined`
+/// instead, which is what a plain property read does, was a silent wrong
+/// value: `(headers as any).get('a')` gave `null` where Node gives the header.
+///
+/// The recovered value is the SAME one the record was erased from (the origin
+/// registry), so a mutating member is observed by the holder of the concrete
+/// value. Only the synchronous members are here; the async body readers are
+/// not, and they keep the erased read's `undefined`.
+fn smelt_url_search_params_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if !object.contains_key("__smelt_urlsearchparams") { return None; } if !matches!(name, "get" | "getAll" | "has" | "set" | "append" | "delete" | "toString" | "keys" | "values" | "entries" | "sort") { return None; } let params = <SmeltUrlSearchParams as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(object.clone())); let method = name.to_owned(); Some(SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let arg = |index: usize| args.get(index).cloned().map_or_else(String::new, smelt_property_key); Ok(match method.as_str() { "get" => params.get(&arg(0)).map_or(SmeltUnknown::Null, |value| SmeltUnknown::String(value.into())), "getAll" => SmeltUnknown::Array(params.get_all(&arg(0)).into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>().into()), "has" => SmeltUnknown::Bool(params.has(&arg(0))), "set" => { params.set(&arg(0), &arg(1)); SmeltUnknown::Undefined }, "append" => { params.append(&arg(0), &arg(1)); SmeltUnknown::Undefined }, "delete" => { params.delete(&arg(0)); SmeltUnknown::Undefined }, "toString" => SmeltUnknown::String(params.to_text().into()), "keys" => SmeltUnknown::Array(params.keys().into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>().into()), "values" => SmeltUnknown::Array(params.values().into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>().into()), "entries" => SmeltUnknown::Array(params.entries_in_order().into_iter().map(|(entry_name, value)| SmeltUnknown::Array(Vec::from([SmeltUnknown::String(entry_name.into()), SmeltUnknown::String(value.into())]).into())).collect::<Vec<_>>().into()), _ => { params.sort(); SmeltUnknown::Undefined }, }) }))) }
+
+/// Rebuild a parameter list from an erased value.
+impl SmeltFromUnknown for SmeltUrlSearchParams {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        if let SmeltUnknown::String(query) = &value { return Self::from_query(query); }
+        if let Some(origin) = smelt_restore_host_origin::<Self>(&value) { return origin; }
+        let SmeltUnknown::Object(map) = value else { return Self::new() };
+        let Some(SmeltUnknown::Array(pairs)) = map.get("entries") else { return Self::new() };
+        let params = Self::new();
+        for pair in pairs.into_vec() {
+            let SmeltUnknown::Array(pair) = pair else { continue };
+            let pair = pair.into_vec();
+            let (Some(SmeltUnknown::String(name)), Some(SmeltUnknown::String(entry_value))) = (pair.first().cloned(), pair.get(1).cloned()) else { continue };
+            params.append(&name, &entry_value);
+        }
+        params
+    }
+}
+
 /// A WHATWG form entry value: `string | File`.
 ///
 /// Both arms are modeled concrete types, so a form entry never needs a
@@ -4175,11 +4285,11 @@ impl SmeltFromUnknown for SmeltBlob {
 }
 
 #[derive(Clone)]
-pub enum SmeltUnion12 {
+pub enum SmeltUnion20 {
     M0(String),
     M1(SmeltBlob),
 }
-impl IntoSmeltUnknown for SmeltUnion12 {
+impl IntoSmeltUnknown for SmeltUnion20 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         match self {
             Self::M0(value) => SmeltUnknown::String(value.into()),
@@ -4187,30 +4297,30 @@ impl IntoSmeltUnknown for SmeltUnion12 {
         }
     }
 }
-impl SmeltUnion12 {
+impl SmeltUnion20 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
         if matches!(value, SmeltUnknown::String(_)) { return Self::M0(match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }); }
         Self::M1(<SmeltBlob as SmeltFromUnknown>::smelt_from_unknown(value.clone()))
     }
 }
-impl PartialEq for SmeltUnion12 {
+impl PartialEq for SmeltUnion20 {
     fn eq(&self, other: &Self) -> bool {
         self.clone().into_smelt_unknown() == other.clone().into_smelt_unknown()
     }
 }
-impl SmeltFromUnknown for SmeltUnion12 {
+impl SmeltFromUnknown for SmeltUnion20 {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self { Self::from_smelt_unknown(value) }
 }
-impl SmeltJsKeyEq for SmeltUnion12 {
+impl SmeltJsKeyEq for SmeltUnion20 {
     fn same_js_key(&self, other: &Self) -> bool { self.clone().into_smelt_unknown().same_js_key(&other.clone().into_smelt_unknown()) }
     fn js_key_hash(&self) -> Option<u64> { self.clone().into_smelt_unknown().js_key_hash() }
 }
-impl ::std::fmt::Debug for SmeltUnion12 {
+impl ::std::fmt::Debug for SmeltUnion20 {
     fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         ::std::fmt::Debug::fmt(&self.clone().into_smelt_unknown(), formatter)
     }
 }
-impl Default for SmeltUnion12 {
+impl Default for SmeltUnion20 {
     fn default() -> Self {
         Self::M0(String::new())
     }
@@ -4221,272 +4331,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 let smelt_runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
 let smelt_local = tokio::task::LocalSet::new();
 smelt_local.block_on(&smelt_runtime, async move {
-    let mut __smelt_for_item: (String, SmeltUnion12);
-    let mut name: String;
-    let mut value: SmeltUnion12;
-    let mut with_files: SmeltFormData;
-    let mut entry: SmeltUnion12;
-    let mut urlencoded: SmeltResponse;
-    let mut parsed: SmeltFormData;
-    let mut __smelt_for_item_1: (String, SmeltUnion12);
-    let mut name_1: String;
-    let mut value_1: SmeltUnion12;
-    let mut boundary: String;
-    let mut multipart: String;
-    let mut request: SmeltRequest;
-    let mut uploaded: SmeltFormData;
-    let mut __smelt_for_item_2: (String, SmeltUnion12);
-    let mut name_2: String;
-    let mut value_2: SmeltUnion12;
-    let _smelt_tmp_24: SmeltList<SmeltUnion12>;
-    let _smelt_tmp_25: SmeltList<SmeltUnion12>;
-    let _smelt_tmp_26: SmeltList<SmeltUnion12>;
-    let _smelt_tmp_27: f64;
-    let _smelt_tmp_29: bool;
-    let _smelt_tmp_30: bool;
-    let _smelt_tmp_32: ();
-    let _smelt_tmp_33: SmeltList<String>;
-    let _smelt_tmp_34: SmeltList<String>;
-    let _smelt_tmp_35: SmeltList<String>;
-    let _smelt_tmp_36: String;
-    let _smelt_tmp_38: SmeltList<(String, SmeltUnion12)>;
-    let mut _smelt_tmp_39: f64;
-    let mut _smelt_tmp_40: f64;
-    let mut _smelt_tmp_41: bool;
-    let mut _smelt_tmp_42: String;
-    let mut _smelt_tmp_43: SmeltUnion12;
-    let mut _smelt_tmp_45: ();
-    let mut _smelt_tmp_46: SmeltList<String>;
-    let mut _smelt_tmp_47: SmeltList<String>;
-    let mut _smelt_tmp_48: SmeltList<String>;
-    let mut _smelt_tmp_49: String;
-    let mut _smelt_tmp_51: Option<SmeltUnion12>;
-    let mut _smelt_tmp_52: SmeltUnion12;
-    let mut _smelt_tmp_54: SmeltFormData;
-    let mut _smelt_tmp_55: SmeltList<String>;
-    let mut _smelt_tmp_56: SmeltBlob;
-    let mut _smelt_tmp_57: ();
-    let mut _smelt_tmp_58: SmeltList<String>;
-    let mut _smelt_tmp_59: SmeltBlob;
-    let mut _smelt_tmp_60: ();
-    let mut _smelt_tmp_61: SmeltList<String>;
-    let mut _smelt_tmp_62: SmeltBlob;
-    let mut _smelt_tmp_63: ();
-    let mut _smelt_tmp_64: SmeltList<SmeltUnion12>;
-    let mut _smelt_tmp_65: f64;
-    let mut _smelt_tmp_66: f64;
-    let mut _smelt_tmp_67: bool;
-    let mut _smelt_tmp_68: bool;
-    let mut _smelt_tmp_69: String;
-    let mut _smelt_tmp_71: SmeltBlob;
-    let mut _smelt_tmp_72: String;
-    let mut _smelt_tmp_73: SmeltBlob;
-    let mut _smelt_tmp_74: String;
-    let mut _smelt_tmp_75: SmeltBlob;
-    let mut _smelt_tmp_76: f64;
-    let mut _smelt_tmp_77: SmeltBlob;
-    let mut _smelt_tmp_79: String;
-    let mut _smelt_tmp_81: SmeltRecord<String, String>;
-    let mut _smelt_tmp_82: SmeltResponse;
-    let mut _smelt_tmp_84: SmeltFormData;
-    let mut _smelt_tmp_85: SmeltList<(String, SmeltUnion12)>;
-    let mut _smelt_tmp_86: f64;
-    let mut _smelt_tmp_87: f64;
-    let mut _smelt_tmp_88: bool;
-    let mut _smelt_tmp_89: String;
-    let mut _smelt_tmp_90: SmeltUnion12;
-    let mut _smelt_tmp_92: bool;
-    let mut _smelt_tmp_94: String;
-    let mut _smelt_tmp_95: String;
-    let mut _smelt_tmp_96: String;
-    let mut _smelt_tmp_97: String;
-    let mut _smelt_tmp_98: SmeltList<String>;
-    let mut _smelt_tmp_99: String;
-    let mut _smelt_tmp_100: String;
-    let mut _smelt_tmp_101: SmeltRecord<String, String>;
-    let mut _smelt_tmp_102: SmeltRequest;
-    let mut _smelt_tmp_104: SmeltFormData;
-    let mut _smelt_tmp_105: SmeltList<(String, SmeltUnion12)>;
-    let mut _smelt_tmp_106: f64;
-    let mut _smelt_tmp_107: f64;
-    let mut _smelt_tmp_108: bool;
-    let mut _smelt_tmp_109: String;
-    let mut _smelt_tmp_110: SmeltUnion12;
-    let mut _smelt_tmp_111: bool;
-    let mut _smelt_tmp_112: String;
-    let mut _smelt_tmp_114: SmeltBlob;
-    let mut _smelt_tmp_115: String;
-    let mut _smelt_tmp_116: SmeltBlob;
-    let mut _smelt_tmp_117: String;
-    let mut _smelt_tmp_118: SmeltBlob;
-    let mut _smelt_tmp_119: f64;
-    let mut _smelt_tmp_120: SmeltBlob;
-    let mut _smelt_tmp_122: String;
-    let mut _smelt_tmp_124: SmeltRecord<String, String>;
-    let mut _smelt_tmp_125: SmeltResponse;
-    let mut _smelt_tmp_127: ();
-    let mut _smelt_tmp_129: ();
-    let mut _smelt_tmp_131: ();
-    let _smelt_tmp_18: SmeltFormData = SmeltFormData::new();
-    let form: SmeltFormData = _smelt_tmp_18;
-    let _smelt_tmp_19: () = form.clone().append(&"a".to_owned(), SmeltFormDataValue::Text(("1".to_owned()).clone()));
-    let _smelt_tmp_20: () = form.clone().append(&"a".to_owned(), SmeltFormDataValue::Text(("2".to_owned()).clone()));
-    let _smelt_tmp_21: () = form.clone().append(&"b".to_owned(), SmeltFormDataValue::Text(("x".to_owned()).clone()));
-    let _smelt_tmp_22: Option<SmeltUnion12> = form.clone().get(&"a".to_owned()).map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion12::M0(smelt_text), SmeltFormDataValue::File(smelt_file) => SmeltUnion12::M1(smelt_file) });
-    let _ = { println!("{}", match &_smelt_tmp_22 { Some(value) => format!("{}", value.clone().into_smelt_unknown()), None => "undefined".to_owned() }); };
-    _smelt_tmp_24 = Into::<SmeltList<_>>::into(SmeltList::new(form.clone().get_all(&"a".to_owned()).into_iter().map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion12::M0(smelt_text), SmeltFormDataValue::File(smelt_file) => SmeltUnion12::M1(smelt_file) }).collect::<Vec<_>>()));
-    _smelt_tmp_25 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnion12> = vec![]; smelt_list_items }));
-    _smelt_tmp_26 = Into::<SmeltList<_>>::into(_smelt_tmp_24.borrow().iter().cloned().chain(_smelt_tmp_25.borrow().iter().cloned()).collect::<Vec<_>>());
-    _smelt_tmp_27 = _smelt_tmp_26.len() as f64;
-    let _ = { println!("{}", _smelt_tmp_27); };
-    _smelt_tmp_29 = form.clone().has(&"b".to_owned());
-    _smelt_tmp_30 = form.clone().has(&"B".to_owned());
-    let _ = { println!("{} {}", _smelt_tmp_29, _smelt_tmp_30); };
-    _smelt_tmp_32 = form.clone().set(&"a".to_owned(), SmeltFormDataValue::Text(("9".to_owned()).clone()));
-    _smelt_tmp_33 = Into::<SmeltList<_>>::into(SmeltList::new(form.clone().keys()));
-    _smelt_tmp_34 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
-    _smelt_tmp_35 = Into::<SmeltList<_>>::into(_smelt_tmp_33.borrow().iter().cloned().chain(_smelt_tmp_34.borrow().iter().cloned()).collect::<Vec<_>>());
-    _smelt_tmp_36 = _smelt_tmp_35.borrow().join(&",".to_owned());
-    let _ = { println!("{}", _smelt_tmp_36); };
-    _smelt_tmp_38 = Into::<SmeltList<_>>::into(SmeltList::new(form.clone().entries_in_order().into_iter().map(|(smelt_name, smelt_entry)| (smelt_name, match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion12::M0(smelt_text), SmeltFormDataValue::File(smelt_file) => SmeltUnion12::M1(smelt_file) })).collect::<Vec<_>>()));
-    _smelt_tmp_39 = 0.0;
-    loop {
-    _smelt_tmp_40 = _smelt_tmp_38.len() as f64;
-    _smelt_tmp_41 = _smelt_tmp_39 < _smelt_tmp_40;
-    if !(_smelt_tmp_41) { break; }
-    __smelt_for_item = _smelt_tmp_38.borrow().get({ let normalized = _smelt_tmp_39 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), SmeltUnion12::M0(String::new())));
-    _smelt_tmp_42 = __smelt_for_item.clone().0.clone();
-    name = _smelt_tmp_42;
-    _smelt_tmp_43 = __smelt_for_item.1.clone();
-    value = _smelt_tmp_43;
-    let _ = { println!("{} {}", name, value.into_smelt_unknown()); };
-    _smelt_tmp_39 = _smelt_tmp_39 + 1.0;
-    }
-    _smelt_tmp_45 = form.clone().delete(&"a".to_owned());
-    _smelt_tmp_46 = Into::<SmeltList<_>>::into(SmeltList::new(form.clone().keys()));
-    _smelt_tmp_47 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![]; smelt_list_items }));
-    _smelt_tmp_48 = Into::<SmeltList<_>>::into(_smelt_tmp_46.borrow().iter().cloned().chain(_smelt_tmp_47.borrow().iter().cloned()).collect::<Vec<_>>());
-    _smelt_tmp_49 = _smelt_tmp_48.borrow().join(&",".to_owned());
-    let _ = { println!("{}", _smelt_tmp_49); };
-    _smelt_tmp_51 = form.get(&"a".to_owned()).map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion12::M0(smelt_text), SmeltFormDataValue::File(smelt_file) => SmeltUnion12::M1(smelt_file) });
-    _smelt_tmp_52 = _smelt_tmp_51.map_or_else(|| SmeltUnion12::M0("absent".to_owned()), |value| value);
-    let _ = { println!("{}", _smelt_tmp_52.into_smelt_unknown()); };
-    _smelt_tmp_54 = SmeltFormData::new();
-    with_files = _smelt_tmp_54;
-    _smelt_tmp_55 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["hello".to_owned()]; smelt_list_items }));
-    _smelt_tmp_56 = SmeltBlob::from_string_parts((_smelt_tmp_55).clone().into(), ("text/plain".to_owned()).clone(), None, None);
-    _smelt_tmp_57 = with_files.clone().append(&"plain".to_owned(), smelt_form_data_file_value((_smelt_tmp_56).clone(), None));
-    _smelt_tmp_58 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["hello".to_owned()]; smelt_list_items }));
-    _smelt_tmp_59 = SmeltBlob::from_string_parts((_smelt_tmp_58).clone().into(), ("text/plain".to_owned()).clone(), None, None);
-    _smelt_tmp_60 = with_files.clone().append(&"named".to_owned(), smelt_form_data_file_value((_smelt_tmp_59).clone(), Some("note.txt".to_owned())));
-    _smelt_tmp_61 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["bye".to_owned()]; smelt_list_items }));
-    _smelt_tmp_62 = SmeltBlob::from_string_parts((_smelt_tmp_61).clone().into(), ("text/plain".to_owned()).clone(), Some(("given.txt".to_owned()).clone()), None);
-    _smelt_tmp_63 = with_files.clone().append(&"file".to_owned(), smelt_form_data_file_value((_smelt_tmp_62).clone(), None));
-    _smelt_tmp_64 = Into::<SmeltList<_>>::into(SmeltList::new(with_files.values().into_iter().map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion12::M0(smelt_text), SmeltFormDataValue::File(smelt_file) => SmeltUnion12::M1(smelt_file) }).collect::<Vec<_>>()));
-    _smelt_tmp_65 = 0.0;
-    loop {
-    _smelt_tmp_66 = _smelt_tmp_64.len() as f64;
-    _smelt_tmp_67 = _smelt_tmp_65 < _smelt_tmp_66;
-    if !(_smelt_tmp_67) { break; }
-    entry = _smelt_tmp_64.borrow().get({ let normalized = _smelt_tmp_65 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| SmeltUnion12::M0(String::new()));
-    _smelt_tmp_68 = matches!(entry.clone(), SmeltUnion12::M0(_));
-    if _smelt_tmp_68 {
-    _smelt_tmp_69 = match entry { SmeltUnion12::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    let _ = { println!("{} {}", "text".to_owned(), _smelt_tmp_69); };
-    _smelt_tmp_65 = _smelt_tmp_65 + 1.0;
-    continue;
-    } else {
-    _smelt_tmp_71 = match entry.clone() { SmeltUnion12::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_72 = _smelt_tmp_71.file_name();
-    _smelt_tmp_73 = match entry.clone() { SmeltUnion12::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_74 = _smelt_tmp_73.blob_type();
-    _smelt_tmp_75 = match entry.clone() { SmeltUnion12::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_76 = _smelt_tmp_75.size();
-    _smelt_tmp_77 = match entry { SmeltUnion12::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    let mut _smelt_tmp_78: SmeltFuture<String> = { let smelt_blob = _smelt_tmp_77.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(smelt_blob.to_text()) })) };
-    _smelt_tmp_79 = _smelt_tmp_78.await?;
-    let _ = { println!("{} {} {} {} {}", "file".to_owned(), _smelt_tmp_72, _smelt_tmp_74, _smelt_tmp_76, _smelt_tmp_79); };
-    _smelt_tmp_65 = _smelt_tmp_65 + 1.0;
-    continue;
-    }
-    }
-    _smelt_tmp_81 = SmeltRecord::from([("content-type".to_owned(), "application/x-www-form-urlencoded".to_owned())]);
-    _smelt_tmp_82 = SmeltResponse::from_parts(200.0, String::new(), SmeltHeaders::from_pairs(_smelt_tmp_81.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::from_text(&"a=1&b=hello+world&a=2".to_owned()));
-    urlencoded = _smelt_tmp_82;
-    let mut _smelt_tmp_83: SmeltFuture<SmeltFormData> = { let smelt_response = urlencoded.clone().clone(); SmeltFuture::from_future(Box::pin(async move { let smelt_content_type = smelt_response.headers().get("content-type"); Ok::<_, Box<dyn std::error::Error>>(smelt_form_data_from_body(smelt_content_type, smelt_response.body().take_bytes()?)?) })) };
-    _smelt_tmp_84 = _smelt_tmp_83.await?;
-    parsed = _smelt_tmp_84;
-    _smelt_tmp_85 = Into::<SmeltList<_>>::into(SmeltList::new(parsed.entries_in_order().into_iter().map(|(smelt_name, smelt_entry)| (smelt_name, match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion12::M0(smelt_text), SmeltFormDataValue::File(smelt_file) => SmeltUnion12::M1(smelt_file) })).collect::<Vec<_>>()));
-    _smelt_tmp_86 = 0.0;
-    loop {
-    _smelt_tmp_87 = _smelt_tmp_85.len() as f64;
-    _smelt_tmp_88 = _smelt_tmp_86 < _smelt_tmp_87;
-    if !(_smelt_tmp_88) { break; }
-    __smelt_for_item_1 = _smelt_tmp_85.borrow().get({ let normalized = _smelt_tmp_86 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), SmeltUnion12::M0(String::new())));
-    _smelt_tmp_89 = __smelt_for_item_1.clone().0.clone();
-    name_1 = _smelt_tmp_89;
-    _smelt_tmp_90 = __smelt_for_item_1.1.clone();
-    value_1 = _smelt_tmp_90;
-    let _ = { println!("{} {}", name_1, value_1.into_smelt_unknown()); };
-    _smelt_tmp_86 = _smelt_tmp_86 + 1.0;
-    }
-    _smelt_tmp_92 = urlencoded.clone().body_used();
-    let _ = { println!("{}", _smelt_tmp_92); };
-    boundary = "----SmeltBoundary".to_owned();
-    _smelt_tmp_94 = "--".to_owned() + &boundary.clone();
-    _smelt_tmp_95 = "--".to_owned() + &boundary.clone();
-    _smelt_tmp_96 = "--".to_owned() + &boundary.clone();
-    _smelt_tmp_97 = _smelt_tmp_96 + &"--".to_owned();
-    _smelt_tmp_98 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec![_smelt_tmp_94.clone(), "Content-Disposition: form-data; name=\"title\"".to_owned(), "".to_owned(), "hello".to_owned(), _smelt_tmp_95.clone(), "Content-Disposition: form-data; name=\"doc\"; filename=\"a.txt\"".to_owned(), "Content-Type: text/plain".to_owned(), "".to_owned(), "file body".to_owned(), _smelt_tmp_97.clone(), "".to_owned()]; smelt_list_items }));
-    _smelt_tmp_99 = _smelt_tmp_98.borrow().join(&"\r\n".to_owned());
-    multipart = _smelt_tmp_99;
-    _smelt_tmp_100 = "multipart/form-data; boundary=".to_owned() + &boundary;
-    _smelt_tmp_101 = SmeltRecord::from([("content-type".to_owned(), _smelt_tmp_100)]);
-    _smelt_tmp_102 = SmeltRequest::from_parts(&"https://forms.test/upload".to_owned(), "POST".to_owned(), SmeltHeaders::from_pairs(_smelt_tmp_101.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::from_text(&multipart));
-    request = _smelt_tmp_102;
-    let mut _smelt_tmp_103: SmeltFuture<SmeltFormData> = { let smelt_request = request.clone(); SmeltFuture::from_future(Box::pin(async move { let smelt_content_type = smelt_request.headers().get("content-type"); Ok::<_, Box<dyn std::error::Error>>(smelt_form_data_from_body(smelt_content_type, smelt_request.body().take_bytes()?)?) })) };
-    _smelt_tmp_104 = _smelt_tmp_103.await?;
-    uploaded = _smelt_tmp_104;
-    _smelt_tmp_105 = Into::<SmeltList<_>>::into(SmeltList::new(uploaded.entries_in_order().into_iter().map(|(smelt_name, smelt_entry)| (smelt_name, match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion12::M0(smelt_text), SmeltFormDataValue::File(smelt_file) => SmeltUnion12::M1(smelt_file) })).collect::<Vec<_>>()));
-    _smelt_tmp_106 = 0.0;
-    loop {
-    _smelt_tmp_107 = _smelt_tmp_105.len() as f64;
-    _smelt_tmp_108 = _smelt_tmp_106 < _smelt_tmp_107;
-    if !(_smelt_tmp_108) { break; }
-    __smelt_for_item_2 = _smelt_tmp_105.borrow().get({ let normalized = _smelt_tmp_106 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), SmeltUnion12::M0(String::new())));
-    _smelt_tmp_109 = __smelt_for_item_2.clone().0.clone();
-    name_2 = _smelt_tmp_109;
-    _smelt_tmp_110 = __smelt_for_item_2.1.clone();
-    value_2 = _smelt_tmp_110;
-    _smelt_tmp_111 = matches!(value_2.clone(), SmeltUnion12::M0(_));
-    if _smelt_tmp_111 {
-    _smelt_tmp_112 = match value_2 { SmeltUnion12::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    let _ = { println!("{} {} {}", name_2, "text".to_owned(), _smelt_tmp_112); };
-    _smelt_tmp_106 = _smelt_tmp_106 + 1.0;
-    continue;
-    } else {
-    _smelt_tmp_114 = match value_2.clone() { SmeltUnion12::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_115 = _smelt_tmp_114.file_name();
-    _smelt_tmp_116 = match value_2.clone() { SmeltUnion12::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_117 = _smelt_tmp_116.blob_type();
-    _smelt_tmp_118 = match value_2.clone() { SmeltUnion12::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_119 = _smelt_tmp_118.size();
-    _smelt_tmp_120 = match value_2 { SmeltUnion12::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    let mut _smelt_tmp_121: SmeltFuture<String> = { let smelt_blob = _smelt_tmp_120.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(smelt_blob.to_text()) })) };
-    _smelt_tmp_122 = _smelt_tmp_121.await?;
-    let _ = { println!("{} {} {} {} {} {}", name_2, "file".to_owned(), _smelt_tmp_115, _smelt_tmp_117, _smelt_tmp_119, _smelt_tmp_122); };
-    _smelt_tmp_106 = _smelt_tmp_106 + 1.0;
-    continue;
-    }
-    }
-    _smelt_tmp_124 = SmeltRecord::from([("content-type".to_owned(), "text/plain".to_owned())]);
-    _smelt_tmp_125 = SmeltResponse::from_parts(200.0, String::new(), SmeltHeaders::from_pairs(_smelt_tmp_124.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::from_text(&"plain".to_owned()));
-    let _smelt_tmp_126 = SmeltFuture::from_future(Box::pin(read_or_report(_smelt_tmp_125, "wrong type".to_owned())));
-    _smelt_tmp_127 = _smelt_tmp_126.await?;
-    let _smelt_tmp_128 = SmeltFuture::from_future(Box::pin(read_or_report(urlencoded, "second read".to_owned())));
-    _smelt_tmp_129 = _smelt_tmp_128.await?;
-    let mut _smelt_tmp_130: SmeltFuture<()> = SmeltFuture::from_future(Box::pin(async move { smelt_run_until_exit().await; Ok::<_, Box<dyn std::error::Error>>(()) }));
-    _smelt_tmp_131 = _smelt_tmp_130.await?;
+    let _smelt_tmp_1: ();
+    let _smelt_tmp_3: ();
+    let _smelt_tmp_0 = SmeltFuture::from_future(Box::pin(run()));
+    _smelt_tmp_1 = { smelt_spawn_promise_task(Box::pin(async move { let _ = _smelt_tmp_0.await; })); () };
+    let _smelt_tmp_2: SmeltFuture<()> = SmeltFuture::from_future(Box::pin(async move { smelt_run_until_exit().await; Ok::<_, Box<dyn std::error::Error>>(()) }));
+    _smelt_tmp_3 = _smelt_tmp_2.await?;
     return Ok(());
 })
 }

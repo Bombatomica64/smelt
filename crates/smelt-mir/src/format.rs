@@ -992,6 +992,8 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 smelt_hir::RequestOp::Body => "body",
                 smelt_hir::RequestOp::Text => "text",
                 smelt_hir::RequestOp::FormData => "form_data",
+                smelt_hir::RequestOp::ArrayBuffer => "array_buffer",
+                smelt_hir::RequestOp::Bytes => "bytes",
                 smelt_hir::RequestOp::Clone => "clone",
                 smelt_hir::RequestOp::Signal => "signal",
             };
@@ -1037,6 +1039,8 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 smelt_hir::ResponseOp::Body => "body",
                 smelt_hir::ResponseOp::Text => "text",
                 smelt_hir::ResponseOp::FormData => "form_data",
+                smelt_hir::ResponseOp::ArrayBuffer => "array_buffer",
+                smelt_hir::ResponseOp::Bytes => "bytes",
                 smelt_hir::ResponseOp::Clone => "clone",
             };
             let mut text = format!("response_{name} {}", operand_text(response));

@@ -397,6 +397,19 @@ pub const TYPESCRIPT_METHODS: &[MethodRecognition] = &[
         "formData",
         RuleId::TsResponseBodyRead,
     ),
+    // The two BYTE body readers. `arrayBuffer()` answers storage and `bytes()`
+    // an element view: one spec member each, distinguishable since the byte
+    // family became concrete.
+    method(
+        TypeScriptReceiverKind::Response,
+        "arrayBuffer",
+        RuleId::TsResponseBodyRead,
+    ),
+    method(
+        TypeScriptReceiverKind::Response,
+        "bytes",
+        RuleId::TsResponseBodyRead,
+    ),
     method(
         TypeScriptReceiverKind::Response,
         "clone",
@@ -410,6 +423,16 @@ pub const TYPESCRIPT_METHODS: &[MethodRecognition] = &[
     method(
         TypeScriptReceiverKind::Request,
         "formData",
+        RuleId::TsRequestBodyRead,
+    ),
+    method(
+        TypeScriptReceiverKind::Request,
+        "arrayBuffer",
+        RuleId::TsRequestBodyRead,
+    ),
+    method(
+        TypeScriptReceiverKind::Request,
+        "bytes",
         RuleId::TsRequestBodyRead,
     ),
     method(

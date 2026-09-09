@@ -85,8 +85,17 @@ impl FunctionEmitter<'_> {
                 )
             }
             smelt_hir::FormDataOp::Entries => {
-                let value_ty = self.form_data_value_type_id()?;
-                let pair_ty = self.type_id(Type::Tuple(Vec::from([string_ty, value_ty])))?;
+                // The DESTINATION's own pair type wins when it has one. The
+                // frontend interned `List<(String, string | File)>` at the use
+                // site, so reading the pair back out of it cannot disagree with
+                // the table — whereas RECONSTRUCTING
+                // `Tuple([String, <the union>])` depends on finding the same
+                // union id the frontend used, and an equal union interned twice
+                // has two of them. That is not hypothetical: Hono's
+                // `convertFormDataToBodyData` reached this arm with a
+                // `Tuple([TypeId(5), TypeId(154)])` the table did not hold,
+                // stopping the whole crate in the emitter.
+                let (pair_ty, value_ty) = self.form_data_entry_pair_types(dest_ty)?;
                 let source_ty = self.type_id(Type::List(pair_ty))?;
                 let arm = self.form_data_value_to_union_text("smelt_entry", value_ty)?;
                 self.value_at_type_text(
@@ -257,6 +266,26 @@ impl FunctionEmitter<'_> {
     /// place (`form_data_value_type`) whenever a form member is lowered, so a
     /// two-member union of a string and the blob runtime class identifies it
     /// without the emitter having to reconstruct the `File` symbol.
+    /// The `(name, value)` pair type an entries projection answers, and the
+    /// value type inside it.
+    ///
+    /// Prefers the destination's own shape — a `List` of a two-element tuple is
+    /// exactly the type the frontend interned for this projection — and falls
+    /// back to reconstructing it from the scanned entry-value union for a
+    /// destination that is erased or otherwise not that list.
+    fn form_data_entry_pair_types(&self, dest_ty: TypeId) -> Result<(TypeId, TypeId), EmitError> {
+        if let Some(Type::List(item)) = self.mir.types.get(dest_ty)
+            && let Some(Type::Tuple(members)) = self.mir.types.get(*item)
+            && let [_, value_ty] = members.as_slice()
+        {
+            return Ok((*item, *value_ty));
+        }
+        let value_ty = self.form_data_value_type_id()?;
+        let string_ty = self.type_id(Type::String)?;
+        let pair_ty = self.type_id(Type::Tuple(Vec::from([string_ty, value_ty])))?;
+        Ok((pair_ty, value_ty))
+    }
+
     fn form_data_value_type_id(&self) -> Result<TypeId, EmitError> {
         for (index, ty) in self.mir.types.all().iter().enumerate() {
             let Type::Union(members) = ty else { continue };

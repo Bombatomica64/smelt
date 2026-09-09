@@ -413,6 +413,10 @@ pub enum RequestOp {
     /// but the same body reader underneath: single-use, and a second call is
     /// the spec's `TypeError`.
     FormData,
+    /// `arrayBuffer()`: the body's bytes as storage. Async, and consumes it.
+    ArrayBuffer,
+    /// `bytes()`: the body's bytes as a `Uint8Array`. Async, and consumes it.
+    Bytes,
     /// `clone()`: a copy whose body is independently readable.
     Clone,
     /// `signal`: the request's `AbortSignal`.
@@ -461,6 +465,16 @@ pub enum ResponseOp {
     Text,
     /// `formData()`: the body parsed as a form. Async, and consumes the body.
     FormData,
+    /// `arrayBuffer()`: the body's bytes as storage. Async, and consumes it.
+    ///
+    /// Its own variant rather than a flavour of [`Self::Bytes`] because the two
+    /// answer DIFFERENT types now that the byte family is concrete: storage
+    /// (`ArrayBuffer.isView` false) against an element view (true). While the
+    /// family was erased the distinction was unobservable and one reader would
+    /// have done for both.
+    ArrayBuffer,
+    /// `bytes()`: the body's bytes as a `Uint8Array`. Async, and consumes it.
+    Bytes,
     /// `clone()`: a copy whose body is independently readable.
     Clone,
 }

@@ -1923,6 +1923,21 @@ return_ty: function.return_ty,
                 let string_ty = self.ctx.krate.types.intern(Type::String);
                 let none_ty = self.ctx.krate.types.intern(Type::None);
                 let mut members = vec![string_ty];
+                // The spec's `BodyInit` is
+                // `ReadableStream | XMLHttpRequestBodyInit`, and the second is
+                // `Blob | BufferSource | FormData | URLSearchParams | string`.
+                // `BufferSource` is `ArrayBufferView | ArrayBuffer`, so the
+                // eleven element views belong here too: they are arms a caller
+                // really passes (`new Response(encoder.encode(text))`), and
+                // leaving them out meant a `BodyInit`-annotated parameter never
+                // mentioned the byte family at all.
+                for arm in smelt_stdlib::TYPED_ARRAY_CLASS_NAMES {
+                    let name = self.intern_type_name(arm);
+                    members.push(self.ctx.krate.types.intern(Type::Class {
+                        name,
+                        args: Vec::new(),
+                    }));
+                }
                 for arm in [
                     "ArrayBuffer",
                     "Blob",

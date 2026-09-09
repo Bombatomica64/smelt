@@ -272,6 +272,52 @@ fn emit_inherent_impl(writer: &mut CodeWriter) {
                 fn_writer.line("Self::from_pairs(pairs)");
             },
         );
+        // The inverse of `from_multipart`, and it lives beside it so the two
+        // cannot drift on the details that matter: CRLF line endings, the
+        // `--boundary` / `--boundary--` framing, a `filename` parameter on a
+        // file part and none on a text part, and a `Content-Type` header only
+        // where the spec puts one.
+        //
+        // The boundary is a PARAMETER rather than minted here, because it also
+        // has to appear in the body's `Content-Type` header — the framing bytes
+        // and the header have to agree, and only the caller holds both.
+        impl_writer.line("/// Serialize this form as `multipart/form-data` bytes (RFC 7578).");
+        impl_writer.block(
+            "pub fn to_multipart(&self, boundary: &str) -> Vec<u8>",
+            |fn_writer| {
+                fn_writer.line("let mut bytes: Vec<u8> = Vec::new();");
+                fn_writer.block(
+                    "for (name, value) in self.entries_in_order()",
+                    |entry_writer| {
+                        entry_writer.line("bytes.extend_from_slice(format!(\"--{boundary}\\r\\n\").as_bytes());");
+                        entry_writer.block("match value", |match_writer| {
+                            // A text part carries only its name. Node emits no
+                            // `Content-Type` for one, and the parser reads its
+                            // absence as text, so adding one here would make a
+                            // round trip through `formData()` answer a `File`.
+                            match_writer.block("SmeltFormDataValue::Text(text) =>", |arm_writer| {
+                                arm_writer.line("bytes.extend_from_slice(format!(\"Content-Disposition: form-data; name=\\\"{name}\\\"\\r\\n\\r\\n\").as_bytes());");
+                                arm_writer.line("bytes.extend_from_slice(text.as_bytes());");
+                            });
+                            // A file part carries its `filename` and its type.
+                            // An empty type becomes the spec's default rather
+                            // than an empty header, which is what the parser
+                            // assumes when a part has no `Content-Type`.
+                            match_writer.block("SmeltFormDataValue::File(file) =>", |arm_writer| {
+                                arm_writer.line("let file_name = file.file_name();");
+                                arm_writer.line("let content_type = if file.blob_type().is_empty() { \"application/octet-stream\".to_owned() } else { file.blob_type() };");
+                                arm_writer.line("bytes.extend_from_slice(format!(\"Content-Disposition: form-data; name=\\\"{name}\\\"; filename=\\\"{file_name}\\\"\\r\\n\").as_bytes());");
+                                arm_writer.line("bytes.extend_from_slice(format!(\"Content-Type: {content_type}\\r\\n\\r\\n\").as_bytes());");
+                                arm_writer.line("bytes.extend_from_slice(&file.to_bytes());");
+                            });
+                        });
+                        entry_writer.line("bytes.extend_from_slice(b\"\\r\\n\");");
+                    },
+                );
+                fn_writer.line("bytes.extend_from_slice(format!(\"--{boundary}--\\r\\n\").as_bytes());");
+                fn_writer.line("bytes");
+            },
+        );
         impl_writer.line("/// Parse `multipart/form-data` bytes (RFC 7578) into a form.");
         impl_writer.line("///");
         impl_writer.line("/// A part with a `filename` parameter on its `Content-Disposition`");
@@ -318,6 +364,18 @@ fn emit_inherent_impl(writer: &mut CodeWriter) {
 /// over a `&[u8]`, they carry no form state, and keeping them out of the impl
 /// keeps [`emit_inherent_impl`]'s methods readable.
 fn emit_multipart_helpers(writer: &mut CodeWriter) {
+    // A fresh boundary per body, which is what the spec requires: it must not
+    // occur in the payload. The JS reference implementations mint a random one;
+    // this uses the same monotonic object-id counter the runtime already has,
+    // so it is unique within the program without pulling in a random source a
+    // program might not otherwise pay for. The `-----------------------------`
+    // prefix is the shape every runtime uses and keeps it out of ordinary text.
+    writer.line("/// A fresh `multipart/form-data` boundary, unique in this program.");
+    writer.line("#[allow(dead_code)]");
+    writer.line(
+        "fn smelt_multipart_boundary() -> String { format!(\"----SmeltFormBoundary{:016x}\", smelt_next_object_id()) }",
+    );
+    writer.blank_line();
     writer.line("/// Find `needle` in `haystack` at or after `from`.");
     writer.line("#[allow(dead_code)]");
     writer.block(

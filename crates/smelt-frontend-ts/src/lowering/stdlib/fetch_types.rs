@@ -561,6 +561,8 @@ impl ModuleBuilder<'_> {
         // member spelling picks which value it answers.
         let op = match (rule, member_name) {
             (RuleId::TsResponseBodyRead, "formData") => ResponseOp::FormData,
+            (RuleId::TsResponseBodyRead, "arrayBuffer") => ResponseOp::ArrayBuffer,
+            (RuleId::TsResponseBodyRead, "bytes") => ResponseOp::Bytes,
             (RuleId::TsResponseBodyRead, _) => ResponseOp::Text,
             (RuleId::TsResponseClone, _) => ResponseOp::Clone,
             _ => return Ok(None),
@@ -743,6 +745,19 @@ impl ModuleBuilder<'_> {
                 let form_ty = self.form_data_type();
                 self.ctx.krate.types.intern(Type::Future(form_ty))
             }
+            // The two BYTE readers answer the two halves of the concrete byte
+            // family, which is the spec's own distinction: `arrayBuffer()` is
+            // storage and `bytes()` an element view over it, so
+            // `ArrayBuffer.isView` separates them. `Blob` answers the same pair
+            // for the same reason.
+            ResponseOp::ArrayBuffer => {
+                let buffer_ty = self.array_buffer_type();
+                self.ctx.krate.types.intern(Type::Future(buffer_ty))
+            }
+            ResponseOp::Bytes => {
+                let bytes_ty = self.byte_array_type();
+                self.ctx.krate.types.intern(Type::Future(bytes_ty))
+            }
         }
     }
 
@@ -858,6 +873,8 @@ impl ModuleBuilder<'_> {
         }
         let op = match rule {
             RuleId::TsRequestBodyRead if member_name == "formData" => RequestOp::FormData,
+            RuleId::TsRequestBodyRead if member_name == "arrayBuffer" => RequestOp::ArrayBuffer,
+            RuleId::TsRequestBodyRead if member_name == "bytes" => RequestOp::Bytes,
             RuleId::TsRequestBodyRead => RequestOp::Text,
             RuleId::TsRequestClone => RequestOp::Clone,
             _ => return Ok(None),
@@ -967,6 +984,15 @@ impl ModuleBuilder<'_> {
             RequestOp::FormData => {
                 let form_ty = self.form_data_type();
                 self.ctx.krate.types.intern(Type::Future(form_ty))
+            }
+            // The same pair as `Response`; see the comment there.
+            RequestOp::ArrayBuffer => {
+                let buffer_ty = self.array_buffer_type();
+                self.ctx.krate.types.intern(Type::Future(buffer_ty))
+            }
+            RequestOp::Bytes => {
+                let bytes_ty = self.byte_array_type();
+                self.ctx.krate.types.intern(Type::Future(bytes_ty))
             }
         }
     }

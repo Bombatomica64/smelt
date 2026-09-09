@@ -402,6 +402,14 @@ impl FunctionEmitter<'_> {
             smelt_hir::RequestOp::FormData => format!(
                 "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_content_type = smelt_request.headers().get(\"content-type\"); Ok::<_, Box<dyn std::error::Error>>(smelt_form_data_from_body(smelt_content_type, smelt_request.body().take_bytes()?)?) }})) }}"
             ),
+            // The two BYTE readers; see the `Response` pair for why they are
+            // two members rather than one.
+            smelt_hir::RequestOp::ArrayBuffer => format!(
+                "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(SmeltArrayBuffer::from_bytes(smelt_request.body().take_bytes()?)) }})) }}"
+            ),
+            smelt_hir::RequestOp::Bytes => format!(
+                "{{ let smelt_request = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(SmeltTypedArray::from_bytes(smelt_request.body().take_bytes()?)) }})) }}"
+            ),
         })
     }
 
@@ -471,6 +479,33 @@ impl FunctionEmitter<'_> {
                 "SmeltBody::from_blob({body_text}.to_bytes(), {body_text}.blob_type())"
             ));
         }
+        // A `BufferSource` at the body position contributes its BYTES. A VIEW
+        // contributes its own window, not the whole buffer — `new
+        // Response(buffer.subarray(2, 4))` is two bytes, which is what
+        // `to_bytes()` answers for each half of the family. Neither carries a
+        // content type: the spec's "extract a body" step leaves it unset for a
+        // buffer source, unlike a blob or a form.
+        if self.is_typed_array_view_class_type(body_ty)? || self.is_array_buffer_class_type(body_ty)? {
+            return Ok(format!("SmeltBody::from_bytes({body_text}.to_bytes())"));
+        }
+        // A `URLSearchParams` body is its QUERY STRING, with the content type
+        // the spec fixes for it. Same shape as the blob arm: the value knows
+        // both its bytes and its type.
+        if self.is_url_search_params_class_type(body_ty)? {
+            return Ok(format!(
+                "SmeltBody::from_blob({body_text}.to_text().into_bytes(), \"application/x-www-form-urlencoded;charset=UTF-8\".to_owned())"
+            ));
+        }
+        // A `FormData` body is `multipart/form-data`, whose boundary is part of
+        // the content type rather than of the bytes — so the encoder mints one
+        // and the header carries it, which is exactly what makes
+        // `await new Request(url, { body: form }).formData()` round-trip
+        // through the parser that already existed.
+        if self.is_form_data_class_type(body_ty)? {
+            return Ok(format!(
+                "{{ let smelt_boundary = smelt_multipart_boundary(); SmeltBody::from_blob({body_text}.to_multipart(&smelt_boundary), format!(\"multipart/form-data; boundary={{smelt_boundary}}\")) }}"
+            ));
+        }
         match self.mir.types.get(body_ty) {
             Some(Type::String) => Ok(format!("SmeltBody::from_text(&{body_text})")),
             Some(Type::None) => Ok("SmeltBody::empty()".to_owned()),
@@ -496,11 +531,32 @@ impl FunctionEmitter<'_> {
             // else is an unmodeled arm and throws, naming itself, rather than
             // putting wrong bytes in the body. A concrete type cannot stand in
             // here — the erasure is the parameter's own declared type.
-            Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => Ok(format!(
-                "match {body_text} {{ SmeltUnknown::String(value) => SmeltBody::from_text(&value.to_string()), \
-                 SmeltUnknown::Null | SmeltUnknown::Undefined => SmeltBody::empty(), \
-                 value => panic!(\"body arm is not modeled yet: {{value:?}}\") }}"
-            )),
+            Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
+                // A byte-backed record is a `BufferSource` arm that crossed the
+                // boundary — a view or its storage — and a blob record is the
+                // `Blob` arm. Both branches name a pay-for-use prelude type, so
+                // each is emitted only where that type is, keyed on the same
+                // gate that decides whether it exists at all.
+                let byte_arm = if crate::stdlib::needs_byte_array_runtime(self.mir) {
+                    format!(
+                        "SmeltUnknown::Object(value) if {elements}(&SmeltUnknown::Object(value.clone())).is_some() => SmeltBody::from_bytes(SmeltTypedArray::smelt_from_unknown(SmeltUnknown::Object(value)).to_bytes()), ",
+                        elements = smelt_stdlib::runtime_symbols::byte_buffer::ELEMENTS,
+                    )
+                } else {
+                    String::new()
+                };
+                let blob_arm = if crate::stdlib::needs_blob_runtime(self.mir) {
+                    "SmeltUnknown::Object(value) if value.contains_key(\"__smelt_blob\") => { let smelt_blob = <SmeltBlob as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(value)); SmeltBody::from_blob(smelt_blob.to_bytes(), smelt_blob.blob_type()) }, "
+                } else {
+                    ""
+                };
+                Ok(format!(
+                    "match {body_text} {{ SmeltUnknown::String(value) => SmeltBody::from_text(&value.to_string()), \
+                     SmeltUnknown::Null | SmeltUnknown::Undefined => SmeltBody::empty(), \
+                     {byte_arm}{blob_arm}\
+                     value => panic!(\"body arm is not modeled yet: {{value:?}}\") }}"
+                ))
+            }
             _ => Err(EmitError::new(format!(
                 "body must be a string or null; this `BodyInit` arm is not modeled yet: {}",
                 self.type_text_with_impl_trait(body_ty, false)?
@@ -553,12 +609,40 @@ impl FunctionEmitter<'_> {
             smelt_hir::ResponseOp::Text => format!(
                 "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(smelt_response.take_text()?) }})) }}"
             ),
+            // The two BYTE readers, one `take_bytes` apart: storage owns the
+            // bytes, a view is an element window over them. Both consume the
+            // body, like every other reader.
+            smelt_hir::ResponseOp::ArrayBuffer => format!(
+                "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(SmeltArrayBuffer::from_bytes(smelt_response.body().take_bytes()?)) }})) }}"
+            ),
+            smelt_hir::ResponseOp::Bytes => format!(
+                "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>(SmeltTypedArray::from_bytes(smelt_response.body().take_bytes()?)) }})) }}"
+            ),
             // Same shape as `Request::formData`; see the comment there for why
             // the parser is handed the header rather than only the bytes.
             smelt_hir::ResponseOp::FormData => format!(
                 "{{ let smelt_response = {receiver}.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_content_type = smelt_response.headers().get(\"content-type\"); Ok::<_, Box<dyn std::error::Error>>(smelt_form_data_from_body(smelt_content_type, smelt_response.body().take_bytes()?)?) }})) }}"
             ),
         })
+    }
+
+    /// Return whether a type is the modeled `ArrayBuffer`: byte STORAGE.
+    ///
+    /// The type-level twin of `operand_is_array_buffer`; the body conversion
+    /// has a type without an operand, exactly as the headers conversion does.
+    pub(super) fn is_array_buffer_class_type(&self, ty: TypeId) -> Result<bool, EmitError> {
+        let Some(Type::Class { name, .. }) = self.mir.types.get(ty) else {
+            return Ok(false);
+        };
+        Ok(self.stdlib_class_of_symbol(*name)? == Some(smelt_stdlib::StdlibClass::ArrayBuffer))
+    }
+
+    /// Return whether a type names the generated `SmeltFormData` type.
+    pub(super) fn is_form_data_class_type(&self, ty: TypeId) -> Result<bool, EmitError> {
+        let Some(Type::Class { name, .. }) = self.mir.types.get(ty) else {
+            return Ok(false);
+        };
+        Ok(self.stdlib_class_of_symbol(*name)? == Some(smelt_stdlib::StdlibClass::FormData))
     }
 
     /// Return whether a type names the generated `SmeltUrlSearchParams` type.

@@ -1369,6 +1369,8 @@ const fn request_op_name(op: crate::expr::RequestOp) -> &'static str {
         crate::expr::RequestOp::Body => "body",
         crate::expr::RequestOp::Text => "text",
         crate::expr::RequestOp::FormData => "form_data",
+        crate::expr::RequestOp::ArrayBuffer => "array_buffer",
+        crate::expr::RequestOp::Bytes => "bytes",
         crate::expr::RequestOp::Clone => "clone",
         crate::expr::RequestOp::Signal => "signal",
     }
@@ -1385,6 +1387,8 @@ const fn response_op_name(op: crate::expr::ResponseOp) -> &'static str {
         crate::expr::ResponseOp::Body => "body",
         crate::expr::ResponseOp::Text => "text",
         crate::expr::ResponseOp::FormData => "form_data",
+        crate::expr::ResponseOp::ArrayBuffer => "array_buffer",
+        crate::expr::ResponseOp::Bytes => "bytes",
         crate::expr::ResponseOp::Clone => "clone",
     }
 }
