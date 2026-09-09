@@ -11,7 +11,9 @@ const text = value.toString();
 ",
     );
 
-    assert!(source.contains(".to_string()"));
+    // `Number.prototype.toString` is JavaScript's own rule, not Rust's
+    // `Display`: they part company at `1e21` and `1e-7`.
+    assert!(source.contains("smelt_number_to_string(value)"));
 }
 
 #[test]

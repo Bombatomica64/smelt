@@ -861,6 +861,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "80_optional_chain_union_and_throw",
     "81_receiver_capture_in_callback",
     "82_data_view_shared_buffer",
+    "83_number_to_string",
 ];
 
 /// The generated-Rust goldens cover EVERY emitted file, not just `main.rs`.

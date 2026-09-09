@@ -775,7 +775,7 @@ impl FunctionEmitter<'_> {
         };
         let undefined_text = absent.text();
         format!(
-            "match {scrutinee_text} {{ {params_arm} {byte_view_arm} SmeltUnknown::Null => \"{null_text}\".to_owned(), SmeltUnknown::Undefined => \"{undefined_text}\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_regexp\") => smelt_regexp_literal(&value), {error_arm}SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}"
+            "match {scrutinee_text} {{ {params_arm} {byte_view_arm} SmeltUnknown::Null => \"{null_text}\".to_owned(), SmeltUnknown::Undefined => \"{undefined_text}\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_regexp\") => smelt_regexp_literal(&value), {error_arm}SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}"
         )
     }
 
@@ -795,9 +795,23 @@ impl FunctionEmitter<'_> {
                 Operand::Move(place) => self.place_text(place),
                 Operand::Const(_) => self.operand_text(operand),
             },
-            Some(Type::Bool | Type::Int | Type::Float) => {
-                Ok(format!("{}.to_string()", self.operand_text(operand)?))
-            }
+            Some(Type::Bool) => Ok(format!("{}.to_string()", self.operand_text(operand)?)),
+            // A NUMBER goes through JavaScript's own rule, which parts company
+            // with Rust's `Display` at both ends of the range (`1e+21`, `1e-7`).
+            // `Int` is included because a source `number` that Smelt typed as
+            // an integer is still a JavaScript number: `String(x)` must not
+            // depend on which of the two Smelt inferred, and a JS number is an
+            // `f64` in any case.
+            Some(Type::Int) => Ok(format!(
+                "{fn_name}({text} as f64)",
+                fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+                text = self.operand_text(operand)?,
+            )),
+            Some(Type::Float) => Ok(format!(
+                "{fn_name}({text})",
+                fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+                text = self.operand_text(operand)?,
+            )),
             Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
                 let text = self
                     .erase_concrete_union_text(&self.operand_text(operand)?, self.operand_ty(operand)?);
@@ -873,7 +887,7 @@ impl FunctionEmitter<'_> {
                 let absent_text = self.absent_spelling().text();
                 let null_text = self.absent_spelling().null_text();
                 Ok(format!(
-                    "{text}.map_or_else(|| \"{absent_text}\".to_owned(), |value| match {scrutinee} {{ SmeltUnknown::Null => \"{null_text}\".to_owned(), SmeltUnknown::Undefined => \"{absent_text}\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), {error_arm}SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }})"
+                    "{text}.map_or_else(|| \"{absent_text}\".to_owned(), |value| match {scrutinee} {{ SmeltUnknown::Null => \"{null_text}\".to_owned(), SmeltUnknown::Undefined => \"{absent_text}\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), {error_arm}SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }})"
                 ))
             }
             // An optional PRIMITIVE stringifies its value or the absent word.
@@ -1124,7 +1138,7 @@ impl FunctionEmitter<'_> {
             let separator_unknown = self
                 .erase_concrete_union_text(&self.operand_text(separator)?, self.operand_ty(separator)?);
             format!(
-                "{{ let smelt_haystack = {haystack_text}; match {separator_unknown} {{ SmeltUnknown::Object(smelt_object) if smelt_object.contains_key(\"source\") => SmeltRegExp::new(match smelt_object.get(\"source\").cloned() {{ Some(SmeltUnknown::String(source)) => source.to_string(), _ => String::new() }}, match smelt_object.get(\"flags\").cloned() {{ Some(SmeltUnknown::String(flags)) => flags.to_string(), _ => String::new() }}).split_string(&smelt_haystack), smelt_separator_unknown => {{ let smelt_separator = match smelt_separator_unknown {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}; if smelt_separator.is_empty() {{ if smelt_haystack.is_empty() {{ Vec::new() }} else {{ smelt_haystack.chars().map(|ch| ch.to_string()).collect::<Vec<_>>() }} }} else {{ smelt_haystack.split(&smelt_separator).map(str::to_owned).collect::<Vec<_>>() }} }} }} }}"
+                "{{ let smelt_haystack = {haystack_text}; match {separator_unknown} {{ SmeltUnknown::Object(smelt_object) if smelt_object.contains_key(\"source\") => SmeltRegExp::new(match smelt_object.get(\"source\").cloned() {{ Some(SmeltUnknown::String(source)) => source.to_string(), _ => String::new() }}, match smelt_object.get(\"flags\").cloned() {{ Some(SmeltUnknown::String(flags)) => flags.to_string(), _ => String::new() }}).split_string(&smelt_haystack), smelt_separator_unknown => {{ let smelt_separator = match smelt_separator_unknown {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}; if smelt_separator.is_empty() {{ if smelt_haystack.is_empty() {{ Vec::new() }} else {{ smelt_haystack.chars().map(|ch| ch.to_string()).collect::<Vec<_>>() }} }} else {{ smelt_haystack.split(&smelt_separator).map(str::to_owned).collect::<Vec<_>>() }} }} }} }}"
             )
         } else {
             let separator_text = self.string_like_operand_text(separator, "string split")?;
@@ -1225,14 +1239,32 @@ impl FunctionEmitter<'_> {
             return Ok(format!("{items_text}.join(&{separator_text})"));
         }
         let item_text = match self.mir.types.get(*item_ty) {
-            Some(Type::Bool | Type::Int | Type::Float) => "item.to_string()".to_owned(),
+            Some(Type::Bool) => "item.to_string()".to_owned(),
+            // `[1e21].join(",")` stringifies each item the way `String(item)`
+            // does, so the numeric arms take the same helper.
+            Some(Type::Int) => format!(
+                "{fn_name}(*item as f64)",
+                fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+            ),
+            Some(Type::Float) => format!(
+                "{fn_name}(*item)",
+                fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+            ),
             Some(Type::Unknown) => {
-                "match item { SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }".to_owned()
+                "match item { SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }".to_owned()
             }
             Some(Type::Optional(inner)) => match self.mir.types.get(*inner) {
-                Some(Type::Bool | Type::Int | Type::Float) => {
+                Some(Type::Bool) => {
                     "item.as_ref().map_or_else(String::new, |value| value.to_string())".to_owned()
                 }
+                Some(Type::Int) => format!(
+                    "item.as_ref().map_or_else(String::new, |value| {fn_name}(*value as f64))",
+                    fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+                ),
+                Some(Type::Float) => format!(
+                    "item.as_ref().map_or_else(String::new, |value| {fn_name}(*value))",
+                    fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+                ),
                 Some(Type::String) => {
                     "item.as_ref().map_or_else(String::new, Clone::clone)".to_owned()
                 }

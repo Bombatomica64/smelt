@@ -411,9 +411,19 @@ impl FunctionEmitter<'_> {
             (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::Bool) => Ok(format!(
                 "if {operand_text} {{ \"True\".to_owned() }} else {{ \"False\".to_owned() }}"
             )),
-            (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::Int | Type::Float) => {
-                Ok(format!("{operand_text}.to_string()"))
-            }
+            // `String(x)` and `x.toString()` on a NUMBER follow JavaScript's
+            // own rule, which parts company with Rust's `Display` at both ends
+            // of the range (`1e+21`, `1e-7`). An `Int` is still a JavaScript
+            // number, and a JS number is an `f64`, so both widths go through
+            // the one helper rather than depending on which Smelt inferred.
+            (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::Int) => Ok(format!(
+                "{fn_name}({operand_text} as f64)",
+                fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+            )),
+            (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::Float) => Ok(format!(
+                "{fn_name}({operand_text})",
+                fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+            )),
             // `String(x)` on an absent optional is the language's absent WORD,
             // not the empty string. `unwrap_or_default()` answered `""`, so
             // `String(undefined)` printed nothing where Node prints
@@ -424,8 +434,22 @@ impl FunctionEmitter<'_> {
                     Some(Type::Bool | Type::Int | Type::Float | Type::String)
                 ) =>
             {
+                // The PRESENT arm stringifies the inner value the way that type
+                // stringifies on its own, so a `number | undefined` holding
+                // `1e21` prints what `String(1e21)` does.
+                let present = match self.mir.types.get(*inner) {
+                    Some(Type::Int) => format!(
+                        "{fn_name}(value as f64)",
+                        fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+                    ),
+                    Some(Type::Float) => format!(
+                        "{fn_name}(value)",
+                        fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+                    ),
+                    _ => "value.to_string()".to_owned(),
+                };
                 Ok(format!(
-                    "{operand_text}.map_or_else(|| {:?}.to_owned(), |value| value.to_string())",
+                    "{operand_text}.map_or_else(|| {:?}.to_owned(), |value| {present})",
                     self.absent_spelling().text(),
                 ))
             }

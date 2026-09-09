@@ -440,3 +440,27 @@ which is also what `${}`, `String(x)`, `JSON.stringify` and array joins reach.
 Cheap to write and mechanical to verify against Node; it moves every golden
 that carries the helper, which is why it wants its own commit rather than a
 rider.
+
+**FIXED in round 28** (`crates/smelt-codegen-rust/src/number_format_prelude.rs`,
+fixture `83_number_to_string`). One value is left, and it is narrower than the
+original finding:
+
+| source | Node | Smelt |
+| --- | --- | --- |
+| `console.log(-0)` | `-0` | `-0` |
+| `String(-0)`, `` `${-0}` `` | `0` | `0` |
+| `console.log(x)` where `x: unknown` holds `-0` | `-0` | `0` |
+
+`console.log` is `util.inspect`, not a coercion, and it is the only path that
+shows the sign of zero; the concrete number argument takes a console-flavoured
+formatter that keeps it. An operand whose static type is `Unknown` cannot:
+such an operand does not always emit a `SmeltUnknown` expression — a
+typed-array element read is an `f64` — so a formatter taking the carrier by
+reference cannot be selected on the static type alone, and applying it blindly
+is an E0308 in the corpus (measured, not guessed).
+
+Closing it wants a `SmeltConsoleFormat` trait with one impl per reachable Rust
+type, so the impl is chosen by the expression's real type rather than by the
+emitter's reading of it. That is a small, self-contained piece of work; it is
+recorded rather than done because the emitted text of every console argument
+changes with it.

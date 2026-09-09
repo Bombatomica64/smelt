@@ -6,6 +6,43 @@ mod __smelt_module_source_main;
 pub(crate) use __smelt_module_source_main::*;
 
 
+/// `Number::toString(value, 10)`: JavaScript's number formatting.
+///
+/// Exponential notation at `n > 21` and `n <= -6`, where `n` is the
+/// decimal exponent of the shortest round-trip digit string — which is
+/// what Rust's `{:e}` already produces.
+fn smelt_number_to_string<N: ::std::borrow::Borrow<f64>>(value: N) -> String {
+    let value = *value.borrow();
+    if value.is_nan() { return "NaN".to_owned(); }
+    if value == 0.0 { return "0".to_owned(); }
+    if value < 0.0 { return format!("-{}", smelt_number_to_string(-value)); }
+    if value.is_infinite() { return "Infinity".to_owned(); }
+    let exponential = format!("{value:e}");
+    let (mantissa, exponent) = exponential.split_once('e').unwrap_or((exponential.as_str(), "0"));
+    let digits: String = mantissa.chars().filter(char::is_ascii_digit).collect();
+    let k = i32::try_from(digits.len()).unwrap_or(i32::MAX);
+    let n = exponent.parse::<i32>().unwrap_or(0) + 1;
+    if k <= n && n <= 21 {
+        let zeros = usize::try_from(n - k).unwrap_or(0);
+        return digits + &"0".repeat(zeros);
+    }
+    if 0 < n && n <= 21 {
+        let split = usize::try_from(n).unwrap_or(0);
+        return format!("{}.{}", &digits[..split], &digits[split..]);
+    }
+    if -6 < n && n <= 0 {
+        let zeros = usize::try_from(-n).unwrap_or(0);
+        return format!("0.{}{}", "0".repeat(zeros), digits);
+    }
+    let sign = if n - 1 < 0 { '-' } else { '+' };
+    let magnitude = (n - 1).abs();
+    if k == 1 { return format!("{digits}e{sign}{magnitude}"); }
+    format!("{}.{}e{sign}{magnitude}", &digits[..1], &digits[1..])
+}
+
+/// `console.log`'s number formatting: the spec's rule, but `-0` prints `-0`.
+fn smelt_console_number<N: ::std::borrow::Borrow<f64>>(value: N) -> String { let value = *value.borrow(); if value == 0.0 && value.is_sign_negative() { return "-0".to_owned(); } smelt_number_to_string(value) }
+
 thread_local! {
     static SMELT_NEXT_OBJECT_ID: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
 }
@@ -146,7 +183,7 @@ fn main() {
     let _smelt_tmp_30: String = record(__smelt_spread_4.0.clone(), __smelt_spread_4.1.clone(), __smelt_spread_4.2);
     let _ = { println!("{}", _smelt_tmp_30); };
     _smelt_tmp_32 = SMELT_GLOBAL_EVALUATIONS_0.with(::std::cell::Cell::get);
-    _smelt_tmp_33 = "evaluations: ".to_owned() + &_smelt_tmp_32.to_string();
+    _smelt_tmp_33 = "evaluations: ".to_owned() + &smelt_number_to_string(_smelt_tmp_32);
     let _ = { println!("{}", _smelt_tmp_33); };
     _smelt_tmp_35 = ("PATCH".to_owned(), "/maybe".to_owned(), 4.0);
     _smelt_tmp_36 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, String, f64)> = vec![_smelt_tmp_35.clone()]; smelt_list_items }));
@@ -181,7 +218,7 @@ pub(crate) fn record(method: String, path: String, weight: f64) -> String {
     let _smelt_tmp_3: String = method.clone() + &" ".to_owned();
     let _smelt_tmp_4: String = _smelt_tmp_3 + &path.clone();
     let _smelt_tmp_5: String = _smelt_tmp_4 + &" @".to_owned();
-    let _smelt_tmp_6: String = _smelt_tmp_5 + &weight.to_string();
+    let _smelt_tmp_6: String = _smelt_tmp_5 + &smelt_number_to_string(weight);
     return _smelt_tmp_6;
 }
 
