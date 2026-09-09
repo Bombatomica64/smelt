@@ -2742,18 +2742,51 @@ impl FunctionEmitter<'_> {
             // wrapper. `{:?}` on an `Option` put `Some("ada")` / `None` into
             // program output, which is a shape no JavaScript runtime prints.
             Ok(("{}", self.console_optional_text(operand, absent)?))
-        } else if matches!(
-            self.mir.types.get(ty),
-            Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::Unknown)
-        ) {
-            // These render through their own `Display` impl (`SmeltUnknown`
-            // implements `Display` via the JS `String()` coercion).
+        } else if matches!(self.mir.types.get(ty), Some(Type::Int | Type::Float)) {
+            // A NUMBER goes through the console's own formatter, not Rust's
+            // `Display`: JavaScript switches to exponential notation at both
+            // ends of the range (`1e+21`, `1e-7`), prints `Infinity` where Rust
+            // prints `inf`, and — this being `util.inspect` rather than
+            // `String()` — shows a negative zero as `-0`.
+            let width = if matches!(self.mir.types.get(ty), Some(Type::Int)) {
+                " as f64"
+            } else {
+                ""
+            };
+            Ok((
+                "{}",
+                format!(
+                    "{fn_name}({}{width})",
+                    self.operand_text(operand)?,
+                    fn_name = crate::number_format_prelude::CONSOLE_NUMBER_FN,
+                ),
+            ))
+        } else if matches!(self.mir.types.get(ty), Some(Type::Bool | Type::String | Type::Unknown)) {
+            // These render through their own `Display` impl, which matches
+            // JavaScript: a bool and a string print as themselves, and
+            // `Display for SmeltUnknown` routes its number tag through the
+            // spec's rule.
+            //
+            // An erased value takes the SPEC's rule rather than the console's,
+            // which differs for exactly one value: `console.log(-0)` prints
+            // `-0` in Node and this prints `0`. Distinguishing them here is not
+            // possible — an operand typed `Unknown` does not always emit a
+            // `SmeltUnknown` expression (a typed-array element read is an
+            // `f64`), so the console formatter cannot be applied on the static
+            // type alone. A `SmeltConsoleFormat` trait with one impl per
+            // reachable Rust type would close it; see
+            // `blocker-logs/hono-fetch-demand.md`.
             Ok(("{}", self.operand_text(operand)?))
         } else {
             // A class instance, generic type parameter, union, function, or set
             // has no Rust `Display` impl, so `{}` would fail to compile (E0277).
             // Erase to the runtime `SmeltUnknown` form, which does implement
-            // `Display`, matching how the same values stringify everywhere else.
+            // `Display`, matching how the same values stringify everywhere
+            // else. NOT wrapped in the console formatter: `erase_value_text`
+            // is the identity for a type that is already erased at runtime, so
+            // the text here is not always a `SmeltUnknown` (a typed-array
+            // element read is an `f64`), and none of the shapes that reach this
+            // arm is a number needing the `-0` spelling.
             Ok(("{}", self.erase_value_text(&self.operand_text(operand)?, ty)?))
         }
     }

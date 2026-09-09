@@ -6,6 +6,43 @@ mod __smelt_module_source_main;
 pub(crate) use __smelt_module_source_main::*;
 
 
+/// `Number::toString(value, 10)`: JavaScript's number formatting.
+///
+/// Exponential notation at `n > 21` and `n <= -6`, where `n` is the
+/// decimal exponent of the shortest round-trip digit string — which is
+/// what Rust's `{:e}` already produces.
+fn smelt_number_to_string<N: ::std::borrow::Borrow<f64>>(value: N) -> String {
+    let value = *value.borrow();
+    if value.is_nan() { return "NaN".to_owned(); }
+    if value == 0.0 { return "0".to_owned(); }
+    if value < 0.0 { return format!("-{}", smelt_number_to_string(-value)); }
+    if value.is_infinite() { return "Infinity".to_owned(); }
+    let exponential = format!("{value:e}");
+    let (mantissa, exponent) = exponential.split_once('e').unwrap_or((exponential.as_str(), "0"));
+    let digits: String = mantissa.chars().filter(char::is_ascii_digit).collect();
+    let k = i32::try_from(digits.len()).unwrap_or(i32::MAX);
+    let n = exponent.parse::<i32>().unwrap_or(0) + 1;
+    if k <= n && n <= 21 {
+        let zeros = usize::try_from(n - k).unwrap_or(0);
+        return digits + &"0".repeat(zeros);
+    }
+    if 0 < n && n <= 21 {
+        let split = usize::try_from(n).unwrap_or(0);
+        return format!("{}.{}", &digits[..split], &digits[split..]);
+    }
+    if -6 < n && n <= 0 {
+        let zeros = usize::try_from(-n).unwrap_or(0);
+        return format!("0.{}{}", "0".repeat(zeros), digits);
+    }
+    let sign = if n - 1 < 0 { '-' } else { '+' };
+    let magnitude = (n - 1).abs();
+    if k == 1 { return format!("{digits}e{sign}{magnitude}"); }
+    format!("{}.{}e{sign}{magnitude}", &digits[..1], &digits[1..])
+}
+
+/// `console.log`'s number formatting: the spec's rule, but `-0` prints `-0`.
+fn smelt_console_number<N: ::std::borrow::Borrow<f64>>(value: N) -> String { let value = *value.borrow(); if value == 0.0 && value.is_sign_negative() { return "-0".to_owned(); } smelt_number_to_string(value) }
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -1688,7 +1725,7 @@ fn smelt_folded_symbol_key_spelling(key: &str) -> Option<String> { if let Some(e
 /// The symbol value a program-written symbol key denotes.
 fn smelt_own_symbol_key_value(key: &str) -> Option<SmeltUnknown> { if let Some(description) = key.strip_prefix("__smelt_symbol:") { return Some(SmeltUnknown::Symbol(description.into())); } smelt_folded_symbol_key_spelling(key).map(|spelling| SmeltUnknown::Symbol(spelling.into())) }
 
-fn smelt_property_key(value: SmeltUnknown) -> String { match value { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => smelt_symbol_property_key(&value), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Array(values) => values.into_vec().into_iter().map(smelt_property_key).collect::<Vec<_>>().join(","), SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() } }
+fn smelt_property_key(value: SmeltUnknown) -> String { match value { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => smelt_symbol_property_key(&value), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Array(values) => values.into_vec().into_iter().map(smelt_property_key).collect::<Vec<_>>().join(","), SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() } }
 
 /// Whether an erased Map entry (a `[key, value]` pair) is keyed by `key`.
 fn smelt_map_entry_key_is(entry: &SmeltUnknown, key: &SmeltUnknown) -> bool {
@@ -2063,7 +2100,7 @@ impl ::std::fmt::Display for SmeltUnknown {
             Self::Null => formatter.write_str("null"),
             Self::Undefined => formatter.write_str("undefined"),
             Self::Bool(value) => write!(formatter, "{value}"),
-            Self::Number(value) => write!(formatter, "{value}"),
+            Self::Number(value) => formatter.write_str(&smelt_number_to_string(*value)),
             Self::String(value) => formatter.write_str(value),
             Self::Symbol(value) => formatter.write_str(value),
             Self::Array(_) | Self::Object(_) => formatter.write_str("[object Object]"),
@@ -2289,7 +2326,7 @@ impl SmeltFromUnknown for i64 {
 
 impl SmeltFromUnknown for String {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        match value { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }
+        match value { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }
     }
 }
 
@@ -2387,13 +2424,13 @@ impl<A: IntoSmeltUnknown, B: IntoSmeltUnknown> IntoSmeltUnknown for (A, B) {
 
 impl<K, T> IntoSmeltUnknown for ::std::collections::HashMap<K, T> where K: IntoSmeltUnknown + Eq + ::std::hash::Hash, T: IntoSmeltUnknown {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(self.into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => smelt_symbol_property_key(&value), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))
+        SmeltUnknown::Object(SmeltObject::new(self.into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => smelt_symbol_property_key(&value), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))
     }
 }
 
 impl<K, T> IntoSmeltUnknown for SmeltRecord<K, T> where K: IntoSmeltUnknown + Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, T: IntoSmeltUnknown + Clone {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::with_id(self.id, self.iter().into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => smelt_symbol_property_key(&value), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))
+        SmeltUnknown::Object(SmeltObject::with_id(self.id, self.iter().into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => smelt_symbol_property_key(&value), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))
     }
 }
 
@@ -2828,7 +2865,7 @@ fn main() {
     let _smelt_tmp_2: f64 = closure_arg_0 + closure_arg_1;
     _smelt_tmp_2
     }); (smelt_callback)(acc, item, ((index as f64).trunc() as i64), array) } });
-    let _ = { println!("{}", _smelt_tmp_30); };
+    let _ = { println!("{}", smelt_console_number(_smelt_tmp_30)); };
     _smelt_tmp_32 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["a".to_owned(), "b".to_owned()]; smelt_list_items }));
     _smelt_tmp_33 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: i64, closure_arg_2: &SmeltList<String>| {
     let _smelt_tmp_3: String = closure_arg_0.clone() + &"-".to_owned();
@@ -2856,6 +2893,159 @@ fn main() {
     let _smelt_tmp_2: f64 = closure_arg_0 + closure_arg_1;
     _smelt_tmp_2
     }); (smelt_callback)(acc, item, ((index as f64).trunc() as i64), array) } });
-    let _ = { println!("{}", _smelt_tmp_42); };
+    let _ = { println!("{}", smelt_console_number(_smelt_tmp_42)); };
     return;
+}
+
+// ==== source_main.rs
+// @generated by smelt. Do not edit by hand.
+// source: <example>/src/main.ts
+#![allow(dead_code, non_snake_case, unused_imports, unused_variables)]
+
+use super::*;
+
+pub(crate) fn joined(keys: SmeltList<String>) -> SmeltList<String> {
+    let _smelt_tmp_1 = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
+    let mut ch: String;
+    let mut _smelt_tmp_4: f64;
+    let mut _smelt_tmp_5: bool;
+    let mut _smelt_tmp_6: String;
+    let mut out: String = "".to_owned();
+    let mut _smelt_tmp_3: f64 = 0.0;
+    loop {
+    _smelt_tmp_4 = closure_arg_0.chars().count() as f64;
+    _smelt_tmp_5 = _smelt_tmp_3 < _smelt_tmp_4;
+    if _smelt_tmp_5 {
+    ch = closure_arg_0.chars().nth({ let normalized = _smelt_tmp_3 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).expect("index out of bounds");
+    _smelt_tmp_6 = out.clone() + &ch.clone();
+    out = _smelt_tmp_6.clone();
+    _smelt_tmp_3 = _smelt_tmp_3 + 1.0;
+    } else {
+    return out.clone();
+    }
+    }
+    });
+    let _smelt_tmp_2: SmeltList<String> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
+    let mut ch: String;
+    let mut _smelt_tmp_4: f64;
+    let mut _smelt_tmp_5: bool;
+    let mut _smelt_tmp_6: String;
+    let mut out: String = "".to_owned();
+    let mut _smelt_tmp_3: f64 = 0.0;
+    loop {
+    _smelt_tmp_4 = closure_arg_0.chars().count() as f64;
+    _smelt_tmp_5 = _smelt_tmp_3 < _smelt_tmp_4;
+    if _smelt_tmp_5 {
+    ch = closure_arg_0.chars().nth({ let normalized = _smelt_tmp_3 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).expect("index out of bounds");
+    _smelt_tmp_6 = out.clone() + &ch.clone();
+    out = _smelt_tmp_6.clone();
+    _smelt_tmp_3 = _smelt_tmp_3 + 1.0;
+    } else {
+    return out.clone();
+    }
+    }
+    }); let smelt_array = keys.clone(); smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>() });
+    return _smelt_tmp_2;
+}
+
+pub(crate) fn shouted(keys: SmeltList<String>) -> SmeltList<String> {
+    let _smelt_tmp_1 = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
+    let mut out: String = closure_arg_0.clone();
+    let _smelt_tmp_2: String = out.clone() + &"!".to_owned();
+    out = _smelt_tmp_2.clone();
+    out.clone()
+    });
+    let _smelt_tmp_2: SmeltList<String> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
+    let mut out: String = closure_arg_0.clone();
+    let _smelt_tmp_2: String = out.clone() + &"!".to_owned();
+    out = _smelt_tmp_2.clone();
+    out.clone()
+    }); let smelt_array = keys.clone(); smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>() });
+    return _smelt_tmp_2;
+}
+
+pub(crate) fn upper(keys: SmeltList<String>) -> SmeltList<String> {
+    let _smelt_tmp_1 = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
+    let _smelt_tmp_1: String;
+    _smelt_tmp_1 = closure_arg_0.clone() + &"?".to_owned();
+    _smelt_tmp_1.clone()
+    });
+    let _smelt_tmp_2: SmeltList<String> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
+    let _smelt_tmp_1: String;
+    _smelt_tmp_1 = closure_arg_0.clone() + &"?".to_owned();
+    _smelt_tmp_1.clone()
+    }); let smelt_array = keys.clone(); smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>() });
+    return _smelt_tmp_2;
+}
+
+pub(crate) fn classified(keys: SmeltList<String>) -> SmeltList<String> {
+    let _smelt_tmp_1 = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
+    match closure_arg_0.as_str() {
+        "a" => {
+    SmeltUnknown::String("A".into())
+        }
+        _ => {
+    SmeltUnknown::String((closure_arg_0.clone()).into())
+        }
+    }
+    });
+    let _smelt_tmp_2: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
+    match closure_arg_0.as_str() {
+        "a" => {
+    SmeltUnknown::String("A".into())
+        }
+        _ => {
+    SmeltUnknown::String((closure_arg_0.clone()).into())
+        }
+    }
+    }); let smelt_array = keys.clone(); smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>() });
+    return { let smelt_l: SmeltList<_> = _smelt_tmp_2.clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }).collect::<Vec<_>>()) };
+}
+
+pub(crate) fn widths(keys: SmeltList<String>) -> SmeltList<f64> {
+    let _smelt_tmp_1 = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
+    let mut ch: String;
+    let mut _smelt_tmp_4: f64;
+    let mut _smelt_tmp_5: bool;
+    let mut _smelt_tmp_6: f64;
+    let mut _smelt_tmp_7: f64;
+    let mut total: f64 = 0.0;
+    let mut _smelt_tmp_3: f64 = 0.0;
+    loop {
+    _smelt_tmp_4 = closure_arg_0.chars().count() as f64;
+    _smelt_tmp_5 = _smelt_tmp_3 < _smelt_tmp_4;
+    if _smelt_tmp_5 {
+    ch = closure_arg_0.chars().nth({ let normalized = _smelt_tmp_3 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).expect("index out of bounds");
+    _smelt_tmp_6 = ch.chars().count() as f64;
+    _smelt_tmp_7 = total + _smelt_tmp_6;
+    total = _smelt_tmp_7;
+    _smelt_tmp_3 = _smelt_tmp_3 + 1.0;
+    } else {
+    return total;
+    }
+    }
+    });
+    let _smelt_tmp_2: SmeltList<f64> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, _arg0: i64, _arg1: &SmeltList<String>| {
+    let mut ch: String;
+    let mut _smelt_tmp_4: f64;
+    let mut _smelt_tmp_5: bool;
+    let mut _smelt_tmp_6: f64;
+    let mut _smelt_tmp_7: f64;
+    let mut total: f64 = 0.0;
+    let mut _smelt_tmp_3: f64 = 0.0;
+    loop {
+    _smelt_tmp_4 = closure_arg_0.chars().count() as f64;
+    _smelt_tmp_5 = _smelt_tmp_3 < _smelt_tmp_4;
+    if _smelt_tmp_5 {
+    ch = closure_arg_0.chars().nth({ let normalized = _smelt_tmp_3 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).expect("index out of bounds");
+    _smelt_tmp_6 = ch.chars().count() as f64;
+    _smelt_tmp_7 = total + _smelt_tmp_6;
+    total = _smelt_tmp_7;
+    _smelt_tmp_3 = _smelt_tmp_3 + 1.0;
+    } else {
+    return total;
+    }
+    }
+    }); let smelt_array = keys.clone(); smelt_array.borrow().iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, &smelt_array) }).collect::<Vec<_>>() });
+    return _smelt_tmp_2;
 }

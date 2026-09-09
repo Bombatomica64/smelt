@@ -42,7 +42,11 @@ impl FunctionEmitter<'_> {
                 let key_text = self.operand_text(key)?;
                 let key_value = match self.mir.types.get(self.operand_ty(key)?) {
                     Some(Type::String) => key_text,
-                    Some(Type::Int | Type::Float | Type::Bool) => format!("{key_text}.to_string()"),
+                    Some(Type::Bool) => format!("{key_text}.to_string()"),
+                    // The same number rule as every other property key.
+                    Some(Type::Int | Type::Float) => {
+                        self.property_key_to_string_text(&key_text, self.operand_ty(key)?)?
+                    }
                     Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => {
                         self.property_key_to_string_text(&key_text, self.operand_ty(key)?)?
                     }
@@ -747,7 +751,7 @@ impl FunctionEmitter<'_> {
         ) {
             return match op {
                 smelt_hir::DictProjectionOp::FromEntries => Ok(format!(
-                    "match {dict_text} {{ SmeltUnknown::Array(entries) => entries.into_iter().filter_map(|entry| match entry {{ SmeltUnknown::Array(values) if values.len() >= 2 => {{ let mut values = values.into_iter(); let key = match values.next()? {{ SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), _ => return None }}; Some((key, values.next()?)) }}, _ => None }}).collect::<SmeltRecord<String, SmeltUnknown>>(), _ => SmeltRecord::new() }}"
+                    "match {dict_text} {{ SmeltUnknown::Array(entries) => entries.into_iter().filter_map(|entry| match entry {{ SmeltUnknown::Array(values) if values.len() >= 2 => {{ let mut values = values.into_iter(); let key = match values.next()? {{ SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), _ => return None }}; Some((key, values.next()?)) }}, _ => None }}).collect::<SmeltRecord<String, SmeltUnknown>>(), _ => SmeltRecord::new() }}"
                 )),
                 // A byte-backed host record's own enumerable properties are its
                 // *element indices*: `Object.keys(new Uint8Array(1))` is `['0']`,

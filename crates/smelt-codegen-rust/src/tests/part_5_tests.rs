@@ -810,7 +810,9 @@ const numberJoined = numbers.join("-");
 
     assert!(source.contains(".join(&\"-\".to_owned());"));
     assert!(source.contains(".join(&\",\".to_owned());"));
-    assert!(source.contains(".iter().map(|item| { item.to_string() })"));
+    // A numeric item stringifies the way `String(item)` does, which is
+    // JavaScript's rule and not Rust's `Display`.
+    assert!(source.contains(".iter().map(|item| { smelt_number_to_string(*item) })"));
 }
 
 #[test]

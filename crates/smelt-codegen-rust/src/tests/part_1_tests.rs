@@ -41,7 +41,9 @@ fn emits_main_with_console_log() {
 
     assert!(source.contains("fn main() {"));
     assert!(source.contains("let count: f64 = 42.0;"));
-    assert!(source.contains("let _ = { println!(\"{}\", count); };"));
+    // A number prints through the console's own formatter, which is
+    // JavaScript's `Number::toString` plus `util.inspect`'s `-0`.
+    assert!(source.contains("let _ = { println!(\"{}\", smelt_console_number(count)); };"));
 }
 
 #[test]
@@ -862,7 +864,7 @@ const text = whole.toString();
 
     assert!(source.contains("value / 1000.0;"));
     assert!(source.contains("_smelt_tmp_3.trunc();"));
-    assert!(source.contains("whole.to_string();"));
+    assert!(source.contains("smelt_number_to_string(whole);"));
     assert!(!source.contains("= 0_i64;"));
     assert!(!source.contains("= 0.0;"));
 }
@@ -1284,7 +1286,7 @@ const asBool = Boolean("");
 "#,
     );
 
-    assert!(source.contains(".to_string()"));
+    assert!(source.contains("smelt_number_to_string(value)"));
     assert!(source.contains("smelt_text.is_empty() { 0.0 }"));
     assert!(source.contains(".parse::<f64>().unwrap_or(f64::NAN)"));
     assert!(!source.contains("float() parse failed"));

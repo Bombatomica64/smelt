@@ -2027,7 +2027,7 @@ export const localize: Localize = {
     );
 
     assert!(
-        source.contains("number.to_string() + &match suffix"),
+        source.contains("smelt_number_to_string(number) + &match suffix"),
         "{source}"
     );
     assert!(
@@ -3064,7 +3064,7 @@ function keyed(key: unknown): unknown {
         "{source}"
     );
     assert!(
-        source.contains("SmeltUnknown::Number(value) => value.to_string()"),
+        source.contains("SmeltUnknown::Number(value) => smelt_number_to_string(value)"),
         "{source}"
     );
 }
@@ -8143,7 +8143,7 @@ function sortMixed(values: Array<string | number>): Array<string | number> {
         "union default sort should compare erased string coercions\n{source}"
     );
     assert!(
-        source.contains("SmeltUnknown::Number(value) => value.to_string()"),
+        source.contains("SmeltUnknown::Number(value) => smelt_number_to_string(value)"),
         "the coercion match should stringify numeric elements\n{source}"
     );
 }

@@ -3314,7 +3314,19 @@ impl<'mir> FunctionEmitter<'mir> {
         let owned_value_text = cloned_value_text(value_text);
         match self.mir.types.get(source_key) {
             Some(Type::String) => Ok(owned_value_text),
-            Some(Type::Bool | Type::Int | Type::Float) => Ok(format!("{value_text}.to_string()")),
+            Some(Type::Bool) => Ok(format!("{value_text}.to_string()")),
+            // A property KEY is a stringified number, and JavaScript's rule is
+            // the one that applies: `({ [1e21]: 1 })` has the key `"1e+21"`,
+            // not twenty-two digits. `smelt_property_key` already takes it for
+            // an erased key, so the two spellings agree.
+            Some(Type::Int) => Ok(format!(
+                "{fn_name}({value_text} as f64)",
+                fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+            )),
+            Some(Type::Float) => Ok(format!(
+                "{fn_name}({value_text})",
+                fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+            )),
             Some(Type::Optional(inner)) => {
                 let inner_text = self.property_key_to_string_text("value", *inner)?;
                 Ok(format!(

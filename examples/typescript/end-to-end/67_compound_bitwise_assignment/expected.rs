@@ -6,6 +6,43 @@ mod __smelt_module_source_main;
 pub(crate) use __smelt_module_source_main::*;
 
 
+/// `Number::toString(value, 10)`: JavaScript's number formatting.
+///
+/// Exponential notation at `n > 21` and `n <= -6`, where `n` is the
+/// decimal exponent of the shortest round-trip digit string — which is
+/// what Rust's `{:e}` already produces.
+fn smelt_number_to_string<N: ::std::borrow::Borrow<f64>>(value: N) -> String {
+    let value = *value.borrow();
+    if value.is_nan() { return "NaN".to_owned(); }
+    if value == 0.0 { return "0".to_owned(); }
+    if value < 0.0 { return format!("-{}", smelt_number_to_string(-value)); }
+    if value.is_infinite() { return "Infinity".to_owned(); }
+    let exponential = format!("{value:e}");
+    let (mantissa, exponent) = exponential.split_once('e').unwrap_or((exponential.as_str(), "0"));
+    let digits: String = mantissa.chars().filter(char::is_ascii_digit).collect();
+    let k = i32::try_from(digits.len()).unwrap_or(i32::MAX);
+    let n = exponent.parse::<i32>().unwrap_or(0) + 1;
+    if k <= n && n <= 21 {
+        let zeros = usize::try_from(n - k).unwrap_or(0);
+        return digits + &"0".repeat(zeros);
+    }
+    if 0 < n && n <= 21 {
+        let split = usize::try_from(n).unwrap_or(0);
+        return format!("{}.{}", &digits[..split], &digits[split..]);
+    }
+    if -6 < n && n <= 0 {
+        let zeros = usize::try_from(-n).unwrap_or(0);
+        return format!("0.{}{}", "0".repeat(zeros), digits);
+    }
+    let sign = if n - 1 < 0 { '-' } else { '+' };
+    let magnitude = (n - 1).abs();
+    if k == 1 { return format!("{digits}e{sign}{magnitude}"); }
+    format!("{}.{}e{sign}{magnitude}", &digits[..1], &digits[1..])
+}
+
+/// `console.log`'s number formatting: the spec's rule, but `-0` prints `-0`.
+fn smelt_console_number<N: ::std::borrow::Borrow<f64>>(value: N) -> String { let value = *value.borrow(); if value == 0.0 && value.is_sign_negative() { return "-0".to_owned(); } smelt_number_to_string(value) }
+
 thread_local! {
     static SMELT_NEXT_OBJECT_ID: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
 }
@@ -102,33 +139,33 @@ fn main() {
     let mut out: f64 = _smelt_tmp_10;
     let _smelt_tmp_11: f64 = ({ let smelt_bit_lhs = { let smelt_bit_v = (out as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (8.0 as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs | smelt_bit_rhs) as f64 });
     out = _smelt_tmp_11;
-    let _ = { println!("{}", out); };
+    let _ = { println!("{}", smelt_console_number(out)); };
     mask = 255.0;
     _smelt_tmp_13 = ({ let smelt_bit_lhs = { let smelt_bit_v = (mask as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (15.0 as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs & smelt_bit_rhs) as f64 });
     mask = _smelt_tmp_13;
-    let _ = { println!("{}", mask); };
+    let _ = { println!("{}", smelt_console_number(mask)); };
     shifted = 1.0;
     _smelt_tmp_15 = (((shifted as f64).trunc() as i128) << (((4.0 as f64).trunc() as u32).min(127))) as f64;
     shifted = _smelt_tmp_15;
-    let _ = { println!("{}", shifted); };
+    let _ = { println!("{}", smelt_console_number(shifted)); };
     _smelt_tmp_17 = -16.0;
     signed = _smelt_tmp_17;
     _smelt_tmp_18 = (((signed as f64).trunc() as i128) >> (((2.0 as f64).trunc() as u32).min(127))) as f64;
     signed = _smelt_tmp_18;
-    let _ = { println!("{}", signed); };
+    let _ = { println!("{}", smelt_console_number(signed)); };
     _smelt_tmp_20 = -16.0;
     unsigned = _smelt_tmp_20;
     _smelt_tmp_21 = { let smelt_shift_value = (unsigned as f64).trunc(); let smelt_shift_value = if smelt_shift_value.is_finite() { smelt_shift_value.rem_euclid(4294967296.0) as u32 } else { 0_u32 }; let smelt_shift_count = (28.0 as f64).trunc(); let smelt_shift_count = if smelt_shift_count.is_finite() { smelt_shift_count.rem_euclid(4294967296.0) as u32 } else { 0_u32 }; (smelt_shift_value >> (smelt_shift_count & 31)) as f64 };
     unsigned = _smelt_tmp_21;
-    let _ = { println!("{}", unsigned); };
+    let _ = { println!("{}", smelt_console_number(unsigned)); };
     rest = 17.0;
     _smelt_tmp_23 = rest % 5.0;
     rest = _smelt_tmp_23;
-    let _ = { println!("{}", rest); };
+    let _ = { println!("{}", smelt_console_number(rest)); };
     flipped = 6.0;
     _smelt_tmp_25 = ({ let smelt_bit_lhs = { let smelt_bit_v = (flipped as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (3.0 as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs ^ smelt_bit_rhs) as f64 });
     flipped = _smelt_tmp_25;
-    let _ = { println!("{}", flipped); };
+    let _ = { println!("{}", smelt_console_number(flipped)); };
     _smelt_tmp_27 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0, 4.0]; smelt_list_items }));
     values = Into::<SmeltList<_>>::into(_smelt_tmp_27);
     hash = 0.0;
@@ -142,7 +179,7 @@ fn main() {
     hash = _smelt_tmp_31;
     _smelt_tmp_28 = _smelt_tmp_28 + 1.0;
     }
-    let _ = { println!("{}", hash); };
+    let _ = { println!("{}", smelt_console_number(hash)); };
     let _smelt_tmp_33: bool = constant_time_equal_string("abc".to_owned(), "abc".to_owned());
     let _ = { println!("{}", _smelt_tmp_33); };
     let _smelt_tmp_35: bool = constant_time_equal_string("abc".to_owned(), "abd".to_owned());
@@ -150,4 +187,93 @@ fn main() {
     let _smelt_tmp_37: bool = constant_time_equal_string("abc".to_owned(), "abcd".to_owned());
     let _ = { println!("{}", _smelt_tmp_37); };
     return;
+}
+
+// ==== source_main.rs
+// @generated by smelt. Do not edit by hand.
+// source: <example>/src/main.ts
+#![allow(dead_code, non_snake_case, unused_imports, unused_variables)]
+
+use super::*;
+
+pub(crate) fn constant_time_equal_string(a: String, b: String) -> bool {
+    let mut a_char: f64;
+    let mut b_char: f64;
+    let mut _smelt_tmp_13: bool;
+    let mut _smelt_tmp_14: bool;
+    let mut _smelt_tmp_15: f64;
+    let mut _smelt_tmp_16: f64;
+    let mut _smelt_tmp_17: bool;
+    let mut _smelt_tmp_18: f64;
+    let mut _smelt_tmp_19: f64;
+    let mut _smelt_tmp_20: f64;
+    let mut _smelt_tmp_21: f64;
+    let mut _smelt_tmp_22: f64;
+    let mut _smelt_tmp_23: bool;
+    let _smelt_tmp_9: f64 = a.chars().count() as f64;
+    let a_len: f64 = _smelt_tmp_9;
+    let _smelt_tmp_10: f64 = b.chars().count() as f64;
+    let b_len: f64 = _smelt_tmp_10;
+    let _smelt_tmp_11: f64 = a_len.max(b_len);
+    let max_len: f64 = _smelt_tmp_11;
+    let _smelt_tmp_12: f64 = ({ let smelt_bit_lhs = { let smelt_bit_v = (a_len as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (b_len as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs ^ smelt_bit_rhs) as f64 });
+    let mut diff: f64 = _smelt_tmp_12;
+    let mut i: f64 = 0.0;
+    loop {
+    _smelt_tmp_13 = i < max_len;
+    if !(_smelt_tmp_13) { break; }
+    _smelt_tmp_14 = i < a_len;
+    if _smelt_tmp_14 {
+    _smelt_tmp_16 = a.clone().chars().nth(i as usize).map_or(f64::NAN, |ch| ch as u32 as f64);
+    _smelt_tmp_15 = _smelt_tmp_16;
+    a_char = _smelt_tmp_15;
+    _smelt_tmp_17 = i < b_len;
+    if _smelt_tmp_17 {
+    _smelt_tmp_19 = b.clone().chars().nth(i as usize).map_or(f64::NAN, |ch| ch as u32 as f64);
+    _smelt_tmp_18 = _smelt_tmp_19;
+    b_char = _smelt_tmp_18;
+    _smelt_tmp_20 = ({ let smelt_bit_lhs = { let smelt_bit_v = (a_char as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (b_char as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs ^ smelt_bit_rhs) as f64 });
+    _smelt_tmp_21 = ({ let smelt_bit_lhs = { let smelt_bit_v = (diff as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (_smelt_tmp_20 as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs | smelt_bit_rhs) as f64 });
+    diff = _smelt_tmp_21;
+    _smelt_tmp_22 = i + 1.0;
+    i = _smelt_tmp_22;
+    continue;
+    } else {
+    _smelt_tmp_18 = 0.0;
+    b_char = _smelt_tmp_18;
+    _smelt_tmp_20 = ({ let smelt_bit_lhs = { let smelt_bit_v = (a_char as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (b_char as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs ^ smelt_bit_rhs) as f64 });
+    _smelt_tmp_21 = ({ let smelt_bit_lhs = { let smelt_bit_v = (diff as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (_smelt_tmp_20 as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs | smelt_bit_rhs) as f64 });
+    diff = _smelt_tmp_21;
+    _smelt_tmp_22 = i + 1.0;
+    i = _smelt_tmp_22;
+    continue;
+    }
+    } else {
+    _smelt_tmp_15 = 0.0;
+    a_char = _smelt_tmp_15;
+    _smelt_tmp_17 = i < b_len;
+    if _smelt_tmp_17 {
+    _smelt_tmp_19 = b.clone().chars().nth(i as usize).map_or(f64::NAN, |ch| ch as u32 as f64);
+    _smelt_tmp_18 = _smelt_tmp_19;
+    b_char = _smelt_tmp_18;
+    _smelt_tmp_20 = ({ let smelt_bit_lhs = { let smelt_bit_v = (a_char as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (b_char as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs ^ smelt_bit_rhs) as f64 });
+    _smelt_tmp_21 = ({ let smelt_bit_lhs = { let smelt_bit_v = (diff as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (_smelt_tmp_20 as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs | smelt_bit_rhs) as f64 });
+    diff = _smelt_tmp_21;
+    _smelt_tmp_22 = i + 1.0;
+    i = _smelt_tmp_22;
+    continue;
+    } else {
+    _smelt_tmp_18 = 0.0;
+    b_char = _smelt_tmp_18;
+    _smelt_tmp_20 = ({ let smelt_bit_lhs = { let smelt_bit_v = (a_char as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (b_char as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs ^ smelt_bit_rhs) as f64 });
+    _smelt_tmp_21 = ({ let smelt_bit_lhs = { let smelt_bit_v = (diff as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (_smelt_tmp_20 as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs | smelt_bit_rhs) as f64 });
+    diff = _smelt_tmp_21;
+    _smelt_tmp_22 = i + 1.0;
+    i = _smelt_tmp_22;
+    continue;
+    }
+    }
+    }
+    _smelt_tmp_23 = diff == 0.0;
+    return _smelt_tmp_23;
 }

@@ -5,8 +5,9 @@ mod common;
 use std::fs;
 
 use common::{
-    TempProject, TestResult, cargo_run_manifest, ensure, ensure_eq, smelt, utf8_path,
-    verify_end_to_end_example, verify_python_end_to_end_example,
+    TempProject, TestResult, cargo_run_manifest, ensure, ensure_eq, example_dir,
+    example_is_selected, smelt, utf8_path, verify_end_to_end_example,
+    verify_python_end_to_end_example,
 };
 
 #[test]
@@ -864,12 +865,60 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "84_same_named_methods_across_classes",
     "85_promise_continuations",
     "86_literal_into_union_arm",
+    "87_number_to_string",
 ];
+
+/// The generated-Rust goldens cover EVERY emitted file, not just `main.rs`.
+///
+/// Before this, a program whose lowering split into modules had its user code
+/// in `source_<entry>.rs` while the golden held `main.rs` — the runtime prelude
+/// and a `mod` declaration — so 34 of the corpus's fixtures golden-checked the
+/// prelude and nothing they were written to exercise. A feature could change
+/// its own emitted Rust with every golden still green.
+///
+/// This asserts the shape that closed it: a multi-file golden exists, its
+/// sections are introduced by the `// ==== <file>` header the harness writes,
+/// and the first section is unheaded — which is what keeps a single-file
+/// program's golden byte-for-byte its `main.rs`.
+#[test]
+fn end_to_end_rust_goldens_cover_every_generated_file() -> TestResult {
+    let mut split = Vec::new();
+    for name in END_TO_END_EXAMPLES {
+        let golden = fs::read_to_string(example_dir(name)?.join("expected.rs"))?;
+        ensure(
+            !golden.starts_with("// ==== "),
+            format!("{name}: the first golden section must be unheaded `main.rs`"),
+        )?;
+        for line in golden.lines().filter(|line| line.starts_with("// ==== ")) {
+            let file = line.trim_start_matches("// ==== ");
+            ensure(
+                std::path::Path::new(file)
+                    .extension()
+                    .is_some_and(|extension| extension == "rs")
+                    && file != "main.rs",
+                format!("{name}: `{line}` does not name a generated module file"),
+            )?;
+            split.push(name);
+        }
+    }
+    ensure(
+        !split.is_empty(),
+        "no golden holds a second generated file: the corpus would not notice \
+         a harness that compared `main.rs` alone again",
+    )?;
+
+    Ok(())
+}
 
 #[test]
 fn end_to_end_examples_match_expected_outputs() -> TestResult {
     for name in END_TO_END_EXAMPLES {
-        verify_end_to_end_example(name)?;
+        // `example_is_selected` is unset in a normal run, so this verifies the
+        // whole corpus; the regeneration script uses it to narrow a rewrite to
+        // the fixtures it was asked for.
+        if example_is_selected(name) {
+            verify_end_to_end_example(name)?;
+        }
     }
 
     Ok(())

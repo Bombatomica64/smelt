@@ -6,6 +6,43 @@ mod __smelt_module_source_main;
 pub(crate) use __smelt_module_source_main::*;
 
 
+/// `Number::toString(value, 10)`: JavaScript's number formatting.
+///
+/// Exponential notation at `n > 21` and `n <= -6`, where `n` is the
+/// decimal exponent of the shortest round-trip digit string — which is
+/// what Rust's `{:e}` already produces.
+fn smelt_number_to_string<N: ::std::borrow::Borrow<f64>>(value: N) -> String {
+    let value = *value.borrow();
+    if value.is_nan() { return "NaN".to_owned(); }
+    if value == 0.0 { return "0".to_owned(); }
+    if value < 0.0 { return format!("-{}", smelt_number_to_string(-value)); }
+    if value.is_infinite() { return "Infinity".to_owned(); }
+    let exponential = format!("{value:e}");
+    let (mantissa, exponent) = exponential.split_once('e').unwrap_or((exponential.as_str(), "0"));
+    let digits: String = mantissa.chars().filter(char::is_ascii_digit).collect();
+    let k = i32::try_from(digits.len()).unwrap_or(i32::MAX);
+    let n = exponent.parse::<i32>().unwrap_or(0) + 1;
+    if k <= n && n <= 21 {
+        let zeros = usize::try_from(n - k).unwrap_or(0);
+        return digits + &"0".repeat(zeros);
+    }
+    if 0 < n && n <= 21 {
+        let split = usize::try_from(n).unwrap_or(0);
+        return format!("{}.{}", &digits[..split], &digits[split..]);
+    }
+    if -6 < n && n <= 0 {
+        let zeros = usize::try_from(-n).unwrap_or(0);
+        return format!("0.{}{}", "0".repeat(zeros), digits);
+    }
+    let sign = if n - 1 < 0 { '-' } else { '+' };
+    let magnitude = (n - 1).abs();
+    if k == 1 { return format!("{digits}e{sign}{magnitude}"); }
+    format!("{}.{}e{sign}{magnitude}", &digits[..1], &digits[1..])
+}
+
+/// `console.log`'s number formatting: the spec's rule, but `-0` prints `-0`.
+fn smelt_console_number<N: ::std::borrow::Borrow<f64>>(value: N) -> String { let value = *value.borrow(); if value == 0.0 && value.is_sign_negative() { return "-0".to_owned(); } smelt_number_to_string(value) }
+
 /// A Smelt `throw` crossing an unwind boundary, keeping its class.
 #[derive(Debug)]
 struct SmeltPanic { class: String, message: String }
@@ -1752,7 +1789,7 @@ fn smelt_folded_symbol_key_spelling(key: &str) -> Option<String> { if let Some(e
 /// The symbol value a program-written symbol key denotes.
 fn smelt_own_symbol_key_value(key: &str) -> Option<SmeltUnknown> { if let Some(description) = key.strip_prefix("__smelt_symbol:") { return Some(SmeltUnknown::Symbol(description.into())); } smelt_folded_symbol_key_spelling(key).map(|spelling| SmeltUnknown::Symbol(spelling.into())) }
 
-fn smelt_property_key(value: SmeltUnknown) -> String { match value { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => smelt_symbol_property_key(&value), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Array(values) => values.into_vec().into_iter().map(smelt_property_key).collect::<Vec<_>>().join(","), SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() } }
+fn smelt_property_key(value: SmeltUnknown) -> String { match value { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => smelt_symbol_property_key(&value), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Array(values) => values.into_vec().into_iter().map(smelt_property_key).collect::<Vec<_>>().join(","), SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() } }
 
 /// Whether an erased Map entry (a `[key, value]` pair) is keyed by `key`.
 fn smelt_map_entry_key_is(entry: &SmeltUnknown, key: &SmeltUnknown) -> bool {
@@ -2322,7 +2359,7 @@ impl ::std::fmt::Display for SmeltUnknown {
             Self::Null => formatter.write_str("null"),
             Self::Undefined => formatter.write_str("undefined"),
             Self::Bool(value) => write!(formatter, "{value}"),
-            Self::Number(value) => write!(formatter, "{value}"),
+            Self::Number(value) => formatter.write_str(&smelt_number_to_string(*value)),
             Self::String(value) => formatter.write_str(value),
             Self::Symbol(value) => formatter.write_str(value),
             Self::Array(_) | Self::Object(_) => formatter.write_str("[object Object]"),
@@ -2548,7 +2585,7 @@ impl SmeltFromUnknown for i64 {
 
 impl SmeltFromUnknown for String {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        match value { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }
+        match value { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }
     }
 }
 
@@ -2646,13 +2683,13 @@ impl<A: IntoSmeltUnknown, B: IntoSmeltUnknown> IntoSmeltUnknown for (A, B) {
 
 impl<K, T> IntoSmeltUnknown for ::std::collections::HashMap<K, T> where K: IntoSmeltUnknown + Eq + ::std::hash::Hash, T: IntoSmeltUnknown {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(self.into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => smelt_symbol_property_key(&value), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))
+        SmeltUnknown::Object(SmeltObject::new(self.into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => smelt_symbol_property_key(&value), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))
     }
 }
 
 impl<K, T> IntoSmeltUnknown for SmeltRecord<K, T> where K: IntoSmeltUnknown + Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, T: IntoSmeltUnknown + Clone {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::with_id(self.id, self.iter().into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => smelt_symbol_property_key(&value), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))
+        SmeltUnknown::Object(SmeltObject::with_id(self.id, self.iter().into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => smelt_symbol_property_key(&value), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))
     }
 }
 
@@ -3477,4 +3514,67 @@ impl Boom {
         smelt_proto_entries.push(("__smelt_method:getResponse".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.get_response(); Ok((smelt_result).into_smelt_unknown()) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Boom::get_response")); SmeltUnknown::Function(smelt_method) }));
         smelt_proto_entries
     }
+}
+
+// ==== source_main.rs
+// @generated by smelt. Do not edit by hand.
+// source: <example>/src/main.ts
+#![allow(dead_code, non_snake_case, unused_imports, unused_variables)]
+
+use super::*;
+
+pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
+    let with_res: Boom;
+    let rewrapped: SmeltResponse;
+    let bare: Boom;
+    let from_message: SmeltResponse;
+    let _smelt_tmp_9: f64;
+    let _smelt_tmp_11: SmeltHeaders;
+    let _smelt_tmp_12: Option<String>;
+    let _smelt_tmp_13: String;
+    let _smelt_tmp_16: String;
+    let _smelt_tmp_18: SmeltRecord<String, String>;
+    let _smelt_tmp_21: f64;
+    let _smelt_tmp_24: String;
+    let _smelt_tmp_26: SmeltResponse;
+    let _smelt_tmp_27: Option<SmeltBody>;
+    let _smelt_tmp_28: bool;
+    let _smelt_tmp_30: SmeltResponse;
+    let _smelt_tmp_31: Option<SmeltBody>;
+    let _smelt_tmp_32: bool;
+    let _smelt_tmp_4: SmeltRecord<String, String> = SmeltRecord::from([("x-a".to_owned(), "1".to_owned())]);
+    let _smelt_tmp_5: SmeltResponse = SmeltResponse::from_parts(200.0, String::new(), SmeltHeaders::from_pairs(_smelt_tmp_4.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::from_text(&"teapot".to_owned()));
+    let _smelt_tmp_6: SmeltRecord<String, SmeltUnknown> = SmeltRecord::from([("message".to_owned(), SmeltUnknown::String("teapot".into())), ("res".to_owned(), _smelt_tmp_5.clone().into_smelt_unknown())]);
+    let _smelt_tmp_7: Boom = Boom::new(Some(418.0), Some({ let smelt_record_map = _smelt_tmp_6.clone(); BoomOptions { res: smelt_record_map.get("res").or_else(|| smelt_record_map.get("__smelt_proto:res")).or_else(|| smelt_record_map.get("__smelt_method:res")).cloned().map(|value| <SmeltResponse as SmeltFromUnknown>::smelt_from_unknown(value.clone())), message: smelt_record_map.get("message").or_else(|| smelt_record_map.get("__smelt_proto:message")).or_else(|| smelt_record_map.get("__smelt_method:message")).cloned().map(|value| match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) } }));
+    with_res = _smelt_tmp_7;
+    let _smelt_tmp_8: SmeltResponse = with_res.get_response();
+    rewrapped = _smelt_tmp_8;
+    _smelt_tmp_9 = rewrapped.clone().status();
+    let _ = { println!("{}", smelt_console_number(_smelt_tmp_9)); };
+    _smelt_tmp_11 = rewrapped.clone().headers();
+    _smelt_tmp_12 = _smelt_tmp_11.get(&"x-a".to_owned());
+    _smelt_tmp_13 = _smelt_tmp_12.clone().unwrap_or("none".to_owned());
+    let _ = { println!("{}", _smelt_tmp_13); };
+    let _smelt_tmp_15: SmeltFuture<String> = { let smelt_response = rewrapped.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(smelt_response.take_text()?) })) };
+    _smelt_tmp_16 = _smelt_tmp_15.await?;
+    let _ = { println!("{}", _smelt_tmp_16); };
+    _smelt_tmp_18 = SmeltRecord::from([("message".to_owned(), "missing".to_owned())]);
+    let _smelt_tmp_19: Boom = Boom::new(Some(404.0), Some({ let smelt_record_map = _smelt_tmp_18.clone(); BoomOptions { res: None, message: smelt_record_map.get("message").cloned().map(|value| value) } }));
+    bare = _smelt_tmp_19;
+    let _smelt_tmp_20: SmeltResponse = bare.get_response();
+    from_message = _smelt_tmp_20;
+    _smelt_tmp_21 = from_message.clone().status();
+    let _ = { println!("{}", smelt_console_number(_smelt_tmp_21)); };
+    let _smelt_tmp_23: SmeltFuture<String> = { let smelt_response = from_message.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(smelt_response.take_text()?) })) };
+    _smelt_tmp_24 = _smelt_tmp_23.await?;
+    let _ = { println!("{}", _smelt_tmp_24); };
+    _smelt_tmp_26 = SmeltResponse::from_parts(200.0, String::new(), SmeltHeaders::new(), SmeltBody::empty());
+    _smelt_tmp_27 = { let smelt_body = _smelt_tmp_26.body(); if smelt_body.is_empty() { None } else { Some(smelt_body) } };
+    _smelt_tmp_28 = _smelt_tmp_27.is_none();
+    let _ = { println!("{}", _smelt_tmp_28); };
+    _smelt_tmp_30 = SmeltResponse::from_parts(200.0, String::new(), SmeltHeaders::new(), SmeltBody::from_text(&"".to_owned()));
+    _smelt_tmp_31 = { let smelt_body = _smelt_tmp_30.body(); if smelt_body.is_empty() { None } else { Some(smelt_body) } };
+    _smelt_tmp_32 = _smelt_tmp_31.is_none();
+    let _ = { println!("{}", _smelt_tmp_32); };
+    return Ok(());
 }
