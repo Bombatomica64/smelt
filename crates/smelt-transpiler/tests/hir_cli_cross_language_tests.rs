@@ -363,6 +363,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "66_const_arrow_literal_hint",
     "67_compound_bitwise_assignment",
     "68_switch_continue_in_loop",
+    "69_asserted_callback_name",
 ];
 
 #[test]

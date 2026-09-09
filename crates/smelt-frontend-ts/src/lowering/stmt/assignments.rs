@@ -2256,10 +2256,14 @@ impl ModuleBuilder<'_> {
                     span: self.span(assign.span.start, assign.span.end),
                 })
             }
-            other => {
+            // `**=` is the one compound operator left, and naming it here rather
+            // than catching it with a wildcard keeps the list honest: it is
+            // missing because `BinOp` has no exponentiation arm, so it needs the
+            // same lowering the binary `**` uses, not this rule.
+            AssignmentOperator::Exponential => {
                 return Err(SmeltError::unsupported(
                     self.span(assign.span.start, assign.span.end),
-                    format!("assignment operator is not lowered yet: {other:?}"),
+                    "assignment operator is not lowered yet: Exponential",
                 ));
             }
         };
