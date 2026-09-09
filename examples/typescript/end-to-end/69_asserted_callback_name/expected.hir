@@ -1,0 +1,93 @@
+module examples/typescript/end-to-end/69_asserted_callback_name/input.ts (ModuleId(0))
+  body BodyId(15)
+  items
+    type Predicate = fn(String) -> Bool
+    fn is_long owner Module
+    class Checker fields [] constructor Some(ItemId(5)) methods [ItemId(4)] implements []
+  locals
+    %0 const words: List<String>
+    %1 const lengths: List<Float>
+    %2 const checker: Checker
+  exprs
+    #0: String = "a"
+    #1: String = "abc"
+    #2: String = "ab"
+    #3: String = "abcd"
+    #4: List<String> = [#0, #1, #2, #3]
+    #5: List<String> = %0
+    #6: fn(String, Int, List<String>) -> Bool = closure BodyId(5) captures 0 -> Bool
+    #7: List<String> = list_filter #5, #6
+    #8: String = ","
+    #9: String = string_join #7, #8
+    #10: None = @7(console_log)
+    #11: None = call #10(#9)
+    #12: List<String> = %0
+    #13: fn(String, Int, List<String>) -> Bool = closure BodyId(7) captures 0 -> Bool
+    #14: List<String> = list_filter #12, #13
+    #15: String = ","
+    #16: String = string_join #14, #15
+    #17: None = @8(console_log)
+    #18: None = call #17(#16)
+    #19: List<String> = %0
+    #20: fn(String, Int, List<String>) -> Bool = closure BodyId(9) captures 0 -> Bool
+    #21: List<String> = list_filter #19, #20
+    #22: String = ","
+    #23: String = string_join #21, #22
+    #24: None = @9(console_log)
+    #25: None = call #24(#23)
+    #26: List<String> = %0
+    #27: fn(String, Int, List<String>) -> Bool = closure BodyId(11) captures 0 -> Bool
+    #28: List<String> = list_filter #26, #27
+    #29: String = ","
+    #30: String = string_join #28, #29
+    #31: None = @10(console_log)
+    #32: None = call #31(#30)
+    #33: List<String> = %0
+    #34: fn(String) -> Bool = closure BodyId(12) captures 0 -> Bool
+    #35: List<String> = list_filter #33, #34
+    #36: String = ","
+    #37: String = string_join #35, #36
+    #38: None = @11(console_log)
+    #39: None = call #38(#37)
+    #40: List<String> = %0
+    #41: fn(String) -> Float = closure BodyId(13) captures 0 -> Float
+    #42: List<Float> = list_map #40, #41
+    #43: List<Float> = %1
+    #44: String = ","
+    #45: String = string_join #43, #44
+    #46: None = @12(console_log)
+    #47: None = call #46(#45)
+    #48: Checker = new Checker()
+    #49: List<String> = %0
+    #50: fn(String, Int, List<String>) -> Bool = closure BodyId(14) captures 1 -> Bool
+    #51: List<String> = list_filter #49, #50
+    #52: String = ","
+    #53: String = string_join #51, #52
+    #54: None = @13(console_log)
+    #55: None = call #54(#53)
+  stmts
+    s0: let %0: List<String> = #4
+    s1: #11
+    s2: #18
+    s3: #25
+    s4: #32
+    s5: #39
+    s6: let %1: List<Float> = #42
+    s7: #47
+    s8: let %2: Checker = #48
+    s9: #55
+
+interned types
+  t0 = String
+  t1 = Bool
+  t2 = fn(String) -> Bool
+  t3 = List<String>
+  t4 = Int
+  t5 = Unknown
+  t6 = Float
+  t7 = fn(String) -> Float
+  t8 = List<Float>
+  t9 = Checker
+  t10 = fn(String) -> Bool
+  t11 = None
+  t12 = fn(String, Int, List<String>) -> Bool

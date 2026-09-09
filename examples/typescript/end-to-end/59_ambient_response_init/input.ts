@@ -34,18 +34,20 @@ const createResponseInstance = (
   init?: globalThis.ResponseInit,
 ): Response => new Response(body, init);
 
-// The init is bound to an annotated const rather than written inline at this
-// call: an object literal passed straight to a CONST-BOUND ARROW is not reached
-// by the parameter's type hint (it is built as a record and converted), which
-// is a hint-propagation gap of its own, unrelated to the init modeling and
-// recorded in `blocker-logs/standards-ambient-init-dictionaries.md`. Every
-// other call below writes its literal inline, where the hint does arrive.
-const createdInit: globalThis.ResponseInit = {
+// Written INLINE against the const-bound arrow's parameter. This call used to
+// bind the init to an annotated const, because an object literal passed
+// straight to a const-bound arrow was not reached by the parameter's type hint
+// — the closure-call path lowered its arguments with no hint at all, so the
+// literal was built as a record of erased values and only then converted. The
+// hint now reaches it (`local_callable_call` in
+// `lowering/stdlib/call_dispatch.rs`), which is what the note in
+// `blocker-logs/standards-ambient-init-dictionaries.md` asked for, so the
+// literal is spelled where a hand-written port would spell it.
+const withInit = createResponseInstance("hi", {
   status: 201,
   statusText: "Created",
   headers: { "x-a": "1" },
-};
-const withInit = createResponseInstance("hi", createdInit);
+});
 console.log(withInit.status);
 console.log(withInit.statusText);
 console.log(withInit.headers.get("x-a") ?? "none");

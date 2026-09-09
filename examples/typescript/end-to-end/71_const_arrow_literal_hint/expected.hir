@@ -1,0 +1,89 @@
+module examples/typescript/end-to-end/71_const_arrow_literal_hint/input.ts (ModuleId(0))
+  body BodyId(5)
+  items
+    interface Opts fields [Public status?: Optional<Float>, Public label?: Optional<String>] methods []
+    fn show_fn owner Module
+  locals
+    %0 const showOptional: fn(Optional<Opts>) -> String
+    %1 const showRequired: fn(Opts) -> String
+    %2 const total: fn(List<Opts>) -> Float
+  exprs
+    #0: fn(Optional<Opts>) -> String = closure BodyId(1) captures 0 -> String
+    #1: String = "status"
+    #2: Float = 8.0
+    #3: String = "label"
+    #4: String = "fn"
+    #5: Opts = {#1: #2, #3: #4}
+    #6: fn(Opts) -> String = @0(show_fn)
+    #7: String = call #6(#5)
+    #8: None = @2(console_log)
+    #9: None = call #8(#7)
+    #10: fn(Optional<Opts>) -> String = %0
+    #11: String = "status"
+    #12: Float = 7.0
+    #13: String = "label"
+    #14: String = "opt"
+    #15: Opts = {#11: #12, #13: #14}
+    #16: String = closure_call #10(#15)
+    #17: None = @3(console_log)
+    #18: None = call #17(#16)
+    #19: fn(Opts) -> String = closure BodyId(2) captures 0 -> String
+    #20: String = "status"
+    #21: Float = 9.0
+    #22: String = "label"
+    #23: String = "req"
+    #24: Opts = {#20: #21, #22: #23}
+    #25: String = closure_call #19(#24)
+    #26: None = @4(console_log)
+    #27: None = call #26(#25)
+    #28: fn(Opts) -> String = closure BodyId(3) captures 0 -> String
+    #29: String = "label"
+    #30: String = "partial"
+    #31: Opts = {#29: #30}
+    #32: String = closure_call #28(#31)
+    #33: None = @5(console_log)
+    #34: None = call #33(#32)
+    #35: fn(Optional<Opts>) -> String = %0
+    #36: String = closure_call #35()
+    #37: None = @6(console_log)
+    #38: None = call #37(#36)
+    #39: fn(List<Opts>) -> Float = closure BodyId(4) captures 0 -> Float
+    #40: fn(List<Opts>) -> Float = %2
+    #41: String = "status"
+    #42: Float = 1.0
+    #43: Opts = {#41: #42}
+    #44: String = "status"
+    #45: Float = 2.0
+    #46: String = "label"
+    #47: String = "two"
+    #48: Opts = {#44: #45, #46: #47}
+    #49: List<Opts> = [#43, #48]
+    #50: Float = closure_call #40(#49)
+    #51: None = @7(console_log)
+    #52: None = call #51(#50)
+  stmts
+    s0: let %0: fn(Optional<Opts>) -> String = #0
+    s1: #9
+    s2: #18
+    s3: #27
+    s4: #34
+    s5: #38
+    s6: let %2: fn(List<Opts>) -> Float = #39
+    s7: #52
+
+interned types
+  t0 = Opts
+  t1 = Optional<Opts>
+  t2 = String
+  t3 = fn(Optional<Opts>) -> String
+  t4 = fn(Opts) -> String
+  t5 = List<Opts>
+  t6 = Float
+  t7 = fn(List<Opts>) -> Float
+  t8 = fn(Opts) -> String
+  t9 = Optional<Float>
+  t10 = Optional<String>
+  t11 = fn(Optional<Opts>) -> String
+  t12 = None
+  t13 = Bool
+  t14 = fn(List<Opts>) -> Float

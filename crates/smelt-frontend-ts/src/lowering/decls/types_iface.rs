@@ -937,39 +937,46 @@ impl ModuleBuilder<'_> {
                         false
                     };
                     let case_block = body.push_block(self.span(case.span.start, case.span.end));
-                    let mut saw_break = false;
+                    // A case body ends at the first statement that leaves it.
+                    // The two ways differ in what they LOWER: a JS `break`
+                    // exits the switch, which the match arm does by simply
+                    // ending, so it emits nothing; a `continue` targets the
+                    // ENCLOSING LOOP and has to be emitted, exactly as Rust
+                    // spells `continue` inside a `match` arm inside a loop.
+                    // Rejecting the second was the only reason Hono's HTML
+                    // escaper (`utils/html.ts`, `default: continue` inside the
+                    // scan loop) was a blocker. The synthetic-loop lowering
+                    // used for real fallthrough still rejects it, and says why.
+                    let mut case_ends = false;
                     for case_statement in &case.consequent {
                         if let Statement::BlockStatement(block_stmt) = case_statement {
                             for nested_statement in &block_stmt.body {
-                                if matches!(nested_statement, Statement::ContinueStatement(_)) {
-                                    return Err(SmeltError::unsupported(
-                                        self.statement_span(nested_statement),
-                                        "switch continue lowering is not implemented yet",
-                                    ));
-                                }
                                 if matches!(nested_statement, Statement::BreakStatement(_)) {
-                                    saw_break = true;
+                                    case_ends = true;
                                     break;
                                 }
                                 self.statement_in_block(nested_statement, body, case_block)?;
+                                if matches!(nested_statement, Statement::ContinueStatement(_)) {
+                                    case_ends = true;
+                                    break;
+                                }
                             }
-                            if saw_break {
+                            if case_ends {
                                 break;
                             }
                             continue;
                         }
-                        if matches!(case_statement, Statement::ContinueStatement(_)) {
-                            return Err(SmeltError::unsupported(
-                                self.statement_span(case_statement),
-                                "switch continue lowering is not implemented yet",
-                            ));
-                        }
                         if matches!(case_statement, Statement::BreakStatement(_)) {
-                            saw_break = true;
+                            case_ends = true;
                             break;
                         }
                         self.statement_in_block(case_statement, body, case_block)?;
+                        if matches!(case_statement, Statement::ContinueStatement(_)) {
+                            case_ends = true;
+                            break;
+                        }
                     }
+                    let saw_break = case_ends;
                     if narrowing_pushed {
                         self.scope.pop_narrowing_scope();
                     }
@@ -2059,15 +2066,28 @@ impl ModuleBuilder<'_> {
             if case.consequent.is_empty() || case_index + 1 == case_count {
                 continue;
             }
-            let has_top_level_break = case.consequent.iter().any(|statement| match statement {
-                Statement::BreakStatement(_) => true,
-                Statement::BlockStatement(block_stmt) => block_stmt
-                    .body
-                    .iter()
-                    .any(|nested| matches!(nested, Statement::BreakStatement(_))),
+            // What makes a case FALL THROUGH is control reaching the next case,
+            // so any statement that leaves the case body answers the question —
+            // a `break` leaves the switch and a `continue` leaves for the
+            // enclosing loop's next iteration. Counting only `break` sent a
+            // switch whose non-last case ends in `continue` down the
+            // synthetic-loop lowering, which rejects `continue` outright (it
+            // would bind to the synthetic loop), so a shape the match path
+            // handles correctly was reported as unimplemented.
+            // `statement_terminates` deliberately does not call `break`/
+            // `continue` terminating — they leave a statement sequence without
+            // leaving the function — hence the explicit check here.
+            let has_top_level_exit = case.consequent.iter().any(|statement| match statement {
+                Statement::BreakStatement(_) | Statement::ContinueStatement(_) => true,
+                Statement::BlockStatement(block_stmt) => block_stmt.body.iter().any(|nested| {
+                    matches!(
+                        nested,
+                        Statement::BreakStatement(_) | Statement::ContinueStatement(_)
+                    )
+                }),
                 _ => false,
             });
-            if !has_top_level_break && !case.consequent.iter().any(statement_terminates) {
+            if !has_top_level_exit && !case.consequent.iter().any(statement_terminates) {
                 return true;
             }
         }

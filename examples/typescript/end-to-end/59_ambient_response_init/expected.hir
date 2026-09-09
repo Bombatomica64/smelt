@@ -4,137 +4,134 @@ module examples/typescript/end-to-end/59_ambient_response_init/input.ts (ModuleI
     fn status_of owner Module
   locals
     %0 const createResponseInstance: fn(Optional<String>, Optional<globalThis.ResponseInit>) -> Response
-    %1 const createdInit: globalThis.ResponseInit
-    %2 const withInit: Response
-    %3 const bare: Response
-    %4 const pairs: List<(String, String)>
-    %5 const request: Request
+    %1 const withInit: Response
+    %2 const bare: Response
+    %3 const pairs: List<(String, String)>
+    %4 const request: Request
   exprs
     #0: fn(Optional<String>, Optional<globalThis.ResponseInit>) -> Response = closure BodyId(3) captures 0 -> Response
-    #1: String = "status"
-    #2: Float = 201.0
-    #3: String = "statusText"
-    #4: String = "Created"
-    #5: String = "headers"
-    #6: String = "x-a"
-    #7: String = "1"
-    #8: Dict<String, String> = {#6: #7}
-    #9: globalThis.ResponseInit = {#1: #2, #3: #4, #5: #8}
-    #10: fn(Optional<String>, Optional<globalThis.ResponseInit>) -> Response = %0
-    #11: String = "hi"
-    #12: globalThis.ResponseInit = %1
-    #13: Response = closure_call #10(#11, #12)
-    #14: Response = %2
-    #15: Float = response_status #14
-    #16: None = @2(console_log)
-    #17: None = call #16(#15)
-    #18: Response = %2
-    #19: String = response_status_text #18
-    #20: None = @3(console_log)
-    #21: None = call #20(#19)
-    #22: Response = %2
-    #23: Headers = response_headers #22
-    #24: Response = %2
-    #25: Headers = response_headers #24
-    #26: String = "x-a"
-    #27: Optional<String> = headers_get #25, #26
-    #28: String = "none"
-    #29: String = #27 ?? #28
-    #30: None = @4(console_log)
-    #31: None = call #30(#29)
-    #32: fn(Optional<String>, Optional<globalThis.ResponseInit>) -> Response = %0
-    #33: Response = closure_call #32()
-    #34: Response = %3
-    #35: Float = response_status #34
-    #36: None = @5(console_log)
-    #37: None = call #36(#35)
-    #38: Response = %3
-    #39: Headers = response_headers #38
-    #40: Response = %3
-    #41: Headers = response_headers #40
-    #42: String = "x-a"
-    #43: Optional<String> = headers_get #41, #42
-    #44: String = "none"
-    #45: String = #43 ?? #44
-    #46: None = @6(console_log)
-    #47: None = call #46(#45)
-    #48: String = "status"
-    #49: Float = 202.0
-    #50: String = "headers"
-    #51: String = "content-type"
-    #52: String = "text/plain"
-    #53: Dict<String, String> = {#51: #52}
-    #54: globalThis.ResponseInit = {#48: #49, #50: #53}
-    #55: fn(globalThis.ResponseInit) -> String = @1(status_of)
-    #56: String = call #55(#54)
-    #57: None = @7(console_log)
-    #58: None = call #57(#56)
-    #59: String = "content-type"
-    #60: String = "text/html"
-    #61: (String, String) = (#59, #60)
-    #62: List<(String, String)> = [#61]
-    #63: String = "status"
-    #64: Float = 203.0
-    #65: String = "headers"
-    #66: List<(String, String)> = %4
-    #67: globalThis.ResponseInit = {#63: #64, #65: #66}
-    #68: fn(globalThis.ResponseInit) -> String = @1(status_of)
-    #69: String = call #68(#67)
-    #70: None = @8(console_log)
-    #71: None = call #70(#69)
-    #72: String = "status"
-    #73: Float = 206.0
-    #74: String = "headers"
-    #75: String = "content-type"
-    #76: String = "application/json"
-    #77: List<String> = [#75, #76]
-    #78: List<List<String>> = [#77]
-    #79: Headers = headers_new #78
-    #80: globalThis.ResponseInit = {#72: #73, #74: #79}
-    #81: fn(globalThis.ResponseInit) -> String = @1(status_of)
-    #82: String = call #81(#80)
-    #83: None = @9(console_log)
-    #84: None = call #83(#82)
-    #85: String = "http://example.test/x"
-    #86: String = "POST"
-    #87: String = "x-b"
-    #88: String = "2"
-    #89: Dict<String, String> = {#87: #88}
-    #90: String = "payload"
-    #91: Request = request_new input=#85 method=#86 headers=#89 body=#90
-    #92: Request = %5
-    #93: String = request_method #92
-    #94: None = @10(console_log)
-    #95: None = call #94(#93)
-    #96: Request = %5
-    #97: Request = %5
-    #98: Headers = request_headers #97
-    #99: Request = %5
-    #100: Request = %5
-    #101: Headers = request_headers #100
-    #102: String = "x-b"
-    #103: Optional<String> = headers_get #101, #102
-    #104: String = "none"
-    #105: String = #103 ?? #104
-    #106: None = @11(console_log)
-    #107: None = call #106(#105)
+    #1: fn(Optional<String>, Optional<globalThis.ResponseInit>) -> Response = %0
+    #2: String = "hi"
+    #3: String = "status"
+    #4: Float = 201.0
+    #5: String = "statusText"
+    #6: String = "Created"
+    #7: String = "headers"
+    #8: String = "x-a"
+    #9: String = "1"
+    #10: Dict<String, String> = {#8: #9}
+    #11: globalThis.ResponseInit = {#3: #4, #5: #6, #7: #10}
+    #12: Response = closure_call #1(#2, #11)
+    #13: Response = %1
+    #14: Float = response_status #13
+    #15: None = @2(console_log)
+    #16: None = call #15(#14)
+    #17: Response = %1
+    #18: String = response_status_text #17
+    #19: None = @3(console_log)
+    #20: None = call #19(#18)
+    #21: Response = %1
+    #22: Headers = response_headers #21
+    #23: Response = %1
+    #24: Headers = response_headers #23
+    #25: String = "x-a"
+    #26: Optional<String> = headers_get #24, #25
+    #27: String = "none"
+    #28: String = #26 ?? #27
+    #29: None = @4(console_log)
+    #30: None = call #29(#28)
+    #31: fn(Optional<String>, Optional<globalThis.ResponseInit>) -> Response = %0
+    #32: Response = closure_call #31()
+    #33: Response = %2
+    #34: Float = response_status #33
+    #35: None = @5(console_log)
+    #36: None = call #35(#34)
+    #37: Response = %2
+    #38: Headers = response_headers #37
+    #39: Response = %2
+    #40: Headers = response_headers #39
+    #41: String = "x-a"
+    #42: Optional<String> = headers_get #40, #41
+    #43: String = "none"
+    #44: String = #42 ?? #43
+    #45: None = @6(console_log)
+    #46: None = call #45(#44)
+    #47: String = "status"
+    #48: Float = 202.0
+    #49: String = "headers"
+    #50: String = "content-type"
+    #51: String = "text/plain"
+    #52: Dict<String, String> = {#50: #51}
+    #53: globalThis.ResponseInit = {#47: #48, #49: #52}
+    #54: fn(globalThis.ResponseInit) -> String = @1(status_of)
+    #55: String = call #54(#53)
+    #56: None = @7(console_log)
+    #57: None = call #56(#55)
+    #58: String = "content-type"
+    #59: String = "text/html"
+    #60: (String, String) = (#58, #59)
+    #61: List<(String, String)> = [#60]
+    #62: String = "status"
+    #63: Float = 203.0
+    #64: String = "headers"
+    #65: List<(String, String)> = %3
+    #66: globalThis.ResponseInit = {#62: #63, #64: #65}
+    #67: fn(globalThis.ResponseInit) -> String = @1(status_of)
+    #68: String = call #67(#66)
+    #69: None = @8(console_log)
+    #70: None = call #69(#68)
+    #71: String = "status"
+    #72: Float = 206.0
+    #73: String = "headers"
+    #74: String = "content-type"
+    #75: String = "application/json"
+    #76: List<String> = [#74, #75]
+    #77: List<List<String>> = [#76]
+    #78: Headers = headers_new #77
+    #79: globalThis.ResponseInit = {#71: #72, #73: #78}
+    #80: fn(globalThis.ResponseInit) -> String = @1(status_of)
+    #81: String = call #80(#79)
+    #82: None = @9(console_log)
+    #83: None = call #82(#81)
+    #84: String = "http://example.test/x"
+    #85: String = "POST"
+    #86: String = "x-b"
+    #87: String = "2"
+    #88: Dict<String, String> = {#86: #87}
+    #89: String = "payload"
+    #90: Request = request_new input=#84 method=#85 headers=#88 body=#89
+    #91: Request = %4
+    #92: String = request_method #91
+    #93: None = @10(console_log)
+    #94: None = call #93(#92)
+    #95: Request = %4
+    #96: Request = %4
+    #97: Headers = request_headers #96
+    #98: Request = %4
+    #99: Request = %4
+    #100: Headers = request_headers #99
+    #101: String = "x-b"
+    #102: Optional<String> = headers_get #100, #101
+    #103: String = "none"
+    #104: String = #102 ?? #103
+    #105: None = @11(console_log)
+    #106: None = call #105(#104)
   stmts
     s0: let %0: fn(Optional<String>, Optional<globalThis.ResponseInit>) -> Response = #0
-    s1: let %1: globalThis.ResponseInit = #9
-    s2: let %2: Response = #13
-    s3: #17
-    s4: #21
-    s5: #31
-    s6: let %3: Response = #33
-    s7: #37
-    s8: #47
-    s9: #58
-    s10: let %4: List<(String, String)> = #62
-    s11: #71
-    s12: #84
-    s13: let %5: Request = #91
-    s14: #95
-    s15: #107
+    s1: let %1: Response = #12
+    s2: #16
+    s3: #20
+    s4: #30
+    s5: let %2: Response = #32
+    s6: #36
+    s7: #46
+    s8: #57
+    s9: let %3: List<(String, String)> = #61
+    s10: #70
+    s11: #83
+    s12: let %4: Request = #90
+    s13: #94
+    s14: #106
 
 interned types
   t0 = String
@@ -153,13 +150,12 @@ interned types
   t13 = fn(Optional<String>, Optional<globalThis.ResponseInit>) -> Response
   t14 = Unknown
   t15 = Dict<String, Unknown>
-  t16 = List<Unknown>
-  t17 = Request
-  t18 = fn(globalThis.ResponseInit) -> String
-  t19 = None
-  t20 = fn(Optional<String>, Optional<globalThis.ResponseInit>) -> Response
-  t21 = String | Unknown
-  t22 = Optional<String | Unknown>
-  t23 = fn(globalThis.ResponseInit) -> String
-  t24 = List<String>
-  t25 = List<List<String>>
+  t16 = None
+  t17 = String | Unknown
+  t18 = Optional<String | Unknown>
+  t19 = Request
+  t20 = fn(globalThis.ResponseInit) -> String
+  t21 = fn(Optional<String>, Optional<globalThis.ResponseInit>) -> Response
+  t22 = fn(globalThis.ResponseInit) -> String
+  t23 = List<String>
+  t24 = List<List<String>>

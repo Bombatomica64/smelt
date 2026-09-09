@@ -234,3 +234,5 @@ mod host_module_tests;
 mod host_override_tests;
 mod global_namespace_tests;
 mod unresolved_type_import_tests;
+mod closure_argument_hint_tests;
+mod asserted_callback_name_tests;
