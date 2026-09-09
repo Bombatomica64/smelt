@@ -113,13 +113,14 @@ impl FunctionEmitter<'_> {
                     "match {init_text} {{ Some(smelt_headers_init) => {converted}, None => SmeltHeaders::new() }}"
                 ))
             }
-            // A blocker names the function it stopped in: this message is what
-            // a whole-crate build prints, and a bare type name gave a reader no
-            // way to find the call site in a corpus with dozens of them.
+            // The function this stopped in is attached by the emission entry
+            // points now (`EmitError::with_site`), so the message carries only
+            // what it knows: the type it could not model and the initializer
+            // text. It used to name the site itself, which is where that
+            // mechanism came from.
             _ => Err(EmitError::new(format!(
-                "`new Headers(init)` initializer type is not modeled: {} (initializer `{init_text}` in {})",
+                "`new Headers(init)` initializer type is not modeled: {} (initializer `{init_text}`)",
                 self.type_text_with_impl_trait(init_ty, false)?,
-                self.current_function_site(),
             ))),
         }
     }

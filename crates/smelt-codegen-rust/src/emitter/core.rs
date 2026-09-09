@@ -186,8 +186,22 @@ impl<'mir> FunctionEmitter<'mir> {
         )
     }
 
-    /// Emits a free function definition.
+    /// Emits a free function definition, naming the site of any blocker.
+    ///
+    /// Every emitter blocker raised anywhere inside this function's emission
+    /// gets the function's name and source span attached here, on the way out.
+    /// That is one place instead of the couple of hundred `EmitError::new` call
+    /// sites, and it covers the ones that have not been written yet — a blocker
+    /// that reports only a shape (`list unshift item must match the list
+    /// element type`) is unfindable in a corpus the size of Hono, which cost
+    /// two rounds of bisecting a manifest's `exclude` list.
     pub(crate) fn emit(&mut self, out: &mut String) -> Result<(), EmitError> {
+        let emitted = self.emit_free_function(out);
+        emitted.map_err(|error| error.with_site(|| self.current_function_site()))
+    }
+
+    /// Emits a free function definition.
+    fn emit_free_function(&mut self, out: &mut String) -> Result<(), EmitError> {
         let name = self.symbol_name(self.function.name)?;
         if self.function.is_test {
             if self.function.is_async {
@@ -1862,8 +1876,15 @@ impl<'mir> FunctionEmitter<'mir> {
         self.context.function_return_types.get(rust_name).copied()
     }
 
-    /// Emits a method or constructor definition.
+    /// Emits a method or constructor definition, naming the site of any
+    /// blocker (see [`Self::emit`]).
     pub(crate) fn emit_method(&mut self, out: &mut String) -> Result<(), EmitError> {
+        let emitted = self.emit_method_definition(out);
+        emitted.map_err(|error| error.with_site(|| self.current_function_site()))
+    }
+
+    /// Emits a method or constructor definition.
+    fn emit_method_definition(&mut self, out: &mut String) -> Result<(), EmitError> {
         match self.function.origin {
             HirOrigin::ClassConstructor { .. } => {
                 let method_params = self
@@ -2045,6 +2066,18 @@ impl<'mir> FunctionEmitter<'mir> {
     /// inherent Python method continues to borrow `self`; the adapter bridges
     /// those ownership conventions without dynamic dispatch or erasure.
     pub(crate) fn emit_python_add_impl(
+        &mut self,
+        out: &mut String,
+        class_name: &str,
+        impl_generics: &str,
+        type_args: &str,
+    ) -> Result<(), EmitError> {
+        let emitted = self.emit_python_add_impl_body(out, class_name, impl_generics, type_args);
+        emitted.map_err(|error| error.with_site(|| self.current_function_site()))
+    }
+
+    /// Emits the `std::ops::Add` impl body for a Python `__add__` method.
+    fn emit_python_add_impl_body(
         &mut self,
         out: &mut String,
         class_name: &str,
