@@ -8,6 +8,3 @@ HEAD false false
 true
 https://a.test/five from init
 https://a.test/six?q=1 PUT
-https://a.test/seven GET
-https://a.test/eight GET
-https://a.test/nine GET

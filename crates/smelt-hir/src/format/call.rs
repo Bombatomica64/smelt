@@ -661,13 +661,23 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 format!("typed_array_new {class_name} {args_text}")
             }
         }
-        ExprKind::DataViewAccess { member, view, args } => {
+        ExprKind::DataViewAccess {
+            write,
+            element,
+            view,
+            args,
+        } => {
             let args_text = args
                 .iter()
                 .map(|arg| expr_ref(*arg))
                 .collect::<Vec<_>>()
                 .join(" ");
-            format!("data_view_{member} {} {args_text}", expr_ref(*view))
+            let direction = if *write { "set" } else { "get" };
+            format!(
+                "data_view_{direction}{} {} {args_text}",
+                element.element_name(),
+                expr_ref(*view)
+            )
         }
         ExprKind::ByteArrayOp { op, bytes, args } => {
             let op_name = op.name();

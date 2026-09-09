@@ -20,53 +20,57 @@ fn safe_encode (FuncId(2)) -> String
   locals
     %0 param value: String
     %1 user error: Unknown
-    %2 user failure: DOMException
-    %3 temp: String
-    %4 temp: DOMException
+    %2 temp: String
+    %3 temp: Bool
+    %4 temp: String
     %5 temp: String
     %6 temp: String
-    %7 temp: String
   bb0:
     goto bb1
   bb1:
-    %3 = call @btoa(copy %0) -> bb4 unwind bb3
+    %2 = call @btoa(copy %0) -> bb4 unwind bb3
   bb2:
     return none
   bb3:
-    %4 = unknown_cast move %1 as t5
-    %2 = move %4
-    %5 = "E:" + copy %2.field9
-    %6 = move %5 + ":"
-    %7 = move %6 + copy %2.field10
-    return move %7
+    %3 = instanceof copy %1, class7
+    switch move %3 ? bb5 : bb6
   bb4:
-    return move %3
+    return move %2
+  bb5:
+    %4 = "E:" + copy %1.field8
+    %5 = move %4 + ":"
+    %6 = move %5 + copy %1.field9
+    return move %6
+  bb6:
+    return "E:unexpected"
 
 fn safe_decode (FuncId(3)) -> String
   locals
     %0 param value: String
     %1 user error: Unknown
-    %2 user failure: DOMException
-    %3 temp: String
-    %4 temp: DOMException
+    %2 temp: String
+    %3 temp: Bool
+    %4 temp: String
     %5 temp: String
     %6 temp: String
-    %7 temp: String
   bb0:
     goto bb1
   bb1:
-    %3 = call @atob(copy %0) -> bb4 unwind bb3
+    %2 = call @atob(copy %0) -> bb4 unwind bb3
   bb2:
     return none
   bb3:
-    %4 = unknown_cast move %1 as t5
-    %2 = move %4
-    %5 = "E:" + copy %2.field9
-    %6 = move %5 + ":"
-    %7 = move %6 + copy %2.field10
-    return move %7
+    %3 = instanceof copy %1, class7
+    switch move %3 ? bb5 : bb6
   bb4:
-    return move %3
+    return move %2
+  bb5:
+    %4 = "E:" + copy %1.field8
+    %5 = move %4 + ":"
+    %6 = move %5 + copy %1.field9
+    return move %6
+  bb6:
+    return "E:unexpected"
 
 fn decoded_brand (FuncId(4)) -> Bool
   locals

@@ -1,0 +1,12 @@
+258 1 2
+ok:258
+E:RangeError:Offset is outside the bounds of the DataView
+wrote
+E:RangeError
+7
+ok:0 ok:7 E:RangeError
+ok:0 ok:7
+E:RangeError:Offset is outside the bounds of the DataView E:RangeError:Offset is outside the bounds of the DataView
+ok:7 E:RangeError
+true true
+E:RangeError

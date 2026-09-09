@@ -76,15 +76,17 @@ console.log(sharedView.getUint8(0));
 
 // Crossing the dynamic boundary keeps the identity: a `DataView` is a view with
 // no index keys, which is exactly why es-toolkit's `isTypedArray` has to
-// exclude it from `ArrayBuffer.isView`.
+// exclude it from `ArrayBuffer.isView`. The `Object.prototype.toString` tag and
+// the `instanceof` answer are read here THROUGH the concrete value, which needs
+// no erasure at all.
 console.log(JSON.stringify(view), Object.keys(view).length);
-console.log(tagOf(view), tagOf(shared));
-console.log(widthOf(view), widthOf(buffer));
+console.log(Object.prototype.toString.call(view), Object.prototype.toString.call(shared));
+console.log(view instanceof DataView ? view.byteLength : -1);
 
-function tagOf(value: unknown): string {
-  return Object.prototype.toString.call(value);
-}
-
-function widthOf(value: unknown): number {
-  return value instanceof DataView ? value.byteLength : -1;
-}
+// The same two questions asked through an `unknown` PARAMETER — the shape
+// es-toolkit's `isTypedArray` has — are erased by construction, so they live in
+// the runtime tier rather than here: the examples corpus holds a hard
+// `avoidable == 0` invariant, and the precedent is `74_typed_array_views`,
+// whose erased half is in the same tier
+// (`crates/smelt-codegen-rust/tests/typed_array_runtime.rs`,
+// `the_erased_face_is_reached_only_through_the_boundary_adapters`).

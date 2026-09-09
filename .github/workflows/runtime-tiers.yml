@@ -104,6 +104,24 @@ jobs:
               define_properties_runtime proto_accessor_runtime
               ambient_declaration_runtime object_model_runtime
               stdlib_boundary_runtime class_accessor_runtime
+          # Twelve tiers existed on disk and were named by NO shard, so nothing
+          # ran them: a `cargo test` skips every `#[ignore]`d tier, and this
+          # matrix is the only place they are reached. Two new shards rather
+          # than growing the existing ones, because each tier spawns a nested
+          # cargo build with its own ~250 MB scratch target dir and the shard
+          # sizes above are what keeps a runner inside its disk budget.
+          # (`map_lookup_runtime` and `set_membership_runtime` are absent on
+          # purpose -- `ci.yml` runs those two.)
+          - shard: server
+            tests: >-
+              request_runtime response_runtime fetch_init_runtime
+              fetch_response_runtime node_http_runtime event_emitter_runtime
+              uri_decode_throw_runtime
+          - shard: serialization
+            tests: >-
+              json_stringify_runtime json_stringify_fidelity_runtime
+              erased_host_member_runtime field_key_fingerprint_runtime
+              global_namespace_value_runtime
     name: runtime (${{ matrix.shard }})
     steps:
       - name: Checkout

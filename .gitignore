@@ -299,3 +299,7 @@ third_party/es-toolkit-src/
 # ruling (a type name is crate-unique across class/interface/alias/enum) and the
 # import-cycle half of it, with the whole-crate cargo check table before/after
 !blocker-logs/hono-h71-cross-kind-type-name-collision.md
+# standards-throwing-rvalue.md records why a fallible stdlib MEMBER becomes a
+# call terminator rather than a fallible rvalue or a MIR hoisting pass, and
+# where the DataView `RangeError`'s bound, ToIndex and throw each live
+!blocker-logs/standards-throwing-rvalue.md

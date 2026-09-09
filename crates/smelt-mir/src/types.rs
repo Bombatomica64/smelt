@@ -1474,17 +1474,6 @@ pub enum Rvalue {
         /// The constructor arguments, as written.
         args: Vec<Operand>,
     },
-    /// Read or write one element through a `DataView`.
-    DataViewAccess {
-        /// The source accessor name (`"getInt16"`, `"setUint8"`), which is
-        /// what carries the width, the signedness and the direction.
-        member: String,
-        /// The `DataView` receiver.
-        view: Operand,
-        /// The accessor arguments: a byte offset, a value for a write, and an
-        /// optional little-endian flag.
-        args: Vec<Operand>,
-    },
     /// Read a member of, or call a method on, the concrete typed-array family.
     ByteArrayOp {
         /// Member to read or call.
@@ -2471,6 +2460,24 @@ pub enum BuiltinFn {
     /// and `Terminator::Await` carry an `unwind` edge, so a fallible operation
     /// has to be a call to reach an enclosing `try`.
     JsonParse,
+    /// A `DataView` element accessor (`getInt16`, `setFloat64`, ...), which
+    /// throws a catchable `RangeError` when the offset is outside the view.
+    ///
+    /// A builtin for exactly the reason [`Self::JsonParse`] is, and it is the
+    /// first stdlib MEMBER to need that route: `TypedArray.prototype.set`,
+    /// `ArrayBuffer.prototype.resize` and `Atomics.*` are the same shape, and
+    /// `blocker-logs/standards-throwing-rvalue.md` records why a fallible
+    /// rvalue is not the alternative.
+    ///
+    /// The payload is the accessor's identity, which its source name encodes
+    /// and nothing else does: the DIRECTION and the element type. The element
+    /// type is `smelt_stdlib`'s, not a copy of it.
+    DataViewAccess {
+        /// Whether this accessor WRITES (`setX`) rather than reads (`getX`).
+        write: bool,
+        /// The element type, which is the accessor's width and signedness.
+        element: smelt_hir::TypedArrayElement,
+    },
     /// `decodeURI` / `decodeURIComponent`, which throw a catchable `URIError`
     /// on malformed percent-encoding.
     ///
@@ -2509,7 +2516,10 @@ impl BuiltinFn {
     #[must_use]
     pub const fn is_fallible(self) -> bool {
         match self {
-            Self::JsonParse | Self::UriDecode(_) | Self::Base64(_) => true,
+            Self::JsonParse
+            | Self::UriDecode(_)
+            | Self::Base64(_)
+            | Self::DataViewAccess { .. } => true,
             Self::ConsoleLog { .. } | Self::ConsoleWrite | Self::ConsoleErrorWrite => false,
         }
     }

@@ -863,6 +863,9 @@ impl FunctionEmitter<'_> {
                 let value_text = self.string_like_operand_text(value, "base64 input")?;
                 Ok(format!("{adapter}({value_text}.as_str())?"))
             }
+            Callee::Builtin(BuiltinFn::DataViewAccess { write, element }) => {
+                self.data_view_access_text(*write, *element, args)
+            }
             Callee::Builtin(BuiltinFn::UriDecode(op)) => {
                 let value = args.first().ok_or_else(|| {
                     EmitError::new("a URI decoder takes one string argument")
@@ -2697,6 +2700,16 @@ impl FunctionEmitter<'_> {
             // adapter wraps a typed helper, and only the throw crosses the
             // erased channel.
             Callee::Builtin(BuiltinFn::Base64(_)) => return self.type_id(Type::String),
+            // A read answers a number; a write answers `undefined`. Both come
+            // back from a typed adapter, so only the throw crosses the erased
+            // channel — the same shape the decoders and the base64 pair have.
+            Callee::Builtin(BuiltinFn::DataViewAccess { write, .. }) => {
+                if *write {
+                    self.none_ty
+                } else {
+                    return self.type_id(Type::Float);
+                }
+            }
             Callee::Static(func) => {
                 let function = self
                     .mir

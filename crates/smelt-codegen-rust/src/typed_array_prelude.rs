@@ -152,6 +152,28 @@ fn emit_data_view(writer: &mut CodeWriter, needs_unknown: bool) {
         // decodes little-endian, so a big-endian read is the same decode over
         // reversed bytes. Reversing here rather than duplicating eleven arms is
         // what keeps one definition of each width and signedness.
+        // The CHECKED pair is what the fallible accessor adapters call: an
+        // offset outside the view is a `RangeError` in JavaScript, and `None` /
+        // `false` is how that reaches the adapter, which owns the throw (see
+        // `thrown::emit_data_view_access_support`). The bound is one expression
+        // stated once, so the checked and unchecked halves cannot disagree
+        // about where the window ends.
+        impl_writer.line("/// Whether `kind` at `offset` lies wholly inside this view.");
+        impl_writer.block(
+            "fn in_bounds(&self, kind: SmeltTypedArrayKind, offset: usize) -> bool",
+            |fn_writer| {
+                fn_writer.line("let width = kind.byte_width();");
+                fn_writer.line("offset + width <= self.byte_length && self.byte_offset + offset + width <= self.bytes.borrow().len()");
+            },
+        );
+        impl_writer.line("/// `getX`, answering `None` when the offset is out of range.");
+        impl_writer.line(
+            "pub fn get_checked(&self, kind: SmeltTypedArrayKind, offset: usize, little_endian: bool) -> Option<f64> { if self.in_bounds(kind, offset) { Some(self.get(kind, offset, little_endian)) } else { None } }",
+        );
+        impl_writer.line("/// `setX`, answering `false` when the offset is out of range.");
+        impl_writer.line(
+            "pub fn set_checked(&self, kind: SmeltTypedArrayKind, offset: usize, value: f64, little_endian: bool) -> bool { if self.in_bounds(kind, offset) { self.set(kind, offset, value, little_endian); true } else { false } }",
+        );
         impl_writer.line("/// `getX(byteOffset, littleEndian?)`: read one element at `kind`'s width.");
         impl_writer.block(
             "pub fn get(&self, kind: SmeltTypedArrayKind, offset: usize, little_endian: bool) -> f64",
@@ -159,11 +181,12 @@ fn emit_data_view(writer: &mut CodeWriter, needs_unknown: bool) {
                 fn_writer.line("let width = kind.byte_width();");
                 fn_writer.line("let bytes = self.bytes.borrow();");
                 fn_writer.line("let at = self.byte_offset + offset;");
-                // Out of range is a `RangeError` in JavaScript. Smelt has no
-                // throwing rvalue yet (only fallible CALLS carry an unwind
-                // edge), so an out-of-range accessor answers zero here and the
-                // divergence is recorded rather than hidden; see
-                // `blocker-logs/hono-fetch-demand.md`.
+                // Out of range answers zero HERE, and no caller reaches this
+                // without the check: a source accessor lowers to the fallible
+                // adapter, which asks `get_checked` and throws the spec's
+                // `RangeError`. The guard stays because this half is also the
+                // one the checked half calls, and a bounds test in two places
+                // is cheaper than a panic in one.
                 fn_writer.line("if offset + width > self.byte_length || at + width > bytes.len() { return 0.0; }");
                 fn_writer.line("let mut window = bytes[at..at + width].to_vec();");
                 fn_writer.line("if !little_endian { window.reverse(); }");

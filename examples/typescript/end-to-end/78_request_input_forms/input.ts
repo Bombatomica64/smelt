@@ -69,20 +69,17 @@ async function run(): Promise<void> {
   const fromUrl = new Request(new URL("https://a.test/six?q=1"), { method: "PUT" });
   console.log(fromUrl.url, fromUrl.method);
 
-  // An ERASED input — a `RequestInfo` parameter whose arm is a run-time fact.
-  // Hono's `app.request(input: string | Request | URL, ...)` is exactly this,
-  // and it is what took the whole crate from the emitter to a compile: the
+  // An ERASED input — a `RequestInfo` parameter whose arm is a run-time fact,
+  // which is Hono's `app.request(input: string | Request | URL, ...)` — is
+  // erased by construction, so it lives in the runtime tier
+  // (`crates/smelt-codegen-rust/tests/request_runtime.rs`,
+  // `an_erased_request_info_input_takes_every_arm`) rather than here: the
+  // examples corpus holds a hard `avoidable == 0` invariant, and the precedent
+  // for splitting a fixture that way is `74_typed_array_views`. What the tier
+  // pins is the same claim this fixture makes for the concrete spellings — the
   // choice is made once on the tag, a request record recovering through the
   // class's own boundary adapter and anything else stringifying, which is what
   // JavaScript does for a non-`Request` input.
-  console.log(await requested("https://a.test/seven"));
-  console.log(await requested(new Request("https://a.test/eight", { method: "POST" })));
-  console.log(await requested(new URL("https://a.test/nine")));
-}
-
-async function requested(input: string | Request | URL): Promise<string> {
-  const request = input instanceof Request ? new Request(input, { method: "GET" }) : new Request(input);
-  return `${request.url} ${request.method}`;
 }
 
 run();

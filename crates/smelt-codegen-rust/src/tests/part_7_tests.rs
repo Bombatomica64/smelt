@@ -10294,6 +10294,86 @@ export function clearSlot(handle: unknown): number {
 }
 
 #[test]
+fn a_data_view_accessor_is_a_fallible_call_with_the_specs_to_index() {
+    // Round 28's throwing rvalue. `DataView.prototype.getX/setX` throws a
+    // catchable `RangeError` when the window it addresses leaves the view, and
+    // MIR's exception edges live on TERMINATORS — `Terminator::Call` carries
+    // `unwind`, a `Statement::Assign` carries nothing — so an accessor lowered
+    // as an rvalue could not reach a `try` at all. It is therefore a call to
+    // `BuiltinFn::DataViewAccess` behind the generated throwing adapter, the
+    // same route `JSON.parse` takes. See
+    // `blocker-logs/standards-throwing-rvalue.md`; executed end to end by
+    // `examples/typescript/end-to-end/88_data_view_range_error`.
+    let read = source_for("export function f(view: DataView) { return view.getInt16(1); }");
+    assert!(
+        read.contains("smelt_data_view_get_throwing("),
+        "a read must go through the throwing adapter:\n{read}"
+    );
+    // The `?` is what carries the failure to the enclosing handler (or out of
+    // the function, when the source wrote no `try`).
+    assert!(
+        read.contains(", SmeltTypedArrayKind::Int16, (1.0) as f64, false)?"),
+        "the adapter call must pass kind, an f64 offset and the byte order, and end in `?`:\n{read}"
+    );
+    // The offset stays an `f64` so the adapter can run `ToIndex` on it: a
+    // `max(0.0) as usize` at the emit site would answer byte 0 for
+    // `getInt16(-1)`, which Node throws on.
+    assert!(
+        !read.contains("SmeltTypedArrayKind::Int16, ((1.0) as f64).max(0.0) as usize"),
+        "the accessor's offset must not be clamped at the emit site:\n{read}"
+    );
+    assert!(
+        read.contains("fn smelt_data_view_byte_index(offset: f64) -> Option<usize>")
+            && read.contains("if integer < 0.0 || integer > 9007199254740991.0"),
+        "`ToIndex` must reject a negative or non-representable index:\n{read}"
+    );
+    // The payload is the branded record a source `catch` inspects, carrying
+    // Node's own message because a program can read `error.message`.
+    assert!(
+        read.contains("\"RangeError\"")
+            && read.contains("Offset is outside the bounds of the DataView"),
+        "the throw must be a branded `RangeError` with Node's message:\n{read}"
+    );
+    // The window bound is stated ONCE, in the checked pair, so the checked and
+    // unchecked halves cannot disagree about where the view ends.
+    assert!(
+        read.contains("fn in_bounds(&self, kind: SmeltTypedArrayKind, offset: usize) -> bool"),
+        "the bound belongs to the view type, not to the adapter:\n{read}"
+    );
+
+    // Pay-for-use has a FLOOR: the `RangeError` payload is a branded
+    // `SmeltUnknown::Object`, so a program whose only erased value is that
+    // throw still needs the carrier. Without it the adapters landed in a
+    // prelude block the program never entered and the crate did not compile
+    // (E0425) — the same clause `needs_uri_decode_runtime` and
+    // `needs_base64_runtime` already have in `needs_unknown_type`.
+    assert!(
+        read.contains("enum SmeltUnknown"),
+        "an accessor-only program must still carry the erased carrier:\n{read}"
+    );
+
+    // A write takes its value between the offset and the byte-order flag, and
+    // is fallible on the same channel.
+    let write =
+        source_for("export function f(view: DataView) { view.setFloat64(0, 1.5, true); }");
+    assert!(
+        write.contains("smelt_data_view_set_throwing(")
+            && write.contains(", SmeltTypedArrayKind::Float64, (0.0) as f64, 1.5, true)?"),
+        "a write must go through the throwing adapter with the value in the middle:\n{write}"
+    );
+
+    // Pay-for-use: the adapters are gated on an accessor CALL, which the
+    // rvalue-based dependency scan cannot see, so a byte-family program with no
+    // accessor must carry neither of them.
+    let no_accessor = source_for("export function f() { return new DataView(new ArrayBuffer(8)); }");
+    assert!(
+        !no_accessor.contains("smelt_data_view_get_throwing")
+            && !no_accessor.contains("smelt_data_view_set_throwing"),
+        "a program with no accessor must not pay for the throwing adapters:\n{no_accessor}"
+    );
+}
+
+#[test]
 fn every_byte_buffer_host_constructs_its_concrete_value() {
     // The whole byte family is concrete now, and each half in the shape its
     // surface asks for: `SharedArrayBuffer` is the storage type with its

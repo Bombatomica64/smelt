@@ -531,18 +531,22 @@ pub enum ExprKind {
     /// A `DataView` element accessor: `getInt16(offset, littleEndian?)` or
     /// `setFloat64(offset, value, littleEndian?)`.
     ///
-    /// One node for all eighteen accessors, carrying the source MEMBER
-    /// spelling for the same reason [`Self::TypedArrayNew`] carries the source
-    /// class name: the width, the signedness and the direction are all encoded
-    /// in that one name, the registry already knows how to read it, and a
-    /// variant per accessor would be eighteen ways to say one operation. The
-    /// element kind is not a property of the receiver here — the same view
+    /// One node for all eighteen accessors, carrying the DIRECTION and the
+    /// element type the registry resolved from the source member name. A
+    /// variant per accessor would be eighteen ways to say one operation, and
+    /// the element type is named rather than copied
+    /// ([`smelt_stdlib::TypedArrayElement`]) so the accessor rule, the emitted
+    /// kind enum and the view classes keep one element table.
+    ///
+    /// The element kind is not a property of the receiver here — the same view
     /// answers `getInt16` and `getFloat64` — which is exactly why `DataView`
     /// cannot share [`Self::ByteArrayOp`]'s shape, where the kind rides on the
     /// value.
     DataViewAccess {
-        /// The source accessor name, as written (`"getInt16"`, `"setUint8"`).
-        member: String,
+        /// Whether this accessor WRITES (`setX`) rather than reads (`getX`).
+        write: bool,
+        /// The element type, which is the accessor's width and signedness.
+        element: smelt_stdlib::TypedArrayElement,
         /// The `DataView` receiver.
         view: ExprId,
         /// The accessor arguments, as written.
