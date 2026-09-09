@@ -291,6 +291,84 @@ clone-strategy = "aggressive"
     Ok(())
 }
 
+/// A forward-referenced module-level arrow const, whose lifted Rust item name
+/// is qualified by its module.
+const LIFTED_ARROW_MAIN: &str = r"function run(n: number): number {
+  return helper(n) + 1;
+}
+const helper = (n: number): number => n * 2;
+console.log(run(3));
+console.log(helper(5));
+";
+
+/// The generated Rust for one source is the same wherever it is built.
+///
+/// A module-private helper's Rust item name has to stay unique once every
+/// module is emitted into one crate, and it was qualified with `self.path` —
+/// the path the compiler was handed, absolute in a manifest build. So the same
+/// TypeScript emitted `helper__module__tmp_xyz_src_main_ts` in one checkout and
+/// a different name in another: generated output was not reproducible, and no
+/// golden could cover the shape (H55, found while writing H50's fixture).
+///
+/// The qualifier is now the module IDENTITY the transpiler already computes for
+/// module bodies (`manifest_module_names`), so this test builds the same source
+/// in two different directories and compares the emitted crate byte for byte.
+/// Two builds rather than a golden with a name in it, because the property is
+/// equality between builds, not any particular spelling.
+#[test]
+fn build_emits_identical_rust_from_two_directories() -> TestResult {
+    let mut emitted = Vec::new();
+    for _ in 0_u8..2_u8 {
+        let project = TempProject::new()?;
+        let project_path = project.path();
+        fs::create_dir_all(project_path.join("src"))?;
+        fs::write(
+            project_path.join("Smelt.toml"),
+            r#"[project]
+name = "reproducible-names"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "reproducible_names"
+build = false
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+        )?;
+        fs::write(project_path.join("src/main.ts"), LIFTED_ARROW_MAIN)?;
+        let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+        smelt(&["--manifest-path", &manifest_arg, "build"])?;
+        emitted.push(fs::read_to_string(project_path.join("dist/src/main.rs"))?);
+    }
+    let [first, second] = emitted.as_slice() else {
+        return Err("expected two emitted crates".into());
+    };
+    ensure_eq(
+        first,
+        second,
+        "the same source built in two directories must emit the same Rust",
+    )?;
+    // The lifted helper is qualified by its module, not by a path: the shape
+    // this test exists for would otherwise pass vacuously if the qualification
+    // were dropped altogether (which would reintroduce the cross-module
+    // collision it prevents).
+    ensure(
+        first.contains("helper__module_main"),
+        "the lifted arrow should be qualified by its module identity",
+    )?;
+    ensure(
+        !first.contains("__module__"),
+        "no generated name should embed an absolute path",
+    )?;
+
+    Ok(())
+}
+
 /// A predicate bound to a const, used both directly and by name.
 const NAMED_LOCAL_CALLBACK_MAIN: &str = r#"type Predicate = (value: string) => boolean;
 

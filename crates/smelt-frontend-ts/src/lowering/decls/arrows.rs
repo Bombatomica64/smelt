@@ -336,7 +336,17 @@ impl ModuleBuilder<'_> {
         let name = if preserve_source_name {
             self.intern_exact_source_name(name_text)
         } else if qualify_private_name {
-            self.intern_source_name(&format!("{name_text}__module_{}", self.path))
+            // The module's crate-unique IDENTITY, not the path it was compiled
+            // from: the same source has to emit the same Rust wherever it is
+            // built (H55). Falls back to the path when the module is lowered on
+            // its own, where there is no crate to be unique within.
+            let qualifier = self
+                .ctx
+                .module_identities
+                .get(&self.path)
+                .cloned()
+                .unwrap_or_else(|| self.path.clone());
+            self.intern_source_name(&format!("{name_text}__module_{qualifier}"))
         } else {
             self.intern_source_name(name_text)
         };

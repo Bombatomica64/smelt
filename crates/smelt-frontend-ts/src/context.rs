@@ -237,6 +237,24 @@ pub struct HirCtx {
     /// original name (`krate.names`), because that is what reflection reads:
     /// `instanceof` and `__smelt_class` must still answer `Node`.
     pub class_renames: HashMap<String, HashMap<String, String>>,
+    /// Crate-unique module identity for each module path.
+    ///
+    /// A module-private helper's Rust item name has to stay distinct after every
+    /// source module is emitted into ONE generated crate — several modules
+    /// legitimately spell a helper `lazyImplementation` — so the name is
+    /// qualified by its module. It used to be qualified by `self.path`, the path
+    /// the compiler was handed, which is absolute in a manifest build: the same
+    /// TypeScript then emitted
+    /// `is_short__module__home_user_project_src_main_ts` in one checkout and a
+    /// different name in another, so generated output was not reproducible and
+    /// no golden could cover the shape (H55).
+    ///
+    /// The transpiler fills this from `manifest_module_names`, the collision-free
+    /// module identities it already computes for module BODIES (`node`,
+    /// `node_1`, ...), so the qualifier is the same everywhere the crate is
+    /// built. Empty when a module is lowered on its own (a unit test,
+    /// `dump-hir`), and then the path is used as before.
+    pub module_identities: HashMap<String, String>,
 }
 
 impl HirCtx {
@@ -267,6 +285,7 @@ impl HirCtx {
             written_host_globals: HashSet::new(),
             project_sources_outside_crate: HashSet::new(),
             class_renames: HashMap::new(),
+            module_identities: HashMap::new(),
         }
     }
 }
