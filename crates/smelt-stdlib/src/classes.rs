@@ -110,12 +110,29 @@ pub enum StdlibClass {
     /// Separate from [`Self::TypedArray`] because storage interprets no bytes:
     /// it has `byteLength` and `slice` and no elements, which is why
     /// `JSON.stringify(buffer)` is `{}` where a view stringifies as its element
-    /// indices. `SharedArrayBuffer` and `DataView` are deliberately NOT here —
-    /// they keep the erased byte-backed record, because neither's surface
-    /// (cross-thread storage; per-call element widths) is modeled concretely
-    /// yet, and a half-modeled concrete face is worse than an honest erased
-    /// one.
+    /// indices.
+    ///
+    /// `SharedArrayBuffer` is the SAME class: the two constructors differ in
+    /// their `[object X]` tag, their `instanceof` answer and the growth
+    /// members, and in nothing about the bytes — a `SharedArrayBuffer` is
+    /// storage every view reads and writes through, which is what
+    /// `SmeltArrayBuffer` already is. Smelt has no worker threads, so the one
+    /// behaviour a hand-written Rust pair would actually differ on cannot be
+    /// observed; a `shared` flag set at the construction site carries the tag
+    /// and the identity, and `Type::Class { name }` keeps the source spelling
+    /// so `instanceof` can still tell them apart.
     ArrayBuffer,
+    /// The per-call-width view over byte storage: `DataView`, backed by the
+    /// generated `SmeltDataView` runtime type.
+    ///
+    /// Separate from [`Self::TypedArray`] because the element kind is not a
+    /// property of the VALUE here — it is an argument of every call
+    /// (`view.getInt16(0)` and `view.getFloat64(0)` read the same view), which
+    /// is also why endianness is a parameter rather than a fixed
+    /// platform-order: a `DataView` defaults to BIG-endian where every typed
+    /// array is little-endian. So the width and byte order travel with the
+    /// call, and the value carries only its window over the storage.
+    DataView,
     /// WHATWG `Blob`, backed by the generated concrete `SmeltBlob` runtime type
     /// (immutable bytes, a MIME type, and optional `File` metadata).
     Blob,
@@ -184,6 +201,7 @@ impl StdlibClass {
                 | Self::Match
                 | Self::TypedArray
                 | Self::ArrayBuffer
+                | Self::DataView
                 | Self::TextEncoder
                 | Self::TextDecoder
                 | Self::EventEmitter
@@ -223,7 +241,11 @@ impl StdlibClass {
         !self.erases_through_adapter()
             || matches!(
                 self,
-                Self::Blob | Self::File | Self::TypedArray | Self::ArrayBuffer
+                Self::Blob
+                    | Self::File
+                    | Self::TypedArray
+                    | Self::ArrayBuffer
+                    | Self::DataView
             )
     }
 
@@ -365,7 +387,8 @@ pub fn typescript_stdlib_class(name: &str) -> Option<StdlibClass> {
         // side, the annotation side and codegen's Rust-type side cannot
         // disagree about which spellings are the family.
         name if is_typed_array_class_name(name) => Some(StdlibClass::TypedArray),
-        "ArrayBuffer" => Some(StdlibClass::ArrayBuffer),
+        "ArrayBuffer" | "SharedArrayBuffer" => Some(StdlibClass::ArrayBuffer),
+        "DataView" => Some(StdlibClass::DataView),
         "Blob" => Some(StdlibClass::Blob),
         "File" => Some(StdlibClass::File),
         _ => None,

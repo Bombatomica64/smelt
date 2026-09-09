@@ -53,6 +53,12 @@ pub enum TypeScriptReceiverKind {
     /// and shares its whole method surface, so keying the methods on two kinds
     /// would duplicate every entry to say the same thing.
     Blob,
+    /// A `DataView` value.
+    ///
+    /// Its own kind because the surface has nothing in common with the typed
+    /// arrays': every member is a per-call-width accessor, and `DataView` has
+    /// none of `subarray`/`set`/`fill`.
+    DataView,
     /// A value of the concrete typed-array family: one of the eleven views, or
     /// the `ArrayBuffer` storage behind them.
     ///
@@ -534,6 +540,15 @@ pub fn typescript_call_rule(receiver: Option<&str>, member: &str) -> Option<Rule
 /// Return the shared rule for a TypeScript receiver-method call.
 #[must_use]
 pub fn typescript_method_rule(receiver: TypeScriptReceiverKind, member: &str) -> Option<RuleId> {
+    // `DataView`'s eighteen accessors are a RULE over the element table, not
+    // eighteen entries: `crate::data_view_accessor` reads the direction and
+    // the width straight off the name, so adding an element type would add its
+    // accessors without touching this table.
+    if receiver == TypeScriptReceiverKind::DataView
+        && crate::data_view_accessor(member).is_some()
+    {
+        return Some(RuleId::TsDataViewAccess);
+    }
     TYPESCRIPT_METHODS
         .iter()
         .find(|entry| entry.receiver == receiver && entry.member == member)

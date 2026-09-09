@@ -615,6 +615,13 @@ fn rewrite_rvalue(
             }
             rewritten
         }
+        Rvalue::DataViewAccess { view, args, .. } => {
+            let mut rewritten = rewrite_operand_except(view, aliases, dest);
+            for arg in args {
+                rewritten |= rewrite_operand_except(arg, aliases, dest);
+            }
+            rewritten
+        }
         Rvalue::ByteArrayOp { bytes, args, .. } => {
             let mut rewritten = rewrite_operand_except(bytes, aliases, dest);
             for arg in args {

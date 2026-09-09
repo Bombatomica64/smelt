@@ -1,4 +1,4 @@
-module examples/typescript/end-to-end/82_class_expression_binding/input.ts (ModuleId(0))
+module examples/typescript/end-to-end/83_class_expression_binding/input.ts (ModuleId(0))
   body BodyId(11)
   items
     class Counter fields [Hidden #hits: List<String>] constructor Some(ItemId(5)) methods [ItemId(3), ItemId(4)] implements []

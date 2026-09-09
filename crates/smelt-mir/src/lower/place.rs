@@ -376,6 +376,7 @@ impl LoweringCtx<'_> {
             | ExprKind::TextDecoderOp { .. }
             | ExprKind::Base64Transcode { .. }
             | ExprKind::TypedArrayNew { .. }
+            | ExprKind::DataViewAccess { .. }
             | ExprKind::ByteArrayOp { .. }
             | ExprKind::UrlSearchParamsNew { .. }
             | ExprKind::FormDataNew

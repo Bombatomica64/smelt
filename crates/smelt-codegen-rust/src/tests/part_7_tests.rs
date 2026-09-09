@@ -10294,39 +10294,53 @@ export function clearSlot(handle: unknown): number {
 }
 
 #[test]
-fn byte_buffer_hosts_construct_through_the_shared_reflected_constructor() {
-    // The byte hosts Smelt does NOT model concretely — `SharedArrayBuffer`
-    // (cross-thread storage) and `DataView` (per-call element widths) — still
-    // lower to `smelt_reflected_construct`, the *same* runtime constructor the
-    // reflected `new Object.getPrototypeOf(x).constructor(...)` path calls. That
-    // shared constructor is what makes a directly built record indistinguishable
-    // from a reflectively built one — es-toolkit's `clone` uses the reflected form
-    // where its `cloneDeepWith` uses the direct one, and its specs compare the two
-    // results against each other.
-    for (source, kind) in [
+fn every_byte_buffer_host_constructs_its_concrete_value() {
+    // The whole byte family is concrete now, and each half in the shape its
+    // surface asks for: `SharedArrayBuffer` is the storage type with its
+    // species flag set (the two constructors differ in a tag, an `instanceof`
+    // answer and the growth members, and in nothing about the bytes), while
+    // `DataView` is its own type because its element width is an argument of
+    // every accessor rather than a field of the value.
+    //
+    // The erased byte-backed record is what each reaches through its own
+    // boundary adapter, and it is built by the SAME record builder
+    // `smelt_reflected_construct` uses — which is what keeps a directly built
+    // record indistinguishable from a reflectively built one. es-toolkit's
+    // `clone` takes the reflected form where its `cloneDeepWith` takes the
+    // direct one, and its specs compare the two results against each other.
+    for (source, expected) in [
         (
             "export function f() { return new SharedArrayBuffer(8); }",
-            "sharedarraybuffer",
+            "SmeltArrayBuffer::new_shared(",
         ),
         (
             "export function f() { return new DataView(new ArrayBuffer(8), 1, 2); }",
-            "dataview",
+            "SmeltDataView::over_buffer(",
+        ),
+        (
+            "export function f() { return new ArrayBuffer(8); }",
+            "SmeltArrayBuffer::new(",
+        ),
+        (
+            "export function f() { return new Uint8Array(8); }",
+            "SmeltTypedArray::with_length(",
         ),
     ] {
         let generated = source_for(source);
         assert!(
-            generated.contains(&format!("smelt_reflected_construct(\"{kind}\"")),
-            "expected `{source}` to construct through the shared `{kind}` host constructor:\n{generated}"
+            generated.contains(expected),
+            "expected `{source}` to construct `{expected}`:\n{generated}"
         );
+        // Not through the erased host constructor: the assertion names the
+        // CALL spelling, since the prelude's own definition of that helper is
+        // still emitted for the reflected path.
+        for kind in ["sharedarraybuffer", "dataview", "arraybuffer", "uint8array"] {
+            assert!(
+                !generated.contains(&format!("smelt_reflected_construct(\"{kind}\"")),
+                "a concrete construction must not route through the erased `{kind}` constructor:\n{generated}"
+            );
+        }
     }
-    // `ArrayBuffer` is the half that IS modeled concretely (increment 3), so it
-    // constructs its own Rust value and reaches the record above only through
-    // the boundary adapter.
-    let generated = source_for("export function f() { return new ArrayBuffer(8); }");
-    assert!(
-        generated.contains("SmeltArrayBuffer::new("),
-        "`new ArrayBuffer(8)` must construct the concrete storage:\n{generated}"
-    );
 }
 
 #[test]

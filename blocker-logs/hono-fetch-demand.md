@@ -321,3 +321,122 @@ exactly shape (3). The fixture binds its init to an annotated const at that one
 call site to keep the examples corpus at zero avoidable erasure, with a comment
 pointing here — so a fix can un-bind it and the golden will show the
 improvement.
+
+## Found by standards (round 27): a `T | null` return prints `undefined`
+
+`console.log(headers.get("x"))` with no such header prints `undefined` where
+Node prints `null`. The finding is WIDER than `Headers.get`, which is why it is
+recorded here rather than fixed as a fetch-types detail. Measured against
+Node 22:
+
+| source | Node | Smelt |
+| --- | --- | --- |
+| `(): string \| null => null` | `null` | `undefined` |
+| `(): string \| undefined => undefined` | `undefined` | `undefined` |
+| `new Headers().get("x")` | `null` | `undefined` |
+| `new Map().get("a")` | `undefined` | `undefined` (already right) |
+
+So EVERY `T | null` annotation prints the wrong absent word, and `Headers.get`
+is one instance of it. `Map.get` is right by luck: its absent value really is
+`undefined`.
+
+### Why it cannot be fixed at the declaration
+
+The machinery is already there — `AbsentSpelling::null_text()` answers `"null"`,
+and every site that still holds a runtime tag uses it
+(`String(null)` is `"null"`). What is missing is the distinction reaching those
+sites at all: in `ty::annotations`, the union arm lowers `TSNullKeyword` and
+`TSUndefinedKeyword` to the SAME `Type::None`, and a union of one non-nullish
+arm plus a nullish one collapses to `Type::Optional(inner)`. From that point on
+`string | null` and `string | undefined` are the same interned type, so no
+consumer can tell them apart — the information is gone before MIR, not lost in
+the printer.
+
+Typing `Headers.get` as something else does not fix it either, and would make
+things worse: `Union([String, None])` is a two-arm CONCRETE union, so it emits a
+generated tagged enum per nullable return instead of an `Option<String>`. That
+is a real loss of concreteness against the north star, and it would move
+es-toolkit and remeda output wholesale, to buy one printed word.
+
+### The two designs, and their measured cost
+
+1. **A nullish spelling on the optional** — `Type::Optional { inner, absent:
+   AbsentSpelling-like }`, or a sibling `Type::Nullable(inner)`. The Rust
+   representation stays `Option<T>`, which is what a hand-writing team would
+   also choose; only the printed word and the erased tag (`SmeltUnknown::Null`
+   vs `Undefined`) differ. This is the right answer.
+
+   **Cost: 469 non-test sites pattern `Type::Optional`.** Adding a field or a
+   variant makes every one of them a compile error, across
+   `smelt-hir`/`smelt-mir`/`smelt-frontend-ts`/`smelt-frontend-py`/
+   `smelt-codegen-rust`. That is a deliberate type-system refactor with its own
+   corpus measurement, not a rider on a feature round — the same judgement
+   `CLAUDE.md`'s "Refactoring timing" section asks for.
+
+2. **Keep the collapse and thread the spelling beside the type** — a side table
+   keyed by the declaring item, the way D1 proposes for callback fallibility.
+   Cheaper to land, and wrong for the same reason it is wrong there when the
+   value flows: an optional that crosses a function boundary, a field, or a
+   collection loses its key, and the printer sees a bare `Type::Optional`
+   again. It would fix the direct `console.log(headers.get(..))` and nothing
+   reached through one hop.
+
+**Recommendation:** design 1, as its own round. Until then every fixture that
+would print an absent nullable compares against `null` instead, with the reason
+at the line — see `78_request_input_forms` and `77_body_init_buffer_source`.
+
+## Found by standards (round 27, item 3): two divergences the byte family exposed
+
+Both were found while making `DataView` and `SharedArrayBuffer` concrete, and
+neither is about those types. Both are recorded, not fixed.
+
+### 1. An out-of-range `DataView` accessor answers zero where Node throws
+
+| source | Node | Smelt |
+| --- | --- | --- |
+| `new DataView(new ArrayBuffer(2)).getInt32(0)` | `RangeError: Offset is outside the bounds of the DataView` | `0` |
+| `new DataView(new ArrayBuffer(2)).setInt32(0, 1)` | the same `RangeError` | no write |
+
+The in-range surface is exact — widths, signednesses, both byte orders, shared
+windows — and the bound is CHECKED, so nothing is read or written outside the
+window. What is missing is the throw.
+
+**Why it cannot be fixed at the accessor.** A Smelt throw reaches a source
+`catch` in one of two ways: a `Result`-returning CALL whose `?` propagates, or a
+`Terminator::Call` with an `unwind` edge that the emitter wraps in
+`catch_unwind`. Both are properties of a CALL. A `DataView` accessor lowers to
+an `Rvalue` — `Rvalue::DataViewAccess`, assigned into a temp like every other
+member read — and an `Rvalue` has no unwind edge, so a `panic!` from inside one
+would cross an enclosing `try` uncaught. That is a worse divergence than the
+zero: a caught `RangeError` would become a process abort.
+
+**What the fix is.** A throwing RVALUE: the same `can_throw` plumbing
+`BuiltinFn::is_fallible` gives fallible builtins, extended to the member ops
+that the spec makes fallible. `Rvalue::DataViewAccess` is the first case, and
+the typed-array `set`/`fill` bound checks and `ArrayBuffer.prototype.resize`
+would follow. It is its own round: the MIR lowering has to route such an rvalue
+through a call terminator so the handler edge exists at all.
+
+### 2. Numbers never print in exponential form
+
+Not `DataView`'s at all — it just makes the gap easy to hit, because
+`getFloat64` over unrelated bytes lands on subnormals.
+
+| source | Node | Smelt |
+| --- | --- | --- |
+| `console.log(3.13984e-319)` | `3.13984e-319` | `0.000…000313984` (321 chars) |
+| `console.log(1e21)` | `1e+21` | `1000000000000000000000` |
+| `console.log(1e-7)` | `1e-7` | `0.0000001` |
+
+`Number.prototype.toString` switches to exponential notation when the decimal
+exponent is at least 21 or below -7; Smelt emits Rust's `f64` `Display`, which
+never does. So every program that prints a very large or very small number
+prints a different string from Node — a general formatting rule, wrong in one
+shared helper, and independent of every type that reaches it.
+
+**What the fix is.** The number-to-string helper the runtime prelude emits,
+following the spec's `Number::toString` step 5 (the `k`/`n` digit-count rule) —
+which is also what `${}`, `String(x)`, `JSON.stringify` and array joins reach.
+Cheap to write and mechanical to verify against Node; it moves every golden
+that carries the helper, which is why it wants its own commit rather than a
+rider.

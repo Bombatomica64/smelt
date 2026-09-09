@@ -109,6 +109,62 @@ impl TypedArrayElement {
         }
     }
 
+    /// Whether `DataView` has a `get`/`set` accessor pair for this element.
+    ///
+    /// True for every element type but `Uint8Clamped`: clamping is a WRITE
+    /// POLICY of the `Uint8ClampedArray` view, not a width, so `DataView` —
+    /// which chooses a width per call and has no view identity to carry a
+    /// policy — has no `getUint8Clamped`. The exclusion lives here rather than
+    /// at the dispatch site so the accessor rule stays derived from the
+    /// element table.
+    #[must_use]
+    pub const fn has_data_view_accessor(self) -> bool {
+        !matches!(self, Self::Uint8Clamped)
+    }
+
+    /// This element's CamelCase name: `Int8`, `Float64`, `BigUint64`.
+    ///
+    /// One spelling, two consumers: it is the view class's name minus the
+    /// `Array` (`Int16Array`), which is also the suffix `DataView`'s accessors
+    /// carry (`getInt16`), and it is the variant name the generated
+    /// `SmeltTypedArrayKind` enum uses. Deriving all three from here is what
+    /// keeps a dispatch site, an accessor rule and an emitted enum from naming
+    /// the same element differently.
+    #[must_use]
+    pub const fn element_name(self) -> &'static str {
+        match self {
+            Self::Int8 => "Int8",
+            Self::Uint8 => "Uint8",
+            Self::Uint8Clamped => "Uint8Clamped",
+            Self::Int16 => "Int16",
+            Self::Uint16 => "Uint16",
+            Self::Int32 => "Int32",
+            Self::Uint32 => "Uint32",
+            Self::Float32 => "Float32",
+            Self::Float64 => "Float64",
+            Self::BigInt64 => "BigInt64",
+            Self::BigUint64 => "BigUint64",
+        }
+    }
+
+    /// Every element type, in table order.
+    #[must_use]
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Int8,
+            Self::Uint8,
+            Self::Uint8Clamped,
+            Self::Int16,
+            Self::Uint16,
+            Self::Int32,
+            Self::Uint32,
+            Self::Float32,
+            Self::Float64,
+            Self::BigInt64,
+            Self::BigUint64,
+        ]
+    }
+
     /// A stable lowercase tag naming this element type.
     ///
     /// The generated runtime dispatches its decode/encode on this string, so the
@@ -552,6 +608,32 @@ pub fn typed_array_host_objects() -> impl Iterator<Item = (&'static str, TypedAr
 #[must_use]
 pub fn typed_array_element(class_name: &str) -> Option<TypedArrayElement> {
     host_object_by_class(class_name).and_then(|entry| entry.element)
+}
+
+/// Resolve a `DataView` accessor name into its direction and element type.
+///
+/// `Some((true, Float64))` for `"setFloat64"`, `Some((false, Int16))` for
+/// `"getInt16"`, `None` for anything else — including `getUint8Clamped`, which
+/// `DataView` does not have (see
+/// [`TypedArrayElement::has_data_view_accessor`]).
+///
+/// This is a RULE, not a table of eighteen entries: the accessor's name is
+/// `get`/`set` plus the element's own spelling, so the element table is the
+/// single source of truth and a new element type would get its accessors for
+/// free. The dispatch site asks this instead of matching names itself.
+#[must_use]
+pub fn data_view_accessor(member: &str) -> Option<(bool, TypedArrayElement)> {
+    let (write, suffix) = if let Some(suffix) = member.strip_prefix("get") {
+        (false, suffix)
+    } else if let Some(suffix) = member.strip_prefix("set") {
+        (true, suffix)
+    } else {
+        return None;
+    };
+    TypedArrayElement::all()
+        .iter()
+        .find(|element| element.has_data_view_accessor() && element.element_name() == suffix)
+        .map(|element| (write, *element))
 }
 
 #[cfg(test)]

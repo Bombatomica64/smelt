@@ -1335,6 +1335,10 @@ impl FunctionEmitter<'_> {
                     // the synthetic codec name render the same type.
                     Some(smelt_stdlib::StdlibClass::TypedArray) => Some("SmeltTypedArray"),
                     Some(smelt_stdlib::StdlibClass::ArrayBuffer) => Some("SmeltArrayBuffer"),
+                    // `DataView` is its own type, not a twelfth kind: its
+                    // element width is an argument of each accessor rather
+                    // than a field of the value.
+                    Some(smelt_stdlib::StdlibClass::DataView) => Some("SmeltDataView"),
                     _ => None,
                 } {
                     return Ok(RustType::raw(codec_type));
@@ -1687,6 +1691,13 @@ impl FunctionEmitter<'_> {
                     == Some(smelt_stdlib::StdlibClass::ArrayBuffer) =>
             {
                 Ok("SmeltArrayBuffer::new(0)".to_owned())
+            }
+            // An empty window over empty storage, for the same reason.
+            Type::Class { name, .. }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::DataView) =>
+            {
+                Ok("SmeltDataView::new()".to_owned())
             }
             Type::Class { name, .. }
                 if self.stdlib_class_of_symbol(*name)?

@@ -3240,6 +3240,11 @@ impl SmeltBody {
     pub fn from_blob(bytes: Vec<u8>, blob_type: String) -> Self { let mut body = Self::from_payload(SmeltBodyPayload::Bytes(bytes)); if !blob_type.is_empty() { body.content_type = Some(blob_type); } body }
     /// A streaming body whose chunks arrive in order.
     pub fn from_chunks(chunks: Vec<Vec<u8>>) -> Self { Self::from_payload(SmeltBodyPayload::Stream(chunks)) }
+    /// Take a source body: same payload, fresh used flag, source disturbed.
+    pub fn take_from_source(source: &Self) -> Self {
+        if !source.is_empty() { source.used.set(true); }
+        Self { id: smelt_next_object_id(), payload: ::std::rc::Rc::clone(&source.payload), used: ::std::rc::Rc::new(::std::cell::Cell::new(false)), content_type: source.content_type.clone() }
+    }
     /// Wrap a payload, unused, with a fresh identity.
     fn from_payload(payload: SmeltBodyPayload) -> Self { Self { id: smelt_next_object_id(), payload: ::std::rc::Rc::new(::std::cell::RefCell::new(payload)), used: ::std::rc::Rc::new(::std::cell::Cell::new(false)), content_type: None } }
     /// JS reference identity of this body.

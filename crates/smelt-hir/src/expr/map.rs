@@ -566,6 +566,18 @@ impl ExprKind {
                     args: mapped,
                 }
             }
+            Self::DataViewAccess { member, view, args } => {
+                let view = f(view)?;
+                let mut mapped = Vec::with_capacity(args.len());
+                for arg in args {
+                    mapped.push(f(arg)?);
+                }
+                Self::DataViewAccess {
+                    member,
+                    view,
+                    args: mapped,
+                }
+            }
             Self::ByteArrayOp { op, bytes, args } => {
                 let bytes = f(bytes)?;
                 let mut mapped = Vec::with_capacity(args.len());

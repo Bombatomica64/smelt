@@ -395,7 +395,9 @@ pub(crate) fn needs_byte_array_runtime(mir: &Mir) -> bool {
         || any_rvalue_needs(mir, |rvalue| {
             matches!(
                 rvalue,
-                Rvalue::ByteArrayOp { .. } | Rvalue::TypedArrayNew { .. }
+                Rvalue::ByteArrayOp { .. }
+                    | Rvalue::TypedArrayNew { .. }
+                    | Rvalue::DataViewAccess { .. }
             )
         })
         || mir
@@ -405,7 +407,23 @@ pub(crate) fn needs_byte_array_runtime(mir: &Mir) -> bool {
             .any(|ty| {
                 is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::TypedArray)
                     || is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::ArrayBuffer)
+                    || is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::DataView)
             })
+}
+
+/// Returns true when generated Rust needs the `SmeltDataView` runtime type.
+///
+/// Gated apart from the rest of the family because most programs that hold a
+/// typed array never mention a `DataView`: an accessor call, or the spelling in
+/// the type table.
+pub(crate) fn needs_data_view_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| {
+        matches!(rvalue, Rvalue::DataViewAccess { .. })
+    }) || mir
+        .types
+        .all()
+        .iter()
+        .any(|ty| is_stdlib_class(mir, ty, smelt_stdlib::StdlibClass::DataView))
 }
 
 /// Returns true when generated Rust needs the `SmeltBlob` runtime type.

@@ -1474,6 +1474,17 @@ pub enum Rvalue {
         /// The constructor arguments, as written.
         args: Vec<Operand>,
     },
+    /// Read or write one element through a `DataView`.
+    DataViewAccess {
+        /// The source accessor name (`"getInt16"`, `"setUint8"`), which is
+        /// what carries the width, the signedness and the direction.
+        member: String,
+        /// The `DataView` receiver.
+        view: Operand,
+        /// The accessor arguments: a byte offset, a value for a write, and an
+        /// optional little-endian flag.
+        args: Vec<Operand>,
+    },
     /// Read a member of, or call a method on, the concrete typed-array family.
     ByteArrayOp {
         /// Member to read or call.

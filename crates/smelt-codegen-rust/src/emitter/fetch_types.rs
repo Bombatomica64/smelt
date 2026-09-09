@@ -339,18 +339,75 @@ impl FunctionEmitter<'_> {
         signal: Option<&Operand>,
     ) -> Result<String, EmitError> {
         let input_ty = self.operand_ty(input)?;
-        if !matches!(self.mir.types.get(input_ty), Some(Type::String)) {
-            return Err(EmitError::new(
-                "Request input must be a URL string; a Request input is not modeled yet",
-            ));
-        }
-        let input_text = self.operand_text(input)?;
-        let method_expr = self.init_scalar_text(method, "\"GET\".to_owned()")?;
-        let headers_expr = self.init_headers_text(headers)?;
-        let body_expr = self.init_body_text(body)?;
-        let request_text = format!(
-            "SmeltRequest::from_parts(&{input_text}, {method_expr}, {headers_expr}, {body_expr})"
-        );
+        // The spec's `RequestInfo` is `Request | string`. A REQUEST input is
+        // the "copy the source" form: the new request starts from the source's
+        // url, method, headers and body, and each init key that is present
+        // overrides its slot. So the input decides the DEFAULTS rather than
+        // needing a second constructor — which is also why the body default is
+        // the source's `body()` handle: the spec SHARES it, so consuming the
+        // copy's body is observable on the source, exactly as the
+        // init-position `Request` already behaves.
+        let request_text = if self.is_request_class_type(input_ty)? {
+            let source = self.operand_text(input)?;
+            self.request_from_parts_text(
+                method,
+                headers,
+                body,
+                &format!("{source}.url()"),
+                &format!("{source}.method()"),
+                &format!("{source}.headers()"),
+                &format!("SmeltBody::take_from_source(&{source}.body())"),
+            )?
+        } else if matches!(self.mir.types.get(input_ty), Some(Type::String)) {
+            self.request_from_parts_text(
+                method,
+                headers,
+                body,
+                &self.operand_text(input)?,
+                "\"GET\".to_owned()",
+                "SmeltHeaders::new()",
+                "SmeltBody::empty()",
+            )?
+        } else {
+            // **Dynamic boundary.** `RequestInfo` is `Request | string`, and a
+            // parameter declared as it (`input: string | Request | URL`, Hono's
+            // `app.request`) has no concrete Rust spelling: which arm it holds
+            // is a run-time fact. Both arms are distinguishable by tag and only
+            // by tag, so the choice is made once, here, on the erased value —
+            // a request RECORD recovers through the class's own boundary
+            // adapter and takes the copy path; anything else is stringified,
+            // which is what JavaScript does for a non-`Request` input and is
+            // why `new Request(urlObject)` works at all. A concrete type cannot
+            // stand in: the erasure is the parameter's own declared type.
+            let source_request = self.request_from_parts_text(
+                method,
+                headers,
+                body,
+                "smelt_input_request.url()",
+                "smelt_input_request.method()",
+                "smelt_input_request.headers()",
+                "SmeltBody::take_from_source(&smelt_input_request.body())",
+            )?;
+            let source_url = self.request_from_parts_text(
+                method,
+                headers,
+                body,
+                "smelt_input_url",
+                "\"GET\".to_owned()",
+                "SmeltHeaders::new()",
+                "SmeltBody::empty()",
+            )?;
+            let erased = self.erase(input)?;
+            let coerced =
+                self.js_string_coercion_match_text("smelt_input", self.absent_spelling());
+            format!(
+                "match {erased} {{ \
+                 SmeltUnknown::Object(value) if value.contains_key(\"__smelt_request\") => {{ \
+                 let smelt_input_request = <SmeltRequest as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(value)); \
+                 {source_request} }}, \
+                 smelt_input => {{ let smelt_input_url = {coerced}; {source_url} }} }}"
+            )
+        };
         // `init.signal` does not become the request's signal: the spec makes
         // the request's a DEPENDENT signal that follows the given one, which is
         // why this registers a follow rather than storing the operand.
@@ -360,6 +417,32 @@ impl FunctionEmitter<'_> {
         Ok(format!(
             "{{ let smelt_request = {request_text}; smelt_request_follow_signal(smelt_request.id(), {}); smelt_request }}",
             self.erase(signal)?
+        ))
+    }
+
+    /// Assemble `SmeltRequest::from_parts` from the init keys and the defaults
+    /// an ABSENT key means.
+    ///
+    /// Split out because the defaults differ by input form and by nothing else:
+    /// a string input defaults to the spec's own values, a `Request` input
+    /// defaults to the source's, and an erased input picks between the two at
+    /// run time — so the assembly is one function taking four default
+    /// expressions rather than three near-copies of it.
+    fn request_from_parts_text(
+        &self,
+        method: Option<&Operand>,
+        headers: Option<&Operand>,
+        body: Option<&Operand>,
+        url_text: &str,
+        method_default: &str,
+        headers_default: &str,
+        body_default: &str,
+    ) -> Result<String, EmitError> {
+        let method_expr = self.init_scalar_text(method, method_default)?;
+        let headers_expr = self.init_headers_text(headers, headers_default)?;
+        let body_expr = self.init_body_text(body, body_default)?;
+        Ok(format!(
+            "SmeltRequest::from_parts(&{url_text}, {method_expr}, {headers_expr}, {body_expr})"
         ))
     }
 
@@ -427,8 +510,10 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let status_text_expr = self.init_scalar_text(status, "200.0")?;
         let phrase_expr = self.init_scalar_text(status_text, "String::new()")?;
-        let headers_expr = self.init_headers_text(headers)?;
-        let body_expr = self.init_body_text(body)?;
+        // A `Response` has no source to inherit from, so both absent keys mean
+        // the spec's own empty value.
+        let headers_expr = self.init_headers_text(headers, "SmeltHeaders::new()")?;
+        let body_expr = self.init_body_text(body, "SmeltBody::empty()")?;
         Ok(format!(
             "SmeltResponse::from_parts({status_text_expr}, {phrase_expr}, {headers_expr}, {body_expr})"
         ))
@@ -457,11 +542,14 @@ impl FunctionEmitter<'_> {
         body_text: &str,
         body_ty: TypeId,
     ) -> Result<String, EmitError> {
-        // A `Request` at the body position is the WHATWG "copy the source's
-        // body" step: take its HANDLE, so consuming the new request's body is
-        // observable on the source, exactly as Node reports it.
+        // A `Request` at the body position is the WHATWG "extract the source's
+        // body" step: the new holder reads the SAME payload, and the source is
+        // disturbed at once. Sharing the whole handle (`{body}.body()`) was
+        // close but wrong at the edge that matters — it left the source
+        // readable until the copy was consumed, where Node reports
+        // `source.bodyUsed` true as soon as the copy exists.
         if self.is_request_class_type(body_ty)? {
-            return Ok(format!("{body_text}.body()"));
+            return Ok(format!("SmeltBody::take_from_source(&{body_text}.body())"));
         }
         // A body HANDLE at the body position is passed straight through: it
         // already IS a `SmeltBody`, and sharing it is what the spec says
@@ -801,15 +889,25 @@ impl FunctionEmitter<'_> {
     /// The conversion for a present value is the `Headers` constructor's own
     /// (a `Headers`, a record, or an array of pairs — selected by the
     /// operand's type), so the init and `new Headers(init)` cannot disagree.
-    fn init_headers_text(&self, operand: Option<&Operand>) -> Result<String, EmitError> {
+    /// `default_text` is what an ABSENT key means, which is not always the
+    /// spec's empty list: for `new Request(source, init)` an absent `headers`
+    /// means the SOURCE's headers, so the default travels from the call site
+    /// rather than being hard-coded here. Every caller that has no source
+    /// passes the spec's own default, so the two spellings share this one
+    /// conversion instead of growing a second copy of it.
+    fn init_headers_text(
+        &self,
+        operand: Option<&Operand>,
+        default_text: &str,
+    ) -> Result<String, EmitError> {
         let Some(operand) = operand else {
-            return Ok("SmeltHeaders::new()".to_owned());
+            return Ok(default_text.to_owned());
         };
         let ty = self.operand_ty(operand)?;
         if let Some(&Type::Optional(inner)) = self.mir.types.get(ty) {
             let present = self.headers_conversion_text("smelt_init_headers", inner)?;
             return Ok(format!(
-                "match {} {{ Some(smelt_init_headers) => {present}, None => SmeltHeaders::new() }}",
+                "match {} {{ Some(smelt_init_headers) => {present}, None => {default_text} }}",
                 self.operand_text(operand)?
             ));
         }
@@ -817,15 +915,25 @@ impl FunctionEmitter<'_> {
     }
 
     /// Render the `body` init key as a `SmeltBody`.
-    fn init_body_text(&self, operand: Option<&Operand>) -> Result<String, EmitError> {
+    ///
+    /// `default_text` carries the absent meaning for the same reason
+    /// [`Self::init_headers_text`]'s does — and for the body it is
+    /// load-bearing: an absent `body` in `new Request(source, init)` is the
+    /// source's own HANDLE, shared rather than copied, so consuming the copy's
+    /// body is observable on the source.
+    fn init_body_text(
+        &self,
+        operand: Option<&Operand>,
+        default_text: &str,
+    ) -> Result<String, EmitError> {
         let Some(operand) = operand else {
-            return Ok("SmeltBody::empty()".to_owned());
+            return Ok(default_text.to_owned());
         };
         let ty = self.operand_ty(operand)?;
         if let Some(&Type::Optional(inner)) = self.mir.types.get(ty) {
             let present = self.body_conversion_text("smelt_init_body", inner)?;
             return Ok(format!(
-                "match {} {{ Some(smelt_init_body) => {present}, None => SmeltBody::empty() }}",
+                "match {} {{ Some(smelt_init_body) => {present}, None => {default_text} }}",
                 self.operand_text(operand)?
             ));
         }

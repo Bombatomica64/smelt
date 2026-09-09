@@ -1,0 +1,266 @@
+module examples/typescript/end-to-end/82_data_view_shared_buffer/input.ts (ModuleId(0))
+  body BodyId(2)
+  items
+    fn tag_of owner Module
+    fn width_of owner Module
+  locals
+    %0 const shared: SharedArrayBuffer
+    %1 const plain: ArrayBuffer
+    %2 const overShared: Uint8Array
+    %3 const copied: SharedArrayBuffer
+    %4 const buffer: ArrayBuffer
+    %5 const view: DataView
+    %6 const windowed: DataView
+    %7 const sharedView: DataView
+  exprs
+    #0: Float = 8.0
+    #1: SharedArrayBuffer = typed_array_new SharedArrayBuffer #0
+    #2: Float = 8.0
+    #3: ArrayBuffer = typed_array_new ArrayBuffer #2
+    #4: SharedArrayBuffer = %0
+    #5: Float = byte_array_byte_length #4
+    #6: ArrayBuffer = %1
+    #7: Float = byte_array_byte_length #6
+    #8: None = @2(console_log)
+    #9: None = call #8(#5, #7)
+    #10: SharedArrayBuffer = %0
+    #11: Bool = instanceof #10, class0
+    #12: SharedArrayBuffer = %0
+    #13: Bool = instanceof #12, class1
+    #14: None = @3(console_log)
+    #15: None = call #14(#11, #13)
+    #16: ArrayBuffer = %1
+    #17: Bool = instanceof #16, class1
+    #18: ArrayBuffer = %1
+    #19: Bool = instanceof #18, class0
+    #20: None = @4(console_log)
+    #21: None = call #20(#17, #19)
+    #22: SharedArrayBuffer = %0
+    #23: String = primitive_cast_string #22
+    #24: ArrayBuffer = %1
+    #25: String = primitive_cast_string #24
+    #26: None = @5(console_log)
+    #27: None = call #26(#23, #25)
+    #28: SharedArrayBuffer = %0
+    #29: Uint8Array = typed_array_new Uint8Array #28
+    #30: Uint8Array = %2
+    #31: Float = 0.0
+    #32: Unknown = #30[#31]
+    #33: Float = 7.0
+    #34: Uint8Array = %2
+    #35: Float = 0.0
+    #36: Unknown = #34[#35]
+    #37: Uint8Array = %2
+    #38: ArrayBuffer = byte_array_buffer #37
+    #39: Bool = instanceof #38, class0
+    #40: None = @6(console_log)
+    #41: None = call #40(#36, #39)
+    #42: SharedArrayBuffer = %0
+    #43: Float = 0.0
+    #44: Float = 4.0
+    #45: SharedArrayBuffer = byte_array_slice #42 #43 #44
+    #46: SharedArrayBuffer = %3
+    #47: Float = byte_array_byte_length #46
+    #48: SharedArrayBuffer = %3
+    #49: Bool = instanceof #48, class0
+    #50: None = @7(console_log)
+    #51: None = call #50(#47, #49)
+    #52: Float = 16.0
+    #53: ArrayBuffer = typed_array_new ArrayBuffer #52
+    #54: ArrayBuffer = %4
+    #55: DataView = typed_array_new DataView #54
+    #56: DataView = %5
+    #57: Float = byte_array_byte_length #56
+    #58: DataView = %5
+    #59: Float = byte_array_byte_offset #58
+    #60: DataView = %5
+    #61: ArrayBuffer = byte_array_buffer #60
+    #62: ArrayBuffer = %4
+    #63: Bool = JsStrictEq #61, #62
+    #64: None = @8(console_log)
+    #65: None = call #64(#57, #59, #63)
+    #66: DataView = %5
+    #67: Bool = instanceof #66, class5
+    #68: DataView = %5
+    #69: String = primitive_cast_string #68
+    #70: DataView = %5
+    #71: Bool = true
+    #72: None = @9(console_log)
+    #73: None = call #72(#67, #69, #71)
+    #74: DataView = %5
+    #75: Float = 0.0
+    #76: Float = 2.0
+    #77: Float = Neg #76
+    #78: None = data_view_setInt16 #74 #75 #77
+    #79: DataView = %5
+    #80: Float = 0.0
+    #81: Float = data_view_getInt16 #79 #80
+    #82: DataView = %5
+    #83: Float = 0.0
+    #84: Float = data_view_getUint16 #82 #83
+    #85: None = @10(console_log)
+    #86: None = call #85(#81, #84)
+    #87: DataView = %5
+    #88: Float = 0.0
+    #89: Float = data_view_getUint8 #87 #88
+    #90: DataView = %5
+    #91: Float = 1.0
+    #92: Float = data_view_getUint8 #90 #91
+    #93: None = @11(console_log)
+    #94: None = call #93(#89, #92)
+    #95: DataView = %5
+    #96: Float = 2.0
+    #97: Float = 2.0
+    #98: Float = Neg #97
+    #99: Bool = true
+    #100: None = data_view_setInt16 #95 #96 #98 #99
+    #101: DataView = %5
+    #102: Float = 2.0
+    #103: Float = data_view_getUint8 #101 #102
+    #104: DataView = %5
+    #105: Float = 3.0
+    #106: Float = data_view_getUint8 #104 #105
+    #107: None = @12(console_log)
+    #108: None = call #107(#103, #106)
+    #109: DataView = %5
+    #110: Float = 2.0
+    #111: Bool = true
+    #112: Float = data_view_getInt16 #109 #110 #111
+    #113: DataView = %5
+    #114: Float = 2.0
+    #115: Bool = false
+    #116: Float = data_view_getInt16 #113 #114 #115
+    #117: None = @13(console_log)
+    #118: None = call #117(#112, #116)
+    #119: DataView = %5
+    #120: Float = 4.0
+    #121: Float = 4294967295.0
+    #122: None = data_view_setUint32 #119 #120 #121
+    #123: DataView = %5
+    #124: Float = 4.0
+    #125: Float = data_view_getUint32 #123 #124
+    #126: DataView = %5
+    #127: Float = 4.0
+    #128: Float = data_view_getInt32 #126 #127
+    #129: None = @14(console_log)
+    #130: None = call #129(#125, #128)
+    #131: DataView = %5
+    #132: Float = 8.0
+    #133: Float = 1.5
+    #134: None = data_view_setFloat64 #131 #132 #133
+    #135: DataView = %5
+    #136: Float = 8.0
+    #137: Float = data_view_getFloat64 #135 #136
+    #138: None = @15(console_log)
+    #139: None = call #138(#137)
+    #140: ArrayBuffer = %4
+    #141: Float = 8.0
+    #142: Float = 4.0
+    #143: DataView = typed_array_new DataView #140 #141 #142
+    #144: DataView = %6
+    #145: Float = byte_array_byte_offset #144
+    #146: DataView = %6
+    #147: Float = byte_array_byte_length #146
+    #148: None = @16(console_log)
+    #149: None = call #148(#145, #147)
+    #150: DataView = %6
+    #151: Float = 0.0
+    #152: Float = 7.0
+    #153: None = data_view_setInt8 #150 #151 #152
+    #154: DataView = %5
+    #155: Float = 8.0
+    #156: Float = data_view_getInt8 #154 #155
+    #157: DataView = %6
+    #158: Float = 0.0
+    #159: Float = data_view_getInt8 #157 #158
+    #160: None = @17(console_log)
+    #161: None = call #160(#156, #159)
+    #162: SharedArrayBuffer = %0
+    #163: DataView = typed_array_new DataView #162
+    #164: DataView = %7
+    #165: ArrayBuffer = byte_array_buffer #164
+    #166: Bool = instanceof #165, class0
+    #167: DataView = %7
+    #168: Float = byte_array_byte_length #167
+    #169: None = @18(console_log)
+    #170: None = call #169(#166, #168)
+    #171: DataView = %7
+    #172: Float = 0.0
+    #173: Float = data_view_getUint8 #171 #172
+    #174: None = @19(console_log)
+    #175: None = call #174(#173)
+    #176: DataView = %5
+    #177: String = json_stringify #176
+    #178: DataView = %5
+    #179: List<String> = []
+    #180: Float = len #179
+    #181: None = @20(console_log)
+    #182: None = call #181(#177, #180)
+    #183: DataView = %5
+    #184: fn(Unknown) -> String = @0(tag_of)
+    #185: String = call #184(#183)
+    #186: SharedArrayBuffer = %0
+    #187: fn(Unknown) -> String = @0(tag_of)
+    #188: String = call #187(#186)
+    #189: None = @21(console_log)
+    #190: None = call #189(#185, #188)
+    #191: DataView = %5
+    #192: fn(Unknown) -> Float = @1(width_of)
+    #193: Float = call #192(#191)
+    #194: ArrayBuffer = %4
+    #195: fn(Unknown) -> Float = @1(width_of)
+    #196: Float = call #195(#194)
+    #197: None = @22(console_log)
+    #198: None = call #197(#193, #196)
+  stmts
+    s0: let %0: SharedArrayBuffer = #1
+    s1: let %1: ArrayBuffer = #3
+    s2: #9
+    s3: #15
+    s4: #21
+    s5: #27
+    s6: let %2: Uint8Array = #29
+    s7: #32 = #33
+    s8: #41
+    s9: let %3: SharedArrayBuffer = #45
+    s10: #51
+    s11: let %4: ArrayBuffer = #53
+    s12: let %5: DataView = #55
+    s13: #65
+    s14: #73
+    s15: #78
+    s16: #86
+    s17: #94
+    s18: #100
+    s19: #108
+    s20: #118
+    s21: #122
+    s22: #130
+    s23: #134
+    s24: #139
+    s25: let %6: DataView = #143
+    s26: #149
+    s27: #153
+    s28: #161
+    s29: let %7: DataView = #163
+    s30: #170
+    s31: #175
+    s32: #182
+    s33: #190
+    s34: #198
+
+interned types
+  t0 = Float
+  t1 = SharedArrayBuffer
+  t2 = ArrayBuffer
+  t3 = Unknown
+  t4 = String
+  t5 = fn(Unknown) -> String
+  t6 = fn(Unknown) -> Float
+  t7 = Bool
+  t8 = DataView
+  t9 = None
+  t10 = Uint8Array
+  t11 = List<String>
+  t12 = fn(Unknown) -> String
+  t13 = fn(Unknown) -> Float

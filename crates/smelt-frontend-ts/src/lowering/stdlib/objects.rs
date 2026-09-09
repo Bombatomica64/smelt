@@ -1290,8 +1290,9 @@ return_ty,
     /// rather than naming it here is what keeps this in step with es-toolkit's
     /// `isTypedArray` (`ArrayBuffer.isView(x) && !(x instanceof DataView)`).
     ///
-    /// A statically concrete non-erased value carries no host marker and folds to
-    /// `false`.
+    /// A statically concrete FAMILY value folds at compile time instead — a
+    /// typed array and a `DataView` to `true`, byte storage to `false` — and
+    /// any other concrete value carries no host marker and folds to `false`.
     pub(in crate::lowering) fn arraybuffer_is_view_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -1322,8 +1323,14 @@ return_ty,
         // storage is not. The disjunction below is for an erased value, whose
         // markers are the only thing left to ask.
         let value_ty = Self::expr_ty(body, value);
-        if self.is_typed_array_view_type(value_ty) || self.is_array_buffer_type(value_ty) {
-            let is_view = self.is_typed_array_view_type(value_ty);
+        if self.is_typed_array_view_type(value_ty)
+            || self.is_array_buffer_type(value_ty)
+            || self.is_data_view_type(value_ty)
+        {
+            // A `DataView` is a VIEW, which is the whole reason es-toolkit's
+            // `isTypedArray` has to exclude it separately.
+            let is_view =
+                self.is_typed_array_view_type(value_ty) || self.is_data_view_type(value_ty);
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::Bool(is_view)),
                 ty,

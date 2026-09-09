@@ -661,6 +661,14 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 format!("typed_array_new {class_name} {args_text}")
             }
         }
+        ExprKind::DataViewAccess { member, view, args } => {
+            let args_text = args
+                .iter()
+                .map(|arg| expr_ref(*arg))
+                .collect::<Vec<_>>()
+                .join(" ");
+            format!("data_view_{member} {} {args_text}", expr_ref(*view))
+        }
         ExprKind::ByteArrayOp { op, bytes, args } => {
             let op_name = op.name();
             let receiver = expr_ref(*bytes);

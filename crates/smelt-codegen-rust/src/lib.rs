@@ -647,6 +647,7 @@ fn emit_source_with_free_function_router(
     let needs_text_encoder = stdlib::needs_text_encoder_runtime(mir);
     let needs_text_decoder = stdlib::needs_text_decoder_runtime(mir);
     let needs_byte_array = stdlib::needs_byte_array_runtime(mir);
+    let needs_data_view = stdlib::needs_data_view_runtime(mir);
     let needs_blob = stdlib::needs_blob_runtime(mir);
     let needs_smelt_list = stdlib::needs_smelt_list(mir);
     let needs_prim_set = stdlib::needs_prim_set(mir);
@@ -5714,7 +5715,7 @@ fn emit_source_with_free_function_router(
     // The byte view is emitted before the codecs and the blob, which mention it
     // in their signatures.
     if needs_byte_array {
-        text_codec_prelude::emit_byte_array(&mut writer, needs_unknown);
+        text_codec_prelude::emit_byte_array(&mut writer, needs_unknown, needs_data_view);
     }
     if needs_blob {
         blob_prelude::emit(&mut writer, needs_unknown);

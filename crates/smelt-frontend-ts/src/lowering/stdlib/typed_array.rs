@@ -21,15 +21,28 @@
 //! boundary. The registry, not a `matches!` here, decides which spellings are
 //! the family.
 //!
-//! ## What is deliberately still erased
+//! ## `SharedArrayBuffer` and `DataView`
 //!
-//! `SharedArrayBuffer` and `DataView` keep the byte-backed host record. Neither
-//! surface is modeled concretely — cross-thread storage for the first,
-//! per-call element widths for the second — and a half-modeled concrete face
-//! answers `instanceof` correctly and then fails every method, which is worse
-//! than an honest erased one. They are not on the boundary either way: an
-//! erased value crosses into a concrete view through the same adapter a
-//! concrete view came from.
+//! Both are now concrete too, and each in the shape its surface asks for.
+//!
+//! `SharedArrayBuffer` is the SAME class as `ArrayBuffer`: the two differ in
+//! their `[object X]` tag, their `instanceof` answer and the growth members,
+//! and in nothing about the bytes — so one Rust type carries a species flag
+//! rather than a second copy of storage. The growable form
+//! (`new SharedArrayBuffer(n, { maxByteLength })`, `grow`, `growable`) is not
+//! modeled, and its members are absent rather than wrong.
+//!
+//! `DataView` is its own class, because its element kind is an argument of
+//! every accessor instead of a property of the value: the same view answers
+//! `getInt16(0)` and `getFloat64(0)`, and its byte ORDER is a parameter whose
+//! default — big-endian — is the opposite of every typed array's. The widths
+//! and signednesses are still the kind table's, reached by reversing the
+//! window for a big-endian call, so there is one definition of each.
+//!
+//! One divergence is recorded rather than hidden: an OUT-OF-RANGE accessor is
+//! a `RangeError` in JavaScript, and Smelt has no throwing rvalue yet (only
+//! fallible CALLS carry an unwind edge), so it answers zero instead. See
+//! `blocker-logs/hono-fetch-demand.md`.
 
 use oxc::ast::ast::Expression;
 use smelt_hir::{Body, ByteArrayOp, Expr, ExprKind, Type};
@@ -41,15 +54,18 @@ use crate::lowering::ModuleBuilder;
 impl ModuleBuilder<'_> {
     /// Return whether a source class name is one of the family's spellings.
     ///
-    /// The eleven views plus `ArrayBuffer`, asked of the shared registry so the
-    /// construction side, the annotation side and codegen's Rust-type side
-    /// cannot disagree. A user class of the same name shadows the global, as it
-    /// does for every other modeled host class.
+    /// The eleven views plus `ArrayBuffer`/`SharedArrayBuffer` and `DataView`,
+    /// asked of the shared registry so the construction side, the annotation
+    /// side and codegen's Rust-type side cannot disagree. A user class of the
+    /// same name shadows the global, as it does for every other modeled host
+    /// class.
     pub(in crate::lowering) fn is_typed_array_family_name(&self, name: &str) -> bool {
         matches!(
             smelt_stdlib::typescript_stdlib_class(name),
             Some(
-                smelt_stdlib::StdlibClass::TypedArray | smelt_stdlib::StdlibClass::ArrayBuffer
+                smelt_stdlib::StdlibClass::TypedArray
+                    | smelt_stdlib::StdlibClass::ArrayBuffer
+                    | smelt_stdlib::StdlibClass::DataView
             )
         ) && !self.classes.contains(name)
     }
@@ -112,6 +128,79 @@ impl ModuleBuilder<'_> {
             && !self.user_class_shadows("ArrayBuffer")
     }
 
+    /// Return whether a lowered type is a `DataView`.
+    pub(in crate::lowering) fn is_data_view_type(&self, ty: smelt_hir::TypeId) -> bool {
+        self.stdlib_class_of_type(ty) == Some(smelt_stdlib::StdlibClass::DataView)
+            && !self.user_class_shadows("DataView")
+    }
+
+    /// Dispatch a `DataView` element accessor: `getInt16`, `setFloat64`, ...
+    ///
+    /// Registered in the builtin call-handler chain beside the typed-array
+    /// methods, and declining for every other receiver: `getX`/`setX` are
+    /// ordinary user method names, so the receiver's lowered type is what
+    /// decides. Which accessor this is — the width, the signedness and the
+    /// direction — is the REGISTRY's answer about the name, not a match here,
+    /// so a name JavaScript does not define (`getUint8Clamped`) declines and
+    /// falls through to the ordinary member path.
+    pub(in crate::lowering) fn dispatch_data_view_accessor(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let member_name = member.property.name.as_str();
+        if smelt_stdlib::typescript_method_rule(
+            smelt_stdlib::TypeScriptReceiverKind::DataView,
+            member_name,
+        ) != Some(RuleId::TsDataViewAccess)
+        {
+            return Ok(None);
+        }
+        if let Some(hint) = self.receiver_class_hint(&member.object, body)
+            && hint != smelt_stdlib::StdlibClass::DataView
+        {
+            return Ok(None);
+        }
+        let Ok(receiver) = self.expression(&member.object, body) else {
+            return Ok(None);
+        };
+        if !self.is_data_view_type(Self::expr_ty(body, receiver)) {
+            return Ok(None);
+        }
+        let Some((write, _)) = smelt_stdlib::data_view_accessor(member_name) else {
+            return Ok(None);
+        };
+        // A read takes an offset and an optional flag; a write takes a value
+        // between them. Arguments past the accessor's own arity are dropped
+        // after being lowered for their effects, as they are for every other
+        // modeled member.
+        let arity = if write { 3 } else { 2 };
+        let args = call
+            .arguments
+            .iter()
+            .take(arity)
+            .map(|argument| self.argument(argument, body))
+            .collect::<Result<Vec<_>, _>>()?;
+        // A read answers a number; a write answers `undefined`.
+        let ty = if write {
+            self.ctx.krate.types.intern(Type::None)
+        } else {
+            self.ctx.krate.types.intern(Type::Float)
+        };
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::DataViewAccess {
+                member: member_name.to_owned(),
+                view: receiver,
+                args,
+            },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
     /// Lower a data-property read on the family: `length`, `byteLength`,
     /// `byteOffset`, `buffer`.
     ///
@@ -132,7 +221,12 @@ impl ModuleBuilder<'_> {
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let is_view = self.is_typed_array_view_type(receiver_ty);
         let is_storage = self.is_array_buffer_type(receiver_ty);
-        if !is_view && !is_storage {
+        // A `DataView` has `byteLength`, `byteOffset` and `buffer` and no
+        // `length`: it addresses BYTES, so an element count would be a
+        // different number for every accessor width. The three it does have
+        // are the same ops with the same names on its own runtime type.
+        let is_data_view = self.is_data_view_type(receiver_ty);
+        if !is_view && !is_storage && !is_data_view {
             return Ok(None);
         }
         let span = self.span(member.span.start, member.span.end);
@@ -143,8 +237,10 @@ impl ModuleBuilder<'_> {
             // has only `byteLength`.
             "length" if is_view => (ByteArrayOp::Length, float_ty),
             "byteLength" => (ByteArrayOp::ByteLength, float_ty),
-            "byteOffset" if is_view => (ByteArrayOp::ByteOffset, float_ty),
-            "buffer" if is_view => (ByteArrayOp::Buffer, self.array_buffer_type()),
+            "byteOffset" if is_view || is_data_view => (ByteArrayOp::ByteOffset, float_ty),
+            "buffer" if is_view || is_data_view => {
+                (ByteArrayOp::Buffer, self.array_buffer_type())
+            }
             _ => return Ok(None),
         };
         Ok(Some(body.push_expr(Expr {
@@ -272,7 +368,11 @@ impl ModuleBuilder<'_> {
         // `smelt_host_buffer_own_elements` draws on the erased side, and it is
         // answerable here without a record round trip because the storage's
         // emptiness is a property of its CLASS rather than of its bytes.
-        if self.is_array_buffer_type(receiver_ty) {
+        // A `DataView` answers the same empty list and for the same reason: it
+        // addresses BYTES through accessors and has no own enumerable
+        // properties, which is why `JSON.stringify(dataView)` is `{}` where a
+        // typed array's is its element indices.
+        if self.is_array_buffer_type(receiver_ty) || self.is_data_view_type(receiver_ty) {
             return self.empty_projection_expression(op, span, body);
         }
         if !self.is_typed_array_view_type(receiver_ty) {

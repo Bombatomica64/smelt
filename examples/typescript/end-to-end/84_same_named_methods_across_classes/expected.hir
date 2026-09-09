@@ -1,4 +1,4 @@
-module examples/typescript/end-to-end/83_same_named_methods_across_classes/input.ts (ModuleId(0))
+module examples/typescript/end-to-end/84_same_named_methods_across_classes/input.ts (ModuleId(0))
   body BodyId(7)
   items
     class Ticker fields [Public count: Float] constructor Some(ItemId(1)) methods [ItemId(0)] implements []

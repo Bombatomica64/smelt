@@ -606,6 +606,22 @@ fn emit_body_inherent_impl(writer: &mut CodeWriter, needs_unknown: bool) {
         impl_writer.line(
             "pub fn from_chunks(chunks: Vec<Vec<u8>>) -> Self { Self::from_payload(SmeltBodyPayload::Stream(chunks)) }",
         );
+        // The spec's `Request` constructor step for a REQUEST input (and for a
+        // request at the init position): the new request reads the source's
+        // body, and the SOURCE is disturbed immediately — measured against Node
+        // 22, where `new Request(source)` leaves `source.bodyUsed` true and the
+        // copy's false before either is read. So the two share the PAYLOAD but
+        // not the used flag: sharing the flag would leave the source readable
+        // until the copy was consumed, and copying the payload would let both
+        // be read.
+        impl_writer.line("/// Take a source body: same payload, fresh used flag, source disturbed.");
+        impl_writer.block(
+            "pub fn take_from_source(source: &Self) -> Self",
+            |fn_writer| {
+                fn_writer.line("if !source.is_empty() { source.used.set(true); }");
+                fn_writer.line("Self { id: smelt_next_object_id(), payload: ::std::rc::Rc::clone(&source.payload), used: ::std::rc::Rc::new(::std::cell::Cell::new(false)), content_type: source.content_type.clone() }");
+            },
+        );
         impl_writer.line("/// Wrap a payload, unused, with a fresh identity.");
         impl_writer.line(
             "fn from_payload(payload: SmeltBodyPayload) -> Self { Self { id: smelt_next_object_id(), payload: ::std::rc::Rc::new(::std::cell::RefCell::new(payload)), used: ::std::rc::Rc::new(::std::cell::Cell::new(false)), content_type: None } }",

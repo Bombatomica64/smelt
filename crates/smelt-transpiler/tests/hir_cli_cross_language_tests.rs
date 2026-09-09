@@ -855,13 +855,15 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "75_callback_block_return_type",
     "76_base64_globals",
     "77_body_init_buffer_source",
+    "78_request_input_forms",
     "79_logical_assignment_store",
     "80_optional_chain_union_and_throw",
     "81_receiver_capture_in_callback",
-    "82_class_expression_binding",
-    "83_same_named_methods_across_classes",
-    "84_promise_continuations",
-    "85_literal_into_union_arm",
+    "82_data_view_shared_buffer",
+    "83_class_expression_binding",
+    "84_same_named_methods_across_classes",
+    "85_promise_continuations",
+    "86_literal_into_union_arm",
 ];
 
 #[test]

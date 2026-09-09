@@ -238,6 +238,16 @@ pub enum RuleId {
     /// respectively, and one rule spanning both would make each site accept
     /// spellings the other owns.
     TsTypedArrayMethod,
+    /// TypeScript `DataView` element accessor (`getInt16`, `setFloat64`, ...).
+    ///
+    /// Separate from [`Self::TsTypedArrayMethod`] because the element kind is
+    /// an argument of the CALL rather than a property of the receiver: the
+    /// accessor's own name carries the width, the signedness and the
+    /// direction, and the byte order is a parameter. One rule for all eighteen
+    /// spellings, resolved through
+    /// [`crate::data_view_accessor`](crate::data_view_accessor) rather than an
+    /// entry per name.
+    TsDataViewAccess,
     /// TypeScript `Response` data-property read (`status`, `ok`, `statusText`,
     /// `headers`, `bodyUsed`).
     TsResponseRead,
@@ -438,6 +448,7 @@ impl RuleId {
             // generated prelude, so nothing behind it is an external crate.
             | Self::TsTypedArrayRead
             | Self::TsTypedArrayMethod
+            | Self::TsDataViewAccess
             | Self::TsHeadersProjection
             // `Response` is a generated concrete type: a status line, a
             // `SmeltHeaders`, and a buffered `SmeltBody`. Nothing in that needs
@@ -529,6 +540,7 @@ impl RuleId {
             Self::TsBase64 => "btoa / atob",
             Self::TsTypedArrayRead => "typed-array data-property read",
             Self::TsTypedArrayMethod => "typed-array method",
+            Self::TsDataViewAccess => "DataView element accessor",
             Self::TsResponseRead => "Response property read",
             Self::TsResponseBodyRead => "Response body reader",
             Self::TsResponseClone => "Response.clone",

@@ -1,4 +1,4 @@
-module examples/typescript/end-to-end/85_literal_into_union_arm/input.ts (ModuleId(0))
+module examples/typescript/end-to-end/86_literal_into_union_arm/input.ts (ModuleId(0))
   body BodyId(4)
   items
     type Slot = Float | List<(String, Float)>
