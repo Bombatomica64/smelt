@@ -621,6 +621,29 @@ impl ModuleBuilder<'_> {
             }));
         }
         if let Some(local) = self.scope.lookup(name) {
+            // A callback declaration whose local was never MATERIALIZED holds no
+            // value: the binding is only a declaration, and calls to the name are
+            // kept concrete by inlining the callback's own body instead (see
+            // `local_arrow_binding_local` and the `materialized` flag). Capturing
+            // such a local emits a call to the placeholder default callback the
+            // emitter renders for an unassigned function local — `|_| false` —
+            // so `words.filter(isShort)` answered `false` for every element and
+            // kept nothing. A silent wrong value, with the direct call
+            // `isShort('ab')` right beside it answering correctly, because that
+            // path inlines.
+            //
+            // Hand the decision back rather than guessing: the caller's fallback
+            // reaches `identifier_expression`, which already knows this rule and
+            // rebuilds the closure from the callback's body for exactly this
+            // case. A callback from ANOTHER body, or one whose binding really was
+            // materialized, does hold a value and is captured as before.
+            let binding_holds_no_value = self.scope.callback(name).is_some_and(|callback| {
+                !callback.materialized
+                    && body.blocks.first().map(|block| block.span) == callback.defining_body_span
+            });
+            if binding_holds_no_value {
+                return Ok(None);
+            }
             let local_ty = Self::local_ty(body, local);
             if let Some(Type::Function(function)) = self.ctx.krate.types.get(local_ty).cloned() {
                 // Same arity rule as item references above: fewer declared

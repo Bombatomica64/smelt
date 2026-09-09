@@ -291,6 +291,89 @@ clone-strategy = "aggressive"
     Ok(())
 }
 
+/// A predicate bound to a const, used both directly and by name.
+const NAMED_LOCAL_CALLBACK_MAIN: &str = r#"type Predicate = (value: string) => boolean;
+
+const words = ["a", "abc", "ab", "abcd"];
+
+const isShort = (value: string): boolean => value.length < 3;
+const isShortAnnotated: Predicate = (value: string): boolean => value.length < 3;
+const upper = (value: string): string => value.toUpperCase();
+
+function countMatching(values: string[], predicate: Predicate): number {
+  let total = 0;
+  for (const value of values) {
+    if (predicate(value)) {
+      total += 1;
+    }
+  }
+  return total;
+}
+
+console.log(isShort("ab"));
+console.log(words.filter(isShort).join(","));
+console.log(words.filter(isShortAnnotated).join(","));
+console.log(words.some(isShort));
+console.log(words.every(isShort));
+console.log(words.find(isShort) ?? "none");
+console.log(words.map(upper).join(","));
+console.log(countMatching(words, isShort));
+"#;
+
+#[test]
+fn build_runs_named_local_callback_passed_by_value() -> TestResult {
+    // A callback declaration's local is only a DECLARATION: calls to the name
+    // stay concrete by inlining the callback's body, so the binding is never
+    // assigned a closure unless something needs it as a value. The
+    // array-callback path captured that local anyway, and an unassigned function
+    // local renders as a placeholder default callback (`|_| false`) — so
+    // `words.filter(isShort)` kept NOTHING while the direct call `isShort('ab')`
+    // one line above answered correctly. It compiled, nothing threw, and an
+    // empty result looks like an answer, which is what made it worth fixing over
+    // a blocker.
+    //
+    // A build-and-RUN test rather than an `examples/` fixture, for a reason
+    // worth recording: referencing a module-level arrow as a value lifts it to a
+    // named function whose Rust name embeds the SOURCE PATH it was compiled
+    // from, so the generated Rust is not stable across build directories and
+    // cannot be a golden. See `blocker-logs/hono-h55-path-mangled-lifted-name.md`.
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "named-local-callback"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "named_local_callback"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(project_path.join("src/main.ts"), NAMED_LOCAL_CALLBACK_MAIN)?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    // Every observer has to agree with the direct call on the first line.
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(
+        &actual_stdout,
+        &"true\na,ab\na,ab\ntrue\nfalse\na\nA,ABC,AB,ABCD\n2\n".to_owned(),
+        "unexpected stdout",
+    )?;
+
+    Ok(())
+}
+
 /// The first of two modules that both export a class named `Node`.
 const DUPLICATE_CLASS_ALPHA: &str = r"export class Node {
   #items: string[] = [];

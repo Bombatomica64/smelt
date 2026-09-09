@@ -1,8 +1,8 @@
 # H50 — an arrow bound to a const answers WRONG when passed as a callback
 
-Found while landing Hono blocker 3 (round 23). **Not fixed.** This is a silent
-wrong answer, not a blocker, which makes it the most serious thing in this
-round's findings even though nothing reported it.
+Found while landing Hono blocker 3 (round 23); **ruled and FIXED in round 24**.
+It was a silent wrong answer, not a blocker, which is what made it the most
+serious finding of that round even though nothing reported it.
 
 ## Repro
 
@@ -73,3 +73,34 @@ closure.
 `69_asserted_callback_name` deliberately covers only named ITEMS and arrow
 literals for this reason; adding the local-predicate line would have put the
 wrong answer into the golden corpus. The comment in that fixture points here.
+
+## What landed (round 24)
+
+Option (2) of the two above, and the reason is that the codebase had already
+made the same decision one layer over: `identifier_expression` reads a callback
+binding ONLY when it holds a value (`materialized`, or registered by another
+body) and otherwise rebuilds the closure from the callback's own body. Its
+comment spells out why. `named_callback_reference` — the array-callback path —
+captured the local unconditionally instead, so the two disagreed about the same
+binding.
+
+The fix is four lines of condition in
+`crates/smelt-frontend-ts/src/lowering/callbacks/classify.rs`: a same-body
+callback whose binding was never materialized returns `None` from
+`named_callback_reference`, which routes the argument through the caller's
+fallback to `identifier_expression` — the path that already knows the rule.
+Nothing new was invented, and a materialized binding, or one from another body,
+is captured exactly as before.
+
+Verified on nine observers, every one of which now agrees with the direct call:
+`filter` (annotated and unannotated predicate), `some`, `every`, `find`,
+`findIndex`, `map`, use inside another callback, and passing the predicate to an
+ordinary function. The regression test is
+`build_runs_named_local_callback_passed_by_value`, and it fails on the parent
+commit — checked by stashing the fix and running it, not assumed.
+
+It is a build-and-run test rather than an `examples/` fixture because
+referencing a module-level arrow as a value lifts it to a named function whose
+Rust name embeds the absolute source path, so `expected.rs` would not be stable
+across build directories. That is its own defect, now
+`blocker-logs/hono-h55-path-mangled-lifted-name.md`.
