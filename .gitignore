@@ -283,3 +283,7 @@ third_party/es-toolkit-src/
 # standards-typed-array-views-plan.md is the measured inventory and increment
 # plan for the typed-array-views item
 !blocker-logs/standards-typed-array-views-plan.md
+# standards-hono-first-cargo-check.md is the first `cargo check` the COMPLETE
+# Hono crate ever reached, grouped by diagnostic code, so the next rounds can
+# start from the largest class instead of re-measuring it
+!blocker-logs/standards-hono-first-cargo-check.md

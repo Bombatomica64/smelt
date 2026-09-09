@@ -855,6 +855,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "75_callback_block_return_type",
     "76_base64_globals",
     "77_body_init_buffer_source",
+    "78_request_input_forms",
 ];
 
 #[test]

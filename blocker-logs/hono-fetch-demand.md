@@ -321,3 +321,66 @@ exactly shape (3). The fixture binds its init to an annotated const at that one
 call site to keep the examples corpus at zero avoidable erasure, with a comment
 pointing here — so a fix can un-bind it and the golden will show the
 improvement.
+
+## Found by standards (round 27): a `T | null` return prints `undefined`
+
+`console.log(headers.get("x"))` with no such header prints `undefined` where
+Node prints `null`. The finding is WIDER than `Headers.get`, which is why it is
+recorded here rather than fixed as a fetch-types detail. Measured against
+Node 22:
+
+| source | Node | Smelt |
+| --- | --- | --- |
+| `(): string \| null => null` | `null` | `undefined` |
+| `(): string \| undefined => undefined` | `undefined` | `undefined` |
+| `new Headers().get("x")` | `null` | `undefined` |
+| `new Map().get("a")` | `undefined` | `undefined` (already right) |
+
+So EVERY `T | null` annotation prints the wrong absent word, and `Headers.get`
+is one instance of it. `Map.get` is right by luck: its absent value really is
+`undefined`.
+
+### Why it cannot be fixed at the declaration
+
+The machinery is already there — `AbsentSpelling::null_text()` answers `"null"`,
+and every site that still holds a runtime tag uses it
+(`String(null)` is `"null"`). What is missing is the distinction reaching those
+sites at all: in `ty::annotations`, the union arm lowers `TSNullKeyword` and
+`TSUndefinedKeyword` to the SAME `Type::None`, and a union of one non-nullish
+arm plus a nullish one collapses to `Type::Optional(inner)`. From that point on
+`string | null` and `string | undefined` are the same interned type, so no
+consumer can tell them apart — the information is gone before MIR, not lost in
+the printer.
+
+Typing `Headers.get` as something else does not fix it either, and would make
+things worse: `Union([String, None])` is a two-arm CONCRETE union, so it emits a
+generated tagged enum per nullable return instead of an `Option<String>`. That
+is a real loss of concreteness against the north star, and it would move
+es-toolkit and remeda output wholesale, to buy one printed word.
+
+### The two designs, and their measured cost
+
+1. **A nullish spelling on the optional** — `Type::Optional { inner, absent:
+   AbsentSpelling-like }`, or a sibling `Type::Nullable(inner)`. The Rust
+   representation stays `Option<T>`, which is what a hand-writing team would
+   also choose; only the printed word and the erased tag (`SmeltUnknown::Null`
+   vs `Undefined`) differ. This is the right answer.
+
+   **Cost: 469 non-test sites pattern `Type::Optional`.** Adding a field or a
+   variant makes every one of them a compile error, across
+   `smelt-hir`/`smelt-mir`/`smelt-frontend-ts`/`smelt-frontend-py`/
+   `smelt-codegen-rust`. That is a deliberate type-system refactor with its own
+   corpus measurement, not a rider on a feature round — the same judgement
+   `CLAUDE.md`'s "Refactoring timing" section asks for.
+
+2. **Keep the collapse and thread the spelling beside the type** — a side table
+   keyed by the declaring item, the way D1 proposes for callback fallibility.
+   Cheaper to land, and wrong for the same reason it is wrong there when the
+   value flows: an optional that crosses a function boundary, a field, or a
+   collection loses its key, and the printer sees a bare `Type::Optional`
+   again. It would fix the direct `console.log(headers.get(..))` and nothing
+   reached through one hop.
+
+**Recommendation:** design 1, as its own round. Until then every fixture that
+would print an absent nullable compares against `null` instead, with the reason
+at the line — see `78_request_input_forms` and `77_body_init_buffer_source`.
