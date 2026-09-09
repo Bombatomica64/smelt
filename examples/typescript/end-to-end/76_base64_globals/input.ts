@@ -40,13 +40,19 @@ console.log(decode("aGVs bG8="));
 // `atob` answers one code point per byte rather than UTF-8 text.
 console.log(decode(encode("round trip é")));
 
-// The throws are catchable and carry the spec's brand.
+// The throws are catchable and carry the spec's brand. The handler reads the
+// brand through an `instanceof` NARROWING rather than an `as` cast: TypeScript
+// types a `catch` binding `unknown` by its own rule, so the cast form stored
+// the caught value in a second erased local for no gain, where the guard is the
+// runtime-narrowing boundary the value actually crosses.
 function safeEncode(value: string): string {
   try {
     return btoa(value);
   } catch (error) {
-    const failure = error as DOMException;
-    return `E:${failure.name}:${failure.message}`;
+    if (error instanceof DOMException) {
+      return `E:${error.name}:${error.message}`;
+    }
+    return "E:unexpected";
   }
 }
 
@@ -54,8 +60,10 @@ function safeDecode(value: string): string {
   try {
     return atob(value);
   } catch (error) {
-    const failure = error as DOMException;
-    return `E:${failure.name}:${failure.message}`;
+    if (error instanceof DOMException) {
+      return `E:${error.name}:${error.message}`;
+    }
+    return "E:unexpected";
   }
 }
 

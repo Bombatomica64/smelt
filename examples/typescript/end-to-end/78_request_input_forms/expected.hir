@@ -1,8 +1,7 @@
 module examples/typescript/end-to-end/78_request_input_forms/input.ts (ModuleId(0))
-  body BodyId(2)
+  body BodyId(1)
   items
     fn run owner Module
-    fn requested owner Module
   exprs
     #0: async fn() -> Future<None> = @0(run)
     #1: Future<None> = call #0()
@@ -21,16 +20,12 @@ interned types
   t1 = Future<None>
   t2 = async fn() -> Future<None>
   t3 = String
-  t4 = Request
-  t5 = URL
-  t6 = String | Request | URL
-  t7 = Future<String>
-  t8 = async fn(String | Request | URL) -> Future<String>
-  t9 = Dict<String, String>
-  t10 = Headers
-  t11 = Optional<String>
-  t12 = Bool
-  t13 = ReadableStream
-  t14 = Optional<ReadableStream>
-  t15 = async fn(String | Request | URL) -> Future<String>
-  t16 = async fn() -> Future<None>
+  t4 = Dict<String, String>
+  t5 = Request
+  t6 = Headers
+  t7 = Optional<String>
+  t8 = Bool
+  t9 = Future<String>
+  t10 = ReadableStream
+  t11 = Optional<ReadableStream>
+  t12 = async fn() -> Future<None>

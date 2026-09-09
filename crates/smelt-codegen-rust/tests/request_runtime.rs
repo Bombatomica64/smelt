@@ -202,3 +202,67 @@ test('clone() reads independently of the original', async () => {
 ";
     run_fixture(source, "request_body_runtime");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn an_erased_request_info_input_takes_every_arm() {
+    // The erased half of `examples/typescript/end-to-end/78_request_input_forms`.
+    //
+    // `new Request(input, init)` accepts the spec's `RequestInfo`, and a
+    // PARAMETER typed `string | Request | URL` — which is exactly Hono's
+    // `app.request(input, ...)` — is erased by construction: which arm arrived
+    // is a run-time fact, so the value crosses the tagged boundary and the
+    // choice is made on its tag. The examples corpus holds a hard
+    // `avoidable == 0` invariant, so the erased spelling lives here while the
+    // fixture keeps every concrete one (precedent: `74_typed_array_views`).
+    //
+    // What is pinned: a `Request` arm recovers through the class's own boundary
+    // adapter and copies its url and headers, a `string` arm is used as the url,
+    // a `URL` arm contributes its serialization, and the init still overrides
+    // the slot it names on top of whichever arm arrived.
+    let source = "
+import { test, expect } from 'vitest';
+
+async function requested(input: string | Request | URL): Promise<string> {
+  const request = input instanceof Request ? new Request(input, { method: 'GET' }) : new Request(input);
+  return `${request.url} ${request.method}`;
+}
+
+function tagOf(input: string | Request | URL): boolean {
+  return input instanceof Request;
+}
+
+test('every arm of an erased RequestInfo reaches the right constructor', async () => {
+  expect(await requested('https://a.test/one')).toBe('https://a.test/one GET');
+  expect(await requested(new Request('https://a.test/two', { method: 'POST' }))).toBe(
+    'https://a.test/two GET'
+  );
+  expect(await requested(new URL('https://a.test/three'))).toBe('https://a.test/three GET');
+});
+
+test('the tag, not the declaration, decides which arm arrived', () => {
+  expect(tagOf(new Request('https://a.test/p'))).toBe(true);
+  expect(tagOf('https://a.test/p')).toBe(false);
+  expect(tagOf(new URL('https://a.test/p'))).toBe(false);
+});
+
+test('an erased Request input still contributes its headers and body', async () => {
+  const source = new Request('https://a.test/four', {
+    method: 'POST',
+    headers: { 'x-tag': 't' },
+    body: 'payload',
+  });
+  const copy = await copied(source);
+  expect(copy.url).toBe('https://a.test/four');
+  expect(copy.method).toBe('POST');
+  expect(copy.headers.get('x-tag')).toBe('t');
+  expect(source.bodyUsed).toBe(true);
+  expect(await copy.text()).toBe('payload');
+});
+
+async function copied(input: string | Request): Promise<Request> {
+  return new Request(input);
+}
+";
+    run_fixture(source, "request_erased_input_runtime");
+}

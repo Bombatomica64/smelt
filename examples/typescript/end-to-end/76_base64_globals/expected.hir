@@ -143,7 +143,6 @@ interned types
   t2 = Bool
   t3 = fn(String) -> Bool
   t4 = Unknown
-  t5 = DOMException
-  t6 = fn(String) -> String
-  t7 = None
-  t8 = fn(String) -> Bool
+  t5 = fn(String) -> String
+  t6 = None
+  t7 = fn(String) -> Bool

@@ -64,17 +64,6 @@ async fn run (FuncId(0)) -> None
     %61 temp: String
     %62 temp: String
     %63 temp: None
-    %64 temp: Future<String>
-    %65 temp: String
-    %66 temp: None
-    %67 temp: Request
-    %68 temp: Future<String>
-    %69 temp: String
-    %70 temp: None
-    %71 temp: String
-    %72 temp: Future<String>
-    %73 temp: String
-    %74 temp: None
   bb0:
     %9 = {"x-tag": "t"}
     %10 = request_new input="https://a.test/one" method="POST" headers=move %9 body="payload"
@@ -150,61 +139,9 @@ async fn run (FuncId(0)) -> None
     %62 = request_method move %8
     %63 = call @console_log(move %61, move %62) -> bb10
   bb10:
-    %64 = call fn1("https://a.test/seven") -> bb11
-  bb11:
-    %65 = await move %64
-    %66 = call @console_log(move %65) -> bb12
-  bb12:
-    %67 = request_new input="https://a.test/eight" method="POST"
-    %68 = call fn1(move %67) -> bb13
-  bb13:
-    %69 = await move %68
-    %70 = call @console_log(move %69) -> bb14
-  bb14:
-    %71 = url_href "https://a.test/nine"
-    %72 = call fn1(move %71) -> bb15
-  bb15:
-    %73 = await move %72
-    %74 = call @console_log(move %73) -> bb16
-  bb16:
     return none
 
-async fn requested (FuncId(1)) -> String
-  locals
-    %0 param input: String | Request | URL
-    %1 user request: Request
-    %2 temp: Bool
-    %3 temp: Request
-    %4 temp: Request
-    %5 temp: Request
-    %6 temp: Request
-    %7 temp: String
-    %8 temp: String
-    %9 temp: String
-    %10 temp: String
-    %11 temp: String
-  bb0:
-    %2 = instanceof copy %0, class2
-    switch move %2 ? bb1 : bb2
-  bb1:
-    %4 = unknown_cast copy %0 as t4
-    %5 = request_new input=move %4 method="GET"
-    %3 = move %5
-    goto bb3
-  bb2:
-    %6 = request_new input=copy %0
-    %3 = move %6
-    goto bb3
-  bb3:
-    %1 = move %3
-    %7 = request_url copy %1
-    %8 = "" + move %7
-    %9 = move %8 + " "
-    %10 = request_method move %1
-    %11 = move %9 + move %10
-    return move %11
-
-async fn main (FuncId(2)) -> None throws
+async fn main (FuncId(1)) -> None throws
   locals
     %0 temp: Future<None>
     %1 temp: None

@@ -499,3 +499,50 @@ test("crypto.getRandomValues fills a concrete view in place", () => {
 "#;
     run_fixture(source, "smelt_typed_array_boundary");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_data_view_and_shared_storage_keep_their_identity_across_the_boundary() {
+    // The erased half of `examples/typescript/end-to-end/82_data_view_shared_buffer`.
+    //
+    // The fixture asks its questions through the CONCRETE value, which needs no
+    // erasure; asking the same two through an `unknown` PARAMETER — the shape
+    // es-toolkit's `isTypedArray` has, and the reason it must exclude a
+    // `DataView` from `ArrayBuffer.isView` — erases by construction, and the
+    // examples corpus holds a hard `avoidable == 0` invariant. So the erased
+    // spelling lives here, beside
+    // `the_erased_face_is_reached_only_through_the_boundary_adapters`, which is
+    // where `74_typed_array_views` put its own erased half.
+    //
+    // What is pinned: the `[object X]` tag separates a `SharedArrayBuffer` from
+    // an `ArrayBuffer` and a `DataView` from a typed array; `instanceof`
+    // narrowing recovers the view's byte length through the boundary adapter;
+    // and a non-view argument takes the other arm rather than answering a width.
+    let source = r#"
+import { test, expect } from "vitest";
+function tagOf(value: unknown): string {
+  return Object.prototype.toString.call(value);
+}
+function widthOf(value: unknown): number {
+  return value instanceof DataView ? value.byteLength : -1;
+}
+test("the erased tag separates the byte hosts from one another", () => {
+  const shared = new SharedArrayBuffer(8);
+  const plain = new ArrayBuffer(8);
+  const view = new DataView(plain);
+  expect(tagOf(shared)).toBe("[object SharedArrayBuffer]");
+  expect(tagOf(plain)).toBe("[object ArrayBuffer]");
+  expect(tagOf(view)).toBe("[object DataView]");
+  expect(tagOf(new Uint8Array(plain))).toBe("[object Uint8Array]");
+});
+test("an erased DataView narrows back to its byte length", () => {
+  const buffer = new ArrayBuffer(16);
+  expect(widthOf(new DataView(buffer))).toBe(16);
+  expect(widthOf(new DataView(buffer, 8, 4))).toBe(4);
+  expect(widthOf(new DataView(new SharedArrayBuffer(8)))).toBe(8);
+  expect(widthOf(buffer)).toBe(-1);
+  expect(widthOf(new Uint8Array(buffer))).toBe(-1);
+});
+"#;
+    run_fixture(source, "smelt_data_view_boundary");
+}

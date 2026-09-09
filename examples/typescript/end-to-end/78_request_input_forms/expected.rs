@@ -3462,11 +3462,6 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_60: SmeltRequest;
     let _smelt_tmp_61: String;
     let _smelt_tmp_62: String;
-    let _smelt_tmp_65: String;
-    let _smelt_tmp_67: SmeltRequest;
-    let _smelt_tmp_69: String;
-    let _smelt_tmp_71: String;
-    let _smelt_tmp_73: String;
     let _smelt_tmp_9: SmeltRecord<String, String> = SmeltRecord::from([("x-tag".to_owned(), "t".to_owned())]);
     let _smelt_tmp_10: SmeltRequest = SmeltRequest::from_parts(&"https://a.test/one".to_owned(), "POST".to_owned(), SmeltHeaders::from_pairs(_smelt_tmp_9.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::from_text(&"payload".to_owned()));
     let source: SmeltRequest = _smelt_tmp_10;
@@ -3531,46 +3526,5 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_61 = from_url.clone().url();
     _smelt_tmp_62 = from_url.method();
     let _ = { println!("{} {}", _smelt_tmp_61, _smelt_tmp_62); };
-    let _smelt_tmp_64 = SmeltFuture::from_future(Box::pin(requested(SmeltUnknown::String("https://a.test/seven".into()))));
-    _smelt_tmp_65 = _smelt_tmp_64.await?;
-    let _ = { println!("{}", _smelt_tmp_65); };
-    _smelt_tmp_67 = SmeltRequest::from_parts(&"https://a.test/eight".to_owned(), "POST".to_owned(), SmeltHeaders::new(), SmeltBody::empty());
-    let _smelt_tmp_68 = SmeltFuture::from_future(Box::pin(requested(_smelt_tmp_67.clone().into_smelt_unknown())));
-    _smelt_tmp_69 = _smelt_tmp_68.await?;
-    let _ = { println!("{}", _smelt_tmp_69); };
-    _smelt_tmp_71 = url::Url::parse(&"https://a.test/nine".to_owned()).expect("URL parse failed").to_string();
-    let _smelt_tmp_72 = SmeltFuture::from_future(Box::pin(requested(SmeltUnknown::String(_smelt_tmp_71.into()))));
-    _smelt_tmp_73 = _smelt_tmp_72.await?;
-    let _ = { println!("{}", _smelt_tmp_73); };
     return Ok(());
-}
-
-pub(crate) async fn requested(input: SmeltUnknown) -> Result<String, Box<dyn std::error::Error>> {
-    let request: SmeltRequest;
-    let mut _smelt_tmp_3: SmeltRequest;
-    let _smelt_tmp_4: SmeltRequest;
-    let _smelt_tmp_5: SmeltRequest;
-    let _smelt_tmp_6: SmeltRequest;
-    let _smelt_tmp_7: String;
-    let _smelt_tmp_8: String;
-    let _smelt_tmp_9: String;
-    let _smelt_tmp_10: String;
-    let _smelt_tmp_11: String;
-    let _smelt_tmp_2: bool = matches!(input.clone().clone(), SmeltUnknown::Object(value) if value.contains_key("__smelt_request"));
-    let mut _smelt_tmp_3: SmeltRequest = SmeltRequest::from_parts("about:blank", "GET".to_owned(), SmeltHeaders::new(), SmeltBody::empty());
-    if _smelt_tmp_2 {
-    _smelt_tmp_4 = <SmeltRequest as SmeltFromUnknown>::smelt_from_unknown(input.clone());
-    _smelt_tmp_5 = SmeltRequest::from_parts(&_smelt_tmp_4.url(), "GET".to_owned(), _smelt_tmp_4.headers(), SmeltBody::take_from_source(&_smelt_tmp_4.body()));
-    _smelt_tmp_3 = _smelt_tmp_5;
-    } else {
-    _smelt_tmp_6 = match input.clone() { SmeltUnknown::Object(value) if value.contains_key("__smelt_request") => { let smelt_input_request = <SmeltRequest as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(value)); SmeltRequest::from_parts(&smelt_input_request.url(), smelt_input_request.method(), smelt_input_request.headers(), SmeltBody::take_from_source(&smelt_input_request.body())) }, smelt_input => { let smelt_input_url = match smelt_input {  SmeltUnknown::Object(value) if smelt_host_buffer_is_view(&SmeltUnknown::Object(value.clone())) => smelt_host_buffer_elements(&SmeltUnknown::Object(value)).unwrap_or_default().into_iter().map(|element| match element { SmeltUnknown::Number(element) => element.to_string(), _ => String::new() }).collect::<Vec<_>>().join(","), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Object(value) if value.contains_key("__smelt_regexp") => smelt_regexp_literal(&value), SmeltUnknown::Object(value) if value.contains_key("__smelt_error") => { let smelt_error_name = match value.get("name") { Some(SmeltUnknown::String(name)) => name.to_string(), _ => match value.get("__smelt_error") { Some(SmeltUnknown::String(class)) => class.to_string(), _ => "Error".to_owned() } }; let smelt_error_message = match value.get("message") { Some(SmeltUnknown::String(message)) => message.to_string(), _ => String::new() }; if smelt_error_message.is_empty() { smelt_error_name } else if smelt_error_name.is_empty() { smelt_error_message } else { format!("{smelt_error_name}: {smelt_error_message}") } }, SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }; SmeltRequest::from_parts(&smelt_input_url, "GET".to_owned(), SmeltHeaders::new(), SmeltBody::empty()) } };
-    _smelt_tmp_3 = _smelt_tmp_6;
-    }
-    request = _smelt_tmp_3;
-    _smelt_tmp_7 = request.clone().url();
-    _smelt_tmp_8 = "".to_owned() + &_smelt_tmp_7;
-    _smelt_tmp_9 = _smelt_tmp_8 + &" ".to_owned();
-    _smelt_tmp_10 = request.method();
-    _smelt_tmp_11 = _smelt_tmp_9 + &_smelt_tmp_10;
-    return Ok(_smelt_tmp_11);
 }

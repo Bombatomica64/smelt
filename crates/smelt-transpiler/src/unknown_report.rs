@@ -595,7 +595,7 @@ fn classify_line(line: &str, in_prelude_helper: bool) -> Category {
 ///
 /// See [`classify_line`] rule 2 for the rationale behind each marker.
 fn is_legitimate_boundary_line(line: &str) -> bool {
-    const BOUNDARY_MARKERS: [&str; 24] = [
+    const BOUNDARY_MARKERS: [&str; 25] = [
         "SmeltUnknown::Function",
         "SmeltUnknown::Promise",
         // A JavaScript SYMBOL value. `Symbol()` mints a value whose whole
@@ -785,6 +785,41 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // so a `Vec<SmeltUnknown>` or an erased local NEXT to it stays
         // avoidable — proven by `json_serializer_argument_is_a_boundary`.
         "serde_json::to_string(&",
+        // `instanceof HostClass` against a DYNAMIC or erased-class operand
+        // (`crates/smelt-codegen-rust/src/emitter/call.rs`, the
+        // `host_instance_markers` arm). Every modeled host object whose
+        // identity has to survive erasure — `Request`, `DataView`,
+        // `SharedArrayBuffer`, `DOMException`, `WeakMap`, the boxed primitive
+        // wrappers — carries a dedicated `__smelt_*` brand key, and this arm is
+        // the one place that reads it back: the operand's static type says only
+        // "some erased value", so the class is recovered from the value's own
+        // brand at run time. That is the policy's "values inspected through
+        // runtime narrowing" case verbatim, and it is the same guard the
+        // emitter already spells through `tag_check` / `smelt_unknown_is_` for
+        // the primitive tags — the host brands were the one family whose guard
+        // was still inlined, so it was classified as program storage.
+        //
+        // The canonical erased operand is a `catch` binding: TypeScript types
+        // one `unknown` by its own rule, so `catch (e) { if (e instanceof
+        // DOMException) .. }` is the idiomatic — and only — way a program reads
+        // a host error's brand, and no concrete type, generated union arm, or
+        // scoped generic can carry it (the same reasoning that makes
+        // `smelt_throw` / `smelt_thrown_value` a boundary above).
+        //
+        // Deliberately narrow, like the `cause` rule: the marker is the guard's
+        // own shape — the match guard on the `value` binding this arm (and only
+        // this arm) introduces, probing a `__smelt_`-prefixed brand key. It
+        // matches both spellings the arm emits, the plain
+        // `SmeltUnknown::Object(value)` and the `Option` receiver's
+        // `Some(SmeltUnknown::Object(value))`, and nothing else: the prelude's
+        // own brand probes bind `map`, `object`, `entries` or `record`, never
+        // `value`, and they are classified as prelude regardless. An erased
+        // local, an erased parameter, or a `Vec<SmeltUnknown>` beside the guard
+        // stays avoidable, and an `instanceof` over a CONCRETE operand does not
+        // reach here at all: it folds to a `true`/`false` literal naming no
+        // `SmeltUnknown`. Proven by
+        // `host_brand_instanceof_guard_is_a_boundary` below.
+        "if value.contains_key(\"__smelt_",
     ];
 
     // A JavaScript update-expression (`x++`/`++x`) used as a value snapshots its
@@ -1082,6 +1117,65 @@ mod tests {
             classify_line(parameter, false),
             Category::AvoidableErasure,
             "an erased parameter whose name merely contains `cause` must stay avoidable"
+        );
+    }
+
+    /// `instanceof HostClass` over an erased operand is a boundary.
+    ///
+    /// The guard reads a `__smelt_*` brand key back off a value whose static
+    /// type says only "some erased value" — the canonical case being a `catch`
+    /// binding, which TypeScript types `unknown` by its own rule. That is
+    /// runtime narrowing, the same edge `tag_check` and `smelt_unknown_is_`
+    /// name for the primitive tags; the host brands were the one family whose
+    /// guard was still inlined at the call site.
+    ///
+    /// The marker is the guard's own shape, so it covers both spellings the
+    /// emitter produces (plain and `Option` receiver) while an erased local, an
+    /// erased parameter, and a brand probe that is NOT a narrowing guard all
+    /// stay avoidable.
+    #[test]
+    fn host_brand_instanceof_guard_is_a_boundary() {
+        let guard = "    _smelt_tmp_3 = matches!(error.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_domexception\"));";
+        assert_eq!(
+            classify_line(guard, false),
+            Category::LegitimateBoundary,
+            "a caught host error recovers its class from the value's brand"
+        );
+        let optional = "    let _smelt_tmp_2: bool = matches!(input.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"__smelt_request\"));";
+        assert_eq!(
+            classify_line(optional, false),
+            Category::LegitimateBoundary,
+            "the `Option` receiver spelling of the same guard is the same boundary"
+        );
+        let multi = "    _smelt_tmp_4 = matches!(buffer.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_arraybuffer\") || value.contains_key(\"__smelt_sharedarraybuffer\"));";
+        assert_eq!(
+            classify_line(multi, false),
+            Category::LegitimateBoundary,
+            "a class with several brands probes each of them in one guard"
+        );
+        let storage = "    let failure: SmeltUnknown;";
+        assert_eq!(
+            classify_line(storage, false),
+            Category::AvoidableErasure,
+            "an ordinary erased local must stay avoidable"
+        );
+        let parameter = "pub(crate) fn width_of(value: SmeltUnknown) -> f64 {";
+        assert_eq!(
+            classify_line(parameter, false),
+            Category::AvoidableErasure,
+            "an erased parameter named `value` must stay avoidable"
+        );
+        let field = "    let tag: SmeltUnknown = fields.contains_key(\"__smelt_class\").into_smelt_unknown();";
+        assert_ne!(
+            classify_line(field, false),
+            Category::AvoidableErasure,
+            "the adapter on this line is what classifies it, not the brand probe"
+        );
+        let unbranded = "    let seen: Vec<SmeltUnknown> = Vec::from([SmeltUnknown::Bool(entries.contains_key(\"id\"))]);";
+        assert_eq!(
+            classify_line(unbranded, false),
+            Category::AvoidableErasure,
+            "a `contains_key` that is not a `value`-bound brand guard must stay avoidable"
         );
     }
 
