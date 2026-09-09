@@ -1876,12 +1876,22 @@ impl FunctionEmitter<'_> {
                         )
                     }
                 } else if matches!(self.mir.types.get(function.return_ty), Some(Type::Future(_))) {
-                    // A throwing async callback's call yields `Result<Future, _>`,
-                    // so the fallible call must be unwrapped with `?` to recover the
-                    // bare future before it is erased into a promise. Erasing the
-                    // `Result` directly would double-wrap the future (the promise
-                    // task then awaits a `Result<Future, _>` instead of a future).
-                    let future_call = if function.may_throw {
+                    // A SYNC function that returns a promise and can throw
+                    // before it does yields `Result<Future, _>`, so the fallible
+                    // call is unwrapped with `?` to recover the bare future
+                    // before it is erased into a promise; erasing the `Result`
+                    // directly would double-wrap it (the promise task would then
+                    // await a `Result<Future, _>`).
+                    //
+                    // An ASYNC function carries its throw INSIDE the future
+                    // (`Future<Output = Result<..>>`) and its call yields the
+                    // future itself, so there is nothing to unwrap: a `?` there
+                    // is applied to a `SmeltFuture`, which does not implement
+                    // `Try` (radash's `async_test.rs`, whose callback became
+                    // future-typed once a block-bodied callback's return type
+                    // came from its own returns). This is the same rule
+                    // `throwing_call_suffix` applies to a direct call.
+                    let future_call = if function.may_throw && !function.is_async {
                         format!("{call_text}?")
                     } else {
                         call_text

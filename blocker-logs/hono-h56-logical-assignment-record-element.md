@@ -1,59 +1,113 @@
 # H56 — logical assignment to a record element: two wrong values
 
-Isolated in round 25 while reproducing the router slice's `insert`. **Not
-fixed**, numbered. Both halves are silent wrong values, not blockers.
+Isolated in round 25 while reproducing the router slice's `insert`; **fixed in
+round 26**, and the fix turned out to be much broader than the record element.
+Both halves were silent wrong values, not blockers.
 
-## Measurements
+## What the measurements said
 
-One generated crate, six shapes, `Record` element targets. `Leaf` is a class
-with a `tag` field.
+One generated crate, `Record` element targets, `Leaf` a class with a `tag`:
 
-| # | source | expected | actual |
+| # | source | expected | before |
 | --- | --- | --- | --- |
-| 1 | `a['k'] ||= new Leaf()` as a STATEMENT | `k` / `leaf` | `k` / `leaf` — correct |
-| 2 | `const got = (b['k'] ||= new Leaf())` | `k` / `leaf` | **no keys** / `leaf` |
-| 3 | `this.#children[key] ||= new Leaf()` as a statement | `present` | `present` — correct |
-| 4 | `const child = (this.#children[key] ||= new Leaf())` | `leaf` / `present` | `leaf` / **`missing`** |
+| 1 | `a['k'] \|\|= new Leaf()` as a STATEMENT | `k` / `leaf` | correct |
+| 2 | `const got = (b['k'] \|\|= new Leaf())` | `k` / `leaf` | **no keys** / `leaf` |
+| 3 | `this.#children[key] \|\|= new Leaf()` as a statement | `present` | correct |
+| 4 | `const child = (this.#children[key] \|\|= new Leaf())` | `leaf` / `present` | `leaf` / **`missing`** |
 | 5 | `n['x'] ??= 2` on an absent number key | `2` | **`0`** |
-| 6 | `m['y'] ||= 2` on an absent number key | `2` | `2` — correct |
+| 6 | `m['y'] \|\|= 2` on an absent number key | `2` | correct |
 
-Controls that are all correct: `record[key] = v`, `list[0] ||= 5`,
-`obj.field ||= 7`, `plain ||= 9`.
+Widening the probe past records showed the first half was not about records at
+all — **every** assignment used as an expression dropped its store:
 
-## H56a — the assignment's VALUE is right but the store is dropped
+| source | expected | before |
+| --- | --- | --- |
+| `const got = (local = 5)` | `5` / `5` | `5` / **`0`** |
+| `const got = (obj.field = 5)` | `5` / `5` | `5` / **`0`** |
+| `const got = (rec['a'] = 5)` | `5` / key `a` | `5` / **no keys** |
+| `const got = (local \|\|= 7)` | `7` / `7` | `7` / **`0`** |
+| `const got = (obj.field \|\|= 7)` | `7` / `7` | `7` / **`0`** |
+| `rec['a'] &&= 9` on an absent key | key stays absent | **key created** |
 
-Rows 2 and 4: when the logical assignment is used as an expression, the value
-handed to the surrounding expression is the newly constructed one, but the
-record is never written. As a statement (rows 1 and 3) the same source writes
-correctly, so the read-modify-write exists; the value-producing path returns
-the computed value and skips the store.
+## The two causes, and the two rules
 
-This is exactly what Hono's trie router writes:
+### An assignment is an expression whose effect is the store
+
+`Expression::AssignmentExpression` lowered to the assignment's VALUE and
+nothing else: the `Stmt::Assign` was only ever pushed by the statement, the
+for-update and the mutable-global paths. `update_expression` (`x++`) already had
+the correct shape — store into the current statement block, evaluate to a value
+snapshotted before the store — so the fix is that shape for assignments, in
+`assignment_expression_value`.
+
+The stored value is ONE expression id referenced by both the store and the
+result, so the right-hand side is evaluated once: `const held = (store['a'] =
+new Leaf())` constructs one `Leaf`, and `held === store['a']`.
+
+### A logical assignment stores only when its test says to
+
+`t ||= v` is `t || (t = v)`. All three logical assignments lowered as the
+unconditional `t = (test ? t : v)`, which is observationally equivalent for a
+local or a field but wrong for a record element, where storing the value the
+test rejected CREATES a key JavaScript leaves absent. `lower_logical_assignment`
+now emits the branch — one rule for `||=`, `&&=` and `??=`, in statement and
+expression position, over locals, fields and record elements. The right-hand
+side is lowered inside the then block, so a logical assignment does not
+evaluate it when the test keeps the current value.
+
+The absent-key half is the read the OPERATOR tests: `SmeltRecord::get` already
+answers `Option<V>`, and it is a read declared at type `V` that appends
+`unwrap_or(<default>)`. So `Record<string, number>` answered `0` for a key that
+was never written and `??=` saw a non-nullish value. The tested read is now
+declared `Optional(V)`, which is what makes absence say `undefined`.
+`logical_assignment_current_read` changes only that read; the plain read keeps
+its declared type, so nothing else in the crate moves.
+
+## What it fixed downstream
+
+Hono's trie router writes exactly the shape in row 4:
 
 ```ts
 const child = (curNode.#children[key] ||= new Node())
 ```
 
-so `insert` builds a child, hands it back, and stores nothing: the trie stays
-empty. It is why the two-`Node` reproduction printed `none/none` even after
-H60/H61 made it compile.
+so `insert` built a child, handed it back and stored nothing: the whole trie
+stayed empty even after H60/H61 made it compile.
 
-## H56b — `??=` on an absent key sees the element type's default
+## The es-toolkit ratchet: +50, and why
 
-Row 5 versus row 6: `??=` does not assign on an absent `Record<string,
-number>` key, and the key reads back as `0`. `||=` on the same shape assigns.
-Both follow from one cause: the computed read of an absent key yields the
-element type's DEFAULT (`0`) rather than `undefined`, so the nullish test sees
-a non-nullish value and skips the assignment while the falsy test does not. For
-an object-valued record (row 1) the absent read is `undefined`, which is why
-`||=` there is correct.
+`avoidable-erasure` rose 32097 → 32147. None of it is a new erasure decision:
+it is the text of stores and reads that were previously **missing**, over values
+es-toolkit had already erased. The whole delta is six sites plus two:
 
-The spec answer is `undefined` for every absent key regardless of the declared
-value type; `Record<string, number>` values are `number | undefined` on read.
+| delta | site |
+| ---: | --- |
+| 12 | `assignValue.rs:20` (string index read arms) |
+| 6 | `assignValue.rs:22`, `assignValue.rs:26` |
+| 6 | `allKeyed.rs:10`, `allKeyed.rs:19`, `allKeyed.rs:29` |
+| 6 | `cloneDeepWith_spec.rs:130` |
+| 2 | `range.rs:52` |
 
-## Why numbered rather than fixed here
+`assignValue`/`allKeyed` assign through dynamic (`as any`, `PropertyKey`)
+surfaces whose values are `SmeltUnknown` in the source contract, and the added
+lines are the index read the store needs. Binding the value into a temporary
+instead measured WORSE (+53), so the simpler shape is kept. The baseline is
+re-snapshotted in the same commit with this accounting; a store that was
+previously dropped is not an erasure regression to ratchet against.
 
-Both halves live in assignment lowering and are independent of this round's
-class-identity work (H51/H60/H61); H56a in particular changes the shape of
-every logical-assignment expression value. Worth its own item, with the table
-above as the fixture.
+## Guarded by
+
+`examples/typescript/end-to-end/79_logical_assignment_store`, a runtime fixture
+over all six measured shapes plus the plain-assignment and truthy-keep controls,
+and `lowers_logical_or_assignment_as_a_conditional_store`, which asserts the
+branch rather than the old conditional value.
+
+Fixture 39 (`module_scope_reassignment`) exercises `||=`/`??=` at module scope:
+its generated Rust changes shape and its stdout is byte-identical.
+
+## Still open, found on the way
+
+A plain read of an absent `Record<string, number>` key still answers `0` rather
+than `undefined` (`String(rec['missing'])` prints `0`). Making every record read
+`Optional(V)` is the honest rule — it is what `SmeltRecord::get` returns — but
+it is a whole-corpus type change, so it is deliberately not in this commit.

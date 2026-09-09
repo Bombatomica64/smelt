@@ -2905,6 +2905,314 @@ impl ModuleBuilder<'_> {
         }))
     }
 
+    /// Whether an assignment operator is one of the three LOGICAL assignments,
+    /// which store conditionally and therefore lower through
+    /// [`Self::lower_logical_assignment`] rather than through
+    /// [`Self::assignment_parts`].
+    pub(in crate::lowering) const fn is_logical_assignment_operator(
+        operator: AssignmentOperator,
+    ) -> bool {
+        matches!(
+            operator,
+            AssignmentOperator::LogicalOr
+                | AssignmentOperator::LogicalAnd
+                | AssignmentOperator::LogicalNullish
+        )
+    }
+
+    /// The current-value read a logical assignment tests, with an absent
+    /// record key reading as `undefined`.
+    ///
+    /// `SmeltRecord::get` already answers `Option<V>`; a read whose declared
+    /// type is `V` is the one that appends `unwrap_or(<default>)`. So a record
+    /// element read for `Record<string, number>` answered `0` for a key that
+    /// was never written, and `rec[key] ??= 2` saw a non-nullish `0` and never
+    /// assigned. Declaring the read `Optional(V)` is what makes absence say
+    /// `undefined`, which is what JavaScript reads there.
+    ///
+    /// Only the read the OPERATOR tests changes; the plain read keeps its
+    /// declared type, so no other expression in the crate moves.
+    fn logical_assignment_current_read(
+        &mut self,
+        target: smelt_hir::ExprId,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let target_ty = Self::expr_ty(body, target);
+        if matches!(self.ctx.krate.types.get(target_ty), Some(Type::Optional(_))) {
+            return target;
+        }
+        let Some(target_expr) = body.exprs.get(usize::try_from(target.0).unwrap_or(usize::MAX))
+        else {
+            return target;
+        };
+        let span = target_expr.span;
+        let ExprKind::Index { receiver, index } = target_expr.kind else {
+            return target;
+        };
+        let receiver_ty = Self::expr_ty(body, receiver);
+        let Some(&Type::Dict(_, value_ty)) = self.ctx.krate.types.get(receiver_ty) else {
+            return target;
+        };
+        let optional_ty = self.ctx.krate.types.intern(Type::Optional(value_ty));
+        body.push_expr(Expr {
+            kind: ExprKind::Index { receiver, index },
+            ty: optional_ty,
+            span,
+        })
+    }
+
+    /// Lower `t ||= v`, `t &&= v` and `t ??= v` as the CONDITIONAL store the
+    /// language specifies, in statement or expression position.
+    ///
+    /// `t ||= v` is `t || (t = v)`: the store runs only when the test fails, so
+    /// a logical assignment to an absent record key writes the key for `||=`
+    /// and `??=` and leaves it absent for `&&=`. Lowering all three as the
+    /// unconditional `t = (test ? t : v)` instead made `rec[key] &&= 9` CREATE
+    /// the key it was supposed to leave alone, and together with a
+    /// default-valued read of an absent key it made `rec[key] ??= 2` store
+    /// nothing at all.
+    ///
+    /// One rule for all three operators, both positions, and every target
+    /// shape: locals, fields and record elements. `want_value` says whether the
+    /// surrounding expression needs the assignment's value; a statement
+    /// discards it, and then neither the else arm nor the result temporary is
+    /// emitted.
+    ///
+    /// The right-hand side is lowered INSIDE the then block, so its own
+    /// statements and side effects belong to the branch that stores: a logical
+    /// assignment does not evaluate its right side when the test keeps the
+    /// current value.
+    ///
+    /// The caller must have checked [`Self::is_logical_assignment_operator`].
+    pub(in crate::lowering) fn lower_logical_assignment(
+        &mut self,
+        assign: &oxc::ast::ast::AssignmentExpression<'_>,
+        body: &mut Body,
+        target_block: Option<smelt_hir::BlockId>,
+        want_value: bool,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let span = self.span(assign.span.start, assign.span.end);
+        let target = self.assignment_target_expr(&assign.left, body)?;
+        let target_ty = Self::expr_ty(body, target);
+        let current = self.logical_assignment_current_read(target, body);
+        let current_ty = Self::expr_ty(body, current);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        // Whether to STORE, which is the negation of "keep the current value":
+        // `||=` stores when the current value is falsy, `&&=` when it is truthy,
+        // `??=` when it is `null` or `undefined` (`== null`, the one comparison
+        // true for both).
+        let should_store = match assign.operator {
+            AssignmentOperator::LogicalNullish => {
+                let none = body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::None),
+                    ty: current_ty,
+                    span,
+                });
+                body.push_expr(Expr {
+                    kind: ExprKind::BinOp {
+                        op: BinOp::Eq,
+                        lhs: current,
+                        rhs: none,
+                    },
+                    ty: bool_ty,
+                    span,
+                })
+            }
+            AssignmentOperator::LogicalAnd => {
+                self.lowered_condition_expression(current, span, body)?
+            }
+            _ => {
+                let truthy = self.lowered_condition_expression(current, span, body)?;
+                body.push_expr(Expr {
+                    kind: ExprKind::UnaryOp {
+                        op: smelt_hir::UnaryOp::Not,
+                        operand: truthy,
+                    },
+                    ty: bool_ty,
+                    span,
+                })
+            }
+        };
+        let right_hint = match assign.operator {
+            AssignmentOperator::LogicalNullish => self.non_nullish_type(target_ty),
+            _ => Some(target_ty),
+        };
+        // The result temporary is declared before the branch and assigned in
+        // both arms, which is the shape the emitter already renders for a
+        // conditionally produced value (`let mut _smelt_tmp_N: T;`).
+        let result_local = want_value.then(|| {
+            body.push_local(LocalDecl {
+                name: Some(
+                    self.ctx
+                        .krate
+                        .symbols
+                        .intern(&format!("__smelt_logical_{}", body.locals.len())),
+                ),
+                ty: target_ty,
+                mutable: true,
+                span,
+            })
+        });
+        let then_block = body.push_block(span);
+        let previous_block = self.current_statement_block.replace(then_block);
+        let right = self.expression_with_hint(&assign.right, body, right_hint);
+        self.current_statement_block = previous_block;
+        let right = right?;
+        let right_ty = Self::expr_ty(body, right);
+        // The stored value is bound once: the right side may construct, and
+        // writing it to both the target and the result temporary would build it
+        // twice.
+        let right_local = body.push_local(LocalDecl {
+            name: Some(
+                self.ctx
+                    .krate
+                    .symbols
+                    .intern(&format!("__smelt_logical_value_{}", body.locals.len())),
+            ),
+            ty: right_ty,
+            mutable: false,
+            span,
+        });
+        let right_pat = body.push_pattern(Pattern::Binding(right_local));
+        body.push_stmt_to_block(
+            then_block,
+            Stmt::Let {
+                pat: right_pat,
+                ty: right_ty,
+                value: Some(right),
+            },
+        );
+        let stored = body.push_expr(Expr {
+            kind: ExprKind::Local(right_local),
+            ty: right_ty,
+            span,
+        });
+        body.push_stmt_to_block(
+            then_block,
+            Stmt::Assign {
+                target,
+                value: stored,
+            },
+        );
+        let else_block = result_local.map(|result_local| {
+            let stored_result = body.push_expr(Expr {
+                kind: ExprKind::Local(result_local),
+                ty: target_ty,
+                span,
+            });
+            let stored_again = body.push_expr(Expr {
+                kind: ExprKind::Local(right_local),
+                ty: right_ty,
+                span,
+            });
+            body.push_stmt_to_block(
+                then_block,
+                Stmt::Assign {
+                    target: stored_result,
+                    value: stored_again,
+                },
+            );
+            // The kept value is the target's own declared-type read: this arm
+            // runs only when the test kept the current value, so it is there.
+            let else_block = body.push_block(span);
+            let kept_result = body.push_expr(Expr {
+                kind: ExprKind::Local(result_local),
+                ty: target_ty,
+                span,
+            });
+            body.push_stmt_to_block(
+                else_block,
+                Stmt::Assign {
+                    target: kept_result,
+                    value: target,
+                },
+            );
+            else_block
+        });
+        if let Some(result_local) = result_local {
+            let pat = body.push_pattern(Pattern::Binding(result_local));
+            let declare = Stmt::Let {
+                pat,
+                ty: target_ty,
+                value: None,
+            };
+            self.push_logical_assignment_stmt(body, target_block, declare);
+        }
+        let branch = Stmt::If {
+            cond: should_store,
+            then_block,
+            else_block,
+        };
+        self.push_logical_assignment_stmt(body, target_block, branch);
+        Ok(result_local.map(|result_local| {
+            body.push_expr(Expr {
+                kind: ExprKind::Local(result_local),
+                ty: target_ty,
+                span,
+            })
+        }))
+    }
+
+    /// Push one statement of a lowered logical assignment into the block that
+    /// owns it: the caller's block when it named one, otherwise the block the
+    /// surrounding expression is being lowered into.
+    fn push_logical_assignment_stmt(
+        &self,
+        body: &mut Body,
+        target_block: Option<smelt_hir::BlockId>,
+        stmt: Stmt,
+    ) {
+        if let Some(block) = target_block.or(self.current_statement_block) {
+            body.push_stmt_to_block(block, stmt);
+        } else {
+            body.push_stmt(stmt);
+        }
+    }
+
+    /// Lower an assignment used as an expression VALUE, store included.
+    ///
+    /// JavaScript's assignment is an expression whose value is the assigned
+    /// value and whose effect is the store - `const child = (rec[key] ||= new
+    /// Node())` both writes the record and evaluates to the child. Expression
+    /// position previously kept only the value and dropped the store, for every
+    /// operator and every target: `const got = (a = 5)` left `a` at `0`, and
+    /// Hono's trie `insert`, written exactly in that shape, built a child,
+    /// handed it back and stored nothing, so the whole trie stayed empty.
+    ///
+    /// The store must run inside the current statement block, before the
+    /// enclosing expression finishes evaluating, and the result must be a value
+    /// snapshotted BEFORE the store: a lazy re-read of the target after the
+    /// store would evaluate the target's own subexpressions a second time. This
+    /// is the same shape [`Self::update_expression`] uses for `x++`, which is
+    /// where the correct handling already lived.
+    pub(in crate::lowering) fn assignment_expression_value(
+        &mut self,
+        assign: &oxc::ast::ast::AssignmentExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        // `||=`, `&&=` and `??=` store CONDITIONALLY, so they have their own
+        // rule; every other operator stores unconditionally and evaluates to
+        // the stored value.
+        if Self::is_logical_assignment_operator(assign.operator)
+            && let Some(value) = self.lower_logical_assignment(assign, body, None, true)?
+        {
+            return Ok(value);
+        }
+        let (target, value) = self.assignment_parts(assign, body)?;
+        // The stored value expression is what the surrounding expression
+        // evaluates to. One expression id, referenced by the store and by the
+        // result: MIR lowers an expression once into its own temporary, so this
+        // neither re-evaluates the right-hand side nor needs a temporary of its
+        // own here.
+        let assign_stmt = Stmt::Assign { target, value };
+        if let Some(block) = self.current_statement_block {
+            body.push_stmt_to_block(block, assign_stmt);
+        } else {
+            body.push_stmt(assign_stmt);
+        }
+        Ok(value)
+    }
+
     /// Convert assignment target to expression.
     pub(in crate::lowering) fn assignment_target_expr(
         &mut self,
