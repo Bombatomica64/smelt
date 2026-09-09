@@ -2390,8 +2390,7 @@ return_ty: function.return_ty,
             let rendered = renames.get(name)?;
             let canonical = Self::canonical_module_path(path)?;
             canonical_candidates
-                .iter()
-                .any(|candidate| *candidate == canonical)
+                .contains(&canonical)
                 .then(|| rendered.clone())
         })
     }
