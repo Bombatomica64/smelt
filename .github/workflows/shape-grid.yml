@@ -64,5 +64,9 @@ jobs:
         run: |
           SMELT_GRID_DUMP="${RUNNER_TEMP}/shape-grid-src" \
             cargo test -p smelt-codegen-rust --test shape_grid grid_is_enumerable
-          npx --yes typescript@5 tsc --strict --noEmit --target es2020 \
+          # `npx typescript@5 tsc` looks for a bin named `typescript`, which
+          # the package does not ship (its bins are `tsc` and `tsserver`), so
+          # npx exits 1 with "could not determine executable to run". Name the
+          # package with --package and the bin after `--`.
+          npx --yes --package typescript@5 -- tsc --strict --noEmit --target es2020 \
             "${RUNNER_TEMP}"/shape-grid-src/*.ts
