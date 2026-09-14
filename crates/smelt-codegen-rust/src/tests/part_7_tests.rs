@@ -14255,3 +14255,58 @@ console.log(report(table[0]), report(table[1]));
         "{source}"
     );
 }
+
+/// `ConstructorParameters<C>` is the constructor position of `Parameters<F>`.
+///
+/// Both name the tuple of parameter types a callable is invoked with, and
+/// `typeof C` for a class already resolves to that class's CONSTRUCTOR function
+/// type, so the two spellings read the same field off the same
+/// `Type::Function`. Before this was modeled the name fell through to the
+/// ordinary type-reference path and produced a type that is neither a list, a
+/// tuple, nor erased — so a REST PARAMETER annotated with it blocked the whole
+/// build with `rest parameter type must resolve to an array type`, and the
+/// crate was never emitted. Hono's `src/client/types.ts` is exactly that shape.
+///
+/// A host constructor with no modeled signature keeps the honest "some
+/// arguments, shape unknown" answer of an erased array, which is what makes the
+/// annotation lower rather than block.
+#[test]
+fn constructor_parameters_lowers_like_parameters() {
+    let source = source_for(
+        r#"
+class Point {
+  constructor(
+    public x: number,
+    public y: number,
+  ) {}
+}
+
+type Make = (...args: ConstructorParameters<typeof Point>) => Point;
+
+const make: Make = (x, y) => new Point(x, y);
+console.log(make(1, 2).x, make(3, 4).y);
+"#,
+    );
+
+    assert!(source.contains("Point::new("), "{source}");
+}
+
+/// The same annotation over a HOST constructor with no modeled signature must
+/// still lower, because that is the shape that actually blocked a real crate:
+/// the answer degrades to an erased array rather than to a type a rest
+/// parameter cannot be spelled with.
+#[test]
+fn constructor_parameters_of_an_unmodeled_host_constructor_lowers() {
+    let source = source_for(
+        r#"
+type ClientRequestOptions = {
+  webSocket?: (...args: ConstructorParameters<typeof WebSocket>) => WebSocket;
+};
+
+const options: ClientRequestOptions = {};
+console.log(options.webSocket === undefined);
+"#,
+    );
+
+    assert!(source.contains("fn main"), "{source}");
+}

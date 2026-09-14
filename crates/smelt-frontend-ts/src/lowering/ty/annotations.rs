@@ -2050,7 +2050,23 @@ return_ty: function.return_ty,
                     next_ty,
                 }))
             }
-            ("Parameters", [function_arg]) => {
+            // `Parameters<F>` and `ConstructorParameters<C>` ask the same
+            // question of two different callable positions: the tuple of
+            // parameter types a value is called with. `typeof C` for a class
+            // already resolves to that class's CONSTRUCTOR function type, so
+            // both spellings read `params` off a `Type::Function` and differ in
+            // nothing else — which is why they share one arm rather than one
+            // being a special case of the other.
+            //
+            // Without `ConstructorParameters` here the name fell through to the
+            // ordinary type-reference path, resolved to no interface and no
+            // alias, and produced a type that is neither a list, a tuple, nor
+            // erased; a rest parameter annotated with it then blocked the whole
+            // build with `rest parameter type must resolve to an array type`.
+            // Hono's `src/client/types.ts` is exactly that shape
+            // (`webSocket?: (...args: ConstructorParameters<typeof WebSocket>) => WebSocket`),
+            // and it stopped the crate from being emitted at all.
+            ("Parameters" | "ConstructorParameters", [function_arg]) => {
                 let function_ty = self.ts_type_to_hir(function_arg)?;
                 if let Some(Type::Function(function_ty_data)) = self.ctx.krate.types.get(function_ty)
                 {
@@ -2060,6 +2076,10 @@ return_ty: function.return_ty,
                         .types
                         .intern(Type::Tuple(function_ty_data.params.clone())))
                 } else {
+                    // Not a callable this lowering can read a signature off — a
+                    // host constructor with no modeled signature, or a type
+                    // parameter. The honest answer is then "some arguments,
+                    // shape unknown", which is what an erased array says.
                     let item = self.ctx.krate.types.intern(Type::Unknown);
                     Ok(self.ctx.krate.types.intern(Type::List(item)))
                 }
