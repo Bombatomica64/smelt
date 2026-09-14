@@ -1,0 +1,103 @@
+class Registry fields [Hidden #seen: Dict<String, Bool>] constructor Some(FuncId(3)) methods [FuncId(1), FuncId(2)]
+
+fn fill (FuncId(0)) -> String throws
+  locals
+    %0 param registry: Optional<Registry>
+    %1 param key: String
+    %2 temp: Optional<None>
+    %3 temp: Bool
+    %4 temp: String
+    %5 temp: Registry
+    %6 temp: String
+  bb0:
+    %2 = copy %0?.method6(copy %1, true)
+    %3 = copy %0 == undefined
+    switch move %3 ? bb1 : bb2
+  bb1:
+    %4 = "no registry"
+    goto bb4
+  bb2:
+    %5 = copy %0
+    %6 = call fn2(move %5, copy %1) -> bb3
+  bb3:
+    %4 = move %6
+    goto bb4
+  bb4:
+    return move %4
+
+fn insert (FuncId(1)) -> None throws
+  locals
+    %0 param this: Registry
+    %1 param key: String
+    %2 param value: Bool
+    %3 temp: Bool
+    %4 temp: Dict<String, Unknown>
+    %5 temp: Unknown
+    %6 temp: Dict<String, Bool>
+  bb0:
+    %3 = copy %1 == ""
+    switch move %3 ? bb1 : bb2
+  bb1:
+    %4 = {"__smelt_error": "Error", "message": "empty key", "stack": undefined, "cause": undefined}
+    %5 = unknown_cast move %4 as t7
+    throw move %5
+  bb2:
+    %6 = copy %0.field4
+    %6[copy %1] = copy %2
+    %0.field4 = move %6
+    return none
+
+fn has (FuncId(2)) -> String
+  locals
+    %0 param this: Registry
+    %1 param key: String
+    %2 temp: Dict<String, Bool>
+    %3 temp: Bool
+    %4 temp: String
+  bb0:
+    %2 = copy %0.field4
+    %3 = copy %2[copy %1] == undefined
+    switch move %3 ? bb1 : bb2
+  bb1:
+    %4 = "absent"
+    goto bb3
+  bb2:
+    %4 = "present"
+    goto bb3
+  bb3:
+    return move %4
+
+fn new (FuncId(3)) -> Registry
+  locals
+    %0 user this: Registry
+    %1 temp: Dict<String, Bool>
+  bb0:
+    %0 = struct1 {}
+    %1 = {}
+    %0.field4 = move %1
+    return move %0
+
+fn main (FuncId(4)) -> None throws
+  locals
+    %0 temp: String
+    %1 temp: String
+    %2 temp: None
+    %3 temp: Registry
+    %4 temp: String
+    %5 temp: String
+    %6 temp: None
+  bb0:
+    %0 = call fn0(undefined, "a") -> bb1
+  bb1:
+    %1 = "no receiver: " + move %0
+    %2 = call @console_log(move %1) -> bb2
+  bb2:
+    %3 = call fn3() -> bb3
+  bb3:
+    %4 = call fn0(move %3, "a") -> bb4
+  bb4:
+    %5 = "receiver: " + move %4
+    %6 = call @console_log(move %5) -> bb5
+  bb5:
+    return none
+

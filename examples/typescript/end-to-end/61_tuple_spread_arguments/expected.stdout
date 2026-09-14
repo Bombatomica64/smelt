@@ -1,0 +1,8 @@
+GET /a @1
+POST /b @2
+DELETE /c @7
+closure GET /a @1
+method POST /b @2
+PUT /once @3
+evaluations: 1
+PATCH /maybe @4

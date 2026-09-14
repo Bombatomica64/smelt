@@ -1,0 +1,53 @@
+module examples/typescript/end-to-end/68_switch_continue_in_loop/input.ts (ModuleId(0))
+  body BodyId(3)
+  items
+    fn escape_html owner Module
+    fn sum_odd owner Module
+    fn classify owner Module
+  exprs
+    #0: String = "a"b&c<d>e"
+    #1: fn(String) -> String = @0(escape_html)
+    #2: String = call #1(#0)
+    #3: None = @3(console_log)
+    #4: None = call #3(#2)
+    #5: String = "nothing to escape"
+    #6: fn(String) -> String = @0(escape_html)
+    #7: String = call #6(#5)
+    #8: None = @4(console_log)
+    #9: None = call #8(#7)
+    #10: Float = 1.0
+    #11: Float = 2.0
+    #12: Float = 3.0
+    #13: Float = 4.0
+    #14: Float = 5.0
+    #15: List<Float> = [#10, #11, #12, #13, #14]
+    #16: fn(List<Float>) -> Float = @1(sum_odd)
+    #17: Float = call #16(#15)
+    #18: None = @5(console_log)
+    #19: None = call #18(#17)
+    #20: Float = 1.0
+    #21: Float = 2.0
+    #22: Float = 3.0
+    #23: List<Float> = [#20, #21, #22]
+    #24: fn(List<Float>) -> String = @2(classify)
+    #25: String = call #24(#23)
+    #26: None = @6(console_log)
+    #27: None = call #26(#25)
+  stmts
+    s0: #4
+    s1: #9
+    s2: #19
+    s3: #27
+
+interned types
+  t0 = String
+  t1 = fn(String) -> String
+  t2 = Float
+  t3 = List<Float>
+  t4 = fn(List<Float>) -> Float
+  t5 = fn(List<Float>) -> String
+  t6 = Bool
+  t7 = fn(String) -> String
+  t8 = None
+  t9 = fn(List<Float>) -> Float
+  t10 = fn(List<Float>) -> String

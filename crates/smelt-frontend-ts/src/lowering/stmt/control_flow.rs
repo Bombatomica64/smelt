@@ -104,6 +104,12 @@ impl ModuleBuilder<'_> {
                     body.push_stmt_to_block(loop_body, Stmt::Expr(set));
                     return Ok(());
                 }
+                // A logical update (`i ||= 1`) stores conditionally through its
+                // own rule, which pushes the branch into the loop body itself.
+                if Self::is_logical_assignment_operator(assign.operator) {
+                    self.lower_logical_assignment(assign, body, Some(loop_body), false)?;
+                    return Ok(());
+                }
                 let (target, value) = self.assignment_parts(assign, body)?;
                 body.push_stmt_to_block(loop_body, Stmt::Assign { target, value });
                 Ok(())
@@ -438,6 +444,14 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> smelt_hir::ExprId {
         let iter_ty = Self::expr_ty(body, iter);
+        // A typed-array view iterates its ELEMENTS at its own width and
+        // signedness. Asked before the `Type::Class` arm below, which would
+        // otherwise assert the view into an erased list and lose both the
+        // element type and the decode.
+        if self.is_typed_array_view_type(iter_ty) {
+            let span = self.expression_span(source);
+            return self.typed_array_elements_expression(iter, span, body);
+        }
         match self.ctx.krate.types.get(iter_ty).cloned() {
             Some(Type::Set(item_ty)) => {
                 let ty = self.ctx.krate.types.intern(Type::List(item_ty));
@@ -527,6 +541,45 @@ Type::Optional(_)) => {
                 // generic `T`, an erased object, or an optional object —
                 // iterates string-keyed properties, so it is cast to
                 // `Record<string, unknown>`.
+                let key_ty = self.ctx.krate.types.intern(Type::String);
+                let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let dict_ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
+                object = body.push_expr(Expr {
+                    kind: ExprKind::UnknownCast {
+                        value: object,
+                        target: dict_ty,
+                    },
+                    ty: dict_ty,
+                    span: self.expression_span(source),
+                });
+                let list_ty = self.ctx.krate.types.intern(Type::List(key_ty));
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::DictProjection {
+                        op: DictProjectionOp::ForInKeys,
+                        dict: object,
+                    },
+                    ty: list_ty,
+                    span: self.expression_span(source),
+                }))
+            }
+            // A UNION of record-like arms. `for...in` yields property NAMES, and
+            // every arm here spells its own names with the same key type, so the
+            // projection is the same operation whichever arm the value holds at
+            // run time — there is nothing to narrow. Hono's `HeaderRecord` is
+            // three `Record<..., ...>` arms and `for (const k in headers)` was
+            // rejected outright; the arms differ only in their VALUE types,
+            // which this loop never reads (`headers[k]` is a separate,
+            // union-typed expression).
+            Some(Type::Union(arms))
+                if !arms.is_empty()
+                    && arms.iter().all(|arm| {
+                        matches!(
+                            self.ctx.krate.types.get(*arm),
+                            Some(Type::Dict(key, _))
+                                if self.ctx.krate.types.get(*key) == Some(&Type::String)
+                        )
+                    }) =>
+            {
                 let key_ty = self.ctx.krate.types.intern(Type::String);
                 let value_ty = self.ctx.krate.types.intern(Type::Unknown);
                 let dict_ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));

@@ -1,0 +1,65 @@
+[project]
+name = "hono"
+version = "0.0.0"
+description = "Hono Smelt probe"
+
+[sources]
+roots = ["src"]
+entries = ["src/index.ts"]
+test-prefix = ["src/**/*.test.ts"]
+# Excludes are justified one line at a time: each entry names the host surface
+# or language feature Smelt's non-DOM Node profile deliberately does not model.
+# Remove an entry once Smelt models what it names — never to make a build pass.
+#
+# The list is short on purpose. The campaign started from the whole of `src/`
+# and `smelt check --message-format json` was used to decide what actually
+# cannot be in the profile, rather than assuming the obvious candidates: with
+# host globals modeled as erased value closures, `src/adapter/**`, `src/jsx/**`
+# and `src/helper/{html,css,ssg}` all lower today and are NOT excluded.
+#
+# `[sources] exclude` prunes the dependency CLOSURE, not only the root set, so
+# a module reached transitively is genuinely removed from the crate. Type-only
+# imports and `export type` re-exports from an excluded module stay free —
+# excluding a module removes its implementation, not its type surface — while
+# using an imported *value* reports the exclusion by name.
+exclude = [
+  # `new Proxy(() => {}, { get })` for dynamic member dispatch (resolving
+  # `client.posts.$get` by intercepting property reads) is a Smelt non-goal.
+  # `src/index.ts` keeps working: its `export type { InferRequestType, ... }
+  # from './client'` is type-only, so it costs nothing.
+  "src/client/**",
+  # Imports the `hc` VALUE from the excluded client above; it exists to build
+  # test clients over that RPC surface, so it cannot outlive it.
+  "src/helper/testing/**",
+  # `ReadableStream`/`WritableStream`/`TransformStream`: unbounded streaming is
+  # not in the standards stream's scope this round. Tracked as future standards
+  # work in blocker-logs/hono-fetch-demand.md.
+  "src/helper/streaming/**",
+  # `WebSocket` and `WebSocketPair`: no WHATWG WebSocket in the profile. Same
+  # tracking note as streaming above.
+  "src/helper/websocket/**",
+  # `crypto.subtle.importKey/sign/verify`, out of scope for the standards
+  # stream this round (blocker-logs/hono-fetch-demand.md lists the 19 call
+  # sites).
+  "src/utils/jwt/**",
+  "src/middleware/jwt/**",
+  # `vi.stubGlobal` (a monkey-patching model Smelt does not have) plus the
+  # `new Proxy` client under test; leaf test files, so droppable.
+  "src/client/client.test.ts",
+  "src/client/utils.test.ts",
+]
+
+[output]
+target = "./dist-smelt"
+crate-name = "hono_probe"
+build = false
+
+[rust]
+edition = "2024"
+
+[strict]
+typescript = true
+python = true
+
+[runtime]
+clone-strategy = "aggressive"

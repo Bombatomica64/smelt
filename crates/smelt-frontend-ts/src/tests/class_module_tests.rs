@@ -29,6 +29,71 @@ class Counter {
 }
 
 #[test]
+fn lowers_private_class_method_call() -> Result<(), String> {
+    // `this.#bump(by)` is a member CALL whose property is a private name. The
+    // call dispatch used to match only `StaticMemberExpression` callees, so a
+    // private method call fell through every arm and reported "call expression
+    // is not lowered yet" — even though the private FIELD read on the line
+    // above it lowered fine. Both spellings now share one member-call path.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+class Counter {
+  #count: number = 0;
+  #bump(by: number): number {
+    this.#count = this.#count + by;
+    return this.#count;
+  }
+  add(by: number): number {
+    return this.#bump(by);
+  }
+}
+
+export const run = (): number => new Counter().add(3);
+"),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_private_class_method_call_on_another_instance() -> Result<(), String> {
+    // ES private names are class-scoped, not instance-scoped: a method may call
+    // a private method on ANY instance of its own class, not only on `this`.
+    // Hono's trie router does exactly this (`nextNode.#children`), so the
+    // receiver of a private call must be an ordinary lowered expression rather
+    // than an implicit `this`.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+class Node {
+  #depth: number = 0;
+  #deeper(): number {
+    return this.#depth + 1;
+  }
+  compare(other: Node): number {
+    // `other.#depth` is also a private read in ARGUMENT position, which the
+    // argument lowering rejected separately from the call itself.
+    return other.#deeper() + this.#atLeast(other.#depth);
+  }
+
+  #atLeast(value: number): number {
+    return value < 0 ? 0 : value;
+  }
+}
+
+export const run = (): number => new Node().compare(new Node());
+"),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_this_parameter_function_type() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -786,8 +851,8 @@ export interface Matcher {
     let matcher = interface_named(&ctx, module, "Matcher")?;
     ensure!(
         matcher.methods.iter().any(|method| ctx.krate.symbols.get(method.name)
-            == Some("__smelt_symbol_for_ts_pattern_matcher")),
-        "expected a `__smelt_symbol_for_ts_pattern_matcher` method, got {:?}",
+            == Some(smelt_stdlib::symbol_keys::registry_symbol_key("@ts-pattern/matcher").as_str())),
+        "expected the folded `Symbol.for(\"@ts-pattern/matcher\")` method, got {:?}",
         matcher.methods
     );
     Ok(())
@@ -812,8 +877,8 @@ export interface Branded {
     let branded = interface_named(&ctx, module, "Branded")?;
     ensure!(
         branded.fields.iter().any(|field| ctx.krate.symbols.get(field.name)
-            == Some("__smelt_symbol_for_ts_pattern_override")),
-        "expected a `__smelt_symbol_for_ts_pattern_override` field, got {:?}",
+            == Some(smelt_stdlib::symbol_keys::registry_symbol_key("@ts-pattern/override").as_str())),
+        "expected the folded `Symbol.for(\"@ts-pattern/override\")` field, got {:?}",
         branded.fields
     );
     Ok(())
@@ -850,21 +915,28 @@ export interface Override {
     let override_iface = interface_named(&ctx, module, "Override")?;
     ensure!(
         override_iface.fields.iter().any(|field| ctx.krate.symbols.get(field.name)
-            == Some("__smelt_symbol_for_ts_pattern_override")),
-        "expected a `__smelt_symbol_for_ts_pattern_override` field, got {:?}",
+            == Some(smelt_stdlib::symbol_keys::registry_symbol_key("@ts-pattern/override").as_str())),
+        "expected the folded `Symbol.for(\"@ts-pattern/override\")` field, got {:?}",
         override_iface.fields
     );
     Ok(())
 }
 
-/// A *unique* `Symbol("desc")` (no `.for`) aliased to a const has fresh identity
-/// each evaluation and is not a stable static key, so using it as a computed
-/// property name still reports the dynamic-key diagnostic (issue #115 folds only
-/// globally-interned registry symbols, not unique brands).
+/// A *unique* `Symbol("desc")` bound to a MODULE-LEVEL const is a stable static
+/// key, so it names an ordinary member.
+///
+/// This test asserted the opposite until round 8. The old reasoning -- "a unique
+/// symbol has fresh identity each evaluation" -- is true of a `Symbol()`
+/// evaluated per call, and it is exactly why the *general* fold still refuses
+/// one. It is not true of a module-level `const`: that initializer runs once, so
+/// the symbol it binds is one symbol for the program's lifetime and its
+/// span-tagged spelling is a stable, collision-free name for it. Refusing it
+/// made Hono's `get [GET_MATCH_RESULT]()` a blocker for a member whose identity
+/// is fully static.
 #[test]
-fn rejects_unique_symbol_const_computed_property_name() -> Result<(), String> {
+fn lowers_unique_symbol_const_computed_property_name() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let errors = lowering_errors(
+    let module_id = lower_ok(
         ts!(r"
 const brand = Symbol('brand');
 
@@ -874,10 +946,18 @@ class Branded {
 "),
         &mut ctx,
     )?;
-    assert_unsupported_ts(
-        &errors,
-        "dynamic computed property names are not lowered yet",
-    )?;
+    let module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    let branded = class_named(&ctx, module, "Branded")?;
+    ensure!(
+        branded.fields.iter().any(|field| ctx
+            .krate
+            .symbols
+            .get(field.name)
+            .is_some_and(|name| name.starts_with("__smelt_symbol_unique_"))),
+        "expected a unique-symbol-keyed field, got {:?}",
+        branded.fields
+    );
     Ok(())
 }
 

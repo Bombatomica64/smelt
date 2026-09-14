@@ -1,0 +1,146 @@
+module examples/typescript/end-to-end/55_headers_init_union/input.ts (ModuleId(0))
+  body BodyId(2)
+  items
+    type HeaderPairs = List<(String, String)>
+    type HeadersInitUnion = List<(String, String)> | Dict<String, String> | Headers
+    fn content_type_of owner Module
+    interface InitLike fields [Public headers?: Optional<List<(String, String)> | Dict<String, String> | Headers>] methods []
+    fn first_header owner Module
+  locals
+    %0 const htmlPairs: List<(String, String)>
+    %1 const source: Headers
+    %2 const copy: Headers
+    %3 const twoValues: List<(String, String)>
+  exprs
+    #0: String = "Content-Type"
+    #1: String = "text/plain"
+    #2: Dict<String, String> = {#0: #1}
+    #3: fn(List<(String, String)> | Dict<String, String> | Headers) -> String = @4(content_type_of)
+    #4: String = call #3(#2)
+    #5: None = @9(console_log)
+    #6: None = call #5(#4)
+    #7: String = "content-type"
+    #8: String = "text/html"
+    #9: (String, String) = (#7, #8)
+    #10: List<(String, String)> = [#9]
+    #11: fn(List<(String, String)> | Dict<String, String> | Headers) -> String = @4(content_type_of)
+    #12: String = call #11(#10)
+    #13: None = @10(console_log)
+    #14: None = call #13(#12)
+    #15: String = "Content-Type"
+    #16: String = "application/json"
+    #17: List<String> = [#15, #16]
+    #18: List<List<String>> = [#17]
+    #19: Headers = headers_new #18
+    #20: fn(List<(String, String)> | Dict<String, String> | Headers) -> String = @4(content_type_of)
+    #21: String = call #20(#19)
+    #22: None = @11(console_log)
+    #23: None = call #22(#21)
+    #24: String = "content-type"
+    #25: String = "text/html"
+    #26: (String, String) = (#24, #25)
+    #27: List<(String, String)> = [#26]
+    #28: List<(String, String)> = %0
+    #29: fn(List<(String, String)> | Dict<String, String> | Headers) -> String = @4(content_type_of)
+    #30: String = call #29(#28)
+    #31: None = @12(console_log)
+    #32: None = call #31(#30)
+    #33: String = "headers"
+    #34: String = "a"
+    #35: String = "1"
+    #36: String = "b"
+    #37: String = "2"
+    #38: Dict<String, String> = {#34: #35, #36: #37}
+    #39: InitLike = {#33: #38}
+    #40: fn(InitLike) -> String = @5(first_header)
+    #41: String = call #40(#39)
+    #42: None = @13(console_log)
+    #43: None = call #42(#41)
+    #44: InitLike = {}
+    #45: fn(InitLike) -> String = @5(first_header)
+    #46: String = call #45(#44)
+    #47: None = @14(console_log)
+    #48: None = call #47(#46)
+    #49: String = "headers"
+    #50: String = "a"
+    #51: String = "3"
+    #52: List<String> = [#50, #51]
+    #53: Optional<List<(String, String)> | Dict<String, String> | Headers> = [#52]
+    #54: InitLike = {#49: #53}
+    #55: fn(InitLike) -> String = @5(first_header)
+    #56: String = call #55(#54)
+    #57: None = @15(console_log)
+    #58: None = call #57(#56)
+    #59: String = "x-shared"
+    #60: String = "original"
+    #61: List<String> = [#59, #60]
+    #62: List<List<String>> = [#61]
+    #63: Headers = headers_new #62
+    #64: Headers = %1
+    #65: Headers = headers_new #64
+    #66: Headers = %2
+    #67: Headers = %2
+    #68: String = "x-shared"
+    #69: String = "changed"
+    #70: None = headers_set #67, #68, #69
+    #71: Headers = %1
+    #72: Headers = %1
+    #73: String = "x-shared"
+    #74: Optional<String> = headers_get #72, #73
+    #75: None = @16(console_log)
+    #76: None = call #75(#74)
+    #77: Headers = %2
+    #78: Headers = %2
+    #79: String = "x-shared"
+    #80: Optional<String> = headers_get #78, #79
+    #81: None = @17(console_log)
+    #82: None = call #81(#80)
+    #83: String = "content-type"
+    #84: String = "text/plain"
+    #85: (String, String) = (#83, #84)
+    #86: String = "content-type"
+    #87: String = "text/css"
+    #88: (String, String) = (#86, #87)
+    #89: List<(String, String)> = [#85, #88]
+    #90: List<(String, String)> = %3
+    #91: fn(List<(String, String)> | Dict<String, String> | Headers) -> String = @4(content_type_of)
+    #92: String = call #91(#90)
+    #93: None = @18(console_log)
+    #94: None = call #93(#92)
+  stmts
+    s0: #6
+    s1: #14
+    s2: #23
+    s3: let %0: List<(String, String)> = #27
+    s4: #32
+    s5: #43
+    s6: #48
+    s7: #58
+    s8: let %1: Headers = #63
+    s9: let %2: Headers = #65
+    s10: #70
+    s11: #76
+    s12: #82
+    s13: let %3: List<(String, String)> = #89
+    s14: #94
+
+interned types
+  t0 = String
+  t1 = (String, String)
+  t2 = List<(String, String)>
+  t3 = Dict<String, String>
+  t4 = Headers
+  t5 = List<(String, String)> | Dict<String, String> | Headers
+  t6 = List<String>
+  t7 = List<List<String>>
+  t8 = Unknown
+  t9 = fn(List<(String, String)> | Dict<String, String> | Headers) -> String
+  t10 = InitLike
+  t11 = fn(InitLike) -> String
+  t12 = Optional<String>
+  t13 = Optional<List<(String, String)> | Dict<String, String> | Headers>
+  t14 = String | Unknown
+  t15 = fn(List<(String, String)> | Dict<String, String> | Headers) -> String
+  t16 = None
+  t17 = Optional<String | Unknown>
+  t18 = fn(InitLike) -> String

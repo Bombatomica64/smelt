@@ -1,0 +1,88 @@
+module examples/typescript/end-to-end/84_same_named_methods_across_classes/input.ts (ModuleId(0))
+  body BodyId(7)
+  items
+    class Ticker fields [Public count: Float] constructor Some(ItemId(1)) methods [ItemId(0)] implements []
+    class Labeller fields [Public label: String] constructor Some(ItemId(5)) methods [ItemId(3), ItemId(4)] implements []
+    class Sizer fields [] constructor Some(ItemId(8)) methods [ItemId(7)] implements []
+  locals
+    %0 const ticker: Ticker
+    %1 const labeller: Labeller
+    %2 const held: String
+  exprs
+    #0: Ticker = new Ticker()
+    #1: Ticker = %0
+    #2: fn(String) -> None = #1.bump
+    #3: Ticker = %0
+    #4: String = "ab"
+    #5: None = #3.bump(#4)
+    #6: String = "void method: "
+    #7: Ticker = %0
+    #8: Float = #7.count
+    #9: String = primitive_cast_string #8
+    #10: String = Add #6, #9
+    #11: None = @10(console_log)
+    #12: None = call #11(#10)
+    #13: Labeller = new Labeller()
+    #14: String = "value method: "
+    #15: Labeller = %1
+    #16: fn(String) -> String = #15.bump
+    #17: Labeller = %1
+    #18: String = "!"
+    #19: String = #17.bump(#18)
+    #20: String = Add #14, #19
+    #21: None = @11(console_log)
+    #22: None = call #21(#20)
+    #23: Labeller = %1
+    #24: fn(String) -> String = #23.bump
+    #25: Labeller = %1
+    #26: String = "?"
+    #27: String = #25.bump(#26)
+    #28: String = "bound value: "
+    #29: String = %2
+    #30: String = Add #28, #29
+    #31: None = @12(console_log)
+    #32: None = call #31(#30)
+    #33: String = "same name, other params: "
+    #34: Labeller = %1
+    #35: fn(Float) -> String = #34.describe
+    #36: Labeller = %1
+    #37: Float = 3.0
+    #38: String = #36.describe(#37)
+    #39: String = Add #33, #38
+    #40: None = @13(console_log)
+    #41: None = call #40(#39)
+    #42: String = "other class: "
+    #43: Sizer = new Sizer()
+    #44: fn(String) -> Float = #43.describe
+    #45: Sizer = new Sizer()
+    #46: String = "abcd"
+    #47: Float = #45.describe(#46)
+    #48: String = primitive_cast_string #47
+    #49: String = Add #42, #48
+    #50: None = @14(console_log)
+    #51: None = call #50(#49)
+  stmts
+    s0: let %0: Ticker = #0
+    s1: #5
+    s2: #12
+    s3: let %1: Labeller = #13
+    s4: #22
+    s5: let %2: String = #27
+    s6: #32
+    s7: #41
+    s8: #51
+
+interned types
+  t0 = Ticker
+  t1 = Labeller
+  t2 = String
+  t3 = Unknown
+  t4 = Dict<String, Unknown>
+  t5 = fn(String) -> Unknown
+  t6 = Float
+  t7 = None
+  t8 = Sizer
+  t9 = fn(String) -> None
+  t10 = fn(String) -> String
+  t11 = fn(Float) -> String
+  t12 = fn(String) -> Float

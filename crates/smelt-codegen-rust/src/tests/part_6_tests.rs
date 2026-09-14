@@ -167,19 +167,19 @@ const rebuilt = Object.fromEntries([["a", 1], ["b", 2]]);
 
     assert!(
         source.contains(
-            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol:\") && smelt_is_for_in_record_key(&mapping.clone(), key)).collect::<Vec<_>>()"
+            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol\") && smelt_is_for_in_record_key(&mapping.clone(), key)).collect::<Vec<_>>()"
         ),
         "{source}"
     );
     assert!(
         source.contains(
-            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").map(|(_, value)| value).collect::<Vec<_>>()"
+            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").map(|(_, value)| value).collect::<Vec<_>>()"
         ),
         "{source}"
     );
     assert!(
         source.contains(
-            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").collect::<Vec<_>>()"
+            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").collect::<Vec<_>>()"
         ),
         "{source}"
     );
@@ -1217,18 +1217,69 @@ fail();
     assert!(source.contains("return Ok(());"));
 }
 
+/// `fetch` emits a future that assembles a whole `Response`.
+///
+/// It used to emit the fused `reqwest::get(..).text()` and answer a
+/// `Promise<string>`, which is not what `fetch` returns anywhere. Every part
+/// now comes from the transport: the status, its canonical reason phrase, the
+/// response headers, and the body as RAW BYTES — bytes because
+/// `SmeltBody::from_text` would stamp an implied `text/plain;charset=UTF-8`,
+/// and a fetched response's content type belongs to the server.
+///
+/// `tests/fetch_response_runtime.rs` proves the round trip against a real
+/// socket; this is the cheap half that pins the emitted shape.
 #[test]
-fn emits_fetch_as_reqwest_get_text_future() {
+fn emits_fetch_as_a_response_assembling_future() {
     let source = source_for(
-        "async function load(): Promise<string> {
+        "async function load(): Promise<Response> {
   return await fetch(\"https://example.com\");
 }
 ",
     );
 
-    assert!(source.contains(
-            "reqwest::get(\"https://example.com\".to_owned()).await.expect(\"HTTP GET failed\").text().await.expect(\"HTTP response body read failed\")"
-        ));
+    assert!(
+        source.contains("reqwest::get(\"https://example.com\".to_owned())"),
+        "{source}"
+    );
+    assert!(source.contains("SmeltResponse::from_parts"), "{source}");
+    assert!(
+        source.contains("canonical_reason()"),
+        "the reason phrase must come from the response: {source}"
+    );
+    assert!(
+        source.contains("smelt_http.headers().iter()"),
+        "the header list must come from the response: {source}"
+    );
+    assert!(
+        source.contains("SmeltBody::from_bytes"),
+        "a fetched body must not carry an invented content type: {source}"
+    );
+}
+
+/// Python's `requests.get(url)` keeps the fused text operation.
+///
+/// `requests.get(url).text` really is "GET and give me the body", so
+/// `HttpGetText` stays for it; only the TypeScript `fetch` spelling moved.
+#[test]
+fn python_requests_get_keeps_the_fused_text_operation() {
+    let mut ctx = py_frontend::HirCtx::new();
+    assert!(
+        py_frontend::to_hir(
+            "import requests\n\ndef load() -> str:\n    return requests.get(\"https://example.com\")\n",
+            FileId(0),
+            &mut ctx,
+        )
+        .is_ok(),
+        "HIR"
+    );
+    let mut mir = smelt_mir::lower_hir(&ctx.krate).expect("MIR");
+    smelt_mir::opt::optimize(&mut mir);
+    let source = emit_source(&mir).expect("Rust source");
+    assert!(source.contains(".text()"), "{source}");
+    assert!(
+        !source.contains("SmeltResponse"),
+        "the Python fused path must not build a Response: {source}"
+    );
 }
 
 #[test]
@@ -1417,6 +1468,31 @@ fn generator_in_erased_slot_erases_through_into_smelt_unknown() {
         source.contains("fn smelt_unknown_iterator_items"),
         "list extraction must drain the erased iterator protocol: {source}"
     );
+}
+
+#[test]
+fn no_profile_sets_panic_abort_while_the_panic_route_exists() {
+    // A `throw` from a body that cannot propagate a `Result` travels as a Rust
+    // panic and is caught by the enclosing `try`'s `catch_unwind` (see
+    // `thrown::emit_panic_route_support`). `panic = "abort"` in the emitted
+    // manifest would silently convert every such catchable JavaScript exception
+    // into a process abort, so the manifest must never carry it -- in any
+    // profile, under any allocator or release-profile combination.
+    for allocator in [GeneratedAllocator::System, GeneratedAllocator::Mimalloc] {
+        for release_profile in [ReleaseProfile::Default, ReleaseProfile::Optimized] {
+            let manifest = deps::cargo_toml(
+                &EmitOptions::default().crate_name,
+                &[GeneratedDep::Tokio, GeneratedDep::Genawaiter],
+                allocator,
+                release_profile,
+            );
+
+            assert!(
+                !manifest.contains("panic"),
+                "emitted manifest must not mention a panic strategy:\n{manifest}"
+            );
+        }
+    }
 }
 
 #[test]

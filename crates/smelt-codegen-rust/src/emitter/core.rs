@@ -146,8 +146,62 @@ impl<'mir> FunctionEmitter<'mir> {
         Ok(names)
     }
 
-    /// Emits a free function definition.
+    /// The closing text of an async `main`'s runtime scope.
+    const ASYNC_MAIN_RUNTIME_EPILOGUE: &'static str = "})\n";
+
+    /// The runtime an async `main` runs its body on.
+    ///
+    /// # Why not `#[tokio::main]`
+    ///
+    /// That attribute builds a MULTI-THREADED, work-stealing runtime, and
+    /// everything Smelt generates is `Rc`-based: a closure's captured state, a
+    /// modeled object's shared cell, a promise's result cell. None of it is
+    /// `Send`, so nothing generated can be spawned onto such a runtime at all —
+    /// a `node:http` request handler least of all, since it captures whatever
+    /// the surrounding program had.
+    ///
+    /// A single-threaded loop is also what the source language actually has. A
+    /// TypeScript program ported to Rust that silently gained parallel handler
+    /// execution would be a different program: two requests could observe each
+    /// other's half-written state through exactly the shared cells that model
+    /// JavaScript's mutable objects. So the current-thread runtime is the
+    /// faithful shape, not a workaround for a missing bound.
+    ///
+    /// The `LocalSet` is the other half: it is what makes `spawn_local`
+    /// available, and `spawn_local` is how a listening server keeps accepting
+    /// while the program's own body carries on. Both are emitted for EVERY
+    /// async `main` rather than only for programs that serve — two runtime
+    /// shapes for one language is the special case this codebase refuses.
+    fn async_main_runtime_prologue(can_throw: bool) -> String {
+        // A runtime that cannot be built is not a program error the source can
+        // handle, but a throwing `main` can still report it in the ordinary
+        // channel rather than panicking.
+        let build = if can_throw {
+            ".build()?"
+        } else {
+            ".build().expect(\"tokio runtime\")"
+        };
+        format!(
+            "let smelt_runtime = tokio::runtime::Builder::new_current_thread().enable_all(){build};\nlet smelt_local = tokio::task::LocalSet::new();\nsmelt_local.block_on(&smelt_runtime, async move {{\n"
+        )
+    }
+
+    /// Emits a free function definition, naming the site of any blocker.
+    ///
+    /// Every emitter blocker raised anywhere inside this function's emission
+    /// gets the function's name and source span attached here, on the way out.
+    /// That is one place instead of the couple of hundred `EmitError::new` call
+    /// sites, and it covers the ones that have not been written yet — a blocker
+    /// that reports only a shape (`list unshift item must match the list
+    /// element type`) is unfindable in a corpus the size of Hono, which cost
+    /// two rounds of bisecting a manifest's `exclude` list.
     pub(crate) fn emit(&mut self, out: &mut String) -> Result<(), EmitError> {
+        let emitted = self.emit_free_function(out);
+        emitted.map_err(|error| error.with_site(|| self.current_function_site()))
+    }
+
+    /// Emits a free function definition.
+    fn emit_free_function(&mut self, out: &mut String) -> Result<(), EmitError> {
         let name = self.symbol_name(self.function.name)?;
         if self.function.is_test {
             if self.function.is_async {
@@ -157,20 +211,28 @@ impl<'mir> FunctionEmitter<'mir> {
             }
         }
         if !self.function.is_test && name == "main" && self.function.return_ty == self.none_ty {
+            // An async module body ends by running the event loop until the
+            // program may exit, and that drain is lowered as the body's last
+            // statement rather than wrapped around it here -- see
+            // `module_init`'s `append_module_exit_drain`. So this emission
+            // supplies only the runtime the body runs on.
+            // The signature depends only on whether the body can throw, and
+            // the runtime scope only on whether it is async. They used to be
+            // entangled because an async `main` carried a `#[tokio::main]`
+            // attribute; it now builds its own runtime inside the body, so the
+            // two questions are answered separately.
             if self.function.can_throw {
-                if self.function.is_async {
-                    out.push_str(
-                        "#[tokio::main]\nasync fn main() -> Result<(), Box<dyn std::error::Error>> {\n",
-                    );
-                } else {
-                    out.push_str("fn main() -> Result<(), Box<dyn std::error::Error>> {\n");
-                }
-            } else if self.function.is_async {
-                out.push_str("#[tokio::main]\nasync fn main() {\n");
+                out.push_str("fn main() -> Result<(), Box<dyn std::error::Error>> {\n");
             } else {
                 out.push_str("fn main() {\n");
             }
+            if self.function.is_async {
+                out.push_str(&Self::async_main_runtime_prologue(self.function.can_throw));
+            }
             self.emit_body(out)?;
+            if self.function.is_async {
+                out.push_str(Self::ASYNC_MAIN_RUNTIME_EPILOGUE);
+            }
             out.push_str("}\n");
             return Ok(());
         }
@@ -249,7 +311,7 @@ impl<'mir> FunctionEmitter<'mir> {
             } else {
                 out.push_str("    let mut smelt_generator = smelt_generator;\n");
                 let completion = if self.function.can_throw {
-                "value.unwrap_or_else(|error| panic!(\"{}\", error))"
+                "value.unwrap_or_else(|error| smelt_panic_throw(error))"
                 } else {
                     "value"
                 };
@@ -1791,6 +1853,32 @@ impl<'mir> FunctionEmitter<'mir> {
             .map_or_else(|| Ok(sanitize_ident(self.symbol_name(function.name)?)), Ok)
     }
 
+    /// The key the emitted-signature maps use for one generated Rust function.
+    ///
+    /// A method's Rust name is unique only INSIDE its `impl` block: two classes
+    /// may both emit `fn bump`. Keying the emitted parameter/return types by the
+    /// bare name therefore let one class's method answer for another's — and
+    /// since the maps decide the type a call site converts FROM, a call to
+    /// `Second::bump(): string` was converted from `First::bump()`'s `()`,
+    /// which renders a constant and drops the call itself (H63:
+    /// `second.bump('!')` answered `""`).
+    ///
+    /// The key is therefore qualified by the owning class for a method, a static
+    /// method and a constructor, and is the bare Rust name for a free function —
+    /// which is what the emitted `fn` name is unique among. Overload
+    /// implementations that share ONE emitted function still share one key, so
+    /// the priority rule that picks between their signatures is unchanged.
+    /// The emitted-signature key for `function`, resolved against this crate.
+    pub(super) fn emitted_signature_key(
+        &self,
+        function: &MirFunction,
+    ) -> Result<String, EmitError> {
+        let rust_name = self.function_rust_name(function)?;
+        Ok(emitted_signature_key_in(function, &rust_name, |symbol| {
+            self.symbol_name(symbol).ok().map(str::to_owned)
+        }))
+    }
+
     /// Returns the parameter types of a generated function by its emitted Rust name.
     ///
     /// Function values can carry an instantiated generic call type even though
@@ -1814,8 +1902,15 @@ impl<'mir> FunctionEmitter<'mir> {
         self.context.function_return_types.get(rust_name).copied()
     }
 
-    /// Emits a method or constructor definition.
+    /// Emits a method or constructor definition, naming the site of any
+    /// blocker (see [`Self::emit`]).
     pub(crate) fn emit_method(&mut self, out: &mut String) -> Result<(), EmitError> {
+        let emitted = self.emit_method_definition(out);
+        emitted.map_err(|error| error.with_site(|| self.current_function_site()))
+    }
+
+    /// Emits a method or constructor definition.
+    fn emit_method_definition(&mut self, out: &mut String) -> Result<(), EmitError> {
         match self.function.origin {
             HirOrigin::ClassConstructor { .. } => {
                 let method_params = self
@@ -1964,7 +2059,7 @@ impl<'mir> FunctionEmitter<'mir> {
             } else {
                 out.push_str("    let mut smelt_generator = smelt_generator;\n");
                 let completion = if self.function.can_throw {
-                    "value.unwrap_or_else(|error| panic!(\"{}\", error))"
+                    "value.unwrap_or_else(|error| smelt_panic_throw(error))"
                 } else {
                     "value"
                 };
@@ -1974,6 +2069,16 @@ impl<'mir> FunctionEmitter<'mir> {
             if self.method_owner_is_reference_class() {
                 self.emit_shared_parameter_preludes(out)?;
             }
+            // A method body needs the same function-scope declarations a free
+            // function body gets. MIR locals are function-scoped while generated
+            // Rust branch bodies are lexically scoped, so a temporary first
+            // assigned inside one `if` arm and assigned again in the sibling arm
+            // (or read after the branch) has to be declared OUTSIDE the branch.
+            // Methods skipped this and emitted an inline `let mut` in the first
+            // arm instead, so the sibling assignment referred to a name that was
+            // out of scope: E0425 by the thousand in a branchy method (Hono's
+            // routers), with no diagnostic anywhere before rustc.
+            self.emit_mutable_local_preludes(out)?;
             self.emit_block(self.entry_block()?, out)?;
         }
         out.push_str("    }\n");
@@ -1987,6 +2092,18 @@ impl<'mir> FunctionEmitter<'mir> {
     /// inherent Python method continues to borrow `self`; the adapter bridges
     /// those ownership conventions without dynamic dispatch or erasure.
     pub(crate) fn emit_python_add_impl(
+        &mut self,
+        out: &mut String,
+        class_name: &str,
+        impl_generics: &str,
+        type_args: &str,
+    ) -> Result<(), EmitError> {
+        let emitted = self.emit_python_add_impl_body(out, class_name, impl_generics, type_args);
+        emitted.map_err(|error| error.with_site(|| self.current_function_site()))
+    }
+
+    /// Emits the `std::ops::Add` impl body for a Python `__add__` method.
+    fn emit_python_add_impl_body(
         &mut self,
         out: &mut String,
         class_name: &str,
@@ -2293,9 +2410,43 @@ impl<'mir> FunctionEmitter<'mir> {
                     Ok(format!("{}.clone()", self.place_text(place)?))
                 }
             }
-            Operand::Move(place) => self.place_text(place),
+            Operand::Move(place) => {
+                // A value that lives in a shared capture cell is read as
+                // `(*smelt_capture_x.borrow())`, a place behind a `Ref` guard.
+                // Rust cannot MOVE out of that, so a move operand over such a
+                // place has to clone — the same answer the `Copy` arm above
+                // gives, for the same reason (the cell keeps owning the value).
+                // A `Copy` scalar and a non-cloneable type are excluded exactly
+                // as they are there.
+                if self.place_reads_through_shared_capture(place)
+                    && !self.place_type_is_copy_scalar(place)?
+                    && !self.type_contains_noncloneable(self.place_ty(place)?)
+                    && !matches!(
+                        self.mir.types.get(self.place_ty(place)?),
+                        Some(Type::Function(_))
+                    )
+                {
+                    return Ok(cloned_value_text(&self.place_text(place)?));
+                }
+                self.place_text(place)
+            }
             Operand::Const(constant) => Ok(constant_text(constant)),
         }
+    }
+
+    /// Whether reading `place` projects out of a shared closure-capture cell.
+    ///
+    /// A local captured by reference from a sibling closure is stored in an
+    /// `Rc<RefCell<T>>` and every read of it renders as
+    /// `(*smelt_capture_x.borrow())`, including a field or index projection off
+    /// it, whose base is that same local. Such a read borrows; it does not own.
+    pub(super) fn place_reads_through_shared_capture(&self, place: &Place) -> bool {
+        let root = match place {
+            Place::Local(local) => *local,
+            Place::Field { base, .. } | Place::Index { base, .. } => *base,
+            Place::Global { .. } => return false,
+        };
+        self.local_uses_shared_capture_storage(root) && self.is_local_declared(root)
     }
 
     /// Whether a place reads a scalar that lowers to a `Copy` Rust type.
@@ -2644,7 +2795,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Some(Type::Future(_))
         );
         let call_value = if source.may_throw && !source_returns_future {
-            format!("{call}.unwrap_or_else(|error| panic!(\"{{}}\", error))")
+            format!("{call}.unwrap_or_else(|error| smelt_panic_throw(error))")
         } else {
             call
         };
@@ -3080,7 +3231,7 @@ impl<'mir> FunctionEmitter<'mir> {
         let call_value = if source_function.may_throw && target_function.may_throw {
             format!("{call}?")
         } else if source_function.may_throw {
-            format!("{call}.unwrap_or_else(|error| panic!(\"{{}}\", error))")
+            format!("{call}.unwrap_or_else(|error| smelt_panic_throw(error))")
         } else {
             call
         };
@@ -3163,7 +3314,19 @@ impl<'mir> FunctionEmitter<'mir> {
         let owned_value_text = cloned_value_text(value_text);
         match self.mir.types.get(source_key) {
             Some(Type::String) => Ok(owned_value_text),
-            Some(Type::Bool | Type::Int | Type::Float) => Ok(format!("{value_text}.to_string()")),
+            Some(Type::Bool) => Ok(format!("{value_text}.to_string()")),
+            // A property KEY is a stringified number, and JavaScript's rule is
+            // the one that applies: `({ [1e21]: 1 })` has the key `"1e+21"`,
+            // not twenty-two digits. `smelt_property_key` already takes it for
+            // an erased key, so the two spellings agree.
+            Some(Type::Int) => Ok(format!(
+                "{fn_name}({value_text} as f64)",
+                fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+            )),
+            Some(Type::Float) => Ok(format!(
+                "{fn_name}({value_text})",
+                fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+            )),
             Some(Type::Optional(inner)) => {
                 let inner_text = self.property_key_to_string_text("value", *inner)?;
                 Ok(format!(
@@ -3297,7 +3460,7 @@ impl<'mir> FunctionEmitter<'mir> {
         } else if source.may_throw && !source_returns_future && target_function.may_throw {
             format!("{call}?")
         } else if source.may_throw && !source_returns_future {
-            format!("{call}.unwrap_or_else(|error| panic!(\"{{}}\", error))")
+            format!("{call}.unwrap_or_else(|error| smelt_panic_throw(error))")
         } else {
             call
         };
@@ -3902,7 +4065,7 @@ impl<'mir> FunctionEmitter<'mir> {
         } else if source.may_throw && !source_returns_future && target_function.may_throw {
             format!("{call_text}?")
         } else if source.may_throw && !source_returns_future {
-            format!("{call_text}.unwrap_or_else(|error| panic!(\"{{}}\", error))")
+            format!("{call_text}.unwrap_or_else(|error| smelt_panic_throw(error))")
         } else {
             call_text
         };
@@ -4772,6 +4935,22 @@ impl<'mir> FunctionEmitter<'mir> {
         self.is_reference_class_type(base_ty) && self.class_has_named_field(base_ty, *field)
     }
 
+    /// Returns whether reading `operand` holds a `RefCell` borrow guard.
+    ///
+    /// Two shapes read through a cell: a declared field of a reference class
+    /// (`recv.0.borrow().f.clone()`) and a shared closure capture
+    /// (`(*smelt_capture_x.borrow())`). Both guards live to the end of the
+    /// enclosing statement, so a caller that would run arbitrary code in that
+    /// same statement — invoking the value it just read — must bind the read to
+    /// a local first.
+    pub(super) fn operand_reads_through_ref_cell(&self, operand: &Operand) -> bool {
+        let place = match operand {
+            Operand::Copy(place) | Operand::Move(place) => place,
+            Operand::Const(_) => return false,
+        };
+        self.place_is_reference_class_field(place) || self.place_reads_through_shared_capture(place)
+    }
+
     /// Returns whether an index read already produces an owned value.
     ///
     /// `place_text`'s `Place::Index` arm lowers almost every receiver shape to an
@@ -4910,19 +5089,18 @@ impl<'mir> FunctionEmitter<'mir> {
     pub(super) fn is_erased_class_type(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
             Some(Type::Class { name, .. }) => {
-                // RegExp and the synthetic match-result classes have dedicated
-                // Rust runtime types (`SmeltRegExp` / `SmeltMatch`). Other stdlib
-                // classes may still be represented by primitive or collection
-                // values and should keep the ordinary erased-class fallback.
+                // A modeled class with a CONCRETE generated Rust type never
+                // erases: that is the whole point of modeling it as a real Rust
+                // value. Asked of the registry
+                // (`StdlibClass::has_concrete_runtime_type`) rather than of a
+                // list of spellings here — the list is what silently omitted
+                // `ArrayBuffer` when the typed-array family became concrete, so
+                // a coercion into an `SmeltArrayBuffer` slot erased instead of
+                // recovering and the generated crate stopped compiling. The
+                // three `node:http` classes were omitted the same way.
                 if self.symbol_name(*name).is_ok_and(|type_name| {
-                    matches!(
-                        smelt_stdlib::typescript_stdlib_class(type_name),
-                        Some(
-                            smelt_stdlib::StdlibClass::RegExp
-                                | smelt_stdlib::StdlibClass::Match
-                                | smelt_stdlib::StdlibClass::MatchGroups
-                        )
-                    )
+                    smelt_stdlib::typescript_stdlib_class(type_name)
+                        .is_some_and(smelt_stdlib::StdlibClass::has_concrete_runtime_type)
                 }) {
                     return false;
                 }
@@ -5055,9 +5233,25 @@ impl<'mir> FunctionEmitter<'mir> {
             .map_or(Ok("SmeltUnknown::Null"), Ok)
     }
 
-    /// Gets the string name of a symbol.
-    /// Gets the string name of a symbol.
-    pub(super) fn symbol_name(&self, symbol: Symbol) -> Result<&str, EmitError> {
+    /// Gets the Rust-facing rendering of a symbol.
+    ///
+    /// A source name that is not a valid Rust spelling is case-folded when it is
+    /// interned (`camelCase` -> `camel_case`), so this is the *generated* name,
+    /// not the one the source wrote. Use [`Self::symbol_source_name`] whenever
+    /// the answer is compared against a JavaScript key.
+     /// How the source language of the body being emitted spells an absent value.
+    ///
+    /// Decided during MIR lowering from the body's own file (`MirFunction::
+    /// absent`), because a crate can mix TypeScript and Python modules and the
+    /// two disagree: stringifying an `Optional` that holds nothing is
+    /// `undefined` in JavaScript and `None` in Python. Every site that renders
+    /// an absent or null value as text asks here rather than hard-coding a
+    /// word.
+    pub(super) fn absent_spelling(&self) -> AbsentSpelling {
+        self.function.absent
+    }
+
+   pub(super) fn symbol_name(&self, symbol: Symbol) -> Result<&str, EmitError> {
         self.mir
             .symbols
             .get(symbol)
@@ -5175,6 +5369,8 @@ fn place_reads_local(place: &Place, local: LocalId) -> bool {
             base: candidate, ..
         } => *candidate == local,
         Place::Index { base, index, .. } => *base == local || operand_uses_local(index, local),
+        // No base local, but the index operand still observes one.
+        Place::Global { projection, .. } => global_projection_reads_local(projection, local),
     }
 }
 
@@ -5184,6 +5380,23 @@ pub(super) fn assignment_place_reads_local(place: &Place, local: LocalId) -> boo
         Place::Local(_) => false,
         Place::Field { base, .. } => *base == local,
         Place::Index { base, index, .. } => *base == local || operand_uses_local(index, local),
+        Place::Global { projection, .. } => global_projection_reads_local(projection, local),
+    }
+}
+
+/// Return whether a mutable-global projection observes a specific local.
+///
+/// A field projection names a symbol and reads nothing; an index projection
+/// carries an operand that is evaluated before the cell is borrowed, and that
+/// operand can name a local. Answering `false` for it would let the emitter
+/// treat the local as dead at the write.
+fn global_projection_reads_local(
+    projection: &smelt_mir::GlobalProjection,
+    local: LocalId,
+) -> bool {
+    match projection {
+        smelt_mir::GlobalProjection::Field(_) => false,
+        smelt_mir::GlobalProjection::Index { index, .. } => operand_uses_local(index, local),
     }
 }
 
@@ -5336,6 +5549,34 @@ pub(super) fn rvalue_uses_local(value: &Rvalue, local: LocalId) -> bool {
         // and presence probes take no operands. Missing this arm would let the
         // `_ => false` fallthrough elide a closure whose only use is the write.
         Rvalue::HostGlobalWrite { value: stored, .. } => operand_uses_local(stored, local),
+        // An `EventEmitter` operation reads its receiver and every argument. The
+        // listener argument of `on`/`once`/`off` is almost always a closure temp
+        // whose ONLY use is this rvalue, so without this arm the `_ => false`
+        // fallthrough elides the closure's own statement and the emitted code
+        // references an undeclared temporary.
+        Rvalue::EventEmitterOp { emitter, args, .. } => {
+            operand_uses_local(emitter, local)
+                || args
+                    .iter()
+                    .any(|operand| operand_uses_local(operand, local))
+        }
+        // The `node:http` operations, for the same reason: `createServer`'s
+        // handler and `listen`'s listening callback are closure temps whose
+        // ONLY use is the rvalue that consumes them.
+        Rvalue::HttpCreateServer { handler } => operand_uses_local(handler, local),
+        Rvalue::HttpServerOp { server, args, .. } => {
+            operand_uses_local(server, local)
+                || args
+                    .iter()
+                    .any(|operand| operand_uses_local(operand, local))
+        }
+        Rvalue::IncomingMessageOp { message, .. } => operand_uses_local(message, local),
+        Rvalue::ServerResponseOp { response, args, .. } => {
+            operand_uses_local(response, local)
+                || args
+                    .iter()
+                    .any(|operand| operand_uses_local(operand, local))
+        }
         // A Vitest mock construction reads its wrapped implementation (often a
         // closure temp whose ONLY use is this rvalue — missing this arm elides
         // that closure's declaration); the matcher queries read the mock and
@@ -5642,4 +5883,40 @@ fn async_adapter_future_text(call_text: &str, awaited_text: &str) -> String {
     format!(
         "{{ let smelt_async_source = {call_text}; SmeltFuture::from_future(Box::pin(async move {{ let smelt_async_output = smelt_async_source.await?; Ok::<_, Box<dyn std::error::Error>>({awaited_text}) }})) }}"
     )
+}
+
+/// The key the emitted-signature maps use for one generated Rust function.
+///
+/// A method's Rust name is unique only INSIDE its `impl` block: two classes may
+/// both emit `fn bump`. Keying the emitted parameter/return types by the bare
+/// name therefore let one class's method answer for another's — and since those
+/// maps decide the type a call site converts FROM, a call to
+/// `Second::bump(): string` was converted from `First::bump()`'s `()`, which
+/// renders a constant and drops the call itself (H63: `second.bump('!')`
+/// answered `""`).
+///
+/// The key is qualified by the owning class for a method, a static method and a
+/// constructor, and is the bare Rust name for a free function — which is what
+/// the emitted `fn` name is unique among. Overload implementations that share
+/// ONE emitted function still share one key, so the priority rule that picks
+/// between their signatures is unchanged.
+///
+/// A free function rather than a method because the crate-level map is built
+/// before any emitter exists; `FunctionEmitter::emitted_signature_key` is the
+/// in-emitter spelling and they must agree, which is why there is one body.
+pub(super) fn emitted_signature_key_in(
+    function: &MirFunction,
+    rust_name: &str,
+    symbol_name: impl Fn(Symbol) -> Option<String>,
+) -> String {
+    let owner = match function.origin {
+        HirOrigin::ClassConstructor { class, .. }
+        | HirOrigin::ClassMethod { class, .. }
+        | HirOrigin::ClassStaticMethod { class, .. } => class,
+        HirOrigin::Body(_) => return rust_name.to_owned(),
+    };
+    match symbol_name(owner) {
+        Some(class_name) => format!("{class_name}::{rust_name}"),
+        None => rust_name.to_owned(),
+    }
 }

@@ -1,0 +1,6 @@
+direct: pairs:a=1,b=2
+bound: pairs:a=1,b=2
+other arm: number:7
+nested: sum:26
+string arm: text:none
+ambiguous: a

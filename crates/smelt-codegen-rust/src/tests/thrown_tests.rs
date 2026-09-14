@@ -354,7 +354,7 @@ const rendered = text();
 #[test]
 fn a_foreign_closure_capture_does_not_suppress_the_fold() {
     let source = source_for(
-        r#"
+        r"
 export function manyClosures(values: number[]): number[] {
   const a = 1;
   const b = 2;
@@ -377,7 +377,7 @@ export function thrower(size: number): number {
   }
   return size;
 }
-"#,
+",
     );
 
     assert!(
@@ -407,14 +407,14 @@ export function thrower(size: number): number {
 #[test]
 fn thrown_error_payload_is_built_at_the_throw_site() {
     let source = source_for(
-        r#"
+        r"
 export function chunk(size: number): number {
   if (size <= 0) {
     throw new Error('Size must be an integer greater than zero.');
   }
   return size;
 }
-"#,
+",
     );
 
     assert!(
@@ -452,7 +452,7 @@ export function chunk(size: number): number {
 #[test]
 fn throwing_a_plain_value_keeps_its_own_payload() {
     let source = source_for(
-        r#"
+        r"
 export function keep(value: unknown): unknown {
   return value;
 }
@@ -463,7 +463,7 @@ export function reject(flag: boolean): number {
   }
   throw { code: 1 };
 }
-"#,
+",
     );
 
     assert!(

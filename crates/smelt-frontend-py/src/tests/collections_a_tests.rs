@@ -2,10 +2,10 @@ use super::*;
 
 #[test]
 fn print_call_lowers() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 x: int = 1
 print(x)
-"#);
+");
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
     Ok(())
@@ -44,11 +44,11 @@ def load() -> str:
 
 #[test]
 fn json_dumps_lowers_to_stringify() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 import json
 values: list[int] = [1, 2]
 text: str = json.dumps(values)
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -164,11 +164,11 @@ found: bool = re.search(1, text)
 fn unsupported_json_dumps_forms_reject() -> TestResult {
     let mut ctx = HirCtx::new();
     let keyword = lower_errors(
-        py!(r#"
+        py!(r"
 import json
 values: list[int] = [1, 2]
 text: str = json.dumps(values, indent=2)
-"#),
+"),
         &mut ctx,
     )?;
     ensure(
@@ -239,10 +239,10 @@ letters: int = len(word)
 
 #[test]
 fn abs_call_lowers() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 value: int = -5
 positive: int = abs(value)
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -430,10 +430,10 @@ last_text: str = word[-3:]
 
 #[test]
 fn list_append_method_lowers() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 values: list[int] = [1, 2]
 result: None = values.append(3)
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -454,11 +454,11 @@ result: None = values.append(3)
 
 #[test]
 fn list_extend_method_lowers() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 left: list[int] = [1, 2]
 right: list[int] = [3, 4]
 result: None = left.extend(right)
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -478,10 +478,10 @@ result: None = left.extend(right)
 
 #[test]
 fn list_insert_method_lowers() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 values: list[int] = [1, 2]
 result: None = values.insert(1, 0)
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -501,10 +501,10 @@ result: None = values.insert(1, 0)
 
 #[test]
 fn list_reverse_method_lowers() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 values: list[int] = [1, 2]
 result: None = values.reverse()
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -552,10 +552,10 @@ def drop(scores: dict[str, int]) -> None:
 
 #[test]
 fn del_non_dict_subscript_is_rejected() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 def drop(values: list[int]) -> None:
     del values[0]
-"#);
+");
     let mut ctx = HirCtx::new();
     let errors = lower_errors(source, &mut ctx)?;
     let first = first_error(&errors)?;
@@ -567,10 +567,10 @@ def drop(values: list[int]) -> None:
 
 #[test]
 fn del_bare_name_is_rejected() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 x: int = 1
 del x
-"#);
+");
     let mut ctx = HirCtx::new();
     let errors = lower_errors(source, &mut ctx)?;
     let first = first_error(&errors)?;
@@ -582,10 +582,10 @@ del x
 
 #[test]
 fn map_lambda_with_unary_negation_lowers() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 values: list[int] = [1, 2, 3]
 negated: list[int] = list(map(lambda value: -value, values))
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -611,10 +611,10 @@ negated: list[int] = list(map(lambda value: -value, values))
 
 #[test]
 fn map_lambda_with_conditional_body_lowers() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 values: list[int] = [1, -2, 3]
 clamped: list[int] = list(map(lambda value: value if value > 0 else 0, values))
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;

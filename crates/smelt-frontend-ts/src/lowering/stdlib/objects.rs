@@ -255,6 +255,16 @@ impl ModuleBuilder<'_> {
         };
         let mut dict = self.argument(dict_argument, body)?;
         let dict_ty = Self::expr_ty(body, dict);
+        // A CONCRETE typed-array view answers its own enumeration: its own
+        // properties are exactly its element indices, and both the indices and
+        // the elements are on the value. Erasing it to a `Record<string,
+        // unknown>` first — which is what the arms below do for any class —
+        // would cross the dynamic boundary to compute an answer that is
+        // already here, and would type the values `unknown` where they are
+        // numbers.
+        if let Some(expr) = self.typed_array_projection(op, dict, dict_ty, call.span, body) {
+            return Ok(Some(expr));
+        }
         let (key_type, value_type) = match self.ctx.krate.types.get(dict_ty) {
             Some(Type::Dict(key_type, value_type)) => (*key_type, *value_type),
             Some(
@@ -799,41 +809,6 @@ return_ty,
         })))
     }
 
-    /// Lower Node `path.join(...)` and `path.resolve(...)` as string path builders.
-    pub(in crate::lowering) fn node_path_static_call(
-        &mut self,
-        call: &oxc::ast::ast::CallExpression<'_>,
-        body: &mut Body,
-    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let Expression::StaticMemberExpression(member) = &call.callee else {
-            return Ok(None);
-        };
-        let Expression::Identifier(object) = &member.object else {
-            return Ok(None);
-        };
-        if object.name != "path" || !self.imports.is_value("path") {
-            return Ok(None);
-        }
-        if !matches!(member.property.name.as_str(), "join" | "resolve") {
-            return Ok(None);
-        }
-        if call.arguments.is_empty() {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                format!("path.{} requires at least one argument", member.property.name),
-            ));
-        }
-        for argument in &call.arguments {
-            let _ = self.argument(argument, body)?;
-        }
-        let ty = self.ctx.krate.types.intern(Type::String);
-        Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::String(String::new())),
-            ty,
-            span: self.span(call.span.start, call.span.end),
-        })))
-    }
-
     /// Lower TypeScript `Object.fromEntries([[key, value], ...])` to a dictionary literal.
     pub(in crate::lowering) fn object_from_entries_call(
         &mut self,
@@ -1315,8 +1290,9 @@ return_ty,
     /// rather than naming it here is what keeps this in step with es-toolkit's
     /// `isTypedArray` (`ArrayBuffer.isView(x) && !(x instanceof DataView)`).
     ///
-    /// A statically concrete non-erased value carries no host marker and folds to
-    /// `false`.
+    /// A statically concrete FAMILY value folds at compile time instead — a
+    /// typed array and a `DataView` to `true`, byte storage to `false` — and
+    /// any other concrete value carries no host marker and folds to `false`.
     pub(in crate::lowering) fn arraybuffer_is_view_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -1343,6 +1319,24 @@ return_ty,
         let value = self.argument(argument, body)?;
         let ty = self.ctx.krate.types.intern(Type::Bool);
         let span = self.span(call.span.start, call.span.end);
+        // A CONCRETE family value answers statically: a view IS a view and byte
+        // storage is not. The disjunction below is for an erased value, whose
+        // markers are the only thing left to ask.
+        let value_ty = Self::expr_ty(body, value);
+        if self.is_typed_array_view_type(value_ty)
+            || self.is_array_buffer_type(value_ty)
+            || self.is_data_view_type(value_ty)
+        {
+            // A `DataView` is a VIEW, which is the whole reason es-toolkit's
+            // `isTypedArray` has to exclude it separately.
+            let is_view =
+                self.is_typed_array_view_type(value_ty) || self.is_data_view_type(value_ty);
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Bool(is_view)),
+                ty,
+                span,
+            })));
+        }
         if matches!(
             self.ctx.krate.types.get(Self::expr_ty(body, value)),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))

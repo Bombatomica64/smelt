@@ -1,0 +1,130 @@
+module examples/typescript/end-to-end/39_module_scope_reassignment/input.ts (ModuleId(0))
+  body BodyId(9)
+  items
+    type Sizer = fn(String) -> Float
+    fn inside_a_function owner Module
+  locals
+    %0 let annotated: Optional<Float>
+    %1 let initialized: Float
+    %2 let viaIife: Optional<fn(String) -> Float>
+    %3 let viaOrAssign: Optional<fn(String) -> Float>
+    %4 const __smelt_logical_value_4: fn(String) -> Float
+    %5 let viaNullishAssign: Optional<fn(String) -> Float>
+    %6 const __smelt_logical_value_6: fn(String) -> Float
+    %7 const direct: fn(String) -> Float
+  exprs
+    #0: Optional<Float> = %0
+    #1: Float = 5.0
+    #2: Float = 1.0
+    #3: Float = %1
+    #4: Float = 6.0
+    #5: Optional<fn(String) -> Float> = %2
+    #6: fn() -> fn(String) -> Float = closure BodyId(2) captures 0 -> fn(String) -> Float
+    #7: fn(String) -> Float = closure_call #6()
+    #8: Optional<fn(String) -> Float> = %3
+    #9: None = none
+    #10: Bool = NotEq #8, #9
+    #11: Bool = Not #10
+    #12: fn() -> fn(String) -> Float = closure BodyId(4) captures 1 -> fn(String) -> Float
+    #13: fn(String) -> Float = closure_call #12()
+    #14: fn(String) -> Float = %4
+    #15: Optional<fn(String) -> Float> = %5
+    #16: Optional<fn(String) -> Float> = none
+    #17: Bool = Eq #15, #16
+    #18: fn() -> fn(String) -> Float = closure BodyId(6) captures 1 -> fn(String) -> Float
+    #19: fn(String) -> Float = closure_call #18()
+    #20: fn(String) -> Float = %6
+    #21: fn() -> fn(String) -> Float = closure BodyId(8) captures 1 -> fn(String) -> Float
+    #22: fn(String) -> Float = closure_call #21()
+    #23: Float = %0
+    #24: None = undefined
+    #25: Bool = JsStrictEq #23, #24
+    #26: Float = 1.0
+    #27: Float = Neg #26
+    #28: Float = %0
+    #29: Float = if #25 then #27 else #28
+    #30: None = @4(console_log)
+    #31: None = call #30(#29)
+    #32: Float = %1
+    #33: None = @5(console_log)
+    #34: None = call #33(#32)
+    #35: fn(String) -> Float = %2
+    #36: None = undefined
+    #37: Bool = JsStrictEq #35, #36
+    #38: Float = 1.0
+    #39: Float = Neg #38
+    #40: fn(String) -> Float = %2
+    #41: String = "ab"
+    #42: Float = closure_call #40(#41)
+    #43: Float = if #37 then #39 else #42
+    #44: None = @6(console_log)
+    #45: None = call #44(#43)
+    #46: Optional<fn(String) -> Float> = %3
+    #47: None = undefined
+    #48: Bool = JsStrictEq #46, #47
+    #49: Float = 1.0
+    #50: Float = Neg #49
+    #51: Optional<fn(String) -> Float> = %3
+    #52: fn(String) -> Float = assert_type #51
+    #53: String = "ab"
+    #54: Float = closure_call #52(#53)
+    #55: Float = if #48 then #50 else #54
+    #56: None = @7(console_log)
+    #57: None = call #56(#55)
+    #58: Optional<fn(String) -> Float> = %5
+    #59: None = undefined
+    #60: Bool = JsStrictEq #58, #59
+    #61: Float = 1.0
+    #62: Float = Neg #61
+    #63: Optional<fn(String) -> Float> = %5
+    #64: fn(String) -> Float = assert_type #63
+    #65: String = "ab"
+    #66: Float = closure_call #64(#65)
+    #67: Float = if #60 then #62 else #66
+    #68: None = @8(console_log)
+    #69: None = call #68(#67)
+    #70: fn(String) -> Float = %7
+    #71: String = "ab"
+    #72: Float = closure_call #70(#71)
+    #73: None = @9(console_log)
+    #74: None = call #73(#72)
+    #75: fn() -> String = @2(inside_a_function)
+    #76: String = call #75()
+    #77: None = @10(console_log)
+    #78: None = call #77(#76)
+  stmts
+    s0: let %0: Optional<Float>
+    s1: #0 = #1
+    s2: let %1: Float = #2
+    s3: #3 = #4
+    s4: let %2: Optional<fn(String) -> Float>
+    s5: #5 = #7
+    s6: let %3: Optional<fn(String) -> Float>
+    s7: let %4: fn(String) -> Float = #13
+    s8: #8 = #14
+    s9: if #11 then BlockId(1)
+    s10: let %5: Optional<fn(String) -> Float>
+    s11: let %6: fn(String) -> Float = #19
+    s12: #15 = #20
+    s13: if #17 then BlockId(2)
+    s14: let %7: fn(String) -> Float = #22
+    s15: #31
+    s16: #34
+    s17: #45
+    s18: #57
+    s19: #69
+    s20: #74
+    s21: #78
+
+interned types
+  t0 = String
+  t1 = Float
+  t2 = fn(String) -> Float
+  t3 = None
+  t4 = Optional<Float>
+  t5 = Optional<fn(String) -> Float>
+  t6 = fn() -> String
+  t7 = Bool
+  t8 = fn() -> fn(String) -> Float
+  t9 = Unknown
+  t10 = fn() -> String

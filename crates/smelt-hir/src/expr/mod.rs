@@ -21,8 +21,8 @@ pub use literals::{Literal, UnknownKind};
 pub use ops::{
     BoolFoldOp, DatePart, DictProjectionOp, ListCallbackOp, ListProjectionOp, ListSearchOp,
     NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp,
-    RegexMatchOp, SetBinaryOp, SetProjectionOp, SetRelationOp, SetRemoveOp, StringAffixOp,
+    AbortSignalOp, Base64Op, CryptoOp, EventEmitterOp, FormDataOp, HeadersOp, HttpServerOp, IncomingMessageOp, ServerResponseOp, RegexMatchOp, RegexReplaceArg, RequestOp, ResponseOp, SetBinaryOp, SetProjectionOp, UrlSearchParamsOp, TextDecoderOp, TextEncoderOp, ByteArrayOp, BlobOp, SetRelationOp, SetRemoveOp, StringAffixOp,
     StringCaseOp, StringNormalizeForm, StringPadOp, StringPredicateOp, StringReplaceOp,
-    StringSearchOp, StringTrimSide, UrlField,
+    StringSearchOp, StringTrimSide, UriTranscodeOp, UrlField,
 };
 pub use types::{BinOp, UnaryOp, bin_op_text};

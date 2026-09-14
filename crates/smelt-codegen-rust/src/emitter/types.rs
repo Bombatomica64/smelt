@@ -411,16 +411,47 @@ impl FunctionEmitter<'_> {
             (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::Bool) => Ok(format!(
                 "if {operand_text} {{ \"True\".to_owned() }} else {{ \"False\".to_owned() }}"
             )),
-            (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::Int | Type::Float) => {
-                Ok(format!("{operand_text}.to_string()"))
-            }
+            // `String(x)` and `x.toString()` on a NUMBER follow JavaScript's
+            // own rule, which parts company with Rust's `Display` at both ends
+            // of the range (`1e+21`, `1e-7`). An `Int` is still a JavaScript
+            // number, and a JS number is an `f64`, so both widths go through
+            // the one helper rather than depending on which Smelt inferred.
+            (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::Int) => Ok(format!(
+                "{fn_name}({operand_text} as f64)",
+                fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+            )),
+            (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::Float) => Ok(format!(
+                "{fn_name}({operand_text})",
+                fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+            )),
+            // `String(x)` on an absent optional is the language's absent WORD,
+            // not the empty string. `unwrap_or_default()` answered `""`, so
+            // `String(undefined)` printed nothing where Node prints
+            // `undefined`.
             (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::Optional(inner))
                 if matches!(
                     self.mir.types.get(*inner),
                     Some(Type::Bool | Type::Int | Type::Float | Type::String)
                 ) =>
             {
-                Ok(format!("{operand_text}.unwrap_or_default().to_string()"))
+                // The PRESENT arm stringifies the inner value the way that type
+                // stringifies on its own, so a `number | undefined` holding
+                // `1e21` prints what `String(1e21)` does.
+                let present = match self.mir.types.get(*inner) {
+                    Some(Type::Int) => format!(
+                        "{fn_name}(value as f64)",
+                        fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+                    ),
+                    Some(Type::Float) => format!(
+                        "{fn_name}(value)",
+                        fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+                    ),
+                    _ => "value.to_string()".to_owned(),
+                };
+                Ok(format!(
+                    "{operand_text}.map_or_else(|| {:?}.to_owned(), |value| {present})",
+                    self.absent_spelling().text(),
+                ))
             }
             (smelt_hir::PrimitiveCastOp::ToString, Type::String, _) => {
                 self.string_like_operand_text(operand, "String")
@@ -565,8 +596,45 @@ impl FunctionEmitter<'_> {
     /// Converts a string trim operation to Rust text.
     /// Returns whether a type is supported by the current JSON serializer path.
     pub(super) fn is_json_serializable_type(&self, ty: TypeId) -> bool {
+        // A value whose EMITTED Rust type is already the erased carrier has
+        // nothing left to reject. `json_stringify_text` erases its operand
+        // unconditionally and lets `Serialize for SmeltUnknown` decide the
+        // output at run time — that impl is where every ECMA-262 rule lives
+        // (an integral number has no fraction, a non-finite one is `null`, an
+        // `undefined` property is omitted, a byte-backed view serializes as its
+        // element indices, a host object as `{}`), and it has an arm for every
+        // tag a `SmeltUnknown` can carry. So for such an operand this predicate
+        // is asking a question about a representation that no longer exists.
+        //
+        // **The boundary, documented at the emit site as the policy requires.**
+        // This does not introduce an erasure: the operand is ALREADY a
+        // `SmeltUnknown` because its own type is `unknown`, a type parameter, or
+        // a union with no concrete Rust spelling. Rejecting it did not keep any
+        // value concrete; it only refused to serialize the one case the runtime
+        // rule exists for. Hono's `utils/crypto.ts` is exactly that case:
+        // `data: string | boolean | number | JSONValue | ArrayBufferView |
+        // ArrayBuffer` is reassigned across a narrowing, so the operand's static
+        // type is the erased union, and the whole crate stopped in the emitter
+        // on a value the generated `Serialize` would have rendered correctly.
+        //
+        // A value with a REAL Rust representation still goes through the arms
+        // below, so a user class with an unserializable field is still a named
+        // blocker rather than silently becoming `{}`.
+        if self
+            .type_text_with_impl_trait(ty, false)
+            .is_ok_and(|text| text == "SmeltUnknown")
+        {
+            return true;
+        }
         match self.mir.types.get(ty) {
-            Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::Unknown) => true,
+            // A TYPE PARAMETER stringifies through the erased boundary, exactly
+            // as `Unknown` does: `JSON.stringify(x)` on a generic `x: T` is
+            // legal JavaScript for every instantiation, and the generated code
+            // erases the value first (`json_stringify_text` always does). Rejecting it
+            // made a generic helper that serializes its argument a blocker for
+            // the whole crate.
+            Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::Unknown)
+            | Some(Type::TypeParam { .. }) => true,
             Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => {
                 self.is_json_serializable_type(*item)
             }
@@ -577,7 +645,22 @@ impl FunctionEmitter<'_> {
                 matches!(self.mir.types.get(*key), Some(Type::String))
                     && self.is_json_serializable_type(*value)
             }
+            // JSON has no `undefined`, and `JSON.stringify(null)` is `null`.
+            Some(Type::None) => true,
+            // A union is serializable when every arm is. This is what lets a
+            // `BodyInit` (`string | ArrayBuffer | Blob | FormData |
+            // URLSearchParams | ReadableStream | null`) be stringified at all.
+            Some(Type::Union(items)) => items
+                .iter()
+                .all(|item| self.is_json_serializable_type(*item)),
             Some(Type::Class { name, .. }) => {
+                // A host object serializes as `{}` — none of its state is an own
+                // enumerable property (see the frontend's matching arm). The
+                // emitter erases such a value first, and the erased carrier's
+                // `Serialize` is what renders the empty object.
+                if self.is_host_object_class(*name) {
+                    return true;
+                }
                 if let Some(class) = self.mir.classes.iter().find(|class| class.name == *name) {
                     crate::classes::effective_class_fields(self.mir, class)
                         .iter()
@@ -599,11 +682,28 @@ impl FunctionEmitter<'_> {
         }
     }
 
+    /// Return whether a class symbol names a registered host object.
+    ///
+    /// The registry is the shared one (`smelt_stdlib::host_object_marker`), so
+    /// the frontend's serializability rule and this one cannot disagree about
+    /// which classes have no own enumerable properties.
+    pub(super) fn is_host_object_class(&self, name: smelt_hir::Symbol) -> bool {
+        self.symbol_name(name)
+            .is_ok_and(|class_name| smelt_stdlib::host_object_marker(class_name).is_some())
+    }
+
     /// Converts a blocking HTTP GET operation to Rust text.
     /// Gets the type of a place.
     pub(super) fn place_ty(&self, place: &Place) -> Result<TypeId, EmitError> {
         match place {
             Place::Local(local) => Ok(self.local_decl(*local)?.ty),
+            // `Place::Global` is only ever an assignment target, and the
+            // assignment path reads the global's declared type directly rather
+            // than asking for a place type. Reaching here means a global place
+            // was used as a value, which is a compiler bug.
+            Place::Global { .. } => Err(EmitError::new(
+                "internal: a mutable-global place has no read type",
+            )),
             Place::Field { base, field } => {
                 let base_ty = self.local_decl(*base)?.ty;
                 // A `.length` read on a CONCRETE collection (typed list or set)
@@ -618,6 +718,17 @@ impl FunctionEmitter<'_> {
                         == Some(smelt_stdlib::FieldRule::TsLength)
                 {
                     return self.type_id(Type::Float);
+                }
+                // Likewise for a `String` base: `place::field_read_text` routes
+                // it to `string_field_text`, which renders `.length` as a
+                // character count and `.source` as a `String`. Reporting
+                // `Unknown` here made callers coerce an ALREADY concrete
+                // expression as if it were erased -- a `${s.length}`
+                // interpolation ran the `SmeltUnknown` ToString match over an
+                // `i64` and did not compile. `string_field_read` decides the
+                // text and the type together; ask it for the type.
+                if matches!(self.mir.types.get(base_ty), Some(Type::String)) {
+                    return Ok(self.string_field_read("", *field)?.1);
                 }
                 if let Some((_, descriptor)) = self.descriptor_for_field(base_ty, *field) {
                     return Ok(descriptor.read_ty);
@@ -635,6 +746,13 @@ impl FunctionEmitter<'_> {
                 // (which only knows user classes/interfaces) would erase the
                 // read to `Unknown` and make callers re-coerce an already
                 // concrete value.
+                // `URLSearchParams.size` is the one data property the spec
+                // defines on a concrete params value; it is a number.
+                if self.is_url_search_params_class_type(base_ty)?
+                    && self.symbol_name(*field)? == "size"
+                {
+                    return self.type_id(Type::Float);
+                }
                 if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
                     && self.is_regexp_class_symbol(*name)?
                 {
@@ -669,26 +787,55 @@ impl FunctionEmitter<'_> {
                                         .unwrap_or(record_field.ty)
                                 }
                             })
-                            .ok_or_else(|| EmitError::new("optional record field is unknown"))
+                            .ok_or_else(|| {
+                                // Name the field and the receiver: the site
+                                // annotation says which function, and this says
+                                // which read inside it.
+                                EmitError::new(format!(
+                                    "optional record field `{}` is unknown on {}",
+                                    self.symbol_name(*field).unwrap_or("<unnamed>"),
+                                    self.type_text_with_impl_trait(*inner, false)
+                                        .unwrap_or_else(|_| format!("{:?}", self.mir.types.get(*inner))),
+                                ))
+                            })
                     }
-                    Some(Type::Class { name, .. }) => {
+                    // The read's type is the field type of *this*
+                    // instantiation, so the record's type arguments have to be
+                    // substituted into it: `status?: T` off an
+                    // `InitLike<f64>` receiver is an `Option<f64>`, and the
+                    // generated struct's field is rendered at exactly that
+                    // type. Reporting the declaration-time `T` instead made
+                    // callers treat an already-concrete field as erased and
+                    // coerce `SmeltUnknown` into `f64` (E0308). This is the
+                    // same substitution `structural_record_fields` performs;
+                    // the lookup order (class, then interface) is kept as it
+                    // was.
+                    Some(Type::Class { name, args }) => {
                         let field_ty = if let Some(class) =
                             self.mir.classes.iter().find(|class| class.name == *name)
                         {
-                            crate::classes::effective_class_fields(self.mir, class)
-                                .into_iter()
-                                .find(|class_field| class_field.name == *field)
-                                .map(|class_field| class_field.ty)
+                            self.substitute_record_field_type_params(
+                                &class.type_params,
+                                args,
+                                crate::classes::effective_class_fields(self.mir, class),
+                            )
+                            .into_iter()
+                            .find(|class_field| class_field.name == *field)
+                            .map(|class_field| class_field.ty)
                         } else if let Some(interface) = self
                             .mir
                             .interfaces
                             .iter()
                             .find(|interface| interface.name == *name)
                         {
-                            crate::classes::effective_interface_fields(self.mir, interface)
-                                .into_iter()
-                                .find(|interface_field| interface_field.name == *field)
-                                .map(|interface_field| interface_field.ty)
+                            self.substitute_record_field_type_params(
+                                &interface.type_params,
+                                args,
+                                crate::classes::effective_interface_fields(self.mir, interface),
+                            )
+                            .into_iter()
+                            .find(|interface_field| interface_field.name == *field)
+                            .map(|interface_field| interface_field.ty)
                         } else {
                             None
                         };
@@ -1178,6 +1325,76 @@ impl FunctionEmitter<'_> {
                 if self.is_match_class_symbol(*name)? {
                     return Ok(RustType::raw("SmeltMatch"));
                 }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::Headers)
+                {
+                    return Ok(RustType::raw("SmeltHeaders"));
+                }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::UrlSearchParams)
+                {
+                    return Ok(RustType::raw("SmeltUrlSearchParams"));
+                }
+                if self.stdlib_class_of_symbol(*name)? == Some(smelt_stdlib::StdlibClass::FormData)
+                {
+                    return Ok(RustType::raw("SmeltFormData"));
+                }
+                if self.stdlib_class_of_symbol(*name)? == Some(smelt_stdlib::StdlibClass::Response)
+                {
+                    return Ok(RustType::raw("SmeltResponse"));
+                }
+                // A body HANDLE is the generated body type itself: the
+                // modeled `ReadableStream` is that handle and nothing else.
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::ReadableStream)
+                {
+                    return Ok(RustType::raw("SmeltBody"));
+                }
+                if let Some(codec_type) = match self.stdlib_class_of_symbol(*name)? {
+                    Some(smelt_stdlib::StdlibClass::TextEncoder) => Some("SmeltTextEncoder"),
+                    Some(smelt_stdlib::StdlibClass::TextDecoder) => Some("SmeltTextDecoder"),
+                    // The whole typed-array family is ONE Rust type: the
+                    // element kind is a runtime field of the value, not part of
+                    // its static identity, so all eleven source spellings and
+                    // the synthetic codec name render the same type.
+                    Some(smelt_stdlib::StdlibClass::TypedArray) => Some("SmeltTypedArray"),
+                    Some(smelt_stdlib::StdlibClass::ArrayBuffer) => Some("SmeltArrayBuffer"),
+                    // `DataView` is its own type, not a twelfth kind: its
+                    // element width is an argument of each accessor rather
+                    // than a field of the value.
+                    Some(smelt_stdlib::StdlibClass::DataView) => Some("SmeltDataView"),
+                    _ => None,
+                } {
+                    return Ok(RustType::raw(codec_type));
+                }
+                // `Blob` and `File` are one Rust type: a file is a blob whose
+                // name is present.
+                if self
+                    .stdlib_class_of_symbol(*name)?
+                    .is_some_and(smelt_stdlib::StdlibClass::is_blob_runtime_type)
+                {
+                    return Ok(RustType::raw("SmeltBlob"));
+                }
+                if self.stdlib_class_of_symbol(*name)? == Some(smelt_stdlib::StdlibClass::Request) {
+                    return Ok(RustType::raw("SmeltRequest"));
+                }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::EventEmitter)
+                {
+                    return Ok(RustType::raw("SmeltEventEmitter"));
+                }
+                if let Some(http_type) = match self.stdlib_class_of_symbol(*name)? {
+                    Some(smelt_stdlib::StdlibClass::HttpServer) => Some("SmeltHttpServer"),
+                    Some(smelt_stdlib::StdlibClass::IncomingMessage) => {
+                        Some("SmeltIncomingMessage")
+                    }
+                    Some(smelt_stdlib::StdlibClass::ServerResponse) => {
+                        Some("SmeltServerResponse")
+                    }
+                    _ => None,
+                } {
+                    return Ok(RustType::raw(http_type));
+                }
                 if !self.mir.classes.iter().any(|class| class.name == *name)
                     && !self
                         .mir
@@ -1222,8 +1439,15 @@ impl FunctionEmitter<'_> {
                 "SmeltList<{}>",
                 self.rust_type(*item, false, substitution)?
             ))),
+            // An insertion-ORDERED set, because JavaScript specifies `Set`
+            // iteration as insertion order and a Rust `HashSet` has none (H52).
+            // `SmeltPrimSet` keeps a `Vec` of entries beside a hash index, so
+            // membership stays hashed; the sibling `SmeltJsSet` below is ordered
+            // too but erases each element for SameValueZero membership, which
+            // would drag the whole `SmeltUnknown` carrier into any program
+            // holding a `Set<string>`.
             Type::Set(item) if self.type_is_hash_set_key_safe(*item) => Ok(RustType::raw(format!(
-                "::std::collections::HashSet<{}>",
+                "SmeltPrimSet<{}>",
                 self.rust_type(*item, false, substitution)?
             ))),
             Type::Set(item) => Ok(RustType::raw(format!(
@@ -1386,7 +1610,7 @@ impl FunctionEmitter<'_> {
                 self.type_text_with_impl_trait(*item, false)?
             )),
             Type::Set(item) if self.type_is_hash_set_key_safe(*item) => {
-                Ok("::std::collections::HashSet::new()".to_owned())
+                Ok("SmeltPrimSet::new()".to_owned())
             }
             Type::Set(_) => Ok("SmeltJsSet::new()".to_owned()),
             Type::Dict(key, _) if self.dict_uses_smelt_record(*key) => {
@@ -1430,8 +1654,121 @@ impl FunctionEmitter<'_> {
             Type::Class { name, .. } if self.is_regexp_class_symbol(*name)? => {
                 Ok("SmeltRegExp::new(String::new(), String::new())".to_owned())
             }
+            Type::Class { name, .. }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::Headers) =>
+            {
+                Ok("SmeltHeaders::new()".to_owned())
+            }
+            Type::Class { name, .. }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::UrlSearchParams) =>
+            {
+                Ok("SmeltUrlSearchParams::new()".to_owned())
+            }
+            Type::Class { name, .. }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::FormData) =>
+            {
+                // An empty form, which is exactly what `new FormData()` is.
+                Ok("SmeltFormData::new()".to_owned())
+            }
+            Type::Class { name, .. }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::Response) =>
+            {
+                Ok("SmeltResponse::new()".to_owned())
+            }
+            Type::Class { name, .. }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::TextEncoder) =>
+            {
+                Ok("SmeltTextEncoder::new()".to_owned())
+            }
+            // An empty, untyped blob: a blob with no bytes is a value the type
+            // can hold.
+            Type::Class { name, .. }
+                if self
+                    .stdlib_class_of_symbol(*name)?
+                    .is_some_and(smelt_stdlib::StdlibClass::is_blob_runtime_type) =>
+            {
+                Ok("SmeltBlob::new()".to_owned())
+            }
+            Type::Class { name, .. }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::TextDecoder) =>
+            {
+                Ok("SmeltTextDecoder::new()".to_owned())
+            }
+            // An empty byte view, which is what `new Uint8Array(0)` is: a view
+            // with no bytes is a value the type can hold, unlike a server
+            // without a handler. Zero-length storage is the same answer for the
+            // buffer half.
+            Type::Class { name, .. }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::TypedArray) =>
+            {
+                Ok("SmeltTypedArray::new()".to_owned())
+            }
+            Type::Class { name, .. }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::ArrayBuffer) =>
+            {
+                Ok("SmeltArrayBuffer::new(0)".to_owned())
+            }
+            // An empty window over empty storage, for the same reason.
+            Type::Class { name, .. }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::DataView) =>
+            {
+                Ok("SmeltDataView::new()".to_owned())
+            }
+            Type::Class { name, .. }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::EventEmitter) =>
+            {
+                Ok("SmeltEventEmitter::new()".to_owned())
+            }
+            // A `ServerResponse` has a default — a fresh 200 with nothing set —
+            // for the same reason a `Response` does. A `Server` and an
+            // `IncomingMessage` deliberately do NOT: a server without a handler
+            // and a request without a method are not values their types can
+            // hold, so a default for either would be an invented object rather
+            // than an empty one.
+            Type::Class { name, .. }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::ServerResponse) =>
+            {
+                Ok("SmeltServerResponse::new()".to_owned())
+            }
+            Type::Class { name, .. }
+                if self.stdlib_class_of_symbol(*name)?
+                    == Some(smelt_stdlib::StdlibClass::Request) =>
+            {
+                // No `Request::new()`: the spec has no default request, because
+                // a request without a URL is not a value the type can hold.
+                // `about:blank` is the one URL the platform treats as "no
+                // document", so it is what an unreachable default uses.
+                Ok("SmeltRequest::from_parts(\"about:blank\", \"GET\".to_owned(), SmeltHeaders::new(), SmeltBody::empty())".to_owned())
+            }
             Type::Class { name, .. } if self.is_match_class_symbol(*name)? => {
                 Ok("SmeltMatch::default()".to_owned())
+            }
+            // A generic class's default has to NAME the class when its type
+            // arguments are unresolved: a bare `Default::default()` leaves them
+            // to inference, and a binding annotated `Class<_>` and initialized
+            // from it pins nothing (E0283, the router slice's anonymous
+            // `class<T> extends RegExpRouter<T>` bound to a const). Naming the
+            // class puts the unresolved parameters on the DEFAULT's own path,
+            // where they resolve to the dynamic carrier — which is what such a
+            // value is used as: a class VALUE is the constructor, never an
+            // instance, and every read of it goes through erasure.
+            Type::Class { name, args } if args.is_empty() && self.class_type_param_count(*name) > 0 => {
+                let placeholders = vec!["SmeltUnknown"; self.class_type_param_count(*name)].join(", ");
+                Ok(format!(
+                    "{}::<{placeholders}>::default()",
+                    sanitize_ident(self.symbol_name(*name)?)
+                ))
             }
             Type::Class { .. } => Ok("Default::default()".to_owned()),
             Type::Function(function) => {
@@ -1530,6 +1867,22 @@ impl FunctionEmitter<'_> {
                 "None::<{}>",
                 self.rust_type(self.flatten_optional_inner(*inner), false, substitution)?
             )),
+            // A list default annotates its element type, and that annotation has
+            // to be spelled through THIS substitution. The unscoped
+            // `default_value` arm this would otherwise fall through to reaches
+            // for `type_text_with_impl_trait`, which rebuilds a substitution from
+            // the CURRENT FUNCTION's type parameters — and there is no current
+            // function here: `default_value_for_with_scoped_type_params` hosts
+            // itself on `functions[0]` purely to have an emitter, so a class type
+            // parameter is not in that scope and erased to `SmeltUnknown`.
+            // Hono's `struct SmartRouterInner<T> { _routers: SmeltList<Router<T>> }`
+            // got `SmeltList::new(Vec::<Router<SmeltUnknown>>::new())` in a
+            // `Default for SmartRouterInner<T>` impl (E0308). Latent until H29
+            // started emitting these impls for generic classes.
+            Type::List(item) => Ok(format!(
+                "SmeltList::new(Vec::<{}>::new())",
+                self.rust_type(*item, false, substitution)?
+            )),
             Type::Function(function) => {
                 // An erased-unknown-rest function type renders as the concrete
                 // `SmeltErasedFunction` struct (see `rust_type`),
@@ -1622,6 +1975,18 @@ impl FunctionEmitter<'_> {
                     crate::classes::effective_class_fields(self.mir, class),
                 )
             })
+    }
+
+    /// How many type parameters the class named `name` declares.
+    ///
+    /// `0` for a non-generic class and for a name that is not a generated class
+    /// at all, so callers can ask without checking first.
+    pub(super) fn class_type_param_count(&self, name: smelt_hir::Symbol) -> usize {
+        self.mir
+            .classes
+            .iter()
+            .find(|class| class.name == name)
+            .map_or(0, |class| class.type_params.len())
     }
 
     /// Substitute concrete class/interface arguments into structural fields.

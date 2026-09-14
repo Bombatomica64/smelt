@@ -1,0 +1,148 @@
+async fn work (FuncId(0)) -> String throws
+  locals
+    %0 param flag: Bool
+    %1 temp: Dict<String, Unknown>
+    %2 temp: Unknown
+  bb0:
+    switch copy %0 ? bb1 : bb2
+  bb1:
+    %1 = {"__smelt_error": "Error", "message": "rejected", "stack": undefined, "cause": undefined}
+    %2 = unknown_cast move %1 as t1
+    throw move %2
+  bb2:
+    return "resolved"
+
+async fn main (FuncId(1)) -> None throws
+  locals
+    %0 user outcome: String
+    %1 user after: String
+    %2 user thrown: String
+    %3 user last: String
+    %4 user nested: String
+    %5 user final: String
+    %6 temp: Future<String>
+    %7 temp: String
+    %8 temp: None
+    %9 temp: Future<String>
+    %10 temp: String
+    %11 temp: None
+    %12 temp: Float
+    %13 temp: Float
+    %14 temp: Float
+    %15 temp: None
+    %16 temp: Future<String>
+    %17 temp: String
+    %18 temp: None
+    %19 temp: Future<String>
+    %20 temp: String
+    %21 temp: Float
+    %22 temp: None
+    %23 temp: Future<String>
+    %24 temp: String
+    %25 temp: String
+    %26 temp: Future<String>
+    %27 temp: String
+    %28 temp: String
+    %29 temp: None
+    %30 temp: Future<String>
+    %31 temp: String
+    %32 temp: None
+    %33 temp: Future<None>
+    %34 temp: None
+  bb0:
+    %0 = "not run"
+    goto bb1
+  bb1:
+    %6 = call fn0(false) -> bb4 unwind bb3
+  bb2:
+    %8 = call @console_log(copy %0) -> bb6
+  bb3:
+    %0 = "caught"
+    goto bb2
+  bb4:
+    %7 = await move %6 -> bb5 unwind bb3
+  bb5:
+    %0 = move %7
+    goto bb2
+  bb6:
+    %9 = call fn0(false) -> bb7
+  bb7:
+    %10 = await move %9
+    %1 = move %10
+    %11 = call @console_log(copy %1) -> bb8
+  bb8:
+    %12 = len move %1
+    %13 = len move %0
+    %14 = move %12 + move %13
+    %15 = call @console_log(move %14) -> bb9
+  bb9:
+    %2 = "not run"
+    goto bb10
+  bb10:
+    %16 = call fn0(true) -> bb13 unwind bb12
+  bb11:
+    %18 = call @console_log(copy %2) -> bb15
+  bb12:
+    %2 = "caught"
+    goto bb11
+  bb13:
+    %17 = await move %16 -> bb14 unwind bb12
+  bb14:
+    %2 = move %17
+    goto bb11
+  bb15:
+    %19 = call fn0(false) -> bb16
+  bb16:
+    %20 = await move %19
+    %3 = move %20
+    %21 = len move %2
+    %22 = call @console_log(move %3, move %21) -> bb17
+  bb17:
+    %4 = "not run"
+    goto bb18
+  bb18:
+    goto bb21
+  bb19:
+    %29 = call @console_log(move %4) -> bb28
+  bb20:
+    %4 = "outer"
+    goto bb19
+  bb21:
+    %23 = call fn0(true) -> bb24 unwind bb23
+  bb22:
+    %25 = move %4 + "|"
+    %26 = call fn0(false) -> bb26 unwind bb20
+  bb23:
+    %4 = "inner"
+    goto bb22
+  bb24:
+    %24 = await move %23 -> bb25 unwind bb23
+  bb25:
+    %4 = move %24
+    goto bb22
+  bb26:
+    %27 = await move %26 -> bb27 unwind bb20
+  bb27:
+    %28 = move %25 + move %27
+    %4 = move %28
+    goto bb19
+  bb28:
+    %5 = "not run"
+    goto bb29
+  bb29:
+    %30 = call fn0(true) -> bb32 unwind bb31
+  bb30:
+    %32 = call @console_log(move %5) -> bb34
+  bb31:
+    %5 = "last caught"
+    goto bb30
+  bb32:
+    %31 = await move %30 -> bb33 unwind bb31
+  bb33:
+    %5 = move %31
+    goto bb30
+  bb34:
+    %33 = async_exit_drain()
+    %34 = await move %33
+    return none
+

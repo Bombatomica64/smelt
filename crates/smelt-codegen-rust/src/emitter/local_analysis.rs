@@ -183,8 +183,8 @@ impl FunctionEmitter<'_> {
         if !self.context.is_generic_function(callee.id) {
             return None;
         }
-        let rust_name = self.function_rust_name(callee).ok()?;
-        let return_ty = self.emitted_function_return_type(&rust_name)?;
+        let signature_key = self.emitted_signature_key(callee).ok()?;
+        let return_ty = self.emitted_function_return_type(&signature_key)?;
         match self.mir.types.get(return_ty) {
             Some(Type::Function(function)) => Some(function.clone()),
             _ => None,

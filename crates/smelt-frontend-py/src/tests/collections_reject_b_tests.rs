@@ -92,9 +92,9 @@ value: int = mapping.setdefault("b")
 fn unsupported_builtin_sum_forms_reject() -> TestResult {
     let mut ctx = HirCtx::new();
     let wrong_arity = lower_errors(
-        py!(r#"
+        py!(r"
 total: int = sum()
-"#),
+"),
         &mut ctx,
     )?;
     ensure(
@@ -124,9 +124,9 @@ total: str = sum(values)
 fn unsupported_builtin_all_any_forms_reject() -> TestResult {
     let mut ctx = HirCtx::new();
     let wrong_arity = lower_errors(
-        py!(r#"
+        py!(r"
 result: bool = all()
-"#),
+"),
         &mut ctx,
     )?;
     ensure(
@@ -138,10 +138,10 @@ result: bool = all()
 
     let mut ctx = HirCtx::new();
     let non_bool = lower_errors(
-        py!(r#"
+        py!(r"
 values: list[int] = [1, 2]
 result: bool = any(values)
-"#),
+"),
         &mut ctx,
     )?;
     ensure(
@@ -154,10 +154,10 @@ result: bool = any(values)
 fn unsupported_builtin_sorted_forms_reject() -> TestResult {
     let mut ctx = HirCtx::new();
     let wrong_arity = lower_errors(
-        py!(r#"
+        py!(r"
 values: list[int] = [1, 2]
 ordered: list[int] = sorted(values, values)
-"#),
+"),
         &mut ctx,
     )?;
     ensure(
@@ -169,10 +169,10 @@ ordered: list[int] = sorted(values, values)
 
     let mut ctx = HirCtx::new();
     let non_sortable = lower_errors(
-        py!(r#"
+        py!(r"
 values: list[list[int]] = [[1], [2]]
 ordered: list[list[int]] = sorted(values)
-"#),
+"),
         &mut ctx,
     )?;
     ensure(
@@ -184,11 +184,11 @@ ordered: list[list[int]] = sorted(values)
 
     let mut ctx = HirCtx::new();
     let non_literal_reverse = lower_errors(
-        py!(r#"
+        py!(r"
 flag: bool = True
 values: list[int] = [1, 2]
 ordered: list[int] = sorted(values, reverse=flag)
-"#),
+"),
         &mut ctx,
     )?;
     ensure(
@@ -299,10 +299,10 @@ copied: dict[str, int] = mapping.copy(1)
 fn unsupported_slice_forms_reject() -> TestResult {
     let mut ctx = HirCtx::new();
     let step = lower_errors(
-        py!(r#"
+        py!(r"
 values: list[int] = [1, 2, 3]
 bad: list[int] = values[0:2:1]
-"#),
+"),
         &mut ctx,
     )?;
     let error = first_error(&step)?;

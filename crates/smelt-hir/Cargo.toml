@@ -16,3 +16,10 @@ workspace = true
 
 [dependencies]
 serde = { workspace = true }
+# The shared stdlib REGISTRY. HIR already models stdlib concepts (`ByteArrayOp`,
+# `Base64Op`, `UriTranscodeOp`), and where one of them needs the element table —
+# a `DataView` accessor's width and signedness — it names
+# `smelt_stdlib::TypedArrayElement` rather than copying it: two element tables
+# is what the registry exists to prevent. `smelt-stdlib` is a leaf crate (serde
+# only), so this adds no cycle and no build weight.
+smelt-stdlib = { path = "../smelt-stdlib", version = "0.1.1" }

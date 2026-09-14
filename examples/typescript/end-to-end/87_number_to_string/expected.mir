@@ -1,0 +1,105 @@
+fn main (FuncId(0)) -> None
+  locals
+    %0 user values: List<Float>
+    %1 user value: Float
+    %2 user keyed: Dict<String, Float>
+    %3 temp: Float
+    %4 temp: Float
+    %5 temp: Float
+    %6 temp: Float
+    %7 temp: List<Float>
+    %8 temp: Float
+    %9 temp: Float
+    %10 temp: Bool
+    %11 temp: String
+    %12 temp: String
+    %13 temp: String
+    %14 temp: String
+    %15 temp: String
+    %16 temp: String
+    %17 temp: String
+    %18 temp: None
+    %19 temp: Float
+    %20 temp: None
+    %21 temp: Float
+    %22 temp: String
+    %23 temp: Float
+    %24 temp: String
+    %25 temp: None
+    %26 temp: Float
+    %27 temp: None
+    %28 temp: String
+    %29 temp: String
+    %30 temp: Float
+    %31 temp: String
+    %32 temp: None
+    %33 temp: String
+    %34 temp: None
+    %35 temp: Dict<String, Float>
+    %36 temp: List<String>
+    %37 temp: None
+    %38 temp: Dict<String, Float>
+    %39 temp: String
+    %40 temp: None
+  bb0:
+    %3 = -0.0
+    %4 = -1.0
+    %5 = 2.0 / 3.0
+    %6 = -1000000000000000000000.0
+    %7 = [0.0, move %3, 1.0, move %4, 0.5, 100.0, 1000000.0, 100000000000000000000.0, 1000000000000000000000.0, 10000000000000000000000.0, 0.000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000005, 0.000001, 0.0000001, 179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0, 0.1, move %5, 255.0, move %6, 0.00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001]
+    %0 = move %7
+    %8 = 0.0
+    goto bb1
+  bb1:
+    %9 = len copy %0
+    %10 = copy %8 < move %9
+    switch move %10 ? bb2 : bb4
+  bb2:
+    %1 = copy %0[copy %8]
+    %11 = "" + copy %1
+    %12 = move %11 + "|"
+    %13 = primitive_cast_string copy %1
+    %14 = move %12 + move %13
+    %15 = move %14 + "|"
+    %16 = primitive_cast_string move %1
+    %17 = move %15 + move %16
+    %18 = call @console_log(move %17) -> bb5
+  bb3:
+    %8 = copy %8 + 1.0
+    goto bb1
+  bb4:
+    %19 = -0.0
+    %20 = call @console_log(0.0, move %19, 1000000000000000000000.0, 0.0000001) -> bb6
+  bb5:
+    goto bb3
+  bb6:
+    %21 = -0.0
+    %22 = primitive_cast_string move %21
+    %23 = -0.0
+    %24 = "" + move %23
+    %25 = call @console_log(move %22, move %24) -> bb7
+  bb7:
+    %26 = -inf
+    %27 = call @console_log(NaN, inf, move %26) -> bb8
+  bb8:
+    %28 = primitive_cast_string NaN
+    %29 = primitive_cast_string inf
+    %30 = -inf
+    %31 = primitive_cast_string move %30
+    %32 = call @console_log(move %28, move %29, move %31) -> bb9
+  bb9:
+    %33 = string_join move %0, " "
+    %34 = call @console_log(move %33) -> bb10
+  bb10:
+    %35 = {}
+    %2 = move %35
+    %2[1000000000000000000000.0] = 1.0
+    %36 = dict_keys move %2
+    %37 = call @console_log(copy %36[0.0]) -> bb11
+  bb11:
+    %38 = {"big": 1000000000000000000000.0, "small": 0.0000001}
+    %39 = json_stringify move %38
+    %40 = call @console_log(move %39) -> bb12
+  bb12:
+    return none
+

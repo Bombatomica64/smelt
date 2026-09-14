@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn class_single_inheritance_fields_and_methods_lower() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 class Base:
     x: int
     def value(self) -> int:
@@ -12,7 +12,7 @@ class Child(Base):
     y: int
     def total(self) -> int:
         return self.value() + self.y
-"#);
+");
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
     Ok(())
@@ -20,7 +20,7 @@ class Child(Base):
 
 #[test]
 fn abstract_base_class_method_implementation_lowers() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 from abc import ABC, abstractmethod
 
 class Base(ABC):
@@ -31,7 +31,7 @@ class Base(ABC):
 class Child(Base):
     def value(self) -> int:
         return 1
-"#);
+");
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
     Ok(())
@@ -39,14 +39,14 @@ class Child(Base):
 
 #[test]
 fn generic_marker_base_lowers_class_type_params() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 from typing import Generic
 
 class Box(Generic[T]):
     value: T
     def __init__(self, value: T) -> None:
         self.value = value
-"#);
+");
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
     Ok(())
@@ -54,14 +54,14 @@ class Box(Generic[T]):
 
 #[test]
 fn set_mutation_methods_lower() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 values: set[int] = {1, 2}
 values.add(3)
 values.discard(2)
 values.remove(1)
 copy: set[int] = values.copy()
 values.clear()
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -102,7 +102,7 @@ values.clear()
 
 #[test]
 fn set_algebra_methods_lower() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 left: set[int] = {1, 2}
 right: set[int] = {2, 3}
 merged: set[int] = left.union(right)
@@ -112,7 +112,7 @@ exclusive: set[int] = left.symmetric_difference(right)
 separate: bool = left.isdisjoint(right)
 subset: bool = left.issubset(right)
 superset: bool = left.issuperset(right)
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -155,11 +155,11 @@ superset: bool = left.issuperset(right)
 
 #[test]
 fn tuple_contains_comparison_lowers() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 values: tuple[int, int] = (1, 2)
 has: bool = 2 in values
 missing: bool = 4 not in values
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -353,14 +353,14 @@ for key, label in pairs:
 
 #[test]
 fn plain_class_lowers() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 class Point:
     x: int
     y: int
     def __init__(self, x: int, y: int) -> None:
         self.x = x
         self.y = y
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -385,14 +385,14 @@ class Point:
 
 #[test]
 fn dataclass_lowers() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 from dataclasses import dataclass
 
 @dataclass
 class Point:
     x: int
     y: int
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -418,11 +418,11 @@ class Point:
 
 #[test]
 fn frozen_dataclass_lowers() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 @dataclass(frozen=True)
 class Immutable:
     value: int
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -449,7 +449,7 @@ fn optional_dataclass_field_lowers_as_optional() -> TestResult {
     // required field stays non-optional. This mirrors how TypeScript class fields
     // carry the `?` spelling and lets Rust codegen emit `Option<T>` for the
     // optional slot only.
-    let source = py!(r#"
+    let source = py!(r"
 from dataclasses import dataclass
 from typing import Optional
 
@@ -457,7 +457,7 @@ from typing import Optional
 class Point:
     x: int
     y: Optional[int] = None
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -498,14 +498,14 @@ class Point:
 fn pep604_optional_dataclass_field_lowers_as_optional() -> TestResult {
     // The PEP 604 `int | None` spelling must lower the same way as
     // `Optional[int]`: the field is optional and its type is `Type::Optional`.
-    let source = py!(r#"
+    let source = py!(r"
 from dataclasses import dataclass
 
 @dataclass
 class Config:
     name: str
     retries: int | None = None
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -659,7 +659,7 @@ class codes(IntEnum):
 /// with no `self` binding, and a class-level variable lowers to a static field.
 #[test]
 fn staticmethod_and_class_var_lower_to_static_members() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 class MathUtils:
     LIMIT = 7
 
@@ -669,7 +669,7 @@ class MathUtils:
 
 def area(radius: float) -> float:
     return MathUtils.square(radius) * MathUtils.LIMIT
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -752,7 +752,7 @@ fn method_body_named<'a>(
 /// forward reference resolves and lowers to a receiver method call.
 #[test]
 fn instance_method_forward_reference_lowers() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 class Counter:
     value: int
     def __init__(self, value: int) -> None:
@@ -761,7 +761,7 @@ class Counter:
         return self.doubled()
     def doubled(self) -> int:
         return self.value * 2
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -883,7 +883,7 @@ def via_factory(start: int) -> int:
 /// A `@staticmethod` may call a sibling declared later via `Class.helper()`.
 #[test]
 fn staticmethod_forward_reference_lowers() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 class Ops:
     @staticmethod
     def start() -> int:
@@ -891,7 +891,7 @@ class Ops:
     @staticmethod
     def base() -> int:
         return 10
-"#);
+");
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
     Ok(())
@@ -901,14 +901,14 @@ class Ops:
 /// an unknown class member before call lowering can fabricate a receiver type.
 #[test]
 fn unknown_instance_method_rejects() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 class C:
     def m(self) -> int:
         return 1
 
 def f(c: C) -> int:
     return c.nope()
-"#);
+");
     let mut ctx = HirCtx::new();
     let errors = lower_errors(source, &mut ctx)?;
     let error = first_error(&errors)?;
@@ -930,7 +930,7 @@ def f(c: C) -> int:
 /// `self.inner.a()` cannot recover `A` as the receiver type.
 #[test]
 fn constructor_assigned_field_supports_method_dispatch() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 class A:
     def a(self) -> int:
         return 1
@@ -940,7 +940,7 @@ class B:
         self.inner = inner
     def b(self) -> int:
         return self.inner.a()
-"#);
+");
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
     Ok(())
@@ -953,11 +953,11 @@ class B:
 /// poisoning later method dispatch with a fabricated static type.
 #[test]
 fn fieldless_class_does_not_fabricate_unknown_field_types() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 class Empty:
     def missing(self) -> int:
         return self.not_declared
-"#);
+");
     let mut ctx = HirCtx::new();
     let errors = lower_errors(source, &mut ctx)?;
     ensure(
@@ -1005,7 +1005,7 @@ def combine(left: Vector, right: Vector) -> Vector:
 /// type-check.
 #[test]
 fn constructor_assigned_field_has_the_parameter_type() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 class A:
     def a(self) -> int:
         return 1
@@ -1018,7 +1018,7 @@ class B:
         self.inner = inner
     def b(self) -> int:
         return take(self.inner)
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -1045,12 +1045,12 @@ class B:
 /// with the annotated type, and the `__init__` assignment does not duplicate it.
 #[test]
 fn class_level_annotation_wins_over_constructor_assignment() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 class Point:
     x: int
     def __init__(self, x: int) -> None:
         self.x = x
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -1072,7 +1072,7 @@ class Point:
 /// annotation, even when the value is not a plain parameter reference.
 #[test]
 fn annotated_constructor_assignment_declares_field() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 class A:
     def a(self) -> int:
         return 1
@@ -1082,7 +1082,7 @@ class B:
         self.inner: A = A()
     def b(self) -> int:
         return self.inner.a()
-"#);
+");
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
     Ok(())
@@ -1099,7 +1099,7 @@ class B:
 /// `self`, matching the TypeScript frontend's `super(...)` lowering.
 #[test]
 fn super_init_call_lowers_in_a_derived_constructor() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 class A:
     def __init__(self, x: int) -> None:
         self.x = x
@@ -1108,7 +1108,7 @@ class B(A):
     def __init__(self, x: int, y: int) -> None:
         super().__init__(x)
         self.y = y
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -1130,12 +1130,12 @@ class B(A):
 /// message rather than the generic unsupported-call diagnostic.
 #[test]
 fn super_init_without_a_base_class_is_rejected() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 class A:
     def __init__(self, x: int) -> None:
         super().__init__()
         self.x = x
-"#);
+");
     let mut ctx = HirCtx::new();
     let errors = lower_errors(source, &mut ctx)?;
     ensure(
@@ -1148,7 +1148,7 @@ class A:
 /// `super().<method>()` targets the reserved immediate-base alias.
 #[test]
 fn super_method_call_lowers_to_a_base_alias() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 class A:
     def greet(self) -> int:
         return 1
@@ -1156,7 +1156,7 @@ class A:
 class B(A):
     def greet(self) -> int:
         return super().greet() + 1
-"#);
+");
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
     ensure(
@@ -1179,7 +1179,7 @@ class B(A):
 /// `Child(7)` call lower to a non-existent `Child::new(7)` overload.
 #[test]
 fn subclass_without_init_inherits_base_constructor_signature() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 class Base:
     def __init__(self, value: int) -> None:
         self.value = value
@@ -1189,7 +1189,7 @@ class Child(Base):
 
 def make() -> Child:
     return Child(7)
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -1268,7 +1268,7 @@ def identity(value: V) -> V:
 /// descriptor, so the property is readable through field syntax.
 #[test]
 fn property_getter_lowers_as_a_readable_descriptor() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 class Ok:
     def __init__(self, value: int) -> None:
         self._value = value
@@ -1279,7 +1279,7 @@ class Ok:
 
 def read(o: Ok) -> int:
     return o.ok_value
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -1356,7 +1356,7 @@ class Ok:
 fn type_alias_spellings_resolve() -> TestResult {
     for source in [
         // PEP 613: the explicit `TypeAlias` annotation.
-        py!(r#"
+        py!(r"
 from typing import TypeAlias, Union
 
 class Ok:
@@ -1371,9 +1371,9 @@ Result: TypeAlias = Union[Ok, Err]
 
 def check(r: Result) -> bool:
     return r.is_ok()
-"#),
+"),
         // Pre-3.12 idiom: a bare assignment of a type expression.
-        py!(r#"
+        py!(r"
 class Ok:
     def is_ok(self) -> bool:
         return True
@@ -1386,9 +1386,9 @@ Result = Ok | Err
 
 def check(r: Result) -> bool:
     return r.is_ok()
-"#),
+"),
         // PEP 695 statement form.
-        py!(r#"
+        py!(r"
 class Ok:
     def is_ok(self) -> bool:
         return True
@@ -1401,7 +1401,7 @@ type Result = Ok | Err
 
 def check(r: Result) -> bool:
     return r.is_ok()
-"#),
+"),
     ] {
         let mut ctx = HirCtx::new();
         lower_module(source, &mut ctx)?;
@@ -1415,9 +1415,9 @@ def check(r: Result) -> bool:
 /// silently delete the assignment. The module body must still bind the value.
 #[test]
 fn value_assignment_is_not_a_type_alias() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 LIMIT = 10
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -1478,7 +1478,7 @@ def first(p: Pair[int, str]) -> int:
 /// refused when one does not.
 #[test]
 fn union_receiver_requires_every_arm_to_declare_the_method() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 class Ok:
     def is_ok(self) -> bool:
         return True
@@ -1489,7 +1489,7 @@ class Err:
 
 def check(r: Ok | Err) -> bool:
     return r.is_ok()
-"#);
+");
     let mut ctx = HirCtx::new();
     let errors = lower_errors(source, &mut ctx)?;
     ensure(

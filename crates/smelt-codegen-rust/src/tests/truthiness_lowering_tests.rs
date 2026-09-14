@@ -124,6 +124,52 @@ export function isBool(value: unknown): boolean {
 }
 
 #[test]
+fn an_is_array_guard_on_a_concrete_list_checks_only_presence() {
+    // H36. `values` is `SmeltList<String>` under an `Option`, so a
+    // `SmeltUnknown::Array(_)` pattern has nothing to match against — it does
+    // not even compile (es-toolkit `pullAllWith.rs:76`). And it is not needed:
+    // a `SmeltList` IS an array on every path, so the only runtime question
+    // left is whether the optional value is there.
+    let source = source_for(
+        r"
+export function count(values?: string[]): number {
+  return Array.isArray(values) ? values.length : 0;
+}
+",
+    );
+    let program = program_of(&source);
+    assert!(
+        program.contains("values.clone().is_some()"),
+        "an isArray guard on an optional concrete list is a presence check:\n{source}"
+    );
+    // The enabling condition: no erased tag pattern is emitted for it. That
+    // pattern is what failed to compile, so asserting its absence is what makes
+    // this test non-vacuous.
+    assert!(
+        !program.contains("SmeltUnknown::Array(_)"),
+        "a concrete list must not be narrowed through an erased tag:\n{source}"
+    );
+}
+
+#[test]
+fn an_is_array_guard_on_an_erased_value_keeps_its_tag_check() {
+    // The other side of the same rule: an `unknown` really does need the
+    // runtime match, so `static_tag_check` must decline to fold this one.
+    let source = source_for(
+        r"
+export function isList(value: unknown): boolean {
+  return Array.isArray(value);
+}
+",
+    );
+    let program = program_of(&source);
+    assert!(
+        program.contains("SmeltUnknown::Array(_)"),
+        "an erased value must keep its array tag check:\n{source}"
+    );
+}
+
+#[test]
 fn a_non_null_assertion_into_an_optional_parameter_forwards_the_value() {
     // `maximum!` is type-level only. The callee's parameter is optional and
     // handles the absent case, so narrowing here would render `.expect(...)` on

@@ -1,0 +1,13 @@
+local: 5 5
+field: 5 5
+element: 5 a 5
+or local: 7 7
+or field: 7 7
+or element: first a
+or element again: first a
+nullish absent: a 2
+and absent: 0
+and present: 9
+nullish local: 4
+nullish field: 4
+or truthy: 1

@@ -1,0 +1,154 @@
+module examples/typescript/end-to-end/88_data_view_range_error/input.ts (ModuleId(0))
+  body BodyId(7)
+  items
+    fn read_at owner Module
+    fn write_at owner Module
+    fn read_wide owner Module
+    fn read_byte owner Module
+    fn brand_of owner Module
+    fn uncaught owner Module
+    fn propagated owner Module
+  locals
+    %0 const buffer: ArrayBuffer
+    %1 const view: DataView
+    %2 const windowed: DataView
+  exprs
+    #0: Float = 4.0
+    #1: ArrayBuffer = typed_array_new ArrayBuffer #0
+    #2: ArrayBuffer = %0
+    #3: DataView = typed_array_new DataView #2
+    #4: DataView = %1
+    #5: Float = 2.0
+    #6: Float = 258.0
+    #7: None = data_view_setInt16 #4 #5 #6
+    #8: DataView = %1
+    #9: Float = 2.0
+    #10: Float = data_view_getInt16 #8 #9
+    #11: DataView = %1
+    #12: Float = 2.0
+    #13: Float = data_view_getUint8 #11 #12
+    #14: DataView = %1
+    #15: Float = 3.0
+    #16: Float = data_view_getUint8 #14 #15
+    #17: None = @7(console_log)
+    #18: None = call #17(#10, #13, #16)
+    #19: DataView = %1
+    #20: Float = 2.0
+    #21: fn(DataView, Float) -> String = @0(read_at)
+    #22: String = call #21(#19, #20)
+    #23: None = @8(console_log)
+    #24: None = call #23(#22)
+    #25: DataView = %1
+    #26: Float = 3.0
+    #27: fn(DataView, Float) -> String = @0(read_at)
+    #28: String = call #27(#25, #26)
+    #29: None = @9(console_log)
+    #30: None = call #29(#28)
+    #31: DataView = %1
+    #32: Float = 0.0
+    #33: fn(DataView, Float) -> String = @1(write_at)
+    #34: String = call #33(#31, #32)
+    #35: None = @10(console_log)
+    #36: None = call #35(#34)
+    #37: DataView = %1
+    #38: Float = 4.0
+    #39: fn(DataView, Float) -> String = @1(write_at)
+    #40: String = call #39(#37, #38)
+    #41: None = @11(console_log)
+    #42: None = call #41(#40)
+    #43: DataView = %1
+    #44: Float = 0.0
+    #45: Float = data_view_getInt32 #43 #44
+    #46: None = @12(console_log)
+    #47: None = call #46(#45)
+    #48: DataView = %1
+    #49: Float = 2.0
+    #50: fn(DataView, Float) -> String = @2(read_wide)
+    #51: String = call #50(#48, #49)
+    #52: DataView = %1
+    #53: Float = 4.0
+    #54: fn(DataView, Float) -> String = @2(read_wide)
+    #55: String = call #54(#52, #53)
+    #56: DataView = %1
+    #57: Float = 8.0
+    #58: fn(DataView, Float) -> String = @2(read_wide)
+    #59: String = call #58(#56, #57)
+    #60: None = @13(console_log)
+    #61: None = call #60(#51, #55, #59)
+    #62: DataView = %1
+    #63: Float = 1.9
+    #64: fn(DataView, Float) -> String = @0(read_at)
+    #65: String = call #64(#62, #63)
+    #66: DataView = %1
+    #67: Float = 2.0
+    #68: fn(DataView, Float) -> String = @0(read_at)
+    #69: String = call #68(#66, #67)
+    #70: None = @14(console_log)
+    #71: None = call #70(#65, #69)
+    #72: DataView = %1
+    #73: Float = 1.0
+    #74: Float = Neg #73
+    #75: fn(DataView, Float) -> String = @0(read_at)
+    #76: String = call #75(#72, #74)
+    #77: DataView = %1
+    #78: Float = inf
+    #79: fn(DataView, Float) -> String = @0(read_at)
+    #80: String = call #79(#77, #78)
+    #81: None = @15(console_log)
+    #82: None = call #81(#76, #80)
+    #83: ArrayBuffer = %0
+    #84: Float = 2.0
+    #85: Float = 2.0
+    #86: DataView = typed_array_new DataView #83 #84 #85
+    #87: DataView = %2
+    #88: Float = 1.0
+    #89: fn(DataView, Float) -> String = @3(read_byte)
+    #90: String = call #89(#87, #88)
+    #91: DataView = %2
+    #92: Float = 2.0
+    #93: fn(DataView, Float) -> String = @3(read_byte)
+    #94: String = call #93(#91, #92)
+    #95: None = @16(console_log)
+    #96: None = call #95(#90, #94)
+    #97: DataView = %2
+    #98: fn(DataView) -> String = @4(brand_of)
+    #99: String = call #98(#97)
+    #100: None = @17(console_log)
+    #101: None = call #100(#99)
+    #102: DataView = %2
+    #103: fn(DataView) -> String = @6(propagated)
+    #104: String = call #103(#102)
+    #105: None = @18(console_log)
+    #106: None = call #105(#104)
+  stmts
+    s0: let %0: ArrayBuffer = #1
+    s1: let %1: DataView = #3
+    s2: #7
+    s3: #18
+    s4: #24
+    s5: #30
+    s6: #36
+    s7: #42
+    s8: #47
+    s9: #61
+    s10: #71
+    s11: #82
+    s12: let %2: DataView = #86
+    s13: #96
+    s14: #101
+    s15: #106
+
+interned types
+  t0 = Float
+  t1 = ArrayBuffer
+  t2 = Unknown
+  t3 = DataView
+  t4 = String
+  t5 = fn(DataView, Float) -> String
+  t6 = fn(DataView) -> String
+  t7 = fn(DataView) -> Float
+  t8 = Bool
+  t9 = None
+  t10 = fn(DataView) -> Float
+  t11 = fn(DataView, Float) -> String
+  t12 = fn(DataView) -> String

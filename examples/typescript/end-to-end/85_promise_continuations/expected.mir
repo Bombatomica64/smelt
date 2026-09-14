@@ -1,0 +1,122 @@
+async fn work (FuncId(0)) -> String throws
+  locals
+    %0 param kind: String
+    %1 temp: Bool
+    %2 temp: String
+    %3 temp: Dict<String, Unknown>
+    %4 temp: Unknown
+    %5 temp: String
+  bb0:
+    %1 = copy %0 == "bad"
+    switch move %1 ? bb1 : bb2
+  bb1:
+    %2 = "failed:" + copy %0
+    %3 = {"__smelt_error": "Error", "message": move %2, "stack": undefined, "cause": undefined}
+    %4 = unknown_cast move %3 as t5
+    throw move %4
+  bb2:
+    %5 = "ok:" + copy %0
+    return move %5
+
+async fn run (FuncId(1)) -> String throws
+  locals
+    %0 user recovered: String
+    %1 user untouched: String
+    %2 user mapped: String
+    %3 user chained: String
+    %4 temp: Future<String>
+    %5 temp: fn() -> String
+    %6 temp: Future<String>
+    %7 temp: String
+    %8 temp: Future<String>
+    %9 temp: fn() -> String
+    %10 temp: Future<String>
+    %11 temp: String
+    %12 temp: Future<String>
+    %13 temp: fn(String) -> String
+    %14 temp: Future<String>
+    %15 temp: String
+    %16 temp: Future<String>
+    %17 temp: fn() -> String
+    %18 temp: Future<String>
+    %19 temp: fn(String) -> String
+    %20 temp: Future<String>
+    %21 temp: String
+    %22 temp: List<String>
+    %23 temp: String
+  bb0:
+    %4 = call fn0("bad") -> bb1
+  bb1:
+    %5 = closure ClosureId(0) []
+    %6 = async_catch(move %4, move %5)
+    %7 = await move %6
+    %0 = move %7
+    %8 = call fn0("kept") -> bb2
+  bb2:
+    %9 = closure ClosureId(1) []
+    %10 = async_catch(move %8, move %9)
+    %11 = await move %10
+    %1 = move %11
+    %12 = call fn0("mapped") -> bb3
+  bb3:
+    %13 = closure ClosureId(2) []
+    %14 = async_then(move %12, move %13)
+    %15 = await move %14
+    %2 = move %15
+    %16 = call fn0("bad") -> bb4
+  bb4:
+    %17 = closure ClosureId(3) []
+    %18 = async_catch(move %16, move %17)
+    %19 = closure ClosureId(4) []
+    %20 = async_then(move %18, move %19)
+    %21 = await move %20
+    %3 = move %21
+    %22 = [move %0, move %1, move %2, move %3]
+    %23 = string_join move %22, " | "
+    return move %23
+
+async fn main (FuncId(2)) -> None throws
+  locals
+    %0 temp: Future<String>
+    %1 temp: String
+    %2 temp: None
+    %3 temp: Future<None>
+    %4 temp: None
+  bb0:
+    %0 = call fn1() -> bb1
+  bb1:
+    %1 = await move %0
+    %2 = call @console_log(move %1) -> bb2
+  bb2:
+    %3 = async_exit_drain()
+    %4 = await move %3
+    return none
+
+closure ClosureId(0) -> String
+  bb0:
+    return "typed:recovered"
+
+closure ClosureId(1) -> String
+  bb0:
+    return "not reached"
+
+closure ClosureId(2) -> String
+  locals
+    %0 param __callback_param_0: String
+    %1 temp: String
+  bb0:
+    %1 = copy %0 + "/then"
+    return copy %1
+
+closure ClosureId(3) -> String
+  bb0:
+    return "recovered"
+
+closure ClosureId(4) -> String
+  locals
+    %0 param __callback_param_0: String
+    %1 temp: String
+  bb0:
+    %1 = copy %0 + "/chained"
+    return copy %1
+

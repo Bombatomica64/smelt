@@ -88,10 +88,10 @@ result: None = values.append("x")
 
     let mut ctx = HirCtx::new();
     let too_many = lower_errors(
-        py!(r#"
+        py!(r"
 values: list[int] = [1, 2]
 result: None = values.append(3, 4)
-"#),
+"),
         &mut ctx,
     )?;
     let error = first_error(&too_many)?;
@@ -121,10 +121,10 @@ result: None = left.extend(right)
 
     let mut ctx = HirCtx::new();
     let wrong_arity = lower_errors(
-        py!(r#"
+        py!(r"
 left: list[int] = [1, 2]
 result: None = left.extend()
-"#),
+"),
         &mut ctx,
     )?;
     ensure(
@@ -139,10 +139,10 @@ result: None = left.extend()
 fn unsupported_list_pop_forms_reject() -> TestResult {
     let mut ctx = HirCtx::new();
     let errors = lower_errors(
-        py!(r#"
+        py!(r"
 values: list[int] = [1, 2]
 item: int = values.pop(0)
-"#),
+"),
         &mut ctx,
     )?;
     let error = first_error(&errors)?;
@@ -156,10 +156,10 @@ item: int = values.pop(0)
 fn unsupported_collection_clear_forms_reject() -> TestResult {
     let mut ctx = HirCtx::new();
     let errors = lower_errors(
-        py!(r#"
+        py!(r"
 values: list[int] = [1, 2]
 result: None = values.clear(1)
-"#),
+"),
         &mut ctx,
     )?;
     let error = first_error(&errors)?;
@@ -173,10 +173,10 @@ result: None = values.clear(1)
 fn unsupported_list_copy_forms_reject() -> TestResult {
     let mut ctx = HirCtx::new();
     let errors = lower_errors(
-        py!(r#"
+        py!(r"
 values: list[int] = [1, 2]
 copied: list[int] = values.copy(1)
-"#),
+"),
         &mut ctx,
     )?;
     ensure(
@@ -204,10 +204,10 @@ count: int = values.count("x")
 
     let mut ctx = HirCtx::new();
     let wrong_arity = lower_errors(
-        py!(r#"
+        py!(r"
 values: list[int] = [1, 2]
 count: int = values.count()
-"#),
+"),
         &mut ctx,
     )?;
     ensure(
@@ -235,10 +235,10 @@ index: int = values.index("x")
 
     let mut ctx = HirCtx::new();
     let unsupported_bounds = lower_errors(
-        py!(r#"
+        py!(r"
 values: list[int] = [1, 2]
 index: int = values.index(1, 0)
-"#),
+"),
         &mut ctx,
     )?;
     ensure(
@@ -266,10 +266,10 @@ result: None = values.remove("x")
 
     let mut ctx = HirCtx::new();
     let wrong_arity = lower_errors(
-        py!(r#"
+        py!(r"
 values: list[int] = [1, 2]
 result: None = values.remove()
-"#),
+"),
         &mut ctx,
     )?;
     ensure(
@@ -284,10 +284,10 @@ result: None = values.remove()
 fn unsupported_list_sort_forms_reject() -> TestResult {
     let mut ctx = HirCtx::new();
     let positional_arg = lower_errors(
-        py!(r#"
+        py!(r"
 values: list[int] = [1, 2]
 result: None = values.sort(True)
-"#),
+"),
         &mut ctx,
     )?;
     ensure(
@@ -299,11 +299,11 @@ result: None = values.sort(True)
 
     let mut ctx = HirCtx::new();
     let non_literal_reverse = lower_errors(
-        py!(r#"
+        py!(r"
 flag: bool = True
 values: list[int] = [1, 2]
 result: None = values.sort(reverse=flag)
-"#),
+"),
         &mut ctx,
     )?;
     ensure(
@@ -315,10 +315,10 @@ result: None = values.sort(reverse=flag)
 
     let mut ctx = HirCtx::new();
     let unknown_keyword = lower_errors(
-        py!(r#"
+        py!(r"
 values: list[int] = [1, 2]
 result: None = values.sort(cmp=None)
-"#),
+"),
         &mut ctx,
     )?;
     ensure(
@@ -361,10 +361,10 @@ result: None = values.insert(1, "x")
 
     let mut ctx = HirCtx::new();
     let wrong_arity = lower_errors(
-        py!(r#"
+        py!(r"
 values: list[int] = [1, 2]
 result: None = values.insert(1)
-"#),
+"),
         &mut ctx,
     )?;
     ensure(

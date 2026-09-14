@@ -124,9 +124,21 @@ fn run_abort_fixture(source: &str, crate_name: &str) {
     let target_dir = root.join("target");
     std::fs::create_dir_all(&crate_dir).expect("create crate dir");
     std::fs::create_dir_all(&target_dir).expect("create target dir");
-    emit_program(source, crate_name, &crate_dir);
-    run_generated_tests(&crate_dir, &target_dir);
-    drop(std::fs::remove_dir_all(&root));
+    let outcome = std::panic::catch_unwind(|| {
+        emit_program(source, crate_name, &crate_dir);
+        run_generated_tests(&crate_dir, &target_dir);
+    });
+    // The scratch root holds a whole nested cargo target directory, so it is
+    // removed on the FAILURE path too: leaving one behind per failing case is
+    // what fills `/tmp`, and an ENOSPC inside a later nested build reads as a
+    // failing assertion rather than as a full disk.
+    // `SMELT_KEEP_RUNTIME_SCRATCH=1` keeps it for a debugging session.
+    if std::env::var_os("SMELT_KEEP_RUNTIME_SCRATCH").is_none() {
+        drop(std::fs::remove_dir_all(&root));
+    }
+    if let Err(payload) = outcome {
+        std::panic::resume_unwind(payload);
+    }
 }
 
 #[test]
@@ -381,4 +393,80 @@ test("without an abort the deadline still rejects", async () => {
 });
 "#;
     run_abort_fixture(source, "smelt_abort_runtime_forward_timer_handle");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_timeout_signal_aborts_with_the_spec_reason() {
+    // `AbortSignal.timeout(ms)` is the one signal that aborts on its own, and
+    // the reason is the only thing distinguishing it from
+    // `AbortSignal.abort()`: WHATWG says a `TimeoutError` `DOMException`, and
+    // Node reports `reason.name === "TimeoutError"`. Both halves are checked
+    // here — the signal is NOT aborted before its delay, and it is aborted
+    // with that reason after — because a signal that aborts eagerly would pass
+    // a test that only looked at the end state.
+    //
+    // The cancellation case is the point of the feature: a timeout signal has
+    // to cancel a pending wait exactly the way a controller's signal does, so
+    // an API that takes `AbortSignal` cannot tell the two apart.
+    let source = format!(
+        r#"
+import {{ test, expect }} from "vitest";
+{WAIT_HELPER}
+test("a timeout signal aborts with a TimeoutError", async () => {{
+  const signal = AbortSignal.timeout(20);
+  expect(signal.aborted).toBe(false);
+  expect(await settle(wait(100, signal))).toBe("rejected:aborted");
+  expect(signal.aborted).toBe(true);
+  const reason: any = signal.reason;
+  expect(reason.name).toBe("TimeoutError");
+
+  const roomy = AbortSignal.timeout(200);
+  expect(await settle(wait(20, roomy))).toBe("completed");
+}});
+"#
+    );
+    run_abort_fixture(&source, "smelt_abort_runtime_timeout_reason");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_request_signal_is_a_dependent_signal_of_the_one_it_was_built_with() {
+    // `new Request(url, { signal })` does not hand its own `signal` property
+    // back: the spec makes the request's signal a DEPENDENT signal that follows
+    // the one passed in, so `r.signal !== c.signal` while
+    // `c.abort(reason)` aborts both and carries the same reason across. A model
+    // that aliased the two would pass every abort assertion here and fail the
+    // identity one; a model that copied the flag once at construction would
+    // pass identity and fail the follow.
+    //
+    // The listener case is what a middleware actually does — it listens on the
+    // REQUEST's signal, not the caller's — so the dependent signal has to fire
+    // its own listener list, not merely report `aborted`.
+    let source = format!(
+        r#"
+import {{ test, expect }} from "vitest";
+{WAIT_HELPER}
+test("a request signal follows the controller it was built with", async () => {{
+  const controller = new AbortController();
+  const request = new Request("http://example.test/x", {{ signal: controller.signal }});
+  expect(request.signal !== controller.signal).toBe(true);
+  expect(request.signal.aborted).toBe(false);
+
+  let fired = "no";
+  request.signal.addEventListener("abort", () => {{
+    fired = "yes";
+  }});
+
+  const pending = settle(wait(100, request.signal));
+  controller.abort("stop now");
+
+  expect(request.signal.aborted).toBe(true);
+  expect(String(request.signal.reason)).toBe("stop now");
+  expect(fired).toBe("yes");
+  expect(await pending).toBe("rejected:aborted");
+}});
+"#
+    );
+    run_abort_fixture(&source, "smelt_abort_runtime_request_dependent_signal");
 }

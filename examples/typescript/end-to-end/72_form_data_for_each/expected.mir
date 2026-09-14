@@ -1,0 +1,235 @@
+fn main (FuncId(0)) -> None
+  locals
+    %0 user form: FormData
+    %1 user seen: List<String>
+    %2 user __for_each_entry: (String, String | File)
+    %3 user value: String | File
+    %4 user key: String
+    %5 user values: List<String>
+    %6 user value: String | File
+    %7 user present: Float
+    %8 user __for_each_source: FormData
+    %9 user __for_each_entry: (String, String | File)
+    %10 user value: String | File
+    %11 user key: String
+    %12 user parent: FormData
+    %13 user map: Map<String, Float>
+    %14 user pairs: List<String>
+    %15 user __for_each_entry: (String, Float)
+    %16 user value: Float
+    %17 user key: String
+    %18 user map_size: Float
+    %19 user __for_each_source: Map<String, Float>
+    %20 user __for_each_entry: (String, Float)
+    %21 user value: Float
+    %22 user key: String
+    %23 user parent: Map<String, Float>
+    %24 temp: FormData
+    %25 temp: None
+    %26 temp: None
+    %27 temp: None
+    %28 temp: List<String>
+    %29 temp: List<(String, String | File)>
+    %30 temp: Float
+    %31 temp: Float
+    %32 temp: Bool
+    %33 temp: String | File
+    %34 temp: String
+    %35 temp: String
+    %36 temp: String
+    %37 temp: String
+    %38 temp: String
+    %39 temp: String
+    %40 temp: String
+    %41 temp: String
+    %42 temp: Bool
+    %43 temp: String
+    %44 temp: Float
+    %45 temp: String
+    %46 temp: None
+    %47 temp: List<String>
+    %48 temp: List<String | File>
+    %49 temp: Float
+    %50 temp: Float
+    %51 temp: Bool
+    %52 temp: String
+    %53 temp: Float
+    %54 temp: String
+    %55 temp: None
+    %56 temp: List<(String, String | File)>
+    %57 temp: Float
+    %58 temp: Float
+    %59 temp: Bool
+    %60 temp: String | File
+    %61 temp: String
+    %62 temp: Bool
+    %63 temp: Float
+    %64 temp: None
+    %65 temp: Map<String, Float>
+    %66 temp: List<String>
+    %67 temp: List<(String, Float)>
+    %68 temp: Float
+    %69 temp: Float
+    %70 temp: Bool
+    %71 temp: Float
+    %72 temp: String
+    %73 temp: String
+    %74 temp: String
+    %75 temp: String
+    %76 temp: Float
+    %77 temp: String
+    %78 temp: None
+    %79 temp: List<(String, Float)>
+    %80 temp: Float
+    %81 temp: Float
+    %82 temp: Bool
+    %83 temp: Float
+    %84 temp: String
+    %85 temp: Float
+    %86 temp: None
+  bb0:
+    %24 = form_data_new
+    %0 = move %24
+    %25 = form_data_append copy %0, "a", "1"
+    %26 = form_data_append copy %0, "b[]", "2"
+    %27 = form_data_append copy %0, "b[]", "3"
+    %28 = []
+    %1 = move %28
+    %29 = form_data_entries copy %0
+    %30 = 0.0
+    goto bb1
+  bb1:
+    %31 = len copy %29
+    %32 = copy %30 < move %31
+    switch move %32 ? bb2 : bb4
+  bb2:
+    %2 = copy %29[copy %30]
+    %33 = tuple_index copy %2, 1
+    %3 = move %33
+    %34 = tuple_index move %2, 0
+    %4 = move %34
+    %35 = "" + copy %4
+    %36 = move %35 + "="
+    %37 = primitive_cast_string move %3
+    %38 = move %36 + move %37
+    %39 = move %38 + ":"
+    %40 = copy %4
+    %41 = "[]"
+    %42 = string_ends_with move %4, move %41
+    %43 = move %39 + move %42
+    %44 = list_push copy %1, move %43
+    goto bb3
+  bb3:
+    %30 = copy %30 + 1.0
+    goto bb1
+  bb4:
+    %45 = string_join move %1, ","
+    %46 = call @console_log(move %45) -> bb5
+  bb5:
+    %47 = []
+    %5 = move %47
+    %48 = form_data_values copy %0
+    %49 = 0.0
+    goto bb6
+  bb6:
+    %50 = len copy %48
+    %51 = copy %49 < move %50
+    switch move %51 ? bb7 : bb9
+  bb7:
+    %6 = copy %48[copy %49]
+    %52 = primitive_cast_string move %6
+    %53 = list_push copy %5, move %52
+    goto bb8
+  bb8:
+    %49 = copy %49 + 1.0
+    goto bb6
+  bb9:
+    %54 = string_join move %5, ","
+    %55 = call @console_log(move %54) -> bb10
+  bb10:
+    %7 = 0.0
+    %8 = copy %0
+    %56 = form_data_entries copy %0
+    %57 = 0.0
+    goto bb11
+  bb11:
+    %58 = len copy %56
+    %59 = copy %57 < move %58
+    switch move %59 ? bb12 : bb14
+  bb12:
+    %9 = copy %56[copy %57]
+    %60 = tuple_index copy %9, 1
+    %10 = move %60
+    %61 = tuple_index move %9, 0
+    %11 = move %61
+    %12 = copy %0
+    %62 = form_data_has copy %0, move %11
+    switch move %62 ? bb15 : bb16
+  bb13:
+    %57 = copy %57 + 1.0
+    goto bb11
+  bb14:
+    %64 = call @console_log(move %7) -> bb17
+  bb15:
+    %63 = move %7 + 1.0
+    %7 = move %63
+    goto bb16
+  bb16:
+    goto bb13
+  bb17:
+    %65 = {"x": 1.0, "y": 2.0}
+    %13 = move %65
+    %66 = []
+    %14 = move %66
+    %67 = dict_entries copy %13
+    %68 = 0.0
+    goto bb18
+  bb18:
+    %69 = len copy %67
+    %70 = copy %68 < move %69
+    switch move %70 ? bb19 : bb21
+  bb19:
+    %15 = copy %67[copy %68]
+    %71 = tuple_index copy %15, 1
+    %16 = move %71
+    %72 = tuple_index move %15, 0
+    %17 = move %72
+    %73 = "" + move %17
+    %74 = move %73 + ":"
+    %75 = move %74 + move %16
+    %76 = list_push copy %14, move %75
+    goto bb20
+  bb20:
+    %68 = copy %68 + 1.0
+    goto bb18
+  bb21:
+    %77 = string_join move %14, ","
+    %78 = call @console_log(move %77) -> bb22
+  bb22:
+    %18 = 0.0
+    %19 = copy %13
+    %79 = dict_entries copy %13
+    %80 = 0.0
+    goto bb23
+  bb23:
+    %81 = len copy %79
+    %82 = copy %80 < move %81
+    switch move %82 ? bb24 : bb26
+  bb24:
+    %20 = copy %79[copy %80]
+    %83 = tuple_index copy %20, 1
+    %21 = move %83
+    %84 = tuple_index move %20, 0
+    %22 = move %84
+    %23 = copy %13
+    %85 = len copy %13
+    %18 = move %85
+    goto bb25
+  bb25:
+    %80 = copy %80 + 1.0
+    goto bb23
+  bb26:
+    %86 = call @console_log(move %18) -> bb27
+  bb27:
+    return none
+
