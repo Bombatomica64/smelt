@@ -129,7 +129,7 @@ Fork the repo and submit a pr :)
 | Metric | Coverage |
 | --- | ---: |
 | Functions | 82.25% |
-| Lines | 77.27% |
+| Lines | 77.28% |
 | Regions | 72.59% |
 | Branches | 65.22% |
 
@@ -146,11 +146,12 @@ Fork the repo and submit a pr :)
 | `smelt-py-types` | 80.00% | 89.55% | 72.22% |
 | `smelt-python` | 100.00% | 100.00% | 0.00% |
 | `smelt-runtime` | 96.51% | 99.28% | 86.36% |
-| `smelt-specialize` | 65.18% | 73.45% | 57.76% |
+| `smelt-specialize` | 65.18% | 73.55% | 57.99% |
 | `smelt-stdlib` | 88.35% | 79.71% | 91.07% |
 | `smelt-test` | 91.13% | 90.26% | 61.36% |
 | `smelt-transpiler` | 70.83% | 69.75% | 57.74% |
 <!-- COVERAGE:END -->
+
 
 
 
