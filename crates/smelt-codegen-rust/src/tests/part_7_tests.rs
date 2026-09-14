@@ -14203,3 +14203,55 @@ export function build(label: string, flag: boolean): Triple | null {
         "the literal must not go through the homogeneous Vec fallback: {source}"
     );
 }
+
+/// H14: a `place_ty` fallback must degrade AT THE SITE, never by interning
+/// `Type::Unknown`.
+///
+/// The `_ =>` arms of `place_ty` answer "this read has no static type", which
+/// the emitter spells as the erased carrier. Asking for it through `type_id`
+/// made that answer depend on something unrelated to the read — a crate with no
+/// erased value has no `Type::Unknown` entry at all — so the blocker read
+/// `type table does not contain literal operand type Unknown at
+/// emitter/types.rs:<line>`, naming a line of the COMPILER rather than the read
+/// in the user's program. The obvious repair is rejected on purpose: interning
+/// `Unknown` there would flip `stdlib::needs_unknown_type` for the whole crate
+/// and emit the entire erased prelude for a program that has no erased value.
+///
+/// This is a SHAPE GUARD, not a reproduction: the shape recorded for H14 (a
+/// `200 | 404` literal union reaching a generic interface and a generic
+/// function) transpiles cleanly on this head, and four variations of it were
+/// tried without reaching a fallback. It is pinned so a future change that
+/// routes this shape into an unresolved field read gets a blocker naming the
+/// read, and so the "just intern `Unknown`" repair cannot land silently.
+#[test]
+fn a_literal_union_through_a_generic_interface_still_emits() {
+    let source = source_for(
+        r#"
+type Code = 200 | 404;
+
+interface Envelope<T> {
+  code: Code;
+  body: T;
+}
+
+function report<T>(row: Envelope<T>): string {
+  const code: Code = row.code;
+  return `${code}`;
+}
+
+const table: Envelope<string>[] = [
+  { code: 200, body: "ok" },
+  { code: 404, body: "missing" },
+];
+console.log(report(table[0]), report(table[1]));
+"#,
+    );
+
+    assert!(source.contains("fn report"), "{source}");
+    // The blocker this item is about names a compiler line rather than the
+    // program. It must never appear again, for any shape.
+    assert!(
+        !source.contains("type table does not contain literal operand type"),
+        "{source}"
+    );
+}
