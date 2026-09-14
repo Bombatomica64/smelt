@@ -1535,6 +1535,33 @@ impl FunctionEmitter<'_> {
             .unwrap_or_default()
     }
 
+    /// The render scope for a value coerced to one of `function`'s **declared**
+    /// parameter types.
+    ///
+    /// A callee parameter is the far side of a seam, so a type parameter may be
+    /// spelled as a Rust identifier there only where BOTH sides spell it: the
+    /// caller's item must declare the name (or the body cannot write it) and the
+    /// callee must have emitted it as a real Rust generic (or its slot is
+    /// `SmeltUnknown`). [`RenderScope::narrowed_to`] takes exactly that
+    /// intersection.
+    ///
+    /// The callee's own emission scope is the class type parameters it is
+    /// emitted inside plus the free-function type parameters the crate-wide gate
+    /// let it keep — [`Self::callee_class_type_params`] and
+    /// [`Self::callee_free_function_type_params`], each of which already returns
+    /// the empty set for a callee that erases.
+    ///
+    /// Without this, the caller's lexical scope leaked across the seam: an
+    /// argument of the demoted `find_middleware(middleware: SmeltRecord<String,
+    /// SmeltList<SmeltUnknown>>, ..)` was rendered `SmeltRecord<String,
+    /// SmeltList<T>>` because `RegExpRouter<T>::add` happens to declare a `T`
+    /// (8 `E0308`s in the Hono router slice).
+    pub(super) fn callee_parameter_render_scope(&self, function: &MirFunction) -> RenderScope {
+        let mut emitted = self.callee_class_type_params(function);
+        emitted.extend(self.callee_free_function_type_params(function));
+        self.render_scope().narrowed_to(&emitted)
+    }
+
     /// Return the generic type parameters declared by a generic free function.
     ///
     /// A generic free function (`function identity<T>(x: T): T`) is emitted as

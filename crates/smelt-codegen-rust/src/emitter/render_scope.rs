@@ -95,6 +95,37 @@ impl RenderScope {
         }
     }
 
+    /// Narrow this scope to the names the OTHER side of a seam also spells.
+    ///
+    /// A coercion whose target is a *callee-declared* type has two sides, and a
+    /// type parameter may be spelled as a Rust identifier only where BOTH
+    /// spell it:
+    ///
+    /// * a name the caller's Rust item does not declare cannot be written in the
+    ///   caller's body at all;
+    /// * a name the callee did not emit as a real Rust generic is
+    ///   `SmeltUnknown` in the emitted signature, so a value spelled at that
+    ///   name would not fit the slot.
+    ///
+    /// [`smelt_hir::Symbol`] is name-interned, so a caller's `T` and a callee's
+    /// `T` are the same key; the intersection is what keeps the agreement honest
+    /// without pretending the two `T`s are unrelated. Taking the caller's scope
+    /// alone is what put `SmeltList<T>` into an argument of an erased
+    /// `find_middleware(middleware: SmeltRecord<String, SmeltList<SmeltUnknown>>)`;
+    /// taking the callee's alone would spell a `T` the caller's item never
+    /// declared.
+    pub(crate) fn narrowed_to(&self, other: &HashSet<Symbol>) -> Self {
+        Self {
+            in_scope: self
+                .in_scope
+                .iter()
+                .filter(|name| other.contains(name))
+                .copied()
+                .collect(),
+            origin: ScopeOrigin::LexicalSubset,
+        }
+    }
+
     /// Whether `name` is spellable as a Rust identifier at this position.
     ///
     /// This is *the* query H42 collapsed the two disagreeing erasure rules onto:
@@ -136,6 +167,11 @@ impl FunctionEmitter<'_> {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::unwrap_used,
+    reason = "a panicking assertion is the point of a unit test; matches the sibling \
+              tests in crate::type_substitution"
+)]
 mod tests {
     //! The scope's two questions — "is this name spellable here?" and "what
     //! environment does the type lowerer see?" — must give the same answer, on

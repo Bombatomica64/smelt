@@ -44,76 +44,70 @@ impl FunctionEmitter<'_> {
     /// mappers above it actually produce.
     ///
     /// The four map-and-collect arms in this module build each entry by coercing
-    /// it to the target's key/value type, and coercion treats a `TypeParam`
-    /// target as ERASED (`target_is_erased`, below). Rendering the container
-    /// through the ordinary lexical substitution does the opposite: it keeps a
-    /// type parameter that is in the CALLER's scope. The two disagreed, and the
-    /// disagreement surfaced as a `FromIterator` failure rather than as a
-    /// type-parameter bug:
+    /// it to the target's key/value type, then annotate the `collect::<..>()`
+    /// with the container type. Entries and annotation are two sides of ONE
+    /// render position, so both are rendered under the same `scope`: whatever
+    /// `scope` decided about a `Type::TypeParam` in the entries
+    /// (`value_at_type_text`'s type-parameter arm, `extract_value_text`'s
+    /// recovery arm) is what the turbofish spells.
     ///
-    /// ```text
-    /// // findMiddleware<T>(middleware: Record<string, T[]>, …), called from
-    /// // RegExpRouter<T>::add — the callee erased its own T in its signature
-    /// … .map(|(key, value)| (key.clone(), /* value erased to SmeltList<SmeltUnknown> */))
-    ///   .collect::<SmeltRecord<String, SmeltList<T>>>()
-    /// //                                          ^ kept the CALLER's T
-    /// ```
+    /// That is the whole of H42. Before it, this rendered under
+    /// `TypeSubstitution::erased()` UNCONDITIONALLY — installed by H41a so the
+    /// annotation would agree with the coercion path's own unconditional
+    /// erasure — and the two still disagreed whenever an entry took the
+    /// recovery path instead, because that path respected the lexical scope.
+    /// The entries then carried `T` while the annotation said `SmeltUnknown`,
+    /// which is the `E0277` the Hono router slice failed on. Narrowing the
+    /// annotation ALONE to the lexical scope was measured and made things worse
+    /// (the slice went from 15 errors to 27): no choice of substitution for one
+    /// side can satisfy a rule the other side derives independently. Threading
+    /// the scope is what removes the independence.
     ///
-    /// So the substitution here is UNCONDITIONALLY erased, which is deliberate
-    /// and is load-bearing: it is what makes the annotation agree with
-    /// `target_is_erased`, whose erasure is itself unconditional. Narrowing it
-    /// to the type parameters the current function actually emits
-    /// (`TypeSubstitution::lexical_subset(current_function_type_params())`) was
-    /// measured and takes the hono slice from 15 errors to 27 — the family
-    /// above returns immediately, because that `T` IS in the caller's lexical
-    /// scope. Do not "tighten" this to a scoped substitution without reading
-    /// H42 first.
-    ///
-    /// On `SmeltUnknown`: this writes `SmeltUnknown` into a turbofish where the
-    /// lexical spelling said `T`. Where the entry took the coercion path that
-    /// erases nothing new — `target_is_erased` had already erased those keys and
-    /// values, and the annotation is only being made to name what the iterator
-    /// really holds. The dynamic boundary is the callee that did not lift its
-    /// own type parameter, decided upstream of this function.
-    ///
-    /// It is NOT precise in general, and the honest limits are two:
-    ///
-    /// 1. Where a callee IS genuinely generic, this still erases, so a
-    ///    turbofish can say `SmeltUnknown` where `T` was correct. Zero slice
-    ///    errors reach that combination today, so it is imprecision rather than
-    ///    a live bug.
-    /// 2. An entry whose source is already `SmeltUnknown` takes
-    ///    `extract_value_text`'s recovery path instead, and that path RESPECTS
-    ///    scope — it rebuilds the value as `T`. Then the entries carry `T`
-    ///    while this annotation says `SmeltUnknown`, which is the round-15
-    ///    nested record-of-record `E0277`.
-    ///
-    /// Both are the same root cause: two rules disagree about when a
-    /// `TypeParam` target erases, and no choice of substitution for the
-    /// annotation ALONE can satisfy both paths. Fixing it means deciding a
-    /// render position's erasure once and using it on both sides, which is a
-    /// ~218-call-site refactor. Tracked as **H42** in
-    /// `blocker-logs/hono-campaign-plan.md` (DEFERRED, D2), scheduled for its
-    /// own round once the Hono crate compiles.
-    fn collected_container_type_text(&self, target: TypeId) -> Result<String, EmitError> {
-        self.rust_type(target, false, &TypeSubstitution::erased())
+    /// On `SmeltUnknown`: this still writes `SmeltUnknown` into a turbofish
+    /// wherever `scope` cannot spell the type parameter — a hoisted module-level
+    /// item, or a callee the crate-wide generic-emission gate demoted to an
+    /// erased signature. That is a genuine erased-interop boundary decided
+    /// upstream of this function, and the annotation is only naming what the
+    /// iterator really holds. It is no longer imprecision: where the parameter
+    /// IS spellable the entries keep it and so does this.
+    fn collected_container_type_text(
+        &self,
+        target: TypeId,
+        scope: &RenderScope,
+    ) -> Result<String, EmitError> {
+        self.rust_type(target, false, &scope.substitution())
             .map(RustType::into_string)
     }
 
     /// Converts an operand to Rust text, wrapping into `SmeltUnknown` when needed.
+    ///
+    /// Renders at the emitter's ambient scope — the type parameters the Rust
+    /// item being emitted declares. A position whose target is a *callee-owned*
+    /// type must not use that scope; it calls [`Self::value_at_type_in`] with a
+    /// scope narrowed to what the callee's emitted signature also spells.
     pub(super) fn value_at_type(
         &self,
         operand: &Operand,
         target: TypeId,
     ) -> Result<String, EmitError> {
-        // One render position, one answer about which type parameters are
-        // spellable here (H42). Every arm below — and every value-rendering verb
-        // they delegate to — asks this same scope rather than re-deriving the
-        // erasure rule at its own depth.
-        let scope = self.render_scope();
+        self.value_at_type_in(operand, target, &self.render_scope())
+    }
+
+    /// Converts an operand to Rust text at an explicitly given render scope.
+    ///
+    /// The scope-taking form of [`Self::value_at_type`]. Every arm below — and
+    /// every value-rendering verb they delegate to — asks this one scope rather
+    /// than re-deriving the erasure rule at its own depth, which is what makes a
+    /// render position's answer about a `Type::TypeParam` single-valued (H42).
+    pub(super) fn value_at_type_in(
+        &self,
+        operand: &Operand,
+        target: TypeId,
+        scope: &RenderScope,
+    ) -> Result<String, EmitError> {
         let source_ty = self.operand_ty(operand)?;
         let operand_text = self.operand_text(operand)?;
-        if let Some(injected) = self.inject_union_value_text(&operand_text, source_ty, target, &scope)? {
+        if let Some(injected) = self.inject_union_value_text(&operand_text, source_ty, target, scope)? {
             return Ok(injected);
         }
         if let Some(projected) = self.project_union_value_text(&operand_text, source_ty, target)? {
@@ -155,7 +149,7 @@ impl FunctionEmitter<'_> {
                 .stdlib_class_of_symbol(*name)?
                 .is_some_and(smelt_stdlib::StdlibClass::erases_through_adapter)
         {
-            return self.value_at_type_text(&operand_text, source_ty, target, &scope);
+            return self.value_at_type_text(&operand_text, source_ty, target, scope);
         }
         // `Future<A>` -> `Future<B>` is a coercion of the AWAITED value, so it
         // needs the awaiting adapter the text-based entry point already builds
@@ -168,12 +162,12 @@ impl FunctionEmitter<'_> {
         if matches!(self.mir.types.get(source_ty), Some(Type::Future(_)))
             && matches!(self.mir.types.get(target), Some(Type::Future(_)))
         {
-            return self.value_at_type_text(&operand_text, source_ty, target, &scope);
+            return self.value_at_type_text(&operand_text, source_ty, target, scope);
         }
         if let Some(Type::TypeParam { name }) = self.mir.types.get(target)
             && scope.spells(*name)
         {
-            return self.extract(operand, target, &scope);
+            return self.extract(operand, target, scope);
         }
         if matches!(
             self.mir.types.get(target),
@@ -213,7 +207,7 @@ impl FunctionEmitter<'_> {
         {
             return Ok(format!(
                 "Some({})",
-                self.value_at_type_text("SmeltUnknown::Null", self.type_id(Type::Unknown)?, *inner, &scope)?
+                self.value_at_type_text("SmeltUnknown::Null", self.type_id(Type::Unknown)?, *inner, scope)?
             ));
         }
         if matches!(
@@ -226,7 +220,7 @@ impl FunctionEmitter<'_> {
             &self.operand_text(operand)?,
             source_ty,
             target,
-                    &scope,
+                    scope,
         )? {
             return Ok(slot);
         }
@@ -241,7 +235,7 @@ impl FunctionEmitter<'_> {
             if source_inner == target_inner {
                 return Ok(value_text);
             }
-            let mapped_value = self.value_at_type_text("value", *source_inner, *target_inner, &scope)?;
+            let mapped_value = self.value_at_type_text("value", *source_inner, *target_inner, scope)?;
             return Ok(format!("{value_text}.map(|value| {mapped_value})"));
         }
         if matches!(self.mir.types.get(target), Some(Type::Optional(_)))
@@ -254,7 +248,7 @@ impl FunctionEmitter<'_> {
                 Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
             ) || self.is_erased_class_type(self.operand_ty(operand)?))
         {
-            return self.extract(operand, target, &scope);
+            return self.extract(operand, target, scope);
         }
         if let Some(Type::Optional(inner)) = self.mir.types.get(target) {
             // A JS element read flowing into an optional slot keeps its own
@@ -277,22 +271,22 @@ impl FunctionEmitter<'_> {
                 return Ok("None".to_owned());
             }
             if operand_ty == *inner {
-                return Ok(format!("Some({})", self.value_at_type(operand, *inner)?));
+                return Ok(format!("Some({})", self.value_at_type_in(operand, *inner, scope)?));
             }
             if self.can_coerce_to_optional_inner(operand_ty, *inner) {
-                return Ok(format!("Some({})", self.value_at_type(operand, *inner)?));
+                return Ok(format!("Some({})", self.value_at_type_in(operand, *inner, scope)?));
             }
             if matches!(
                 self.mir.types.get(*inner),
                 Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
             ) || self.is_erased_class_type(*inner)
             {
-                return Ok(format!("Some({})", self.value_at_type(operand, *inner)?));
+                return Ok(format!("Some({})", self.value_at_type_in(operand, *inner, scope)?));
             }
             if matches!(self.mir.types.get(*inner), Some(Type::Function(_)))
                 && matches!(self.mir.types.get(operand_ty), Some(Type::Function(_)))
             {
-                return Ok(format!("Some({})", self.value_at_type(operand, *inner)?));
+                return Ok(format!("Some({})", self.value_at_type_in(operand, *inner, scope)?));
             }
             if matches!(
                 self.mir.types.get(operand_ty),
@@ -306,13 +300,13 @@ impl FunctionEmitter<'_> {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) || self.is_erased_class_type(self.operand_ty(operand)?)
         {
-            return self.extract(operand, target, &scope);
+            return self.extract(operand, target, scope);
         }
         if let Some(adapter) = self.structural_record_adapter_text(
             &self.operand_text(operand)?,
             self.operand_ty(operand)?,
             target,
-                    &scope,
+                    scope,
         )? {
             return Ok(adapter);
         }
@@ -324,7 +318,7 @@ impl FunctionEmitter<'_> {
             self.operand_ty(operand)?,
             *target_key,
             *target_value,
-                    &scope,
+                    scope,
         )? {
             return Ok(adapter);
         }
@@ -340,7 +334,7 @@ impl FunctionEmitter<'_> {
             return self.extract_value_text(
                 &format!("{}.value.clone()", self.operand_text(operand)?),
                 target,
-                            &scope,
+                            scope,
             );
         }
         if matches!(
@@ -450,7 +444,7 @@ impl FunctionEmitter<'_> {
             ));
         }
         if let Some(Type::Optional(inner)) = self.mir.types.get(self.operand_ty(operand)?) {
-            let value_text = self.value_at_type_text("value", *inner, target, &scope)?;
+            let value_text = self.value_at_type_text("value", *inner, target, scope)?;
             return Ok(format!(
                 "{}.clone().map_or({}, |value| {value_text})",
                 self.operand_text(operand)?,
@@ -490,7 +484,7 @@ impl FunctionEmitter<'_> {
             {
                 "value.into_smelt_unknown()".to_owned()
             } else {
-                self.value_at_type_text("value", *source_item, *target_item, &scope)?
+                self.value_at_type_text("value", *source_item, *target_item, scope)?
             };
             return Ok(format!(
                 "{{ let smelt_l: SmeltList<_> = {op}.into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|value| {value_text}).collect::<Vec<_>>()) }}",
@@ -509,7 +503,7 @@ impl FunctionEmitter<'_> {
         {
             return Ok(format!(
                 "SmeltList::from(vec![{}])",
-                self.value_at_type(operand, *target_item)?
+                self.value_at_type_in(operand, *target_item, scope)?
             ));
         }
         if let (Some(Type::Dict(_, _)), Some(Type::List(target_item))) = (
@@ -523,7 +517,7 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(self.operand_ty(operand)?),
             self.mir.types.get(target),
         ) {
-            let value_text = self.value_at_type_text("value", *source_value, *target_item, &scope)?;
+            let value_text = self.value_at_type_text("value", *source_value, *target_item, scope)?;
             return Ok(format!(
                 "{}.into_iter().map(|(_, value)| {value_text}).collect::<SmeltList<_>>()",
                 self.operand_text(operand)?
@@ -537,10 +531,10 @@ impl FunctionEmitter<'_> {
             let key_text = if self.mir.types.get(*target_key) == Some(&Type::String) {
                 "index.to_string()".to_owned()
             } else {
-                self.value_at_type_text("index as i64", int_ty, *target_key, &scope)?
+                self.value_at_type_text("index as i64", int_ty, *target_key, scope)?
             };
-            let value_text = self.value_at_type_text("value", *source_item, *target_value, &scope)?;
-            let target_text = self.collected_container_type_text(target)?;
+            let value_text = self.value_at_type_text("value", *source_item, *target_value, scope)?;
+            let target_text = self.collected_container_type_text(target, scope)?;
             return Ok(format!(
                 "{}.into_iter().enumerate().map(|(index, value)| ({key_text}, {value_text})).collect::<{target_text}>()",
                 self.operand_text(operand)?
@@ -559,7 +553,7 @@ impl FunctionEmitter<'_> {
                         "smelt_tuple_values.get({index}).cloned().unwrap_or({})",
                         self.default_value(*source_item)?
                     );
-                    self.value_at_type_text(&item, *source_item, *target_item, &scope)
+                    self.value_at_type_text(&item, *source_item, *target_item, scope)
                 })
                 .collect::<Result<Vec<_>, _>>()?
                 .join(", ");
@@ -591,11 +585,11 @@ impl FunctionEmitter<'_> {
             let key_text = if self.mir.types.get(*target_key) == Some(&Type::String) {
                 self.property_key_to_string_text("key", *source_key)?
             } else {
-                self.value_at_type_text("key", *source_key, *target_key, &scope)?
+                self.value_at_type_text("key", *source_key, *target_key, scope)?
             };
             let mapped_value_text =
-                self.value_at_type_text("value", *source_value, *target_value, &scope)?;
-            let target_text = self.collected_container_type_text(target)?;
+                self.value_at_type_text("value", *source_value, *target_value, scope)?;
+            let target_text = self.collected_container_type_text(target, scope)?;
             return Ok(format!(
                 "{}.into_iter().map(|(key, value)| ({key_text}, {mapped_value_text})).collect::<{target_text}>()",
                 self.operand_text(operand)?
@@ -609,7 +603,7 @@ impl FunctionEmitter<'_> {
             *source_key,
             *source_value,
             target,
-                    &scope,
+                    scope,
         )? {
             return Ok(adapter);
         }
@@ -942,6 +936,29 @@ impl FunctionEmitter<'_> {
         if let Some(adapter) = self.structural_record_adapter_text(value_text, source, target, scope)? {
             return Ok(adapter);
         }
+        // H42. A `Type::TypeParam` target erases ONLY where the render position
+        // cannot spell it. This used to erase unconditionally, at any depth,
+        // which contradicted `extract_value_text`'s recovery arm: the recovery
+        // rebuilt the value as the Rust generic wherever the emitted item
+        // declares it, so a container whose entries took one path and whose
+        // annotation took the other could not type-check (the Hono router
+        // slice's `E0277` over a `SmeltRecord<.., SmeltList<(T, String)>>`, and
+        // its `SmeltList<(T, ..)>` vs `SmeltList<(SmeltUnknown, ..)>` twin
+        // reached from the other side). Both sides now ask `scope`, so the
+        // position's answer is the same wherever it is asked.
+        //
+        // This introduces no new erasure and removes some: where `scope` does
+        // spell the name the value is recovered as that real Rust generic
+        // instead of being boxed into the runtime carrier, which is exactly the
+        // "concrete types, then scoped generics, then erasure" order CLAUDE.md
+        // asks for. Where it does not spell the name — a hoisted module item, a
+        // callee the generic-emission gate demoted — the erased rendering is
+        // still the only spelling available, and is unchanged.
+        if let Some(Type::TypeParam { name }) = self.mir.types.get(target)
+            && scope.spells(*name)
+        {
+            return self.extract_value_text(value_text, target, scope);
+        }
         if matches!(
             self.mir.types.get(target),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
@@ -1192,7 +1209,7 @@ impl FunctionEmitter<'_> {
                 self.value_at_type_text("index as i64", int_ty, *target_key, scope)?
             };
             let item_text = self.value_at_type_text("value", *source_item, *target_value, scope)?;
-            let target_text = self.collected_container_type_text(target)?;
+            let target_text = self.collected_container_type_text(target, scope)?;
             return Ok(format!(
                 "{value_text}.into_iter().enumerate().map(|(index, value)| ({key_text}, {item_text})).collect::<{target_text}>()"
             ));
@@ -1218,7 +1235,7 @@ impl FunctionEmitter<'_> {
             };
             let mapped_value_text =
                 self.value_at_type_text("value", *source_value, *target_value, scope)?;
-            let target_text = self.collected_container_type_text(target)?;
+            let target_text = self.collected_container_type_text(target, scope)?;
             return Ok(format!(
                 "{value_text}.into_iter().map(|(key, value)| ({key_text}, {mapped_value_text})).collect::<{target_text}>()"
             ));
@@ -2764,7 +2781,7 @@ impl FunctionEmitter<'_> {
             // value. The adapter is identity on an existing `SmeltUnknown` and
             // preserves the backing array id, so already-erased callers are
             // unaffected.
-            Some(Type::List(_)) if self.list_items_render_as_unknown(target) => {
+            Some(Type::List(_)) if self.list_items_render_as_unknown(target, scope) => {
                 Ok(erased_to_list_text(text, None, "SmeltUnknown::String(ch.to_string().into())"))
             }
             Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::String) => {
@@ -3144,13 +3161,17 @@ impl FunctionEmitter<'_> {
     /// destination Rust type is rendered by `type_text` under
     /// `TypeSubstitution::lexical(self.current_function_type_params())`, so this
     /// asks exactly the question that renderer answers.
-    pub(super) fn list_items_render_as_unknown(&self, list_ty: TypeId) -> bool {
+    pub(super) fn list_items_render_as_unknown(
+        &self,
+        list_ty: TypeId,
+        scope: &RenderScope,
+    ) -> bool {
         let Some(Type::List(item)) = self.mir.types.get(list_ty) else {
             return false;
         };
         match self.mir.types.get(*item) {
             Some(Type::Unknown) => true,
-            Some(Type::TypeParam { name }) => !self.current_function_has_type_param(*name),
+            Some(Type::TypeParam { name }) => !scope.spells(*name),
             _ => false,
         }
     }

@@ -287,7 +287,7 @@ impl FunctionEmitter<'_> {
     /// real Rust generic whose elements must be converted, while an out-of-scope
     /// one is erased to `SmeltUnknown` and aliases.
     fn erased_array_writeback_value_text(&self, list_text: &str, list_ty: TypeId) -> String {
-        if self.list_items_render_as_unknown(list_ty) {
+        if self.list_items_render_as_unknown(list_ty, &self.render_scope()) {
             format!("SmeltUnknown::Array({list_text}.clone().into())")
         } else {
             format!(
