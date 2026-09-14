@@ -303,3 +303,6 @@ third_party/es-toolkit-src/
 # call terminator rather than a fallible rvalue or a MIR hoisting pass, and
 # where the DataView `RangeError`'s bound, ToIndex and throw each live
 !blocker-logs/standards-throwing-rvalue.md
+!blocker-logs/hono-round29-brief.md
+!blocker-logs/hono-round29-mir.md
+!blocker-logs/hono-h42-erasure-substitution.md
