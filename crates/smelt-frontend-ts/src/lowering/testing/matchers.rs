@@ -3856,6 +3856,20 @@ impl ModuleBuilder<'_> {
                 return Ok(());
             }
             let value = self.arrow_closure_body_expr(arrow, &params, return_ty, body)?;
+            // `fn_ty` was interned before the body was lowered, so its
+            // `may_throw` is the syntactic guess `false`. The lowered closure
+            // KNOWS whether its body throws
+            // (`closure_body_expr_from_parts` derives it from
+            // `body_contains_uncaught_throw`), and the binding must carry that:
+            // a call that passes this local on is typed from the local's own
+            // function type, so a `false` here tells every consumer the callback
+            // cannot throw. That is what made a throwing handler passed to an
+            // erased promise's `.catch(..)` be adapted DOWN to the non-throwing
+            // ABI through the panic route — and a panic route only reaches a
+            // source `catch` when the `catch_unwind` is around the INVOCATION,
+            // which a continuation invoked later during an `await` does not
+            // have, so the throw escaped the program (H70).
+            let fn_ty = self.throwing_widened_function_ty(fn_ty, Self::expr_ty(body, value));
             let local =
                 self.local_arrow_binding_local(name, symbol, fn_ty, self.span(start, end), body);
             self.scope.bind(name.to_owned(), local);
@@ -3880,6 +3894,38 @@ impl ModuleBuilder<'_> {
             self.scope.bind(name.to_owned(), local);
         }
         result
+    }
+
+    /// Re-intern a declared function type with the lowered value's `may_throw`.
+    ///
+    /// `declared` is the type the binding was interned with before its body was
+    /// lowered; `value` is the type the lowered closure actually has. Only the
+    /// `may_throw` bit is taken from the value, so every other part of the
+    /// declared signature (parameter types, arity, return type, asyncness) is
+    /// left exactly as the declaration resolved it and emissions for a
+    /// non-throwing closure stay byte-identical. Returns `declared` unchanged
+    /// when either type is not a function or the declared type already admits a
+    /// throw.
+    fn throwing_widened_function_ty(
+        &mut self,
+        declared: smelt_hir::TypeId,
+        value: smelt_hir::TypeId,
+    ) -> smelt_hir::TypeId {
+        let Some(Type::Function(value_ty)) = self.ctx.krate.types.get(value) else {
+            return declared;
+        };
+        if !value_ty.may_throw {
+            return declared;
+        }
+        let Some(Type::Function(declared_ty)) = self.ctx.krate.types.get(declared) else {
+            return declared;
+        };
+        if declared_ty.may_throw {
+            return declared;
+        }
+        let mut widened = declared_ty.clone();
+        widened.may_throw = true;
+        self.ctx.krate.types.intern(Type::Function(widened))
     }
 
     /// Bind parameter names that may be referenced by local callback default values.
