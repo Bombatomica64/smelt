@@ -17,7 +17,7 @@ use smelt_hir::{
 
 use crate::{
     BasicBlock, BlockId, ExceptionHandler, FuncId, HirOrigin, LocalDecl, LocalId, LocalKind,
-    MirClosure, MirFunction, NegativeIndex, Operand, Terminator,
+    AbsentSpelling, MirClosure, MirFunction, NegativeIndex, Operand, Terminator,
 };
 
 use super::{LowerError, function_item_for_body, u32_from_usize, usize_from_u32};
@@ -210,6 +210,10 @@ impl<'hir> LoweringCtx<'hir> {
             }
         };
         let mut function = MirFunction::new(function_id, name, origin, return_ty, span);
+        // A body comes from exactly one source file, so the language's absent
+        // spelling is decided once per body rather than at each site that
+        // stringifies an `Optional`.
+        function.absent = absent_for(shared.languages, span);
         function.is_async = is_async;
         function.is_generator = body.is_generator;
         if let Some(hir_function) = function_item_for_body(shared.krate, body_id) {
@@ -242,6 +246,7 @@ impl<'hir> LoweringCtx<'hir> {
             return_ty,
             span,
         );
+        function.absent = absent_for(shared.languages, span);
         function.is_generator = body.is_generator;
         let locals = build_locals(&mut function, body)?;
 
@@ -277,6 +282,19 @@ impl<'hir> LoweringCtx<'hir> {
             finally_scopes: Vec::new(),
             loop_index_ty: shared.loop_index_ty,
             loop_bool_ty: shared.loop_bool_ty,
+        }
+    }
+
+    /// How the language at `span` spells an absent value.
+    ///
+    /// Same mechanism, and same default, as [`Self::negative_index_policy`]: the
+    /// span names the file and the file names the frontend. A synthesized span
+    /// with no source module comes from the TypeScript-shaped paths, so
+    /// `Undefined` is the fallback.
+    pub(super) fn absent_spelling(&self, span: Span) -> AbsentSpelling {
+        match self.languages.get(&span.file) {
+            Some(smelt_hir::Language::Python) => AbsentSpelling::None,
+            Some(smelt_hir::Language::TypeScript) | None => AbsentSpelling::Undefined,
         }
     }
 
@@ -422,5 +440,21 @@ impl<'hir> LoweringCtx<'hir> {
             message: message_text,
             span: error_span,
         }
+    }
+}
+
+/// How the language of the file at `span` spells an absent value.
+///
+/// The free-function twin of [`LoweringCtx::absent_spelling`], which cannot be
+/// used while the `MirFunction` is still being built: both body constructors
+/// need the answer before a `LoweringCtx` exists. Same map, same fallback — a
+/// synthesized span with no source module is TypeScript-shaped.
+fn absent_for(
+    languages: &HashMap<smelt_hir::FileId, smelt_hir::Language>,
+    span: Span,
+) -> AbsentSpelling {
+    match languages.get(&span.file) {
+        Some(smelt_hir::Language::Python) => AbsentSpelling::None,
+        Some(smelt_hir::Language::TypeScript) | None => AbsentSpelling::Undefined,
     }
 }

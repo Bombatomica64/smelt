@@ -12,7 +12,7 @@
 //!    survivors. The index stores *positions* into that `Vec`, so a removal has
 //!    to shift every later position down by one; if it does not, entries after
 //!    the hole are looked up at the wrong slot.
-//! 2. **`NaN` is its own key** under SameValueZero, unlike `f64` `PartialEq`, so
+//! 2. **`NaN` is its own key** under `SameValueZero`, unlike `f64` `PartialEq`, so
 //!    every `NaN` key has to hash as one canonical `NaN`.
 //! 3. **`+0` and `-0` are one key**, and their `f64` bit patterns differ, so the
 //!    hash has to normalize the sign of zero.
@@ -94,21 +94,31 @@ fn run_map_fixture(source: &str, crate_name: &str) {
     let target_dir = root.join("target");
     std::fs::create_dir_all(&crate_dir).expect("create crate dir");
     std::fs::create_dir_all(&target_dir).expect("create target dir");
-    emit_program(source, crate_name, &crate_dir);
-    run_generated_tests(&crate_dir, &target_dir);
-    drop(std::fs::remove_dir_all(&root));
+    let outcome = std::panic::catch_unwind(|| {
+        emit_program(source, crate_name, &crate_dir);
+        run_generated_tests(&crate_dir, &target_dir);
+    });
+    // The scratch root holds a whole nested cargo target directory, so it is
+    // removed on the FAILURE path too: leaving one behind per failing case is
+    // what fills `/tmp`, and an ENOSPC inside a later nested build reads as a
+    // failing assertion rather than as a full disk.
+    // `SMELT_KEEP_RUNTIME_SCRATCH=1` keeps it for a debugging session.
+    if std::env::var_os("SMELT_KEEP_RUNTIME_SCRATCH").is_none() {
+        drop(std::fs::remove_dir_all(&root));
+    }
+    if let Err(payload) = outcome {
+        std::panic::resume_unwind(payload);
+    }
 }
 
-#[test]
-#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
-fn map_iteration_follows_insertion_order_across_a_delete() {
-    // Iteration order is first-set order, and `delete` closes the hole without
-    // reordering the survivors. The hash index stores positions into the
-    // insertion-ordered backing `Vec`, so this is the case that catches an index
-    // that was not re-aligned after the removal: every entry set *after* the
-    // deleted one moves down a slot, and a stale index would either report its
-    // key missing or match it against the wrong entry.
-    let source = r#"
+/// The insertion-order fixture program, hoisted out of its test function.
+///
+/// Five independent `test(...)` blocks share one generated crate on purpose:
+/// emitting and running one is slow enough that the test is `#[ignore]`d, so
+/// splitting them into five Rust tests would multiply that cost for no extra
+/// coverage. Hoisting the program to a `const` keeps the single run and keeps
+/// the function short.
+const MAP_INSERTION_ORDER_SOURCE: &str = r#"
 import { test, expect } from "vitest";
 test("iteration is insertion order after a delete and later sets", () => {
   const scores = new Map<string, number>();
@@ -184,7 +194,17 @@ test("clear empties the map and later sets still resolve", () => {
   expect(scores.size).toBe(1);
 });
 "#;
-    run_map_fixture(source, "smelt_map_insertion_order");
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn map_iteration_follows_insertion_order_across_a_delete() {
+    // Iteration order is first-set order, and `delete` closes the hole without
+    // reordering the survivors. The hash index stores positions into the
+    // insertion-ordered backing `Vec`, so this is the case that catches an index
+    // that was not re-aligned after the removal: every entry set *after* the
+    // deleted one moves down a slot, and a stale index would either report its
+    // key missing or match it against the wrong entry.
+    run_map_fixture(MAP_INSERTION_ORDER_SOURCE, "smelt_map_insertion_order");
 }
 
 #[test]

@@ -1,0 +1,169 @@
+fn main (FuncId(0)) -> None
+  locals
+    %0 user global_re: RegExp
+    %1 user sticky: RegExp
+    %2 user built: RegExp
+    %3 user matched: Float
+    %4 user index: Float
+    %5 user words: List<String>
+    %6 temp: Bool
+    %7 temp: None
+    %8 temp: Bool
+    %9 temp: None
+    %10 temp: Bool
+    %11 temp: None
+    %12 temp: Bool
+    %13 temp: None
+    %14 temp: Bool
+    %15 temp: None
+    %16 temp: Bool
+    %17 temp: None
+    %18 temp: RegExp
+    %19 temp: Bool
+    %20 temp: None
+    %21 temp: RegExp
+    %22 temp: Bool
+    %23 temp: Bool
+    %24 temp: Bool
+    %25 temp: None
+    %26 temp: Bool
+    %27 temp: None
+    %28 temp: RegExp
+    %29 temp: Bool
+    %30 temp: Bool
+    %31 temp: Bool
+    %32 temp: None
+    %33 temp: RegExp
+    %34 temp: Bool
+    %35 temp: Bool
+    %36 temp: Bool
+    %37 temp: None
+    %38 temp: Bool
+    %39 temp: RegExp
+    %40 temp: Bool
+    %41 temp: Float
+    %42 temp: Float
+    %43 temp: None
+    %44 temp: List<String>
+    %45 temp: fn(String, Int, List<String>) -> Bool
+    %46 temp: List<String>
+    %47 temp: String
+    %48 temp: None
+    %49 temp: fn(String, Int, List<String>) -> Bool
+    %50 temp: Bool
+    %51 temp: None
+    %52 temp: fn(String, Int, List<String>) -> Bool
+    %53 temp: Bool
+    %54 temp: None
+  bb0:
+    %6 = regex_search "^[0-9a-f]{4}$", "0a1b"
+    %7 = call @console_log(move %6) -> bb1
+  bb1:
+    %8 = regex_search "^[0-9a-f]{4}$", "zzzz"
+    %9 = call @console_log(move %8) -> bb2
+  bb2:
+    %10 = regex_search "(?i)ab", "AB"
+    %11 = call @console_log(move %10) -> bb3
+  bb3:
+    %12 = regex_search "(?s)^a.c$", "a
+c"
+    %13 = call @console_log(move %12) -> bb4
+  bb4:
+    %14 = regex_search "^a+$", "aaa"
+    %15 = call @console_log(move %14) -> bb5
+  bb5:
+    %16 = regex_search "b", "abc"
+    %17 = call @console_log(move %16) -> bb6
+  bb6:
+    %18 = external_new0("^a+$", "i")
+    %19 = regex_test move %18 "AAA"
+    %20 = call @console_log(move %19) -> bb7
+  bb7:
+    %21 = external_new0("a", "g")
+    %0 = move %21
+    %22 = regex_test copy %0 "aa"
+    %23 = regex_test copy %0 "aa"
+    %24 = regex_test copy %0 "aa"
+    %25 = call @console_log(move %22, move %23, move %24) -> bb8
+  bb8:
+    %26 = regex_test move %0 "aa"
+    %27 = call @console_log(move %26) -> bb9
+  bb9:
+    %28 = external_new0("a", "y")
+    %1 = move %28
+    %29 = regex_test copy %1 "aa"
+    %30 = regex_test copy %1 "aa"
+    %31 = regex_test move %1 "aa"
+    %32 = call @console_log(move %29, move %30, move %31) -> bb10
+  bb10:
+    %33 = external_new0("a", "g")
+    %2 = move %33
+    %34 = regex_test copy %2 "aa"
+    %35 = regex_test copy %2 "aa"
+    %36 = regex_test move %2 "aa"
+    %37 = call @console_log(move %34, move %35, move %36) -> bb11
+  bb11:
+    %3 = 0.0
+    %4 = 0.0
+    goto bb12
+  bb12:
+    %38 = copy %4 < 3.0
+    switch move %38 ? bb13 : bb15
+  bb13:
+    %39 = external_new0("a", "g")
+    %40 = regex_test move %39 "aa"
+    switch move %40 ? bb16 : bb17
+  bb14:
+    %42 = move %4 + 1.0
+    %4 = move %42
+    goto bb12
+  bb15:
+    %43 = call @console_log(move %3) -> bb18
+  bb16:
+    %41 = move %3 + 1.0
+    %3 = move %41
+    goto bb17
+  bb17:
+    goto bb14
+  bb18:
+    %44 = ["alpha", "beta", "gamma", "delta"]
+    %5 = move %44
+    %45 = closure ClosureId(0) []
+    %46 = list_filter copy %5, move %45
+    %47 = string_join move %46, ","
+    %48 = call @console_log(move %47) -> bb19
+  bb19:
+    %49 = closure ClosureId(1) []
+    %50 = list_every copy %5, move %49
+    %51 = call @console_log(move %50) -> bb20
+  bb20:
+    %52 = closure ClosureId(2) []
+    %53 = list_some move %5, move %52
+    %54 = call @console_log(move %53) -> bb21
+  bb21:
+    return none
+
+closure ClosureId(0) -> Bool
+  locals
+    %0 param word: String
+    %1 temp: Bool
+  bb0:
+    %1 = regex_search "^[ad]", copy %0
+    return copy %1
+
+closure ClosureId(1) -> Bool
+  locals
+    %0 param word: String
+    %1 temp: Bool
+  bb0:
+    %1 = regex_search "a", copy %0
+    return copy %1
+
+closure ClosureId(2) -> Bool
+  locals
+    %0 param word: String
+    %1 temp: Bool
+  bb0:
+    %1 = regex_search "^z", copy %0
+    return copy %1
+

@@ -130,12 +130,16 @@ impl LoweringCtx<'_> {
                 Ok(())
             }
             HirStmt::Assign { target, value } => {
-                let place = self.lower_place(*target)?;
+                let (place, writebacks) = self.lower_place(*target)?;
                 let lowered_value = self.lower_expr(*value)?;
                 self.block_mut()?.statements.push(Statement::AssignPlace {
                     place,
                     value: Rvalue::Use(lowered_value),
                 });
+                // A projected receiver (`a.b[i] = v`) was copied into a
+                // temporary to root the place; commit it back or the write is
+                // lost for every value representation. See `PlaceWritebacks`.
+                self.write_back_place_receivers(writebacks)?;
                 Ok(())
             }
             HirStmt::Expr(expr) => {
@@ -533,12 +537,13 @@ impl LoweringCtx<'_> {
         self.loops.pop();
 
         self.current_block = latch;
-        let place = self.lower_place(update_target)?;
+        let (place, writebacks) = self.lower_place(update_target)?;
         let value = self.lower_expr(update_value)?;
         self.block_mut()?.statements.push(Statement::AssignPlace {
             place,
             value: Rvalue::Use(value),
         });
+        self.write_back_place_receivers(writebacks)?;
         if self.block()?.terminator.is_none() {
             self.set_terminator(Terminator::Goto(header))?;
         }
@@ -616,8 +621,19 @@ impl LoweringCtx<'_> {
             .copied()
             .ok_or_else(|| self.error("for pattern references an unknown local", None))?;
         let iter_operand = self.lower_expr(iter)?;
-        let iter_span = self.hir_expr(iter)?.span;
-        let iter_local = self.local_operand(iter_operand, iter_span)?;
+        let iter_expr = self.hir_expr(iter)?;
+        let iter_span = iter_expr.span;
+        let iter_ty = iter_expr.ty;
+        // The loop indexes its iterable by place, so the iterable needs a base
+        // it can index. A source `for (const x of a.b)` — or of a call result,
+        // or of `m[k]` — hands back a projection or a value, not a local, and
+        // demanding a local here rejected the program outright
+        // (`for (const child of node.#patterns)` in Hono's trie router). A
+        // hand-written Rust loop over `a.b` binds it first, and so does this:
+        // JavaScript evaluates the iterable expression exactly once and then
+        // iterates that value, so one temporary is both what the semantics ask
+        // for and what the emitter needs.
+        let iter_local = self.materialize_operand_local(iter_operand, iter_ty, iter_span)?;
         let float_ty = self.loop_index_ty;
         let bool_ty = self.loop_bool_ty;
         let idx = self.push_temp(float_ty, iter_span);

@@ -1,6 +1,7 @@
 //! JavaScript optional-chaining and nullish-coalescing access: optional field, index, method, and coalesce text emission over Option-wrapped receivers.
 
 use super::*;
+use crate::emitter::rendered_text_rewrite::cloned_value_text;
 use smelt_hir::CLASS_INDEX_STORE_FIELD;
 
 impl FunctionEmitter<'_> {
@@ -172,8 +173,35 @@ impl FunctionEmitter<'_> {
             }
             return Ok(format!("Some({receiver_text}.{rust_method_name}())"));
         }
+        // A method that can throw returns a `Result` in the generated Rust, and
+        // `?` cannot cross a closure boundary: `opt.map(|v| v.insert(k, x))`
+        // answered `Option<Result<(), Box<dyn Error>>>` into an `Option<()>`
+        // slot (2 of the router slice's errors). A `match` puts the call in the
+        // enclosing function's own body, where `?` propagates as it does for
+        // every other call to the same method.
+        let throwing_suffix = self.optional_method_throwing_suffix(inner_ty, method)?;
+        let flattens = self.optional_method_returns_optional(inner_ty, method, dest_ty)?;
+        if !throwing_suffix.is_empty() {
+            let call = format!("{method_name}({args_text}){throwing_suffix}");
+            if !is_optional {
+                let head = if flattens {
+                    format!("{receiver_text}.{call}")
+                } else {
+                    format!("Some({receiver_text}.{call})")
+                };
+                return Ok(head);
+            }
+            let arm = if flattens {
+                format!("_smelt_value.{call}")
+            } else {
+                format!("Some(_smelt_value.{call})")
+            };
+            return Ok(format!(
+                "match {receiver_text}.as_ref() {{ Some(_smelt_value) => {arm}, None => None }}"
+            ));
+        }
         if is_optional {
-            if self.optional_method_returns_optional(inner_ty, method, dest_ty)? {
+            if flattens {
                 return Ok(format!(
                     "{receiver_text}.as_ref().and_then(|_smelt_value| _smelt_value.{method_name}({args_text}))"
                 ));
@@ -184,6 +212,36 @@ impl FunctionEmitter<'_> {
         } else {
             Ok(format!("Some({receiver_text}.{method_name}({args_text}))"))
         }
+    }
+
+    /// The `?` suffix a throwing method call needs, or `""`.
+    ///
+    /// Resolved from the receiver's class method exactly as
+    /// [`Self::method_return_type`] resolves the return type, so the optional
+    /// chain and an ordinary call to the same method agree about whether it
+    /// returns a `Result`.
+    fn optional_method_throwing_suffix(
+        &self,
+        receiver_ty: TypeId,
+        method: Symbol,
+    ) -> Result<&'static str, EmitError> {
+        let Some(Type::Class { name, .. }) = self.mir.types.get(receiver_ty) else {
+            return Ok("");
+        };
+        let Some(class) = self.mir.classes.iter().find(|class| class.name == *name) else {
+            return Ok("");
+        };
+        for method_id in &class.methods {
+            let function = self
+                .mir
+                .functions
+                .get(id_index(method_id.0, "method index does not fit usize")?)
+                .ok_or_else(|| EmitError::new("class method references an unknown function"))?;
+            if function.name == method {
+                return Ok(self.throwing_call_suffix(function));
+            }
+        }
+        Ok("")
     }
 
     /// Return whether optional method chaining should flatten the method result.
@@ -368,8 +426,14 @@ impl FunctionEmitter<'_> {
                     self.value_at_type_text(&coalesced, *inner, dest_ty)
                 }
             }
-            Some(Type::None) => self.operand_text(fallback),
-            _ => self.operand_text(optional),
+            // A left operand that is statically nullish selects the fallback, and
+            // one that is statically non-nullish selects itself. Either way the
+            // surviving arm still has to arrive at the destination type: the join
+            // of `string | undefined` with `3000` is `string | number`, so the
+            // selected arm is lifted into that union instead of being emitted at
+            // its own type under the union's declaration.
+            Some(Type::None) => self.value_at_type(fallback, dest_ty),
+            _ => self.value_at_type(optional, dest_ty),
         }
     }
 
@@ -412,9 +476,9 @@ impl FunctionEmitter<'_> {
         // field (issue #84). A dynamic `bag[key]` read returns the store value
         // for the key or `None` (missing key -> `undefined`), giving the honest
         // `Option<T>` round-trip result rather than a stub.
-        if let Some((key_ty, _value_ty)) = self.class_index_store_types(receiver_ty) {
+        if let Some((key_ty, value_ty)) = self.class_index_store_types(receiver_ty) {
             let store_text = format!("{receiver_text}.{CLASS_INDEX_STORE_FIELD}");
-            return self.dict_index_optional_read_text(&store_text, key_ty, index);
+            return self.dict_index_optional_read_text(&store_text, key_ty, value_ty, index);
         }
         match self.mir.types.get(receiver_ty) {
             Some(Type::List(item_ty)) => {
@@ -437,8 +501,8 @@ impl FunctionEmitter<'_> {
                     ))
                 }
             }
-            Some(Type::Dict(key_ty, _)) => {
-                self.dict_index_optional_read_text(receiver_text, *key_ty, index)
+            Some(Type::Dict(key_ty, value_ty)) => {
+                self.dict_index_optional_read_text(receiver_text, *key_ty, *value_ty, index)
             }
             Some(Type::String) => {
                 let index_text = self.optional_normalized_index_text(
@@ -470,22 +534,56 @@ impl FunctionEmitter<'_> {
                                 Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
                             ) =>
                     {
+                        // A concrete generated union is its own Rust enum, not a
+                        // `SmeltUnknown`, so it reaches the runtime-narrowing
+                        // `match` through its `IntoSmeltUnknown` boundary
+                        // adapter — the same treatment the non-optional read
+                        // gives this operand (`unknown_index_text`).
+                        let scrutinee = self
+                            .erase_concrete_union_text(&cloned_value_text(&index_text), index_ty);
                         format!(
-                            "match {index_text}.clone() {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}"
+                            "match {scrutinee} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}"
                         )
                     }
                     _ => "f64::NAN".to_owned(),
                 };
-                let string_some = if self.mir.types.get(result_ty) == Some(&Type::String) {
-                    "value.chars().nth(index).map(|ch| ch.to_string())".to_owned()
+                // Each arm reads an erased element and the read's declared
+                // result type says what the caller wants back. `String` keeps
+                // its own spelling (it is the common case and the one every
+                // existing golden shows) and an erased result needs no
+                // conversion at all; any OTHER concrete result goes through the
+                // same `value_at_type_text` boundary conversion the rest of the
+                // emitter uses. Without it a `Record<string, [string, number]>`
+                // read answered `Option<SmeltUnknown>` into an
+                // `Option<(String, f64)>` slot (4 of the router slice's
+                // errors) — the arms produced the erased value and nobody
+                // converted it.
+                let result_is_string = self.mir.types.get(result_ty) == Some(&Type::String);
+                let result_is_erased = matches!(self.mir.types.get(result_ty), Some(Type::Unknown));
+                let unknown_ty = self.type_id(Type::Unknown)?;
+                let element_text = if result_is_erased {
+                    "_smelt_element".to_owned()
                 } else {
+                    self.value_at_type_text("_smelt_element", unknown_ty, result_ty)?
+                };
+                let string_some = if result_is_string {
+                    "value.chars().nth(index).map(|ch| ch.to_string())".to_owned()
+                } else if result_is_erased {
                     "value.chars().nth(index).map(|ch| SmeltUnknown::String(ch.to_string().into()))"
                         .to_owned()
-                };
-                let array_some = if self.mir.types.get(result_ty) == Some(&Type::String) {
-                    "values.get(index).cloned().map(|value| match value { SmeltUnknown::String(value) => value.to_string(), other => other.to_string() })".to_owned()
                 } else {
+                    format!(
+                        "value.chars().nth(index).map(|ch| {{ let _smelt_element = SmeltUnknown::String(ch.to_string().into()); {element_text} }})"
+                    )
+                };
+                let array_some = if result_is_string {
+                    "values.get(index).cloned().map(|value| match value { SmeltUnknown::String(value) => value.to_string(), other => other.to_string() })".to_owned()
+                } else if result_is_erased {
                     "values.get(index).cloned()".to_owned()
+                } else {
+                    format!(
+                        "values.get(index).cloned().map(|_smelt_element| {element_text})"
+                    )
                 };
                 // Read the OBJECT arm through `smelt_get_object_field`, the same
                 // helper the erased static field read uses, so `o?.[k]` answers
@@ -496,16 +594,28 @@ impl FunctionEmitter<'_> {
                 // `Undefined` is the helper's "no such property" answer and maps
                 // back to `None`, which is what the optional-read shape means.
                 let object_field = format!("smelt_get_object_field(&values, &{key_text})");
-                let object_some = if self.mir.types.get(result_ty) == Some(&Type::String) {
+                let object_some = if result_is_string {
                     format!(
                         "match {object_field} {{ SmeltUnknown::Undefined => None, SmeltUnknown::String(value) => Some(value.to_string()), other => Some(other.to_string()) }}"
                     )
-                } else {
+                } else if result_is_erased {
                     format!("match {object_field} {{ SmeltUnknown::Undefined => None, value => Some(value) }}")
+                } else {
+                    format!(
+                        "match {object_field} {{ SmeltUnknown::Undefined => None, _smelt_element => Some({element_text}) }}"
+                    )
                 };
                 let primitive_none = "SmeltUnknown::Bool(_) | SmeltUnknown::Number(_) | SmeltUnknown::Symbol(_) | SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => None";
+                // Likewise for the receiver: `Optional(SmeltUnion156)` unwraps
+                // to the union's own enum, and matching `SmeltUnknown` arms
+                // against it read `expected SmeltUnion156, found SmeltUnknown`
+                // — 40 of the router slice's 56 errors, all from this one
+                // scrutinee. The non-optional index read already erases here
+                // (see `place.rs`'s `Type::Union` arm).
+                let scrutinee =
+                    self.erase_concrete_union_text(&cloned_value_text(receiver_text), receiver_ty);
                 Ok(format!(
-                    r"match {receiver_text}.clone() {{
+                    r"match {scrutinee} {{
                         SmeltUnknown::String(value) => {{
                             let len = value.chars().count() as i64;
                             let index = {numeric_index_text} as i64;

@@ -1,0 +1,11 @@
+text/plain
+text/html, application/json
+second
+null
+true false
+a=1|b=2
+accept,set-cookie,set-cookie,x-trace
+accept text/html, application/json
+set-cookie a=1
+set-cookie b=2
+x-trace second

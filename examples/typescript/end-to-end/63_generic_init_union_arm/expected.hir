@@ -1,0 +1,84 @@
+module examples/typescript/end-to-end/63_generic_init_union_arm/input.ts (ModuleId(0))
+  body BodyId(2)
+  items
+    type StatusCode = Float
+    type HeadersInitLike = List<(String, String)> | Dict<String, String> | Headers
+    interface InitLike<T extends Float = Float> fields [Public headers?: Optional<List<(String, String)> | Dict<String, String> | Headers>, Public status?: Optional<T>] methods []
+    type StatusOrInit = InitLike<T> | Response
+    fn header_of owner Module
+    fn status_of owner Module
+  locals
+    %0 const recordInit: InitLike<Float>
+  exprs
+    #0: String = "headers"
+    #1: String = "x-kind"
+    #2: String = "record"
+    #3: Dict<String, String> = {#1: #2}
+    #4: String = "status"
+    #5: Float = 201.0
+    #6: InitLike<Float> = {#0: #3, #4: #5}
+    #7: InitLike<Float> = %0
+    #8: String = "x-kind"
+    #9: fn(Float | Response | InitLike<Float>, String) -> String = @6(header_of)
+    #10: String = call #9(#7, #8)
+    #11: None = @12(console_log)
+    #12: None = call #11(#10)
+    #13: InitLike<Float> = %0
+    #14: fn(Float | Response | InitLike<Float>) -> Float = @7(status_of)
+    #15: Float = call #14(#13)
+    #16: None = @13(console_log)
+    #17: None = call #16(#15)
+    #18: String = "body"
+    #19: String = "x-kind"
+    #20: String = "response"
+    #21: Dict<String, String> = {#19: #20}
+    #22: Response = response_new body=#18 headers=#21
+    #23: String = "x-kind"
+    #24: fn(Float | Response | InitLike<Float>, String) -> String = @6(header_of)
+    #25: String = call #24(#22, #23)
+    #26: None = @14(console_log)
+    #27: None = call #26(#25)
+    #28: Float = 404.0
+    #29: String = "x-kind"
+    #30: fn(Float | Response | InitLike<Float>, String) -> String = @6(header_of)
+    #31: String = call #30(#28, #29)
+    #32: None = @15(console_log)
+    #33: None = call #32(#31)
+  stmts
+    s0: let %0: InitLike<Float> = #6
+    s1: #12
+    s2: #17
+    s3: #27
+    s4: #33
+
+interned types
+  t0 = Float
+  t1 = String
+  t2 = (String, String)
+  t3 = List<(String, String)>
+  t4 = Dict<String, String>
+  t5 = Headers
+  t6 = List<(String, String)> | Dict<String, String> | Headers
+  t7 = T
+  t8 = InitLike<T>
+  t9 = Response
+  t10 = InitLike<T> | Response
+  t11 = Unknown
+  t12 = Dict<String, Unknown>
+  t13 = List<Unknown>
+  t14 = InitLike
+  t15 = InitLike<Float>
+  t16 = Response | InitLike<Float>
+  t17 = Float | Response | InitLike<Float>
+  t18 = fn(Float | Response | InitLike<Float>, String) -> String
+  t19 = fn(Float | Response | InitLike<Float>) -> Float
+  t20 = Optional<List<(String, String)> | Dict<String, String> | Headers>
+  t21 = Optional<T>
+  t22 = Bool
+  t23 = None
+  t24 = Optional<String>
+  t25 = Optional<Float>
+  t26 = String | Unknown
+  t27 = Optional<String | Unknown>
+  t28 = fn(Float | Response | InitLike<Float>, String) -> String
+  t29 = fn(Float | Response | InitLike<Float>) -> Float

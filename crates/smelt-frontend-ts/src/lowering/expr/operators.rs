@@ -58,6 +58,15 @@ impl ModuleBuilder<'_> {
             let source = self.argument(source_arg, body)?;
             let source_ty = self.type_param_constraint_or_self(Self::expr_ty(body, source));
             let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+            // `Array.from(view)` is the view's elements, decoded by the family
+            // rather than read back out of an erased record. Asked before the
+            // arms below, whose class fallback erases.
+            if mapper_arg.is_none()
+                && let span = self.span(call.span.start, call.span.end)
+                && let Some(elements) = self.typed_array_spread_list(source, span, body)
+            {
+                return Ok(Some(elements));
+            }
             let list_ty = match self.ctx.krate.types.get(source_ty).cloned() {
                 Some(Type::List(_)) if mapper_arg.is_none() => return Ok(Some(source)),
                 Some(Type::List(item_ty)) => self.ctx.krate.types.intern(Type::List(item_ty)),
@@ -771,6 +780,25 @@ impl ModuleBuilder<'_> {
                             ty,
                             span: self.span(new_expr.span.start, new_expr.span.end),
                         })));
+                    }
+                    // A string is an iterable of its characters, so
+                    // `new Set('abc')` is the three-element set JavaScript
+                    // builds — Hono's `new Set('.\\+*[^]$()')` (the regexp
+                    // meta-character set in `reg-exp-router/node.ts`) is exactly
+                    // this. The conversion is not written here: it goes through
+                    // `list_expr_from_spread_value`, the same helper that lowers
+                    // `[...iterable]`, so `new Set(x)` and `new Set([...x])`
+                    // cannot disagree about what iterating `x` means.
+                    Some(Type::String) => {
+                        let string_ty = self.ctx.krate.types.intern(Type::String);
+                        let chars_ty = self.ctx.krate.types.intern(Type::List(string_ty));
+                        list = self.list_expr_from_spread_value(
+                            list,
+                            chars_ty,
+                            argument.span(),
+                            body,
+                        )?;
+                        string_ty
                     }
                     _ if self.erased_or_union_surface(list_ty) => {
                         let item_ty = self.ctx.krate.types.intern(Type::Unknown);
@@ -2186,6 +2214,22 @@ impl ModuleBuilder<'_> {
             && !self.concrete_type_requires_never_value(hint)
         {
             hint
+        } else if !self.erased_or_union_surface(ty)
+            && !self.erased_or_union_surface(fallback_ty)
+            && !self.concrete_type_requires_never_value(ty)
+            && !self.concrete_type_requires_never_value(fallback_ty)
+        {
+            // TypeScript types `a ?? b` as `NonNullable<typeof a> | typeof b`.
+            // When both arms are concrete and unrelated — `process.env.PORT ??
+            // 3000` is `string | number` — the join is that union. Asserting the
+            // fallback into the left arm's type instead would emit
+            // `let port: String = 3000.0;`, which is the left arm's type carrying
+            // the right arm's value. Erased/`never` surfaces keep the existing
+            // boundary-adapter behaviour above and below this branch.
+            self.ctx
+                .krate
+                .types
+                .intern(Type::Union(vec![ty, fallback_ty]))
         } else if self.erased_or_union_surface(ty)
             || self.erased_or_union_surface(fallback_ty)
             || !self.concrete_type_requires_never_value(ty)
@@ -2651,6 +2695,46 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower an array expression.
+    /// Project a UNION hint to the arm an array literal can be lowered at.
+    ///
+    /// Answers the hint unchanged when it is not a union, and `None` -> `None`.
+    /// A union contributes an arm only when exactly ONE of its members is a
+    /// list or a tuple: with two candidate arms (`string[] | number[]`) the
+    /// literal's own elements are the better evidence, which is what the
+    /// no-hint path already uses.
+    fn array_literal_union_arm_hint(
+        &self,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Option<smelt_hir::TypeId> {
+        let hint = type_hint?;
+        let Some(Type::Union(items)) = self.ctx.krate.types.get(hint) else {
+            return type_hint;
+        };
+        // A union with an ERASED arm (`unknown[] | unknown`) renders as the
+        // erased carrier, so its arms are not distinguishable in Rust and
+        // contextual typing at one of them buys nothing: the literal is erased
+        // either way, and the erased spelling is the one that round-trips.
+        if items.iter().any(|item| {
+            matches!(
+                self.ctx.krate.types.get(*item),
+                Some(Type::Unknown | Type::TypeParam { .. })
+            )
+        }) {
+            return type_hint;
+        }
+        let mut arms = items.iter().copied().filter(|item| {
+            matches!(
+                self.ctx.krate.types.get(*item),
+                Some(Type::List(_) | Type::Tuple(_))
+            )
+        });
+        let arm = arms.next()?;
+        if arms.next().is_some() {
+            return type_hint;
+        }
+        Some(arm)
+    }
+
     pub(in crate::lowering) fn array_expression(
         &mut self,
         array: &oxc::ast::ast::ArrayExpression<'_>,
@@ -2664,6 +2748,15 @@ impl ModuleBuilder<'_> {
         {
             return self.array_expression_with_spread(array, body, type_hint);
         }
+        // A UNION hint contextually types the literal at the arm that can hold
+        // it. `firstPair(slot: number | [string, number][])` called with
+        // `[['a', 1]]` used to lower the literal with no hint at all — the
+        // union is neither a list nor a tuple — so its elements erased and the
+        // argument became `SmeltList<SmeltUnknown>`, while the SAME literal
+        // bound to a typed local first was injected as the union's arm. The arm
+        // is the honest hint, and the existing union injection at the call
+        // boundary then wraps the concretely typed value.
+        let type_hint = self.array_literal_union_arm_hint(type_hint);
         let mut items = Vec::new();
         let tuple_hints = type_hint.and_then(|hint| match self.ctx.krate.types.get(hint) {
             Some(Type::Tuple(tuple_items)) => Some(tuple_items.clone()),
@@ -2900,6 +2993,14 @@ impl ModuleBuilder<'_> {
             && let [ArrayExpressionElement::SpreadElement(spread)] = array.elements.as_slice()
         {
             let spread_value = self.expression(&spread.argument, body)?;
+            // A CONCRETE typed-array view decodes its own elements. Asked here,
+            // where the operand has just been lowered, because the erased
+            // iterable path below would read them back out of a marker record
+            // as `unknown` — an erasure with the answer already in hand.
+            let element_span = self.span(spread.span.start, spread.span.end);
+            if let Some(elements) = self.typed_array_spread_list(spread_value, element_span, body) {
+                return Ok(elements);
+            }
             let value_ty = self.type_param_constraint_or_self(Self::expr_ty(body, spread_value));
             let item_ty = match self.ctx.krate.types.get(value_ty) {
                 Some(Type::List(item_ty) | Type::Set(item_ty)) => *item_ty,
@@ -2934,6 +3035,13 @@ impl ModuleBuilder<'_> {
             match element {
                 ArrayExpressionElement::SpreadElement(spread) => {
                     let spread_value = self.expression(&spread.argument, body)?;
+                    // Same rule for a view spread among other elements
+                    // (`[...view, 0]`): convert it to its elements here, before
+                    // the pieces are unified, so the list stays numeric.
+                    let element_span = self.span(spread.span.start, spread.span.end);
+                    let spread_value = self
+                        .typed_array_spread_list(spread_value, element_span, body)
+                        .unwrap_or(spread_value);
                     pieces.push(SpreadPiece::Spread(spread_value, spread.span));
                 }
                 ArrayExpressionElement::Elision(_) => {
@@ -3474,14 +3582,18 @@ impl ModuleBuilder<'_> {
         };
         let field = self.intern_source_name(field_name);
         let field_ty = self.class_field_type(hint, field).ok()?;
-        if matches!(&property.value, Expression::ObjectExpression(_))
-            && matches!(
-                self.ctx.krate.types.get(field_ty),
-                Some(Type::Class { .. } | Type::Optional(_))
-            )
-        {
-            return None;
-        }
+        // A nested object literal gets the field's type as its own hint, class
+        // and optional-class fields included. This used to be refused, which
+        // left `{ inner: { count: 7 } }` against `interface Outer { inner?:
+        // Config }` lowering the inner literal with no hint: it became a
+        // `Dict`, the outer literal could then not be built as a struct either
+        // (its field was not assignable), and both ends went through the erased
+        // `SmeltRecord` reconstruction. The struct path can build the nested
+        // value directly -- `Outer { inner: Some(Config { count: Some(7.0) }) }`
+        // -- so the refusal cost avoidable erasure at every nesting level for
+        // nothing. `contextual_record_literal_type` already unwraps `Optional`
+        // and still declines any literal it cannot construct, so the decision
+        // stays where it belongs rather than being pre-empted here.
         Some(field_ty)
     }
 
@@ -4281,7 +4393,6 @@ impl ModuleBuilder<'_> {
         if fields.is_empty() || fields.iter().any(|field| !field.optional) {
             return None;
         }
-        let mut needs_structural_adapter = false;
         for (key, value) in entries {
             let key_expr = body
                 .exprs
@@ -4295,10 +4406,23 @@ impl ModuleBuilder<'_> {
             if !self.contextual_record_field_assignable(actual, expected) {
                 return None;
             }
-            needs_structural_adapter |=
-                !self.contextual_record_field_directly_assignable(actual, expected);
         }
-        needs_structural_adapter.then_some(candidate)
+        // Every entry is assignable, so the literal IS the struct and takes the
+        // struct's type.
+        //
+        // This used to be gated on at least one field needing the backend's
+        // structural adapter (`needs_structural_adapter.then_some(candidate)`),
+        // which had it backwards: a literal needing no adaptation is the easiest
+        // one to build directly, and declining it sent the literal down the
+        // erased path instead. `const c: Config = {}` for
+        // `interface Config { label?: string }` built a
+        // `SmeltRecord<String, SmeltUnknown>` and then reconstructed `Config`
+        // out of it — reading three keys per field and funnelling every
+        // `SmeltUnknown` tag through `to_string()`, which is harmless for
+        // `label?: string` and turns a `count?: number` into its decimal text.
+        // Pure avoidable erasure plus a latent wrong-value coercion, for the
+        // shape a hand-writing Rust team would spell `Config { label: None }`.
+        Some(candidate)
     }
 
     /// Return whether a contextual field can be assigned without record adaptation.

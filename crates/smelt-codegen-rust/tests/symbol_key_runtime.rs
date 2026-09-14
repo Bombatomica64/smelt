@@ -91,9 +91,21 @@ fn run_fixture(source: &str, crate_name: &str) {
     let target_dir = root.join("target");
     std::fs::create_dir_all(&crate_dir).expect("create crate dir");
     std::fs::create_dir_all(&target_dir).expect("create target dir");
-    emit_program(source, crate_name, &crate_dir);
-    run_generated_tests(&crate_dir, &target_dir);
-    drop(std::fs::remove_dir_all(&root));
+    let outcome = std::panic::catch_unwind(|| {
+        emit_program(source, crate_name, &crate_dir);
+        run_generated_tests(&crate_dir, &target_dir);
+    });
+    // The scratch root holds a whole nested cargo target directory, so it is
+    // removed on the FAILURE path too: leaving one behind per failing case is
+    // what fills `/tmp`, and an ENOSPC inside a later nested build reads as a
+    // failing assertion rather than as a full disk.
+    // `SMELT_KEEP_RUNTIME_SCRATCH=1` keeps it for a debugging session.
+    if std::env::var_os("SMELT_KEEP_RUNTIME_SCRATCH").is_none() {
+        drop(std::fs::remove_dir_all(&root));
+    }
+    if let Err(payload) = outcome {
+        std::panic::resume_unwind(payload);
+    }
 }
 
 #[test]
@@ -186,4 +198,98 @@ test("the getSymbols idiom keeps enumerable symbol keys", () => {
 });
 "#;
     run_fixture(source, "smelt_symbol_key_property_is_enumerable");
+}
+
+/// The symbol-key agreement fixture program, hoisted out of its test function.
+///
+/// Emitting and running a generated crate is slow enough that the test is
+/// `#[ignore]`d, so the program stays ONE fixture rather than being split
+/// into several Rust tests that would each pay that cost again. Hoisting it
+/// to a `const` keeps the single run and keeps the function short; the
+/// reasoning for what the program proves stays on the test itself.
+const SYMBOL_KEY_AGREEMENT_SOURCE: &str = r#"
+import { test, expect } from "vitest";
+
+const UNIQUE = Symbol("u");
+const REGISTRY = Symbol.for("app.event");
+
+function readProp(item: any, prop: PropertyKey): unknown {
+  return item[prop];
+}
+
+function writeProp(target: any, prop: PropertyKey, value: unknown): void {
+  target[prop] = value;
+}
+
+test("an erased read finds the property a folded key wrote", () => {
+  const row: any = { [UNIQUE]: "cat", [REGISTRY]: "dog", plain: 1 };
+  expect(readProp(row, UNIQUE)).toBe("cat");
+  expect(readProp(row, REGISTRY)).toBe("dog");
+  expect(readProp(row, "plain")).toBe(1);
+});
+
+test("a folded read finds the property an erased write made", () => {
+  const row: any = {};
+  writeProp(row, UNIQUE, "cat");
+  writeProp(row, REGISTRY, "dog");
+  expect(row[UNIQUE]).toBe("cat");
+  expect(row[REGISTRY]).toBe("dog");
+});
+
+test("a symbol key stays out of string-key enumeration", () => {
+  const row: any = { [UNIQUE]: "cat", [REGISTRY]: "dog", plain: 1 };
+  expect(Object.keys(row)).toStrictEqual(["plain"]);
+  expect(Object.values(row)).toStrictEqual([1]);
+  const seen: string[] = [];
+  for (const name in row) {
+    seen.push(name);
+  }
+  expect(seen).toStrictEqual(["plain"]);
+});
+
+test("a folded key still reports its own symbol and description", () => {
+  const row: any = { [UNIQUE]: "cat" };
+  const symbols = Object.getOwnPropertySymbols(row);
+  expect(symbols.length).toBe(1);
+  expect(typeof symbols[0]).toBe("symbol");
+  expect(symbols[0]).toBe(UNIQUE);
+  expect(row[symbols[0]]).toBe("cat");
+});
+
+test("the grouping idiom that regressed groups by a symbol prop", () => {
+  const data: any[] = [
+    { [UNIQUE]: "cat", n: 1 },
+    { [UNIQUE]: "dog", n: 2 },
+    { [UNIQUE]: "cat", n: 3 },
+  ];
+  const output: any = {};
+  for (const item of data) {
+    const key = readProp(item, UNIQUE);
+    if (key !== undefined) {
+      const bucket: any[] | undefined = output[String(key)];
+      output[String(key)] = bucket === undefined ? [item] : [...bucket, item];
+    }
+  }
+  expect(Object.keys(output)).toStrictEqual(["cat", "dog"]);
+  expect(output.cat.length).toBe(2);
+  expect(output.dog.length).toBe(1);
+});
+"#;
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_folded_symbol_key_and_a_runtime_derived_key_name_one_property() {
+    // The regression remeda's `groupByProp` "by Symbol" tests caught. A
+    // module-level `const KEY = Symbol("k")` is one symbol for the program's
+    // lifetime, so the frontend folds `{ [KEY]: v }` to a static member key --
+    // and the generated Rust derived a DIFFERENT key when the same symbol
+    // arrived at `obj[prop]` through an erased parameter. The literal's property
+    // was then invisible to every dynamic read of the very symbol that wrote it,
+    // with no diagnostic: `groupByProp` grouped nothing.
+    //
+    // Both halves now derive the key through `smelt_stdlib::symbol_keys`, so
+    // this holds for each kind of symbol whose identity is fixed (unique bound
+    // once, registry) and in both directions: a folded write read dynamically,
+    // and a dynamic write read through the folded key.
+    run_fixture(SYMBOL_KEY_AGREEMENT_SOURCE, "smelt_symbol_key_folded_and_runtime_agree");
 }

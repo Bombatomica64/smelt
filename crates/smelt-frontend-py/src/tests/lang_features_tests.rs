@@ -22,7 +22,7 @@ fn named_function_body<'a>(
 
 #[test]
 fn try_except_lowers_to_try_catch() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 def risky() -> int:
     return 1
 
@@ -31,7 +31,7 @@ def run() -> int:
         return risky()
     except ValueError:
         return 0
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -113,7 +113,7 @@ def cleanup() -> int:
 
 #[test]
 fn try_except_else_appends_else_to_try_body() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 def risky() -> int:
     return 1
 
@@ -126,7 +126,7 @@ def choose() -> int:
     else:
         return value
     return -1
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -143,7 +143,7 @@ def choose() -> int:
 
 #[test]
 fn multiple_except_clauses_are_rejected() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 def run() -> int:
     try:
         return risky()
@@ -154,7 +154,7 @@ def run() -> int:
 
 def risky() -> int:
     return 1
-"#);
+");
     let mut ctx = HirCtx::new();
     let errors = lower_errors(source, &mut ctx)?;
     ensure(
@@ -166,7 +166,7 @@ def risky() -> int:
 
 #[test]
 fn except_star_is_rejected() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 def run() -> int:
     try:
         return risky()
@@ -175,7 +175,7 @@ def run() -> int:
 
 def risky() -> int:
     return 1
-"#);
+");
     let mut ctx = HirCtx::new();
     let errors = lower_errors(source, &mut ctx)?;
     ensure(
@@ -187,7 +187,7 @@ def risky() -> int:
 
 #[test]
 fn lambda_call_argument_lowers_to_closure() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 from typing import Callable
 
 def apply(f: Callable[[int], int], value: int) -> int:
@@ -195,7 +195,7 @@ def apply(f: Callable[[int], int], value: int) -> int:
 
 def run() -> int:
     return apply(lambda x: x + 1, 10)
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -216,11 +216,11 @@ fn bare_lambda_without_hint_is_rejected_with_actionable_message() -> TestResult 
     // Without a `Callable[...]` context the parameter types are unknowable.
     // The lambda must be rejected with a specific, actionable message rather
     // than the generic "unsupported expression: lambda".
-    let source = py!(r#"
+    let source = py!(r"
 def run() -> int:
     handlers = [lambda x: x]
     return 0
-"#);
+");
     let mut ctx = HirCtx::new();
     let errors = lower_errors(source, &mut ctx)?;
     let message = &first_error(&errors)?.message;
@@ -233,10 +233,10 @@ def run() -> int:
 
 #[test]
 fn class_body_ellipsis_is_a_no_op() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 class Marker:
     ...
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -282,12 +282,12 @@ class Doc:
 /// expression, so its lowered HIR type is the accurate answer.
 #[test]
 fn nested_closure_without_return_annotation_lowers() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 def make_adder(n: int) -> int:
     def add(x: int):
         return x + n
     return add(1)
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -334,12 +334,12 @@ def describe(n: int) -> str:
 /// only fills in the *missing* annotation; it never overrides a present one.
 #[test]
 fn nested_closure_return_annotation_is_still_enforced() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 def broken(n: int) -> int:
     def add(x: int) -> str:
         return x + n
     return add(1)
-"#);
+");
     let mut ctx = HirCtx::new();
     let errors = lower_errors(source, &mut ctx)?;
     ensure(

@@ -202,6 +202,14 @@ impl ModuleBuilder<'_> {
         if callee.name == "Object" && !self.classes.contains("Object") {
             return self.object_constructor_expression(new_expr, body, type_hint);
         }
+        // The concrete typed-array family — the eleven views,
+        // `ArrayBuffer`/`SharedArrayBuffer` and `DataView` — constructs its own
+        // Rust value. Asked BEFORE the erased byte-buffer path below, which now
+        // owns only Node's `Buffer` (see `stdlib::typed_array`).
+        if self.is_typed_array_family_name(callee.name.as_str()) {
+            let class_name = callee.name.to_string();
+            return self.typed_array_constructor_expression(new_expr, &class_name, body);
+        }
         // The byte-backed host objects other than Node's `Buffer` (which keeps its
         // own `Buffer.from`/`alloc`/`concat`-shaped lowering) construct through the
         // shared host constructor so their records carry real byte storage.
@@ -256,8 +264,34 @@ impl ModuleBuilder<'_> {
         {
             return self.byte_buffer_constructor_expression(new_expr, callee.name.as_str(), body);
         }
-        if callee.name == "URLSearchParams" {
+        // A WHATWG `Headers` is a modeled concrete runtime type. A user class
+        // named `Headers` still wins: the registry models the host name, not the
+        // spelling.
+        // The text codecs, gated the same way: the registry models the host
+        // name, and a user class of that name still wins.
+        if callee.name == "TextEncoder" && !self.classes.contains("TextEncoder") {
+            return self.text_encoder_constructor_expression(new_expr, body);
+        }
+        if callee.name == "TextDecoder" && !self.classes.contains("TextDecoder") {
+            return self.text_decoder_constructor_expression(new_expr, body);
+        }
+        if callee.name == "Headers" && !self.classes.contains("Headers") {
+            return self.headers_constructor_expression(new_expr, body);
+        }
+        if callee.name == "URLSearchParams" && !self.classes.contains("URLSearchParams") {
             return self.url_search_params_constructor_expression(new_expr, body);
+        }
+        if callee.name == "FormData" && !self.classes.contains("FormData") {
+            return self.form_data_constructor_expression(new_expr, body);
+        }
+        if callee.name == "Response" && !self.classes.contains("Response") {
+            return self.response_constructor_expression(new_expr, body);
+        }
+        if callee.name == "Request" && !self.classes.contains("Request") {
+            return self.request_constructor_expression(new_expr, body);
+        }
+        if callee.name == "EventEmitter" && !self.classes.contains("EventEmitter") {
+            return self.event_emitter_constructor_expression(new_expr, body);
         }
         if let Some(marker) = Self::marker_only_builtin_marker(callee.name.as_str()) {
             if !self.classes.contains(callee.name.as_str()) {
@@ -275,6 +309,61 @@ impl ModuleBuilder<'_> {
         }
         if callee.name == "URL" {
             return self.url_constructor_expression(new_expr, body);
+        }
+        // A class name bound in THIS module's lexical scope wins over a
+        // crate-wide item of the same spelling.
+        //
+        // `classes.item` reads a map seeded with every class item in the crate,
+        // and a class's own item is registered only AFTER its members are
+        // lowered — so `new Node()` inside `Node`'s own method resolved to
+        // another module's `Node`. While both classes shared one symbol that
+        // was invisible; H51 gave them distinct symbols and it became a type
+        // mismatch in the generated crate (`expected Option<Node_1<T>>, found
+        // Node`), which is how it was found.
+        //
+        // The scoped type name is the module's own binding, bound before its
+        // members are lowered, so preferring it is what makes a self-reference
+        // resolve to the class being declared. It is only ever set when the
+        // spelling is ambiguous crate-wide, so nothing else moves.
+        if let Some(scoped_name) = self.classes.scoped_type_name(callee.name.as_str())
+            && self
+                .classes
+                .item(callee.name.as_str())
+                .and_then(|item| match self.item_ref(item) {
+                    Item::Class(class) => Some(class.name),
+                    _ => None,
+                })
+                != Some(scoped_name)
+        {
+            let args = new_expr
+                .arguments
+                .iter()
+                .map(|arg| self.argument(arg, body))
+                .collect::<Result<Vec<_>, _>>()?;
+            let class_args = new_expr
+                .type_arguments
+                .as_ref()
+                .map(|type_args| {
+                    type_args
+                        .params
+                        .iter()
+                        .map(|arg| self.ts_type_to_hir(arg))
+                        .collect::<Result<Vec<_>, _>>()
+                })
+                .transpose()?
+                .unwrap_or_default();
+            let ty = self.ctx.krate.types.intern(Type::Class {
+                name: scoped_name,
+                args: class_args,
+            });
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::New {
+                    class: scoped_name,
+                    args,
+                },
+                ty,
+                span: self.span(new_expr.span.start, new_expr.span.end),
+            }));
         }
         let Some(item) = self.classes.item(callee.name.as_str()) else {
             if self.classes.is_pending(callee.name.as_str()) {
@@ -296,6 +385,15 @@ impl ModuleBuilder<'_> {
                     ty,
                     span: self.span(new_expr.span.start, new_expr.span.end),
                 }));
+            }
+            // `new DatabaseSync(path)` on a host-module class whose surface is
+            // only declared is the same blocker as reading the binding as a
+            // value (see `expr::references`): construction is a use.
+            if let Some(blocker) = self.imports.unresolved_value_import(callee.name.as_str()) {
+                return Err(SmeltError::missing_stdlib(
+                    self.span(callee.span.start, callee.span.end),
+                    blocker.to_owned(),
+                ));
             }
             if self.imports.is_value(callee.name.as_str())
                 || self.module_globals.contains_key(callee.name.as_str())
@@ -837,7 +935,14 @@ impl ModuleBuilder<'_> {
         smelt_stdlib::is_typed_array_class_name(name)
     }
 
-    /// Lower `new URLSearchParams(init)` to an object carrying observable `size`.
+    /// Lower `new URLSearchParams(init?)` into a concrete parameter list.
+    ///
+    /// This used to fabricate an erased record carrying only a `size` field, so
+    /// `params.get("a")` answered `undefined` and `toString()` was unavailable:
+    /// the value existed but held no parameters. It is now the modeled
+    /// `URLSearchParams` class, and the initializer's own lowered type selects
+    /// the conversion in codegen (a query string, a record, a pair list, or
+    /// another parameter list).
     pub(super) fn url_search_params_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
@@ -849,58 +954,45 @@ impl ModuleBuilder<'_> {
                 "URLSearchParams constructor supports at most one initializer",
             ));
         }
-        let size = match new_expr.arguments.first() {
-            None => 0.0_f64,
-            Some(Argument::StringLiteral(literal)) => {
-                if literal.value.trim_start_matches('?').is_empty() {
-                    0.0_f64
-                } else {
-                    1.0_f64
-                }
-            }
-            Some(Argument::ObjectExpression(object)) => {
-                let count = object
-                    .properties
-                    .iter()
-                    .filter(|property| matches!(property, ObjectPropertyKind::ObjectProperty(_)))
-                    .count();
-                f64::from(u32::try_from(count).map_err(|error| {
-                    SmeltError::unsupported(
-                        self.span(new_expr.span.start, new_expr.span.end),
-                        format!("URLSearchParams initializer is too large: {error}"),
-                    )
-                })?)
-            }
-            Some(argument) => {
-                let _ = self.argument(argument, body)?;
-                1.0_f64
-            }
+        let init = match new_expr.arguments.first() {
+            Some(argument) => Some(self.argument(argument, body)?),
+            None => None,
         };
-        let key_ty = self.ctx.krate.types.intern(Type::String);
-        let value_ty = self.ctx.krate.types.intern(Type::Unknown);
-        let dict_ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
-        let key = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::String("size".to_owned())),
-            ty: key_ty,
-            span: self.span(new_expr.span.start, new_expr.span.end),
-        });
-        let value = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::Float(size)),
-            ty: self.ctx.krate.types.intern(Type::Float),
-            span: self.span(new_expr.span.start, new_expr.span.end),
-        });
-        let object = body.push_expr(Expr {
-            kind: ExprKind::DictLit(vec![(key, value)]),
-            ty: dict_ty,
-            span: self.span(new_expr.span.start, new_expr.span.end),
-        });
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let ty = self.url_search_params_type();
         Ok(body.push_expr(Expr {
-            kind: ExprKind::UnknownCast {
-                value: object,
-                target: unknown_ty,
-            },
-            ty: unknown_ty,
+            kind: ExprKind::UrlSearchParamsNew { init },
+            ty,
+            span: self.span(new_expr.span.start, new_expr.span.end),
+        }))
+    }
+
+    /// `new FormData()`.
+    ///
+    /// Was a marker-only host record: `form.append(..)` did nothing and
+    /// `form.get(..)` answered `undefined`, so the value existed and held no
+    /// entries. It is now the modeled `FormData` class.
+    ///
+    /// The constructor takes no arguments here on purpose. The spec's only
+    /// parameter is an optional `HTMLFormElement` (plus a `submitter`), which
+    /// is DOM and outside the non-DOM profile — so rather than accept and
+    /// ignore an argument, one is refused with a named blocker and a form is
+    /// always built empty and filled with `append`.
+    pub(super) fn form_data_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if !new_expr.arguments.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(new_expr.span.start, new_expr.span.end),
+                "FormData constructor takes no arguments: the spec's only argument is an \
+                 `HTMLFormElement`, which the non-DOM profile does not model",
+            ));
+        }
+        let ty = self.form_data_type();
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::FormDataNew,
+            ty,
             span: self.span(new_expr.span.start, new_expr.span.end),
         }))
     }
@@ -1176,8 +1268,12 @@ impl ModuleBuilder<'_> {
         }))
     }
 
-    /// Lower `new <ByteBufferHost>(...)` — `ArrayBuffer`, `SharedArrayBuffer`,
-    /// `DataView` — through the shared host constructor.
+    /// Lower `new <ByteBufferHost>(...)` through the shared host constructor.
+    ///
+    /// The registered byte hosts all have concrete family types now
+    /// (`stdlib::typed_array`), so this path is reached for a host that is
+    /// byte-backed WITHOUT being one of them — Node's `Buffer` keeps its own
+    /// lowering — and for the reflected construction of an erased record.
     ///
     /// These are JavaScript's binary-data host objects. Source code constructs
     /// them, probes them with `value instanceof ArrayBuffer`, and *operates on
@@ -1280,11 +1376,11 @@ impl ModuleBuilder<'_> {
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
         let span = self.span(new_expr.span.start, new_expr.span.end);
         let parts = self.blob_parts_expression(new_expr.arguments.first(), body, span)?;
         let (blob_type, _) =
             self.blob_options_expressions(new_expr.arguments.get(1), "Blob", body, span)?;
+        let ty = self.blob_class_type();
         Ok(body.push_expr(Expr {
             kind: ExprKind::BlobFromParts {
                 parts,
@@ -1292,7 +1388,7 @@ impl ModuleBuilder<'_> {
                 name: None,
                 last_modified: None,
             },
-            ty: unknown_ty,
+            ty,
             span,
         }))
     }
@@ -1313,7 +1409,6 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let string_ty = self.ctx.krate.types.intern(Type::String);
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
         let span = self.span(new_expr.span.start, new_expr.span.end);
         let parts = self.blob_parts_expression(new_expr.arguments.first(), body, span)?;
         let name = match new_expr.arguments.get(1) {
@@ -1329,6 +1424,7 @@ impl ModuleBuilder<'_> {
         };
         let (blob_type, last_modified) =
             self.blob_options_expressions(new_expr.arguments.get(2), "File", body, span)?;
+        let ty = self.file_class_type();
         Ok(body.push_expr(Expr {
             kind: ExprKind::BlobFromParts {
                 parts,
@@ -1336,34 +1432,64 @@ impl ModuleBuilder<'_> {
                 name: Some(name),
                 last_modified,
             },
-            ty: unknown_ty,
+            ty,
             span,
         }))
     }
 
-    /// Lower a `Blob`/`File` constructor `BlobPart` array to an erased value.
+    /// Lower a `Blob`/`File` constructor `BlobPart` array.
     ///
-    /// Parts are heterogeneous at runtime (strings and other Blob/File records),
-    /// so the lowered array is erased to `SmeltUnknown` and walked by the
-    /// `smelt_blob_record_from_parts` runtime helper. A missing argument
-    /// (`new Blob()`) lowers to an empty erased list.
+    /// `BlobPart` is `Blob | BufferSource | string`. Two of those three arms are
+    /// modeled concretely, so a parts array whose ELEMENT TYPE is one of them
+    /// keeps that type: `new Blob(["a", "b"])` is a `List<String>` and
+    /// `new Blob([blob, other])` a `List<Blob>`, and codegen consumes each
+    /// through its own typed constructor. Only a genuinely heterogeneous array —
+    /// mixed arms, or a `BufferSource`, which is still the erased byte-backed
+    /// host record family — is erased to `SmeltUnknown` and walked at runtime by
+    /// `smelt_blob_parts_bytes`. That is the real dynamic boundary here, and it
+    /// shrinks to nothing once the typed-array views become concrete.
+    ///
+    /// A missing argument (`new Blob()`) and an empty array are string parts:
+    /// there is nothing heterogeneous about no bytes.
     fn blob_parts_expression(
         &mut self,
         parts_argument: Option<&Argument<'_>>,
         body: &mut Body,
         span: Span,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
-        let parts = if let Some(argument) = parts_argument {
-            self.argument(argument, body)?
-        } else {
-            let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
-            body.push_expr(Expr {
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let Some(argument) = parts_argument else {
+            let list_ty = self.ctx.krate.types.intern(Type::List(string_ty));
+            return Ok(body.push_expr(Expr {
                 kind: ExprKind::ListLit(Vec::new()),
                 ty: list_ty,
                 span,
-            })
+            }));
         };
+        let parts = self.argument(argument, body)?;
+        let parts_ty = Self::expr_ty(body, parts);
+        if self.blob_parts_type_is_concrete(parts_ty) {
+            return Ok(parts);
+        }
+        // An empty array literal has no element type to read, so it lowers as
+        // `List<Unknown>`; retype it as string parts rather than erasing an
+        // array that carries nothing.
+        if matches!(self.ctx.krate.types.get(parts_ty), Some(Type::List(_)))
+            && usize::try_from(parts.0).is_ok_and(|index| {
+                matches!(
+                    body.exprs.get(index).map(|expr| &expr.kind),
+                    Some(ExprKind::ListLit(items)) if items.is_empty()
+                )
+            })
+        {
+            let list_ty = self.ctx.krate.types.intern(Type::List(string_ty));
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::ListLit(Vec::new()),
+                ty: list_ty,
+                span,
+            }));
+        }
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
         Ok(body.push_expr(Expr {
             kind: ExprKind::UnknownCast {
                 value: parts,
@@ -1372,6 +1498,18 @@ impl ModuleBuilder<'_> {
             ty: unknown_ty,
             span,
         }))
+    }
+
+    /// Return whether a `BlobPart` array's type is one codegen consumes directly.
+    ///
+    /// The two modeled `BlobPart` arms: a list of strings, or a list of blobs
+    /// (`File` included — it is the same runtime type).
+    fn blob_parts_type_is_concrete(&self, parts_ty: smelt_hir::TypeId) -> bool {
+        let Some(Type::List(item)) = self.ctx.krate.types.get(parts_ty) else {
+            return false;
+        };
+        matches!(self.ctx.krate.types.get(*item), Some(Type::String))
+            || self.is_blob_class_type(*item)
     }
 
     /// Resolve the `type` (and `File`-only `lastModified`) expressions from a
@@ -1716,6 +1854,17 @@ impl ModuleBuilder<'_> {
         let controller_marker_value = bool_literal(body, true);
 
         // The shared signal record: marker, mutable `aborted` flag, listeners.
+        //
+        // `reason` and `__smelt_abort_follows` are deliberately NOT here, even
+        // though the runtime helpers use both. An un-aborted signal's reason is
+        // `undefined`, which is exactly what a read of an absent key answers,
+        // and both helpers already treat an absent follow list as empty — so
+        // storing either slot up front would only add an erased entry to every
+        // controller a program builds. The es-toolkit corpus makes 32 of them;
+        // storing the two slots eagerly cost 64 avoidable-erasure occurrences
+        // for no observable difference. `smelt_abort_signal_fire` inserts the
+        // reason when there IS one, and `smelt_abort_signal_follow` creates the
+        // list when something actually follows.
         let listeners_value = body.push_expr(Expr {
             kind: ExprKind::ListLit(Vec::new()),
             ty: list_ty,
@@ -2263,15 +2412,31 @@ impl ModuleBuilder<'_> {
                     || self.ctx.krate.types.get(else_ty) == Some(&Type::Unknown)
                 {
                     self.ctx.krate.types.intern(Type::Unknown)
-                } else if self.declared_class_type(then_ty) && self.declared_class_type(else_ty) {
-                    // Two *declared* classes have no common Rust struct, but they
-                    // do have a concrete common representation: the generated
-                    // tagged union. Without this arm both branches fall into the
-                    // string-compatible test below — `is_string_compatible_type`
-                    // accepts any `Type::Class`, because that variant also spells
-                    // an opaque unresolved name — and the conditional unifies to
-                    // `String`, emitting a `String` local that the class values
-                    // are then assigned into. That output does not compile.
+                } else if self.declared_class_type(then_ty) || self.declared_class_type(else_ty) {
+                    // A *declared* class arm has no common Rust shape with
+                    // anything but itself, and it does have a concrete join: the
+                    // generated tagged union. Every closer answer has already
+                    // been tried above — same type, numeric, `None`, a function
+                    // pair, a union that already contains the other arm — so
+                    // reaching here with a declared class means the two arms are
+                    // genuinely two members, which is what TypeScript types
+                    // `c ? a : b` as.
+                    //
+                    // Without this arm the branches fall into the
+                    // string-compatible test below, and that test accepts ANY
+                    // `Type::Class` — the variant also spells an opaque
+                    // unresolved name — so the conditional unified to `String`
+                    // and emitted a `String` local that the class values were
+                    // then assigned into. `flag ? new Doc("d") : "text"` at a
+                    // `string | Doc` return type produced
+                    // `let mut _smelt_tmp: String;` and `_smelt_tmp = <Doc>`,
+                    // which does not compile.
+                    //
+                    // This used to require BOTH arms to be declared classes,
+                    // which fixed `Doc : Other` and left `Doc : "text"` — the
+                    // commoner shape, since a union of a class and a primitive
+                    // is how an optional-payload result is usually spelled —
+                    // still unifying to `String`.
                     self.ctx
                         .krate
                         .types
@@ -2303,6 +2468,17 @@ impl ModuleBuilder<'_> {
                 } else if self.type_contains_unknown(then_ty) || self.type_contains_unknown(else_ty)
                 {
                     self.ctx.krate.types.intern(Type::Unknown)
+                } else if let Some(unified) =
+                    self.unify_optional_conditional_branches(then_ty, else_ty)
+                {
+                    // `queryIndex === -1 ? (hashIndex === -1 ? undefined :
+                    // hashIndex) : ...` (Hono's `utils/url.ts`) makes one branch
+                    // `Optional<Float>` and the other `Float`, which TypeScript
+                    // types `number | undefined`. The sibling conditional
+                    // decision below has consulted this helper all along; this
+                    // one had not, so the same source shape blocked or lowered
+                    // depending on which arm of the emitter it reached.
+                    unified
                 } else if let Some(hint) = type_hint
                     && !self.concrete_type_requires_never_value(hint)
                 {
@@ -2325,6 +2501,20 @@ impl ModuleBuilder<'_> {
                     // | Record<string, T>`): the merged value is a genuine
                     // dynamic boundary and widens to `unknown`.
                     self.ctx.krate.types.intern(Type::Unknown)
+                } else if !self.concrete_type_requires_never_value(then_ty)
+                    && !self.concrete_type_requires_never_value(else_ty)
+                {
+                    // Two concrete, unrelated arms. TypeScript types `c ? a : b`
+                    // as `typeof a | typeof b`, and that union is the join — the
+                    // same rule `??` applies (see
+                    // `nullish_coalescing_expression`'s concrete-arms branch).
+                    // Blocking here refused well-typed TypeScript; picking one
+                    // arm's type would emit that arm's type carrying the other
+                    // arm's value.
+                    self.ctx
+                        .krate
+                        .types
+                        .intern(Type::Union(vec![then_ty, else_ty]))
                 } else {
                     return Err(SmeltError::unsupported(
                         self.span(conditional.span.start, conditional.span.end),
@@ -2435,7 +2625,7 @@ impl ModuleBuilder<'_> {
                 self.computed_member(member, body)
             }
             Expression::CallExpression(call) => {
-                let value = self.call_expression(call, body)?;
+                let value = self.call_expression_with_hint(call, body, type_hint)?;
                 // A bare `Array(n)` allocation takes the contextual list type
                 // when it has one, exactly as the `new Array(n)` spelling does
                 // below; the two forms must stay in lockstep.
@@ -2476,8 +2666,7 @@ impl ModuleBuilder<'_> {
                 if let Some(expr) = self.try_global_assignment_expression(assign, body)? {
                     return Ok(expr);
                 }
-                let (_target, value) = self.assignment_parts(assign, body)?;
-                Ok(value)
+                self.assignment_expression_value(assign, body)
             }
             Expression::YieldExpression(yield_expr) => {
                 if yield_expr.delegate && self.current_generator_yields.is_some() {
@@ -2573,21 +2762,41 @@ impl ModuleBuilder<'_> {
         unary: &oxc::ast::ast::UnaryExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        if let Expression::Identifier(identifier) = &unary.argument
-            && identifier.name == "crypto"
-        {
-            let ty = self.ctx.krate.types.intern(Type::String);
-            return Ok(body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::String("undefined".to_owned())),
-                ty,
-                span: self.span(unary.span.start, unary.span.end),
-            }));
-        }
+        // `typeof crypto` used to fold to `"undefined"` here — a per-name
+        // special case that predated the WebCrypto surface, and one whose
+        // answer was the OPPOSITE of the profile's: the object is
+        // unconditionally present in the target profile (which is what
+        // `global_member_presence("crypto")` has said since that surface
+        // landed), so `typeof crypto === "undefined"` folded true and every
+        // program that guards on it took its no-crypto branch. `crypto` is a
+        // registry namespace now (`smelt_stdlib::GLOBAL_NAMESPACES`), so the
+        // operand lowers to a present object and `typeof` reports `"object"`
+        // through the ordinary rule below, like `Math` and `JSON`.
         // A bare `typeof Blob` references the modeled host constructor, which is
         // a function value in JavaScript. (The `typeof Blob === 'undefined'`
         // support-guard comparison is folded earlier in `unknown_typeof_comparison`.)
         if let Expression::Identifier(identifier) = &unary.argument
             && Self::is_known_defined_global_constructor(identifier.name.as_str())
+        {
+            let ty = self.ctx.krate.types.intern(Type::String);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String("function".to_owned())),
+                ty,
+                span: self.span(unary.span.start, unary.span.end),
+            }));
+        }
+        // A CLASS REFERENCE is a function value in JavaScript: `typeof Foo` is
+        // `"function"` for `class Foo {}` exactly as it is for `Blob` above,
+        // while `typeof new Foo()` is `"object"`. HIR types both the class and
+        // its instances as `Type::Class`, so the distinction has to come from
+        // the operand's SPELLING — a name bound to a class in this module,
+        // not shadowed by a local. Folding to the instance answer said
+        // `typeof Foo === "object"`, and a `typeof X === "function"` guard over
+        // a class value took its no-constructor branch.
+        if let Expression::Identifier(identifier) = &unary.argument
+            && !self.scope.is_bound(identifier.name.as_str())
+            && (self.classes.contains(identifier.name.as_str())
+                || self.classes.is_pending(identifier.name.as_str()))
         {
             let ty = self.ctx.krate.types.intern(Type::String);
             return Ok(body.push_expr(Expr {
@@ -2813,6 +3022,22 @@ impl ModuleBuilder<'_> {
             // boundary and widens to `unknown`.
             Ok(self.ctx.krate.types.intern(Type::Unknown))
         } else {
+            // NO union join here, deliberately. Despite the name, this is a
+            // shared *reconcilability query*, not the conditional expression's
+            // own type decision: `reduce`/`fold` (`callbacks/list_ops.rs`),
+            // `callbacks/transforms.rs` and the logical-operand merge in
+            // `expr/operators.rs` all call it and treat `Err` as "these two
+            // types have no common lowered shape". Answering a union here makes
+            // a `string` accumulator with a `boolean`-returning callback
+            // reconcile, which is what
+            // `reduce_named_callback_rejects_irreconcilable_return_type` exists
+            // to prevent — the fold would assign a `boolean` into a `String`.
+            //
+            // The ternary's own decision (the inline chain in
+            // `expression_with_hint`'s `ConditionalExpression` arm) DOES join to
+            // a union, because `c ? a : b` is `typeof a | typeof b` in
+            // TypeScript. The two are different questions and only one of them
+            // is about a conditional.
             Err(SmeltError::unsupported(
                 self.span(start, end),
                 format!(
@@ -3001,9 +3226,26 @@ impl ModuleBuilder<'_> {
         let awaited = self.expression_with_hint(&await_expr.argument, body, awaited_hint)?;
         let awaited_ty = Self::expr_ty(body, awaited);
         let Some(ty) = self.future_inner_type(awaited_ty) else {
-            if self.erased_or_union_surface(awaited_ty) {
-                let resolved_ty =
-                    type_hint.unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+            // A union with a promise arm needs the await even when the union
+            // itself is not an erased surface: `number | Promise<number>` is a
+            // concrete tagged enum, and the old shape dropped the `await`
+            // outright and handed the union straight on, so the next read of it
+            // matched only the value arm and `unreachable!`-ed the other.
+            let awaited_union_ty = self.awaited_union_type(awaited_ty);
+            if self.erased_or_union_surface(awaited_ty) || awaited_union_ty.is_some() {
+                // A union operand awaits to the join of its arms: `await`
+                // unwraps the promise arms and passes the others through. The
+                // operand is still asserted to be a future of that join, and the
+                // emitter's union-to-future projection turns each value arm into
+                // an already-resolved handle -- see
+                // `project_union_value_text`. Without the join the awaited value
+                // erased to `SmeltUnknown`, so Hono's
+                // `new Response(null, await this.#dispatch(..))` reported an
+                // erased init for an operand whose awaited type is one class.
+                let resolved_ty = type_hint
+                    .or(awaited_union_ty)
+                    .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+
                 let future_ty = self.ctx.krate.types.intern(Type::Future(resolved_ty));
                 let future = body.push_expr(Expr {
                     kind: ExprKind::TypeAssert { value: awaited },
@@ -3026,6 +3268,49 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(await_expr.span.start, await_expr.span.end),
         }))
+    }
+
+    /// Return the type `await` produces for a union operand.
+    ///
+    /// `await` unwraps each promise arm and passes every other arm through
+    /// unchanged, then joins: `Response | Promise<Response>` awaits to
+    /// `Response`, and `A | Promise<B>` awaits to `A | B`. Hono's
+    /// `new Response(null, await this.#dispatch(..))` is the first shape, and
+    /// without this it erased to `SmeltUnknown` -- so the value was reported as
+    /// erased for an operand whose awaited type is one named class.
+    ///
+    /// `None` when the operand is not a union, when no arm is a promise (there
+    /// is nothing to unwrap, and `await` on a plain value answers it unchanged),
+    /// or when any arm is itself erased: joining an erased arm answers `Unknown`
+    /// anyway, and the existing fallback already says so.
+    fn awaited_union_type(&mut self, ty: smelt_hir::TypeId) -> Option<smelt_hir::TypeId> {
+        let Some(Type::Union(members)) = self.ctx.krate.types.get(ty).cloned() else {
+            return None;
+        };
+        if !members
+            .iter()
+            .any(|member| self.future_inner_type(*member).is_some())
+        {
+            return None;
+        }
+        let mut resolved: Vec<smelt_hir::TypeId> = Vec::new();
+        for member in members {
+            let inner = self.future_inner_type(member).unwrap_or(member);
+            if matches!(
+                self.ctx.krate.types.get(inner),
+                Some(Type::Unknown | Type::TypeParam { .. })
+            ) {
+                return None;
+            }
+            if !resolved.contains(&inner) {
+                resolved.push(inner);
+            }
+        }
+        match resolved.as_slice() {
+            [] => None,
+            [single] => Some(*single),
+            _ => Some(self.ctx.krate.types.intern(Type::Union(resolved))),
+        }
     }
 
     /// Coerce an already lowered JavaScript value into its boolean truthiness result.
@@ -3101,6 +3386,22 @@ impl ModuleBuilder<'_> {
         }
         if let Some(condition) = self.optional_known_date_presence_condition(cond, span, body) {
             return Ok(condition);
+        }
+        // A type that cannot hold a nullish value AND whose every inhabitant is
+        // an object is truthy for every value it can take, so the guard is the
+        // constant `true` and needs no runtime test at all. Comparing against
+        // `none` instead only worked because the emitter folds `tuple != none`
+        // to `false`; for a union it emits a real presence check, which a
+        // generated union enum cannot answer (`matches!(v, SmeltUnknown::Null)`
+        // over a `SmeltUnion3`). Saying `true` is both the precise answer and
+        // the one no representation has to support.
+        if !self.is_nullishable_type(cond_ty) && self.type_is_constantly_truthy(cond_ty) {
+            let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Bool(true)),
+                ty: bool_ty,
+                span,
+            }));
         }
         if self
             .non_nullish_type(cond_ty)
@@ -3194,6 +3495,33 @@ impl ModuleBuilder<'_> {
                     | Type::Future(_)
             )
         )
+    }
+
+    /// Return whether EVERY value of `ty` is truthy in JavaScript.
+    ///
+    /// Only seven values are falsy — `false`, `0`, `-0`, `NaN`, `''`, `null`,
+    /// `undefined` (and `0n`) — and none of them is an object, so a type whose
+    /// every inhabitant is an object has no falsy inhabitant. That composes
+    /// through a union: `A | B` with both arms objects adds no falsy value
+    /// either.
+    ///
+    /// Deliberately SEPARATE from [`Self::type_is_always_truthy_object_surface`],
+    /// which answers the narrower question "is a *present optional's* payload
+    /// always truthy" and is consulted by the presence-test rung. Teaching that
+    /// helper about unions would also change the presence-test rung for
+    /// optional unions of functions — turning es-toolkit's `getCacheKey ? …`
+    /// from a full erased `ToBool` match into a presence test. That is an
+    /// equivalent and cheaper emission, but it is a change to a corpus this
+    /// family does not need to touch, so the union knowledge stays local to the
+    /// constant-fold rung that needs it.
+    fn type_is_constantly_truthy(&self, ty: smelt_hir::TypeId) -> bool {
+        let resolved = self.type_param_constraint_or_self(ty);
+        if let Some(Type::Union(items)) = self.ctx.krate.types.get(resolved) {
+            let items = items.clone();
+            return !items.is_empty()
+                && items.iter().all(|item| self.type_is_constantly_truthy(*item));
+        }
+        self.type_is_always_truthy_object_surface(resolved)
     }
 
     /// Return whether a non-boolean type can appear in a JavaScript truthiness guard.

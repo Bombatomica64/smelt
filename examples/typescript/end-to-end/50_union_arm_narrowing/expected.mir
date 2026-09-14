@@ -1,0 +1,229 @@
+class Doc fields [Public name: String] constructor Some(FuncId(3)) methods []
+
+fn pick (FuncId(0)) -> String | Doc
+  locals
+    %0 param flag: Bool
+    %1 temp: String | Doc
+    %2 temp: Doc
+  bb0:
+    switch copy %0 ? bb1 : bb2
+  bb1:
+    %2 = call fn3("doc") -> bb3
+  bb2:
+    %1 = "text"
+    goto bb4
+  bb3:
+    %1 = move %2
+    goto bb4
+  bb4:
+    return move %1
+
+fn branches (FuncId(1)) -> String | Doc
+  locals
+    %0 param flag: Bool
+    %1 temp: Doc
+  bb0:
+    switch copy %0 ? bb1 : bb2
+  bb1:
+    %1 = call fn3("doc") -> bb3
+  bb2:
+    return "text"
+  bb3:
+    return move %1
+
+fn label (FuncId(2)) -> String
+  locals
+    %0 param value: String | Doc
+    %1 temp: Bool
+    %2 temp: String
+    %3 temp: String
+    %4 temp: Doc
+    %5 temp: String
+  bb0:
+    %1 = unknown_is String copy %0
+    switch move %1 ? bb1 : bb2
+  bb1:
+    %2 = unknown_cast copy %0 as t0
+    %3 = "text:" + move %2
+    return move %3
+  bb2:
+    %4 = unknown_cast copy %0 as t1
+    %5 = "doc:" + copy %4.field7
+    return move %5
+
+fn new (FuncId(3)) -> Doc
+  locals
+    %0 user this: Doc
+    %1 param name: String
+  bb0:
+    %0 = struct0 {}
+    %0.field7 = copy %1
+    return move %0
+
+fn main (FuncId(4)) -> None
+  locals
+    %0 user chosen: String | Doc
+    %1 user form: FormData
+    %2 user entry: Optional<String | File>
+    %3 user text: Optional<String | File>
+    %4 user missing: Optional<String | File>
+    %5 user value: String | File
+    %6 temp: String | Doc
+    %7 temp: String
+    %8 temp: String | Doc
+    %9 temp: String
+    %10 temp: None
+    %11 temp: String | Doc
+    %12 temp: String
+    %13 temp: String | Doc
+    %14 temp: String
+    %15 temp: None
+    %16 temp: String | Doc
+    %17 temp: String
+    %18 temp: None
+    %19 temp: FormData
+    %20 temp: List<String>
+    %21 temp: File
+    %22 temp: None
+    %23 temp: None
+    %24 temp: Optional<String | File>
+    %25 temp: Bool
+    %26 temp: String | File
+    %27 temp: File
+    %28 temp: String
+    %29 temp: String | File
+    %30 temp: File
+    %31 temp: String
+    %32 temp: String | File
+    %33 temp: File
+    %34 temp: Float
+    %35 temp: None
+    %36 temp: None
+    %37 temp: Optional<String | File>
+    %38 temp: Bool
+    %39 temp: None
+    %40 temp: None
+    %41 temp: Optional<String | File>
+    %42 temp: Bool
+    %43 temp: None
+    %44 temp: None
+    %45 temp: List<String | File>
+    %46 temp: Float
+    %47 temp: Float
+    %48 temp: Bool
+    %49 temp: Bool
+    %50 temp: File
+    %51 temp: String
+    %52 temp: None
+    %53 temp: None
+  bb0:
+    %6 = call fn0(true) -> bb1
+  bb1:
+    %7 = call fn2(move %6) -> bb2
+  bb2:
+    %8 = call fn0(false) -> bb3
+  bb3:
+    %9 = call fn2(move %8) -> bb4
+  bb4:
+    %10 = call @console_log(move %7, move %9) -> bb5
+  bb5:
+    %11 = call fn1(true) -> bb6
+  bb6:
+    %12 = call fn2(move %11) -> bb7
+  bb7:
+    %13 = call fn1(false) -> bb8
+  bb8:
+    %14 = call fn2(move %13) -> bb9
+  bb9:
+    %15 = call @console_log(move %12, move %14) -> bb10
+  bb10:
+    %16 = call fn0(true) -> bb11
+  bb11:
+    %0 = move %16
+    %17 = call fn2(move %0) -> bb12
+  bb12:
+    %18 = call @console_log(move %17) -> bb13
+  bb13:
+    %19 = form_data_new
+    %1 = move %19
+    %20 = ["hi"]
+    %21 = blob_from_parts move %20, "text/plain", "note.txt", none
+    %22 = form_data_append copy %1, "doc", move %21
+    %23 = form_data_append copy %1, "text", "plain"
+    %24 = form_data_get copy %1, "doc"
+    %2 = move %24
+    %25 = instanceof copy %2, class13
+    switch move %25 ? bb14 : bb15
+  bb14:
+    %26 = copy %2
+    %27 = unknown_cast move %26 as t13
+    %28 = blob_name move %27
+    %29 = copy %2
+    %30 = unknown_cast move %29 as t13
+    %31 = blob_type move %30
+    %32 = move %2
+    %33 = unknown_cast move %32 as t13
+    %34 = blob_size move %33
+    %35 = call @console_log(move %28, move %31, move %34) -> bb16
+  bb15:
+    %36 = call @console_log("not a file") -> bb18
+  bb16:
+    goto bb17
+  bb17:
+    %37 = form_data_get copy %1, "text"
+    %3 = move %37
+    %38 = instanceof move %3, class13
+    switch move %38 ? bb19 : bb20
+  bb18:
+    goto bb17
+  bb19:
+    %39 = call @console_log("unexpectedly a file") -> bb21
+  bb20:
+    %40 = call @console_log("not a file") -> bb23
+  bb21:
+    goto bb22
+  bb22:
+    %41 = form_data_get copy %1, "absent"
+    %4 = move %41
+    %42 = instanceof move %4, class13
+    switch move %42 ? bb24 : bb25
+  bb23:
+    goto bb22
+  bb24:
+    %43 = call @console_log("unexpectedly a file") -> bb26
+  bb25:
+    %44 = call @console_log("absent is not a file") -> bb28
+  bb26:
+    goto bb27
+  bb27:
+    %45 = form_data_values move %1
+    %46 = 0.0
+    goto bb29
+  bb28:
+    goto bb27
+  bb29:
+    %47 = len copy %45
+    %48 = copy %46 < move %47
+    switch move %48 ? bb30 : bb32
+  bb30:
+    %5 = copy %45[copy %46]
+    %49 = instanceof copy %5, class13
+    switch move %49 ? bb33 : bb34
+  bb31:
+    %46 = copy %46 + 1.0
+    goto bb29
+  bb32:
+    return none
+  bb33:
+    %50 = unknown_cast move %5 as t13
+    %51 = blob_name move %50
+    %52 = call @console_log("file", move %51) -> bb35
+  bb34:
+    %53 = call @console_log("text", move %5) -> bb37
+  bb35:
+    goto bb36
+  bb36:
+    goto bb31
+  bb37:
+    goto bb36
+

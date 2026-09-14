@@ -285,7 +285,11 @@ export function shadowed(): number {
 }
 
 #[test]
-fn non_literal_initializer_is_a_named_blocker() -> Result<(), String> {
+fn an_unannotated_non_literal_initializer_is_a_named_blocker() -> Result<(), String> {
+    // A non-literal initializer IS lowered (see the test below), but only when
+    // the binding's type is known: the classification pass runs before imports
+    // and function items resolve, so with neither an annotation nor a literal
+    // to infer from there is nothing to type the cell with.
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(
         ts!(r"
@@ -304,14 +308,66 @@ export function bump(): number {
     )?;
     assert_unsupported_ts(
         &errors,
-        "module-level mutable binding initializer must be a literal for now",
+        "module-level mutable binding with a non-literal initializer needs an explicit type \
+         annotation",
     )
 }
 
 #[test]
-fn non_primitive_type_is_a_named_blocker() -> Result<(), String> {
+fn an_annotated_non_literal_initializer_lowers_through_an_initializer_item() -> Result<(), String> {
+    // The V1 restrictions were "literal initializer" and "primitive type", and
+    // Hono's `router/reg-exp-router/router.ts` breaks both at once with
+    // `let cache: Record<string, RegExp> = createNullObject()`. A non-literal
+    // initializer now becomes a synthesized nullary function the cell calls
+    // lazily, so the global keeps a concrete type and nothing is erased.
     let mut ctx = HirCtx::new();
-    let errors = lowering_errors(
+    let module_id = lower_ok(
+        ts!(r"
+const seedCache = (): Record<string, string> => ({});
+
+let cache: Record<string, string> = seedCache();
+
+export function read(key: string): string {
+  return cache[key];
+}
+
+export function reset(): void {
+  cache = seedCache();
+}
+"),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    // The global must carry an `Initializer` item — not a literal, and not the
+    // `Pending` placeholder, which reaching MIR would be a compiler bug.
+    let inits = ctx
+        .krate
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            smelt_hir::Item::MutableGlobal(global) => Some(&global.init),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    ensure!(
+        inits.len() == 1
+            && matches!(
+                inits.first(),
+                Some(smelt_hir::MutableGlobalInit::Initializer(_))
+            ),
+        "expected exactly one mutable global with an initializer item, saw {inits:?}",
+    );
+    Ok(())
+}
+
+#[test]
+fn a_non_primitive_type_lowers() -> Result<(), String> {
+    // `unknown` used to be rejected by the primitive-type restriction. A
+    // non-`Copy` global is now backed by a `RefCell` rather than a `Cell`, so
+    // any type works.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
         ts!(r"
 let holder: unknown = 0;
 
@@ -321,10 +377,94 @@ export function stash(value: unknown): void {
 "),
         &mut ctx,
     )?;
-    assert_unsupported_ts(
-        &errors,
-        "module-level mutable bindings support primitive types for now",
-    )
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn writing_through_a_non_primitive_global_lowers() -> Result<(), String> {
+    // Hono's `router/reg-exp-router/router.ts` shape. `cache[key] = value`
+    // mutates the value the cell HOLDS, which used to be a named blocker
+    // because a `GlobalGet` yields a copy and the write would land on it. It
+    // now lowers to `Place::Global`, which names the cell as the assignment
+    // root so no copy is made. See `blocker-logs/hono-h6-place-global.md`.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+const seedCache = (): Record<string, string> => ({});
+
+let cache: Record<string, string> = seedCache();
+
+export function put(key: string, value: string): void {
+  cache[key] = value;
+}
+
+export function reset(): void {
+  cache = seedCache();
+}
+"),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn a_global_written_through_only_is_still_lifted() -> Result<(), String> {
+    // A binding whose ONLY mutation is a write through it is still module state
+    // that every function shares. The lift used to require a whole-binding
+    // reassignment, which would now leave the write on a module-local copy —
+    // the exact silent-loss defect `Place::Global` exists to prevent. There is
+    // no `cache = ...` anywhere in this fixture.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+let cache: Record<string, number> = {};
+
+export function put(key: string, value: number): void {
+  cache[key] = value;
+}
+
+export function get(key: string): number {
+  return cache[key];
+}
+"),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    let lifted = ctx.krate.items.iter().any(|item| {
+        matches!(item, Item::MutableGlobal(global)
+            if ctx.krate.symbols.get(global.name) == Some("cache"))
+    });
+    ensure!(
+        lifted,
+        "a global that is only written THROUGH must still be lifted to a cell",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn a_nested_write_through_a_non_primitive_global_is_a_named_blocker() -> Result<(), String> {
+    // `cache[a][b] = v` still blocks. The inner `cache[a]` has to produce a
+    // value, and whether that value shares storage with the cell is the
+    // handle-versus-value question `Place::Global` avoids asking — guessing it
+    // loses the write for one of the two container representations with no
+    // diagnostic. The blocker names the shape rather than the family.
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r"
+let buckets: Record<string, Record<string, string>> = {};
+
+export function put(outer: string, inner: string, value: string): void {
+  buckets[outer][inner] = value;
+}
+"),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&errors, "written through a nested projection")
 }
 
 #[test]

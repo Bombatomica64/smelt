@@ -1,0 +1,38 @@
+module examples/typescript/end-to-end/85_promise_continuations/input.ts (ModuleId(0))
+  body BodyId(7)
+  items
+    fn work owner Module
+    fn run owner Module
+  exprs
+    #0: async fn() -> Future<String> = @1(run)
+    #1: Future<String> = call #0()
+    #2: String = await #1
+    #3: None = @2(console_log)
+    #4: None = call #3(#2)
+    #5: Future<None> = async_exit_drain()
+    #6: None = await #5
+  stmts
+    s0: #4
+    s1: #6
+  async state machine
+    states [state0, state1, state2]
+    suspend #2 on #1 -> state3
+    suspend #6 on #5 -> state7
+
+interned types
+  t0 = String
+  t1 = Future<String>
+  t2 = async fn(String) -> Future<String>
+  t3 = async fn() -> Future<String>
+  t4 = Bool
+  t5 = Unknown
+  t6 = Dict<String, Unknown>
+  t7 = async fn(String) -> Future<String>
+  t8 = fn(Unknown) -> Unknown
+  t9 = fn() -> String
+  t10 = fn(String) -> Unknown
+  t11 = fn(String) -> String
+  t12 = List<String>
+  t13 = async fn() -> Future<String>
+  t14 = None
+  t15 = Future<None>

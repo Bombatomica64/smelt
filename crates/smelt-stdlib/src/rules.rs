@@ -159,6 +159,143 @@ pub enum RuleId {
     TsSetMutation,
     /// TypeScript `Set` projection method.
     TsSetProjection,
+    /// TypeScript `Headers.prototype.get`.
+    TsHeadersGet,
+    /// TypeScript `Headers.prototype.has`.
+    TsHeadersHas,
+    /// TypeScript `Headers` mutating method (`set`, `append`, `delete`).
+    TsHeadersMutation,
+    /// TypeScript `Headers` projection method (`keys`, `values`, `entries`,
+    /// `getSetCookie`).
+    TsHeadersProjection,
+    /// TypeScript `URLSearchParams` read (`get`, `getAll`, `has`).
+    TsUrlSearchParamsRead,
+    /// TypeScript `URLSearchParams` mutating method (`set`, `append`,
+    /// `delete`, `sort`).
+    TsUrlSearchParamsMutation,
+    /// TypeScript `URLSearchParams` projection (`keys`, `values`, `entries`).
+    TsUrlSearchParamsProjection,
+    /// TypeScript `URLSearchParams.prototype.toString`.
+    TsUrlSearchParamsToString,
+    /// TypeScript `FormData` read (`get`, `getAll`, `has`).
+    TsFormDataRead,
+    /// TypeScript `FormData` mutating method (`set`, `append`, `delete`).
+    TsFormDataMutation,
+    /// TypeScript `FormData` projection (`keys`, `values`, `entries`,
+    /// `forEach`).
+    TsFormDataProjection,
+    /// TypeScript `AbortSignal.abort(reason?)`.
+    TsAbortSignalAbort,
+    /// TypeScript `AbortSignal.timeout(ms)`.
+    ///
+    /// Its own rule rather than a shared `AbortSignal` static: `timeout` is the
+    /// one that needs the async runtime — it schedules the abort on the timer
+    /// queue — where `abort` answers an already-settled signal synchronously.
+    TsAbortSignalTimeout,
+    /// TypeScript `crypto.randomUUID()`.
+    TsCryptoRandomUuid,
+    /// TypeScript `crypto.getRandomValues(view)`.
+    TsCryptoGetRandomValues,
+    /// TypeScript `crypto.subtle.digest(algorithm, data)`.
+    ///
+    /// Its own rule rather than a member of a shared `subtle` rule: `digest` is
+    /// the one `SubtleCrypto` method with no key, so it is the only one whose
+    /// whole input is the algorithm name and the bytes. The key-taking members
+    /// (`importKey`/`sign`/`verify`) stay declared in
+    /// [`crate::host_modules`], and giving them a rule here before they have a
+    /// lowering would make a blocker look like a mapping.
+    TsCryptoDigest,
+    /// TypeScript `TextEncoder.prototype.encode`.
+    TsTextEncoderEncode,
+    /// TypeScript `TextDecoder.prototype.decode`.
+    TsTextDecoderDecode,
+    /// TypeScript `Blob`/`File` data-property read (`size`, `type`, `name`,
+    /// `lastModified`).
+    TsBlobRead,
+    /// TypeScript `Blob`/`File` body reader (`text`, `arrayBuffer`, `bytes`).
+    ///
+    /// Separate from [`Self::TsBlobRead`] because a body reader is `async`: its
+    /// result is a `Promise`, so the call site awaits rather than reads.
+    TsBlobBodyRead,
+    /// TypeScript `Blob.prototype.slice`.
+    TsBlobSlice,
+    /// TypeScript `btoa` / `atob`: the two directions of the base64 codec.
+    ///
+    /// One rule for both, because they are one codec and one dependency, and
+    /// both are FALLIBLE in the same way — each throws the branded
+    /// `InvalidCharacterError` `DOMException` for input its direction cannot
+    /// represent (a code point above U+00FF for `btoa`, a malformed base64
+    /// string for `atob`).
+    TsBase64,
+    /// TypeScript typed-array data-property read (`length`, `byteLength`,
+    /// `byteOffset`, `buffer`).
+    TsTypedArrayRead,
+    /// TypeScript typed-array method (`subarray`, `slice`, `set`, `fill`).
+    ///
+    /// Separate from [`Self::TsTypedArrayRead`] because these are CALLS with a
+    /// range or a source operand, where the reads are members with none; the
+    /// dispatch sites are the call-handler chain and the member-read chain
+    /// respectively, and one rule spanning both would make each site accept
+    /// spellings the other owns.
+    TsTypedArrayMethod,
+    /// TypeScript `DataView` element accessor (`getInt16`, `setFloat64`, ...).
+    ///
+    /// Separate from [`Self::TsTypedArrayMethod`] because the element kind is
+    /// an argument of the CALL rather than a property of the receiver: the
+    /// accessor's own name carries the width, the signedness and the
+    /// direction, and the byte order is a parameter. One rule for all eighteen
+    /// spellings, resolved through
+    /// [`crate::data_view_accessor`](crate::data_view_accessor) rather than an
+    /// entry per name.
+    TsDataViewAccess,
+    /// TypeScript `Response` data-property read (`status`, `ok`, `statusText`,
+    /// `headers`, `bodyUsed`).
+    TsResponseRead,
+    /// TypeScript `Response` body reader (`text`).
+    ///
+    /// Separate from [`Self::TsResponseRead`] because a body reader is `async`
+    /// *and* single-use: it answers a `Promise` and consumes the body, so a
+    /// second call is the spec's `TypeError`. A data-property read does neither.
+    TsResponseBodyRead,
+    /// TypeScript `Response.prototype.clone`.
+    ///
+    /// Its own rule because the spec gives the clone an independent unread
+    /// body, which is not what any other `Response` member does.
+    TsResponseClone,
+    /// TypeScript `Request` data-property read (`url`, `method`, `headers`,
+    /// `bodyUsed`).
+    TsRequestRead,
+    /// TypeScript `Request` body reader (`text`).
+    TsRequestBodyRead,
+    /// TypeScript `Request.prototype.clone`.
+    TsRequestClone,
+    /// TypeScript `EventEmitter` listener registration (`on`, `addListener`,
+    /// `once`).
+    TsEventEmitterRegister,
+    /// TypeScript `EventEmitter` listener removal (`off`, `removeListener`,
+    /// `removeAllListeners`).
+    TsEventEmitterRemove,
+    /// TypeScript `EventEmitter.prototype.emit`.
+    TsEventEmitterEmit,
+    /// TypeScript `EventEmitter` read (`listenerCount`).
+    TsEventEmitterRead,
+    /// TypeScript `node:http` `createServer(handler)`.
+    TsHttpCreateServer,
+    /// TypeScript `node:http` `Server.prototype.listen`.
+    TsHttpServerListen,
+    /// TypeScript `node:http` `Server.prototype.close`.
+    TsHttpServerClose,
+    /// TypeScript `node:http` `Server.prototype.address`.
+    TsHttpServerAddress,
+    /// TypeScript `node:http` `ServerResponse` header access (`setHeader`,
+    /// `getHeader`).
+    TsServerResponseHeader,
+    /// TypeScript `node:http` `ServerResponse.prototype.writeHead`.
+    TsServerResponseWriteHead,
+    /// TypeScript `node:http` `ServerResponse.prototype.write`.
+    TsServerResponseWrite,
+    /// TypeScript `node:http` `ServerResponse.prototype.end`.
+    TsServerResponseEnd,
     /// Python `json.dumps(value)`.
     PyJsonDumps,
     /// Python `json.loads(text)`.
@@ -186,9 +323,46 @@ pub enum RuleId {
 }
 
 impl RuleId {
+    /// Return the `node:http` source spelling this rule models, when any.
+    ///
+    /// One place for the whole module, read by both
+    /// [`Self::backend_dependency`] and [`Self::source_api`]: every
+    /// `node:http` rule reaches the same generated hyper server, so "is this
+    /// one of them" and "what is it called" are the same question asked twice.
+    /// Keeping them together is also what stops a new server rule from being
+    /// added to one list and forgotten in the other.
+    #[must_use]
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "the question is membership of one module, so everything outside it is one answer"
+    )]
+    pub const fn node_http_source_api(self) -> Option<&'static str> {
+        match self {
+            Self::TsHttpCreateServer => Some("http.createServer"),
+            Self::TsHttpServerListen => Some("http.Server.listen"),
+            Self::TsHttpServerClose => Some("http.Server.close"),
+            Self::TsHttpServerAddress => Some("http.Server.address"),
+            Self::TsServerResponseHeader => Some("ServerResponse header access"),
+            Self::TsServerResponseWriteHead => Some("ServerResponse.writeHead"),
+            Self::TsServerResponseWrite => Some("ServerResponse.write"),
+            Self::TsServerResponseEnd => Some("ServerResponse.end"),
+            _ => None,
+        }
+    }
+
     /// Return the backend dependency required by this rule, when any.
     #[must_use]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "a one-arm-per-rule registry: splitting it would put half the table somewhere else"
+    )]
     pub const fn backend_dependency(self) -> Option<BackendDependency> {
+        // Reported from every server rule rather than from `createServer`
+        // alone, so a crate that receives a server from elsewhere and only
+        // calls `listen` on it still gets the manifest entry.
+        if self.node_http_source_api().is_some() {
+            return Some(BackendDependency::Hyper);
+        }
         match self {
             Self::TsJsonStringify | Self::TsJsonParse | Self::PyJsonDumps | Self::PyJsonLoads => {
                 Some(BackendDependency::SerdeJson)
@@ -200,13 +374,39 @@ impl RuleId {
             | Self::PyRandomRandom
             | Self::PyRandomRandInt
             | Self::PyRandomChoice => Some(BackendDependency::Rand),
+            Self::TsCryptoRandomUuid => Some(BackendDependency::Uuid),
+            Self::TsCryptoGetRandomValues => Some(BackendDependency::GetRandom),
+            Self::TsCryptoDigest => Some(BackendDependency::Sha),
             Self::TsFetch | Self::PyRequestsGet => Some(BackendDependency::Reqwest),
             Self::TsDateNow
             | Self::TsDateToIsoString
             | Self::PyDateTimeNow
             | Self::PyDateTimeFromTimestamp => Some(BackendDependency::Chrono),
-            Self::TsUrlField | Self::PyUrlparseField => Some(BackendDependency::Url),
-            Self::TsStructuredClone
+            // `URLSearchParams` serializes and parses through
+            // `url::form_urlencoded`, which the `url` crate already carries.
+            Self::TsUrlField
+            | Self::PyUrlparseField
+            | Self::TsUrlSearchParamsRead
+            | Self::TsUrlSearchParamsMutation
+            | Self::TsUrlSearchParamsProjection
+            | Self::TsUrlSearchParamsToString
+            // A `FormData` body arrives as `multipart/form-data` OR as
+            // `application/x-www-form-urlencoded`, and the second form is
+            // parsed by the same `url::form_urlencoded` the params type uses.
+            | Self::TsFormDataRead
+            | Self::TsFormDataMutation
+            | Self::TsFormDataProjection
+            // `new Request(input)` answers the WHATWG-SERIALIZED url
+            // (`https://a.test` reads back as `https://a.test/`), which is
+            // `url::Url`'s own serialization rather than the input string.
+            | Self::TsRequestRead => Some(BackendDependency::Url),
+            Self::TsBase64 => Some(BackendDependency::Base64),
+            // The two `AbortSignal` statics need no crate: the signal record and
+            // its timer both come from the generated runtime, and `timeout`'s
+            // timer is the one the crate already carries for `setTimeout`.
+            Self::TsAbortSignalAbort
+            | Self::TsAbortSignalTimeout
+            | Self::TsStructuredClone
             | Self::TsObjectBox
             | Self::TsPromiseStatic
             | Self::TsPrimitiveCast
@@ -224,13 +424,70 @@ impl RuleId {
             | Self::TsMapProjection
             | Self::TsSetHas
             | Self::TsSetMutation
-            | Self::TsSetProjection => None,
+            | Self::TsSetProjection
+            // `SmeltHeaders` is a generated runtime type with no external crate
+            // behind it: WHATWG header semantics (case folding, comma-joined
+            // reads, the `Set-Cookie` carve-out) are the implementation, so
+            // there is nothing to depend on.
+            | Self::TsHeadersGet
+            | Self::TsHeadersHas
+            | Self::TsHeadersMutation
+            // The text codecs are `String::as_bytes` and
+            // `String::from_utf8_lossy`: UTF-8 is Rust's own string encoding,
+            // so the whole `TextEncoder`/`TextDecoder` surface the spec fixes at
+            // UTF-8 needs no crate behind it.
+            | Self::TsTextEncoderEncode
+            | Self::TsTextDecoderDecode
+            // `SmeltBlob` is immutable bytes plus a MIME string; nothing in it
+            // needs a crate.
+            | Self::TsBlobRead
+            | Self::TsBlobBodyRead
+            | Self::TsBlobSlice
+            // The concrete typed-array family is a shared `Vec<u8>` with an
+            // element kind: the whole surface is byte arithmetic in the
+            // generated prelude, so nothing behind it is an external crate.
+            | Self::TsTypedArrayRead
+            | Self::TsTypedArrayMethod
+            | Self::TsDataViewAccess
+            | Self::TsHeadersProjection
+            // `Response` is a generated concrete type: a status line, a
+            // `SmeltHeaders`, and a buffered `SmeltBody`. Nothing in that needs
+            // a crate, so it adds no backend dependency (`fetch` returning one
+            // is what pulls in reqwest, under its own rule).
+            | Self::TsResponseRead
+            | Self::TsResponseBodyRead
+            | Self::TsResponseClone
+            | Self::TsRequestBodyRead
+            | Self::TsRequestClone
+            // The emitter is a generated list of erased callbacks; nothing in
+            // it needs a crate.
+            | Self::TsEventEmitterRegister
+            | Self::TsEventEmitterRemove
+            | Self::TsEventEmitterEmit
+            | Self::TsEventEmitterRead
+            // Answered above, before the match; repeated here only because the
+            // match must stay exhaustive.
+            | Self::TsHttpCreateServer
+            | Self::TsHttpServerListen
+            | Self::TsHttpServerClose
+            | Self::TsHttpServerAddress
+            | Self::TsServerResponseHeader
+            | Self::TsServerResponseWriteHead
+            | Self::TsServerResponseWrite
+            | Self::TsServerResponseEnd => None,
         }
     }
 
     /// Return a concise source API name for diagnostics.
     #[must_use]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "a one-arm-per-rule registry: splitting it would put half the table somewhere else"
+    )]
     pub const fn source_api(self) -> &'static str {
+        if let Some(name) = self.node_http_source_api() {
+            return name;
+        }
         match self {
             Self::TsJsonStringify => "JSON.stringify",
             Self::TsJsonParse => "JSON.parse",
@@ -259,6 +516,41 @@ impl RuleId {
             Self::TsSetHas => "Set.has",
             Self::TsSetMutation => "Set mutation method",
             Self::TsSetProjection => "Set projection method",
+            Self::TsHeadersGet => "Headers.get",
+            Self::TsHeadersHas => "Headers.has",
+            Self::TsHeadersMutation => "Headers mutation method",
+            Self::TsHeadersProjection => "Headers projection method",
+            Self::TsUrlSearchParamsRead => "URLSearchParams read method",
+            Self::TsUrlSearchParamsMutation => "URLSearchParams mutation method",
+            Self::TsUrlSearchParamsProjection => "URLSearchParams projection method",
+            Self::TsUrlSearchParamsToString => "URLSearchParams.toString",
+            Self::TsFormDataRead => "FormData read method",
+            Self::TsFormDataMutation => "FormData mutation method",
+            Self::TsFormDataProjection => "FormData projection method",
+            Self::TsAbortSignalAbort => "AbortSignal.abort",
+            Self::TsAbortSignalTimeout => "AbortSignal.timeout",
+            Self::TsCryptoRandomUuid => "crypto.randomUUID",
+            Self::TsCryptoGetRandomValues => "crypto.getRandomValues",
+            Self::TsCryptoDigest => "crypto.subtle.digest",
+            Self::TsTextEncoderEncode => "TextEncoder.encode",
+            Self::TsTextDecoderDecode => "TextDecoder.decode",
+            Self::TsBlobRead => "Blob property read",
+            Self::TsBlobBodyRead => "Blob body reader",
+            Self::TsBlobSlice => "Blob.slice",
+            Self::TsBase64 => "btoa / atob",
+            Self::TsTypedArrayRead => "typed-array data-property read",
+            Self::TsTypedArrayMethod => "typed-array method",
+            Self::TsDataViewAccess => "DataView element accessor",
+            Self::TsResponseRead => "Response property read",
+            Self::TsResponseBodyRead => "Response body reader",
+            Self::TsResponseClone => "Response.clone",
+            Self::TsRequestRead => "Request property read",
+            Self::TsRequestBodyRead => "Request body reader",
+            Self::TsRequestClone => "Request.clone",
+            Self::TsEventEmitterRegister => "EventEmitter listener registration",
+            Self::TsEventEmitterRemove => "EventEmitter listener removal",
+            Self::TsEventEmitterEmit => "EventEmitter.emit",
+            Self::TsEventEmitterRead => "EventEmitter read",
             Self::PyJsonDumps => "json.dumps",
             Self::PyJsonLoads => "json.loads",
             Self::PyReSearch => "re.search",
@@ -271,6 +563,16 @@ impl RuleId {
             Self::PyDateTimeNow => "datetime.datetime.now",
             Self::PyDateTimeFromTimestamp => "datetime.datetime.fromtimestamp",
             Self::PyUrlparseField => "urllib.parse.urlparse field access",
+            // Answered above, before the match, by `node_http_source_api`;
+            // repeated here only because the match must stay exhaustive.
+            Self::TsHttpCreateServer
+            | Self::TsHttpServerListen
+            | Self::TsHttpServerClose
+            | Self::TsHttpServerAddress
+            | Self::TsServerResponseHeader
+            | Self::TsServerResponseWriteHead
+            | Self::TsServerResponseWrite
+            | Self::TsServerResponseEnd => "node:http server",
         }
     }
 }

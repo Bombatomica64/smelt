@@ -1,0 +1,41 @@
+module examples/typescript/end-to-end/80_optional_chain_union_and_throw/input.ts (ModuleId(0))
+  body BodyId(4)
+  items
+    class Registry fields [Hidden #seen: Dict<String, Bool>] constructor Some(ItemId(3)) methods [ItemId(1), ItemId(2)] implements []
+    fn fill owner Module
+  exprs
+    #0: String = "no receiver: "
+    #1: None = undefined
+    #2: String = "a"
+    #3: fn(Optional<Registry>, String) -> String = @0(fill)
+    #4: String = call #3(#1, #2)
+    #5: String = Add #0, #4
+    #6: None = @5(console_log)
+    #7: None = call #6(#5)
+    #8: String = "receiver: "
+    #9: Registry = new Registry()
+    #10: String = "a"
+    #11: fn(Optional<Registry>, String) -> String = @0(fill)
+    #12: String = call #11(#9, #10)
+    #13: String = Add #8, #12
+    #14: None = @6(console_log)
+    #15: None = call #14(#13)
+  stmts
+    s0: #7
+    s1: #15
+
+interned types
+  t0 = Registry
+  t1 = None
+  t2 = Optional<Registry>
+  t3 = String
+  t4 = fn(Optional<Registry>, String) -> String
+  t5 = Bool
+  t6 = Dict<String, Bool>
+  t7 = Unknown
+  t8 = Dict<String, Unknown>
+  t9 = fn(String, Bool) -> None
+  t10 = Optional<fn(String, Bool) -> None>
+  t11 = Optional<None>
+  t12 = fn(String) -> String
+  t13 = fn(Optional<Registry>, String) -> String

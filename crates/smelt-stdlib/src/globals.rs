@@ -40,6 +40,63 @@ pub const NODE_PROFILE_VERSION: &str = "20.0.0";
 /// The `process.version` spelling of [`NODE_PROFILE_VERSION`] (`v`-prefixed).
 pub const NODE_PROFILE_VERSION_STRING: &str = "v20.0.0";
 
+/// A global that is an OBJECT rather than a constructor or a function.
+///
+/// These are the namespace objects: their members are reached as
+/// `Math.max(..)`, `JSON.parse(..)`, `crypto.subtle.digest(..)`, and the
+/// namespace itself is a value with no call behaviour of its own. That makes
+/// three answers true of every one of them, whatever Smelt models of their
+/// members: `typeof ns` is `"object"`, `Boolean(ns)` is `true`, and
+/// `ns === undefined` is `false`.
+///
+/// The distinction from [`is_javascript_global_builtin`] is deliberate: that
+/// list also holds CONSTRUCTORS (`Array`, `Map`, `Uint8Array`) and plain
+/// functions (`parseInt`), whose `typeof` is `"function"`. Only the entries
+/// here are objects.
+pub struct GlobalNamespace {
+    /// The global's source spelling.
+    pub name: &'static str,
+    /// Members of this namespace that are themselves namespace OBJECTS.
+    ///
+    /// `crypto.subtle` is the only one in the profile today, and it is the
+    /// reason this field exists: Hono's `createHash` guards on
+    /// `crypto && crypto.subtle` before calling `crypto.subtle.digest(..)`, so
+    /// the member read has to be a present object for the guarded call — the
+    /// one Smelt models — to be reached at all.
+    pub namespace_members: &'static [&'static str],
+}
+
+/// The global namespace objects the profile models.
+///
+/// `console` and `process` are namespace objects too, but they already have
+/// dedicated value models (`node_process_value_expression` and the console
+/// builtins) whose members answer more than presence, so they are deliberately
+/// not routed through the generic namespace value.
+pub const GLOBAL_NAMESPACES: &[GlobalNamespace] = &[
+    GlobalNamespace { name: "Math", namespace_members: &[] },
+    GlobalNamespace { name: "JSON", namespace_members: &[] },
+    GlobalNamespace { name: "Reflect", namespace_members: &[] },
+    GlobalNamespace { name: "Atomics", namespace_members: &[] },
+    GlobalNamespace { name: "Intl", namespace_members: &[] },
+    GlobalNamespace { name: "crypto", namespace_members: &["subtle"] },
+];
+
+/// Look up a global namespace object by its source spelling.
+#[must_use]
+pub fn global_namespace(name: &str) -> Option<&'static GlobalNamespace> {
+    GLOBAL_NAMESPACES
+        .iter()
+        .find(|namespace| namespace.name == name)
+}
+
+/// Returns whether `member` of the global namespace `name` is itself a
+/// namespace object (`crypto.subtle`).
+#[must_use]
+pub fn global_namespace_member_is_namespace(name: &str, member: &str) -> bool {
+    global_namespace(name)
+        .is_some_and(|namespace| namespace.namespace_members.contains(&member))
+}
+
 /// Returns whether `name` is one of the modeled ECMAScript `Error` constructors.
 #[must_use]
 pub fn is_error_class_name(name: &str) -> bool {
@@ -76,6 +133,7 @@ pub fn is_javascript_global_builtin(name: &str) -> bool {
         | "TextEncoder" | "TextDecoder" | "URL" | "URLSearchParams" | "Blob"
         | "File" | "FormData" | "Headers" | "Request" | "Response" | "Buffer"
         | "AbortController" | "AbortSignal" | "Event" | "EventTarget"
+        | "crypto"
     )
 }
 
@@ -110,7 +168,29 @@ pub enum GlobalPresence {
 /// set explicit means everything else recognized is derived as present, instead
 /// of maintaining a parallel hand-written "present" list that could drift from
 /// the recognition registry.
-const NON_DOM_ABSENT_GLOBALS: &[&str] = &["window", "self", "document"];
+const NON_DOM_ABSENT_GLOBALS: &[&str] = &[
+    "window",
+    "self",
+    "document",
+    // The DOM `EventTarget` surface hung off the global object. Node exposes
+    // none of these three at global scope, and they are one surface: a set with
+    // only `addEventListener` in it would answer `"dispatchEvent" in globalThis`
+    // with `Unknown` for a name that is absent for exactly the same reason.
+    "addEventListener",
+    "removeEventListener",
+    "dispatchEvent",
+];
+
+/// Whether the non-DOM profile declares `name` absent from the global object.
+///
+/// Reading or calling such a name is not a Smelt gap and not an erasable no-op:
+/// it is a program that *runs* and throws `ReferenceError: name is not defined`,
+/// exactly as Node does. Lowering it to a throw is what keeps the call path and
+/// the [`global_member_presence`] feature-probe path answering consistently.
+#[must_use]
+pub fn global_is_absent(name: &str) -> bool {
+    NON_DOM_ABSENT_GLOBALS.contains(&name)
+}
 
 /// Classify a candidate global member name for the non-DOM Node-compatible profile.
 ///
@@ -118,9 +198,13 @@ const NON_DOM_ABSENT_GLOBALS: &[&str] = &["window", "self", "document"];
 /// lowers — [`is_javascript_global_builtin`] plus the absent-in-non-DOM denylist —
 /// rather than a separate literal "present" list, so the compile-time answer to
 /// `"X" in globalThis` cannot drift from what Smelt can lower. Per the plan,
-/// `structuredClone` and `crypto` are *not* answered `Present` here: they are
+/// `structuredClone` and `fetch` are *not* answered `Present` here: they are
 /// runtime functions whose probes may only fold once a deterministic runtime
 /// implementation exists, so they stay [`Unknown`](GlobalPresence::Unknown).
+/// `crypto` left that list when the `WebCrypto` surface landed — the OBJECT is
+/// unconditionally there in the target profile, which is all `"crypto" in
+/// globalThis` asks; whether a particular member of it is modeled is a
+/// different question, answered by [`crate::host_modules`].
 #[must_use]
 pub fn global_member_presence(name: &str) -> GlobalPresence {
     if NON_DOM_ABSENT_GLOBALS.contains(&name) {
@@ -128,7 +212,7 @@ pub fn global_member_presence(name: &str) -> GlobalPresence {
     }
     // Runtime-capability functions are gated on real deterministic runtime
     // support landing (plan section 7); until then their probe must not fold.
-    if matches!(name, "structuredClone" | "crypto" | "fetch") {
+    if matches!(name, "structuredClone" | "fetch") {
         return GlobalPresence::Unknown;
     }
     if is_javascript_global_builtin(name) {
@@ -169,15 +253,31 @@ mod tests {
     /// DOM-only globals are absent so `"X" in globalThis` folds false.
     #[test]
     fn dom_only_globals_are_absent() {
-        for name in ["window", "self", "document"] {
+        for name in [
+            "window",
+            "self",
+            "document",
+            "addEventListener",
+            "removeEventListener",
+            "dispatchEvent",
+        ] {
             assert_eq!(global_member_presence(name), GlobalPresence::Absent, "{name}");
+            assert!(global_is_absent(name), "{name} should report absent");
+        }
+    }
+
+    /// A global that exists in the profile is not reported absent.
+    #[test]
+    fn present_globals_are_not_absent() {
+        for name in ["Map", "Set", "Promise", "process", "globalThis"] {
+            assert!(!global_is_absent(name), "{name} should not report absent");
         }
     }
 
     /// Unrecognized names and runtime-gated capabilities stay unknown.
     #[test]
     fn unmodeled_members_are_unknown() {
-        for name in ["DocumentFragment", "__feature", "structuredClone", "crypto"] {
+        for name in ["DocumentFragment", "__feature", "structuredClone", "fetch"] {
             assert_eq!(global_member_presence(name), GlobalPresence::Unknown, "{name}");
         }
     }

@@ -201,12 +201,14 @@ mod tests {
     #[test]
     fn permissive_mode_yields_a_named_skip_notice() -> Result<(), String> {
         let notice = prerequisite_outcome(false, "guest_source_is_valid_javascript", "node")?;
-        assert!(
-            notice.contains("SKIP")
-                && notice.contains("guest_source_is_valid_javascript")
-                && notice.contains("node"),
-            "skip notice must name the test and the prerequisite, got: {notice}"
-        );
+        if !(notice.contains("SKIP")
+            && notice.contains("guest_source_is_valid_javascript")
+            && notice.contains("node"))
+        {
+            return Err(format!(
+                "skip notice must name the test and the prerequisite, got: {notice}"
+            ));
+        }
         Ok(())
     }
 
@@ -216,12 +218,14 @@ mod tests {
         let Err(failure) = prerequisite_outcome(true, "sandboxed_guest_runs", "bwrap") else {
             return Err(format!("{REQUIRE_SANDBOX_ENV} must forbid skipping"));
         };
-        assert!(
-            failure.contains("bwrap")
-                && failure.contains("sandboxed_guest_runs")
-                && failure.contains(REQUIRE_SANDBOX_ENV),
-            "failure must name the test, the prerequisite, and the override, got: {failure}"
-        );
+        if !(failure.contains("bwrap")
+            && failure.contains("sandboxed_guest_runs")
+            && failure.contains(REQUIRE_SANDBOX_ENV))
+        {
+            return Err(format!(
+                "failure must name the test, the prerequisite, and the override, got: {failure}"
+            ));
+        }
         Ok(())
     }
 

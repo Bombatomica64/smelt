@@ -161,13 +161,14 @@ impl FunctionEmitter<'_> {
                 "list-to-set destination must be set of the list item type",
             ));
         }
-        // Collect into whichever container the destination `Set` uses: a plain
-        // `HashSet` for value-equality primitives, or `SmeltJsSet` (SameValueZero
-        // membership, insertion order) for `f64`, unions, generics, and
-        // object-like elements. Both dedup on `FromIterator`, matching JS
-        // `new Set(array)`.
+        // Collect into whichever container the destination `Set` uses:
+        // `SmeltPrimSet` (Rust equality, hash index) for value-equality
+        // primitives, or `SmeltJsSet` (SameValueZero membership) for `f64`,
+        // unions, generics, and object-like elements. Both are
+        // insertion-ordered and both dedup on `FromIterator`, so
+        // `new Set(array)` keeps first-appearance order as JS requires.
         let container = if self.type_is_hash_set_key_safe(set_item_ty) {
-            "::std::collections::HashSet<_>"
+            "SmeltPrimSet<_>"
         } else {
             "SmeltJsSet<_>"
         };

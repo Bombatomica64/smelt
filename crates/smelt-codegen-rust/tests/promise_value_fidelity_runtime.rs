@@ -107,9 +107,21 @@ fn run_fixture(source: &str, crate_name: &str) {
     let target_dir = root.join("target");
     std::fs::create_dir_all(&crate_dir).expect("create crate dir");
     std::fs::create_dir_all(&target_dir).expect("create target dir");
-    emit_program(source, crate_name, &crate_dir);
-    run_generated_tests(&crate_dir, &target_dir);
-    drop(std::fs::remove_dir_all(&root));
+    let outcome = std::panic::catch_unwind(|| {
+        emit_program(source, crate_name, &crate_dir);
+        run_generated_tests(&crate_dir, &target_dir);
+    });
+    // The scratch root holds a whole nested cargo target directory, so it is
+    // removed on the FAILURE path too: leaving one behind per failing case is
+    // what fills `/tmp`, and an ENOSPC inside a later nested build reads as a
+    // failing assertion rather than as a full disk.
+    // `SMELT_KEEP_RUNTIME_SCRATCH=1` keeps it for a debugging session.
+    if std::env::var_os("SMELT_KEEP_RUNTIME_SCRATCH").is_none() {
+        drop(std::fs::remove_dir_all(&root));
+    }
+    if let Err(payload) = outcome {
+        std::panic::resume_unwind(payload);
+    }
 }
 
 #[test]
@@ -333,4 +345,108 @@ test("an eager prefix does not advance the virtual clock", async () => {
 });
 "#;
     run_fixture(source, "smelt_promise_value_adapter_schedule");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_typed_catch_handler_receives_the_thrown_value() {
+    // `catch` on a STATICALLY typed promise. Two rules, both value-shaped:
+    //
+    // 1. the promise `catch` answers settles with the HANDLER's value, so
+    //    `await p.catch(() => 'fallback')` is the fallback and not the output
+    //    type's default (which for `string` is the empty string);
+    // 2. the handler receives the thrown VALUE, not the rejection's message
+    //    text, so `error instanceof Error` holds and `error.message` is the
+    //    message rather than the whole stringification.
+    //
+    // A rejection reason is a genuine dynamic boundary — JavaScript rejects
+    // with any value, and the handler's own annotation cannot narrow what the
+    // runtime actually threw — so a handler that takes a parameter reaches its
+    // reason through the tagged runtime value. That is why this case is here
+    // and not in the examples corpus, whose invariant is zero avoidable
+    // erasure; the parameterless half of the same fixture stays in
+    // `examples/typescript/end-to-end/85_promise_continuations`.
+    let source = r#"
+import { test, expect } from "vitest";
+
+async function work(kind: string): Promise<string> {
+  if (kind === "bad") {
+    throw new Error("failed:" + kind);
+  }
+  return "ok:" + kind;
+}
+
+test("the handler sees the thrown Error itself", async () => {
+  const recovered = await work("bad").catch((error: unknown) =>
+    error instanceof Error ? "typed:" + error.message : "typed:other"
+  );
+  expect(recovered).toBe("typed:failed:bad");
+});
+
+test("a resolved promise never reaches the handler", async () => {
+  const untouched = await work("kept").catch((error: unknown) =>
+    error instanceof Error ? "typed:" + error.message : "typed:other"
+  );
+  expect(untouched).toBe("ok:kept");
+});
+"#;
+    run_fixture(source, "smelt_promise_value_typed_catch_handler");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn continuations_on_an_erased_promise_run_and_answer_their_handler() {
+    // A promise that arrives ERASED: the result of calling a value whose type
+    // the crate lost, which is what a generic `TFunction extends () => any`
+    // parameter is. Its `then`/`catch` members were read through the DYNAMIC
+    // field path, which answered `undefined`, so the continuation silently
+    // vanished and the chain's value became the destination type's default.
+    // That is H66, and radash's `guard` is the shape in the wild.
+    //
+    // `catch` also has to RECOVER — the promise it answers settles with the
+    // handler's value — and it has to hand the handler the thrown VALUE, not
+    // the rejection's message text, so `error instanceof Error` holds.
+    //
+    // The receiver here is source-level `unknown`/`any`, so the path is erased
+    // by construction and cannot be written with a concrete type, a generated
+    // union, or a scoped generic: the whole point of the family is that the
+    // crate does not know what the value is until it inspects it at runtime.
+    // That is why it lives in this executing tier rather than in the examples
+    // corpus, whose invariant is zero avoidable erasure;
+    // `examples/typescript/end-to-end/85_promise_continuations` keeps the TYPED
+    // half of the same fixture.
+    let source = r#"
+import { test, expect } from "vitest";
+
+async function work(kind: string): Promise<string> {
+  if (kind === "bad") {
+    throw new Error("failed:" + kind);
+  }
+  return "ok:" + kind;
+}
+
+function erase(value: unknown): unknown {
+  return value;
+}
+
+test("an erased `then` runs its handler and answers its value", async () => {
+  const mapped = await (erase(work("good")) as any).then(
+    (value: unknown) => String(value) + "/erased"
+  );
+  expect(String(mapped)).toBe("ok:good/erased");
+});
+
+test("an erased `catch` recovers with the handler's value", async () => {
+  const caught = await (erase(work("bad")) as any).catch((error: unknown) =>
+    error instanceof Error ? "erased:" + error.message : "erased:other"
+  );
+  expect(String(caught)).toBe("erased:failed:bad");
+});
+
+test("an erased `catch` over a resolved promise does not run", async () => {
+  const kept = await (erase(work("spared")) as any).catch(() => "not reached");
+  expect(String(kept)).toBe("ok:spared");
+});
+"#;
+    run_fixture(source, "smelt_promise_value_erased_continuations");
 }

@@ -11,11 +11,13 @@ pub mod deps;
 pub mod diagnostics;
 pub mod fields;
 pub mod globals;
+pub mod host_modules;
 pub mod host_object;
 pub mod js_regex;
 pub mod recognition;
 pub mod rules;
 pub mod runtime_symbols;
+pub mod symbol_keys;
 pub mod well_known_symbols;
 
 pub use builtin_members::{
@@ -23,20 +25,28 @@ pub use builtin_members::{
 };
 pub use category::DiagnosticCategory;
 pub use classes::{
-    MATCH_CLASS_NAME, MATCH_GROUPS_CLASS_NAME, StdlibClass, TYPED_ARRAY_CLASS_NAMES,
+    MATCH_CLASS_NAME, MATCH_GROUPS_CLASS_NAME, StdlibClass,
+    TYPED_ARRAY_CLASS_NAMES,
     is_typed_array_class_name, typescript_stdlib_class,
 };
 pub use deps::BackendDependency;
 pub use diagnostics::{StdlibDiagnostic, UnsupportedForm};
 pub use fields::{FieldRule, typescript_field_rule};
 pub use globals::{
-    ERROR_CLASS_NAMES, GlobalPresence, NODE_PROFILE_VERSION, NODE_PROFILE_VERSION_STRING,
-    global_member_presence, is_error_class_name, is_javascript_global_builtin,
+    ERROR_CLASS_NAMES, GLOBAL_NAMESPACES, GlobalNamespace, GlobalPresence, NODE_PROFILE_VERSION,
+    NODE_PROFILE_VERSION_STRING, global_is_absent, global_member_presence, global_namespace,
+    global_namespace_member_is_namespace, is_error_class_name, is_javascript_global_builtin,
+};
+pub use host_modules::{
+    HOST_MODULES, HostExport, HostExportKind, HostModule, HostSurface, host_module,
+    host_module_dependencies, host_module_export, host_value_blocker, is_host_module,
+    unmodeled_package_use_blocks,
 };
 pub use host_object::{
     ByteBufferRole, HOST_OBJECTS, HostObject, TypedArrayElement, byte_buffer_host_objects,
-    byte_buffer_role, host_object_by_class, host_object_marker, host_object_markers,
-    typed_array_element, typed_array_host_objects,
+    byte_buffer_role, data_view_accessor, host_object_by_class, host_object_marker,
+    host_object_markers,
+    reflectively_constructible, typed_array_element, typed_array_host_objects,
 };
 pub use recognition::{
     CallRecognition, MethodRecognition, TYPESCRIPT_CALLS, TYPESCRIPT_METHODS,

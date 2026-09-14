@@ -71,6 +71,267 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower either an inline arrow callback or a local closure callback value.
+    /// Lower a callback argument that NAMES its callable: a local, an item, a
+    /// recognized global builtin, an imported predicate, or an inlined local
+    /// callback literal.
+    ///
+    /// Extracted from [`Self::callback_argument`] so the identical ladder can
+    /// serve a name written under a type assertion. It takes the name and span
+    /// rather than the AST node for exactly that reason: `xs.filter(Boolean as
+    /// any)` and `xs.filter(Boolean)` must select the same callback, and only
+    /// the second reached this ladder before.
+    fn callback_identifier_argument(
+        &mut self,
+        name: &str,
+        span_start: u32,
+        span_end: u32,
+        expected_param_tys: &[smelt_hir::TypeId],
+        context: &'static str,
+        body: &mut Body,
+    ) -> Result<ClosureCallback, SmeltError> {
+        if let Some(local) = self.scope.lookup(name) {
+            let local_ty = Self::local_ty(body, local);
+            if let Some(Type::Function(function)) = self.ctx.krate.types.get(local_ty).cloned()
+            {
+                let expr = self.identifier_expression(
+                    name,
+                    span_start,
+                    span_end,
+                    body,
+                )?;
+                return Ok(ClosureCallback {
+                    expr,
+                    return_ty: function.return_ty,
+                });
+            }
+        }
+        if let Some(item) = self.items.get(name).copied() {
+            let span = self.span(span_start, span_end);
+            let Item::Function(function) = self.item_ref(item) else {
+                return Err(SmeltError::unsupported(
+                    span,
+                    format!("{context} callback item `{name}` is not a function"),
+                ));
+            };
+            // JavaScript adapts callback arity at the call site: an item
+            // declaring fewer parameters than the receiver supplies (down
+            // to zero, e.g. `values.map(stubTrue)`) ignores the extra
+            // arguments, and one declaring more (e.g. `xs.map(orderBy)`
+            // with a four-parameter `orderBy`) receives `undefined` for the
+            // unsupplied optional tail. Wrap the item capped at the
+            // receiver's supplied arity so the generated closure matches
+            // what the callback caller actually passes.
+            let return_ty = function.return_ty;
+            let expr = self.item_function_closure_expression_with_max_params(
+                item,
+                expected_param_tys.len(),
+                span_start,
+                span_end,
+                body,
+            )?;
+            return Ok(ClosureCallback { expr, return_ty });
+        }
+        // The global `Object` function passed as a callback
+        // (`xs.map(Object)`) boxes each element into its wrapper object.
+        // Smelt does not model wrapper objects separately from their
+        // primitive values — a boxed string coerces back to the same
+        // string everywhere it is used — so the conversion is the identity
+        // on the receiver's element type. Lowering it as a typed identity
+        // closure keeps the mapped list's concrete element type instead of
+        // erasing it.
+        if name == "Object"
+            && !self.builtin_call_identifier_is_shadowed("Object")
+        {
+            let span = self.span(span_start, span_end);
+            let param_ty = expected_param_tys
+                .first()
+                .copied()
+                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+            let expr = self.builtin_unary_closure_expression(
+                param_ty,
+                param_ty,
+                span,
+                body,
+                |value_expr| ExprKind::TypeAssert { value: value_expr },
+            );
+            return Ok(ClosureCallback {
+                expr,
+                return_ty: param_ty,
+            });
+        }
+        // Recognized global builtin *functions* passed as callbacks
+        // (`xs.map(Number)`, `xs.filter(Boolean)`, `xs.map(parseInt)`).
+        // Lower them to the same concrete single-argument closures used in
+        // ordinary value position so the array method runs the builtin's
+        // real behavior instead of a placeholder.
+        if let Some(expr) = self.builtin_function_value_expression(
+            name,
+            span_start,
+            span_end,
+            body,
+        ) {
+            let return_ty = self.closure_value_return_ty(expr, body);
+            return Ok(ClosureCallback { expr, return_ty });
+        }
+        // Imported es-toolkit/lodash predicates whose bodies are opaque here
+        // but whose `(value) => bool` shape is known. These are not builtins,
+        // so they are gated on being a value import.
+        if matches!(
+            name,
+            "isEmpty" | "isArray" | "isString" | "isObject" | "trim"
+        ) && self.imports.is_value(name)
+        {
+            let param_ty = expected_param_tys
+                .first()
+                .copied()
+                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+            let return_ty = self.ctx.krate.types.intern(Type::Bool);
+            let function_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+                params: vec![param_ty],
+                rest: None,
+                required_params: None,
+                mutable_params: Vec::new(),
+                return_ty,
+                is_async: false,
+                may_throw: false,
+            }));
+            let expr = body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::None),
+                ty: function_ty,
+                span: self.span(span_start, span_end),
+            });
+            return Ok(ClosureCallback { expr, return_ty });
+        }
+        if self.is_opaque_callback_value(name) {
+            // The callback names an imported or forward-declared callable
+            // whose body is opaque here. Lower it like an opaque member
+            // callback: a closure that calls the value with the receiver's
+            // element arguments. This matches how a direct call to the same
+            // value lowers, and lets array methods accept named-local
+            // callbacks instead of requiring an inline arrow.
+            let callback = self.opaque_member_callback(expected_param_tys);
+            let return_ty = callback.ty;
+            let expr = self.callback_expr_to_closure(
+                &callback,
+                expected_param_tys,
+                self.span(span_start, span_end),
+                body,
+            )?;
+            return Ok(ClosureCallback { expr, return_ty });
+        }
+        if !self.scope.is_bound(name) {
+            return Err(SmeltError::unsupported(
+                self.span(span_start, span_end),
+                format!("{context} local callback `{name}` is not in scope"),
+            ));
+        }
+        let Some(callback) = self.scope.callback(name).cloned() else {
+            // The name is a local holding a value but is not an inlined
+            // callback literal. If its (possibly erased) type is a callable
+            // surface — `any`/`unknown`, a type parameter, or a union that
+            // includes a function — call it through a wrapper closure that
+            // captures the local and forwards the receiver's element
+            // arguments, the same way a direct `fn(...)` call would lower.
+            let local = self.scope.lookup(name)
+                .expect("local checked present above");
+            let local_ty = Self::local_ty(body, local);
+            if self.callback_local_value_is_callable_surface(local_ty) {
+                let callback = self.opaque_local_callback(local, local_ty, expected_param_tys);
+                let return_ty = callback.ty;
+                let expr = self.callback_expr_to_closure(
+                    &callback,
+                    expected_param_tys,
+                    self.span(span_start, span_end),
+                    body,
+                )?;
+                return Ok(ClosureCallback { expr, return_ty });
+            }
+            return Err(SmeltError::unsupported(
+                self.span(span_start, span_end),
+                format!("{context} local callback `{name}` is not defined"),
+            ));
+        };
+        // A local callback declaring fewer parameters than the receiver
+        // supplies (including zero) is valid JavaScript — the extra
+        // arguments are simply ignored — so only reject the shape the
+        // compact callback IR cannot express: a body that references more
+        // parameters than the receiver will ever pass.
+        if callback.params.len() > expected_param_tys.len() {
+            return Err(SmeltError::unsupported(
+                self.span(span_start, span_end),
+                format!("{context} local callback parameter count is not supported"),
+            ));
+        }
+        for (actual, expected) in callback.params.iter().zip(expected_param_tys) {
+            if actual != expected {
+                return Err(SmeltError::unsupported(
+                    self.span(span_start, span_end),
+                    format!("{context} local callback parameter type does not match receiver"),
+                ));
+            }
+        }
+        if callback.callback.ty != callback.return_ty {
+            return Err(SmeltError::unsupported(
+                self.span(span_start, span_end),
+                format!("{context} local callback return type is inconsistent"),
+            ));
+        }
+        let expr = self.callback_expr_to_closure_with_return_ty(
+            callback.return_ty,
+            &callback.callback,
+            &callback.params,
+            callback.rest.map(|rest| rest.index),
+            callback.required_params,
+            self.span(span_start, span_end),
+            body,
+        )?;
+        Ok(ClosureCallback {
+            expr,
+            return_ty: callback.return_ty,
+        })
+    }
+
+    /// Peel type assertions off a callback argument that is otherwise a bare
+    /// name.
+    ///
+    /// `as`, `satisfies`, `!` and parentheses make a type-level claim about a
+    /// value; none of them changes WHICH function a callback names, so callback
+    /// selection has to see through them. Hono spells its truthiness filter
+    /// `res.filter<string>(Boolean as any)` (`src/utils/html.ts`), which
+    /// reported "array callback methods currently require arrow function
+    /// callbacks" while the identical `res.filter(Boolean)` lowered to the real
+    /// builtin. Returns the name and its span, or `None` when the argument is
+    /// not an assertion around a plain identifier.
+    fn callback_argument_asserted_identifier<'src>(
+        argument: &'src Argument<'src>,
+    ) -> Option<(&'src str, u32, u32)> {
+        fn peel<'src>(expression: &'src Expression<'src>) -> Option<(&'src str, u32, u32)> {
+            match expression {
+                Expression::Identifier(identifier) => Some((
+                    identifier.name.as_str(),
+                    identifier.span.start,
+                    identifier.span.end,
+                )),
+                Expression::TSAsExpression(cast) => peel(&cast.expression),
+                Expression::TSSatisfiesExpression(cast) => peel(&cast.expression),
+                Expression::TSTypeAssertion(cast) => peel(&cast.expression),
+                Expression::TSNonNullExpression(cast) => peel(&cast.expression),
+                Expression::ParenthesizedExpression(parenthesized) => {
+                    peel(&parenthesized.expression)
+                }
+                _ => None,
+            }
+        }
+        match argument {
+            Argument::TSAsExpression(cast) => peel(&cast.expression),
+            Argument::TSSatisfiesExpression(cast) => peel(&cast.expression),
+            Argument::TSTypeAssertion(cast) => peel(&cast.expression),
+            Argument::TSNonNullExpression(cast) => peel(&cast.expression),
+            Argument::ParenthesizedExpression(parenthesized) => peel(&parenthesized.expression),
+            _ => None,
+        }
+    }
+
     pub(in crate::lowering) fn callback_argument(
         &mut self,
         argument: &Argument<'_>,
@@ -79,215 +340,29 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<ClosureCallback, SmeltError> {
         if let Argument::Identifier(identifier) = argument {
-            if let Some(local) = self.scope.lookup(identifier.name.as_str()) {
-                let local_ty = Self::local_ty(body, local);
-                if let Some(Type::Function(function)) = self.ctx.krate.types.get(local_ty).cloned()
-                {
-                    let expr = self.identifier_expression(
-                        identifier.name.as_str(),
-                        identifier.span.start,
-                        identifier.span.end,
-                        body,
-                    )?;
-                    return Ok(ClosureCallback {
-                        expr,
-                        return_ty: function.return_ty,
-                    });
-                }
-            }
-            if let Some(item) = self.items.get(identifier.name.as_str()).copied() {
-                let span = self.span(identifier.span.start, identifier.span.end);
-                let Item::Function(function) = self.item_ref(item) else {
-                    return Err(SmeltError::unsupported(
-                        span,
-                        format!(
-                            "{context} callback item `{}` is not a function",
-                            identifier.name
-                        ),
-                    ));
-                };
-                // JavaScript adapts callback arity at the call site: an item
-                // declaring fewer parameters than the receiver supplies (down
-                // to zero, e.g. `values.map(stubTrue)`) ignores the extra
-                // arguments, and one declaring more (e.g. `xs.map(orderBy)`
-                // with a four-parameter `orderBy`) receives `undefined` for the
-                // unsupplied optional tail. Wrap the item capped at the
-                // receiver's supplied arity so the generated closure matches
-                // what the callback caller actually passes.
-                let return_ty = function.return_ty;
-                let expr = self.item_function_closure_expression_with_max_params(
-                    item,
-                    expected_param_tys.len(),
-                    identifier.span.start,
-                    identifier.span.end,
-                    body,
-                )?;
-                return Ok(ClosureCallback { expr, return_ty });
-            }
-            // The global `Object` function passed as a callback
-            // (`xs.map(Object)`) boxes each element into its wrapper object.
-            // Smelt does not model wrapper objects separately from their
-            // primitive values — a boxed string coerces back to the same
-            // string everywhere it is used — so the conversion is the identity
-            // on the receiver's element type. Lowering it as a typed identity
-            // closure keeps the mapped list's concrete element type instead of
-            // erasing it.
-            if identifier.name == "Object"
-                && !self.builtin_call_identifier_is_shadowed("Object")
-            {
-                let span = self.span(identifier.span.start, identifier.span.end);
-                let param_ty = expected_param_tys
-                    .first()
-                    .copied()
-                    .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
-                let expr = self.builtin_unary_closure_expression(
-                    param_ty,
-                    param_ty,
-                    span,
-                    body,
-                    |value_expr| ExprKind::TypeAssert { value: value_expr },
-                );
-                return Ok(ClosureCallback {
-                    expr,
-                    return_ty: param_ty,
-                });
-            }
-            // Recognized global builtin *functions* passed as callbacks
-            // (`xs.map(Number)`, `xs.filter(Boolean)`, `xs.map(parseInt)`).
-            // Lower them to the same concrete single-argument closures used in
-            // ordinary value position so the array method runs the builtin's
-            // real behavior instead of a placeholder.
-            if let Some(expr) = self.builtin_function_value_expression(
+            return self.callback_identifier_argument(
                 identifier.name.as_str(),
                 identifier.span.start,
                 identifier.span.end,
+                expected_param_tys,
+                context,
                 body,
-            ) {
-                let return_ty = self.closure_value_return_ty(expr, body);
-                return Ok(ClosureCallback { expr, return_ty });
-            }
-            // Imported es-toolkit/lodash predicates whose bodies are opaque here
-            // but whose `(value) => bool` shape is known. These are not builtins,
-            // so they are gated on being a value import.
-            if matches!(
-                identifier.name.as_str(),
-                "isEmpty" | "isArray" | "isString" | "isObject" | "trim"
-            ) && self.imports.is_value(identifier.name.as_str())
-            {
-                let param_ty = expected_param_tys
-                    .first()
-                    .copied()
-                    .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
-                let return_ty = self.ctx.krate.types.intern(Type::Bool);
-                let function_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
-                    params: vec![param_ty],
-                    rest: None,
-                    required_params: None,
-                    mutable_params: Vec::new(),
-                    return_ty,
-                    is_async: false,
-                    may_throw: false,
-                }));
-                let expr = body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::None),
-                    ty: function_ty,
-                    span: self.span(identifier.span.start, identifier.span.end),
-                });
-                return Ok(ClosureCallback { expr, return_ty });
-            }
-            if self.is_opaque_callback_value(identifier.name.as_str()) {
-                // The callback names an imported or forward-declared callable
-                // whose body is opaque here. Lower it like an opaque member
-                // callback: a closure that calls the value with the receiver's
-                // element arguments. This matches how a direct call to the same
-                // value lowers, and lets array methods accept named-local
-                // callbacks instead of requiring an inline arrow.
-                let callback = self.opaque_member_callback(expected_param_tys);
-                let return_ty = callback.ty;
-                let expr = self.callback_expr_to_closure(
-                    &callback,
-                    expected_param_tys,
-                    self.span(identifier.span.start, identifier.span.end),
-                    body,
-                )?;
-                return Ok(ClosureCallback { expr, return_ty });
-            }
-            if !self.scope.is_bound(identifier.name.as_str()) {
-                return Err(SmeltError::unsupported(
-                    self.span(identifier.span.start, identifier.span.end),
-                    format!(
-                        "{context} local callback `{}` is not in scope",
-                        identifier.name
-                    ),
-                ));
-            }
-            let Some(callback) = self.scope.callback(identifier.name.as_str()).cloned() else {
-                // The name is a local holding a value but is not an inlined
-                // callback literal. If its (possibly erased) type is a callable
-                // surface — `any`/`unknown`, a type parameter, or a union that
-                // includes a function — call it through a wrapper closure that
-                // captures the local and forwards the receiver's element
-                // arguments, the same way a direct `fn(...)` call would lower.
-                let local = self.scope.lookup(identifier.name.as_str())
-                    .expect("local checked present above");
-                let local_ty = Self::local_ty(body, local);
-                if self.callback_local_value_is_callable_surface(local_ty) {
-                    let callback = self.opaque_local_callback(local, local_ty, expected_param_tys);
-                    let return_ty = callback.ty;
-                    let expr = self.callback_expr_to_closure(
-                        &callback,
-                        expected_param_tys,
-                        self.span(identifier.span.start, identifier.span.end),
-                        body,
-                    )?;
-                    return Ok(ClosureCallback { expr, return_ty });
-                }
-                return Err(SmeltError::unsupported(
-                    self.span(identifier.span.start, identifier.span.end),
-                    format!(
-                        "{context} local callback `{}` is not defined",
-                        identifier.name
-                    ),
-                ));
-            };
-            // A local callback declaring fewer parameters than the receiver
-            // supplies (including zero) is valid JavaScript — the extra
-            // arguments are simply ignored — so only reject the shape the
-            // compact callback IR cannot express: a body that references more
-            // parameters than the receiver will ever pass.
-            if callback.params.len() > expected_param_tys.len() {
-                return Err(SmeltError::unsupported(
-                    self.span(identifier.span.start, identifier.span.end),
-                    format!("{context} local callback parameter count is not supported"),
-                ));
-            }
-            for (actual, expected) in callback.params.iter().zip(expected_param_tys) {
-                if actual != expected {
-                    return Err(SmeltError::unsupported(
-                        self.span(identifier.span.start, identifier.span.end),
-                        format!("{context} local callback parameter type does not match receiver"),
-                    ));
-                }
-            }
-            if callback.callback.ty != callback.return_ty {
-                return Err(SmeltError::unsupported(
-                    self.span(identifier.span.start, identifier.span.end),
-                    format!("{context} local callback return type is inconsistent"),
-                ));
-            }
-            let expr = self.callback_expr_to_closure_with_return_ty(
-                callback.return_ty,
-                &callback.callback,
-                &callback.params,
-                callback.rest.map(|rest| rest.index),
-                callback.required_params,
-                self.span(identifier.span.start, identifier.span.end),
+            );
+        }
+        // A type assertion around a bare name is transparent to callback
+        // selection: `xs.filter(Boolean as any)` names the same builtin as
+        // `xs.filter(Boolean)`.
+        if let Some((name, span_start, span_end)) =
+            Self::callback_argument_asserted_identifier(argument)
+        {
+            return self.callback_identifier_argument(
+                name,
+                span_start,
+                span_end,
+                expected_param_tys,
+                context,
                 body,
-            )?;
-            return Ok(ClosureCallback {
-                expr,
-                return_ty: callback.return_ty,
-            });
+            );
         }
         if !matches!(
             argument,
@@ -1432,6 +1507,21 @@ impl ModuleBuilder<'_> {
                     let return_ty = match member.property.name.as_str() {
                         "toString" => self.ctx.krate.types.intern(Type::String),
                         "match" => self.ctx.krate.types.intern(Type::Bool),
+                        // `String.prototype.startsWith`/`endsWith` and both
+                        // `includes` overloads (string and array) answer a
+                        // boolean in every JavaScript spelling, so the callback
+                        // expression is typed `Bool` here rather than falling to
+                        // `Unknown`. Without it the predicate's result slot was
+                        // erased while the expression that filled it stayed a
+                        // Rust `bool` -- the generated crate did not compile
+                        // (E0308) -- and once that was repaired at the boundary
+                        // the value still made an erase-then-truthiness round
+                        // trip for something statically boolean. This is the
+                        // upstream half; `callback_method_call_to_body_expr`
+                        // types the nodes themselves.
+                        "startsWith" | "endsWith" | "includes" => {
+                            self.ctx.krate.types.intern(Type::Bool)
+                        }
                         "has"
                             if matches!(
                                 self.ctx.krate.types.get(receiver.ty),
@@ -1830,15 +1920,35 @@ impl ModuleBuilder<'_> {
                 let right = self.callback_expression(&assign.right, params, body)?;
                 let value = match assign.operator {
                     AssignmentOperator::Assign => right,
+                    // The same set the statement path lowers (see
+                    // `assignment_parts` in `stmt/assignments.rs`): every
+                    // compound operator that has a `BinOp` is `x = x op y`, and
+                    // a captured accumulator inside a callback (`hash |= ...`)
+                    // must not be a blocker where the same line outside one is
+                    // not.
                     AssignmentOperator::Addition
                     | AssignmentOperator::Subtraction
                     | AssignmentOperator::Multiplication
-                    | AssignmentOperator::Division => {
+                    | AssignmentOperator::Division
+                    | AssignmentOperator::Remainder
+                    | AssignmentOperator::ShiftLeft
+                    | AssignmentOperator::ShiftRight
+                    | AssignmentOperator::ShiftRightZeroFill
+                    | AssignmentOperator::BitwiseAnd
+                    | AssignmentOperator::BitwiseOR
+                    | AssignmentOperator::BitwiseXOR => {
                         let op = match assign.operator {
                             AssignmentOperator::Addition => BinOp::Add,
                             AssignmentOperator::Subtraction => BinOp::Sub,
                             AssignmentOperator::Multiplication => BinOp::Mul,
                             AssignmentOperator::Division => BinOp::Div,
+                            AssignmentOperator::Remainder => BinOp::Rem,
+                            AssignmentOperator::ShiftLeft => BinOp::Shl,
+                            AssignmentOperator::ShiftRight => BinOp::Shr,
+                            AssignmentOperator::ShiftRightZeroFill => BinOp::UShr,
+                            AssignmentOperator::BitwiseAnd => BinOp::BitAnd,
+                            AssignmentOperator::BitwiseOR => BinOp::BitOr,
+                            AssignmentOperator::BitwiseXOR => BinOp::BitXor,
                             other => {
                                 return Err(SmeltError::unsupported(
                                     self.span(assign.span.start, assign.span.end),

@@ -94,9 +94,13 @@ export function readToString(value: Record<string, unknown>): unknown {
         ),
         "each prototype member needs one canonical identity"
     );
+    // A modeled host record's own members are resolved first (round 18's
+    // `smelt_host_method`), which answers `None` for anything that is not one —
+    // so the ORDER this pins is unchanged: own key, then `__smelt_proto:`, then
+    // the prototype table.
     assert!(
         source.contains(
-            "SmeltUnknown::Object(map) => match smelt_get_object_field(map, field) { SmeltUnknown::Undefined => smelt_object_prototype_member(field)"
+            "SmeltUnknown::Object(map) => match smelt_host_method(map, field).unwrap_or_else(|| smelt_get_object_field(map, field)) { SmeltUnknown::Undefined => smelt_object_prototype_member(field)"
         ),
         "the prototype table must be consulted only after the own/proto lookups miss"
     );

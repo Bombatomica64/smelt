@@ -121,7 +121,8 @@ use smelt_hir::{Type, TypeId};
 
 use self::summary::{ArgumentEffect, CallSummaries, FunctionSummary};
 use crate::{
-    Callee, ClosureId, FuncId, LocalId, LocalKind, Mir, MirClosure, MirFunction, Operand, Place,
+    Callee, ClosureId, FuncId, GlobalProjection, LocalId, LocalKind, Mir, MirClosure,
+    MirFunction, Operand, Place,
     Rvalue, Statement, Terminator,
 };
 
@@ -712,6 +713,19 @@ impl<'a> BodyWalk<'a> {
                 self.escape_operand(index, EscapeReason::UnmodelledUse);
                 self.visit_rvalue(value, None);
             }
+            // A write into a module-level mutable global publishes the value
+            // into a `thread_local!` cell that outlives every function body, so
+            // the assigned value escapes unconditionally. There is no base
+            // LOCAL to mark as a mutated receiver -- the receiver is the cell.
+            Statement::AssignPlace {
+                place: Place::Global { projection, .. },
+                value,
+            } => {
+                if let GlobalProjection::Index { index, .. } = projection {
+                    self.escape_operand(index, EscapeReason::UnmodelledUse);
+                }
+                self.visit_rvalue(value, None);
+            }
             // The fused entry update reaches into a dict through `base`, binds
             // the entry to `current` (a handle on a value that also lives
             // inside the container), and stores `value` back into it.
@@ -938,6 +952,9 @@ impl<'a> BodyWalk<'a> {
                 // A read through a projection also touches the base local, and
                 // reaching into a container through a list base is a plain read.
                 Some(Place::Field { base, .. } | Place::Index { base, .. }) => bases.push(*base),
+                // A global-rooted place is only ever an assignment target, so
+                // it names no local to record as a read.
+                Some(Place::Global { .. }) => {}
                 None => {}
             }
         });
@@ -1104,7 +1121,7 @@ const fn operand_place(operand: &Operand) -> Option<&Place> {
 const fn operand_local(operand: &Operand) -> Option<LocalId> {
     match operand_place(operand) {
         Some(Place::Local(local)) => Some(*local),
-        Some(Place::Field { .. } | Place::Index { .. }) | None => None,
+        Some(Place::Field { .. } | Place::Index { .. } | Place::Global { .. }) | None => None,
     }
 }
 

@@ -1,0 +1,7 @@
+expression subclass: a,b
+declared subclass: c
+generic: 1 7
+instanceof: yes
+typeof expression class: function
+typeof declared class: function
+typeof instance: object

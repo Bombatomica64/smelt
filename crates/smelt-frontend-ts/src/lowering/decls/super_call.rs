@@ -47,12 +47,28 @@ use smelt_hir::{
 /// carries an arbitrary thrown value, so it — and only it — stays
 /// [`Type::Unknown`].
 pub(in crate::lowering) const ERROR_MARKER_FIELDS: [ErrorMarkerField; 4] = [
-    ErrorMarkerField { name: "name", shape: ErrorMarkerShape::Text },
-    ErrorMarkerField { name: "message", shape: ErrorMarkerShape::Text },
+    ErrorMarkerField {
+        name: "name",
+        shape: ErrorMarkerShape::Text,
+        spec_default: ErrorSpecDefault::BaseName,
+    },
+    ErrorMarkerField {
+        name: "message",
+        shape: ErrorMarkerShape::Text,
+        spec_default: ErrorSpecDefault::EmptyText,
+    },
     // `stack?: string` in lib.d.ts: hosts may omit it, so the slot is an
     // optional string, matching what a `.stack` read already resolves to.
-    ErrorMarkerField { name: "stack", shape: ErrorMarkerShape::OptionalText },
-    ErrorMarkerField { name: "cause", shape: ErrorMarkerShape::Dynamic },
+    ErrorMarkerField {
+        name: "stack",
+        shape: ErrorMarkerShape::OptionalText,
+        spec_default: ErrorSpecDefault::EmptyText,
+    },
+    ErrorMarkerField {
+        name: "cause",
+        shape: ErrorMarkerShape::Dynamic,
+        spec_default: ErrorSpecDefault::None,
+    },
 ];
 
 /// One inherited `Error` instance slot and the shape it carries.
@@ -61,6 +77,27 @@ pub(in crate::lowering) struct ErrorMarkerField {
     pub(in crate::lowering) name: &'static str,
     /// The HIR shape the slot is declared with.
     pub(in crate::lowering) shape: ErrorMarkerShape,
+    /// What the spec writes into the slot when the constructor argument is
+    /// absent.
+    pub(in crate::lowering) spec_default: ErrorSpecDefault,
+}
+
+/// What an `Error` base writes into one slot when its argument is absent.
+///
+/// `new Error()` leaves `message` the EMPTY STRING, not `undefined`, and the
+/// same default answers the case where the argument is *supplied but optional*
+/// (`super(options?.message)`): the callee's spec defaults an absent argument,
+/// so the coercion into the required slot is a defaulting, not a narrowing
+/// assertion. Keeping the default in the slot table means the absent-argument
+/// path and the optional-argument path cannot disagree.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(in crate::lowering) enum ErrorSpecDefault {
+    /// The base constructor's own name (`Error.prototype.name`).
+    BaseName,
+    /// The empty string (`message`, `stack`).
+    EmptyText,
+    /// No default: an absent argument leaves the slot unwritten (`cause`).
+    None,
 }
 
 /// The HIR shape an inherited `Error` slot carries.
@@ -309,25 +346,7 @@ impl ModuleBuilder<'_> {
         span: Span,
         body: &mut Body,
     ) {
-        let string_ty = self.ctx.krate.types.intern(Type::String);
         let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
-        let name_value = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::String(base_name.to_owned())),
-            ty: string_ty,
-            span,
-        });
-        let message_value = arguments.first().copied().unwrap_or_else(|| {
-            body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::String(String::new())),
-                ty: string_ty,
-                span,
-            })
-        });
-        let stack_value = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::String(String::new())),
-            ty: string_ty,
-            span,
-        });
         let cause_value = arguments.get(1).copied().map(|options| {
             let field = self.ctx.krate.symbols.intern("cause");
             body.push_expr(Expr {
@@ -339,22 +358,31 @@ impl ModuleBuilder<'_> {
                 span,
             })
         });
-        // Positionally paired with `ERROR_MARKER_FIELDS`, so the slot a value is
-        // written to and the type that slot was declared with cannot drift.
-        let values = [
-            Some(name_value),
-            Some(message_value),
-            Some(stack_value),
+        // Positionally paired with `ERROR_MARKER_FIELDS`, so the slot an
+        // argument is written to and the type that slot was declared with
+        // cannot drift. `None` means the constructor supplied nothing for the
+        // slot, and the slot's own spec default (if it has one) answers it.
+        let supplied = [
+            None,
+            arguments.first().copied(),
+            None,
             cause_value,
         ];
-        for (marker, value) in ERROR_MARKER_FIELDS.into_iter().zip(values) {
-            let Some(value) = value else {
-                continue;
-            };
+        for (marker, supplied) in ERROR_MARKER_FIELDS.into_iter().zip(supplied) {
             let field = self.ctx.krate.symbols.intern(marker.name);
             let field_ty = self
                 .declared_class_field_ty(class_text, field)
                 .unwrap_or_else(|| self.error_marker_shape_ty(marker.shape));
+            let value = match supplied {
+                Some(value) => {
+                    self.error_slot_value(value, field_ty, marker.spec_default, base_name, span, body)
+                }
+                None => match self.error_spec_default_expr(marker.spec_default, base_name, span, body)
+                {
+                    Some(default) => default,
+                    None => continue,
+                },
+            };
             let receiver = body.push_expr(Expr {
                 kind: ExprKind::Local(this_local),
                 ty: class_ty,
@@ -370,6 +398,76 @@ impl ModuleBuilder<'_> {
             });
             body.push_stmt(Stmt::Assign { target, value });
         }
+    }
+
+    /// The value written into one `Error` slot for a supplied argument.
+    ///
+    /// A supplied argument whose own type is still OPTIONAL, written into a
+    /// slot that is not, is the `super(options?.message)` shape: the callee's
+    /// spec defaults an absent argument (`new Error(undefined).message` is
+    /// `""`), so the coercion is a defaulting and not a narrowing assertion.
+    /// Without the coalesce the assignment fell through to the emitter's
+    /// optional-to-required coercion, which asserts presence and panicked
+    /// ("optional value was absent after narrowing") for every `Error`
+    /// subclass forwarding an optional message.
+    ///
+    /// A slot with no spec default (`cause`) keeps the argument as-is: there is
+    /// nothing to default to, and its slot is erased anyway.
+    fn error_slot_value(
+        &mut self,
+        value: smelt_hir::ExprId,
+        field_ty: smelt_hir::TypeId,
+        spec_default: ErrorSpecDefault,
+        base_name: &str,
+        span: Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let value_ty = Self::expr_ty(body, value);
+        let value_is_optional = matches!(
+            self.ctx.krate.types.get(value_ty),
+            Some(Type::Optional(_))
+        );
+        let slot_is_optional = matches!(
+            self.ctx.krate.types.get(field_ty),
+            Some(Type::Optional(_))
+        );
+        if !value_is_optional || slot_is_optional {
+            return value;
+        }
+        let Some(fallback) = self.error_spec_default_expr(spec_default, base_name, span, body) else {
+            return value;
+        };
+        body.push_expr(Expr {
+            kind: ExprKind::OptionalCoalesce {
+                optional: value,
+                fallback,
+            },
+            ty: field_ty,
+            span,
+        })
+    }
+
+    /// Build the expression an `Error` slot's spec default writes.
+    ///
+    /// `None` for a slot the spec leaves unwritten when its argument is absent.
+    fn error_spec_default_expr(
+        &mut self,
+        spec_default: ErrorSpecDefault,
+        base_name: &str,
+        span: Span,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        let text = match spec_default {
+            ErrorSpecDefault::BaseName => base_name.to_owned(),
+            ErrorSpecDefault::EmptyText => String::new(),
+            ErrorSpecDefault::None => return None,
+        };
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        Some(body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String(text)),
+            ty: string_ty,
+            span,
+        }))
     }
 
     /// Intern the HIR type for an inherited `Error` slot's shape.

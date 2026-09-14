@@ -39,7 +39,7 @@ items: list[tuple[str, int]] = mapping.items()
     reason = "lowered math constants must preserve their exact literal values"
 )]
 fn math_numeric_functions_lower() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 import math
 value: float = 4.0
 root: float = math.sqrt(value)
@@ -63,7 +63,7 @@ ceiled: int = math.ceil(value)
 whole: int = math.trunc(value)
 finite: bool = math.isfinite(value)
 nan_value: bool = math.isnan(value)
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -183,12 +183,12 @@ picked: str = random.choice(values)
 
 #[test]
 fn builtin_min_max_lower() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 first: int = 1
 second: int = 2
 highest: int = max(first, second)
 lowest: int = min(first, second)
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -212,12 +212,12 @@ lowest: int = min(first, second)
 
 #[test]
 fn builtin_sum_lower() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 ints: list[int] = [1, 2]
 int_total: int = sum(ints)
 floats: list[float] = [1.0, 2.0]
 float_total: float = sum(floats)
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -295,11 +295,11 @@ missing: bool = "xyz" not in word
 
 #[test]
 fn builtin_all_any_lower() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 values: list[bool] = [True, False]
 all_values: bool = all(values)
 any_values: bool = any(values)
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -323,10 +323,10 @@ any_values: bool = any(values)
 
 #[test]
 fn builtin_sorted_lower() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 values: list[int] = [2, 1]
 ordered: list[int] = sorted(values)
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -348,11 +348,11 @@ ordered: list[int] = sorted(values)
 
 #[test]
 fn builtin_sorted_key_and_reverse_lower() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 bias: int = 10
 values: list[int] = [2, 1]
 ordered: list[int] = sorted(values, key=lambda value: value + bias, reverse=True)
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -381,11 +381,11 @@ ordered: list[int] = sorted(values, key=lambda value: value + bias, reverse=True
 
 #[test]
 fn list_sort_key_and_reverse_lower() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 bias: int = 10
 values: list[int] = [2, 1]
 ordered: None = values.sort(key=lambda value: value + bias, reverse=True)
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -415,11 +415,11 @@ ordered: None = values.sort(key=lambda value: value + bias, reverse=True)
 
 #[test]
 fn sorted_non_literal_reverse_is_rejected() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 flag: bool = True
 values: list[int] = [2, 1]
 ordered: list[int] = sorted(values, reverse=flag)
-"#);
+");
     let mut ctx = HirCtx::new();
     ensure(
         lower_module(source, &mut ctx).is_err(),
@@ -430,12 +430,12 @@ ordered: list[int] = sorted(values, reverse=flag)
 
 #[test]
 fn builtin_map_filter_lambda_callbacks_lower() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 factor: int = 2
 values: list[int] = [1, 2, 3]
 scaled: list[int] = list(map(lambda value: value * factor, values))
 filtered: list[int] = list(filter(lambda value: value > factor, values))
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -477,13 +477,13 @@ filtered: list[int] = list(filter(lambda value: value > factor, values))
 
 #[test]
 fn builtin_map_local_lambda_callback_lowers() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 from typing import Callable
 factor: int = 2
 values: list[int] = [1, 2, 3]
 scale: Callable[[int], int] = lambda value: value * factor
 scaled: list[int] = list(map(scale, values))
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -512,10 +512,10 @@ scaled: list[int] = list(map(scale, values))
 
 #[test]
 fn builtin_reversed_lower() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 values: list[int] = [1, 2]
 flipped: list[int] = reversed(values)
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -595,14 +595,14 @@ mixed: list[tuple[str, int]] = zip(lookup, items)
 
 #[test]
 fn range_builtin_lowers() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 first: list[int] = range(3)
 middle: list[int] = range(1, 4)
 stepped: list[int] = range(5, 1, -2)
 total: int = 0
 for value in range(3):
     total = total + value
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -686,11 +686,11 @@ for name in names:
 
 #[test]
 fn list_contains_comparison_lowers() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 values: list[int] = [1, 2, 3]
 has: bool = 2 in values
 missing: bool = 4 not in values
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -710,11 +710,11 @@ missing: bool = 4 not in values
 
 #[test]
 fn set_literal_and_contains_comparison_lowers() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 values: set[int] = {1, 2, 3}
 has: bool = 2 in values
 missing: bool = 4 not in values
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
