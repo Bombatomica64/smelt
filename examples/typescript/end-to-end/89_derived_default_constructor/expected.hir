@@ -1,0 +1,91 @@
+module examples/typescript/end-to-end/89_derived_default_constructor/input.ts (ModuleId(0))
+  body BodyId(9)
+  items
+    class Base fields [Public label: String] constructor Some(ItemId(1)) methods [ItemId(0)] implements []
+    class Derived fields [Public extra: Float] constructor Some(ItemId(3)) methods [] implements []
+    class Point fields [Public x: Float, Public y: Float] constructor Some(ItemId(5)) methods [ItemId(6)] implements []
+    class Point3 fields [Public z: Float] constructor Some(ItemId(8)) methods [] implements []
+    class Tagged fields [Public tag: String] constructor Some(ItemId(10)) methods [] implements []
+    class Labelled fields [Public seen: Bool] constructor Some(ItemId(12)) methods [] implements []
+    class Deeper fields [Public w: Float] constructor Some(ItemId(14)) methods [] implements []
+  locals
+    %0 const derived: Derived
+    %1 const point: Point3
+    %2 const deeper: Deeper
+  exprs
+    #0: Derived = new Derived()
+    #1: Derived = %0
+    #2: fn() -> String = #1.describe
+    #3: Derived = %0
+    #4: String = #3.describe()
+    #5: Derived = %0
+    #6: String = #5.label
+    #7: Derived = %0
+    #8: Float = #7.extra
+    #9: None = @16(console_log)
+    #10: None = call #9(#4, #6, #8)
+    #11: Float = 1.0
+    #12: Float = 2.0
+    #13: Point3 = new Point3(#11, #12)
+    #14: Point3 = %1
+    #15: fn() -> Float = #14.sum
+    #16: Point3 = %1
+    #17: Float = #16.sum()
+    #18: Point3 = %1
+    #19: Float = #18.x
+    #20: Point3 = %1
+    #21: Float = #20.y
+    #22: Point3 = %1
+    #23: Float = #22.z
+    #24: None = @17(console_log)
+    #25: None = call #24(#17, #19, #21, #23)
+    #26: Labelled = new Labelled()
+    #27: String = #26.tag
+    #28: String = "here"
+    #29: Labelled = new Labelled(#28)
+    #30: String = #29.tag
+    #31: Labelled = new Labelled()
+    #32: Bool = #31.seen
+    #33: None = @18(console_log)
+    #34: None = call #33(#27, #30, #32)
+    #35: Float = 5.0
+    #36: Float = 6.0
+    #37: Deeper = new Deeper(#35, #36)
+    #38: Deeper = %2
+    #39: Float = #38.x
+    #40: Deeper = %2
+    #41: Float = #40.y
+    #42: Deeper = %2
+    #43: Float = #42.z
+    #44: Deeper = %2
+    #45: Float = #44.w
+    #46: Deeper = %2
+    #47: fn() -> Float = #46.sum
+    #48: Deeper = %2
+    #49: Float = #48.sum()
+    #50: None = @19(console_log)
+    #51: None = call #50(#39, #41, #43, #45, #49)
+  stmts
+    s0: let %0: Derived = #0
+    s1: #10
+    s2: let %1: Point3 = #13
+    s3: #25
+    s4: #34
+    s5: let %2: Deeper = #37
+    s6: #51
+
+interned types
+  t0 = Derived
+  t1 = Float
+  t2 = Point3
+  t3 = Deeper
+  t4 = Base
+  t5 = String
+  t6 = None
+  t7 = Point
+  t8 = Tagged
+  t9 = Optional<String>
+  t10 = Labelled
+  t11 = Bool
+  t12 = fn() -> String
+  t13 = fn() -> Float

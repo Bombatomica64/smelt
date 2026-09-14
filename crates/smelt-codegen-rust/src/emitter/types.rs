@@ -761,7 +761,9 @@ impl FunctionEmitter<'_> {
                         "global" | "ignoreCase" | "ignore_case" | "multiline" | "sticky"
                         | "unicode" | "dotAll" | "dot_all" => self.type_id(Type::Bool),
                         "lastIndex" | "last_index" => self.type_id(Type::Float),
-                        _ => self.type_id(Type::Unknown),
+                        other => self.erased_fallback_ty(|| {
+                            format!("the read of `{other}` on a `RegExp`")
+                        }),
                     };
                 }
                 match self.mir.types.get(base_ty) {
@@ -771,7 +773,13 @@ impl FunctionEmitter<'_> {
                             return self.type_id(Type::Optional(*value));
                         }
                         let Some(fields) = self.structural_record_fields(*inner) else {
-                            return self.type_id(Type::Unknown);
+                            return self.erased_fallback_ty(|| {
+                                format!(
+                                    "the read of `{}` on the optional receiver `{}`, which has no record fields",
+                                    self.symbol_name(*field).unwrap_or("<unnamed>"),
+                                    self.blocker_type_text(*inner)
+                                )
+                            });
                         };
                         fields
                             .into_iter()
@@ -846,11 +854,23 @@ impl FunctionEmitter<'_> {
                             // type `T` (issue #84), not an erased `Unknown`.
                             None => match self.class_index_store_types(base_ty) {
                                 Some((_key_ty, value_ty)) => Ok(value_ty),
-                                None => self.type_id(Type::Unknown),
+                                None => self.erased_fallback_ty(|| {
+                                    format!(
+                                        "the read of `{}` on `{}`, which declares no such member",
+                                        self.symbol_name(*field).unwrap_or("<unnamed>"),
+                                        self.blocker_type_text(base_ty)
+                                    )
+                                }),
                             },
                         }
                     }
-                    _ => self.type_id(Type::Unknown),
+                    _ => self.erased_fallback_ty(|| {
+                        format!(
+                            "the read of `{}` on the receiver `{}`",
+                            self.symbol_name(*field).unwrap_or("<unnamed>"),
+                            self.blocker_type_text(base_ty)
+                        )
+                    }),
                 }
             }
             Place::Index { base, index, .. } => {
@@ -872,7 +892,12 @@ impl FunctionEmitter<'_> {
                                 self.type_id(Type::Optional(*item))
                             };
                         }
-                        self.type_id(Type::Unknown)
+                        self.erased_fallback_ty(|| {
+                            format!(
+                                "the indexed read on the optional receiver `{}`, which is not a list",
+                                self.blocker_type_text(*inner)
+                            )
+                        })
                     }
                     Some(Type::Dict(_, value) | Type::JsMap(_, value)) => Ok(*value),
                     Some(Type::String) => self.type_id(Type::String),
@@ -884,7 +909,12 @@ impl FunctionEmitter<'_> {
                             .copied()
                             .ok_or_else(|| EmitError::new("tuple index is out of bounds"))
                     }
-                    _ => self.type_id(Type::Unknown),
+                    _ => self.erased_fallback_ty(|| {
+                        format!(
+                            "the indexed read on the receiver `{}`",
+                            self.blocker_type_text(base_ty)
+                        )
+                    }),
                 }
             }
         }
@@ -930,6 +960,50 @@ impl FunctionEmitter<'_> {
             .map(TypeId)
     }
 
+    /// The erased type a `place_ty` fallback degrades to, named at the site.
+    ///
+    /// The `_ =>` arms of [`Self::place_ty`] answer "this read has no static
+    /// type", which the emitter spells as the erased carrier. Asking for it
+    /// through [`Self::type_id`] made that answer depend on something unrelated
+    /// to the read: a crate with no erased value anywhere has no `Type::Unknown`
+    /// entry at all, so the lookup failed with `type table does not contain
+    /// literal operand type Unknown at emitter/types.rs:<line>` — a blocker
+    /// naming a line of the COMPILER rather than the read in the user's program
+    /// (H14).
+    ///
+    /// The obvious repair is rejected on purpose: interning `Unknown` here would
+    /// flip `stdlib::needs_unknown_type` for the whole crate and emit the entire
+    /// erased prelude for a program that has no erased value, so a typing
+    /// fallback would change what every other decision in the crate answers.
+    ///
+    /// So the fallback DEGRADES AT THE SITE instead. When the crate already
+    /// interns the erased carrier the answer is exactly what it was, so every
+    /// existing emission is byte-identical; when it does not, the blocker names
+    /// the read — the receiver's rendered type and the member being read — and
+    /// `describe` is evaluated only on that failing path. The enclosing function
+    /// is attached by the emit driver's `with_site`.
+    fn erased_fallback_ty(
+        &self,
+        describe: impl FnOnce() -> String,
+    ) -> Result<TypeId, EmitError> {
+        self.find_type_id(&Type::Unknown).ok_or_else(|| {
+            EmitError::new(format!(
+                "cannot type {}: the read has no statically known type, and this crate interns no `unknown`, so there is no erased carrier to answer with",
+                describe()
+            ))
+        })
+    }
+
+    /// Renders a receiver's type for a blocker message, never failing itself.
+    ///
+    /// Used only on the error path of [`Self::erased_fallback_ty`], so a type
+    /// that cannot be rendered falls back to its debug shape rather than
+    /// replacing the blocker being reported with a second one.
+    fn blocker_type_text(&self, ty: TypeId) -> String {
+        self.type_text_with_impl_trait(ty, false)
+            .unwrap_or_else(|_err| format!("{:?}", self.mir.types.get(ty)))
+    }
+
     /// Resolve the result type of a field read on a synthetic match-result class.
     ///
     /// Mirrors the frontend `builtin_class_field_type` typing so `place_ty` and
@@ -953,7 +1027,9 @@ impl FunctionEmitter<'_> {
                 "groups" => self.match_groups_class_ty().ok_or_else(|| {
                     EmitError::new("match groups accessor class type is not interned")
                 }),
-                _ => self.type_id(Type::Unknown),
+                other => self.erased_fallback_ty(|| {
+                    format!("the read of `{other}` on a regular-expression match result")
+                }),
             },
         }
     }

@@ -1248,14 +1248,57 @@ const result = formatDate("ok");
     );
 }
 
+/// H69: an implicit derived constructor declares the BASE constructor's
+/// parameters, not one erased forwarded argument.
+///
+/// TypeScript types `new Derived(..)` against the base constructor's signature,
+/// so `constructor(...args) { super(...args) }` has a known arity here. The
+/// previous single `Option<SmeltUnknown>` parameter both dropped every argument
+/// past the first (E0061 at a two-argument call site) and left the base's
+/// parameter properties unrun, so `p.x` read `0`.
 #[test]
-fn emits_default_derived_class_constructor_with_optional_forwarded_arg() {
+fn emits_default_derived_class_constructor_with_the_base_constructors_parameters() {
+    let source = source_for(
+        r"
+class Point {
+  constructor(public x: number, public y: number) {}
+}
+class Point3 extends Point {
+  z: number = 3;
+}
+const p = new Point3(1, 2);
+",
+    );
+
+    assert!(source.contains("fn new(x: f64, y: f64) -> Self"), "{source}");
+    assert!(source.contains("Point3::new(1.0, 2.0)"), "{source}");
+    assert!(
+        !source.contains("_smelt_super_arg"),
+        "a reproducible base has a known arity, so nothing forwards through an erased slot:\n{source}"
+    );
+    // The forwarded `super(..)` is what makes the base's parameter properties
+    // run at all; without it the derived struct kept the field defaults.
+    assert!(source.contains("Point::new(x, y)"), "{source}");
+}
+
+/// The erased forwarded argument survives only where the base is NOT
+/// reproducible, and that is a genuine dynamic boundary.
+///
+/// A generic base, an abstract base and a host constructor each leave this
+/// lowering with no parameter list to copy — the base's arity and parameter
+/// types are not available to it — so no concrete type, generated union, or
+/// scoped generic can carry the forwarded argument, and the call-compatible
+/// erased slot is what keeps `new Subclass(x)` from becoming a blocker. This
+/// pins that the H69 rule did not widen to those bases.
+#[test]
+fn a_non_reproducible_base_keeps_the_erased_forwarded_constructor_argument() {
     let source = source_for(
         r#"
-class Base {}
-class Child extends Base {}
-const withArg = new Child("value");
-const withoutArg = new Child();
+class Box<T> {
+  constructor(public value: T) {}
+}
+class StringBox extends Box<string> {}
+const withArg = new StringBox("value");
 const ctor = withArg.constructor;
 "#,
     );
@@ -1265,11 +1308,7 @@ const ctor = withArg.constructor;
         "{source}"
     );
     assert!(
-        source.contains("Child::new(Some(SmeltUnknown::String(\"value\".into())))"),
-        "{source}"
-    );
-    assert!(
-        source.contains("Child::new(None::<SmeltUnknown>)"),
+        source.contains("StringBox::new(Some(SmeltUnknown::String(\"value\".into())))"),
         "{source}"
     );
     assert!(
@@ -14163,4 +14202,111 @@ export function build(label: string, flag: boolean): Triple | null {
         !source.contains("let smelt_list_items: Vec<String> = vec![label.clone()"),
         "the literal must not go through the homogeneous Vec fallback: {source}"
     );
+}
+
+/// H14: a `place_ty` fallback must degrade AT THE SITE, never by interning
+/// `Type::Unknown`.
+///
+/// The `_ =>` arms of `place_ty` answer "this read has no static type", which
+/// the emitter spells as the erased carrier. Asking for it through `type_id`
+/// made that answer depend on something unrelated to the read — a crate with no
+/// erased value has no `Type::Unknown` entry at all — so the blocker read
+/// `type table does not contain literal operand type Unknown at
+/// emitter/types.rs:<line>`, naming a line of the COMPILER rather than the read
+/// in the user's program. The obvious repair is rejected on purpose: interning
+/// `Unknown` there would flip `stdlib::needs_unknown_type` for the whole crate
+/// and emit the entire erased prelude for a program that has no erased value.
+///
+/// This is a SHAPE GUARD, not a reproduction: the shape recorded for H14 (a
+/// `200 | 404` literal union reaching a generic interface and a generic
+/// function) transpiles cleanly on this head, and four variations of it were
+/// tried without reaching a fallback. It is pinned so a future change that
+/// routes this shape into an unresolved field read gets a blocker naming the
+/// read, and so the "just intern `Unknown`" repair cannot land silently.
+#[test]
+fn a_literal_union_through_a_generic_interface_still_emits() {
+    let source = source_for(
+        r#"
+type Code = 200 | 404;
+
+interface Envelope<T> {
+  code: Code;
+  body: T;
+}
+
+function report<T>(row: Envelope<T>): string {
+  const code: Code = row.code;
+  return `${code}`;
+}
+
+const table: Envelope<string>[] = [
+  { code: 200, body: "ok" },
+  { code: 404, body: "missing" },
+];
+console.log(report(table[0]), report(table[1]));
+"#,
+    );
+
+    assert!(source.contains("fn report"), "{source}");
+    // The blocker this item is about names a compiler line rather than the
+    // program. It must never appear again, for any shape.
+    assert!(
+        !source.contains("type table does not contain literal operand type"),
+        "{source}"
+    );
+}
+
+/// `ConstructorParameters<C>` is the constructor position of `Parameters<F>`.
+///
+/// Both name the tuple of parameter types a callable is invoked with, and
+/// `typeof C` for a class already resolves to that class's CONSTRUCTOR function
+/// type, so the two spellings read the same field off the same
+/// `Type::Function`. Before this was modeled the name fell through to the
+/// ordinary type-reference path and produced a type that is neither a list, a
+/// tuple, nor erased — so a REST PARAMETER annotated with it blocked the whole
+/// build with `rest parameter type must resolve to an array type`, and the
+/// crate was never emitted. Hono's `src/client/types.ts` is exactly that shape.
+///
+/// A host constructor with no modeled signature keeps the honest "some
+/// arguments, shape unknown" answer of an erased array, which is what makes the
+/// annotation lower rather than block.
+#[test]
+fn constructor_parameters_lowers_like_parameters() {
+    let source = source_for(
+        r"
+class Point {
+  constructor(
+    public x: number,
+    public y: number,
+  ) {}
+}
+
+type Make = (...args: ConstructorParameters<typeof Point>) => Point;
+
+const make: Make = (x, y) => new Point(x, y);
+console.log(make(1, 2).x, make(3, 4).y);
+",
+    );
+
+    assert!(source.contains("Point::new("), "{source}");
+}
+
+/// The same annotation over a HOST constructor with no modeled signature must
+/// still lower, because that is the shape that actually blocked a real crate:
+/// the answer degrades to an erased array rather than to a type a rest
+/// parameter cannot be spelled with.
+#[test]
+fn constructor_parameters_of_an_unmodeled_host_constructor_lowers() {
+    let source = source_for(
+        r"
+type ClientRequestOptions = {
+  webSocket?: (...args: ConstructorParameters<typeof WebSocket>) => WebSocket;
+};
+
+const options: ClientRequestOptions = {};
+console.log(options.webSocket === undefined);
+",
+    );
+
+    assert!(source.contains("fn main"), "{source}");
 }

@@ -133,6 +133,20 @@ impl ModuleBuilder<'_> {
                     else {
                         return Err(fallback_error);
                     };
+                    // An arm that THROWS cannot live inside a ternary either, for
+                    // the same reason an arm that assigns a captured local
+                    // cannot: `CallbackExprKind::Throw` emits its
+                    // `Stmt::Throw` as a statement, which hoists out of the
+                    // guard and runs unconditionally. See
+                    // `Self::conditional_throw_fallback_error`.
+                    if Self::callback_expr_contains_throw(&then_expr)
+                        || Self::callback_expr_contains_throw(&else_expr)
+                    {
+                        return Err(Self::conditional_throw_fallback_error(self.span(
+                            if_stmt.span.start,
+                            if_stmt.span.end,
+                        )));
+                    }
                     let (then_expr, else_expr, ty) = self.callback_unify_conditional_exprs(
                         then_expr,
                         else_expr,
@@ -176,6 +190,14 @@ impl ModuleBuilder<'_> {
                                     "callback if guard mutates a captured local; needs closure-body lowering",
                                 ));
                             }
+                            // A guarded THROW hoists out of the ternary exactly
+                            // as a guarded capture assignment does.
+                            if Self::callback_expr_contains_throw(&side_effect) {
+                                return Err(Self::conditional_throw_fallback_error(self.span(
+                                    if_stmt.span.start,
+                                    if_stmt.span.end,
+                                )));
+                            }
                             let none_ty = self.ctx.krate.types.intern(Type::None);
                             let none_expr = CallbackExpr {
                                 kind: CallbackExprKind::Literal(Literal::None),
@@ -202,6 +224,18 @@ impl ModuleBuilder<'_> {
                         Err(error) => return Err(error),
                     };
                 let else_expr = self.callback_block_expression(rest, params, body)?;
+                // `if (c) { throw e } return v` is the shape H70 was found on:
+                // the guarded throw hoisted out of the ternary and the whole
+                // closure became an unconditional `throw`, losing the condition,
+                // the branch and the tail return. See
+                // `Self::conditional_throw_fallback_error`.
+                if Self::callback_expr_contains_throw(&then_expr)
+                    || Self::callback_expr_contains_throw(&else_expr)
+                {
+                    return Err(Self::conditional_throw_fallback_error(
+                        self.span(if_stmt.span.start, if_stmt.span.end),
+                    ));
+                }
                 let (then_expr, else_expr, ty) = self.callback_unify_conditional_exprs(
                     then_expr,
                     else_expr,
@@ -1671,6 +1705,35 @@ impl ModuleBuilder<'_> {
             ty: closure_ty,
             span,
         }))
+    }
+
+    /// The fallback-eligible error for a callback that throws from a
+    /// CONDITIONALLY evaluated position.
+    ///
+    /// [`CallbackExprKind::Throw`] is the one callback expression kind that
+    /// lowers to a body STATEMENT (`Stmt::Throw`) rather than to a value, so it
+    /// runs where it is *emitted*, not where its value is *used*. Inside a
+    /// ternary arm those two places differ: the statement hoists out of the
+    /// guard and the throw becomes unconditional.
+    /// `(e) => { if (shouldGuard(e)) { throw e } return undefined }` lowered to
+    /// a closure whose whole body was `throw e` — the condition, the branch and
+    /// the tail return all gone — so radash's `guard` rethrew every error it was
+    /// written to swallow, and the rethrow escaped the source's own
+    /// `try`/`catch` (H70, `blocker-logs/hono-h66-promise-continuations.md`).
+    ///
+    /// This is the same shape as the capture-assignment guard beside it, the
+    /// other kind that emits a statement, and it takes the same remedy: surface
+    /// a fallback-eligible error
+    /// ([`Self::should_fallback_to_closure_body_for_callback`]) so the whole
+    /// arrow retries through full closure-body lowering, which lowers the branch
+    /// natively with a real `switch` terminator. A throw in an UNCONDITIONALLY
+    /// evaluated position (a callback whose entire body is a `throw`) is still
+    /// modeled by the compact IR, so those emissions stay byte-identical.
+    fn conditional_throw_fallback_error(span: Span) -> SmeltError {
+        SmeltError::unsupported(
+            span,
+            "callback throws inside a conditional; needs closure-body lowering",
+        )
     }
 
     /// Returns whether a legacy callback expression contains a source throw.

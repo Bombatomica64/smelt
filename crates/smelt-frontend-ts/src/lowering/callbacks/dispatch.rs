@@ -758,6 +758,14 @@ impl ModuleBuilder<'_> {
             // branch, so retry there.
             || error.message
                 == "callback if guard mutates a captured local; needs closure-body lowering"
+            // A callback that throws from a conditionally-evaluated position
+            // (`if (c) { throw e } return v`, or `c && (() => { throw e })()`).
+            // `CallbackExprKind::Throw` emits a body STATEMENT, which hoists out
+            // of the guard and makes the throw unconditional — radash's `guard`
+            // rethrew every error it was supposed to swallow. Full closure-body
+            // lowering emits a real branch, so retry there (H70).
+            || error.message
+                == "callback throws inside a conditional; needs closure-body lowering"
             || error.message == "async callbacks need closure-body lowering"
             // A method/receiver call the compact callback dispatcher does not
             // model but the full method-call lowering does (e.g. `String.repeat`,
