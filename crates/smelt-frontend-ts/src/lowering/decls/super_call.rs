@@ -250,7 +250,7 @@ impl ModuleBuilder<'_> {
         clippy::too_many_arguments,
         reason = "one emit site threading the resolved base, the receiver, and the call span"
     )]
-    fn lower_declared_base_super_call(
+    pub(in crate::lowering) fn lower_declared_base_super_call(
         &mut self,
         base: smelt_hir::Symbol,
         base_name: &str,
@@ -572,7 +572,7 @@ impl ModuleBuilder<'_> {
     ///   base's type parameters: a constructed `Box<string>` carries a `String`
     ///   slot where the derived struct declares the erased one, so the field
     ///   moves would not type-check.
-    fn class_is_reproducible_base(&self, class_text: &str) -> bool {
+    pub(in crate::lowering) fn class_is_reproducible_base(&self, class_text: &str) -> bool {
         let Some(item) = self.classes.item(class_text) else {
             return false;
         };

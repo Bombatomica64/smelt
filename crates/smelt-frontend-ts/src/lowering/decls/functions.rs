@@ -21,6 +21,27 @@ use smelt_hir::{
     ParamSig, Pattern, Span, Stmt, Type, Visibility,
 };
 
+/// The base constructor an implicitly synthesized derived constructor forwards.
+///
+/// Produced by
+/// [`ModuleBuilder::reproducible_base_constructor_signature`](crate::lowering::ModuleBuilder::reproducible_base_constructor_signature)
+/// and consumed only by
+/// [`ModuleBuilder::synthesize_default_class_constructor`](crate::lowering::ModuleBuilder::synthesize_default_class_constructor).
+/// Everything here is owned so the caller can keep mutating the crate while it
+/// builds the forwarding body.
+struct ForwardedBaseConstructor {
+    /// The base class's interned name.
+    base: smelt_hir::Symbol,
+    /// The base class's source spelling, as the `super(...)` lowering wants it.
+    base_name: String,
+    /// The type arguments the `extends` clause applied to the base.
+    base_args: Vec<smelt_hir::TypeId>,
+    /// The base constructor's parameters, in order, as (name, type).
+    parameters: Vec<(smelt_hir::Symbol, smelt_hir::TypeId)>,
+    /// How many of those parameters are required, as the base declares it.
+    required_params: Option<usize>,
+}
+
 /// What a class field's initializer is lowered from.
 ///
 /// A declared field carries a source expression. A method reassigned through
@@ -2705,11 +2726,32 @@ impl ModuleBuilder<'_> {
 
     /// Synthesize the implicit constructor for a TypeScript class.
     ///
-    /// Base classes without an explicit constructor behave like `constructor() {}`.
-    /// Derived classes behave like `constructor(...args) { super(...args) }`, so
-    /// Smelt accepts one optional erased argument to keep Date-like subclass
-    /// construction call-compatible while the base constructor side effect remains
-    /// represented by the generated class storage.
+    /// A class with no base behaves like `constructor() {}` and takes no
+    /// parameters. A DERIVED class behaves like `constructor(...args) {
+    /// super(...args) }`, and `...args` is not open-ended: TypeScript types a
+    /// `new Derived(..)` call against the BASE constructor's signature, so the
+    /// parameters the implicit constructor forwards are exactly the base
+    /// constructor's own.
+    ///
+    /// So when the base is a source-declared class this lowering can reproduce
+    /// ([`Self::class_is_reproducible_base`]), the synthesized constructor
+    /// declares the base constructor's parameters by name and type and forwards
+    /// them through the same `super(...)` lowering an explicit
+    /// `constructor(..) { super(..) }` uses. That is what a hand-writing Rust
+    /// team would spell, and it is what makes `new Point3(1, 2)` over a
+    /// `class Point { constructor(public x: number, public y: number) {} }`
+    /// arrive at all: the previous single erased argument both dropped the
+    /// second argument (E0061 at the call site) and left the base's field
+    /// initializers and parameter properties unrun, so `p.x` read `0`.
+    ///
+    /// The single `Option<SmeltUnknown>` parameter survives only where the base
+    /// is NOT reproducible — a host/prelude constructor such as `Date`, an
+    /// abstract base, or a generic one — and there it is a real dynamic
+    /// boundary: the base's arity and parameter types are not available to this
+    /// lowering at all, so there is no concrete type, union, or scoped generic
+    /// that could carry the forwarded argument, and a call-compatible erased
+    /// slot is the only shape that keeps `new Subclass(x)` from becoming a
+    /// blocker. See `blocker-logs/hono-h68-class-expression-binding.md` (H69).
     pub(in crate::lowering) fn synthesize_default_class_constructor(
         &mut self,
         class_text: &str,
@@ -2730,7 +2772,55 @@ impl ModuleBuilder<'_> {
             span,
         });
         self.scope.bind("this".to_owned(), this_local);
-        let params = if has_base {
+        let forwarded = if has_base {
+            self.reproducible_base_constructor_signature(class_text)
+        } else {
+            None
+        };
+        let (params, required_params) = if let Some(forwarded) = forwarded {
+            // `constructor(...args) { super(...args) }`, spelled positionally:
+            // one local per base parameter, then the same `super(...)` lowering
+            // an explicit derived constructor uses, so the base's parameter
+            // defaults, field initializers, parameter properties and its own
+            // `super(...)` all run exactly once and in source order.
+            let mut params = Vec::new();
+            let mut arguments = Vec::new();
+            for parameter in &forwarded.parameters {
+                let local = body.push_local(LocalDecl {
+                    name: Some(parameter.0),
+                    ty: parameter.1,
+                    mutable: false,
+                    span,
+                });
+                body.params.push(local);
+                params.push(Param {
+                    name: parameter.0,
+                    local,
+                    ty: parameter.1,
+                    span,
+                });
+                arguments.push(body.push_expr(Expr {
+                    kind: ExprKind::Local(local),
+                    ty: parameter.1,
+                    span,
+                }));
+            }
+            // The forwarded `super(...)` runs BEFORE this class's own field
+            // initializers, exactly as JavaScript orders them.
+            self.lower_declared_base_super_call(
+                forwarded.base,
+                &forwarded.base_name,
+                forwarded.base_args,
+                &arguments,
+                this_local,
+                class_ty,
+                span,
+                &mut body,
+            );
+            (params, forwarded.required_params)
+        } else if has_base {
+            // A base this lowering cannot reproduce: see the doc comment for why
+            // the forwarded argument is a genuine dynamic boundary here.
             let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
             let arg_ty = self.ctx.krate.types.intern(Type::Optional(unknown_ty));
             let arg_symbol = self.ctx.krate.symbols.intern("_smelt_super_arg");
@@ -2741,14 +2831,17 @@ impl ModuleBuilder<'_> {
                 span,
             });
             body.params.push(arg_local);
-            vec![Param {
-                name: arg_symbol,
-                local: arg_local,
-                ty: arg_ty,
-                span,
-            }]
+            (
+                vec![Param {
+                    name: arg_symbol,
+                    local: arg_local,
+                    ty: arg_ty,
+                    span,
+                }],
+                Some(0),
+            )
         } else {
-            Vec::new()
+            (Vec::new(), None)
         };
         self.emit_class_field_initializers(this_local, class_ty, field_initializers, &mut body)?;
         self.scope.restore_bindings(saved_locals);
@@ -2762,13 +2855,67 @@ impl ModuleBuilder<'_> {
             type_params: Vec::new(),
             params,
             rest: None,
-            required_params: has_base.then_some(0),
+            required_params,
             return_ty: class_ty,
             is_async: false,
             is_test: false,
             body: Some(body_id),
             owner: FunctionOwner::Constructor { class: class_name },
         })))
+    }
+
+    /// Resolve the base constructor an implicit derived constructor forwards to.
+    ///
+    /// Returns `None` — leaving the caller on the erased single-argument shape —
+    /// whenever the base is not a source-declared class this lowering can
+    /// reproduce: an unresolved name, a host/prelude constructor (`Date`,
+    /// `Error` and friends), an abstract base, or a generic one. Those are
+    /// exactly the cases [`Self::class_is_reproducible_base`] and
+    /// [`super_call::is_error_like_base`] already separate for an EXPLICIT
+    /// `super(...)`, so the implicit constructor and the explicit one agree on
+    /// which bases they can run.
+    ///
+    /// The signature is read from the base class item's own constructor, which
+    /// is itself either a source constructor or a previously synthesized one, so
+    /// a chain of implicit constructors forwards the original parameters all the
+    /// way down without this helper walking the chain.
+    fn reproducible_base_constructor_signature(
+        &self,
+        class_text: &str,
+    ) -> Option<ForwardedBaseConstructor> {
+        let (base, base_args) = self.classes.base(class_text).cloned()?;
+        let base_name = self.ctx.krate.symbols.get(base).map(ToOwned::to_owned)?;
+        if super_call::is_error_like_base(&base_name) || !self.class_is_reproducible_base(&base_name)
+        {
+            return None;
+        }
+        let base_item = self.classes.item(&base_name)?;
+        let index = usize::try_from(base_item.0).unwrap_or(usize::MAX);
+        let Some(Item::Class(class)) = self.ctx.krate.items.get(index) else {
+            return None;
+        };
+        let constructor = class.constructor?;
+        let constructor_index = usize::try_from(constructor.0).unwrap_or(usize::MAX);
+        let Some(Item::Function(function)) = self.ctx.krate.items.get(constructor_index) else {
+            return None;
+        };
+        // A base whose own constructor is variadic has no fixed parameter list
+        // to copy; forwarding a prefix of it would silently drop the rest, which
+        // is the defect this whole change is about.
+        if function.rest.is_some() {
+            return None;
+        }
+        Some(ForwardedBaseConstructor {
+            base,
+            base_name,
+            base_args,
+            parameters: function
+                .params
+                .iter()
+                .map(|param| (param.name, param.ty))
+                .collect(),
+            required_params: function.required_params,
+        })
     }
 
     /// Emit TypeScript instance field initializers at the start of a constructor.

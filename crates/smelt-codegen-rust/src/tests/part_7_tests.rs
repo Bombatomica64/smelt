@@ -1248,14 +1248,57 @@ const result = formatDate("ok");
     );
 }
 
+/// H69: an implicit derived constructor declares the BASE constructor's
+/// parameters, not one erased forwarded argument.
+///
+/// TypeScript types `new Derived(..)` against the base constructor's signature,
+/// so `constructor(...args) { super(...args) }` has a known arity here. The
+/// previous single `Option<SmeltUnknown>` parameter both dropped every argument
+/// past the first (E0061 at a two-argument call site) and left the base's
+/// parameter properties unrun, so `p.x` read `0`.
 #[test]
-fn emits_default_derived_class_constructor_with_optional_forwarded_arg() {
+fn emits_default_derived_class_constructor_with_the_base_constructors_parameters() {
     let source = source_for(
         r#"
-class Base {}
-class Child extends Base {}
-const withArg = new Child("value");
-const withoutArg = new Child();
+class Point {
+  constructor(public x: number, public y: number) {}
+}
+class Point3 extends Point {
+  z: number = 3;
+}
+const p = new Point3(1, 2);
+"#,
+    );
+
+    assert!(source.contains("fn new(x: f64, y: f64) -> Self"), "{source}");
+    assert!(source.contains("Point3::new(1.0, 2.0)"), "{source}");
+    assert!(
+        !source.contains("_smelt_super_arg"),
+        "a reproducible base has a known arity, so nothing forwards through an erased slot:\n{source}"
+    );
+    // The forwarded `super(..)` is what makes the base's parameter properties
+    // run at all; without it the derived struct kept the field defaults.
+    assert!(source.contains("Point::new(x, y)"), "{source}");
+}
+
+/// The erased forwarded argument survives only where the base is NOT
+/// reproducible, and that is a genuine dynamic boundary.
+///
+/// A generic base, an abstract base and a host constructor each leave this
+/// lowering with no parameter list to copy — the base's arity and parameter
+/// types are not available to it — so no concrete type, generated union, or
+/// scoped generic can carry the forwarded argument, and the call-compatible
+/// erased slot is what keeps `new Subclass(x)` from becoming a blocker. This
+/// pins that the H69 rule did not widen to those bases.
+#[test]
+fn a_non_reproducible_base_keeps_the_erased_forwarded_constructor_argument() {
+    let source = source_for(
+        r#"
+class Box<T> {
+  constructor(public value: T) {}
+}
+class StringBox extends Box<string> {}
+const withArg = new StringBox("value");
 const ctor = withArg.constructor;
 "#,
     );
@@ -1265,11 +1308,7 @@ const ctor = withArg.constructor;
         "{source}"
     );
     assert!(
-        source.contains("Child::new(Some(SmeltUnknown::String(\"value\".into())))"),
-        "{source}"
-    );
-    assert!(
-        source.contains("Child::new(None::<SmeltUnknown>)"),
+        source.contains("StringBox::new(Some(SmeltUnknown::String(\"value\".into())))"),
         "{source}"
     );
     assert!(
