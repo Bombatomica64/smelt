@@ -1259,7 +1259,7 @@ const result = formatDate("ok");
 #[test]
 fn emits_default_derived_class_constructor_with_the_base_constructors_parameters() {
     let source = source_for(
-        r#"
+        r"
 class Point {
   constructor(public x: number, public y: number) {}
 }
@@ -1267,7 +1267,7 @@ class Point3 extends Point {
   z: number = 3;
 }
 const p = new Point3(1, 2);
-"#,
+",
     );
 
     assert!(source.contains("fn new(x: f64, y: f64) -> Self"), "{source}");
@@ -14273,7 +14273,7 @@ console.log(report(table[0]), report(table[1]));
 #[test]
 fn constructor_parameters_lowers_like_parameters() {
     let source = source_for(
-        r#"
+        r"
 class Point {
   constructor(
     public x: number,
@@ -14285,7 +14285,7 @@ type Make = (...args: ConstructorParameters<typeof Point>) => Point;
 
 const make: Make = (x, y) => new Point(x, y);
 console.log(make(1, 2).x, make(3, 4).y);
-"#,
+",
     );
 
     assert!(source.contains("Point::new("), "{source}");
@@ -14298,14 +14298,14 @@ console.log(make(1, 2).x, make(3, 4).y);
 #[test]
 fn constructor_parameters_of_an_unmodeled_host_constructor_lowers() {
     let source = source_for(
-        r#"
+        r"
 type ClientRequestOptions = {
   webSocket?: (...args: ConstructorParameters<typeof WebSocket>) => WebSocket;
 };
 
 const options: ClientRequestOptions = {};
 console.log(options.webSocket === undefined);
-"#,
+",
     );
 
     assert!(source.contains("fn main"), "{source}");
