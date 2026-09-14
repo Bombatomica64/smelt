@@ -38,7 +38,7 @@ impl FunctionEmitter<'_> {
             .collect::<Result<Vec<_>, _>>()?
             .join(", ");
         let call_text = format!("smelt_construct({callee_text}, ::std::vec![{arg_texts}])");
-        self.extract_value_text(&call_text, dest_ty)
+        self.extract_value_text(&call_text, dest_ty, &self.render_scope())
     }
 
     /// Render JavaScript `value instanceof target` for a runtime constructor.

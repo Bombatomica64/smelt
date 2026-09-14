@@ -1056,6 +1056,7 @@ impl<'mir> FunctionEmitter<'mir> {
         value_text: &str,
         source: TypeId,
         target: TypeId,
+        scope: &RenderScope,
     ) -> Result<Option<String>, EmitError> {
         // A reference class is a handle newtype over `Rc<RefCell<Inner>>`, not a
         // field-wise struct, so it cannot be rebuilt with a `Name { field: .. }`
@@ -1105,7 +1106,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 let source_field_name = sanitize_ident(self.symbol_name(source_field.name)?);
                 let source_value = format!("smelt_struct_value.{source_field_name}.clone()");
                 let adapted =
-                    self.value_at_type_text(&source_value, source_field.ty, target_field.ty)?;
+                    self.value_at_type_text(&source_value, source_field.ty, target_field.ty, scope)?;
                 // Narrowing a callable object to a callable interface that
                 // declares fewer members drops the source's own data fields —
                 // in JavaScript those are properties of the *function value*
@@ -1275,7 +1276,7 @@ impl<'mir> FunctionEmitter<'mir> {
                     if function_ty.mutable_params.contains(&index) {
                         Ok(format!("arg{index}"))
                     } else {
-                        self.value_at_type_text(&format!("arg{index}.clone()"), *param, *param)
+                        self.value_at_type_text(&format!("arg{index}.clone()"), *param, *param, &self.render_scope())
                     }
                 })
                 .collect::<Result<Vec<_>, EmitError>>()?
@@ -1287,7 +1288,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 format!("(smelt_method_receiver.{method_name}.clone())({args})")
             };
             let body =
-                self.value_at_type_text(&call, function_ty.return_ty, function_ty.return_ty)?;
+                self.value_at_type_text(&call, function_ty.return_ty, function_ty.return_ty, &self.render_scope())?;
             let return_ty = if function_ty.may_throw {
                 format!(
                     "Result<{}, Box<dyn std::error::Error>>",
@@ -1372,7 +1373,7 @@ impl<'mir> FunctionEmitter<'mir> {
                     format!("arg{index}.clone()")
                 };
                 let arg_text =
-                    self.value_at_type_text(&arg_source_text, *target_param, source_param)?;
+                    self.value_at_type_text(&arg_source_text, *target_param, source_param, &self.render_scope())?;
                 if !dispatches_to_source_field
                     && let Some(source_local) =
                         source_function.params.get(index.saturating_add(1)).copied()
@@ -1430,7 +1431,7 @@ impl<'mir> FunctionEmitter<'mir> {
             call
         };
         let body =
-            self.value_at_type_text(&adjusted_call, source_return_ty, function_ty.return_ty)?;
+            self.value_at_type_text(&adjusted_call, source_return_ty, function_ty.return_ty, &self.render_scope())?;
         let return_ty = if function_ty.may_throw {
             format!(
                 "Result<{}, Box<dyn std::error::Error>>",
@@ -1532,6 +1533,7 @@ impl<'mir> FunctionEmitter<'mir> {
         source_key: TypeId,
         source_value: TypeId,
         target: TypeId,
+        scope: &RenderScope,
     ) -> Result<Option<String>, EmitError> {
         if self.mir.types.get(source_key) != Some(&Type::String)
             || !self.is_structural_record_adapter_target(target)
@@ -1629,20 +1631,20 @@ impl<'mir> FunctionEmitter<'mir> {
             };
             let value = if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty) {
                 if self.can_render_dict_value_as(source_value, *inner) {
-                    let mapped = self.value_at_type_text("value", source_value, *inner)?;
+                    let mapped = self.value_at_type_text("value", source_value, *inner, scope)?;
                     format!("{lookup_value}.map(|value| {mapped})")
                 } else if self.can_render_dict_value_as(source_value, field.ty) {
                     // The dictionary value is already optional-shaped, so the
                     // `get` produced an `Option<Option<_>>`; flatten it instead of
                     // discarding the field. Without this arm the projection
                     // answered `None` for a value that was actually present.
-                    let mapped = self.value_at_type_text("value", source_value, field.ty)?;
+                    let mapped = self.value_at_type_text("value", source_value, field.ty, scope)?;
                     format!("{lookup_value}.map_or(None, |value| {mapped})")
                 } else {
                     "None".to_owned()
                 }
             } else if self.can_render_dict_value_as(source_value, field.ty) {
-                let mapped = self.value_at_type_text("value", source_value, field.ty)?;
+                let mapped = self.value_at_type_text("value", source_value, field.ty, scope)?;
                 format!(
                     "{lookup_value}.map_or({}, |value| {mapped})",
                     self.default_value_with_scoped_type_params(
@@ -1688,6 +1690,7 @@ impl<'mir> FunctionEmitter<'mir> {
         source: TypeId,
         target_key: TypeId,
         target_value: TypeId,
+        scope: &RenderScope,
     ) -> Result<Option<String>, EmitError> {
         if self.mir.types.get(target_key) != Some(&Type::String) {
             return Ok(None);
@@ -1713,13 +1716,13 @@ impl<'mir> FunctionEmitter<'mir> {
                 format!("smelt_struct_value.{field_name}.clone()")
             };
             let value = if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty) {
-                let mapped = self.value_at_type_text("value", *inner, target_value)?;
+                let mapped = self.value_at_type_text("value", *inner, target_value, scope)?;
                 format!(
                     "{source_value}.map_or({}, |value| {mapped})",
                     self.default_value(target_value)?
                 )
             } else {
-                self.value_at_type_text(&source_value, field.ty, target_value)?
+                self.value_at_type_text(&source_value, field.ty, target_value, scope)?
             };
             entries.push(format!("({key:?}.to_owned(), {value})"));
         }
@@ -2804,7 +2807,7 @@ impl<'mir> FunctionEmitter<'mir> {
             let null_text = self.null_value_text();
             format!("{{ {call_value}; {null_text} }}")
         } else {
-            self.value_at_type_text(&call_value, source.return_ty, unknown_ty)?
+            self.value_at_type_text(&call_value, source.return_ty, unknown_ty, &self.render_scope())?
         };
         let closure = format!("move |smelt_args: Vec<SmeltUnknown>| {return_text}");
         Ok(Some(if is_borrowed_param {
@@ -3000,7 +3003,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 && let Some(Type::Function(function)) = self.mir.types.get(target)
                 && !self.is_erased_unknown_rest_function(function)
             {
-                let owned = self.extract(operand, target)?;
+                let owned = self.extract(operand, target, &self.render_scope())?;
                 return Ok(format!("&*({owned})"));
             }
             return self.borrowed_default_function_text(target, callee_bindings);
@@ -3100,6 +3103,7 @@ impl<'mir> FunctionEmitter<'mir> {
         value_text: &str,
         source: TypeId,
         target: TypeId,
+        scope: &RenderScope,
     ) -> Result<Option<String>, EmitError> {
         let (Some(Type::Function(source_function)), Some(Type::Function(target_function))) =
             (self.mir.types.get(source), self.mir.types.get(target))
@@ -3159,6 +3163,7 @@ impl<'mir> FunctionEmitter<'mir> {
                         &format!("arg{index}"),
                         *target_param,
                         *source_param,
+                                            scope,
                     )?,
                     None => self.default_value(*source_param)?,
                 };
@@ -3247,7 +3252,7 @@ impl<'mir> FunctionEmitter<'mir> {
             // treat the result as "no value".
             format!("{{ {call_value}; SmeltUnknown::Undefined }}")
         } else {
-            self.value_at_type_text(&call_value, call_return_ty, target_function.return_ty)?
+            self.value_at_type_text(&call_value, call_return_ty, target_function.return_ty, scope)?
         };
         let returned = if target_function.may_throw && !source_function.may_throw {
             format!("Ok::<_, Box<dyn std::error::Error>>({converted})")
@@ -3445,7 +3450,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 self.mir.types.get(target_function.return_ty),
             ) {
             let awaited =
-                self.value_at_type_text("smelt_async_output", *source_item, *target_item)?;
+                self.value_at_type_text("smelt_async_output", *source_item, *target_item, &self.render_scope())?;
             if is_borrowed_param {
                 async_adapter_future_text(&call, &awaited)
             } else {
@@ -3480,7 +3485,7 @@ impl<'mir> FunctionEmitter<'mir> {
             source.return_ty
         };
         let converted_return_text =
-            self.value_at_type_text(&call_value, call_return_ty, target_function.return_ty)?;
+            self.value_at_type_text(&call_value, call_return_ty, target_function.return_ty, &self.render_scope())?;
         let default_adjusted_return_text = if converted_return_text == "Default::default()"
             && matches!(
                 self.mir.types.get(target_function.return_ty),
@@ -3648,13 +3653,13 @@ impl<'mir> FunctionEmitter<'mir> {
                             "{open}smelt_args.iter().skip({index}).cloned().collect::<SmeltList<_>>(){close}"
                         ));
                     }
-                    let item_text = self.extract_value_text("value", *item_ty)?;
+                    let item_text = self.extract_value_text("value", *item_ty, &self.render_scope())?;
                     return Ok(format!(
                         "{open}smelt_args.iter().skip({index}).cloned().map(|value| {item_text}).collect::<SmeltList<_>>(){close}"
                     ));
                 }
                 let item = format!("smelt_args.get({index}).cloned().unwrap_or(SmeltUnknown::Null)");
-                let value = self.extract_value_text(&item, *param_ty)?;
+                let value = self.extract_value_text(&item, *param_ty, &self.render_scope())?;
                 let arg = if function
                     .required_params
                     .is_some_and(|required_params| index >= required_params)
@@ -3899,6 +3904,7 @@ impl<'mir> FunctionEmitter<'mir> {
                                     "value",
                                     *target_item,
                                     *source_item,
+                                    &self.render_scope(),
                                 )?
                             };
                             text.push_str(&format!(
@@ -3906,7 +3912,7 @@ impl<'mir> FunctionEmitter<'mir> {
                             ));
                         } else {
                             let item_text =
-                                self.value_at_type_text(&arg_text, *target_param, *source_item)?;
+                                self.value_at_type_text(&arg_text, *target_param, *source_item, &self.render_scope())?;
                             text.push_str(&format!("smelt_forwarded_args.push({item_text}); "));
                         }
                     }
@@ -3969,7 +3975,7 @@ impl<'mir> FunctionEmitter<'mir> {
                         format!("arg{index}")
                     };
                     let arg_text =
-                        self.value_at_type_text(&source_text, declared, *source_param)?;
+                        self.value_at_type_text(&source_text, declared, *source_param, &self.render_scope())?;
                     // The converted value is a temporary, and Rust extends a borrowed
                     // temporary's lifetime to the end of the statement, so `&(expr)` is
                     // valid even though the value is unnamed.
@@ -4026,7 +4032,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 self.mir.types.get(target_return_ty),
             ) {
             let awaited =
-                self.value_at_type_text("smelt_async_output", *source_item, *target_item)?;
+                self.value_at_type_text("smelt_async_output", *source_item, *target_item, &self.render_scope())?;
             if uses_adapted_callback {
                 let async_call = call_text
                     .replace("_smelt_adapted_callback", "smelt_async_callback")
@@ -4054,7 +4060,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 ));
             };
             let awaited =
-                self.value_at_type_text("smelt_async_output", *source_item, *target_item)?;
+                self.value_at_type_text("smelt_async_output", *source_item, *target_item, &self.render_scope())?;
             let async_call = call_text
                 .replace("_smelt_adapted_callback", "smelt_async_callback")
                 .replace("smelt_callback", "smelt_async_callback");
@@ -4083,7 +4089,7 @@ impl<'mir> FunctionEmitter<'mir> {
             // The source returns a promise value but the target return is erased
             // (or otherwise not a future), so erase the `SmeltFuture<T>` to a
             // `SmeltUnknown::Promise` boundary value via the normal coercion.
-            self.value_at_type_text(&call_value, source.return_ty, target_return_ty)?
+            self.value_at_type_text(&call_value, source.return_ty, target_return_ty, &self.render_scope())?
         } else if source_is_erased {
             // An erased callable is invoked through `SmeltErasedFunction::call`,
             // which yields a bare `SmeltUnknown` at runtime regardless of the
@@ -4093,7 +4099,7 @@ impl<'mir> FunctionEmitter<'mir> {
             // rather than treating the value as if it already had the source
             // return type and calling `Option` methods on a `SmeltUnknown`.
             let unknown_ty = self.type_id(Type::Unknown)?;
-            self.value_at_type_text(&call_value, unknown_ty, target_return_ty)?
+            self.value_at_type_text(&call_value, unknown_ty, target_return_ty, &self.render_scope())?
         } else if self.mir.types.get(source.return_ty) == Some(&Type::None)
             && matches!(
                 self.mir.types.get(target_return_ty),
@@ -4107,7 +4113,7 @@ impl<'mir> FunctionEmitter<'mir> {
             // result as "no value" rather than a real `null` clone.
             format!("{{ {call_value}; SmeltUnknown::Undefined }}")
         } else {
-            self.value_at_type_text(&call_value, source.return_ty, target_return_ty)?
+            self.value_at_type_text(&call_value, source.return_ty, target_return_ty, &self.render_scope())?
         };
         let field_adjusted_return_text = if !source_returns_future
             && matches!(

@@ -127,7 +127,7 @@ impl FunctionEmitter<'_> {
         for (index, member) in members.iter().copied().enumerate() {
             let return_ty = self.union_member_method_return_type(member, method)?;
             let call = format!("value.{method_name}({args_text})");
-            let converted = self.value_at_type_text(&call, return_ty, dest_ty)?;
+            let converted = self.value_at_type_text(&call, return_ty, dest_ty, &self.render_scope())?;
             arms.push(format!("{union}::M{index}(value) => {converted}"));
         }
         Ok(format!("match {receiver_text} {{ {} }}", arms.join(", ")))
@@ -259,6 +259,7 @@ impl FunctionEmitter<'_> {
         value_text: &str,
         source: TypeId,
         target: TypeId,
+        scope: &RenderScope,
     ) -> Result<Option<String>, EmitError> {
         let Some(members) = self.concrete_union_members(target) else {
             return Ok(None);
@@ -298,7 +299,7 @@ impl FunctionEmitter<'_> {
             }
         }
         if let [index] = structural.as_slice() {
-            let coerced = self.value_at_type_text(value_text, source, members[*index])?;
+            let coerced = self.value_at_type_text(value_text, source, members[*index], scope)?;
             return Ok(Some(format!("{}::M{index}({coerced})", union_name(target))));
         }
         // An erased source (object-field read, erased return, nullish default)
@@ -670,7 +671,7 @@ impl FunctionEmitter<'_> {
                 let member_text = self.rust_type(member, false, substitution)?.into_string();
                 format!("<{member_text} as SmeltFromUnknown>::smelt_from_unknown(value)")
             } else {
-                self.extract_value_text("value", member)?
+                self.extract_value_text("value", member, &self.render_scope())?
             };
             if Some(position) == order.len().checked_sub(1) {
                 body.push_str(&format!("        Self::M{index}({extracted})\n"));

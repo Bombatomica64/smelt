@@ -79,7 +79,7 @@ impl FunctionEmitter<'_> {
                     match inner {
                         Some(inner_ty) if emitter.is_erased_relational(inner_ty) => {
                             let erased = emitter.erase(operand)?;
-                            emitter.value_at_type_text(&erased, unknown_ty, float_ty)
+                            emitter.value_at_type_text(&erased, unknown_ty, float_ty, &self.render_scope())
                         }
                         Some(inner_ty) => {
                             emitter.option_value_as_type_text(operand, inner_ty, float_ty)
@@ -566,9 +566,9 @@ impl FunctionEmitter<'_> {
         }
         Ok(Some(format!(
             "{} {} {}",
-            self.value_at_type_text(&lhs_text, lhs_ty, common_ty)?,
+            self.value_at_type_text(&lhs_text, lhs_ty, common_ty, &self.render_scope())?,
             smelt_hir::bin_op_text(op),
-            self.value_at_type_text(&rhs_text, rhs_ty, common_ty)?
+            self.value_at_type_text(&rhs_text, rhs_ty, common_ty, &self.render_scope())?
         )))
     }
 
@@ -1326,6 +1326,6 @@ impl FunctionEmitter<'_> {
         target: TypeId,
     ) -> Result<String, EmitError> {
         let value = self.option_value_text(operand, inner)?;
-        self.value_at_type_text(&value, inner, target)
+        self.value_at_type_text(&value, inner, target, &self.render_scope())
     }
 }

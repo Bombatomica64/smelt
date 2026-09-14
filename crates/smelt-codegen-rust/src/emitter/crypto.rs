@@ -25,7 +25,7 @@ impl FunctionEmitter<'_> {
             // form, so the formatting is not respelled here.
             smelt_hir::CryptoOp::RandomUuid => {
                 let string_ty = self.type_id(Type::String)?;
-                self.value_at_type_text("uuid::Uuid::new_v4().to_string()", string_ty, dest_ty)
+                self.value_at_type_text("uuid::Uuid::new_v4().to_string()", string_ty, dest_ty, &self.render_scope())
             }
             // The argument is passed BY REFERENCE: the helper fills the view
             // through its shared byte storage and hands back a value sharing

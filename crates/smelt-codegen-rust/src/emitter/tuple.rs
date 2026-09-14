@@ -100,7 +100,7 @@ impl FunctionEmitter<'_> {
                     self.erase_concrete_union_text(&self.operand_text(tuple)?, tuple_ty);
                 let unknown_value = self.unknown_index_text(&tuple_text, &index_operand)?;
                 let unknown_ty = self.type_id(Type::Unknown)?;
-                return self.value_at_type_text(&unknown_value, unknown_ty, dest_ty);
+                return self.value_at_type_text(&unknown_value, unknown_ty, dest_ty, &self.render_scope());
             }
             return Ok("Default::default()".to_owned());
         };

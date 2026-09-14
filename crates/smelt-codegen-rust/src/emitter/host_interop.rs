@@ -54,7 +54,7 @@ impl FunctionEmitter<'_> {
             "{slot}.with(|slot| {read}(slot, {name:?}))",
             read = smelt_stdlib::runtime_symbols::host_override::READ,
         );
-        self.value_at_type_text(&call, unknown_ty, dest_ty)
+        self.value_at_type_text(&call, unknown_ty, dest_ty, &self.render_scope())
     }
 
     /// Emit a write to a host constructor's override slot
@@ -74,7 +74,7 @@ impl FunctionEmitter<'_> {
             "{slot}.with(|slot| {write}(slot, {erased}))",
             write = smelt_stdlib::runtime_symbols::host_override::WRITE,
         );
-        self.value_at_type_text(&call, unknown_ty, dest_ty)
+        self.value_at_type_text(&call, unknown_ty, dest_ty, &self.render_scope())
     }
 
     /// Emit a presence probe of a host constructor's override slot
@@ -122,7 +122,7 @@ impl FunctionEmitter<'_> {
             construct = smelt_stdlib::runtime_symbols::host::REFLECTED_CONSTRUCT,
             args = arg_texts.join(", "),
         );
-        self.value_at_type_text(&call, unknown_ty, dest_ty)
+        self.value_at_type_text(&call, unknown_ty, dest_ty, &self.render_scope())
     }
 
     /// Emit the interned value for a global builtin name used as a value.
@@ -139,7 +139,7 @@ impl FunctionEmitter<'_> {
             "{namespace}({name:?})",
             namespace = smelt_stdlib::runtime_symbols::host::BUILTIN_NAMESPACE,
         );
-        self.value_at_type_text(&call, unknown_ty, dest_ty)
+        self.value_at_type_text(&call, unknown_ty, dest_ty, &self.render_scope())
     }
 
     /// Emit the enclosing function's `arguments` object from its parameters.
@@ -167,7 +167,7 @@ impl FunctionEmitter<'_> {
             helper = smelt_stdlib::runtime_symbols::host::ARGUMENTS_OBJECT,
             fixed = fixed_texts.join(", "),
         );
-        self.value_at_type_text(&call, unknown_ty, dest_ty)
+        self.value_at_type_text(&call, unknown_ty, dest_ty, &self.render_scope())
     }
 
     /// Converts a set insertion operation to Rust text.
@@ -235,7 +235,7 @@ impl FunctionEmitter<'_> {
         let name = crate::global_static_name(self.mir, global);
         let ty = self.global_ty(global)?;
         let value_text = self.value_at_type(value, ty)?;
-        let result_text = self.value_at_type_text("smelt_global_value", ty, dest_ty)?;
+        let result_text = self.value_at_type_text("smelt_global_value", ty, dest_ty, &self.render_scope())?;
         if Self::global_uses_copy_cell(self.mir.types.get(ty)) {
             Ok(format!(
                 "{{ let smelt_global_value = {value_text}; {name}.with(|value| value.set(smelt_global_value)); {result_text} }}"

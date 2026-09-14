@@ -37,7 +37,7 @@ impl FunctionEmitter<'_> {
         match op {
             smelt_hir::FormDataOp::Has => {
                 let bool_ty = self.type_id(Type::Bool)?;
-                self.value_at_type_text(&format!("{receiver}.has(&{})", name(0)?), bool_ty, dest_ty)
+                self.value_at_type_text(&format!("{receiver}.has(&{})", name(0)?), bool_ty, dest_ty, &self.render_scope())
             }
             smelt_hir::FormDataOp::Delete => Ok(format!("{receiver}.delete(&{})", name(0)?)),
             smelt_hir::FormDataOp::Set | smelt_hir::FormDataOp::Append => {
@@ -55,6 +55,7 @@ impl FunctionEmitter<'_> {
                     &format!("SmeltList::new({receiver}.keys())"),
                     list_ty,
                     dest_ty,
+                    &self.render_scope(),
                 )
             }
             smelt_hir::FormDataOp::Get => {
@@ -65,6 +66,7 @@ impl FunctionEmitter<'_> {
                     &format!("{receiver}.get(&{}).map(|smelt_entry| {arm})", name(0)?),
                     source_ty,
                     dest_ty,
+                    &self.render_scope(),
                 )
             }
             smelt_hir::FormDataOp::GetAll | smelt_hir::FormDataOp::Values => {
@@ -82,6 +84,7 @@ impl FunctionEmitter<'_> {
                     ),
                     source_ty,
                     dest_ty,
+                    &self.render_scope(),
                 )
             }
             smelt_hir::FormDataOp::Entries => {
@@ -104,6 +107,7 @@ impl FunctionEmitter<'_> {
                     ),
                     source_ty,
                     dest_ty,
+                    &self.render_scope(),
                 )
             }
             // The one callback member on this surface. It walks the same
@@ -250,10 +254,10 @@ impl FunctionEmitter<'_> {
                 EmitError::new("the FormData entry value union has no File member")
             })?;
         let text_arm = self
-            .inject_union_value_text("smelt_text", string_ty, union_ty)?
+            .inject_union_value_text("smelt_text", string_ty, union_ty, &self.render_scope())?
             .ok_or_else(|| EmitError::new("the FormData entry value has no string member"))?;
         let file_arm = self
-            .inject_union_value_text("smelt_file", file_ty, union_ty)?
+            .inject_union_value_text("smelt_file", file_ty, union_ty, &self.render_scope())?
             .ok_or_else(|| EmitError::new("the FormData entry value has no File member"))?;
         Ok(format!(
             "match {value_text} {{ SmeltFormDataValue::Text(smelt_text) => {text_arm}, SmeltFormDataValue::File(smelt_file) => {file_arm} }}"

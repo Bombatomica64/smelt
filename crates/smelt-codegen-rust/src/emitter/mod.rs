@@ -11,6 +11,7 @@
 use crate::generic_bindings::CalleeTypeParamBindings;
 use crate::rust::RustType;
 use crate::type_substitution::{Resolved, TypeSubstitution};
+use render_scope::RenderScope;
 use crate::{EmitError, compact_index, id_index, sanitize_ident};
 use literals::{operand_local, operand_mutation_root};
 use smelt_hir::{FileId, PropertyLookup, Span, Symbol, Type, TypeId};
@@ -127,6 +128,7 @@ mod map;
 mod numeric;
 mod optional_access;
 mod place;
+mod render_scope;
 mod rendered_text_rewrite;
 mod rendered_value;
 /// Debug-only emitter self-consistency checks; the module does not exist in a

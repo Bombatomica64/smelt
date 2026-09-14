@@ -272,7 +272,7 @@ impl FunctionEmitter<'_> {
         let ty = self.operand_ty(operand)?;
         let text = self.operand_text(operand)?;
         let float_ty = self.type_id(Type::Float)?;
-        self.value_at_type_text(&text, ty, float_ty)
+        self.value_at_type_text(&text, ty, float_ty, &self.render_scope())
     }
 
     /// Emit an indexed element READ on a typed-array view, if the base is one.

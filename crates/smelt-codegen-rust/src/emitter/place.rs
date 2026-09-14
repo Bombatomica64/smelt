@@ -1127,7 +1127,7 @@ impl FunctionEmitter<'_> {
                 if self.mir.types.get(item_ty) == Some(&Type::Optional(inner)) {
                     return Ok(Some(format!("{read}.flatten()")));
                 }
-                let Ok(mapped) = self.value_at_type_text("value", item_ty, inner) else {
+                let Ok(mapped) = self.value_at_type_text("value", item_ty, inner, &self.render_scope()) else {
                     return Ok(None);
                 };
                 Ok(Some(format!("{read}.map(|value| {mapped})")))

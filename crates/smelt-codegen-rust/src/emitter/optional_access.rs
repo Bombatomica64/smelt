@@ -43,12 +43,12 @@ impl FunctionEmitter<'_> {
                         "{receiver_text}.as_ref().and_then(|_smelt_value| {erased})"
                     ));
                 }
-                let mapped = self.value_at_type_text(&value, field_ty, *dest_inner)?;
+                let mapped = self.value_at_type_text(&value, field_ty, *dest_inner, &self.render_scope())?;
                 return Ok(format!(
                     "{receiver_text}.as_ref().map(|_smelt_value| {mapped})"
                 ));
             }
-            let mapped = self.value_at_type_text(&value, field_ty, dest_ty)?;
+            let mapped = self.value_at_type_text(&value, field_ty, dest_ty, &self.render_scope())?;
             Ok(format!(
                 "{receiver_text}.as_ref().map_or({}, |_smelt_value| {mapped})",
                 self.default_value(dest_ty)?
@@ -62,10 +62,10 @@ impl FunctionEmitter<'_> {
                 if let Some(erased) = self.erased_field_optional_map_text(&value, field_ty, *dest_inner)? {
                     return Ok(erased);
                 }
-                let mapped = self.value_at_type_text(&value, field_ty, *dest_inner)?;
+                let mapped = self.value_at_type_text(&value, field_ty, *dest_inner, &self.render_scope())?;
                 return Ok(format!("Some({mapped})"));
             }
-            self.value_at_type_text(&value, field_ty, dest_ty)
+            self.value_at_type_text(&value, field_ty, dest_ty, &self.render_scope())
         }
     }
 
@@ -105,7 +105,7 @@ impl FunctionEmitter<'_> {
         if matches!(self.mir.types.get(dest_inner), Some(Type::Unknown)) {
             return Ok(None);
         }
-        let mapped = self.value_at_type_text("_smelt_field", field_ty, dest_inner)?;
+        let mapped = self.value_at_type_text("_smelt_field", field_ty, dest_inner, &self.render_scope())?;
         Ok(Some(format!(
             "match {value_text} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => None, _smelt_field => Some({mapped}) }}"
         )))
@@ -362,7 +362,7 @@ impl FunctionEmitter<'_> {
             ) && self.concrete_union_members(dest_ty).is_none())
                 || self.is_erased_class_type(dest_ty);
             if !dest_is_erased {
-                return self.value_at_type_text(&coalesced, scrutinee_ty, dest_ty);
+                return self.value_at_type_text(&coalesced, scrutinee_ty, dest_ty, &self.render_scope());
             }
             return Ok(coalesced);
         }
@@ -374,7 +374,7 @@ impl FunctionEmitter<'_> {
                 ) || self.is_erased_class_type(dest_ty)
                 {
                     let optional_text = self.operand_text(optional)?;
-                    let present_text = self.value_at_type_text("value", *inner, dest_ty)?;
+                    let present_text = self.value_at_type_text("value", *inner, dest_ty, &self.render_scope())?;
                     let fallback_text = self.value_at_type(fallback, dest_ty)?;
                     return Ok(format!(
                         "{optional_text}.map_or_else(|| {fallback_text}, |value| {present_text})"
@@ -388,7 +388,7 @@ impl FunctionEmitter<'_> {
                 {
                     let optional_text = self.operand_text(optional)?;
                     let fallback_text = self.value_at_type(fallback, fallback_ty)?;
-                    let mapped_value = self.value_at_type_text("value", fallback_ty, *inner)?;
+                    let mapped_value = self.value_at_type_text("value", fallback_ty, *inner, &self.render_scope())?;
                     let fallback_option = format!(
                         "match {fallback_text} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => None, value => Some({mapped_value}) }}"
                     );
@@ -403,7 +403,7 @@ impl FunctionEmitter<'_> {
                     if dest_ty == *inner {
                         return Ok(coalesced);
                     }
-                    return self.value_at_type_text(&coalesced, *inner, dest_ty);
+                    return self.value_at_type_text(&coalesced, *inner, dest_ty, &self.render_scope());
                 }
                 if let Some(Type::Optional(fallback_inner)) = self.mir.types.get(fallback_ty)
                     && fallback_inner == inner
@@ -423,7 +423,7 @@ impl FunctionEmitter<'_> {
                 if dest_ty == *inner {
                     Ok(coalesced)
                 } else {
-                    self.value_at_type_text(&coalesced, *inner, dest_ty)
+                    self.value_at_type_text(&coalesced, *inner, dest_ty, &self.render_scope())
                 }
             }
             // A left operand that is statically nullish selects the fallback, and
@@ -447,7 +447,7 @@ impl FunctionEmitter<'_> {
         if source_inner == dest_inner {
             return Ok(value_text.to_owned());
         }
-        let mapped = self.value_at_type_text("_smelt_inner", source_inner, dest_inner)?;
+        let mapped = self.value_at_type_text("_smelt_inner", source_inner, dest_inner, &self.render_scope())?;
         Ok(format!("{value_text}.map(|_smelt_inner| {mapped})"))
     }
 
@@ -564,7 +564,7 @@ impl FunctionEmitter<'_> {
                 let element_text = if result_is_erased {
                     "_smelt_element".to_owned()
                 } else {
-                    self.value_at_type_text("_smelt_element", unknown_ty, result_ty)?
+                    self.value_at_type_text("_smelt_element", unknown_ty, result_ty, &self.render_scope())?
                 };
                 let string_some = if result_is_string {
                     "value.chars().nth(index).map(|ch| ch.to_string())".to_owned()

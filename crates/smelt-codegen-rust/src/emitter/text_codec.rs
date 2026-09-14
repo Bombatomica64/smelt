@@ -39,7 +39,7 @@ impl FunctionEmitter<'_> {
         match op {
             smelt_hir::TextEncoderOp::Encoding => {
                 let string_ty = self.type_id(Type::String)?;
-                self.value_at_type_text(&format!("{receiver}.encoding()"), string_ty, dest_ty)
+                self.value_at_type_text(&format!("{receiver}.encoding()"), string_ty, dest_ty, &self.render_scope())
             }
             smelt_hir::TextEncoderOp::Encode => {
                 // `encode()` with no argument encodes the empty string, which
@@ -68,7 +68,7 @@ impl FunctionEmitter<'_> {
         let string_ty = self.type_id(Type::String)?;
         match op {
             smelt_hir::TextDecoderOp::Encoding => {
-                self.value_at_type_text(&format!("{receiver}.encoding()"), string_ty, dest_ty)
+                self.value_at_type_text(&format!("{receiver}.encoding()"), string_ty, dest_ty, &self.render_scope())
             }
             smelt_hir::TextDecoderOp::Decode => {
                 let text = match args.first() {
@@ -79,7 +79,7 @@ impl FunctionEmitter<'_> {
                         format!("{receiver}.decode(&{bytes})")
                     }
                 };
-                self.value_at_type_text(&text, string_ty, dest_ty)
+                self.value_at_type_text(&text, string_ty, dest_ty, &self.render_scope())
             }
         }
     }
@@ -205,7 +205,7 @@ impl FunctionEmitter<'_> {
                 )
             }
         };
-        self.value_at_type_text(&text, source_ty, dest_ty)
+        self.value_at_type_text(&text, source_ty, dest_ty, &self.render_scope())
     }
 
     /// Render the `(start, end)` pair every range member of the family takes.

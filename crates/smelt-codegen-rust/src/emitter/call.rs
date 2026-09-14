@@ -442,6 +442,7 @@ impl FunctionEmitter<'_> {
                     if resolve_by_ref { "value.clone()" } else { "value" },
                     resolve_input_ty,
                     output_ty,
+                    &self.render_scope(),
                 )?;
                 // `reject` is synthesized the same way `resolve` is, and its
                 // parameter is always the erased rejection reason. Once
@@ -500,7 +501,7 @@ impl FunctionEmitter<'_> {
                     ),
                 };
                 let output =
-                    self.value_at_type_text("smelt_callback_value", settled_ty, *output_ty)?;
+                    self.value_at_type_text("smelt_callback_value", settled_ty, *output_ty, &self.render_scope())?;
                 Ok(format!(
                     "{{ {prelude}SmeltFuture::from_future(Box::pin(async move {{ let smelt_value = {future_text}.await?; {settle} Ok::<_, Box<dyn std::error::Error>>({output}) }})) }}"
                 ))
@@ -551,7 +552,7 @@ impl FunctionEmitter<'_> {
                     ),
                 };
                 let recovered =
-                    self.value_at_type_text("smelt_callback_value", settled_ty, *output_ty)?;
+                    self.value_at_type_text("smelt_callback_value", settled_ty, *output_ty, &self.render_scope())?;
                 Ok(format!(
                     "{{ {prelude}SmeltFuture::from_future(Box::pin(async move {{ match {future_text}.await {{ Ok(smelt_value) => Ok::<_, Box<dyn std::error::Error>>(smelt_value), Err(smelt_error) => {{ {settle} Ok::<_, Box<dyn std::error::Error>>({recovered}) }} }} }})) }}"
                 ))
@@ -721,12 +722,12 @@ impl FunctionEmitter<'_> {
                 let rest_text = format!(
                     "SmeltList::from({args_source}.iter().skip({index}).cloned().collect::<Vec<_>>())"
                 );
-                call_args.push(self.value_at_type_text(&rest_text, unknown_list_ty, *param)?);
+                call_args.push(self.value_at_type_text(&rest_text, unknown_list_ty, *param, &self.render_scope())?);
             } else {
                 let arg_text = format!(
                     "{args_source}.get({index}).cloned().unwrap_or(SmeltUnknown::Undefined)"
                 );
-                call_args.push(self.value_at_type_text(&arg_text, unknown_ty, *param)?);
+                call_args.push(self.value_at_type_text(&arg_text, unknown_ty, *param, &self.render_scope())?);
             }
         }
         let call = format!("(smelt_timer_callback)({})", call_args.join(", "));
@@ -1869,7 +1870,7 @@ impl FunctionEmitter<'_> {
             format!("(smelt_function)({rendered_args})")
         };
         let coerced_call =
-            self.value_at_type_text(&raw_call, function.return_ty, *inner_dest_ty)?;
+            self.value_at_type_text(&raw_call, function.return_ty, *inner_dest_ty, &self.render_scope())?;
         Ok(Some(format!(
             "{callee_text}.clone().map(|smelt_function| {coerced_call})"
         )))
@@ -2074,7 +2075,7 @@ impl FunctionEmitter<'_> {
             // against concrete elements). A non-list destination — a discarded
             // (void) call — has nothing to convert to.
             Some((param_ty, arg_ty)) if return_ty == param_ty && dest_is_list => {
-                self.value_at_type_text("smelt_mut_call_result", arg_ty, dest_ty)?
+                self.value_at_type_text("smelt_mut_call_result", arg_ty, dest_ty, &self.render_scope())?
             }
             // Any other return position that mentions the callee's generics is
             // likewise monomorphized here, and the destination local already
@@ -2086,7 +2087,7 @@ impl FunctionEmitter<'_> {
             }
             // A fully concrete return position from a generic callee needs the
             // ordinary destination coercion.
-            Some(_) => self.value_at_type_text("smelt_mut_call_result", return_ty, dest_ty)?,
+            Some(_) => self.value_at_type_text("smelt_mut_call_result", return_ty, dest_ty, &self.render_scope())?,
             None => self.mut_list_adapter_return_text(
                 "smelt_mut_call_result",
                 return_ty,
@@ -2430,7 +2431,7 @@ impl FunctionEmitter<'_> {
         }
         call_text = self.wrap_native_async_call_text(callee, call_text)?;
         let source_ty = self.call_emitted_source_ty(callee, args, dest_ty)?;
-        self.value_at_type_text(&call_text, source_ty, dest_ty)
+        self.value_at_type_text(&call_text, source_ty, dest_ty, &self.render_scope())
     }
 
     /// Wrap a generated native `async fn` call in Smelt's stable future ABI.
@@ -2635,7 +2636,7 @@ impl FunctionEmitter<'_> {
         // is erased, so the concrete value is bound to an erased local and the
         // argument is what rustc reports as mismatched (E0308).
         let source_ty = self.call_emitted_source_ty(callee, args, dest_ty)?;
-        self.value_at_type_text(&call_text, source_ty, dest_ty)
+        self.value_at_type_text(&call_text, source_ty, dest_ty, &self.render_scope())
     }
 
     /// The monomorphization decision for a static callee, for seam checking.

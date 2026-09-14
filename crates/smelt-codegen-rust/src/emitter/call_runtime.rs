@@ -68,7 +68,7 @@ impl FunctionEmitter<'_> {
         if self.mir.types.get(dest_ty) == Some(&Type::None) {
             return Ok(Some(format!("{{ {call_text}; () }}")));
         }
-        Ok(Some(self.value_at_type_text(&call_text, source_ty, dest_ty)?))
+        Ok(Some(self.value_at_type_text(&call_text, source_ty, dest_ty, &self.render_scope())?))
     }
     /// Render array-literal elements by value without consuming local operands.
     ///
@@ -360,6 +360,7 @@ impl FunctionEmitter<'_> {
                             "error",
                             unknown_ty,
                             exception_decl.ty,
+                            &self.render_scope(),
                         )?;
                         catch_text.push_str(&format!(
                             "let {exception_name}: {} = {exception_value};\n",
@@ -434,8 +435,8 @@ impl FunctionEmitter<'_> {
                 else {
                     return Err(EmitError::new("generator value read has non-result operand"));
                 };
-                let yielded = self.value_at_type_text("value", *yield_ty, dest_ty)?;
-                let returned = self.value_at_type_text("value", *return_ty, dest_ty)?;
+                let yielded = self.value_at_type_text("value", *yield_ty, dest_ty, &self.render_scope())?;
+                let returned = self.value_at_type_text("value", *return_ty, dest_ty, &self.render_scope())?;
                 Ok(format!(
                     "match {} {{ SmeltGeneratorResult::Yielded(value) => {yielded}, SmeltGeneratorResult::Complete(value) => {returned} }}",
                     self.operand_text(result)?
@@ -474,17 +475,19 @@ impl FunctionEmitter<'_> {
                         next_ty,
                     }) => {
                         let forwarded =
-                            self.value_at_type_text("value", *yield_ty, *outer_yield_ty)?;
-                        let completed = self.value_at_type_text("value", *return_ty, dest_ty)?;
+                            self.value_at_type_text("value", *yield_ty, *outer_yield_ty, &self.render_scope())?;
+                        let completed = self.value_at_type_text("value", *return_ty, dest_ty, &self.render_scope())?;
                         let sent = self.value_at_type_text(
                             "value",
                             *outer_next_ty,
                             *next_ty,
+                            &self.render_scope(),
                         )?;
                         let returned_command = self.value_at_type_text(
                             "value",
                             *outer_return_ty,
                             *return_ty,
+                            &self.render_scope(),
                         )?;
                         let delegate_command = format!(
                             "{{ let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command {{ SmeltGeneratorCommand::Next(value) => SmeltGeneratorCommand::Next({sent}), SmeltGeneratorCommand::Return(value) => SmeltGeneratorCommand::Return({returned_command}), SmeltGeneratorCommand::Throw(error) => SmeltGeneratorCommand::Throw(error) }} }}"
@@ -500,14 +503,14 @@ impl FunctionEmitter<'_> {
                     }
                     Some(Type::List(item_ty) | Type::Set(item_ty)) => {
                         let forwarded =
-                            self.value_at_type_text("value", *item_ty, *outer_yield_ty)?;
+                            self.value_at_type_text("value", *item_ty, *outer_yield_ty, &self.render_scope())?;
                         Ok(format!(
                             "{{ let smelt_iterable = {operand}; for value in smelt_iterable.clone().into_iter() {{ co.yield_({forwarded}).await; {consume_outer_sent}; }} }}"
                         ))
                     }
                     Some(Type::String) => {
                         let forwarded =
-                            self.value_at_type_text("value", generator_ty, *outer_yield_ty)?;
+                            self.value_at_type_text("value", generator_ty, *outer_yield_ty, &self.render_scope())?;
                         Ok(format!(
                             "{{ let smelt_iterable = {operand}; for smelt_char in smelt_iterable.chars() {{ let value = smelt_char.to_string(); co.yield_({forwarded}).await; {consume_outer_sent}; }} }}"
                         ))
@@ -517,7 +520,7 @@ impl FunctionEmitter<'_> {
                         for (index, item_ty) in items.iter().copied().enumerate() {
                             let tuple_value = format!("smelt_iterable.{index}.clone()");
                             let forwarded =
-                                self.value_at_type_text(&tuple_value, item_ty, *outer_yield_ty)?;
+                                self.value_at_type_text(&tuple_value, item_ty, *outer_yield_ty, &self.render_scope())?;
                             yields.push_str(&format!("co.yield_({forwarded}).await; {consume_outer_sent}; "));
                         }
                         Ok(format!("{{ let smelt_iterable = {operand}; {yields}}}"))
@@ -536,21 +539,25 @@ impl FunctionEmitter<'_> {
                                         "value",
                                         *yield_ty,
                                         *outer_yield_ty,
+                                        &self.render_scope(),
                                     )?;
                                     let completed = self.value_at_type_text(
                                         "value",
                                         *return_ty,
                                         dest_ty,
+                                        &self.render_scope(),
                                     )?;
                                     let sent = self.value_at_type_text(
                                         "value",
                                         *outer_next_ty,
                                         *next_ty,
+                                        &self.render_scope(),
                                     )?;
                                     let returned_command = self.value_at_type_text(
                                         "value",
                                         *outer_return_ty,
                                         *return_ty,
+                                        &self.render_scope(),
                                     )?;
                                     let delegate_command = format!(
                                         "{{ let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command {{ SmeltGeneratorCommand::Next(value) => SmeltGeneratorCommand::Next({sent}), SmeltGeneratorCommand::Return(value) => SmeltGeneratorCommand::Return({returned_command}), SmeltGeneratorCommand::Throw(error) => SmeltGeneratorCommand::Throw(error) }} }}"
@@ -569,6 +576,7 @@ impl FunctionEmitter<'_> {
                                         "value",
                                         *item_ty,
                                         *outer_yield_ty,
+                                        &self.render_scope(),
                                     )?;
                                     format!(
                                         "{{ for value in smelt_arm.clone().into_iter() {{ co.yield_({forwarded}).await; {consume_outer_sent}; }} Default::default() }}"
@@ -579,6 +587,7 @@ impl FunctionEmitter<'_> {
                                         "value",
                                         member_ty,
                                         *outer_yield_ty,
+                                        &self.render_scope(),
                                     )?;
                                     format!(
                                         "{{ for smelt_char in smelt_arm.chars() {{ let value = smelt_char.to_string(); co.yield_({forwarded}).await; {consume_outer_sent}; }} Default::default() }}"
@@ -1185,15 +1194,15 @@ impl FunctionEmitter<'_> {
                 if let Some(projected) =
                     self.project_union_value_text(&value_text, source, *target)?
                 {
-                    return self.value_at_type_text(&projected, *target, dest_ty);
+                    return self.value_at_type_text(&projected, *target, dest_ty, &self.render_scope());
                 }
                 let target_rust_ty = self.type_text_with_impl_trait(*target, false)?;
                 let cast_text = if target_rust_ty == "SmeltUnknown" {
                     self.erase(unknown_value)?
                 } else {
-                    self.extract(unknown_value, *target)?
+                    self.extract(unknown_value, *target, &self.render_scope())?
                 };
-                self.value_at_type_text(&cast_text, *target, dest_ty)
+                self.value_at_type_text(&cast_text, *target, dest_ty, &self.render_scope())
             }
             Rvalue::Struct { class, fields } => {
                 let class_name = sanitize_ident(self.symbol_name(*class)?);
@@ -1342,7 +1351,7 @@ impl FunctionEmitter<'_> {
                 let string_ty = self.type_id(Type::String)?;
                 let list_ty = self.type_id(Type::List(string_ty))?;
                 let source_ty = self.type_id(Type::Optional(list_ty))?;
-                self.value_at_type_text(&text, source_ty, dest_ty)
+                self.value_at_type_text(&text, source_ty, dest_ty, &self.render_scope())
             }
             Rvalue::RegexExec { regex, haystack } => {
                 self.regex_exec_text(regex, haystack, dest_ty)
@@ -1368,22 +1377,22 @@ impl FunctionEmitter<'_> {
             Rvalue::ListContains { list, item } => {
                 let text = self.list_contains_text(list, item)?;
                 let bool_ty = self.type_id(Type::Bool)?;
-                self.value_at_type_text(&text, bool_ty, dest_ty)
+                self.value_at_type_text(&text, bool_ty, dest_ty, &self.render_scope())
             }
             Rvalue::SetContains { set, item } => {
                 let text = self.set_contains_text(set, item)?;
                 let bool_ty = self.type_id(Type::Bool)?;
-                self.value_at_type_text(&text, bool_ty, dest_ty)
+                self.value_at_type_text(&text, bool_ty, dest_ty, &self.render_scope())
             }
             Rvalue::SetDisjoint { left, right } => {
                 let text = self.set_disjoint_text(left, right)?;
                 let bool_ty = self.type_id(Type::Bool)?;
-                self.value_at_type_text(&text, bool_ty, dest_ty)
+                self.value_at_type_text(&text, bool_ty, dest_ty, &self.render_scope())
             }
             Rvalue::SetRelation { op, left, right } => {
                 let text = self.set_relation_text(*op, left, right)?;
                 let bool_ty = self.type_id(Type::Bool)?;
-                self.value_at_type_text(&text, bool_ty, dest_ty)
+                self.value_at_type_text(&text, bool_ty, dest_ty, &self.render_scope())
             }
             Rvalue::SetAdd { set, item } => self.set_add_text(set, item, dest_ty),
             Rvalue::SetRemove { op, set, item } => self.set_remove_text(*op, set, item, dest_ty),
@@ -1398,7 +1407,7 @@ impl FunctionEmitter<'_> {
             Rvalue::ListConcat { left, right } => {
                 let text = self.list_concat_text(left, right)?;
                 let source_ty = self.concat_result_list_ty(left, right)?;
-                self.value_at_type_text(&text, source_ty, dest_ty)
+                self.value_at_type_text(&text, source_ty, dest_ty, &self.render_scope())
             }
             // One erased `concat` argument, normalized by JavaScript's
             // `IsConcatSpreadable` rule. The argument's static type does not say
@@ -1417,7 +1426,7 @@ impl FunctionEmitter<'_> {
             } => {
                 let text = self.list_search_text(*op, list, item, from_index.as_ref())?;
                 let float_ty = self.type_id(Type::Float)?;
-                self.value_at_type_text(&text, float_ty, dest_ty)
+                self.value_at_type_text(&text, float_ty, dest_ty, &self.render_scope())
             }
             Rvalue::Closure { id, .. } => {
                 if !matches!(
@@ -1482,7 +1491,7 @@ impl FunctionEmitter<'_> {
                     if matches!(self.mir.types.get(dest_ty), Some(Type::Function(_))) {
                         return Ok(call_text);
                     }
-                    return self.value_at_type_text(&call_text, unknown_ty, dest_ty);
+                    return self.value_at_type_text(&call_text, unknown_ty, dest_ty, &self.render_scope());
                 }
                 // An optional call `f?.(args)` whose callee is an absent-able
                 // `Option<Rc<dyn Fn(..)>>` must short-circuit to `None`
@@ -1514,7 +1523,7 @@ impl FunctionEmitter<'_> {
                         format!("(smelt_function)({rendered_args})")
                     };
                     let coerced_call =
-                        self.value_at_type_text(&raw_call, function.return_ty, inner_dest_ty)?;
+                        self.value_at_type_text(&raw_call, function.return_ty, inner_dest_ty, &self.render_scope())?;
                     let map_expr =
                         format!("{callee_text}.clone().map(|smelt_function| {coerced_call})");
                     if dest_is_optional {
@@ -1525,7 +1534,7 @@ impl FunctionEmitter<'_> {
                     // `undefined` at the destination type.
                     let unknown_ty = self.type_id(Type::Unknown)?;
                     let undefined_text =
-                        self.value_at_type_text("SmeltUnknown::Undefined", unknown_ty, dest_ty)?;
+                        self.value_at_type_text("SmeltUnknown::Undefined", unknown_ty, dest_ty, &self.render_scope())?;
                     return Ok(format!("{map_expr}.unwrap_or({undefined_text})"));
                 }
                 // A callable-object record IS callable: its synthetic
@@ -1746,7 +1755,7 @@ impl FunctionEmitter<'_> {
                 if callee_is_erased_rest && self.mir.types.get(dest_ty) == Some(&Type::None) {
                     return Ok(format!("{{ {rendered_call_text}; () }}"));
                 }
-                self.value_at_type_text(&rendered_call_text, source_ty, dest_ty)
+                self.value_at_type_text(&rendered_call_text, source_ty, dest_ty, &self.render_scope())
             }
             Rvalue::ClosureCallSpread { callee, args } => {
                 let callee_text = self.operand_text(callee)?;
@@ -1814,7 +1823,7 @@ impl FunctionEmitter<'_> {
                     } else {
                         function.return_ty
                     };
-                    return self.value_at_type_text(&call_text, source_ty, dest_ty);
+                    return self.value_at_type_text(&call_text, source_ty, dest_ty, &self.render_scope());
                 }
                 // The runtime dispatch snippet matches the callee over
                 // `SmeltUnknown` discriminants, so the callee value must be the
@@ -1826,12 +1835,12 @@ impl FunctionEmitter<'_> {
                 // sees the shape it expects instead of failing to type-check
                 // (E0308). An already-`Unknown` callee coerces to itself.
                 let erased_callee =
-                    self.value_at_type_text(&callee_text, self.operand_ty(callee)?, unknown_ty)?;
+                    self.value_at_type_text(&callee_text, self.operand_ty(callee)?, unknown_ty, &self.render_scope())?;
                 let call_text = self.dynamic_callable_dispatch_text(&erased_callee, &args_text);
                 if matches!(self.mir.types.get(dest_ty), Some(Type::Function(_))) {
                     return Ok(call_text);
                 }
-                self.value_at_type_text(&call_text, unknown_ty, dest_ty)
+                self.value_at_type_text(&call_text, unknown_ty, dest_ty, &self.render_scope())
             }
             Rvalue::ListCallback { op, list, callback } => {
                 self.list_callback_text(*op, list, callback, dest_ty)
@@ -2368,7 +2377,7 @@ impl FunctionEmitter<'_> {
             let element = format!(
                 "smelt_spread_args.get({index}).cloned().unwrap_or(SmeltUnknown::Undefined)"
             );
-            let coerced = self.value_at_type_text(&element, unknown_ty, *param)?;
+            let coerced = self.value_at_type_text(&element, unknown_ty, *param, &self.render_scope())?;
             rendered.push(self.callback_call_arg_text(function, index, *param, coerced));
         }
         // The rest parameter collects the remaining elements as a fresh
@@ -2378,7 +2387,7 @@ impl FunctionEmitter<'_> {
                 "SmeltList::from(smelt_spread_args.iter().skip({rest_index}).cloned().collect::<Vec<_>>())"
             )
         } else {
-            let item_text = self.value_at_type_text("value", unknown_ty, *rest_item)?;
+            let item_text = self.value_at_type_text("value", unknown_ty, *rest_item, &self.render_scope())?;
             format!(
                 "SmeltList::from(smelt_spread_args.iter().skip({rest_index}).cloned().map(|value| {item_text}).collect::<Vec<_>>())"
             )
@@ -2723,7 +2732,7 @@ impl FunctionEmitter<'_> {
                 let param_ty = self.function_local_decl(function, *param)?.ty;
                 let item =
                     format!("smelt_args.get({index}).cloned().unwrap_or(SmeltUnknown::Null)");
-                self.value_at_type_text(&item, unknown_ty, param_ty)
+                self.value_at_type_text(&item, unknown_ty, param_ty, &self.render_scope())
             })
             .collect::<Result<Vec<_>, EmitError>>()?;
         let call = format!("smelt_receiver.{method_name}({})", args.join(", "));

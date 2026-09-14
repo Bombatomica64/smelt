@@ -167,22 +167,22 @@ impl FunctionEmitter<'_> {
             | smelt_hir::HeadersOp::Delete => Ok(text),
             smelt_hir::HeadersOp::Get => {
                 let string_option = self.type_id(Type::Optional(string_ty))?;
-                self.value_at_type_text(&text, string_option, dest_ty)
+                self.value_at_type_text(&text, string_option, dest_ty, &self.render_scope())
             }
             smelt_hir::HeadersOp::Has => {
                 let bool_ty = self.type_id(Type::Bool)?;
-                self.value_at_type_text(&text, bool_ty, dest_ty)
+                self.value_at_type_text(&text, bool_ty, dest_ty, &self.render_scope())
             }
             smelt_hir::HeadersOp::Keys
             | smelt_hir::HeadersOp::Values
             | smelt_hir::HeadersOp::GetSetCookie => {
                 let list_ty = self.type_id(Type::List(string_ty))?;
-                self.value_at_type_text(&format!("SmeltList::new({text})"), list_ty, dest_ty)
+                self.value_at_type_text(&format!("SmeltList::new({text})"), list_ty, dest_ty, &self.render_scope())
             }
             smelt_hir::HeadersOp::Entries => {
                 let pair_ty = self.type_id(Type::Tuple(Vec::from([string_ty, string_ty])))?;
                 let list_ty = self.type_id(Type::List(pair_ty))?;
-                self.value_at_type_text(&format!("SmeltList::new({text})"), list_ty, dest_ty)
+                self.value_at_type_text(&format!("SmeltList::new({text})"), list_ty, dest_ty, &self.render_scope())
             }
         }
     }
@@ -274,25 +274,25 @@ impl FunctionEmitter<'_> {
             | smelt_hir::UrlSearchParamsOp::Sort => Ok(text),
             smelt_hir::UrlSearchParamsOp::Get => {
                 let string_option = self.type_id(Type::Optional(string_ty))?;
-                self.value_at_type_text(&text, string_option, dest_ty)
+                self.value_at_type_text(&text, string_option, dest_ty, &self.render_scope())
             }
             smelt_hir::UrlSearchParamsOp::Has => {
                 let bool_ty = self.type_id(Type::Bool)?;
-                self.value_at_type_text(&text, bool_ty, dest_ty)
+                self.value_at_type_text(&text, bool_ty, dest_ty, &self.render_scope())
             }
             smelt_hir::UrlSearchParamsOp::ToText => {
-                self.value_at_type_text(&text, string_ty, dest_ty)
+                self.value_at_type_text(&text, string_ty, dest_ty, &self.render_scope())
             }
             smelt_hir::UrlSearchParamsOp::GetAll
             | smelt_hir::UrlSearchParamsOp::Keys
             | smelt_hir::UrlSearchParamsOp::Values => {
                 let list_ty = self.type_id(Type::List(string_ty))?;
-                self.value_at_type_text(&format!("SmeltList::new({text})"), list_ty, dest_ty)
+                self.value_at_type_text(&format!("SmeltList::new({text})"), list_ty, dest_ty, &self.render_scope())
             }
             smelt_hir::UrlSearchParamsOp::Entries => {
                 let pair_ty = self.type_id(Type::Tuple(Vec::from([string_ty, string_ty])))?;
                 let list_ty = self.type_id(Type::List(pair_ty))?;
-                self.value_at_type_text(&format!("SmeltList::new({text})"), list_ty, dest_ty)
+                self.value_at_type_text(&format!("SmeltList::new({text})"), list_ty, dest_ty, &self.render_scope())
             }
         }
     }

@@ -664,6 +664,7 @@ impl FunctionEmitter<'_> {
                 &self.operand_text(source)?,
                 self.operand_ty(source)?,
                 target_ty,
+                &self.render_scope(),
             );
         };
         if self.mir.types.get(*key_ty) != Some(&Type::String) {
@@ -671,9 +672,10 @@ impl FunctionEmitter<'_> {
                 &self.operand_text(source)?,
                 self.operand_ty(source)?,
                 target_ty,
+                &self.render_scope(),
             );
         }
-        let value_text = self.extract_value_text("value", *value_ty)?;
+        let value_text = self.extract_value_text("value", *value_ty, &self.render_scope())?;
         let source_text = self.operand_text(source)?;
         // The spread-merge match inspects a dynamic `SmeltUnknown::Object`, so a
         // source that still carries a concrete static shape (a typed options
@@ -1092,7 +1094,7 @@ impl FunctionEmitter<'_> {
                 "serde_json::from_str::<SmeltUnknown>(&{}).expect(\"JSON parse failed\")",
                 self.operand_text(text)?
             );
-            return self.extract_value_text(&parsed, dest_ty);
+            return self.extract_value_text(&parsed, dest_ty, &self.render_scope());
         }
         Ok(format!(
             "serde_json::from_str::<{}>(&{}).expect(\"JSON parse failed\")",

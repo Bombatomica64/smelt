@@ -309,7 +309,7 @@ impl FunctionEmitter<'_> {
                         // the callback result behave as in JS.
                         format!("{{ {call}; SmeltUnknown::Undefined }}")
                     } else {
-                        self.value_at_type_text(&call, source_closure.return_ty, unknown_ty)?
+                        self.value_at_type_text(&call, source_closure.return_ty, unknown_ty, &self.render_scope())?
                     };
                 let length = source_closure
                     .required_params
@@ -608,7 +608,7 @@ impl FunctionEmitter<'_> {
                     // `clippy::single_match_else` rejects.
                     if let Some(target_ty) = retype {
                         let target_ty_text = emitter.type_text_with_impl_trait(target_ty, false)?;
-                        let coerced = emitter.value_at_type_text(&name, target_ty, local.ty)?;
+                        let coerced = emitter.value_at_type_text(&name, target_ty, local.ty, &self.render_scope())?;
                         param_rebinds.push_str(&format!(
                             "let {mutability}{name}: {local_ty_text} = {coerced};\n"
                         ));

@@ -70,19 +70,19 @@ impl FunctionEmitter<'_> {
         match op {
             smelt_hir::BlobOp::Size => {
                 let float_ty = self.type_id(Type::Float)?;
-                self.value_at_type_text(&format!("{receiver}.size()"), float_ty, dest_ty)
+                self.value_at_type_text(&format!("{receiver}.size()"), float_ty, dest_ty, &self.render_scope())
             }
             smelt_hir::BlobOp::LastModified => {
                 let float_ty = self.type_id(Type::Float)?;
-                self.value_at_type_text(&format!("{receiver}.last_modified()"), float_ty, dest_ty)
+                self.value_at_type_text(&format!("{receiver}.last_modified()"), float_ty, dest_ty, &self.render_scope())
             }
             smelt_hir::BlobOp::Type => {
                 let string_ty = self.type_id(Type::String)?;
-                self.value_at_type_text(&format!("{receiver}.blob_type()"), string_ty, dest_ty)
+                self.value_at_type_text(&format!("{receiver}.blob_type()"), string_ty, dest_ty, &self.render_scope())
             }
             smelt_hir::BlobOp::Name => {
                 let string_ty = self.type_id(Type::String)?;
-                self.value_at_type_text(&format!("{receiver}.file_name()"), string_ty, dest_ty)
+                self.value_at_type_text(&format!("{receiver}.file_name()"), string_ty, dest_ty, &self.render_scope())
             }
             // The body readers are `async` in the spec even though a blob's
             // bytes are already in memory: the source awaits them, so the value

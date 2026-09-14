@@ -75,6 +75,6 @@ impl FunctionEmitter<'_> {
                 )
             }
         };
-        self.value_at_type_text(&call, unknown_ty, dest_ty)
+        self.value_at_type_text(&call, unknown_ty, dest_ty, &self.render_scope())
     }
 }

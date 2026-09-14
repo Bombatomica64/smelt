@@ -493,7 +493,7 @@ impl FunctionEmitter<'_> {
             };
             let text = match (natural_ty, param_tys.get(index)) {
                 (Some(source), Some(&target)) if source != target => {
-                    self.value_at_type_text(&natural_text, source, target)?
+                    self.value_at_type_text(&natural_text, source, target, &self.render_scope())?
                 }
                 _ => natural_text,
             };
@@ -524,7 +524,7 @@ impl FunctionEmitter<'_> {
             return Ok(call_expr);
         };
         let erased = self.erase_value_text(&call_expr, return_ty)?;
-        self.extract_value_text(&erased, string_ty)
+        self.extract_value_text(&erased, string_ty, &self.render_scope())
     }
 
     /// Converts regex replacement with an uppercase first-match callback.
@@ -1214,7 +1214,7 @@ impl FunctionEmitter<'_> {
             && self.mir.types.get(*item_ty) != Some(&Type::String)
         {
             let item_text =
-                self.value_at_type_text("value", self.type_id(Type::String)?, *item_ty)?;
+                self.value_at_type_text("value", self.type_id(Type::String)?, *item_ty, &self.render_scope())?;
             return Ok(format!(
                 "{text}.into_iter().map(|value| {item_text}).collect::<Vec<_>>()"
             ));

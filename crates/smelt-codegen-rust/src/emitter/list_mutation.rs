@@ -567,12 +567,13 @@ impl FunctionEmitter<'_> {
             }
             Some(Type::Optional(_)) => {
                 let pop_ty = self.type_id(Type::Optional(item_ty))?;
-                self.value_at_type_text(&format!("{list_mut}.pop()"), pop_ty, dest_ty)
+                self.value_at_type_text(&format!("{list_mut}.pop()"), pop_ty, dest_ty, &self.render_scope())
             }
             _ => self.value_at_type_text(
                 &format!("{list_mut}.pop().expect(\"pop from empty list\")"),
                 item_ty,
                 dest_ty,
+                &self.render_scope(),
             ),
         }
     }
@@ -965,13 +966,13 @@ impl FunctionEmitter<'_> {
             function_ty,
             0,
             left_param_ty,
-            self.value_at_type_text("left.clone()", element_ty, left_param_ty)?,
+            self.value_at_type_text("left.clone()", element_ty, left_param_ty, &self.render_scope())?,
         );
         let right_arg = self.callback_call_arg_text(
             function_ty,
             1,
             right_param_ty,
-            self.value_at_type_text("right.clone()", element_ty, right_param_ty)?,
+            self.value_at_type_text("right.clone()", element_ty, right_param_ty, &self.render_scope())?,
         );
         let ordering_coercion = if coerce_result { ".smelt_into_f64()" } else { "" };
         Ok(format!(

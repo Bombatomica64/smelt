@@ -931,7 +931,7 @@ impl FunctionEmitter<'_> {
                         out.push_str("    return Ok(());\n");
                     } else {
                         let value =
-                            self.value_at_type_text("smelt_adopted", item_ty, body_return_ty)?;
+                            self.value_at_type_text("smelt_adopted", item_ty, body_return_ty, &self.render_scope())?;
                         out.push_str(&format!("    return Ok({value});\n"));
                     }
                     return Ok(());
@@ -1201,7 +1201,7 @@ impl FunctionEmitter<'_> {
         };
         let raw_value = format!("{}.await?", self.await_operand_text(future)?);
         let source_ty = self.awaited_output_ty(future)?;
-        let value = self.value_at_type_text(&raw_value, source_ty, local.ty)?;
+        let value = self.value_at_type_text(&raw_value, source_ty, local.ty, &self.render_scope())?;
         if matches!(
             self.mir.types.get(local.ty),
             Some(Type::Future(_) | Type::Function(_))
@@ -1256,7 +1256,7 @@ impl FunctionEmitter<'_> {
             } else {
                 let source_ty = self.call_emitted_source_ty(callee, args, local.ty)?;
                 let value_text =
-                    self.value_at_type_text("__smelt_value", source_ty, local.ty)?;
+                    self.value_at_type_text("__smelt_value", source_ty, local.ty, &self.render_scope())?;
                 if matches!(self.mir.types.get(local.ty), Some(Type::Future(_))) {
                     out.push_str(&format!(
                         "            let {mutability}{name} = {value_text};\n"
@@ -1324,7 +1324,7 @@ impl FunctionEmitter<'_> {
             "    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| {raw_call})) {{\n"
         ));
         out.push_str("        Ok(Ok(__smelt_value)) => {\n");
-        let value_text = self.value_at_type_text("__smelt_value", source_ty, local.ty)?;
+        let value_text = self.value_at_type_text("__smelt_value", source_ty, local.ty, &self.render_scope())?;
         let name = self.local_name(dest)?;
         let mutability = if self.local_binding_needs_mut(dest) {
             "mut "
@@ -1425,7 +1425,7 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(local.ty),
             Some(Type::Future(_) | Type::Function(_))
         ) {
-            let value_text = self.value_at_type_text("__smelt_value", source_ty, local.ty)?;
+            let value_text = self.value_at_type_text("__smelt_value", source_ty, local.ty, &self.render_scope())?;
             out.push_str(&format!(
                 "            let {mutability}{name} = {value_text};\n"
             ));
@@ -1434,7 +1434,7 @@ impl FunctionEmitter<'_> {
                 "            let {mutability}{name}: () = {{ let _ = __smelt_value; }};\n"
             ));
         } else {
-            let value_text = self.value_at_type_text("__smelt_value", source_ty, local.ty)?;
+            let value_text = self.value_at_type_text("__smelt_value", source_ty, local.ty, &self.render_scope())?;
             out.push_str(&format!(
                 "            let {mutability}{name}: {} = {value_text};\n",
                 self.type_text_with_impl_trait(local.ty, false)?
