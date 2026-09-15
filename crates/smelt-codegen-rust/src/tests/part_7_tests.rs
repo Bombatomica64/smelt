@@ -2,6 +2,42 @@
 
 use super::*;
 
+/// A generic erased to SmeltUnknown must not rebuild an array to cross an erased boundary.
+#[test]
+fn erased_generic_list_arguments_and_returns_do_not_copy_elements() {
+    let source = source_for(include_str!("../../tests/fixtures/erased_generic_list.ts"));
+    assert!(
+        !source.contains(".map(|value| value).collect::<Vec<_>>()"),
+        "passing an unknown list to an erased generic must not rebuild its storage"
+    );
+    for signature in ["fn dispatch", "fn erase_array"] {
+        let body = emitted_function_body(&source, signature);
+        assert!(
+            body.contains("SmeltUnknown::Array("),
+            "the fixture must exercise array erasure: {body}"
+        );
+        assert!(
+            !body.contains("let smelt_values: Vec<_>"),
+            "an already-erased array must share storage rather than copy every element: {body}"
+        );
+    }
+}
+
+/// A concrete numeric list cannot share storage with a list of tagged values.
+#[test]
+fn concrete_list_erasure_still_converts_elements() {
+    let source = source_for(include_str!("../../tests/fixtures/erased_generic_list.ts"));
+    let body = emitted_function_body(&source, "fn concrete_array");
+    assert!(
+        body.contains("SmeltUnknown::Number("),
+        "concrete numeric elements still need conversion into tagged values: {body}"
+    );
+    assert!(
+        body.contains("collect::<Vec<_>>()"),
+        "different element representations require a new buffer: {body}"
+    );
+}
+
 /// Erasing an async callback into an unknown-rest function must wrap its
 /// returned future directly. Throws from an async body live inside that future;
 /// the callback invocation itself does not return a `Result` to unwrap.
