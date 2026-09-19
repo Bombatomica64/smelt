@@ -308,3 +308,6 @@ third_party/es-toolkit-src/
 !blocker-logs/hono-round29-brief.md
 !blocker-logs/hono-round29-mir.md
 !blocker-logs/hono-h42-erasure-substitution.md
+!blocker-logs/hono-round30-brief.md
+!blocker-logs/hono-round30-types.md
+!blocker-logs/hono-round30-emitter.md

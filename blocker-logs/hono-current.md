@@ -5,6 +5,13 @@
 - Files scanned: 258 · with blockers: 0
 
 
+## Whole-crate `cargo check` (round 29 merged head `c2f22267`)
+
+Measured by the orchestrator from a clean `dist-smelt` with a freshly built full-feature binary:
+33 emitted modules, **319 errors** (E0107 136, E0308 134, E0609 17, E0121 10, E0382 8, E0277 5,
+E0063 5, E0425 2, E0599 1, E0271 1). Round 29's "the crate does not emit" report did not
+reproduce; the per-family breakdown and owners are in `hono-round30-brief.md`.
+
 ## Whole-crate `cargo check` (round 28, after the cross-kind type-name ruling)
 
 Committed overlay, fresh clone at the pinned ref, full-feature `smelt`: the complete closure (258
