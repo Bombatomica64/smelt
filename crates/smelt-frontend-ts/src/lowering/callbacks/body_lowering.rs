@@ -1606,6 +1606,27 @@ impl ModuleBuilder<'_> {
             Some(return_ty)
         };
         let mut actual_return_ty = return_ty;
+        // A binding declared inside a function body is not in scope outside it.
+        //
+        // The `saved_locals` bookkeeping above restores only the names THIS
+        // lowering bound (the parameters and the captures); every `const`/`let`
+        // the body's own statements declare — and every slot
+        // `predeclare_forward_referenced_locals` reserves for one — stayed bound
+        // in the enclosing scope after the closure was finished. A later SIBLING
+        // closure then saw them, and because a `LocalId` is an index into the
+        // body that owns it, a stale one silently named a DIFFERENT slot of the
+        // new body: `local_arrow_existing_body_local` can only check that the
+        // index exists. Two `test(() => { const add = .. })` closures in one
+        // `describe` therefore aliased their locals onto each other's slots
+        // (radash `curry.test.ts`, where the second test's `add` and `repeatX`
+        // shared one slot and the emitted callback adapter was handed the other
+        // binding's type).
+        //
+        // Snapshotting here — after the parameters and captures are bound, so
+        // the body still sees everything it legitimately captures — and
+        // restoring once the body is lowered drops exactly the bindings the body
+        // introduced, and nothing else.
+        let bindings_before_body = self.scope.snapshot_bindings();
         let predeclare_result = match body_kind {
             ClosureBodyKind::ArrowExpression(_) => Ok(()),
             ClosureBodyKind::Statements(statements) => self
@@ -1667,6 +1688,7 @@ impl ModuleBuilder<'_> {
         if is_async {
             closure_body.build_async_state_machine();
         }
+        self.scope.restore_bindings(bindings_before_body);
         self.current_async = saved_async;
         self.current_return_ty = saved_return_ty;
         self.scope.restore_narrowings(saved_narrowed_locals);

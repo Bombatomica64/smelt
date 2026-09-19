@@ -932,6 +932,31 @@ impl FunctionEmitter<'_> {
                 format!(
                     "|{params_text}| -> Result<{return_ty_text}, Box<dyn std::error::Error>> {{{owned_param_prelude_block}\n{body_text}    }}"
                 )
+            } else if matches!(
+                emitter.mir.types.get(function.return_ty),
+                Some(Type::Function(_))
+            ) {
+                // A closure that RETURNS a callable says so.
+                //
+                // A callable is a `Rc<dyn Fn(..)>` trait object, and the value
+                // the body hands back is an `Rc` of the CONCRETE closure type
+                // (a `Function`-typed local is deliberately left unannotated so
+                // it keeps that concrete type -- see the `annotation` choice in
+                // `emitter::control_flow`). Rust unsizes one into the other only
+                // at a coercion site, and a closure with no return annotation
+                // has none: its return type is whatever the tail expression is,
+                // so the concrete closure type escaped into the closure's own
+                // type and every consumer expecting the `dyn Fn` spelling
+                // reported E0271 (`expected .. to return `Rc<dyn Fn() -> f64>`,
+                // but it returns `Rc<{closure}>``, radash's `useZero`/`compose`
+                // shapes). Spelling the declared return type makes the return
+                // the coercion site, which is what the source says the closure
+                // produces.
+                let return_ty_text =
+                    emitter.type_text_with_impl_trait(function.return_ty, false)?;
+                format!(
+                    "|{params_text}| -> {return_ty_text} {{{owned_param_prelude_block}\n{body_text}    }}"
+                )
             } else {
                 // Shared captures are emitted as safe `Rc<RefCell<T>>` and accessed via
                 // `borrow_mut()` (see core.rs), so the closure body contains no `unsafe`

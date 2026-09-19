@@ -1,0 +1,198 @@
+fn main (FuncId(0)) -> None
+  locals
+    %0 user run: fn(String, fn() -> String) -> String
+    %1 temp: fn(String, fn() -> String) -> String
+    %2 temp: fn() -> String
+    %3 temp: String
+    %4 temp: None
+    %5 temp: fn(String, fn() -> String) -> String
+    %6 temp: fn() -> String
+    %7 temp: String
+    %8 temp: None
+    %9 temp: fn(String, fn() -> String) -> String
+    %10 temp: fn() -> String
+    %11 temp: String
+    %12 temp: None
+  bb0:
+    %1 = closure ClosureId(0) []
+    %2 = closure ClosureId(1) []
+    %3 = closure_call move %1("first", move %2)
+    %4 = call @console_log(move %3) -> bb1
+  bb1:
+    %5 = closure ClosureId(5) []
+    %6 = closure ClosureId(6) []
+    %7 = closure_call move %5("second", move %6)
+    %8 = call @console_log(move %7) -> bb2
+  bb2:
+    %9 = closure ClosureId(11) []
+    %10 = closure ClosureId(12) []
+    %11 = closure_call move %9("third", move %10)
+    %12 = call @console_log(move %11) -> bb3
+  bb3:
+    return none
+
+closure ClosureId(0) -> String
+  locals
+    %0 param __callback_param_0: String
+    %1 param __callback_param_1: fn() -> String
+    %2 temp: String
+    %3 temp: String
+    %4 temp: String
+    %5 temp: String
+  bb0:
+    %2 = "" + copy %0
+    %3 = copy %2 + "="
+    %4 = closure_call copy %1()
+    %5 = copy %3 + copy %4
+    return copy %5
+
+closure ClosureId(1) -> String
+  locals
+    %0 user make: fn(Float) -> fn(Float) -> Float
+    %1 user twice: fn(Float) -> Float
+    %2 user add_five: fn(Float) -> Float
+    %3 temp: fn(Float) -> fn(Float) -> Float
+    %4 temp: fn(Float) -> Float
+    %5 temp: fn(Float) -> Float
+    %6 temp: fn(Float) -> Float
+    %7 temp: Float
+    %8 temp: Float
+    %9 temp: Float
+    %10 temp: String
+  bb0:
+    %3 = closure ClosureId(2) []
+    %0 = copy %3
+    %4 = closure_call copy %0(5.0)
+    %2 = copy %4
+    %5 = closure ClosureId(4) []
+    %1 = copy %5
+    %6 = closure_call copy %0(1.0)
+    %7 = closure_call copy %6(0.0)
+    %8 = closure_call copy %2(copy %7)
+    %9 = closure_call copy %1(copy %8)
+    %10 = primitive_cast_string copy %9
+    return copy %10
+
+closure ClosureId(2) -> fn(Float) -> Float
+  locals
+    %0 param y: Float
+    %1 temp: fn(Float) -> Float
+  bb0:
+    %1 = closure ClosureId(3) [copy %0]
+    return copy %1
+
+closure ClosureId(3) -> Float
+  locals
+    %0 param __callback_param_0: Float
+    %1 user y: Float
+    %2 temp: Float
+  bb0:
+    %2 = copy %0 + copy %1
+    return copy %2
+
+closure ClosureId(4) -> Float
+  locals
+    %0 param __callback_param_0: Float
+    %1 temp: Float
+  bb0:
+    %1 = copy %0 * 2.0
+    return copy %1
+
+closure ClosureId(5) -> String
+  locals
+    %0 param __callback_param_0: String
+    %1 param __callback_param_1: fn() -> String
+    %2 temp: String
+    %3 temp: String
+    %4 temp: String
+    %5 temp: String
+  bb0:
+    %2 = "" + copy %0
+    %3 = copy %2 + "="
+    %4 = closure_call copy %1()
+    %5 = copy %3 + copy %4
+    return copy %5
+
+closure ClosureId(6) -> String
+  locals
+    %0 user make: fn(Float) -> fn(Float) -> Float
+    %1 user twice: fn(Float) -> Float
+    %2 user repeat: fn(Float) -> String
+    %3 user add_five: fn(Float) -> Float
+    %4 temp: fn(Float) -> fn(Float) -> Float
+    %5 temp: fn(Float) -> Float
+    %6 temp: fn(Float) -> Float
+    %7 temp: fn(Float) -> String
+    %8 temp: fn(Float) -> Float
+    %9 temp: Float
+    %10 temp: Float
+    %11 temp: Float
+    %12 temp: String
+  bb0:
+    %4 = closure ClosureId(7) []
+    %0 = copy %4
+    %5 = closure_call copy %0(5.0)
+    %3 = copy %5
+    %6 = closure ClosureId(9) []
+    %1 = copy %6
+    %7 = closure ClosureId(10) []
+    %2 = copy %7
+    %8 = closure_call copy %0(2.0)
+    %9 = closure_call copy %8(0.0)
+    %10 = closure_call copy %3(copy %9)
+    %11 = closure_call copy %1(copy %10)
+    %12 = closure_call copy %2(copy %11)
+    return copy %12
+
+closure ClosureId(7) -> fn(Float) -> Float
+  locals
+    %0 param y: Float
+    %1 temp: fn(Float) -> Float
+  bb0:
+    %1 = closure ClosureId(8) [copy %0]
+    return copy %1
+
+closure ClosureId(8) -> Float
+  locals
+    %0 param __callback_param_0: Float
+    %1 user y: Float
+    %2 temp: Float
+  bb0:
+    %2 = copy %0 + copy %1
+    return copy %2
+
+closure ClosureId(9) -> Float
+  locals
+    %0 param __callback_param_0: Float
+    %1 temp: Float
+  bb0:
+    %1 = copy %0 * 2.0
+    return copy %1
+
+closure ClosureId(10) -> String
+  locals
+    %0 param n: Float
+    %1 temp: String
+  bb0:
+    %1 = string_repeat "x", copy %0
+    return copy %1
+
+closure ClosureId(11) -> String
+  locals
+    %0 param __callback_param_0: String
+    %1 param __callback_param_1: fn() -> String
+    %2 temp: String
+    %3 temp: String
+    %4 temp: String
+    %5 temp: String
+  bb0:
+    %2 = "" + copy %0
+    %3 = copy %2 + "="
+    %4 = closure_call copy %1()
+    %5 = copy %3 + copy %4
+    return copy %5
+
+closure ClosureId(12) -> String
+  bb0:
+    return "plain"
+

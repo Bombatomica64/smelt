@@ -57,26 +57,30 @@ fn smelt_panic_message(panic: &(dyn ::std::any::Any + Send)) -> String { if let 
 /// Recover the error class a `catch` observes from a caught panic.
 fn smelt_panic_class(panic: &(dyn ::std::any::Any + Send)) -> String { panic.downcast_ref::<SmeltPanic>().map_or_else(|| "Error".to_owned(), |payload| payload.class.clone()) }
 thread_local! {
-    static SMELT_NEXT_CAPTURE_SCOPE: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
-    static SMELT_SHARED_CAPTURES: ::std::cell::RefCell<::std::collections::HashMap<(usize, usize), ::std::rc::Weak<dyn ::std::any::Any>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
+    static SMELT_VIRTUAL_MS: ::std::cell::Cell<u64> = const { ::std::cell::Cell::new(0) };
+    static SMELT_TIMER_EPOCH: ::std::cell::Cell<Option<::std::time::Instant>> = const { ::std::cell::Cell::new(None) };
 }
 
-fn smelt_next_capture_scope() -> usize {
-    SMELT_NEXT_CAPTURE_SCOPE.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id })
+/// Monotonic virtual + wall clock (ms) shared by JS timers and `Date.now()`.
+///
+/// Returns real elapsed wall time since a fixed epoch plus the virtual
+/// fast-forward accumulated by `sleep`/timer draining, so `setTimeout`
+/// deadlines and `Date.now()` measurements share one timeline.
+fn smelt_mono_ms() -> u64 {
+    let epoch = SMELT_TIMER_EPOCH.with(|epoch| match epoch.get() {
+        Some(instant) => instant,
+        None => { let instant = ::std::time::Instant::now(); epoch.set(Some(instant)); instant }
+    });
+    let real_ms = ::std::time::Instant::now().saturating_duration_since(epoch).as_millis() as u64;
+    real_ms.saturating_add(SMELT_VIRTUAL_MS.with(::std::cell::Cell::get))
 }
 
-fn smelt_shared_capture<T: Clone + 'static>(scope: usize, slot: *mut T, initial: T) -> ::std::rc::Rc<::std::cell::RefCell<T>> {
-    let key = (scope, slot as usize);
-    SMELT_SHARED_CAPTURES.with(|captures| {
-        let mut captures = captures.borrow_mut();
-        if let Some(existing) = captures.get(&key).and_then(::std::rc::Weak::upgrade) {
-            return existing.downcast::<::std::cell::RefCell<T>>().expect("shared capture type mismatch");
-        }
-        let value: ::std::rc::Rc<::std::cell::RefCell<T>> = ::std::rc::Rc::new(::std::cell::RefCell::new(initial));
-        let erased: ::std::rc::Rc<dyn ::std::any::Any> = value.clone();
-        captures.insert(key, ::std::rc::Rc::downgrade(&erased));
-        value
-    })
+/// Fast-forward the virtual clock so `smelt_mono_ms()` reaches `target_ms`.
+fn smelt_virtual_advance_to(target_ms: u64) {
+    let now = smelt_mono_ms();
+    if target_ms > now {
+        SMELT_VIRTUAL_MS.with(|virtual_ms| virtual_ms.set(virtual_ms.get().saturating_add(target_ms - now)));
+    }
 }
 
 thread_local! {
@@ -1443,6 +1447,7 @@ impl SmeltPromise {
             if let Some(result) = self.state.borrow().clone() {
                 return result.map_err(smelt_throw);
             }
+            smelt_sleep_ms(0.0).await;
             tokio::task::yield_now().await;
         }
     }
@@ -2047,6 +2052,201 @@ impl PartialEq for SmeltUnknown {
 impl Default for SmeltUnknown {
     fn default() -> Self {
         Self::Undefined
+    }
+}
+
+struct SmeltTimer {
+    id: u64,
+    due_ms: u64,
+    callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut() -> Result<(), Box<dyn std::error::Error>>>>,
+    // `Some(period)` marks a repeating `setInterval` timer that re-arms
+    // itself `period` ms after each fire; `None` is a one-shot `setTimeout`.
+    period_ms: Option<u64>,
+}
+
+thread_local! {
+    static SMELT_NEXT_TIMER_ID: ::std::cell::Cell<u64> = const { ::std::cell::Cell::new(1) };
+    static SMELT_TIMERS: ::std::cell::RefCell<Vec<SmeltTimer>> = const { ::std::cell::RefCell::new(Vec::new()) };
+    static SMELT_PROMISE_TASKS: ::std::cell::RefCell<Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = ()>>>>> = const { ::std::cell::RefCell::new(Vec::new()) };
+    // Non-zero while a `Promise.race` driver owns the event loop; see
+    // `smelt_promise_race`.
+    static SMELT_RACE_DEPTH: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) };
+}
+
+fn smelt_reset_timers() {
+    SMELT_NEXT_TIMER_ID.with(|next| next.set(1));
+    SMELT_VIRTUAL_MS.with(|virtual_ms| virtual_ms.set(0));
+    SMELT_TIMER_EPOCH.with(|epoch| epoch.set(None));
+    SMELT_TIMERS.with(|timers| timers.borrow_mut().clear());
+    SMELT_PROMISE_TASKS.with(|tasks| tasks.borrow_mut().clear());
+    SMELT_RACE_DEPTH.with(|depth| depth.set(0));
+    SMELT_PRIME_DEPTH.with(|depth| depth.set(0));
+}
+
+fn smelt_noop_waker() -> ::std::task::Waker {
+    unsafe fn clone(_: *const ()) -> ::std::task::RawWaker { smelt_raw_waker() }
+    unsafe fn wake(_: *const ()) {}
+    unsafe fn wake_by_ref(_: *const ()) {}
+    unsafe fn drop(_: *const ()) {}
+    fn smelt_raw_waker() -> ::std::task::RawWaker { ::std::task::RawWaker::new(::std::ptr::null(), &::std::task::RawWakerVTable::new(clone, wake, wake_by_ref, drop)) }
+    unsafe { ::std::task::Waker::from_raw(smelt_raw_waker()) }
+}
+
+fn smelt_spawn_promise_task(task: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = ()>>>) {
+    SMELT_PROMISE_TASKS.with(|tasks| tasks.borrow_mut().push(task));
+}
+
+async fn smelt_drain_promise_tasks() {
+    for _ in 0..64 {
+        let mut tasks = SMELT_PROMISE_TASKS.with(|tasks| ::std::mem::take(&mut *tasks.borrow_mut()));
+        if tasks.is_empty() { break; }
+        let waker = smelt_noop_waker();
+        let mut cx = ::std::task::Context::from_waker(&waker);
+        let mut pending = Vec::new();
+        for mut task in tasks.drain(..) {
+            if task.as_mut().poll(&mut cx).is_pending() { pending.push(task); }
+        }
+        let had_pending = !pending.is_empty();
+        SMELT_PROMISE_TASKS.with(|tasks| tasks.borrow_mut().extend(pending));
+        if !had_pending { break; }
+        tokio::task::yield_now().await;
+    }
+}
+
+fn smelt_set_timeout(callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut() -> Result<(), Box<dyn std::error::Error>>>>, delay_ms: f64) -> SmeltUnknown {
+    let id = SMELT_NEXT_TIMER_ID.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id });
+    let delay_ms = if delay_ms.is_finite() && delay_ms > 0.0 { delay_ms as u64 } else { 0 };
+    let due_ms = smelt_mono_ms().saturating_add(delay_ms);
+    SMELT_TIMERS.with(|timers| timers.borrow_mut().push(SmeltTimer { id, due_ms, callback, period_ms: None }));
+    SmeltUnknown::Number(id as f64)
+}
+
+fn smelt_set_interval(callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut() -> Result<(), Box<dyn std::error::Error>>>>, period_ms: f64) -> SmeltUnknown {
+    let id = SMELT_NEXT_TIMER_ID.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id });
+    // Clamp non-positive periods to 1 ms so an interval still advances virtual
+    // time and cannot busy-loop the drain at the current instant.
+    let period_ms = if period_ms.is_finite() && period_ms > 0.0 { period_ms as u64 } else { 1 };
+    let due_ms = smelt_mono_ms().saturating_add(period_ms);
+    SMELT_TIMERS.with(|timers| timers.borrow_mut().push(SmeltTimer { id, due_ms, callback, period_ms: Some(period_ms) }));
+    SmeltUnknown::Number(id as f64)
+}
+
+fn smelt_clear_timeout<T: IntoSmeltUnknown>(handle: T) {
+    let SmeltUnknown::Number(id) = handle.into_smelt_unknown() else { return; };
+    let id = id as u64;
+    SMELT_TIMERS.with(|timers| timers.borrow_mut().retain(|timer| timer.id != id));
+}
+
+fn smelt_clear_interval<T: IntoSmeltUnknown>(handle: T) { smelt_clear_timeout(handle) }
+
+fn smelt_drain_due_timers(id_barrier: u64) {
+    loop {
+        let now = smelt_mono_ms();
+        let due = SMELT_TIMERS.with(|timers| {
+            let mut timers = timers.borrow_mut();
+            let mut due = Vec::new();
+            let mut pending = Vec::new();
+            for timer in timers.drain(..) {
+                if timer.due_ms <= now && timer.id < id_barrier { due.push(timer); } else { pending.push(timer); }
+            }
+            *timers = pending;
+            due
+        });
+        if due.is_empty() { break; }
+        for timer in due {
+            (&mut *timer.callback.borrow_mut())().unwrap_or_else(|error| smelt_panic_throw(error));
+            // Re-arm repeating `setInterval` timers for their next period. The
+            // next fire is scheduled `period` ms from the current virtual time, so
+            // it is strictly in the future and cannot re-fire within this drain pass.
+            if let Some(period_ms) = timer.period_ms {
+                let next_due = now.saturating_add(period_ms);
+                SMELT_TIMERS.with(|timers| timers.borrow_mut().push(SmeltTimer { id: timer.id, due_ms: next_due, callback: timer.callback.clone(), period_ms: Some(period_ms) }));
+            }
+        }
+    }
+}
+
+async fn smelt_sleep_ms(delay_ms: f64) {
+    if SMELT_PRIME_DEPTH.with(::std::cell::Cell::get) > 0 { tokio::task::yield_now().await; }
+    smelt_drain_promise_tasks().await;
+    let delay_ms = if delay_ms.is_finite() && delay_ms > 0.0 { delay_ms as u64 } else { 0 };
+    let target_ms = smelt_mono_ms().saturating_add(delay_ms);
+    let id_barrier = if delay_ms == 0 { SMELT_NEXT_TIMER_ID.with(::std::cell::Cell::get) } else { u64::MAX };
+    let mut fired_any = false;
+    loop {
+        let next_due = SMELT_TIMERS.with(|timers| timers.borrow().iter().filter(|timer| timer.due_ms <= target_ms && timer.id < id_barrier).map(|timer| timer.due_ms).min());
+        let Some(next_due) = next_due else { break; };
+        fired_any = true;
+        smelt_virtual_advance_to(next_due);
+        smelt_drain_due_timers(id_barrier);
+        smelt_drain_promise_tasks().await;
+    }
+    smelt_virtual_advance_to(target_ms);
+    'idle: {
+        // A `Promise.race` driver owns the clock while it is running: if a
+        // racer advanced time here, polling one racer could fire ANOTHER
+        // racer's timer, so both settle in the same round and the winner
+        // stops being the one that finished first. Yield instead and let
+        // `smelt_promise_race` take exactly one timer step per round.
+        if delay_ms != 0 || fired_any || SMELT_RACE_DEPTH.with(::std::cell::Cell::get) > 0 { break 'idle; }
+        let tasks_pending = SMELT_PROMISE_TASKS.with(|tasks| !tasks.borrow().is_empty());
+        if tasks_pending { break 'idle; }
+        let earliest = SMELT_TIMERS.with(|timers| timers.borrow().iter().filter(|timer| timer.id < id_barrier).map(|timer| timer.due_ms).min());
+        let Some(earliest) = earliest else { break 'idle; };
+        smelt_virtual_advance_to(earliest);
+        smelt_drain_due_timers(id_barrier);
+        smelt_drain_promise_tasks().await;
+    }
+    smelt_drain_promise_tasks().await;
+    if SMELT_RACE_DEPTH.with(::std::cell::Cell::get) == 0 { tokio::task::yield_now().await; }
+}
+
+thread_local! {
+    /// Open handles that keep the program alive, in Node's sense.
+    static SMELT_LIVE_HANDLES: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) };
+}
+/// Register a handle that must keep the program from exiting.
+#[allow(dead_code)]
+fn smelt_retain_handle() { SMELT_LIVE_HANDLES.with(|handles| handles.set(handles.get().saturating_add(1))); }
+/// Release a handle registered by `smelt_retain_handle`.
+#[allow(dead_code)]
+fn smelt_release_handle() { SMELT_LIVE_HANDLES.with(|handles| handles.set(handles.get().saturating_sub(1))); }
+/// Run the event loop until the program is allowed to exit.
+///
+/// First the ordinary run-until-idle drain, then Node's ref'd-handle
+/// rule: stay alive while any handle is open. Polling (rather than a
+/// notification) is deliberate -- this loop runs once, at the very end of
+/// the program, and only while a handle really is open, so its cost is a
+/// wakeup every few milliseconds in a process that is otherwise just
+/// serving.
+#[allow(dead_code)]
+async fn smelt_run_until_exit() {
+    smelt_sleep_ms(0.0).await;
+    while SMELT_LIVE_HANDLES.with(::std::cell::Cell::get) > 0 {
+        tokio::time::sleep(::std::time::Duration::from_millis(5)).await;
+    }
+}
+
+async fn smelt_promise_race<T>(mut racers: Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>>) -> Result<T, Box<dyn std::error::Error>> {
+    struct SmeltRaceGuard;
+    impl Drop for SmeltRaceGuard { fn drop(&mut self) { SMELT_RACE_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1))); } }
+    SMELT_RACE_DEPTH.with(|depth| depth.set(depth.get().saturating_add(1)));
+    let _smelt_race_guard = SmeltRaceGuard;
+    loop {
+        let waker = smelt_noop_waker();
+        let mut cx = ::std::task::Context::from_waker(&waker);
+        for racer in racers.iter_mut() {
+            if let ::std::task::Poll::Ready(result) = ::std::future::Future::poll(racer.as_mut(), &mut cx) { return result; }
+        }
+        smelt_drain_promise_tasks().await;
+        let id_barrier = SMELT_NEXT_TIMER_ID.with(::std::cell::Cell::get);
+        let earliest = SMELT_TIMERS.with(|timers| timers.borrow().iter().filter(|timer| timer.id < id_barrier).map(|timer| timer.due_ms).min());
+        if let Some(earliest) = earliest {
+            smelt_virtual_advance_to(earliest);
+            smelt_drain_due_timers(id_barrier);
+            smelt_drain_promise_tasks().await;
+        }
+        tokio::task::yield_now().await;
     }
 }
 
@@ -2826,160 +3026,55 @@ impl SmeltFromUnknown for SmeltMatch {
     }
 }
 
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Wrapper {
+    label: String,
+}
+impl IntoSmeltUnknown for Wrapper {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        SmeltUnknown::Object(SmeltObject::new(Vec::from([
+        ("label".to_owned(), SmeltUnknown::String(self.label.into())),
+        ])))
+    }
+}
+impl SmeltFromUnknown for Wrapper {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let mut result = Self::default();
+        if let SmeltUnknown::Object(object) = value {
+            if let Some(field) = object.get("label") {
+                result.label = SmeltFromUnknown::smelt_from_unknown(field);
+            }
+        }
+        result
+    }
+}
+
 // @smelt:prelude-end — generated program below
-fn main() {
-    let __smelt_logical_value_4: ::std::rc::Rc<dyn Fn(String) -> f64>;
-    let mut via_nullish_assign: Option<::std::rc::Rc<dyn Fn(String) -> f64>>;
-    let __smelt_logical_value_6: ::std::rc::Rc<dyn Fn(String) -> f64>;
-    let direct: ::std::rc::Rc<dyn Fn(String) -> f64>;
-    let mut _smelt_tmp_12: ::std::rc::Rc<dyn Fn() -> ::std::rc::Rc<dyn Fn(String) -> f64>> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> ::std::rc::Rc<dyn Fn(String) -> f64>> = ::std::rc::Rc::new(move || -> ::std::rc::Rc<dyn Fn(String) -> f64> { { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| -> f64 { 0.0 }); smelt_default_callback } }); smelt_default_callback };
-    let mut _smelt_tmp_13: ::std::rc::Rc<dyn Fn(String) -> f64> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| -> f64 { 0.0 }); smelt_default_callback };
-    let _smelt_tmp_14: bool;
-    let mut _smelt_tmp_15: ::std::rc::Rc<dyn Fn() -> ::std::rc::Rc<dyn Fn(String) -> f64>> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> ::std::rc::Rc<dyn Fn(String) -> f64>> = ::std::rc::Rc::new(move || -> ::std::rc::Rc<dyn Fn(String) -> f64> { { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| -> f64 { 0.0 }); smelt_default_callback } }); smelt_default_callback };
-    let mut _smelt_tmp_16: ::std::rc::Rc<dyn Fn(String) -> f64> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| -> f64 { 0.0 }); smelt_default_callback };
-    let mut _smelt_tmp_17: ::std::rc::Rc<dyn Fn() -> ::std::rc::Rc<dyn Fn(String) -> f64>> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> ::std::rc::Rc<dyn Fn(String) -> f64>> = ::std::rc::Rc::new(move || -> ::std::rc::Rc<dyn Fn(String) -> f64> { { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| -> f64 { 0.0 }); smelt_default_callback } }); smelt_default_callback };
-    let mut _smelt_tmp_18: ::std::rc::Rc<dyn Fn(String) -> f64> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| -> f64 { 0.0 }); smelt_default_callback };
-    let _smelt_tmp_19: f64;
-    let _smelt_tmp_20: bool;
-    let mut _smelt_tmp_21: f64;
-    let _smelt_tmp_22: f64;
-    let _smelt_tmp_23: f64;
-    let mut _smelt_tmp_26: ::std::rc::Rc<dyn Fn(String) -> f64> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| -> f64 { 0.0 }); smelt_default_callback };
-    let _smelt_tmp_27: bool;
-    let mut _smelt_tmp_28: f64;
-    let _smelt_tmp_29: f64;
-    let mut _smelt_tmp_30: ::std::rc::Rc<dyn Fn(String) -> f64> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| -> f64 { 0.0 }); smelt_default_callback };
-    let _smelt_tmp_31: f64;
-    let _smelt_tmp_33: bool;
-    let mut _smelt_tmp_34: f64;
-    let _smelt_tmp_35: f64;
-    let mut _smelt_tmp_36: ::std::rc::Rc<dyn Fn(String) -> f64> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| -> f64 { 0.0 }); smelt_default_callback };
-    let _smelt_tmp_37: f64;
-    let _smelt_tmp_39: bool;
-    let mut _smelt_tmp_40: f64;
-    let _smelt_tmp_41: f64;
-    let mut _smelt_tmp_42: ::std::rc::Rc<dyn Fn(String) -> f64> = { let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| -> f64 { 0.0 }); smelt_default_callback };
-    let _smelt_tmp_43: f64;
-    let _smelt_tmp_45: f64;
-    let mut annotated: Option<f64> = None::<f64>;
-    annotated = Some(5.0);
-    let mut initialized: f64 = 1.0;
-    initialized = 6.0;
-    let mut via_iife: Option<::std::rc::Rc<dyn Fn(String) -> f64>> = None::<::std::rc::Rc<dyn Fn(String) -> f64>>;
-    let _smelt_tmp_8 = ::std::rc::Rc::new(|| -> ::std::rc::Rc<dyn Fn(String) -> f64> {
-    let offset: f64 = 10.0;
-    let _smelt_tmp_1 = ::std::rc::Rc::new({
-    let offset = offset.clone();
-    move |closure_arg_0: String| {
-    let _smelt_tmp_2: f64 = (closure_arg_0.chars().count() as f64) + offset;
-    _smelt_tmp_2
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+let smelt_runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+let smelt_local = tokio::task::LocalSet::new();
+smelt_local.block_on(&smelt_runtime, async move {
+    let _smelt_tmp_2: String;
+    let _smelt_tmp_7: ();
+    let _smelt_tmp_0: SmeltFuture<String> = SmeltFuture::from_future(Box::pin(async move { smelt_sleep_ms(0.0 as f64).await; Ok::<_, Box<dyn std::error::Error>>("a".to_owned()) }));
+    let _smelt_tmp_1 = SmeltFuture::from_future(Box::pin(boxed(_smelt_tmp_0)));
+    _smelt_tmp_2 = _smelt_tmp_1.await?;
+    let _ = { println!("{}", _smelt_tmp_2); };
+    let _smelt_tmp_4: String = direct("b".to_owned());
+    let _ = { println!("{}", _smelt_tmp_4); };
+    let _smelt_tmp_6: SmeltFuture<()> = SmeltFuture::from_future(Box::pin(async move { smelt_run_until_exit().await; Ok::<_, Box<dyn std::error::Error>>(()) }));
+    _smelt_tmp_7 = _smelt_tmp_6.await?;
+    return Ok(());
+})
+}
+
+impl Wrapper {
+    fn new(label: String) -> Self {
+    let mut this: Self = Wrapper { label: String::new() };
+    this.label = label.clone();
+    return this;
     }
-});
-    _smelt_tmp_1.clone()
-    });
-    let _smelt_tmp_9 = ((_smelt_tmp_8)()).clone();
-    via_iife = Some(_smelt_tmp_9.clone());
-    let mut via_or_assign: Option<::std::rc::Rc<dyn Fn(String) -> f64>> = None::<::std::rc::Rc<dyn Fn(String) -> f64>>;
-    let _smelt_tmp_10: bool = !(via_or_assign.clone().is_none());
-    let _smelt_tmp_11: bool = !(_smelt_tmp_10);
-    if _smelt_tmp_11 {
-    _smelt_tmp_12 = ::std::rc::Rc::new(|| -> ::std::rc::Rc<dyn Fn(String) -> f64> {
-    let offset: f64 = 20.0;
-    let _smelt_tmp_1 = ::std::rc::Rc::new({
-    let offset = offset.clone();
-    move |closure_arg_0: String| {
-    let _smelt_tmp_2: f64 = (closure_arg_0.chars().count() as f64) + offset;
-    _smelt_tmp_2
-    }
-});
-    _smelt_tmp_1.clone()
-    });
-    _smelt_tmp_13 = ((_smelt_tmp_12)()).clone();
-    __smelt_logical_value_4 = _smelt_tmp_13.clone();
-    via_or_assign = Some(__smelt_logical_value_4.clone());
-    }
-    via_nullish_assign = None::<::std::rc::Rc<dyn Fn(String) -> f64>>;
-    _smelt_tmp_14 = via_nullish_assign.clone().is_none();
-    if _smelt_tmp_14 {
-    _smelt_tmp_15 = ::std::rc::Rc::new(|| -> ::std::rc::Rc<dyn Fn(String) -> f64> {
-    let offset: f64 = 30.0;
-    let _smelt_tmp_1 = ::std::rc::Rc::new({
-    let offset = offset.clone();
-    move |closure_arg_0: String| {
-    let _smelt_tmp_2: f64 = (closure_arg_0.chars().count() as f64) + offset;
-    _smelt_tmp_2
-    }
-});
-    _smelt_tmp_1.clone()
-    });
-    _smelt_tmp_16 = ((_smelt_tmp_15)()).clone();
-    __smelt_logical_value_6 = _smelt_tmp_16.clone();
-    via_nullish_assign = Some(__smelt_logical_value_6.clone());
-    }
-    _smelt_tmp_17 = ::std::rc::Rc::new(|| -> ::std::rc::Rc<dyn Fn(String) -> f64> {
-    let offset: f64 = 40.0;
-    let _smelt_tmp_1 = ::std::rc::Rc::new({
-    let offset = offset.clone();
-    move |closure_arg_0: String| {
-    let _smelt_tmp_2: f64 = (closure_arg_0.chars().count() as f64) + offset;
-    _smelt_tmp_2
-    }
-});
-    _smelt_tmp_1.clone()
-    });
-    _smelt_tmp_18 = ((_smelt_tmp_17)()).clone();
-    direct = _smelt_tmp_18.clone();
-    _smelt_tmp_19 = annotated.clone().clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_20 = false;
-    let mut _smelt_tmp_21: f64 = 0.0;
-    if _smelt_tmp_20 {
-    _smelt_tmp_22 = -1.0;
-    _smelt_tmp_21 = _smelt_tmp_22;
-    } else {
-    _smelt_tmp_23 = annotated.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_21 = _smelt_tmp_23;
-    }
-    let _ = { println!("{}", smelt_console_number(_smelt_tmp_21)); };
-    let _ = { println!("{}", smelt_console_number(initialized)); };
-    _smelt_tmp_26 = via_iife.clone().clone().unwrap_or({ let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| -> f64 { 0.0 }); smelt_default_callback });
-    _smelt_tmp_27 = false;
-    let mut _smelt_tmp_28: f64 = 0.0;
-    if _smelt_tmp_27 {
-    _smelt_tmp_29 = -1.0;
-    _smelt_tmp_28 = _smelt_tmp_29;
-    } else {
-    _smelt_tmp_30 = via_iife.clone().unwrap_or({ let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| -> f64 { 0.0 }); smelt_default_callback });
-    _smelt_tmp_31 = (_smelt_tmp_30)("ab".to_owned());
-    _smelt_tmp_28 = _smelt_tmp_31;
-    }
-    let _ = { println!("{}", smelt_console_number(_smelt_tmp_28)); };
-    _smelt_tmp_33 = via_or_assign.clone().is_none();
-    let mut _smelt_tmp_34: f64 = 0.0;
-    if _smelt_tmp_33 {
-    _smelt_tmp_35 = -1.0;
-    _smelt_tmp_34 = _smelt_tmp_35;
-    } else {
-    _smelt_tmp_36 = via_or_assign.clone().unwrap_or({ let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| -> f64 { 0.0 }); smelt_default_callback });
-    _smelt_tmp_37 = (_smelt_tmp_36)("ab".to_owned());
-    _smelt_tmp_34 = _smelt_tmp_37;
-    }
-    let _ = { println!("{}", smelt_console_number(_smelt_tmp_34)); };
-    _smelt_tmp_39 = via_nullish_assign.clone().is_none();
-    let mut _smelt_tmp_40: f64 = 0.0;
-    if _smelt_tmp_39 {
-    _smelt_tmp_41 = -1.0;
-    _smelt_tmp_40 = _smelt_tmp_41;
-    } else {
-    _smelt_tmp_42 = via_nullish_assign.clone().unwrap_or({ let smelt_default_callback: ::std::rc::Rc<dyn Fn(String) -> f64> = ::std::rc::Rc::new(move |arg0: String| -> f64 { 0.0 }); smelt_default_callback });
-    _smelt_tmp_43 = (_smelt_tmp_42)("ab".to_owned());
-    _smelt_tmp_40 = _smelt_tmp_43;
-    }
-    let _ = { println!("{}", smelt_console_number(_smelt_tmp_40)); };
-    _smelt_tmp_45 = (direct)("ab".to_owned());
-    let _ = { println!("{}", smelt_console_number(_smelt_tmp_45)); };
-    let _smelt_tmp_47: String = inside_a_function();
-    let _ = { println!("{}", _smelt_tmp_47); };
-    return;
 }
 
 // ==== source_main.rs
@@ -2989,29 +3084,27 @@ fn main() {
 
 use super::*;
 
-pub(crate) fn inside_a_function() -> String {
-    let mut _smelt_tmp_4: f64;
-    let _smelt_tmp_5: f64;
-    let _smelt_tmp_6: f64;
-    let _smelt_tmp_7: String;
-    let _smelt_tmp_8: String;
-    let _smelt_tmp_9: String;
-    let mut local: Option<f64> = None::<f64>;
-    local = Some(7.0);
-    let mut seeded: f64 = 2.0;
-    seeded = 8.0;
-    let _smelt_tmp_2: f64 = local.clone().clone().expect("optional value was absent after narrowing");
-    let _smelt_tmp_3: bool = false;
-    let mut _smelt_tmp_4: f64 = 0.0;
-    if _smelt_tmp_3 {
-    _smelt_tmp_5 = -1.0;
-    _smelt_tmp_4 = _smelt_tmp_5;
-    } else {
-    _smelt_tmp_6 = local.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_4 = _smelt_tmp_6;
-    }
-    _smelt_tmp_7 = "".to_owned() + &smelt_number_to_string(_smelt_tmp_4);
-    _smelt_tmp_8 = _smelt_tmp_7 + &"/".to_owned();
-    _smelt_tmp_9 = _smelt_tmp_8 + &smelt_number_to_string(seeded);
-    return _smelt_tmp_9;
+pub(crate) async fn boxed(text: SmeltFuture<String>) -> Result<String, Box<dyn std::error::Error>> {
+    let _smelt_tmp_3 = ::std::rc::Rc::new(|closure_arg_0: String| {
+    let _smelt_tmp_1: String = "[".to_owned() + &closure_arg_0.clone();
+    let _smelt_tmp_2: String = _smelt_tmp_1.clone() + &"]".to_owned();
+    let _smelt_tmp_3: Wrapper = Wrapper::new(_smelt_tmp_2.clone());
+    _smelt_tmp_3.clone()
+    });
+    let decorate = _smelt_tmp_3.clone();
+    let _smelt_tmp_4: SmeltFuture<Wrapper> = { let smelt_promise_callback = (decorate).clone(); SmeltFuture::from_future(Box::pin(async move { let smelt_value = text.await?; let smelt_callback_value = (smelt_promise_callback)(smelt_value); Ok::<_, Box<dyn std::error::Error>>(smelt_callback_value) })) };
+    let _smelt_tmp_5: Wrapper = _smelt_tmp_4.await?;
+    let box_: Wrapper = _smelt_tmp_5;
+    return Ok(box_.label.clone());
+}
+
+pub(crate) fn direct(value: String) -> String {
+    let _smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: String| {
+    let _smelt_tmp_1: String = closure_arg_0.clone() + &closure_arg_0.clone();
+    let _smelt_tmp_2: Wrapper = Wrapper::new(_smelt_tmp_1.clone());
+    _smelt_tmp_2.clone()
+    });
+    let twice = _smelt_tmp_2.clone();
+    let _smelt_tmp_3: Wrapper = (twice)(value.clone());
+    return _smelt_tmp_3.label.clone();
 }

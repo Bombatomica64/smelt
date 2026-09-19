@@ -97,7 +97,7 @@ fn main (FuncId(1)) -> None
     %11 = !move %10
     switch move %11 ? bb1 : bb2
   bb1:
-    %12 = closure ClosureId(2) [copy %0]
+    %12 = closure ClosureId(2) []
     %13 = closure_call move %12()
     %4 = move %13
     %3 = move %4
@@ -107,13 +107,13 @@ fn main (FuncId(1)) -> None
     %14 = copy %5 == none
     switch move %14 ? bb3 : bb4
   bb3:
-    %15 = closure ClosureId(4) [copy %0]
+    %15 = closure ClosureId(4) []
     %16 = closure_call move %15()
     %6 = move %16
     %5 = move %6
     goto bb4
   bb4:
-    %17 = closure ClosureId(6) [copy %0]
+    %17 = closure ClosureId(6) []
     %18 = closure_call move %17()
     %7 = move %18
     %19 = copy %0
@@ -124,7 +124,7 @@ fn main (FuncId(1)) -> None
     %21 = move %22
     goto bb7
   bb6:
-    %23 = copy %0
+    %23 = move %0
     %21 = move %23
     goto bb7
   bb7:
@@ -204,13 +204,12 @@ closure ClosureId(1) -> Float
 
 closure ClosureId(2) -> fn(String) -> Float
   locals
-    %0 user annotated: Optional<Float>
-    %1 user offset: Float
-    %2 temp: fn(String) -> Float
+    %0 user offset: Float
+    %1 temp: fn(String) -> Float
   bb0:
-    %1 = 20.0
-    %2 = closure ClosureId(3) [copy %1]
-    return copy %2
+    %0 = 20.0
+    %1 = closure ClosureId(3) [copy %0]
+    return copy %1
 
 closure ClosureId(3) -> Float
   locals
@@ -223,13 +222,12 @@ closure ClosureId(3) -> Float
 
 closure ClosureId(4) -> fn(String) -> Float
   locals
-    %0 user annotated: Optional<Float>
-    %1 user offset: Float
-    %2 temp: fn(String) -> Float
+    %0 user offset: Float
+    %1 temp: fn(String) -> Float
   bb0:
-    %1 = 30.0
-    %2 = closure ClosureId(5) [copy %1]
-    return copy %2
+    %0 = 30.0
+    %1 = closure ClosureId(5) [copy %0]
+    return copy %1
 
 closure ClosureId(5) -> Float
   locals
@@ -242,13 +240,12 @@ closure ClosureId(5) -> Float
 
 closure ClosureId(6) -> fn(String) -> Float
   locals
-    %0 user annotated: Optional<Float>
-    %1 user offset: Float
-    %2 temp: fn(String) -> Float
+    %0 user offset: Float
+    %1 temp: fn(String) -> Float
   bb0:
-    %1 = 40.0
-    %2 = closure ClosureId(7) [copy %1]
-    return copy %2
+    %0 = 40.0
+    %1 = closure ClosureId(7) [copy %0]
+    return copy %1
 
 closure ClosureId(7) -> Float
   locals
