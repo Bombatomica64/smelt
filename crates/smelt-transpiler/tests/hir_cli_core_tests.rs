@@ -667,8 +667,11 @@ fn write_exclude_project(project_path: &std::path::Path) -> TestResult {
     Ok(())
 }
 
+/// One generated file: its name and its contents.
+type GeneratedSource = (String, String);
+
 /// Read every generated `.rs` file under `dir`, sorted by file name.
-fn read_generated_sources(dir: &std::path::Path) -> TestResult<Vec<(String, String)>> {
+fn read_generated_sources(dir: &std::path::Path) -> TestResult<Vec<GeneratedSource>> {
     let mut files = Vec::new();
     for entry in fs::read_dir(dir)? {
         let path = entry?.path();
