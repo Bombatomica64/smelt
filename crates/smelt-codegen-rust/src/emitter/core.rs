@@ -3656,6 +3656,15 @@ impl<'mir> FunctionEmitter<'mir> {
     /// This is NOT a general licence for inference: it applies only where the
     /// declared type is a bare type parameter with no Rust name in scope. Every
     /// other shape keeps its checked extraction.
+    ///
+    /// The `.into_smelt_unknown()` on the source mirrors the SPELLED-target arm
+    /// of `extract_value_text` character for character
+    /// (`<T as SmeltFromUnknown>::smelt_from_unknown((..).into_smelt_unknown())`).
+    /// It is identity on a value that is already erased, and keeping the two
+    /// spellings identical is deliberate: they are the same boundary crossing
+    /// with and without a name for the target, so `unknown_report`'s
+    /// `into_smelt_unknown` boundary marker classifies them the same way and a
+    /// baseline diff stays comparable across the change.
     fn erased_argument_at_param_text(
         &self,
         item: &str,
@@ -3665,7 +3674,9 @@ impl<'mir> FunctionEmitter<'mir> {
         if let Some(Type::TypeParam { name }) = self.mir.types.get(param_ty)
             && !scope.spells(*name)
         {
-            return Ok(format!("SmeltFromUnknown::smelt_from_unknown({item})"));
+            return Ok(format!(
+                "SmeltFromUnknown::smelt_from_unknown(({item}).into_smelt_unknown())"
+            ));
         }
         self.extract_value_text(item, param_ty, &scope)
     }

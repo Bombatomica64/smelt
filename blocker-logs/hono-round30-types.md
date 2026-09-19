@@ -152,8 +152,8 @@ really takes `&(SmeltUnknown, RouterRoute)`.
 
 An ARGUMENT position is exactly where the right answer needs no scope: the
 callee's signature IS the expected type. `erased_argument_at_param_text` renders
-`SmeltFromUnknown::smelt_from_unknown(..)` with an INFERRED target and lets
-rustc solve it from the position; the identity impl on `SmeltUnknown` makes a
+`SmeltFromUnknown::smelt_from_unknown((..).into_smelt_unknown())` with an
+INFERRED target and lets rustc solve it from the position; the identity impl on `SmeltUnknown` makes a
 genuinely erased parameter render unchanged. This is the H42 rule — the render
 position decides what a type parameter means — at the one position whose
 decision is not the emitter's to make. It is deliberately narrow: only a bare
@@ -273,6 +273,15 @@ erasure (a defaulted argument is the type the source means, in place of a
 dropped one); item 3b removes it too (a recovery in place of an assertion). The
 one `Type::Unknown` this round adds is an `any` DEFAULT, which is a source
 boundary, documented at the lowering site in `type_arguments_with_defaults`.
+
+The source keeps its `.into_smelt_unknown()` so the spelling mirrors the
+SPELLED-target arm of `extract_value_text` character for character. That is not
+cosmetic: `unknown_report` classifies a line by its markers, and dropping the
+adapter's name moved 25 es-toolkit lines from legitimate boundary to avoidable
+erasure with no change in what the code does — a metric regression that would
+have had to be justified as if it were new erasure. Two spellings of one
+boundary crossing, with and without a name for the target, should classify
+alike. Measured both ways: 31741 without it, 31716 (the baseline, +0) with it.
 
 Examples invariant: avoidable **0**, delta **+0**. Runtime prelude grew by the
 one new blanket impl (+196 occurrences across 87 files) and the baseline is
