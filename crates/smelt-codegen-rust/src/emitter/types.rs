@@ -2228,5 +2228,38 @@ impl FunctionEmitter<'_> {
     pub(super) fn structural_record_adapter_available(&self, source: TypeId, target: TypeId) -> bool {
         self.structural_record_adapter_fields(source, target)
             .is_some()
+            // A modeled host class carries its members behind accessors rather
+            // than as generated fields, so the field-pairing answer above is
+            // `None` for one; it is still structurally assignable to a record
+            // whose every declared member it exposes. Kept in lock-step with
+            // `host_class_to_record_adapter_text`, which emits that conversion.
+            || self.host_class_record_adapter_available(source, target)
+    }
+
+    /// Whether every member a target record declares can be read off a host value.
+    ///
+    /// The availability half of `host_class_to_record_adapter_text`: an
+    /// optional target field the source does not expose is absent, any other
+    /// missing member means the conversion does not exist.
+    fn host_class_record_adapter_available(&self, source: TypeId, target: TypeId) -> bool {
+        if source == target || !self.exposes_host_members(source).unwrap_or(false) {
+            return false;
+        }
+        let Some(target_fields) = self.structural_record_fields(target) else {
+            return false;
+        };
+        if target_fields.is_empty() {
+            return false;
+        }
+        target_fields.iter().all(|field| {
+            let Ok(member) = self.symbol_source_name(field.name) else {
+                return false;
+            };
+            match self.host_class_member_read_text("smelt_host_value", source, member) {
+                Ok(Some(_)) => true,
+                Ok(None) => matches!(self.mir.types.get(field.ty), Some(Type::Optional(_))),
+                Err(_) => false,
+            }
+        })
     }
 }

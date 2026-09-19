@@ -936,6 +936,15 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "07_tuple_literal",
     "08_record_literal",
     "09_index_access",
+    "100_elided_type_parameters",
+    "101_arrow_const_infers_its_return",
+    "102_body_locals_are_body_scoped",
+    "103_exclude_over_a_literal_union",
+    "104_erased_callback_returns_a_host_class",
+    "105_union_instanceof_through_arm_tags",
+    "106_host_value_at_a_record_type",
+    "107_never_branch_at_a_string_return",
+    "108_headers_init_at_a_headers_slot",
     "10_unary_logical",
     "11_console_log_expressions",
     "12_while_sum",
@@ -1023,9 +1032,6 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "97_generic_class_default_bounds",
     "98_async_iife_return_channel",
     "99_substituted_parameter_keeps_its_abi",
-    "100_elided_type_parameters",
-    "101_arrow_const_infers_its_return",
-    "102_body_locals_are_body_scoped",
 ];
 
 /// The generated-Rust goldens cover EVERY emitted file, not just `main.rs`.

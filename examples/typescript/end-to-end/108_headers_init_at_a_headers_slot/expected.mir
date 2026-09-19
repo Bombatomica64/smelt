@@ -1,0 +1,75 @@
+fn make (FuncId(0)) -> Response
+  locals
+    %0 param preferred: Optional<Headers>
+    %1 param extra: Optional<Dict<String, String>>
+    %2 temp: Optional<Headers>
+    %3 temp: Optional<Headers>
+    %4 temp: Response
+  bb0:
+    %2 = copy %1
+    %3 = copy %0 ?? move %2
+    %4 = response_new body="ok" status=201.0 headers=move %3
+    return move %4
+
+fn show (FuncId(1)) -> String
+  locals
+    %0 param response: Response
+    %1 temp: Float
+    %2 temp: String
+    %3 temp: String
+    %4 temp: Headers
+    %5 temp: Optional<String>
+    %6 temp: String
+    %7 temp: String
+  bb0:
+    %1 = response_status copy %0
+    %2 = "" + move %1
+    %3 = move %2 + ":"
+    %4 = response_headers copy %0
+    %5 = headers_get move %4, "x-token"
+    %6 = move %5 ?? "-"
+    %7 = move %3 + move %6
+    return move %7
+
+fn main (FuncId(2)) -> None
+  locals
+    %0 user preset: Headers
+    %1 temp: List<String>
+    %2 temp: List<List<String>>
+    %3 temp: Headers
+    %4 temp: Response
+    %5 temp: String
+    %6 temp: None
+    %7 temp: Dict<String, String>
+    %8 temp: Response
+    %9 temp: String
+    %10 temp: None
+    %11 temp: Response
+    %12 temp: String
+    %13 temp: None
+  bb0:
+    %1 = ["x-token", "from-headers"]
+    %2 = [move %1]
+    %3 = headers_new move %2
+    %0 = move %3
+    %4 = call fn0(move %0, undefined) -> bb1
+  bb1:
+    %5 = call fn1(move %4) -> bb2
+  bb2:
+    %6 = call @console_log(move %5) -> bb3
+  bb3:
+    %7 = {"x-token": "from-record"}
+    %8 = call fn0(undefined, move %7) -> bb4
+  bb4:
+    %9 = call fn1(move %8) -> bb5
+  bb5:
+    %10 = call @console_log(move %9) -> bb6
+  bb6:
+    %11 = call fn0(undefined, undefined) -> bb7
+  bb7:
+    %12 = call fn1(move %11) -> bb8
+  bb8:
+    %13 = call @console_log(move %12) -> bb9
+  bb9:
+    return none
+

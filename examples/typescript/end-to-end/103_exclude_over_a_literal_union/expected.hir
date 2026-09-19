@@ -1,0 +1,49 @@
+module examples/typescript/end-to-end/103_exclude_over_a_literal_union/input.ts (ModuleId(0))
+  body BodyId(3)
+  items
+    type StatusCode = Float
+    type ContentlessStatusCode = Float
+    type ContentfulStatusCode = Float
+    type Named = Float | String | Bool
+    type WithoutNumber = String | Bool
+    class Reply fields [Public status: Float] constructor Some(ItemId(16)) methods [ItemId(17)] implements []
+    fn render owner Module
+  locals
+    %0 const reply: Reply
+  exprs
+    #0: Float = 404.0
+    #1: Reply = new Reply(#0)
+    #2: Reply = %0
+    #3: fn() -> String = #2.describe
+    #4: Reply = %0
+    #5: String = #4.describe()
+    #6: None = @19(console_log)
+    #7: None = call #6(#5)
+    #8: String = "hi"
+    #9: fn(String | Bool) -> String = @10(render)
+    #10: String = call #9(#8)
+    #11: None = @20(console_log)
+    #12: None = call #11(#10)
+    #13: Bool = true
+    #14: fn(String | Bool) -> String = @10(render)
+    #15: String = call #14(#13)
+    #16: None = @21(console_log)
+    #17: None = call #16(#15)
+  stmts
+    s0: let %0: Reply = #1
+    s1: #7
+    s2: #12
+    s3: #17
+
+interned types
+  t0 = Float
+  t1 = String
+  t2 = Bool
+  t3 = Float | String | Bool
+  t4 = Unknown
+  t5 = String | Bool
+  t6 = Reply
+  t7 = fn(String | Bool) -> String
+  t8 = None
+  t9 = fn() -> String
+  t10 = fn(String | Bool) -> String

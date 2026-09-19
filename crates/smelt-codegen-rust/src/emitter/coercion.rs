@@ -641,6 +641,29 @@ impl FunctionEmitter<'_> {
         {
             return self.value_truthy_text(&operand_text, source_ty);
         }
+        // The `string` sibling of the truthiness arm above, and stated in the
+        // same place and for the same reason: a value asked for at `string` is
+        // its STRING CONVERSION, which is what JavaScript does wherever a
+        // string is expected. See `value_at_type_text`'s copy for the shape
+        // that needs it (`never` flowing into a string slot, which TypeScript
+        // permits and which used to be handed back at its own type — text that
+        // does not compile, so nothing that worked is displaced).
+        if self.mir.types.get(target) == Some(&Type::String)
+            && matches!(
+                self.mir.types.get(source_ty),
+                Some(
+                    Type::Class { .. }
+                        | Type::List(_)
+                        | Type::Set(_)
+                        | Type::Dict(_, _)
+                        | Type::JsMap(_, _)
+                        | Type::Tuple(_)
+                )
+            )
+        {
+            let erased = self.erase_value_text(&operand_text, source_ty)?;
+            return self.extract_value_text(&erased, target, scope);
+        }
         self.operand_text(operand)
     }
 
@@ -1056,6 +1079,19 @@ impl FunctionEmitter<'_> {
         {
             return Ok(format!("SmeltRegExp::new({value_text}, String::new())"));
         }
+        // A value at a `Headers` slot is the spec's `HeadersInit` conversion of
+        // it: WHATWG says a header list is built from a `Headers`, a
+        // `Record<string, string>` or a sequence of name/value pairs, and
+        // `headers_conversion_text` is already that conversion — the `new
+        // Headers(init)` constructor and every init-dictionary key go through
+        // it. A coercion seam reaches the same pairing whenever an init arm
+        // flows into a `Headers`-typed slot (Hono's
+        // `responseHeaders ?? (headers as Record<string, string> | undefined)`),
+        // and without the arm the record was assigned to the header list
+        // unconverted.
+        if self.is_headers_class_type(target)? && self.is_headers_init_type(source)? {
+            return self.headers_conversion_text(value_text, source);
+        }
         if let (Some(Type::Optional(source_inner)), Some(Type::Optional(target_inner))) =
             (self.mir.types.get(source), self.mir.types.get(target))
             && self.mir.types.get(*source_inner) == Some(&Type::Optional(*target_inner))
@@ -1251,6 +1287,45 @@ impl FunctionEmitter<'_> {
             )?
         {
             return Ok(adapter);
+        }
+        // Last resort, after every structural rule above has declined: a value
+        // asked for at `string` is its STRING CONVERSION. That is what
+        // JavaScript does wherever a string is expected, and it is the sibling
+        // of the truthiness arm near the top of this function ("a value asked
+        // for at `bool` is a truthiness test, not a cast").
+        //
+        // It is reached only where nothing else had an answer, and where
+        // nothing else has an answer the value used to be handed back at its
+        // own type — which does not compile, so no working conversion is
+        // displaced. tsc has already rejected any genuinely ill-typed
+        // assignment before Smelt runs; what survives is the shape TypeScript
+        // itself permits, `never` flowing into a string slot:
+        //
+        // ```ts
+        // const bufferToString = (buffer: ArrayBuffer): string => {
+        //   if (buffer instanceof ArrayBuffer) { return decoder.decode(buffer); }
+        //   return buffer;   // `buffer` is `never` here
+        // };
+        // ```
+        //
+        // The CLOSURE-bodied spelling of that same function already emitted
+        // exactly this conversion (its return channel erases first), so this
+        // makes the two paths agree rather than inventing a rule for one.
+        if self.mir.types.get(target) == Some(&Type::String)
+            && matches!(
+                self.mir.types.get(source),
+                Some(
+                    Type::Class { .. }
+                        | Type::List(_)
+                        | Type::Set(_)
+                        | Type::Dict(_, _)
+                        | Type::JsMap(_, _)
+                        | Type::Tuple(_)
+                )
+            )
+        {
+            let erased = self.erase_value_text(value_text, source)?;
+            return self.extract_value_text(&erased, target, scope);
         }
         Ok(value_text.to_owned())
     }
@@ -1951,7 +2026,22 @@ impl FunctionEmitter<'_> {
                     };
                     let erased_return = self.erase_value_text(&future_call, function.return_ty)?;
                     format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({erased_return})")
-                } else if self.class_has_no_known_fields(function.return_ty) {
+                // A returned value skips the erasure step only when its Rust
+                // representation ALREADY IS `SmeltUnknown`. That is what
+                // `is_erased_class_type` answers. This used to ask
+                // `class_has_no_known_fields`, which answers a different
+                // question — "the class declares no fields I can build an
+                // object from" — and is true of every MODELED host class too,
+                // because a modeled class is not in `mir.classes`. So a
+                // callback returning a `Request` or an `ArrayBuffer` had its
+                // concrete `SmeltRequest` / `SmeltArrayBuffer` handed straight
+                // to `Ok::<SmeltUnknown, _>(..)` (E0308, two sites in Hono).
+                // The general arms below already know how each class erases —
+                // a fetch runtime class through `into_smelt_unknown`, a `Date`
+                // through its identity, any other through its fields — and an
+                // erased class's own arm returns the text unchanged, so this
+                // branch keeps doing exactly what it did for those.
+                } else if self.is_erased_class_type(function.return_ty) {
                     if function.may_throw {
                         call_text
                     } else {

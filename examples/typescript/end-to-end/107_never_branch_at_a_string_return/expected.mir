@@ -1,0 +1,53 @@
+fn describe_block (FuncId(0)) -> String
+  locals
+    %0 param buffer: ArrayBuffer
+    %1 temp: Bool
+    %2 temp: Float
+    %3 temp: String
+  bb0:
+    %1 = instanceof copy %0, class0
+    switch move %1 ? bb1 : bb2
+  bb1:
+    %2 = byte_array_byte_length copy %0
+    %3 = "block:" + move %2
+    return move %3
+  bb2:
+    return copy %0
+
+fn describe__module_examples/typescript/end-to-end/107_never_branch_at_a_string_return/input.ts (FuncId(1)) -> String
+  locals
+    %0 param buffer: ArrayBuffer
+    %1 temp: Bool
+    %2 temp: Float
+    %3 temp: String
+  bb0:
+    %1 = instanceof copy %0, class0
+    switch move %1 ? bb1 : bb2
+  bb1:
+    %2 = byte_array_byte_length copy %0
+    %3 = "bytes:" + move %2
+    return move %3
+  bb2:
+    return copy %0
+
+fn main (FuncId(2)) -> None
+  locals
+    %0 temp: ArrayBuffer
+    %1 temp: String
+    %2 temp: None
+    %3 temp: ArrayBuffer
+    %4 temp: String
+    %5 temp: None
+  bb0:
+    %0 = typed_array_new ArrayBuffer 3.0
+    %1 = call fn1(move %0) -> bb1
+  bb1:
+    %2 = call @console_log(move %1) -> bb2
+  bb2:
+    %3 = typed_array_new ArrayBuffer 4.0
+    %4 = call fn0(move %3) -> bb3
+  bb3:
+    %5 = call @console_log(move %4) -> bb4
+  bb4:
+    return none
+

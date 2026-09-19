@@ -1,0 +1,38 @@
+module examples/typescript/end-to-end/104_erased_callback_returns_a_host_class/input.ts (ModuleId(0))
+  body BodyId(5)
+  items
+    fn make__module_examples/typescript/end-to-end/104_erased_callback_returns_a_host_class/input.ts owner Module
+    type Maker = Bool | fn(Float) -> ArrayBuffer
+    fn describe owner Module
+    fn label owner Module
+  exprs
+    #0: fn(Float) -> ArrayBuffer = closure BodyId(3) captures 0 -> ArrayBuffer
+    #1: fn(Bool | fn(Float) -> ArrayBuffer) -> String = @2(describe)
+    #2: String = call #1(#0)
+    #3: None = @6(console_log)
+    #4: None = call #3(#2)
+    #5: Bool = true
+    #6: fn(Bool | fn(Float) -> ArrayBuffer) -> String = @2(describe)
+    #7: String = call #6(#5)
+    #8: None = @7(console_log)
+    #9: None = call #8(#7)
+    #10: fn(Float) -> ArrayBuffer = closure BodyId(4) captures 0 -> ArrayBuffer
+    #11: fn(Bool | fn(Float) -> ArrayBuffer) -> String = @3(label)
+    #12: String = call #11(#10)
+    #13: None = @8(console_log)
+    #14: None = call #13(#12)
+  stmts
+    s0: #4
+    s1: #9
+    s2: #14
+
+interned types
+  t0 = Bool
+  t1 = Float
+  t2 = ArrayBuffer
+  t3 = fn(Float) -> ArrayBuffer
+  t4 = Bool | fn(Float) -> ArrayBuffer
+  t5 = String
+  t6 = fn(Bool | fn(Float) -> ArrayBuffer) -> String
+  t7 = fn(Bool | fn(Float) -> ArrayBuffer) -> String
+  t8 = None

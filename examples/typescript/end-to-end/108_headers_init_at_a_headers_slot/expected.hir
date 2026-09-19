@@ -1,0 +1,61 @@
+module examples/typescript/end-to-end/108_headers_init_at_a_headers_slot/input.ts (ModuleId(0))
+  body BodyId(2)
+  items
+    fn make owner Module
+    fn show owner Module
+  locals
+    %0 const preset: Headers
+  exprs
+    #0: String = "x-token"
+    #1: String = "from-headers"
+    #2: List<String> = [#0, #1]
+    #3: List<List<String>> = [#2]
+    #4: Headers = headers_new #3
+    #5: Headers = %0
+    #6: None = undefined
+    #7: fn(Optional<Headers>, Optional<Dict<String, String>>) -> Response = @0(make)
+    #8: Response = call #7(#5, #6)
+    #9: fn(Response) -> String = @1(show)
+    #10: String = call #9(#8)
+    #11: None = @2(console_log)
+    #12: None = call #11(#10)
+    #13: None = undefined
+    #14: String = "x-token"
+    #15: String = "from-record"
+    #16: Dict<String, String> = {#14: #15}
+    #17: fn(Optional<Headers>, Optional<Dict<String, String>>) -> Response = @0(make)
+    #18: Response = call #17(#13, #16)
+    #19: fn(Response) -> String = @1(show)
+    #20: String = call #19(#18)
+    #21: None = @3(console_log)
+    #22: None = call #21(#20)
+    #23: None = undefined
+    #24: None = undefined
+    #25: fn(Optional<Headers>, Optional<Dict<String, String>>) -> Response = @0(make)
+    #26: Response = call #25(#23, #24)
+    #27: fn(Response) -> String = @1(show)
+    #28: String = call #27(#26)
+    #29: None = @4(console_log)
+    #30: None = call #29(#28)
+  stmts
+    s0: let %0: Headers = #4
+    s1: #12
+    s2: #22
+    s3: #30
+
+interned types
+  t0 = String
+  t1 = List<String>
+  t2 = List<List<String>>
+  t3 = Headers
+  t4 = None
+  t5 = Optional<Headers>
+  t6 = Dict<String, String>
+  t7 = Optional<Dict<String, String>>
+  t8 = Response
+  t9 = fn(Optional<Headers>, Optional<Dict<String, String>>) -> Response
+  t10 = fn(Response) -> String
+  t11 = Float
+  t12 = Optional<String>
+  t13 = fn(Optional<Headers>, Optional<Dict<String, String>>) -> Response
+  t14 = fn(Response) -> String

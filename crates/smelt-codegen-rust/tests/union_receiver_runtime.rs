@@ -247,3 +247,52 @@ test('each arm writes and reads its own field', () => {
 ";
     run_fixture(source, "smelt_generated_union_property_dispatch");
 }
+
+#[test]
+#[ignore = "compiles and runs a generated crate"]
+fn union_instanceof_selects_the_arm_that_is_that_class() {
+    // `x instanceof C` on a generated union is the discriminant test for the
+    // arms that ARE that class. Several JavaScript classes lower to their own
+    // representation rather than to a nominal class — a `Promise<T>` is a
+    // future, an array is a list, a `Map` is a keyed map — and asking only for
+    // a `Type::Class` named `Promise` answered "no arm" for all of them, which
+    // is emitted as a constant `false`.
+    //
+    // The VALUE is the assertion: nothing failed to compile. The guarded branch
+    // simply became dead code, so `label` formatted its promise instead of
+    // awaiting it and `size` reported a string length for an array.
+    let source = r"
+import { test, expect } from 'vitest';
+
+async function label(value: string | Promise<string>): Promise<string> {
+  if (value instanceof Promise) {
+    return 'deferred:' + (await value);
+  }
+  return 'direct:' + value;
+}
+
+function size(value: string | string[]): string {
+  if (value instanceof Array) {
+    return 'list:' + value.length;
+  }
+  return 'text:' + value.length;
+}
+
+function lookup(value: Map<string, number> | number): string {
+  if (value instanceof Map) {
+    return 'map:' + value.size;
+  }
+  return 'num:' + value;
+}
+
+test('an instanceof guard selects the union arm that is that class', async () => {
+  expect(await label('now')).toBe('direct:now');
+  expect(await label(Promise.resolve('later'))).toBe('deferred:later');
+  expect(size('abc')).toBe('text:3');
+  expect(size(['a', 'b'])).toBe('list:2');
+  expect(lookup(7)).toBe('num:7');
+  expect(lookup(new Map([['a', 3]]))).toBe('map:1');
+});
+";
+    run_fixture(source, "smelt_union_instanceof_arm_tags");
+}

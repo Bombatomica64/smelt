@@ -125,6 +125,33 @@ impl FunctionEmitter<'_> {
         }
     }
 
+    /// Whether a value of this type is a `HeadersInit` the spec's conversion models.
+    ///
+    /// The predicate half of [`Self::headers_conversion_text`]: the arms are
+    /// the same, so a coercion seam can ask whether the conversion exists
+    /// before committing to it and the two cannot disagree about which shapes
+    /// `HeadersInit` admits. A value that already IS a `Headers` is excluded —
+    /// there is nothing to convert, and the ordinary identity path answers it.
+    pub(super) fn is_headers_init_type(&self, ty: TypeId) -> Result<bool, EmitError> {
+        if self.is_headers_class_type(ty)? {
+            return Ok(false);
+        }
+        Ok(match self.mir.types.get(ty) {
+            // `Record<string, string>`.
+            Some(&Type::Dict(key, value)) => {
+                matches!(self.mir.types.get(key), Some(Type::String))
+                    && matches!(self.mir.types.get(value), Some(Type::String))
+            }
+            // `[string, string][]`, and the `string[][]` a bare literal infers.
+            Some(&Type::List(item)) => {
+                self.is_string_pair_type(item)
+                    || matches!(self.mir.types.get(item), Some(&Type::List(inner))
+                        if matches!(self.mir.types.get(inner), Some(Type::String)))
+            }
+            _ => false,
+        })
+    }
+
     /// Emit one `Headers` operation as a method call on the concrete value.
     ///
     /// Argument arity is checked here because the source surface fixes it: a
@@ -798,6 +825,22 @@ impl FunctionEmitter<'_> {
             ));
         }
         let receiver = self.operand_text(response)?;
+        self.response_op_on_text(op, &receiver)
+    }
+
+    /// Emit a `Response` member operation on an already-rendered receiver.
+    ///
+    /// The text-level half of [`Self::response_op_text`]. A coercion seam holds
+    /// a rendered expression and a type rather than a MIR operand — a structural
+    /// conversion from a `Response` into a record type has to READ each member
+    /// off the value it was handed — so the member rules live here and the
+    /// operand entry point above is a thin wrapper that renders its receiver
+    /// first. Splitting it keeps one statement of what each member means.
+    pub(super) fn response_op_on_text(
+        &self,
+        op: smelt_hir::ResponseOp,
+        receiver: &str,
+    ) -> Result<String, EmitError> {
         Ok(match op {
             smelt_hir::ResponseOp::Status => format!("{receiver}.status()"),
             smelt_hir::ResponseOp::Ok => format!("{receiver}.ok()"),
