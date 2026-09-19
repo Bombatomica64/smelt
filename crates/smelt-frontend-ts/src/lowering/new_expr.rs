@@ -2398,6 +2398,21 @@ impl ModuleBuilder<'_> {
                     self.ctx.krate.types.intern(Type::Optional(else_ty))
                 } else if self.ctx.krate.types.get(else_ty) == Some(&Type::None) {
                     self.ctx.krate.types.intern(Type::Optional(then_ty))
+                } else if let Some(unified) =
+                    self.unify_optional_conditional_branches(then_ty, else_ty)
+                {
+                    // One arm is `Optional<inner>` and the other unifies with
+                    // `inner`, so the TypeScript union `inner | undefined` IS
+                    // `Optional<inner>`, which is a closer answer than anything
+                    // below. This arm used to sit AFTER the string-compatible
+                    // test, and that test accepts any `Type::Class` — the
+                    // variant also spells an opaque unresolved name — so a
+                    // `Headers`/`Headers | undefined` join unified to `String`
+                    // and a `SmeltHeaders` value was assigned into a `String`
+                    // local. It answers the same question `Optional<Float>` vs
+                    // `Float` asked (Hono's `utils/url.ts`), so the two are one
+                    // arm, here, where the closer answer belongs.
+                    unified
                 } else if self.compatible_function_branch_types(then_ty, else_ty) {
                     then_ty
                 } else if let Some(function_ty) = self.single_function_branch_type(then_ty, else_ty) {
@@ -2468,17 +2483,6 @@ impl ModuleBuilder<'_> {
                 } else if self.type_contains_unknown(then_ty) || self.type_contains_unknown(else_ty)
                 {
                     self.ctx.krate.types.intern(Type::Unknown)
-                } else if let Some(unified) =
-                    self.unify_optional_conditional_branches(then_ty, else_ty)
-                {
-                    // `queryIndex === -1 ? (hashIndex === -1 ? undefined :
-                    // hashIndex) : ...` (Hono's `utils/url.ts`) makes one branch
-                    // `Optional<Float>` and the other `Float`, which TypeScript
-                    // types `number | undefined`. The sibling conditional
-                    // decision below has consulted this helper all along; this
-                    // one had not, so the same source shape blocked or lowered
-                    // depending on which arm of the emitter it reached.
-                    unified
                 } else if let Some(hint) = type_hint
                     && !self.concrete_type_requires_never_value(hint)
                 {

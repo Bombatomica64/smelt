@@ -1207,6 +1207,92 @@ impl FunctionEmitter<'_> {
         }
     }
 
+    /// Returns whether an operand's static type makes `+` a STRING
+    /// CONCATENATION rather than an addition.
+    ///
+    /// ECMAScript's `ApplyStringOrNumericBinaryOperator` coerces both operands
+    /// of `+` with `ToPrimitive` and concatenates as soon as either result is a
+    /// String; only when neither is does it add. Statically that question is
+    /// answered by the operand types, and this predicate mirrors the frontend's
+    /// `has_static_string_type` exactly so the emitted code agrees with the
+    /// result type HIR already gave the expression:
+    ///
+    /// - `string` is the direct case;
+    /// - an optional whose inner type is string-like still concatenates
+    ///   (`undefined + "x"` is `"undefinedx"`, not `NaN`);
+    /// - a union with at least ONE string arm concatenates, because a value of
+    ///   that type can be the String that flips the operator, and TypeScript
+    ///   types the whole expression `string` for that reason. A non-string arm
+    ///   reaching the site is stringified with the same `ToString` coercion a
+    ///   `${}` template uses, which is what JavaScript does to the non-string
+    ///   side of a concatenation.
+    ///
+    /// `unknown` and type parameters are deliberately NOT included: nothing is
+    /// statically known about them, so they keep the erased
+    /// number-or-string runtime path in `erased_arithmetic_text`.
+    pub(super) fn add_operand_is_string_like(&self, ty: TypeId) -> bool {
+        match self.mir.types.get(ty) {
+            Some(Type::String) => true,
+            Some(Type::Optional(inner)) => self.add_operand_is_string_like(*inner),
+            Some(Type::Union(items)) => items
+                .iter()
+                .copied()
+                .any(|item| self.add_operand_is_string_like(item)),
+            _ => false,
+        }
+    }
+
+    /// Emits `+` as a string concatenation when JavaScript's rule says it is
+    /// one, coercing the concatenated `String` into the destination type.
+    ///
+    /// The destination is not always `String`. A compound assignment writes the
+    /// result back into the place it read (`buffer[0] += str` on a
+    /// `(string | Promise<string>)[]`), so the statement's destination is the
+    /// element's own union while the `+` itself is still a concatenation. The
+    /// concatenation is therefore built at `String` and then handed to the
+    /// ordinary coercion seam, which re-wraps it in the union's string arm.
+    /// Without this the union operand fell through to the erased numeric path
+    /// and the whole expression became a `ToNumber` `match` over the wrong enum.
+    ///
+    /// An `Int`/`Float` destination keeps the numeric path: a destination the
+    /// frontend typed as a number is an addition whatever the operands look
+    /// like here.
+    pub(super) fn string_addition_text(
+        &self,
+        op: smelt_hir::BinOp,
+        lhs: &Operand,
+        rhs: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<Option<String>, EmitError> {
+        if op != smelt_hir::BinOp::Add {
+            return Ok(None);
+        }
+        let dest_is_string = matches!(self.mir.types.get(dest_ty), Some(Type::String));
+        if !dest_is_string {
+            if matches!(self.mir.types.get(dest_ty), Some(Type::Int | Type::Float)) {
+                return Ok(None);
+            }
+            let concatenates = self.add_operand_is_string_like(self.operand_ty(lhs)?)
+                || self.add_operand_is_string_like(self.operand_ty(rhs)?);
+            if !concatenates {
+                return Ok(None);
+            }
+        }
+        let lhs_text = self.string_like_operand_text(lhs, "string addition")?;
+        let rhs_text = self.string_like_operand_text(rhs, "string addition")?;
+        let text = format!("{lhs_text} + &{rhs_text}");
+        if dest_is_string {
+            return Ok(Some(text));
+        }
+        let string_ty = self.type_id(Type::String)?;
+        Ok(Some(self.value_at_type_text(
+            &text,
+            string_ty,
+            dest_ty,
+            &self.render_scope(),
+        )?))
+    }
+
     /// Emits arithmetic involving erased operands through JavaScript-like numbers.
     pub(super) fn erased_arithmetic_text(
         &self,

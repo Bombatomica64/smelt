@@ -879,19 +879,21 @@ function page(init: PageInit): Response {
 
 /// An init key Smelt does not model yet is named, not dropped.
 ///
-/// `signal`, `redirect`, `credentials` and the rest of `RequestInit` are real
-/// keys with real behaviour; accepting and ignoring one would change what the
-/// program does with no diagnostic.
+/// `priority`, `duplex`, `window` and the rest of `RequestInit` are real keys
+/// with real behaviour; accepting and ignoring one would change what the
+/// program does with no diagnostic. (`redirect` used to stand here and is now
+/// one of the modeled stored members, which is why the probe moved to a key
+/// that is still outside the set.)
 #[test]
 fn request_unmodeled_init_key_is_named() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(
         ts!(r#"
-const request = new Request("https://a.test/p", { redirect: "manual" });
+const request = new Request("https://a.test/p", { priority: "high" });
 "#),
         &mut ctx,
     )?;
-    assert_unsupported_ts(&errors, "`redirect` is not modeled yet")
+    assert_unsupported_ts(&errors, "`priority` is not modeled yet")
 }
 
 /// A `Request` with no URL argument is a named blocker.

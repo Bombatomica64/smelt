@@ -8,7 +8,7 @@ use super::{
     EventEmitterOp as EventEmitterOpKind, HeadersOp as HeadersOpKind,
     HttpServerOp as HttpServerOpKind, IncomingMessageOp as IncomingMessageOpKind,
     ServerResponseOp as ServerResponseOpKind,
-    RequestOp as RequestOpKind, ResponseOp as ResponseOpKind,
+    RequestInitMember, RequestOp as RequestOpKind, ResponseOp as ResponseOpKind,
     UnknownKind, UriTranscodeOp,
     UrlField,
     AbortSignalOp as AbortSignalOpKind,
@@ -700,6 +700,14 @@ pub enum ExprKind {
         /// distinct object that aborts when this one does. See
         /// `blocker-logs/abort-signal-reason-and-statics.md`.
         signal: Option<ExprId>,
+        /// The STORED `RequestInit` members the init supplied, in source order.
+        ///
+        /// A list rather than eight more `Option` fields because these keys
+        /// differ in nothing the constructor does with them: each is a scalar
+        /// that overrides one stored slot. `method`/`headers`/`body` stay their
+        /// own fields because they feed the transport identity instead, and
+        /// `signal` because it registers a follow rather than storing a value.
+        init_members: Vec<(RequestInitMember, ExprId)>,
     },
     /// A `Request` member operation on a concrete `Request` receiver.
     RequestOp {

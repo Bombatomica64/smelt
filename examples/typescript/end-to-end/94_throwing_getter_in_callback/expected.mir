@@ -1,0 +1,159 @@
+class Registry fields [Private slots: List<String>] constructor Some(FuncId(5)) methods [FuncId(0), FuncId(1), FuncId(2), FuncId(3), FuncId(4)]
+
+fn __smelt_get_first (FuncId(0)) -> String throws
+  locals
+    %0 param this: Registry
+    %1 temp: Float
+    %2 temp: Bool
+    %3 temp: Dict<String, Unknown>
+    %4 temp: Unknown
+    %5 temp: List<String>
+  bb0:
+    %1 = len copy %0.field1
+    %2 = move %1 == 0.0
+    switch move %2 ? bb1 : bb2
+  bb1:
+    %3 = {"__smelt_error": "Error", "message": "registry is empty", "stack": undefined, "cause": undefined}
+    %4 = unknown_cast move %3 as t6
+    throw move %4
+  bb2:
+    %5 = copy %0.field1
+    return copy %5[0.0]
+
+fn add (FuncId(1)) -> None
+  locals
+    %0 param this: Registry
+    %1 param name: String
+    %2 temp: List<String>
+    %3 temp: Float
+  bb0:
+    %2 = copy %0.field1
+    %3 = list_push copy %2, copy %1
+    %0.field1 = move %2
+    return none
+
+fn describe (FuncId(2)) -> String throws
+  locals
+    %0 param this: Registry
+    %1 temp: Float
+    %2 temp: Bool
+    %3 temp: Dict<String, Unknown>
+    %4 temp: Unknown
+    %5 temp: String
+  bb0:
+    %1 = len copy %0.field1
+    %2 = move %1 > 3.0
+    switch move %2 ? bb1 : bb2
+  bb1:
+    %3 = {"__smelt_error": "Error", "message": "too many", "stack": undefined, "cause": undefined}
+    %4 = unknown_cast move %3 as t6
+    throw move %4
+  bb2:
+    %5 = "first=" + copy %0.field8
+    return move %5
+
+fn label (FuncId(3)) -> String
+  locals
+    %0 param this: Registry
+    %1 temp: String
+    %2 temp: String
+  bb0:
+    %1 = "[" + copy %0.field8
+    %2 = move %1 + "]"
+    return move %2
+
+fn tagged (FuncId(4)) -> List<String>
+  locals
+    %0 param this: Registry
+    %1 param prefix: List<String>
+    %2 temp: fn(String, Int, List<String>) -> String
+    %3 temp: List<String>
+  bb0:
+    %2 = closure ClosureId(0) [copy %0]
+    %3 = list_map copy %1, move %2
+    return move %3
+
+fn new (FuncId(5)) -> Registry
+  locals
+    %0 user this: Registry
+    %1 temp: List<String>
+  bb0:
+    %0 = struct0 {}
+    %1 = []
+    %0.field1 = move %1
+    return move %0
+
+fn main (FuncId(6)) -> None throws
+  locals
+    %0 user registry: Registry
+    %1 user caught: String
+    %2 temp: Registry
+    %3 temp: None
+    %4 temp: None
+    %5 temp: None
+    %6 temp: String
+    %7 temp: None
+    %8 temp: String
+    %9 temp: None
+    %10 temp: List<String>
+    %11 temp: List<String>
+    %12 temp: String
+    %13 temp: None
+    %14 temp: None
+    %15 temp: None
+    %16 temp: String
+    %17 temp: None
+  bb0:
+    %2 = call fn5() -> bb1
+  bb1:
+    %0 = move %2
+    %3 = call fn1(copy %0, "alpha") -> bb2
+  bb2:
+    %4 = call fn1(copy %0, "beta") -> bb3
+  bb3:
+    %5 = call @console_log(copy %0.field8) -> bb4
+  bb4:
+    %6 = call fn2(copy %0) -> bb5
+  bb5:
+    %7 = call @console_log(move %6) -> bb6
+  bb6:
+    %8 = call fn3(copy %0) -> bb7
+  bb7:
+    %9 = call @console_log(move %8) -> bb8
+  bb8:
+    %10 = ["a", "b"]
+    %11 = call fn4(copy %0, move %10) -> bb9
+  bb9:
+    %12 = string_join move %11, ","
+    %13 = call @console_log(move %12) -> bb10
+  bb10:
+    %14 = call fn1(copy %0, "gamma") -> bb11
+  bb11:
+    %15 = call fn1(copy %0, "delta") -> bb12
+  bb12:
+    %1 = "none"
+    goto bb13
+  bb13:
+    %16 = call fn2(move %0) -> bb16 unwind bb15
+  bb14:
+    %17 = call @console_log(move %1) -> bb17
+  bb15:
+    %1 = "threw"
+    goto bb14
+  bb16:
+    %1 = "no throw"
+    goto bb14
+  bb17:
+    return none
+
+closure ClosureId(0) -> String
+  locals
+    %0 param tag: String
+    %1 user this: Registry
+    %2 temp: String
+    %3 temp: String
+  bb0:
+    %2 = copy %0 + ":"
+    %3 = copy %2 + copy %1.field8
+    return copy %3
+

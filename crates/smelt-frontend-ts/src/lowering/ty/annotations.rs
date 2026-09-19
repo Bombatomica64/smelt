@@ -3132,7 +3132,19 @@ return_ty: function.return_ty,
         let bare = name_text.strip_prefix("globalThis.").unwrap_or(name_text);
         let keys: &[&str] = match bare {
             "ResponseInit" => &["status", "statusText", "headers"],
-            "RequestInit" => &["method", "headers", "body"],
+            "RequestInit" => &[
+                "method",
+                "headers",
+                "body",
+                "cache",
+                "credentials",
+                "integrity",
+                "keepalive",
+                "mode",
+                "redirect",
+                "referrer",
+                "referrerPolicy",
+            ],
             _ => return None,
         };
         let class = self.intern_type_name(bare);
@@ -3222,6 +3234,23 @@ return_ty: function.return_ty,
             // is what the construction site's conversion accepts directly; the
             // other spellings reach it as literals, which keep their own types.
             ("ResponseInit" | "RequestInit", "headers") => self.headers_type(),
+            // The STORED `RequestInit` members: WebIDL enumerations, which
+            // surface as `string`, plus the one `boolean`. Read from the same
+            // table the request itself stores them in, so the init surface and
+            // the getter surface cannot disagree about which keys exist.
+            ("RequestInit", field_name) => {
+                let member = smelt_hir::RequestInitMember::from_property_name(field_name)
+                    .or_else(|| {
+                        smelt_hir::RequestInitMember::ALL
+                            .into_iter()
+                            .find(|member| member.field_name() == field_name)
+                    })?;
+                if member.is_boolean() {
+                    self.ctx.krate.types.intern(Type::Bool)
+                } else {
+                    self.ctx.krate.types.intern(Type::String)
+                }
+            }
             _ => return None,
         };
         Some(self.ctx.krate.types.intern(Type::Optional(inner)))
@@ -4072,11 +4101,22 @@ return_ty: function.return_ty,
                 ("statusText", AmbientInitKey::Text),
                 ("headers", AmbientInitKey::HeadersInit),
             ],
+            // The stored members are appended from `RequestInitMember`, the
+            // same table the request keeps them in, so the dictionary's key set
+            // and the getter surface cannot drift apart.
             "RequestInit" => &[
                 ("method", AmbientInitKey::Text),
                 ("headers", AmbientInitKey::HeadersInit),
                 ("body", AmbientInitKey::Text),
                 ("signal", AmbientInitKey::AbortSignal),
+                ("cache", AmbientInitKey::Text),
+                ("credentials", AmbientInitKey::Text),
+                ("integrity", AmbientInitKey::Text),
+                ("keepalive", AmbientInitKey::Boolean),
+                ("mode", AmbientInitKey::Text),
+                ("redirect", AmbientInitKey::Text),
+                ("referrer", AmbientInitKey::Text),
+                ("referrerPolicy", AmbientInitKey::Text),
             ],
             _ => return None,
         };
@@ -4106,6 +4146,7 @@ return_ty: function.return_ty,
                 let field_ty = match kind {
                     AmbientInitKey::Number => self.ctx.krate.types.intern(Type::Float),
                     AmbientInitKey::Text => self.ctx.krate.types.intern(Type::String),
+                    AmbientInitKey::Boolean => self.ctx.krate.types.intern(Type::Bool),
                     AmbientInitKey::HeadersInit => self.headers_init_type(),
                     AmbientInitKey::AbortSignal => {
                         let signal = self.intern_type_name("AbortSignal");
@@ -4199,8 +4240,11 @@ return_ty: function.return_ty,
 enum AmbientInitKey {
     /// A `number` key (`status`).
     Number,
-    /// A `string` key (`statusText`, `method`, the modeled `body` arm).
+    /// A `string` key (`statusText`, `method`, the modeled `body` arm, and
+    /// every stored `RequestInit` member but `keepalive`).
     Text,
+    /// A `boolean` key (`keepalive`).
+    Boolean,
     /// The `HeadersInit` union.
     HeadersInit,
     /// An `AbortSignal` (`RequestInit.signal`).

@@ -3660,6 +3660,49 @@ impl SmeltFromUnknown for SmeltResponse {
     }
 }
 
+/// The stored, read-only members of a WHATWG `RequestInit`.
+///
+/// `Default` is the spec's own set for a request constructed from a URL,
+/// which is what Node answers for `new Request(url)`.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct SmeltRequestInit {
+    /// The spec's `cache`.
+    pub cache: String,
+    /// The spec's `credentials`.
+    pub credentials: String,
+    /// The spec's `integrity`.
+    pub integrity: String,
+    /// The spec's `keepalive`.
+    pub keepalive: bool,
+    /// The spec's `mode`.
+    pub mode: String,
+    /// The spec's `redirect`.
+    pub redirect: String,
+    /// The spec's `referrer`.
+    pub referrer: String,
+    /// The spec's `referrerPolicy`.
+    pub referrer_policy: String,
+}
+
+impl Default for SmeltRequestInit {
+    fn default() -> Self {
+        Self { cache: "default".to_owned(), credentials: "same-origin".to_owned(), integrity: String::new(), keepalive: false, mode: "cors".to_owned(), redirect: "follow".to_owned(), referrer: "about:client".to_owned(), referrer_policy: String::new() }
+    }
+}
+
+#[allow(dead_code)]
+impl SmeltRequestInit {
+    /// Serialize a spelled `referrer` the way the spec stores it.
+    ///
+    /// The referrer is parsed as a URL and stored as its serialization,
+    /// so `"https://c.test"` reads back as `"https://c.test/"`. The two
+    /// values that are not URLs — the empty string (no referrer) and
+    /// `about:client` — pass through, which falling back to the spelled
+    /// text gives for free. This is the same rule `from_parts` applies to
+    /// the request URL itself.
+    pub fn serialize_referrer(referrer: &str) -> String { ::url::Url::parse(referrer).map_or_else(|_| referrer.to_owned(), |parsed| parsed.to_string()) }
+}
+
 /// A WHATWG `Request`: a serialized URL, a method, headers, and a body.
 ///
 /// The same split as `SmeltResponse`: the URL and method are immutable on
@@ -3672,9 +3715,11 @@ pub struct SmeltRequest {
     method: String,
     headers: SmeltHeaders,
     body: SmeltBody,
+    /// The stored `RequestInit` members; see `SmeltRequestInit`.
+    init: SmeltRequestInit,
 }
 
-impl PartialEq for SmeltRequest { fn eq(&self, other: &Self) -> bool { self.url == other.url && self.method == other.method && self.headers == other.headers && self.body == other.body } }
+impl PartialEq for SmeltRequest { fn eq(&self, other: &Self) -> bool { self.url == other.url && self.method == other.method && self.headers == other.headers && self.body == other.body && self.init == other.init } }
 impl ::std::fmt::Debug for SmeltRequest { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_struct("SmeltRequest").field("method", &self.method).field("url", &self.url).field("headers", &self.headers).field("body", &self.body).finish() } }
 
 #[allow(dead_code)]
@@ -3687,12 +3732,14 @@ impl SmeltRequest {
     /// a `Content-Type` adds it unless the caller set one, exactly as on a
     /// response — the pairing belongs to the body, so both holders get it
     /// from the same place.
-    pub fn from_parts(input: &str, method: String, headers: SmeltHeaders, body: SmeltBody) -> Self {
+    pub fn from_parts(input: &str, method: String, headers: SmeltHeaders, body: SmeltBody) -> Self { Self::from_parts_with_init(input, method, headers, body, SmeltRequestInit::default()) }
+    /// The same assembly, carrying the stored `RequestInit` members.
+    pub fn from_parts_with_init(input: &str, method: String, headers: SmeltHeaders, body: SmeltBody, init: SmeltRequestInit) -> Self {
         let url = ::url::Url::parse(input).map_or_else(|_| input.to_owned(), |parsed| parsed.to_string());
         if let Some(content_type) = body.content_type() && !headers.has("content-type") {
             headers.append("content-type", &content_type);
         }
-        Self { id: smelt_next_object_id(), url, method: Self::normalize_method(&method), headers, body }
+        Self { id: smelt_next_object_id(), url, method: Self::normalize_method(&method), headers, body, init }
     }
     /// The spec's method normalization.
     ///
@@ -3730,7 +3777,25 @@ impl SmeltRequest {
     ///
     /// The url is already serialized, so it is passed through `from_parts`
     /// unchanged; re-parsing a serialization is a no-op.
-    pub fn tee(&self) -> Self { Self::from_parts(&self.url, self.method.clone(), SmeltHeaders::from_pairs(self.headers.entries_in_insertion_order()), self.body.tee()) }
+    pub fn tee(&self) -> Self { Self::from_parts_with_init(&self.url, self.method.clone(), SmeltHeaders::from_pairs(self.headers.entries_in_insertion_order()), self.body.tee(), self.init.clone()) }
+    /// The stored `RequestInit` members, as a copy.
+    pub fn init(&self) -> SmeltRequestInit { self.init.clone() }
+    /// `cache`: a stored `RequestInit` member.
+    pub fn cache(&self) -> String { self.init.cache.clone() }
+    /// `credentials`: a stored `RequestInit` member.
+    pub fn credentials(&self) -> String { self.init.credentials.clone() }
+    /// `integrity`: a stored `RequestInit` member.
+    pub fn integrity(&self) -> String { self.init.integrity.clone() }
+    /// `keepalive`: a stored `RequestInit` member.
+    pub fn keepalive(&self) -> bool { self.init.keepalive }
+    /// `mode`: a stored `RequestInit` member.
+    pub fn mode(&self) -> String { self.init.mode.clone() }
+    /// `redirect`: a stored `RequestInit` member.
+    pub fn redirect(&self) -> String { self.init.redirect.clone() }
+    /// `referrer`: a stored `RequestInit` member.
+    pub fn referrer(&self) -> String { self.init.referrer.clone() }
+    /// `referrerPolicy`: a stored `RequestInit` member.
+    pub fn referrer_policy(&self) -> String { self.init.referrer_policy.clone() }
 }
 
 /// Erase a request for a dynamic boundary (identity marker + url/method).
@@ -4527,7 +4592,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     multipart = _smelt_tmp_99;
     _smelt_tmp_100 = "multipart/form-data; boundary=".to_owned() + &boundary;
     _smelt_tmp_101 = SmeltRecord::from([("content-type".to_owned(), _smelt_tmp_100)]);
-    _smelt_tmp_102 = SmeltRequest::from_parts(&"https://forms.test/upload".to_owned(), "POST".to_owned(), SmeltHeaders::from_pairs(_smelt_tmp_101.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::from_text(&multipart));
+    _smelt_tmp_102 = SmeltRequest::from_parts_with_init(&"https://forms.test/upload".to_owned(), "POST".to_owned(), SmeltHeaders::from_pairs(_smelt_tmp_101.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::from_text(&multipart), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
     request = _smelt_tmp_102;
     let mut _smelt_tmp_103: SmeltFuture<SmeltFormData> = { let smelt_request = request.clone(); SmeltFuture::from_future(Box::pin(async move { let smelt_content_type = smelt_request.headers().get("content-type"); Ok::<_, Box<dyn std::error::Error>>(smelt_form_data_from_body(smelt_content_type, smelt_request.body().take_bytes()?)?) })) };
     _smelt_tmp_104 = _smelt_tmp_103.await?;

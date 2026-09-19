@@ -1500,8 +1500,16 @@ impl FunctionEmitter<'_> {
                     .unwrap_or_else(|| "::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Null))".to_owned());
                 Ok(format!("SmeltUnknown::Function({adapter})"))
             }
+            // A generated union erases through `into_smelt_unknown()`, which
+            // takes `self` BY VALUE. Every other consuming arm of this match
+            // hands it an owned copy (`smelt_owned_text`); this one passed the
+            // raw operand text, so erasing a place read moved out of it and the
+            // next read of the same local was a use-after-move (E0382). The
+            // rendered-value twin `erase_concrete_union_text` has always owned
+            // its source for exactly this reason — erasing a value is an
+            // INSPECTION and must not consume it.
             Some(Type::Union(_)) if self.concrete_union_members(self.operand_ty(operand)?).is_some() => {
-                Ok(format!("{text}.into_smelt_unknown()"))
+                Ok(format!("{smelt_owned_text}.into_smelt_unknown()"))
             }
             Some(Type::Union(_)) => Ok(text),
             Some(Type::Future(item)) => {
@@ -2682,6 +2690,22 @@ impl FunctionEmitter<'_> {
         // Wrap it into a `SmeltUnknown::Function` at the boundary first, then
         // extract from that erased value (was E0599 in `isMatchWith`/`toolkit`).
         if matches!(self.mir.types.get(source_ty), Some(Type::Function(_))) {
+            let erased = self.erase(value)?;
+            return self.extract_value_text(&erased, target, scope);
+        }
+        // A RECORD source needs the same normalization for the same reason. The
+        // fetch-runtime arm of `extract_value_text` hands its text straight to
+        // `SmeltFromUnknown::smelt_from_unknown`, which takes a `SmeltUnknown`,
+        // so an object literal flowing into a `Response`/`Headers` position
+        // (`{}` at a `Response`-returning slot) reached it as a `SmeltRecord`
+        // and produced an E0308 naming neither the source line nor the reason.
+        // Erasing here keeps `extract_value_text`'s contract — its text IS an
+        // erased value — instead of teaching one of its arms to re-derive the
+        // source type it was never given.
+        if matches!(self.mir.types.get(source_ty), Some(Type::Dict(_, _)))
+            && matches!(self.mir.types.get(target), Some(Type::Class { .. }))
+            && self.is_fetch_runtime_class_type(target)?
+        {
             let erased = self.erase(value)?;
             return self.extract_value_text(&erased, target, scope);
         }

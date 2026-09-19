@@ -1213,6 +1213,7 @@ impl LoweringCtx<'_> {
                 headers,
                 body,
                 signal,
+                init_members,
             } => {
                 let input_operand = self.lower_expr(*input)?;
                 let mut lower_optional = |expr: &Option<smelt_hir::ExprId>| {
@@ -1223,6 +1224,10 @@ impl LoweringCtx<'_> {
                 let headers_operand = lower_optional(headers)?;
                 let body_operand = lower_optional(body)?;
                 let signal_operand = lower_optional(signal)?;
+                let mut member_operands = Vec::with_capacity(init_members.len());
+                for (member, value) in init_members {
+                    member_operands.push((*member, self.lower_expr(*value)?));
+                }
                 self.assign_temp(
                     expr.ty,
                     expr.span,
@@ -1232,6 +1237,7 @@ impl LoweringCtx<'_> {
                         headers: headers_operand,
                         body: body_operand,
                         signal: signal_operand,
+                        init_members: member_operands,
                     },
                 )?
             }

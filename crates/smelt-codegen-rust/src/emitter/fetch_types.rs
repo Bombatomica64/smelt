@@ -337,7 +337,17 @@ impl FunctionEmitter<'_> {
         headers: Option<&Operand>,
         body: Option<&Operand>,
         signal: Option<&Operand>,
+        init_members: &[(smelt_hir::RequestInitMember, Operand)],
     ) -> Result<String, EmitError> {
+        // The spec's "if init is not empty" test. It decides whether a
+        // `Request` input's referrer survives, so it is the presence of ANY
+        // init key -- an empty literal (`new Request(src, {})`) is empty and
+        // copies, which is what Node answers.
+        let init_is_non_empty = method.is_some()
+            || headers.is_some()
+            || body.is_some()
+            || signal.is_some()
+            || !init_members.is_empty();
         let input_ty = self.operand_ty(input)?;
         // The spec's `RequestInfo` is `Request | string`. A REQUEST input is
         // the "copy the source" form: the new request starts from the source's
@@ -357,6 +367,9 @@ impl FunctionEmitter<'_> {
                 &format!("{source}.method()"),
                 &format!("{source}.headers()"),
                 &format!("SmeltBody::take_from_source(&{source}.body())"),
+                &format!("{source}.init()"),
+                init_members,
+                init_is_non_empty,
             )?
         } else if matches!(self.mir.types.get(input_ty), Some(Type::String)) {
             self.request_from_parts_text(
@@ -367,6 +380,9 @@ impl FunctionEmitter<'_> {
                 "\"GET\".to_owned()",
                 "SmeltHeaders::new()",
                 "SmeltBody::empty()",
+                "SmeltRequestInit::default()",
+                init_members,
+                init_is_non_empty,
             )?
         } else {
             // **Dynamic boundary.** `RequestInfo` is `Request | string`, and a
@@ -387,6 +403,9 @@ impl FunctionEmitter<'_> {
                 "smelt_input_request.method()",
                 "smelt_input_request.headers()",
                 "SmeltBody::take_from_source(&smelt_input_request.body())",
+                "smelt_input_request.init()",
+                init_members,
+                init_is_non_empty,
             )?;
             let source_url = self.request_from_parts_text(
                 method,
@@ -396,6 +415,9 @@ impl FunctionEmitter<'_> {
                 "\"GET\".to_owned()",
                 "SmeltHeaders::new()",
                 "SmeltBody::empty()",
+                "SmeltRequestInit::default()",
+                init_members,
+                init_is_non_empty,
             )?;
             let erased = self.erase(input)?;
             let coerced =
@@ -437,13 +459,110 @@ impl FunctionEmitter<'_> {
         method_default: &str,
         headers_default: &str,
         body_default: &str,
+        init_default: &str,
+        init_members: &[(smelt_hir::RequestInitMember, Operand)],
+        init_is_non_empty: bool,
     ) -> Result<String, EmitError> {
         let method_expr = self.init_scalar_text(method, method_default)?;
         let headers_expr = self.init_headers_text(headers, headers_default)?;
-        let body_expr = self.init_body_text(body, body_default)?;
+        // A `Request` at the REQUEST INIT's `body` slot shares its handle;
+        // see the flag's documentation for the Node measurement behind it.
+        let body_expr = self.init_body_text(body, body_default, true)?;
+        let init_expr = self.request_init_text(init_default, init_members, init_is_non_empty)?;
         Ok(format!(
-            "SmeltRequest::from_parts(&{url_text}, {method_expr}, {headers_expr}, {body_expr})"
+            "SmeltRequest::from_parts_with_init(&{url_text}, {method_expr}, {headers_expr}, {body_expr}, {init_expr})"
         ))
+    }
+
+    /// Assemble the `SmeltRequestInit` a constructed request stores.
+    ///
+    /// `init_default` is where an ABSENT key's value comes from: the spec's own
+    /// defaults for a string input, and the source request's stored group for a
+    /// `Request` input, which is the spec's "copy the source" form.
+    ///
+    /// Two adjustments sit on top of that copy, in the spec's order:
+    ///
+    /// * a NON-EMPTY init puts the referrer and the referrer policy back to
+    ///   their defaults, because a request being re-initialized must not
+    ///   inherit the source's referrer (`RequestInitMember::
+    ///   resets_on_non_empty_init`);
+    /// * each key the init actually supplied overrides its slot, referrer
+    ///   included, and is serialized the way the spec stores it.
+    fn request_init_text(
+        &self,
+        init_default: &str,
+        init_members: &[(smelt_hir::RequestInitMember, Operand)],
+        init_is_non_empty: bool,
+    ) -> Result<String, EmitError> {
+        let resets: Vec<smelt_hir::RequestInitMember> = if init_is_non_empty {
+            smelt_hir::RequestInitMember::ALL
+                .into_iter()
+                .filter(|member| member.resets_on_non_empty_init())
+                .collect()
+        } else {
+            Vec::new()
+        };
+        if resets.is_empty() && init_members.is_empty() {
+            return Ok(init_default.to_owned());
+        }
+        let mut statements = String::new();
+        for member in resets {
+            statements.push_str(&format!(
+                "smelt_request_init.{} = {}; ",
+                member.field_name(),
+                member.default_rust_literal()
+            ));
+        }
+        for (member, operand) in init_members {
+            let target = if member.is_boolean() {
+                self.type_id(Type::Bool)?
+            } else {
+                self.type_id(Type::String)?
+            };
+            let operand_ty = self.operand_ty(operand)?;
+            // Every key on an init INTERFACE is optional, so a key read off a
+            // typed init arrives as `Optional<T>` where the same key written in
+            // a literal arrives as `T`. An absent optional is the spec's "the
+            // key was not supplied", which must leave the slot holding whatever
+            // the input already put there — the source request's value, or the
+            // default — rather than overwriting it with an empty string.
+            if let Some(&Type::Optional(inner)) = self.mir.types.get(operand_ty) {
+                let value = self.value_at_type_text(
+                    "smelt_init_value",
+                    inner,
+                    target,
+                    &self.render_scope(),
+                )?;
+                statements.push_str(&format!(
+                    "if let Some(smelt_init_value) = {} {{ smelt_request_init.{} = {}; }} ",
+                    self.operand_text(operand)?,
+                    member.field_name(),
+                    Self::stored_member_value_text(*member, &value),
+                ));
+                continue;
+            }
+            let value = self.value_at_type(operand, target)?;
+            statements.push_str(&format!(
+                "smelt_request_init.{} = {}; ",
+                member.field_name(),
+                Self::stored_member_value_text(*member, &value),
+            ));
+        }
+        Ok(format!(
+            "{{ let mut smelt_request_init = {init_default}; {statements}smelt_request_init }}"
+        ))
+    }
+
+    /// Wrap a stored member's value in the normalization the spec applies.
+    ///
+    /// Only `referrer` has one: it is parsed as a URL and stored as its
+    /// serialization, so `"https://c.test"` reads back as `"https://c.test/"`.
+    /// The other seven are stored exactly as spelled.
+    fn stored_member_value_text(member: smelt_hir::RequestInitMember, value: &str) -> String {
+        if matches!(member, smelt_hir::RequestInitMember::Referrer) {
+            return format!("SmeltRequestInit::serialize_referrer(&{value})");
+        }
+        value.to_owned()
     }
 
     /// Emit a `Request` member operation on a concrete receiver.
@@ -474,6 +593,11 @@ impl FunctionEmitter<'_> {
             ),
             smelt_hir::RequestOp::Clone => format!("{receiver}.tee()"),
             smelt_hir::RequestOp::Signal => format!("smelt_request_signal({receiver}.id())"),
+            // A stored `RequestInit` member: a read-only getter over the value
+            // the constructor kept, named after the member itself.
+            smelt_hir::RequestOp::Init(member) => {
+                format!("{receiver}.{}()", member.field_name())
+            }
             // Same handle-clone-into-the-block shape as `Response::text`; see
             // the comment there for why the receiver is not moved.
             smelt_hir::RequestOp::Text => format!(
@@ -513,24 +637,15 @@ impl FunctionEmitter<'_> {
         // A `Response` has no source to inherit from, so both absent keys mean
         // the spec's own empty value.
         let headers_expr = self.init_headers_text(headers, "SmeltHeaders::new()")?;
-        let body_expr = self.init_body_text(body, "SmeltBody::empty()")?;
+        // A `Response`'s first argument is a `BodyInit`, not an init key:
+        // a `Request` there is an ordinary body extraction, so it does NOT
+        // take the sharing path.
+        let body_expr = self.init_body_text(body, "SmeltBody::empty()", false)?;
         Ok(format!(
             "SmeltResponse::from_parts({status_text_expr}, {phrase_expr}, {headers_expr}, {body_expr})"
         ))
     }
 
-    /// Build a `SmeltBody` from a `Response`/`Request` body argument.
-    ///
-    /// The argument's static type selects the conversion, exactly as the
-    /// `Headers` initializer does. Only a string body is modeled so far —
-    /// `BodyInit`'s other arms (`Blob`, `FormData`, `URLSearchParams`,
-    /// `ReadableStream`, `BufferSource`) are types Smelt does not model yet, and
-    /// silently treating one as text would put wrong bytes in the body.
-    pub(super) fn response_body_text(&self, body: &Operand) -> Result<String, EmitError> {
-        let body_ty = self.operand_ty(body)?;
-        let body_text = self.operand_text(body)?;
-        self.body_conversion_text(&body_text, body_ty)
-    }
 
     /// Convert a value of type `ty`, named by `body_text`, into a `SmeltBody`.
     ///
@@ -925,19 +1040,27 @@ impl FunctionEmitter<'_> {
         &self,
         operand: Option<&Operand>,
         default_text: &str,
+        shares_a_request_body: bool,
     ) -> Result<String, EmitError> {
         let Some(operand) = operand else {
             return Ok(default_text.to_owned());
         };
+        let convert = |body_text: &str, body_ty: TypeId| -> Result<String, EmitError> {
+            if shares_a_request_body && self.is_request_class_type(body_ty)? {
+                return Ok(format!("{body_text}.body()"));
+            }
+            self.body_conversion_text(body_text, body_ty)
+        };
         let ty = self.operand_ty(operand)?;
         if let Some(&Type::Optional(inner)) = self.mir.types.get(ty) {
-            let present = self.body_conversion_text("smelt_init_body", inner)?;
+            let present = convert("smelt_init_body", inner)?;
             return Ok(format!(
                 "match {} {{ Some(smelt_init_body) => {present}, None => {default_text} }}",
                 self.operand_text(operand)?
             ));
         }
-        self.response_body_text(operand)
+        convert(&self.operand_text(operand)?, ty)
     }
+
 
 }
