@@ -719,7 +719,7 @@ impl FunctionEmitter<'_> {
         // patterns does not type-check, and erasing the value first would throw
         // away the static arm the source already decided.
         if let Some(members) = self.concrete_union_members(body_ty) {
-            let union = crate::emitter::union::union_name(body_ty);
+            let union = union::union_name(body_ty);
             let mut arms = Vec::with_capacity(members.len());
             for (index, member) in members.iter().copied().enumerate() {
                 let arm = self.body_conversion_text("smelt_body_arm", member)?;

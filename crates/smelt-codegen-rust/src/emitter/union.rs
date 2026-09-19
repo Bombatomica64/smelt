@@ -890,21 +890,17 @@ impl FunctionEmitter<'_> {
         let Some(members) = self.concrete_union_members(base_ty) else {
             return Ok(None);
         };
-        let members = members.to_vec();
-        let field_types = members
+        let resolved: Option<Vec<TypeId>> = members
             .iter()
             .map(|member| self.class_named_field_ty(*member, field))
-            .collect::<Vec<_>>();
-        if field_types.iter().any(Option::is_none) {
+            .collect();
+        let Some(field_types) = resolved else {
             return Ok(None);
-        }
+        };
         let union_enum_name = union_name(base_ty);
         let field_name = sanitize_ident(self.symbol_name(field)?);
-        let mut arms = Vec::with_capacity(members.len());
+        let mut arms = Vec::with_capacity(field_types.len());
         for (index, field_ty) in field_types.into_iter().enumerate() {
-            let Some(field_ty) = field_ty else {
-                return Ok(None);
-            };
             let rendered_value = self.rvalue_text_for_dest(value, field_ty)?;
             arms.push(format!(
                 "{union_enum_name}::M{index}(smelt_union_arm) => {{ smelt_union_arm.{field_name} = {rendered_value}; }}"
