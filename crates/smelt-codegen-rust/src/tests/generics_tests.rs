@@ -1413,3 +1413,39 @@ class Chain<T> {
     assert!(source.contains("Default for ChainInner<T>"));
     assert!(!source.contains("Chain<T>>: Default"));
 }
+
+#[test]
+fn a_generic_interface_slot_is_called_with_its_declared_abi() {
+    // Round 31, Agent E item 3, the INTERFACE half. `Store<T>` declares
+    // `add: (label: string, value: T) => void`, so its slot is emitted as
+    // `Rc<dyn Fn(String, &T)>` — a bare type parameter takes the by-shared-
+    // reference ABI, because the ABI is the callee's and only the declaration
+    // knows it. A call through `Store<[string, number]>` is handed the
+    // SUBSTITUTED parameter, a tuple, which is passed by value on its own terms;
+    // the argument was packed by value against a slot spelled `&`. That is
+    // Hono's last `&(SmeltUnknown, RouterRoute)` E0308.
+    //
+    // It is asserted as emitted text rather than as a corpus fixture because
+    // BUILDING such a record from an object literal is a separate open seam
+    // (`blocker-logs/hono-round31-generics.md`), so the shape does not compile
+    // end to end yet for a reason this rule does not own.
+    //
+    // NON-VACUOUS: without the fix the argument renders without the `&`.
+    let source = source_for(
+        r"
+interface Store<T> {
+  add: (label: string, value: T) => void;
+  size: () => number;
+}
+export function fill(store: Store<[string, number]>): number {
+  store.add('first', ['x', 1]);
+  return store.size();
+}
+",
+    );
+
+    assert!(
+        source.contains("(store.add.clone())(\"first\".to_owned(), &("),
+        "the declared `&T` slot must be called by reference: {source}"
+    );
+}

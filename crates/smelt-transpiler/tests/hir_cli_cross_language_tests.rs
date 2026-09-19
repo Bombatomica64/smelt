@@ -1019,6 +1019,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "93_nullish_assign_and_optional_receiver",
     "94_throwing_getter_in_callback",
     "95_generic_class_default_bounds",
+    "96_substituted_parameter_keeps_its_abi",
 ];
 
 /// The generated-Rust goldens cover EVERY emitted file, not just `main.rs`.

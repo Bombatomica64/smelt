@@ -974,18 +974,15 @@ pub(crate) fn emit_union_definitions(
                     .join(", ")
             )
         };
-        let default_generics = if params.is_empty() {
-            String::new()
-        } else {
-            format!(
-                "<{}>",
-                params
-                    .iter()
-                    .map(|param| Ok(format!("{}: Default", emitter.union_type_param_name(*param)?)))
-                    .collect::<Result<Vec<_>, EmitError>>()?
-                    .join(", ")
-            )
-        };
+        // `Default`'s body constructs the FIRST member's default, and a member
+        // is routinely another generated type whose own `Default` carries the
+        // crate bound set (`classes::GENERATED_TYPE_PARAM_BOUNDS`) — a
+        // `Result<T> = Ok<T> | Err<T>` union defaults to `Ok<T>::default()`.
+        // `T: Default` alone cannot prove that, so this takes the same set every
+        // other generic item the crate emits takes. `Debug` shares the binding
+        // and is not weakened by it: it routes through the erased view, which
+        // needs `IntoSmeltUnknown` anyway.
+        let default_generics = impl_generics.clone();
         let target = emitter.union_type_text(type_id)?;
         // Render the members in the enum's OWN type-parameter environment. The
         // default environment is the first function's lexical scope, which does
