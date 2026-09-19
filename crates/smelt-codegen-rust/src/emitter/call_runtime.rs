@@ -1579,12 +1579,16 @@ impl FunctionEmitter<'_> {
                 // the result of a generic call holds a value whose ABI was decided
                 // by the callee's DECLARED signature, not by the instantiated type
                 // MIR gave the local. See `emitted_call_result_function_type`.
+                // A class's function-typed FIELD answers the same way, from its
+                // declaration rather than from the instantiated field type
+                // MIR resolved: see `class_field_declared_function_type`.
                 let abi_function = match callee {
                     Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => {
                         self.emitted_call_result_function_type(*local)
                     }
                     _ => None,
-                };
+                }
+                .or_else(|| self.class_field_declared_function_type(callee));
                 let mut rendered_args = if let Some(rest_args) =
                     self.rest_vector_call_args_text(args, rest_function)?
                 {

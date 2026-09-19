@@ -1310,9 +1310,16 @@ impl FunctionEmitter<'_> {
                 // packed into its single rest `SmeltList` parameter; without this
                 // the per-parameter mapping below would report "too many
                 // arguments".
+                let declared_abi = self
+                    .class_field_declared_function_type(indirect_callee)
+                    .map(|declared| declared.params);
                 let rendered_args = match self.rest_vector_call_args_text(args, Some(function))? {
                     Some(packed) => packed.join(", "),
-                    None => self.indirect_call_args_text(function, args)?,
+                    None => self.indirect_call_args_text_with_abi(
+                        function,
+                        args,
+                        declared_abi.as_deref(),
+                    )?,
                 };
                 let suffix = if function.may_throw { "?" } else { "" };
                 // A callee read out of a `RefCell` — a reference class's
@@ -1463,6 +1470,38 @@ impl FunctionEmitter<'_> {
         function: &FunctionType,
         args: &[Operand],
     ) -> Result<String, EmitError> {
+        self.indirect_call_args_text_with_abi(function, args, None)
+    }
+
+    /// `indirect_call_args_text`, with the DECLARED parameter types that decide
+    /// the callee's ABI supplied separately from the substituted ones.
+    ///
+    /// The two differ exactly where a generic declaration has been instantiated.
+    /// A callable slot declared `(value: T) => ..` is emitted as
+    /// `Rc<dyn Fn(&T) -> ..>`, because `param_type_is_by_shared_reference`
+    /// answers TRUE for a bare type parameter — the ABI has to be the callee's,
+    /// and the callee's own declaration is the only place that knows it. Rust
+    /// then instantiates that slot at `Fn(&f64)` for a `Chain<number>`, while
+    /// MIR hands this call site the SUBSTITUTED parameter type `f64`, which the
+    /// same predicate answers FALSE for. The argument was packed by value
+    /// against a slot spelled `&`, which is E0308 and is the
+    /// `&(SmeltUnknown, RouterRoute)` family in `hono-round30-types.md`.
+    ///
+    /// So the ABI is asked of `abi_params` — the declaration's parameter list —
+    /// while the VALUE is still rendered at the substituted type, which is what
+    /// it has to be coerced to. Substituting a type parameter at a call site
+    /// must not change how the callee is called.
+    pub(super) fn indirect_call_args_text_with_abi(
+        &self,
+        function: &FunctionType,
+        args: &[Operand],
+        abi_params: Option<&[TypeId]>,
+    ) -> Result<String, EmitError> {
+        let abi_param = |index: usize, substituted: TypeId| {
+            abi_params
+                .and_then(|params| params.get(index).copied())
+                .unwrap_or(substituted)
+        };
         let mut rendered_args = args
             .iter()
             .enumerate()
@@ -1474,8 +1513,11 @@ impl FunctionEmitter<'_> {
                     .ok_or_else(|| EmitError::new("indirect call has too many arguments"))?;
                 if function.mutable_params.contains(&index) {
                     self.mutable_reference_argument_text(arg, target_ty, None)
-                } else if self.callback_param_is_shared_reference(function, index, target_ty)
-                {
+                } else if self.callback_param_is_shared_reference(
+                    function,
+                    index,
+                    abi_param(index, target_ty),
+                ) {
                     // The parameter is `&T` (see `callback_param_is_shared_reference`).
                     self.shared_reference_argument_text(arg, target_ty)
                 } else {
@@ -1498,16 +1540,19 @@ impl FunctionEmitter<'_> {
                 break;
             }
             // A padded argument is a fresh temporary, so a by-shared-reference
-            // parameter borrows it in place.
+            // parameter borrows it in place. The ABI question takes the
+            // declaration's parameter here too, for the reason above.
             rendered_args.push(self.callback_call_arg_text(
                 function,
                 index,
-                target_ty,
+                abi_param(index, target_ty),
                 self.default_value(target_ty)?,
             ));
         }
         Ok(rendered_args.join(", "))
     }
+
+
 
     /// Return the generic type parameters declared by the class that owns
     /// `function`, when `function` is a class method or constructor.

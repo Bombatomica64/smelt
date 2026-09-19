@@ -13932,11 +13932,16 @@ export function hold<T>(trunk: Trunk<T>): Trunk<T> {
             "expected a spelled-out `{spelled}` impl: {source}"
         );
     }
-    // `Default` keeps the bound a derive would have imposed, so a consumer that
-    // can only prove `T: Default` is no worse off than before.
+    // `Default` takes the crate's generated bound set, not the derive-equivalent
+    // `T: Default` (round 31, Agent E item 2). A field default can DELEGATE to
+    // another generated class — here `Leaf<T>::default()` — whose own impl
+    // carries the full set, and `T: Default` cannot prove it. Every generic item
+    // the crate emits carries the same set, so no in-crate consumer is worse off.
     assert!(
-        source.contains("impl<T: Default> Default for Trunk<T>"),
-        "a generic value class keeps derive-equivalent `Default` bounds: {source}"
+        source.contains(
+            "impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Default for Trunk<T>"
+        ),
+        "a generic value class takes the generated bound set on `Default`: {source}"
     );
 }
 

@@ -3283,7 +3283,7 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> ::std::
         ::std::fmt::Debug::fmt(&self.clone().into_smelt_unknown(), formatter)
     }
 }
-impl<T: Default> Default for SmeltUnion10<T> {
+impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Default for SmeltUnion10<T> {
     fn default() -> Self {
         Self::M0(Default::default())
     }

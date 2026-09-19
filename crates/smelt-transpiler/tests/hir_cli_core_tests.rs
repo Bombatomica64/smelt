@@ -4,7 +4,10 @@ mod common;
 
 use std::fs;
 
-use common::{TempProject, TestResult, cargo_test_manifest, ensure, ensure_eq, smelt, utf8_path};
+use common::{
+    TempProject, TestResult, cargo_test_manifest, ensure, ensure_eq, smelt, smelt_in,
+    utf8_path,
+};
 
 #[test]
 fn build_specializes_python_decorators_and_emits_package_artifact() -> TestResult {
@@ -621,6 +624,142 @@ export function touch(options: LocalOptions): void {
 
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
     smelt(&["--manifest-path", &manifest_arg, "check"])?;
+
+    Ok(())
+}
+
+/// The manifest text used by the two manifest-directory tests below.
+///
+/// One entry, one module reached only by a TYPE-only import, and an `exclude`
+/// glob naming that module. A type-only import still puts the module in the
+/// dependency closure, so the exclude is the only thing that keeps it out — and
+/// whether it is applied is visible as a file in the generated crate.
+const EXCLUDE_PROJECT_MANIFEST: &str = r#"[project]
+name = "exclude-cwd"
+version = "0.1.0"
+
+[sources]
+roots = ["src"]
+entries = ["src/main.ts"]
+exclude = ["src/notes.ts"]
+
+[output]
+target = "./dist"
+crate-name = "exclude_cwd"
+build = false
+
+[runtime]
+clone-strategy = "aggressive"
+"#;
+
+/// Write the exclude fixture into `project_path`.
+fn write_exclude_project(project_path: &std::path::Path) -> TestResult {
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(project_path.join("Smelt.toml"), EXCLUDE_PROJECT_MANIFEST)?;
+    fs::write(
+        project_path.join("src/notes.ts"),
+        "export interface Note { id: number }\nexport function noteMarker(): number { return 7 }\n",
+    )?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        "import type { Note } from './notes'\nconst note: Note = { id: 1 }\nconsole.log(note.id)\n",
+    )?;
+    Ok(())
+}
+
+/// One generated file: its name and its contents.
+type GeneratedSource = (String, String);
+
+/// Read every generated `.rs` file under `dir`, sorted by file name.
+fn read_generated_sources(dir: &std::path::Path) -> TestResult<Vec<GeneratedSource>> {
+    let mut files = Vec::new();
+    for entry in fs::read_dir(dir)? {
+        let path = entry?.path();
+        if path.extension().is_some_and(|extension| extension == "rs") {
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or_default()
+                .to_owned();
+            files.push((name, fs::read_to_string(&path)?));
+        }
+    }
+    files.sort();
+    Ok(files)
+}
+
+#[test]
+fn exclude_globs_resolve_against_the_manifest_directory_not_the_process_directory() -> TestResult {
+    // `[sources] exclude` globs are written relative to the MANIFEST, so which
+    // directory they are matched against cannot depend on where `smelt` was
+    // invoked from. It did: the manifest directory came from
+    // `manifest_path.parent()`, which is `Some("")` — not `None` — for a path
+    // with no directory component, so the usual `.unwrap_or(".")` never fired.
+    // An empty prefix makes `strip_prefix` succeed while stripping nothing, so
+    // every canonicalized dependency path stayed absolute and no
+    // manifest-relative glob could match it.
+    //
+    // NON-VACUOUS: before the fix, running from inside the project with
+    // `--manifest-path Smelt.toml` emitted `dist/src/notes.rs` for the module
+    // the manifest excludes, while the same tree built with an absolute
+    // manifest path did not.
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    write_exclude_project(project_path)?;
+
+    for manifest_arg in ["Smelt.toml", "./Smelt.toml"] {
+        drop(fs::remove_dir_all(project_path.join("dist")));
+        smelt_in(project_path, &["--manifest-path", manifest_arg, "build"])?;
+        ensure(
+            !project_path.join("dist/src/notes.rs").exists(),
+            "an excluded module was lowered for a cwd-relative manifest path",
+        )?;
+    }
+
+    // The absolute spelling, from an unrelated working directory, has to agree.
+    drop(fs::remove_dir_all(project_path.join("dist")));
+    let absolute = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &absolute, "build"])?;
+    ensure(
+        !project_path.join("dist/src/notes.rs").exists(),
+        "an excluded module was lowered for an absolute manifest path",
+    )?;
+    ensure(
+        project_path.join("dist/src/main.rs").exists(),
+        "the entry module was not lowered",
+    )?;
+
+    Ok(())
+}
+
+#[test]
+fn building_twice_produces_identical_output() -> TestResult {
+    // `smelt build` writes a `.d.ts` and a `.pyi` beside every module it lowers,
+    // so the second build runs over a source tree that contains the first
+    // build's output. Those stubs must never become inputs: a generated
+    // `context.d.ts` standing in for the real `context.ts` would quietly change
+    // the crate. The property is "a build is a function of the SOURCE", and this
+    // pins it by comparing every emitted file byte for byte.
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    write_exclude_project(project_path)?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+    let first = read_generated_sources(&project_path.join("dist/src"))?;
+    ensure(!first.is_empty(), "the first build emitted nothing")?;
+    ensure(
+        project_path.join("src/main.d.ts").exists(),
+        "the first build did not write its stubs into the source tree",
+    )?;
+
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+    let second = read_generated_sources(&project_path.join("dist/src"))?;
+    ensure_eq(
+        &format!("{second:?}"),
+        &format!("{first:?}"),
+        "a second build over the first build's stubs changed the generated crate",
+    )?;
 
     Ok(())
 }
