@@ -826,7 +826,7 @@ impl ModuleBuilder<'_> {
         {
             errors.push(error);
         }
-        for statement in &function_body.statements {
+        for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
             if let Err(error) = self.statement(statement, &mut body) {
                 errors.push(error);
             }
@@ -965,7 +965,7 @@ impl ModuleBuilder<'_> {
         {
             errors.push(error);
         }
-        for statement in &function_body.statements {
+        for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
             if let Err(error) = self.statement(statement, &mut body) {
                 errors.push(error);
             }

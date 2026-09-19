@@ -945,6 +945,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "106_host_value_at_a_record_type",
     "107_never_branch_at_a_string_return",
     "108_headers_init_at_a_headers_slot",
+    "109_nested_function_declaration_hoists",
     "10_unary_logical",
     "110_captured_callback_handle_is_cloned",
     "11_console_log_expressions",

@@ -563,7 +563,7 @@ impl ModuleBuilder<'_> {
             } else {
                 function.params.items.len()
             });
-        for statement in &function_body.statements {
+        for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
             if self.is_super_call_statement(statement) {
                 continue;
             }
@@ -1168,7 +1168,7 @@ impl ModuleBuilder<'_> {
             .generator
             .then(|| self.initialize_generator_yield_accumulator(function, &mut body));
         self.current_generator_yields = generator_yields;
-        for statement in &function_body.statements {
+        for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
             if let Err(error) = self.statement(statement, &mut body) {
                 errors.push(error);
             }
@@ -3621,7 +3621,7 @@ impl ModuleBuilder<'_> {
             .generator
             .then(|| self.initialize_generator_yield_accumulator(&method.value, &mut body));
         self.current_generator_yields = generator_yields;
-        for statement in &function_body.statements {
+        for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
             // `super(...)` has no callee to defer to once inheritance is flattened
             // into the derived struct, so it lowers to the base's initialization
             // applied to `this` instead of running as an ordinary call.

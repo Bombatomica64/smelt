@@ -290,7 +290,7 @@ impl ModuleBuilder<'_> {
             if let Err(error) = self.predeclare_forward_referenced_locals(statements, &mut body) {
                 errors.push(error);
             }
-            for statement in statements {
+            for statement in crate::lowering::hoisting::hoisted_statements(statements) {
                 if let Err(error) = self.statement(statement, &mut body) {
                     errors.push(error);
                 }
