@@ -873,12 +873,8 @@ impl FunctionEmitter<'_> {
                 if let Some(text) = self.strict_identity_text(*op, lhs, rhs)? {
                     return Ok(text);
                 }
-                if *op == smelt_hir::BinOp::Add
-                    && matches!(self.mir.types.get(dest_ty), Some(Type::String))
-                {
-                    let lhs_text = self.string_like_operand_text(lhs, "string addition")?;
-                    let rhs_text = self.string_like_operand_text(rhs, "string addition")?;
-                    return Ok(format!("{lhs_text} + &{rhs_text}"));
+                if let Some(text) = self.string_addition_text(*op, lhs, rhs, dest_ty)? {
+                    return Ok(text);
                 }
                 if let Some(text) = self.erased_arithmetic_text(*op, lhs, rhs, dest_ty)? {
                     return Ok(text);

@@ -1930,3 +1930,74 @@ export function classify(tag: string): number {
         "default arm body was dropped: {source}"
     );
 }
+
+/// `+` with a UNION operand is JavaScript string concatenation whenever one of
+/// the union's arms is `string`, and the concatenated `String` re-enters the
+/// destination through that arm.
+///
+/// ECMAScript concatenates as soon as either operand of `+` is a String after
+/// `ToPrimitive`; TypeScript decides that statically and types such an
+/// expression `string`. A compound assignment then writes the result back into
+/// the place it read, whose declared type is still the union — so the
+/// destination of the emitted statement is the union, not `String`. The
+/// emitter used to see a non-`String` destination, fall through to the erased
+/// numeric path, and emit a `ToNumber` `match` over the wrong enum: a
+/// concatenation became an addition that did not type-check.
+#[test]
+fn union_operand_makes_addition_a_string_concatenation() {
+    let source = source_for(
+        r"
+type Buffer = (string | number)[];
+export function appendTo(buffer: Buffer, extra: string): void {
+  buffer[0] += extra;
+}
+export function joinFirst(buffer: Buffer, extra: string): string {
+  return buffer[0] + extra;
+}
+",
+    );
+
+    // The concatenation is a `String` `+ &String`, never a numeric add.
+    assert!(
+        source.contains(" + &"),
+        "union `+` string must concatenate: {source}"
+    );
+    // The write-back re-wraps the concatenated string in the union's string arm.
+    assert!(
+        source.contains("::M0("),
+        "the `+=` result must re-enter the union's string arm: {source}"
+    );
+    // The erased number-coercion path must not be taken for a concatenation:
+    // it would wrap the operands in `SmeltUnknown::Number(..)`.
+    assert!(
+        !source.contains("SmeltUnknown::Number(match buffer"),
+        "a string concatenation must not route through ToNumber: {source}"
+    );
+}
+
+/// Erasing a generated union to `SmeltUnknown` is an INSPECTION and must not
+/// consume the value it reads.
+///
+/// `into_smelt_unknown()` takes `self` by value, so an erasure rendered from a
+/// bare place read moved out of the local. Reading the same union local twice —
+/// once to inspect a field, once for a tag test — was then a use-after-move
+/// (E0382). Every other consuming arm of the erasure already owned its source;
+/// this asserts the union arm does too.
+#[test]
+fn erasing_a_union_local_does_not_move_it() {
+    let source = source_for(
+        r#"
+type Item = string | number;
+export function inspect(items: Item[]): boolean {
+  const first = items[0];
+  const isText = typeof first === "string";
+  return isText && String(first).length > 0;
+}
+"#,
+    );
+
+    assert!(
+        !source.contains("first.into_smelt_unknown()"),
+        "erasing a union place read must clone it first: {source}"
+    );
+}

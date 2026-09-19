@@ -1500,8 +1500,16 @@ impl FunctionEmitter<'_> {
                     .unwrap_or_else(|| "::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Null))".to_owned());
                 Ok(format!("SmeltUnknown::Function({adapter})"))
             }
+            // A generated union erases through `into_smelt_unknown()`, which
+            // takes `self` BY VALUE. Every other consuming arm of this match
+            // hands it an owned copy (`smelt_owned_text`); this one passed the
+            // raw operand text, so erasing a place read moved out of it and the
+            // next read of the same local was a use-after-move (E0382). The
+            // rendered-value twin `erase_concrete_union_text` has always owned
+            // its source for exactly this reason — erasing a value is an
+            // INSPECTION and must not consume it.
             Some(Type::Union(_)) if self.concrete_union_members(self.operand_ty(operand)?).is_some() => {
-                Ok(format!("{text}.into_smelt_unknown()"))
+                Ok(format!("{smelt_owned_text}.into_smelt_unknown()"))
             }
             Some(Type::Union(_)) => Ok(text),
             Some(Type::Future(item)) => {
