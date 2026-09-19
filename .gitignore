@@ -320,3 +320,6 @@ third_party/es-toolkit-src/
 !blocker-logs/hono-round33-brief.md
 !blocker-logs/hono-round33-scoping.md
 !blocker-logs/hono-round33-abi.md
+!blocker-logs/hono-phase3-brief.md
+!blocker-logs/hono-tests.md
+!blocker-logs/hono-phase3-round1.md
