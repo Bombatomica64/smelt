@@ -3037,6 +3037,21 @@ impl ModuleBuilder<'_> {
             AssignmentOperator::LogicalNullish => self.non_nullish_type(target_ty),
             _ => Some(target_ty),
         };
+        // The VALUE of `x ??= v` is never nullish: either the store happened and
+        // the value is `v`, or it did not and `x` was already non-nullish. So
+        // the expression's type is `NonNullable<typeof x>` joined with
+        // `typeof v`, which is what TypeScript gives it — not the target's own
+        // optional surface. Keeping the optional there made
+        // `cond ? headers : (maybeHeaders ??= new Headers())` a join of
+        // `Headers` and `Headers | undefined`, which the ternary's type chain
+        // then had to reconcile; with the nullish arm removed the two branches
+        // are simply the same type. `||=` and `&&=` keep the target type,
+        // because their value CAN be the falsy/short-circuited original.
+        let result_ty = if matches!(assign.operator, AssignmentOperator::LogicalNullish) {
+            self.non_nullish_type(target_ty).unwrap_or(target_ty)
+        } else {
+            target_ty
+        };
         // The result temporary is declared before the branch and assigned in
         // both arms, which is the shape the emitter already renders for a
         // conditionally produced value (`let mut _smelt_tmp_N: T;`).
@@ -3048,7 +3063,7 @@ impl ModuleBuilder<'_> {
                         .symbols
                         .intern(&format!("__smelt_logical_{}", body.locals.len())),
                 ),
-                ty: target_ty,
+                ty: result_ty,
                 mutable: true,
                 span,
             })
@@ -3147,7 +3162,7 @@ impl ModuleBuilder<'_> {
         Ok(result_local.map(|result_local| {
             body.push_expr(Expr {
                 kind: ExprKind::Local(result_local),
-                ty: target_ty,
+                ty: result_ty,
                 span,
             })
         }))

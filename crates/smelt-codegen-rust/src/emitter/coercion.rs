@@ -2693,6 +2693,22 @@ impl FunctionEmitter<'_> {
             let erased = self.erase(value)?;
             return self.extract_value_text(&erased, target, scope);
         }
+        // A RECORD source needs the same normalization for the same reason. The
+        // fetch-runtime arm of `extract_value_text` hands its text straight to
+        // `SmeltFromUnknown::smelt_from_unknown`, which takes a `SmeltUnknown`,
+        // so an object literal flowing into a `Response`/`Headers` position
+        // (`{}` at a `Response`-returning slot) reached it as a `SmeltRecord`
+        // and produced an E0308 naming neither the source line nor the reason.
+        // Erasing here keeps `extract_value_text`'s contract — its text IS an
+        // erased value — instead of teaching one of its arms to re-derive the
+        // source type it was never given.
+        if matches!(self.mir.types.get(source_ty), Some(Type::Dict(_, _)))
+            && matches!(self.mir.types.get(target), Some(Type::Class { .. }))
+            && self.is_fetch_runtime_class_type(target)?
+        {
+            let erased = self.erase(value)?;
+            return self.extract_value_text(&erased, target, scope);
+        }
         let text = self.operand_text(value)?;
         self.extract_value_text(&text, target, scope)
     }

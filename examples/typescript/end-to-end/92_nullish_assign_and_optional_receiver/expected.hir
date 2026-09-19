@@ -1,0 +1,202 @@
+module examples/typescript/end-to-end/92_nullish_assign_and_optional_receiver/input.ts (ModuleId(0))
+  body BodyId(6)
+  items
+    class Bag fields [Private prepared: Optional<Headers>, Private current: Optional<Headers>] constructor Some(ItemId(5)) methods [ItemId(0), ItemId(1), ItemId(2), ItemId(3), ItemId(4)] implements []
+  locals
+    %0 const bag: Bag
+    %1 let maybe: Optional<Headers>
+    %2 let __smelt_logical_2: Headers
+    %3 const __smelt_logical_value_3: Headers
+    %4 const ensured: Headers
+    %5 let __smelt_logical_5: Headers
+    %6 const __smelt_logical_value_6: Headers
+    %7 const again: Headers
+    %8 let text: String
+    %9 let __smelt_logical_9: String
+    %10 const __smelt_logical_value_10: String
+    %11 const filled: String
+    %12 const response: Response
+  exprs
+    #0: Bag = new Bag()
+    #1: Bag = %0
+    #2: fn(String) -> String = #1.peek
+    #3: Bag = %0
+    #4: String = "x"
+    #5: String = #3.peek(#4)
+    #6: None = @7(console_log)
+    #7: None = call #6(#5)
+    #8: Bag = %0
+    #9: Bag = %0
+    #10: fn(String, String) -> None = #9.write
+    #11: Bag = %0
+    #12: String = "x"
+    #13: String = "1"
+    #14: None = #11.write(#12, #13)
+    #15: Bag = %0
+    #16: fn(String) -> String = #15.peek
+    #17: Bag = %0
+    #18: String = "x"
+    #19: String = #17.peek(#18)
+    #20: Bag = %0
+    #21: fn(String) -> String = #20.read
+    #22: Bag = %0
+    #23: String = "x"
+    #24: String = #22.read(#23)
+    #25: None = @8(console_log)
+    #26: None = call #25(#19, #24)
+    #27: Bag = %0
+    #28: fn(String, String) -> None = #27.append_to
+    #29: Bag = %0
+    #30: String = "x"
+    #31: String = "2"
+    #32: None = #29.append_to(#30, #31)
+    #33: Bag = %0
+    #34: fn(String) -> String = #33.read
+    #35: Bag = %0
+    #36: String = "x"
+    #37: String = #35.read(#36)
+    #38: None = @9(console_log)
+    #39: None = call #38(#37)
+    #40: Optional<Headers> = %1
+    #41: Optional<Headers> = none
+    #42: Bool = Eq #40, #41
+    #43: Headers = headers_new
+    #44: Headers = %3
+    #45: Optional<Headers> = %2
+    #46: Headers = %3
+    #47: Optional<Headers> = %2
+    #48: Headers = %2
+    #49: Headers = %4
+    #50: Headers = %4
+    #51: String = "y"
+    #52: String = "3"
+    #53: None = headers_set #50, #51, #52
+    #54: Headers = %4
+    #55: Headers = %4
+    #56: String = "y"
+    #57: Optional<String> = headers_get #55, #56
+    #58: String = "absent"
+    #59: String = #57 ?? #58
+    #60: Optional<Headers> = %1
+    #61: Optional<Headers> = %1
+    #62: Headers = assert_type #61
+    #63: String = "y"
+    #64: Optional<String> = headers_get #62, #63
+    #65: String = "absent"
+    #66: String = #64 ?? #65
+    #67: None = @10(console_log)
+    #68: None = call #67(#59, #66)
+    #69: Optional<Headers> = %1
+    #70: Optional<Headers> = none
+    #71: Bool = Eq #69, #70
+    #72: Headers = headers_new
+    #73: Headers = %6
+    #74: Optional<Headers> = %5
+    #75: Headers = %6
+    #76: Optional<Headers> = %5
+    #77: Headers = %5
+    #78: Headers = %7
+    #79: Headers = %7
+    #80: String = "y"
+    #81: Optional<String> = headers_get #79, #80
+    #82: String = "absent"
+    #83: String = #81 ?? #82
+    #84: None = @11(console_log)
+    #85: None = call #84(#83)
+    #86: String = ""
+    #87: String = %8
+    #88: String = ""
+    #89: Bool = NotEq #87, #88
+    #90: Bool = Not #89
+    #91: String = "fallback"
+    #92: String = %10
+    #93: String = %9
+    #94: String = %10
+    #95: String = %9
+    #96: String = %9
+    #97: String = %11
+    #98: String = %8
+    #99: None = @12(console_log)
+    #100: None = call #99(#97, #98)
+    #101: String = "body"
+    #102: String = "x-from"
+    #103: String = "response"
+    #104: Dict<String, String> = {#102: #103}
+    #105: Response = response_new body=#101 headers=#104
+    #106: Bag = %0
+    #107: fn(Headers) -> None = #106.adopt
+    #108: Bag = %0
+    #109: Response = %12
+    #110: Headers = response_headers #109
+    #111: None = #108.adopt(#110)
+    #112: Bag = %0
+    #113: Bag = %0
+    #114: fn(String, String) -> None = #113.write
+    #115: Bag = %0
+    #116: String = "x-added"
+    #117: String = "4"
+    #118: None = #115.write(#116, #117)
+    #119: Bag = %0
+    #120: fn(String) -> String = #119.peek
+    #121: Bag = %0
+    #122: String = "x-from"
+    #123: String = #121.peek(#122)
+    #124: Bag = %0
+    #125: fn(String) -> String = #124.peek
+    #126: Bag = %0
+    #127: String = "x-added"
+    #128: String = #126.peek(#127)
+    #129: None = @13(console_log)
+    #130: None = call #129(#123, #128)
+  stmts
+    s0: let %0: Bag = #0
+    s1: #7
+    s2: #14
+    s3: #26
+    s4: #32
+    s5: #39
+    s6: let %1: Optional<Headers>
+    s7: let %3: Headers = #43
+    s8: #40 = #44
+    s9: #45 = #46
+    s10: #47 = #40
+    s11: let %2: Optional<Headers>
+    s12: if #42 then BlockId(1) else BlockId(2)
+    s13: let %4: Headers = #48
+    s14: #53
+    s15: #68
+    s16: let %6: Headers = #72
+    s17: #69 = #73
+    s18: #74 = #75
+    s19: #76 = #69
+    s20: let %5: Optional<Headers>
+    s21: if #71 then BlockId(3) else BlockId(4)
+    s22: let %7: Headers = #77
+    s23: #85
+    s24: let %8: String = #86
+    s25: let %10: String = #91
+    s26: #87 = #92
+    s27: #93 = #94
+    s28: #95 = #87
+    s29: let %9: String
+    s30: if #90 then BlockId(5) else BlockId(6)
+    s31: let %11: String = #96
+    s32: #100
+    s33: let %12: Response = #105
+    s34: #111
+    s35: #118
+    s36: #130
+
+interned types
+  t0 = Bag
+  t1 = Headers
+  t2 = None
+  t3 = Optional<Headers>
+  t4 = Bool
+  t5 = String
+  t6 = Dict<String, String>
+  t7 = Response
+  t8 = Optional<String>
+  t9 = fn(String) -> String
+  t10 = fn(String, String) -> None
+  t11 = fn(Headers) -> None

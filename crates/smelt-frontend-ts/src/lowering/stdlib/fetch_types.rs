@@ -153,7 +153,16 @@ impl ModuleBuilder<'_> {
         let Ok(receiver) = self.expression(&member.object, body) else {
             return Ok(None);
         };
-        let receiver_ty = Self::expr_ty(body, receiver);
+        // A modeled method call on an OPTIONAL receiver is a call on the inner
+        // value: `tsc` only accepts `maybe.set(k, v)` where it has already
+        // narrowed `maybe` to non-nullish, so the optional surface here is one
+        // Smelt's own flow typing did not drop. Asserting presence is what the
+        // modeled PROPERTY reads already do (`present_receiver`); without it
+        // the call fell through to a generic optional member read and emitted
+        // `receiver.as_ref().map(|value| value.set.clone())`, which takes a
+        // METHOD as a field (E0615).
+        let (receiver, receiver_ty) =
+            self.present_receiver(receiver, self.span(call.span.start, call.span.end), body);
         if !self.is_headers_type(receiver_ty) {
             return Ok(None);
         }
@@ -208,7 +217,10 @@ impl ModuleBuilder<'_> {
         let Ok(receiver) = self.expression(&member.object, body) else {
             return Ok(None);
         };
-        let receiver_ty = Self::expr_ty(body, receiver);
+        // Same presence assertion as the `Headers` dispatch above, for the same
+        // reason: the two are one rule about modeled receivers.
+        let (receiver, receiver_ty) =
+            self.present_receiver(receiver, self.span(call.span.start, call.span.end), body);
         if !self.is_url_search_params_type(receiver_ty) {
             return Ok(None);
         }

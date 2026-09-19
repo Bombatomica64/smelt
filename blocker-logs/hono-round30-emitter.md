@@ -153,3 +153,76 @@ erasure-identity change, not an init change, so it is recorded here rather than 
 Fixtures: `examples/typescript/end-to-end/91_request_init_members/` (verified against Node 22)
 and `the_stored_request_init_members_default_and_override` in
 `crates/smelt-codegen-rust/tests/fetch_init_runtime.rs` (an already-registered runtime tier).
+
+## Item 3 — diagnose then fix: `String` vs `SmeltHeaders` (14), `SmeltUnknown` vs `SmeltRecord` (10), `SmeltUnion289` vs `String` (4)
+
+Each family is named as a TypeScript rule first, as the brief asks.
+
+### 3a. `String` vs `SmeltHeaders` (14) and `SmeltUnion289` vs `String` (4) — one family
+
+**Diagnosis.** Hono's `context.ts` writes
+
+```ts
+const headers = this.#res ? this.#res.headers : (this.#preparedHeaders ??= new Headers())
+```
+
+Two general rules decide its type, and Smelt had neither:
+
+1. **The VALUE of `x ??= v` is never nullish.** Either the store happened and the value is `v`, or
+   it did not and `x` was already non-nullish, so the expression's type is
+   `NonNullable<typeof x> | typeof v` — which is what TypeScript gives it. Smelt typed the result
+   temporary at the TARGET's type, keeping the optional surface. (`||=`/`&&=` keep the target's
+   type, because their value CAN be the original falsy one; only `??=` changes.)
+2. **A conditional whose arms are `T` and `T | undefined` is `T | undefined`.** That is plain
+   `typeof a | typeof b`. `conditional_branch_type` has carried this arm
+   (`unify_optional_conditional_branches`) since the flow-typed numeric case, but the ternary's
+   OWN inline type chain in `expression_with_hint` — the one that actually runs — never got it,
+   so the two chains had drifted.
+
+With neither rule, `Headers` joined with `Headers | undefined` fell all the way through to the
+string-compatibility test, which accepts ANY `Type::Class` (the variant also spells an opaque
+unresolved name), and unified to `String`. The code comment beside that test already records the
+same failure for DECLARED classes and fixes it with a `declared_class_type` arm; a MODELED host
+class such as `Headers` is not a declared class, so it was not covered.
+
+The four `SmeltUnion289` vs `String` errors were the same values reaching
+`ResponseInit.headers`, whose type is the `HeadersInit` union: they fell out with the family.
+
+**Result:** 14 + 4 → 0. Four new `E0615`s appeared behind them (`.append`/`.set` taken as a FIELD
+on a `&SmeltHeaders`), which is the third rule in the same area:
+
+3. **A modeled method call on an OPTIONAL receiver is a call on the inner value.** `tsc` only
+   accepts `maybe.set(k, v)` where it has already narrowed `maybe` to non-nullish, so the optional
+   surface is one Smelt's own flow typing did not drop. The modeled PROPERTY reads already assert
+   presence (`present_receiver`); the `Headers` and `URLSearchParams` METHOD dispatches did not,
+   so the call fell through to a generic optional member read that took a method as a field.
+   Fixed for both, which is one rule about modeled receivers rather than two.
+
+### 3b. `SmeltUnknown` vs `SmeltRecord<String, SmeltUnknown>` (10)
+
+**Diagnosis.** `extract_value_text`'s contract is "the text IS an already-erased `SmeltUnknown`",
+and its fetch-runtime arm hands that text straight to
+`SmeltFromUnknown::smelt_from_unknown`, which takes a `SmeltUnknown`. An object literal flowing
+into a `Response`-typed slot arrives as a `SmeltRecord`, so the call was
+`SmeltResponse::smelt_from_unknown(SmeltRecord::from([]))` — an `E0308` naming neither the source
+line nor the reason. `extract`'s FUNCTION arm already normalizes exactly this way (an
+`Rc<dyn Fn ..>` is erased first), so the fix is the same normalization for a record source rather
+than teaching one arm of `extract_value_text` to re-derive a source type it was never given.
+
+**Result:** 10 → 0.
+
+### What this unmasked, recorded not fixed
+
+`responseHeaders ?? headers` in `#newResponse` joins `Headers | undefined` with
+`HeaderRecord | undefined`; TypeScript types it `Headers | HeaderRecord` and the destination is
+`HeadersInit`. The emitter renders `??` on two optionals as `Option::or`, which requires both
+arms at ONE Rust type, so it now reports 4 × `expected Option<SmeltHeaders>, found
+Option<SmeltRecord<String, String>>`. These were previously hidden behind the `String` unification
+above. The rule to implement is that `a ?? b` with differently-typed arms takes their union (or
+coerces the right arm at the `Option::or` seam), which belongs with whoever owns the nullish-join
+emission.
+
+Fixtures: `examples/typescript/end-to-end/92_nullish_assign_and_optional_receiver/` (verified
+against Node 22) covers rules 1, 2 and 3. Sub-fix 3b has no end-to-end fixture: the record reaches
+that slot from a SYNTHESIZED default rather than from anything a source file can spell, so its
+evidence is the corpus measurement (10 → 0) plus the unchanged emitter suite.
