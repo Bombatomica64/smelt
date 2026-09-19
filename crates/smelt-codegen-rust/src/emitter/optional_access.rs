@@ -560,11 +560,21 @@ impl FunctionEmitter<'_> {
                 // converted it.
                 let result_is_string = self.mir.types.get(result_ty) == Some(&Type::String);
                 let result_is_erased = matches!(self.mir.types.get(result_ty), Some(Type::Unknown));
-                let unknown_ty = self.type_id(Type::Unknown)?;
+                // The element this arm reads is a `SmeltUnknown` BY
+                // CONSTRUCTION: it comes out of the runtime-narrowing `match`
+                // above, not out of a MIR local. So the conversion is an
+                // extraction, which is target-only, and asking for a
+                // `Type::Unknown` TypeId to spell the source with is asking for
+                // something a crate need not have: a crate that never writes
+                // `unknown` in source interns no such type, and this seam then
+                // aborted emission outright ("type table does not contain
+                // literal operand type Unknown"). `coercion`'s module doc
+                // states the same rule for the erasing direction; extraction is
+                // its mirror and takes it too.
                 let element_text = if result_is_erased {
                     "_smelt_element".to_owned()
                 } else {
-                    self.value_at_type_text("_smelt_element", unknown_ty, result_ty, &self.render_scope())?
+                    self.extract_value_text("_smelt_element", result_ty, &self.render_scope())?
                 };
                 let string_some = if result_is_string {
                     "value.chars().nth(index).map(|ch| ch.to_string())".to_owned()
