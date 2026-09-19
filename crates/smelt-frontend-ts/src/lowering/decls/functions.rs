@@ -3147,7 +3147,7 @@ impl ModuleBuilder<'_> {
                 format!("base class `{name}` is not declared"),
             ));
         }
-        let args = heritage
+        let mut args = heritage
             .type_arguments
             .as_ref()
             .map(|type_args| {
@@ -3159,6 +3159,24 @@ impl ModuleBuilder<'_> {
             })
             .transpose()?
             .unwrap_or_default();
+        // A heritage clause is a type reference and obeys the same rule as any
+        // other: trailing type arguments the BASE declares a default for may be
+        // omitted (`class Derived extends Slot<boolean>` where the base is
+        // `Slot<T, U = string, V = number>` means `extends Slot<boolean, string,
+        // number>`). The full list matters here beyond arity: a derived class is
+        // monomorphized against `base_args`, so a missing argument leaves the
+        // base's own parameter name standing in an inherited member's signature,
+        // where nothing declares it. See
+        // `ModuleBuilder::type_arguments_with_defaults`.
+        if let Some(base_type_params) = self
+            .types
+            .class_type_params(base)
+            .cloned()
+            .or_else(|| self.find_class(base).map(|class| class.type_params.clone()))
+            && let Some(completed) = self.type_arguments_with_defaults(&base_type_params, &args)
+        {
+            args = completed;
+        }
         Ok((Some(base), args))
     }
 

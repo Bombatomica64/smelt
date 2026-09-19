@@ -459,6 +459,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
         );
         self.interfaces
             .declare_module_scope(Self::program_interface_names(program));
+        // Class TYPE parameters — and in particular their DEFAULTS — have to be
+        // readable before any signature is lowered: the forward-function-type
+        // and predeclaration passes below lower type references while no class
+        // item exists yet, and a reference that omits defaulted trailing
+        // arguments must still take them. Runs after the class name scope is
+        // declared so each declaration is recorded under the symbol a later
+        // reference resolves to.
+        self.collect_class_type_parameter_defaults(program);
         self.collect_overload_signatures(program, &implemented_functions);
         self.collect_forward_function_types(program, &implemented_functions);
         self.predeclare_function_items(program, &implemented_functions, &mut errors);

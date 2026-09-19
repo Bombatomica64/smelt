@@ -1,0 +1,207 @@
+class Slot fields [Public first: T, Public second: U, Public third: V] constructor Some(FuncId(2)) methods [FuncId(3), FuncId(4)]
+class Holder fields [Public slot: Slot<Bool, String, Float>] constructor Some(FuncId(5)) methods [FuncId(6)]
+class Config fields [Public key: A, Public value: B] constructor Some(FuncId(7)) methods [FuncId(8), FuncId(9)]
+class Pair fields [Public head: A, Public rest: B] constructor Some(FuncId(10)) methods [FuncId(11)]
+
+fn relabel (FuncId(0)) -> Slot<Bool, String, Float>
+  locals
+    %0 param slot: Slot<Bool, String, Float>
+    %1 param label: String
+    %2 temp: Float
+    %3 temp: Float
+    %4 temp: Slot<Bool, String, Float>
+  bb0:
+    %2 = call fn4(copy %0) -> bb1
+  bb1:
+    %3 = move %2 * 2.0
+    %4 = call fn2(copy %0.field14, copy %1, move %3) -> bb2
+  bb2:
+    return move %4
+
+fn read_config (FuncId(1)) -> String
+  locals
+    %0 param input: Config<String, Float>
+    %1 temp: String
+    %2 temp: String
+    %3 temp: Float
+    %4 temp: String
+  bb0:
+    %1 = call fn8(copy %0) -> bb1
+  bb1:
+    %2 = move %1 + "="
+    %3 = call fn9(copy %0) -> bb2
+  bb2:
+    %4 = move %2 + move %3
+    return move %4
+
+fn new (FuncId(2)) -> Slot<T, U, V>
+  locals
+    %0 user this: Slot<T, U, V>
+    %1 param first: T
+    %2 param second: U
+    %3 param third: V
+  bb0:
+    %0 = struct1 {}
+    %0.field14 = copy %1
+    %0.field15 = copy %2
+    %0.field16 = copy %3
+    return move %0
+
+fn label (FuncId(3)) -> U
+  locals
+    %0 param this: Slot<T, U, V>
+  bb0:
+    return copy %0.field15
+
+fn count (FuncId(4)) -> V
+  locals
+    %0 param this: Slot<T, U, V>
+  bb0:
+    return copy %0.field16
+
+fn new (FuncId(5)) -> Holder
+  locals
+    %0 user this: Holder
+    %1 param slot: Slot<Bool, String, Float>
+  bb0:
+    %0 = struct0 {}
+    %0.field2 = copy %1
+    return move %0
+
+fn describe (FuncId(6)) -> String
+  locals
+    %0 param this: Holder
+    %1 temp: Slot<Bool, String, Float>
+    %2 temp: String
+    %3 temp: String
+    %4 temp: String
+    %5 temp: Slot<Bool, String, Float>
+    %6 temp: Float
+    %7 temp: Float
+    %8 temp: String
+  bb0:
+    %1 = copy %0.field2
+    %2 = call fn3(copy %0.field2) -> bb1
+  bb1:
+    %3 = string_upper move %2
+    %4 = move %3 + ":"
+    %5 = copy %0.field2
+    %6 = call fn4(copy %0.field2) -> bb2
+  bb2:
+    %7 = move %6 + 1.0
+    %8 = move %4 + move %7
+    return move %8
+
+fn new (FuncId(7)) -> Config<A, B>
+  locals
+    %0 user this: Config<A, B>
+    %1 param key: A
+    %2 param value: B
+  bb0:
+    %0 = struct3 {}
+    %0.field21 = copy %1
+    %0.field22 = copy %2
+    return move %0
+
+fn name (FuncId(8)) -> A
+  locals
+    %0 param this: Config<A, B>
+  bb0:
+    return copy %0.field21
+
+fn amount (FuncId(9)) -> B
+  locals
+    %0 param this: Config<A, B>
+  bb0:
+    return copy %0.field22
+
+fn new (FuncId(10)) -> Pair<A, B>
+  locals
+    %0 user this: Pair<A, B>
+    %1 param head: A
+    %2 param rest: B
+  bb0:
+    %0 = struct4 {}
+    %0.field25 = copy %1
+    %0.field26 = copy %2
+    return move %0
+
+fn tail (FuncId(11)) -> B
+  locals
+    %0 param this: Pair<A, B>
+  bb0:
+    return copy %0.field26
+
+fn main (FuncId(12)) -> None
+  locals
+    %0 user holder: Holder
+    %1 user relabelled: Slot<Bool, String, Float>
+    %2 user config: Config<String, Float>
+    %3 user pair: Pair<Bool, List<Bool>>
+    %4 temp: Slot<Bool, String, Float>
+    %5 temp: Holder
+    %6 temp: String
+    %7 temp: Slot<Bool, String, Float>
+    %8 temp: None
+    %9 temp: Slot<Bool, String, Float>
+    %10 temp: String
+    %11 temp: Float
+    %12 temp: None
+    %13 temp: Config<String, Float>
+    %14 temp: String
+    %15 temp: Float
+    %16 temp: None
+    %17 temp: String
+    %18 temp: None
+    %19 temp: List<Bool>
+    %20 temp: Pair<Bool, List<Bool>>
+    %21 temp: List<Bool>
+    %22 temp: Float
+    %23 temp: List<Bool>
+    %24 temp: None
+  bb0:
+    %4 = call fn2(true, "one", 1.0) -> bb1
+  bb1:
+    %5 = call fn5(move %4) -> bb2
+  bb2:
+    %0 = move %5
+    %6 = call fn6(copy %0) -> bb3
+  bb3:
+    %7 = copy %0.field2
+    %8 = call @console_log(move %6, copy %7.field14) -> bb4
+  bb4:
+    %9 = call fn0(copy %0.field2, "two") -> bb5
+  bb5:
+    %1 = move %9
+    %10 = call fn3(copy %1) -> bb6
+  bb6:
+    %11 = call fn4(copy %1) -> bb7
+  bb7:
+    %12 = call @console_log(move %10, move %11, copy %1.field14) -> bb8
+  bb8:
+    %13 = call fn7("width", 42.0) -> bb9
+  bb9:
+    %2 = move %13
+    %14 = call fn8(copy %2) -> bb10
+  bb10:
+    %15 = call fn9(copy %2) -> bb11
+  bb11:
+    %16 = call @console_log(move %14, move %15) -> bb12
+  bb12:
+    %17 = call fn1(move %2) -> bb13
+  bb13:
+    %18 = call @console_log(move %17) -> bb14
+  bb14:
+    %19 = [false, true]
+    %20 = call fn10(true, move %19) -> bb15
+  bb15:
+    %3 = move %20
+    %21 = call fn11(copy %3) -> bb16
+  bb16:
+    %22 = len move %21
+    %23 = call fn11(copy %3) -> bb17
+  bb17:
+    %24 = call @console_log(copy %3.field25, move %22, copy %23[1.0]) -> bb18
+  bb18:
+    return none
+

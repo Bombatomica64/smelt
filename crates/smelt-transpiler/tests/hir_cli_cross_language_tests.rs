@@ -1013,6 +1013,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "87_number_to_string",
     "88_data_view_range_error",
     "89_derived_default_constructor",
+    "90_type_parameter_defaults",
 ];
 
 /// The generated-Rust goldens cover EVERY emitted file, not just `main.rs`.

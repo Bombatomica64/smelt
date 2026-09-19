@@ -2194,10 +2194,38 @@ return_ty: function.return_ty,
                         ),
                     ));
                 }
-                let lowered_args = args
+                let mut lowered_args = args
                     .iter()
                     .map(|arg| self.ts_type_to_hir(arg))
                     .collect::<Result<Vec<_>, _>>()?;
+                // A reference to a generic CLASS may omit trailing type
+                // arguments the declaration defaults (`class Context<E extends
+                // Env = any, P extends string = any, I extends Input = {}>`
+                // referenced as `Context<E>` means `Context<E, any, {}>`), and a
+                // declaration whose parameters are all defaulted may be written
+                // with no argument list at all. Interfaces and type aliases
+                // already take their defaults above, through
+                // `type_argument_substitution`; classes fall through to this
+                // arm, so without this the HIR carried a SHORT argument list and
+                // every later stage — including Rust emission, where the arity
+                // is checked — saw a reference of the wrong arity.
+                //
+                // See `type_arguments_with_defaults` for the rule and for why an
+                // `any` default is a genuine dynamic boundary rather than an
+                // erasure this lowering chose.
+                // This module's own classes come from the prepass registry
+                // (they may not be items yet); classes from earlier modules are
+                // read off the crate.
+                if let Some(class_type_params) = self
+                    .types
+                    .class_type_params(symbol)
+                    .cloned()
+                    .or_else(|| self.find_class(symbol).map(|class| class.type_params.clone()))
+                    && let Some(completed) =
+                        self.type_arguments_with_defaults(&class_type_params, &lowered_args)
+                {
+                    lowered_args = completed;
+                }
                 Ok(self.ctx.krate.types.intern(Type::Class {
                     name: symbol,
                     args: lowered_args,

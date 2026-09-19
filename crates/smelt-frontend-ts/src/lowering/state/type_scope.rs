@@ -27,7 +27,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use smelt_hir::{Field, Symbol, TypeId};
+use smelt_hir::{Field, Symbol, TypeId, TypeParamDef};
 
 /// Type-level lookups and active generic scopes for one module.
 ///
@@ -46,6 +46,15 @@ pub(in crate::lowering) struct TypeScope {
     param_scopes: Vec<HashMap<String, TypeId>>,
     /// Constraints for active generic type parameters, innermost last.
     param_constraint_scopes: Vec<HashMap<Symbol, TypeId>>,
+    /// Declared type parameters of the classes THIS module declares.
+    ///
+    /// Filled by a prepass before any body is lowered, because a type reference
+    /// may name a class declared later in the same file (TypeScript hoists
+    /// class TYPES even where the binding is in its temporal dead zone) and the
+    /// reference still has to take that declaration's type-parameter DEFAULTS.
+    /// Classes from earlier modules are already HIR items and are read off the
+    /// crate instead; this map covers only the ones that are not items yet.
+    class_type_params: HashMap<Symbol, Vec<TypeParamDef>>,
 }
 
 impl TypeScope {
@@ -64,6 +73,23 @@ impl TypeScope {
             callable_object_aliases,
             ..Self::default()
         }
+    }
+
+    /// Return the declared type parameters of a class declared in this module.
+    pub(in crate::lowering) fn class_type_params(
+        &self,
+        name: Symbol,
+    ) -> Option<&Vec<TypeParamDef>> {
+        self.class_type_params.get(&name)
+    }
+
+    /// Record the declared type parameters of a class declared in this module.
+    pub(in crate::lowering) fn set_class_type_params(
+        &mut self,
+        name: Symbol,
+        params: Vec<TypeParamDef>,
+    ) {
+        self.class_type_params.insert(name, params);
     }
 
     /// Return the structural fields recorded for the type alias `name`.

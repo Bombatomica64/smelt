@@ -427,6 +427,24 @@ impl ModuleBuilder<'_> {
         })
     }
 
+    /// Find the latest previously lowered class declaration by symbol.
+    ///
+    /// Mirrors [`ModuleBuilder::find_interface`]: a `.ts` class may refine a
+    /// generated declaration-file class of the same name, so the LAST matching
+    /// item wins. Used by type-reference lowering to read a generic class's
+    /// declared type parameters — in particular their DEFAULTS — when a
+    /// reference omits trailing type arguments.
+    pub(in crate::lowering) fn find_class(&self, name: smelt_hir::Symbol) -> Option<&smelt_hir::Class> {
+        self.ctx.krate.items.iter().rev().find_map(|item| {
+            if let Item::Class(class) = item
+                && class.name == name
+            {
+                return Some(class);
+            }
+            None
+        })
+    }
+
     /// Validate that a lowered class satisfies all declared interfaces.
     pub(in crate::lowering) fn validate_implements(&mut self, class_item: smelt_hir::ItemId) -> Result<(), SmeltError> {
         let Item::Class(class) = self.item_ref(class_item).clone() else {

@@ -6,6 +6,8 @@
 
 use std::collections::HashMap;
 
+use oxc::ast::ast::{Class as TSClass, Declaration, Program, Statement};
+
 use crate::lowering::ModuleBuilder;
 use crate::SmeltError;
 use smelt_hir::{Field, FunctionType, MethodSig, Span, Type, TypeParamDef};
@@ -58,6 +60,53 @@ impl ModuleBuilder<'_> {
         Ok(lowered)
     }
 
+    /// Record the type-parameter declarations of every class in this program.
+    ///
+    /// A PREPASS, run before any body is lowered. TypeScript hoists class TYPES:
+    /// a type reference may name a class declared later in the same file, and a
+    /// signature collected by an earlier prepass (forward function types,
+    /// predeclared methods) is lowered before any class item exists at all. Such
+    /// a reference still has to take the declaration's type-parameter DEFAULTS,
+    /// so the defaults have to be readable before the class is an HIR item —
+    /// which is what this map provides. Classes declared by EARLIER modules need
+    /// no entry: they are already `Item::Class` and `find_class` reads their
+    /// parameters off the crate.
+    ///
+    /// Each declaration's parameters are lowered in the declaration's OWN
+    /// parameter scope, because a default may mention an earlier parameter of
+    /// the same list (`class Pair<A, B = A[]>`). A class whose parameters fail
+    /// to lower is skipped rather than reported: this pass exists only to
+    /// enrich later references, and the real diagnostic is raised when the class
+    /// itself is lowered.
+    pub(in crate::lowering) fn collect_class_type_parameter_defaults(
+        &mut self,
+        program: &Program<'_>,
+    ) {
+        for statement in &program.body {
+            let exported = match statement {
+                Statement::ExportDeclaration(export) => Some(&export.declaration),
+                _ => None,
+            };
+            let class: Option<&TSClass<'_>> = match (statement, exported) {
+                (Statement::ClassDeclaration(class), _) => Some(class.as_ref()),
+                (_, Some(Declaration::ClassDeclaration(class))) => Some(class.as_ref()),
+                _ => None,
+            };
+            let Some(class) = class else { continue };
+            let Some(id) = class.id.as_ref() else { continue };
+            let Some(params) = class.type_parameters.as_deref() else {
+                continue;
+            };
+            let Ok(lowered) = self.push_type_parameter_scope(Some(params)) else {
+                self.pop_type_parameter_scope();
+                continue;
+            };
+            self.pop_type_parameter_scope();
+            let symbol = self.resolve_type_reference_symbol(id.name.as_str());
+            self.types.set_class_type_params(symbol, lowered);
+        }
+    }
+
     /// Pop the current TypeScript type parameter scope.
     pub(in crate::lowering) fn pop_type_parameter_scope(&mut self) {
         self.types.pop_param_scope();
@@ -104,6 +153,54 @@ impl ModuleBuilder<'_> {
             substitutions.insert(param.name, actual);
         }
         Ok(substitutions)
+    }
+
+    /// Complete a short type-argument list from the declaration's defaults.
+    ///
+    /// TypeScript lets a type reference omit TRAILING type arguments whenever
+    /// every omitted parameter declares a default: `class C<A, B = string,
+    /// C = number>` referenced as `C<X>` means `C<X, string, number>`, and a
+    /// declaration whose parameters ALL have defaults may be referenced with no
+    /// argument list at all (`C` where every parameter is defaulted). A default
+    /// is itself lowered in the declaration's own parameter scope, so an
+    /// earlier parameter may appear in a later default (`<A, B = A[]>`); the
+    /// substitution map is therefore built left to right and applied to each
+    /// default as it is taken.
+    ///
+    /// Returns `None` when the list cannot be completed — some omitted
+    /// parameter has no default, which `tsc` rejects except where inference
+    /// supplies the argument. Callers keep whatever shorter list they already
+    /// had in that case rather than inventing arguments.
+    ///
+    /// DYNAMIC BOUNDARY: a parameter defaulted to `any` (`E extends Env = any`)
+    /// lowers to [`Type::Unknown`], because source `any` in a type position IS
+    /// a dynamic boundary under the project's `SmeltUnknown` rules — the
+    /// declaration itself says "whatever the instantiation supplies, unchecked".
+    /// Taking the default is still strictly better than dropping the argument:
+    /// a dropped argument leaves the reference with the WRONG ARITY, which no
+    /// later stage can repair, whereas the default is the type the source
+    /// actually means.
+    pub(in crate::lowering) fn type_arguments_with_defaults(
+        &mut self,
+        type_params: &[TypeParamDef],
+        args: &[smelt_hir::TypeId],
+    ) -> Option<Vec<smelt_hir::TypeId>> {
+        if type_params.is_empty() || args.len() >= type_params.len() {
+            return None;
+        }
+        let mut substitutions = HashMap::new();
+        let mut completed = Vec::with_capacity(type_params.len());
+        for (idx, param) in type_params.iter().enumerate() {
+            let actual = if let Some(arg) = args.get(idx) {
+                *arg
+            } else {
+                let default = param.default?;
+                self.substitute_type_params(default, &substitutions)
+            };
+            substitutions.insert(param.name, actual);
+            completed.push(actual);
+        }
+        Some(completed)
     }
 
     /// Substitute generic type parameters within a previously lowered HIR type.
