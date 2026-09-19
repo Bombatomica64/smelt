@@ -3870,24 +3870,6 @@ impl ModuleBuilder<'_> {
             // which a continuation invoked later during an `await` does not
             // have, so the throw escaped the program (H70).
             let fn_ty = self.throwing_widened_function_ty(fn_ty, Self::expr_ty(body, value));
-            // An arrow with no return annotation and no contextual signature
-            // INFERS its return type from its body — that is what `tsc` does,
-            // and a `const` with no annotation takes its initializer's type. The
-            // signature above was interned before the body was lowered, so its
-            // return is still the `Unknown` placeholder; the lowered closure
-            // knows the real one, and the binding must carry it.
-            //
-            // Without this, `const res = (t: string) => this.make(t)` bound
-            // `fn(string) -> unknown` while the closure it holds is
-            // `fn(string) -> Response`, and every consumer of the binding read
-            // the erased spelling: `promise.then(res)` typed itself
-            // `Promise<unknown>` over a continuation that resolves a `Response`
-            // (E0271 in Hono's `context.rs` slice of `main.rs`).
-            let fn_ty = if arrow.return_type.is_none() && contextual_function.is_none() {
-                self.inferred_return_function_ty(fn_ty, Self::expr_ty(body, value))
-            } else {
-                fn_ty
-            };
             let local =
                 self.local_arrow_binding_local(name, symbol, fn_ty, self.span(start, end), body);
             self.scope.bind(name.to_owned(), local);
@@ -3912,47 +3894,6 @@ impl ModuleBuilder<'_> {
             self.scope.bind(name.to_owned(), local);
         }
         result
-    }
-
-    /// Re-intern a declared function type with the lowered value's return type.
-    ///
-    /// `declared` is the signature the binding was interned with before its body
-    /// was lowered; `value` is the type the lowered closure actually has. Only
-    /// the return type is taken from the value, and only when the declaration
-    /// left it erased — an arrow whose return type is annotated, or fixed by a
-    /// contextual signature, keeps what the declaration resolved, so this is the
-    /// inference step and never an override. An `async` arrow's placeholder is
-    /// `Future<unknown>`, which is why both spellings are recognized.
-    ///
-    /// Returns `declared` unchanged when either type is not a function or the
-    /// declaration already names a return type.
-    fn inferred_return_function_ty(
-        &mut self,
-        declared: smelt_hir::TypeId,
-        value: smelt_hir::TypeId,
-    ) -> smelt_hir::TypeId {
-        let Some(Type::Function(declared_ty)) = self.ctx.krate.types.get(declared).cloned() else {
-            return declared;
-        };
-        let declared_is_erased = match self.ctx.krate.types.get(declared_ty.return_ty) {
-            Some(Type::Unknown) => true,
-            Some(Type::Future(inner)) => {
-                matches!(self.ctx.krate.types.get(*inner), Some(Type::Unknown))
-            }
-            _ => false,
-        };
-        if !declared_is_erased {
-            return declared;
-        }
-        let Some(Type::Function(value_ty)) = self.ctx.krate.types.get(value).cloned() else {
-            return declared;
-        };
-        if value_ty.return_ty == declared_ty.return_ty {
-            return declared;
-        }
-        let mut inferred = declared_ty;
-        inferred.return_ty = value_ty.return_ty;
-        self.ctx.krate.types.intern(Type::Function(inferred))
     }
 
     /// Re-intern a declared function type with the lowered value's `may_throw`.

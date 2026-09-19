@@ -1020,7 +1020,6 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "94_throwing_getter_in_callback",
     "95_union_value_dispatch",
     "96_union_read_is_not_a_move",
-    "97_arrow_const_infers_its_return",
     "98_async_iife_return_channel",
 ];
 
