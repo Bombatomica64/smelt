@@ -798,6 +798,22 @@ impl FunctionEmitter<'_> {
             ));
         }
         let receiver = self.operand_text(response)?;
+        self.response_op_on_text(op, &receiver)
+    }
+
+    /// Emit a `Response` member operation on an already-rendered receiver.
+    ///
+    /// The text-level half of [`Self::response_op_text`]. A coercion seam holds
+    /// a rendered expression and a type rather than a MIR operand — a structural
+    /// conversion from a `Response` into a record type has to READ each member
+    /// off the value it was handed — so the member rules live here and the
+    /// operand entry point above is a thin wrapper that renders its receiver
+    /// first. Splitting it keeps one statement of what each member means.
+    pub(super) fn response_op_on_text(
+        &self,
+        op: smelt_hir::ResponseOp,
+        receiver: &str,
+    ) -> Result<String, EmitError> {
         Ok(match op {
             smelt_hir::ResponseOp::Status => format!("{receiver}.status()"),
             smelt_hir::ResponseOp::Ok => format!("{receiver}.ok()"),

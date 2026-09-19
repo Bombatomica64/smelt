@@ -1,0 +1,65 @@
+module examples/typescript/end-to-end/103_host_value_at_a_record_type/input.ts (ModuleId(0))
+  body BodyId(2)
+  items
+    interface Init fields [Public status?: Optional<Float>, Public status_text?: Optional<String>, Public ok?: Optional<Bool>, Public label?: Optional<String>] methods []
+    fn describe owner Module
+    fn describe_maybe owner Module
+  locals
+    %0 const created: Response
+    %1 const failed: Response
+  exprs
+    #0: String = "hi"
+    #1: Float = 201.0
+    #2: String = "Created"
+    #3: Response = response_new body=#0 status=#1 status_text=#2
+    #4: String = "no"
+    #5: Float = 500.0
+    #6: String = "Boom"
+    #7: Response = response_new body=#4 status=#5 status_text=#6
+    #8: Response = %0
+    #9: fn(Init) -> String = @0(describe)
+    #10: String = call #9(#8)
+    #11: None = @3(console_log)
+    #12: None = call #11(#10)
+    #13: Response = %1
+    #14: fn(Optional<Init>) -> String = @1(describe_maybe)
+    #15: String = call #14(#13)
+    #16: None = @4(console_log)
+    #17: None = call #16(#15)
+    #18: None = undefined
+    #19: fn(Optional<Init>) -> String = @1(describe_maybe)
+    #20: String = call #19(#18)
+    #21: None = @5(console_log)
+    #22: None = call #21(#20)
+    #23: String = "status"
+    #24: Float = 7.0
+    #25: String = "label"
+    #26: String = "plain"
+    #27: Init = {#23: #24, #25: #26}
+    #28: fn(Init) -> String = @0(describe)
+    #29: String = call #28(#27)
+    #30: None = @6(console_log)
+    #31: None = call #30(#29)
+  stmts
+    s0: let %0: Response = #3
+    s1: let %1: Response = #7
+    s2: #12
+    s3: #17
+    s4: #22
+    s5: #31
+
+interned types
+  t0 = String
+  t1 = Float
+  t2 = Response
+  t3 = Init
+  t4 = fn(Init) -> String
+  t5 = Optional<Init>
+  t6 = fn(Optional<Init>) -> String
+  t7 = Optional<Float>
+  t8 = Optional<String>
+  t9 = Bool
+  t10 = Optional<Bool>
+  t11 = None
+  t12 = fn(Init) -> String
+  t13 = fn(Optional<Init>) -> String

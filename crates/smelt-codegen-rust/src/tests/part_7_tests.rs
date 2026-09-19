@@ -14343,3 +14343,78 @@ console.log(options.webSocket === undefined);
 
     assert!(source.contains("fn main"), "{source}");
 }
+
+/// A host value converts to a structurally compatible record by READING each
+/// target field off it.
+///
+/// A `Response` is assignable to `{ status?: number; statusText?: string }`
+/// because it exposes both members — plain structural typing, not an overload
+/// and not a union. The reads are not field reads: `SmeltResponse` keeps its
+/// data behind accessors, so the conversion goes through the text-level member
+/// read rather than through a `Name { field: base.field }` literal, which does
+/// not compile against the prelude struct.
+#[test]
+fn adapts_a_host_value_to_a_structurally_compatible_record() {
+    let source = source_for(
+        r#"
+interface Init {
+  status?: number;
+  statusText?: string;
+  label?: string;
+}
+
+export function describe(init: Init): string {
+  return String(init.status);
+}
+
+export function report(): string {
+  return describe(new Response("hi", { status: 201 }));
+}
+"#,
+    );
+
+    assert!(
+        source.contains("status: Some(smelt_host_value.status())"),
+        "{source}"
+    );
+    assert!(
+        source.contains("status_text: Some(smelt_host_value.status_text())"),
+        "{source}"
+    );
+    // A member the source does not expose is absent, which is what an optional
+    // property means — never a fabricated value.
+    assert!(source.contains("label: None"), "{source}");
+    // The source is bound once: `value_text` may be a call, and reading it per
+    // field would evaluate it per field.
+    assert_eq!(source.matches("let smelt_host_value =").count(), 1, "{source}");
+}
+
+/// The same conversion declines when the source exposes no members at all.
+///
+/// Without that gate a dictionary source reported "no member" for every target
+/// field and an all-optional record was built entirely out of absent fields — a
+/// conversion that compiles and silently drops the value.
+#[test]
+fn a_record_target_is_not_built_from_a_source_with_no_members() {
+    let source = source_for(
+        r#"
+interface Options {
+  width?: string;
+}
+
+interface FormatLong {
+  date: (options: Options) => string;
+}
+
+export function run(formatLong: FormatLong): string {
+  return formatLong.date({ width: "short" });
+}
+"#,
+    );
+
+    assert!(!source.contains("smelt_host_value"), "{source}");
+    assert!(
+        source.contains("Options { width: smelt_record_map.get(\"width\").cloned().map(|value| value) }"),
+        "{source}"
+    );
+}

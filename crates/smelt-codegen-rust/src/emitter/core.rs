@@ -1073,6 +1073,20 @@ impl<'mir> FunctionEmitter<'mir> {
         {
             return Ok(Some(format!("{value_text}.clone()")));
         }
+        // A MODELED HOST class has no generated fields to pair up — its data
+        // lives behind the prelude struct's accessors — but it still EXPOSES
+        // members, and structural assignability is about members. A `Response`
+        // is assignable to a `ResponseInit` because it has `status`,
+        // `statusText` and `headers`; nothing about that is an overload or a
+        // union, it is plain structural typing, which Smelt otherwise requires
+        // nominal identity for. Asked before the field-pairing path below
+        // because `structural_record_fields` answers `None` for such a source
+        // and the whole adapter would decline.
+        if let Some(adapter) =
+            self.host_class_to_record_adapter_text(value_text, source, target, scope)?
+        {
+            return Ok(Some(adapter));
+        }
         let Some(adapted_fields) = self.structural_record_adapter_fields(source, target) else {
             return Ok(None);
         };
@@ -1135,6 +1149,73 @@ impl<'mir> FunctionEmitter<'mir> {
         }
         Ok(Some(format!(
             "{{ let smelt_struct_value = {value_text}.clone(); {target_name} {{ {} }} }}",
+            field_text.join(", ")
+        )))
+    }
+
+    /// Build a target record by READING each of its fields off a host value.
+    ///
+    /// Structural assignability: a value whose type exposes every member a
+    /// target record type declares converts to that record by reading each
+    /// target field from the source and building the struct. The read is the
+    /// member-read rule the ordinary `x.member` uses
+    /// (`host_class_member_read_text`), so a `Response`'s `status` is the
+    /// prelude struct's `status()` accessor and not a field that does not
+    /// exist.
+    ///
+    /// Declines — leaving every existing conversion exactly as it was — unless
+    /// the source is a modeled host class with a member table AND every
+    /// non-optional target field is one of its members. An OPTIONAL target
+    /// field the source does not expose is simply absent, which is what an
+    /// optional property means.
+    fn host_class_to_record_adapter_text(
+        &self,
+        value_text: &str,
+        source: TypeId,
+        target: TypeId,
+        scope: &RenderScope,
+    ) -> Result<Option<String>, EmitError> {
+        if source == target || !self.exposes_host_members(source)? {
+            return Ok(None);
+        }
+        let Some(target_fields) = self.structural_record_fields(target) else {
+            return Ok(None);
+        };
+        if target_fields.is_empty() {
+            return Ok(None);
+        }
+        let Some(Type::Class { name, args }) = self.mir.types.get(target) else {
+            return Ok(None);
+        };
+        let mut field_text = Vec::new();
+        for target_field in &target_fields {
+            let field_name = sanitize_ident(self.symbol_name(target_field.name)?);
+            let member = self.symbol_source_name(target_field.name)?.to_owned();
+            let read =
+                self.host_class_member_read_text("smelt_host_value", source, &member)?;
+            let value = match read {
+                Some((read_text, member_ty)) => {
+                    self.value_at_type_text(&read_text, member_ty, target_field.ty, scope)?
+                }
+                // An optional property the source does not expose is absent;
+                // any other missing member means this is not a structural
+                // conversion at all, so nothing is emitted.
+                None if matches!(self.mir.types.get(target_field.ty), Some(Type::Optional(_))) => {
+                    "None".to_owned()
+                }
+                None => return Ok(None),
+            };
+            field_text.push(format!("{field_name}: {value}"));
+        }
+        let target_name = sanitize_ident(self.symbol_name(*name)?);
+        if !args.is_empty() {
+            field_text.push("_smelt_phantom: ::std::marker::PhantomData".to_owned());
+        }
+        // The source is read once per field, so it is bound once: `value_text`
+        // may be a call, and re-evaluating it per field would both duplicate
+        // its effects and move any by-value argument more than once.
+        Ok(Some(format!(
+            "{{ let smelt_host_value = {value_text}; {target_name} {{ {} }} }}",
             field_text.join(", ")
         )))
     }

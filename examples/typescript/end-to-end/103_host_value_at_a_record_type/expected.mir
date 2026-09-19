@@ -1,0 +1,86 @@
+interface Init
+
+fn describe (FuncId(0)) -> String
+  locals
+    %0 param init: Init
+    %1 temp: Float
+    %2 temp: String
+    %3 temp: String
+    %4 temp: String
+    %5 temp: String
+    %6 temp: String
+    %7 temp: Bool
+    %8 temp: String
+    %9 temp: String
+    %10 temp: String
+    %11 temp: String
+  bb0:
+    %1 = copy %0.field5 ?? 0.0
+    %2 = "" + move %1
+    %3 = move %2 + "/"
+    %4 = copy %0.field6 ?? "-"
+    %5 = move %3 + move %4
+    %6 = move %5 + "/"
+    %7 = copy %0.field7 ?? false
+    %8 = move %6 + move %7
+    %9 = move %8 + "/"
+    %10 = copy %0.field8 ?? "none"
+    %11 = move %9 + move %10
+    return move %11
+
+fn describe_maybe (FuncId(1)) -> String
+  locals
+    %0 param init: Optional<Init>
+    %1 temp: Bool
+    %2 temp: Init
+    %3 temp: String
+  bb0:
+    %1 = copy %0 == undefined
+    switch move %1 ? bb1 : bb2
+  bb1:
+    return "absent"
+  bb2:
+    %2 = copy %0
+    %3 = call fn0(move %2) -> bb3
+  bb3:
+    return move %3
+
+fn main (FuncId(2)) -> None
+  locals
+    %0 user created: Response
+    %1 user failed: Response
+    %2 temp: Response
+    %3 temp: Response
+    %4 temp: String
+    %5 temp: None
+    %6 temp: String
+    %7 temp: None
+    %8 temp: String
+    %9 temp: None
+    %10 temp: Init
+    %11 temp: String
+    %12 temp: None
+  bb0:
+    %2 = response_new body="hi" status=201.0 status_text="Created"
+    %0 = move %2
+    %3 = response_new body="no" status=500.0 status_text="Boom"
+    %1 = move %3
+    %4 = call fn0(move %0) -> bb1
+  bb1:
+    %5 = call @console_log(move %4) -> bb2
+  bb2:
+    %6 = call fn1(move %1) -> bb3
+  bb3:
+    %7 = call @console_log(move %6) -> bb4
+  bb4:
+    %8 = call fn1(undefined) -> bb5
+  bb5:
+    %9 = call @console_log(move %8) -> bb6
+  bb6:
+    %10 = {"status": 7.0, "label": "plain"}
+    %11 = call fn0(move %10) -> bb7
+  bb7:
+    %12 = call @console_log(move %11) -> bb8
+  bb8:
+    return none
+

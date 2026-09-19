@@ -116,6 +116,7 @@ mod crypto;
 mod form_data;
 mod text_codec;
 mod typed_array;
+mod host_member_read;
 mod host_interop;
 mod http_server;
 mod list;
