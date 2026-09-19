@@ -506,6 +506,45 @@ return_ty: function.return_ty,
         }
     }
 
+    /// `Exclude<A, B>`: the arms of `A` that `B` does not name.
+    ///
+    /// TypeScript distributes `A extends B ? never : A` over `A`'s union arms,
+    /// so the result is `A` minus every arm `B` covers. Two consequences follow
+    /// from how Smelt interns types, and both are the general rule rather than
+    /// a special case:
+    ///
+    /// * A union of LITERAL types is already its arms' common base type here
+    ///   (`200 | 204 | 404` interns as `Float`, because every arm's widened
+    ///   type is `number`). Such a base is not a `Type::Union`, so nothing can
+    ///   be subtracted from it and the answer is the base itself — which is the
+    ///   right answer: removing some literals from a literal union still leaves
+    ///   a union of literals, and that is still `number`. Answering `never`
+    ///   (or, as before this arm existed, `unknown`) would lose a type the
+    ///   source fixed. Hono's `ContentfulStatusCode =
+    ///   Exclude<StatusCode, ContentlessStatusCode>` is exactly this shape.
+    /// * A union whose arms Smelt does model distinctly (`string | number`
+    ///   minus `number`) really does lose the named arms.
+    ///
+    /// Removing every arm leaves `never`, matching TypeScript.
+    fn union_without_members(
+        &mut self,
+        base: smelt_hir::TypeId,
+        excluded: smelt_hir::TypeId,
+    ) -> smelt_hir::TypeId {
+        let Some(Type::Union(members)) = self.ctx.krate.types.get(base).cloned() else {
+            return base;
+        };
+        let removed = self.flatten_union_member_types(excluded);
+        let kept: Vec<smelt_hir::TypeId> = members
+            .into_iter()
+            .filter(|member| !removed.contains(member))
+            .collect();
+        if kept.is_empty() {
+            return self.ctx.krate.types.intern(Type::Never);
+        }
+        self.union_of_types_or_unknown(kept)
+    }
+
     /// Return whether a source type is a callable value with object fields.
     pub(in crate::lowering) fn ts_type_is_known_callable_object_surface(&mut self, ty: &TSType<'_>) -> bool {
         if Self::ts_type_is_callable_object_surface(ty) {
@@ -1976,6 +2015,11 @@ return_ty: function.return_ty,
             }
             ("Partial" | "Readonly" | "Required", [item]) => self.ts_type_to_hir(item),
             ("Extract", [_base, extracted]) => self.ts_type_to_hir(extracted),
+            ("Exclude", [base, excluded]) => {
+                let base_ty = self.ts_type_to_hir(base)?;
+                let excluded_ty = self.ts_type_to_hir(excluded)?;
+                Ok(self.union_without_members(base_ty, excluded_ty))
+            }
             ("Pick", [base, _keys]) => self.ts_type_to_hir(base),
             ("Set" | "ReadonlySet", [item]) => {
                 let lowered_item = self.ts_type_to_hir(item)?;

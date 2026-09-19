@@ -9743,3 +9743,67 @@ export const callMaybe = (): void => {
     Ok(())
 }
 
+
+/// `Exclude<A, B>` keeps the arms of `A` that `B` does not name.
+///
+/// A union of NUMERIC LITERAL types is already its arms' common base type
+/// (`number`), so subtracting some of those literals still leaves `number`;
+/// answering `unknown` there routes an arithmetic field through the runtime
+/// carrier. A union whose arms Smelt models distinctly really does lose the
+/// named arm.
+#[test]
+fn lowers_exclude_utility_over_literal_and_modeled_unions() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+export type StatusCode = 200 | 204 | 301 | 404 | 500;
+export type ContentlessStatusCode = 204 | 304;
+export type ContentfulStatusCode = Exclude<StatusCode, ContentlessStatusCode>;
+
+export type Named = string | number | boolean;
+export type WithoutNumber = Exclude<Named, number>;
+"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let alias_ty = |name: &str| {
+        module
+            .items
+            .iter()
+            .find_map(|item| match ctx.krate.items.get(item.0 as usize)? {
+                Item::TypeAlias(alias) if ctx.krate.symbols.get(alias.name) == Some(name) => {
+                    Some(alias.ty)
+                }
+                _ => None,
+            })
+    };
+    let contentful = alias_ty("ContentfulStatusCode")
+        .ok_or_else(|| "missing ContentfulStatusCode alias".to_owned())?;
+    ensure!(
+        matches!(ctx.krate.types.get(contentful), Some(Type::Float)),
+        "Exclude over a numeric-literal union must stay `number`, got {:?}",
+        ctx.krate.types.get(contentful)
+    );
+    let without_number =
+        alias_ty("WithoutNumber").ok_or_else(|| "missing WithoutNumber alias".to_owned())?;
+    let Some(Type::Union(arms)) = ctx.krate.types.get(without_number).cloned() else {
+        return Err(format!(
+            "Exclude over a modeled union must stay a union, got {:?}",
+            ctx.krate.types.get(without_number)
+        ));
+    };
+    let arm_types: Vec<_> = arms
+        .iter()
+        .map(|arm| ctx.krate.types.get(*arm).cloned())
+        .collect();
+    ensure!(
+        arm_types.contains(&Some(Type::String)) && arm_types.contains(&Some(Type::Bool)),
+        "expected the string and boolean arms to survive, got {arm_types:?}"
+    );
+    ensure!(
+        !arm_types.contains(&Some(Type::Float)),
+        "the excluded `number` arm must be dropped, got {arm_types:?}"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
