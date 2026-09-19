@@ -1489,6 +1489,10 @@ impl FunctionEmitter<'_> {
                     return Ok(RustType::raw("SmeltUnknown"));
                 }
                 let type_name = sanitize_ident(self.symbol_name(*name)?);
+                // A parameter the declaration dropped is dropped here too, and
+                // at the same positions: `generic_elision` is the one answer
+                // both sides read (see that module's docs for the rule).
+                let elision = self.context.type_param_elision();
                 if args.is_empty() {
                     // A generic class referenced without resolved type
                     // arguments (e.g. a local temp typed as bare
@@ -1503,6 +1507,9 @@ impl FunctionEmitter<'_> {
                         .iter()
                         .find(|class| class.name == *name)
                         .map_or(0, |class| class.type_params.len());
+                    let declared_params = elision
+                        .retain_carried(*name, (0..declared_params).collect::<Vec<_>>())
+                        .len();
                     if declared_params == 0 {
                         Ok(RustType::raw(type_name))
                     } else {
@@ -1510,7 +1517,11 @@ impl FunctionEmitter<'_> {
                         Ok(RustType::raw(format!("{type_name}<{placeholders}>")))
                     }
                 } else {
-                    let arg_text = args
+                    let carried_args = elision.retain_carried(*name, args.clone());
+                    if carried_args.is_empty() {
+                        return Ok(RustType::raw(type_name));
+                    }
+                    let arg_text = carried_args
                         .iter()
                         .map(|arg| Ok(self.rust_type(*arg, false, substitution)?.into_string()))
                         .collect::<Result<Vec<_>, _>>()?

@@ -1,0 +1,160 @@
+class Route fields [Public path: String] constructor Some(FuncId(0)) methods [FuncId(1)]
+class Session fields [Public name: String, Public renew: Optional<fn(Session<Env>) -> String>] constructor Some(FuncId(2)) methods [FuncId(3)]
+class Cell fields [Public value: T] constructor Some(FuncId(4)) methods [FuncId(5)]
+class Pair fields [Public left: Cell<Carried>, Public right: Route<Dropped>] constructor Some(FuncId(6)) methods [FuncId(7)]
+
+fn new (FuncId(0)) -> Route<Method>
+  locals
+    %0 user this: Route<Method>
+    %1 param path: String
+  bb0:
+    %0 = struct0 {}
+    %0.field9 = copy %1
+    return move %0
+
+fn describe (FuncId(1)) -> String
+  locals
+    %0 param this: Route<Method>
+    %1 temp: String
+  bb0:
+    %1 = "route " + copy %0.field9
+    return move %1
+
+fn new (FuncId(2)) -> Session<Env>
+  locals
+    %0 user this: Session<Env>
+    %1 param name: String
+  bb0:
+    %0 = struct1 {}
+    %0.field13 = copy %1
+    %0.field14 = none
+    return move %0
+
+fn label (FuncId(3)) -> String
+  locals
+    %0 param this: Session<Env>
+    %1 temp: String
+  bb0:
+    %1 = "session " + copy %0.field13
+    return move %1
+
+fn new (FuncId(4)) -> Cell<T>
+  locals
+    %0 user this: Cell<T>
+    %1 param value: T
+  bb0:
+    %0 = struct2 {}
+    %0.field16 = copy %1
+    return move %0
+
+fn get (FuncId(5)) -> T
+  locals
+    %0 param this: Cell<T>
+  bb0:
+    return copy %0.field16
+
+fn new (FuncId(6)) -> Pair<Carried, Dropped>
+  locals
+    %0 user this: Pair<Carried, Dropped>
+    %1 param value: Carried
+    %2 param path: String
+    %3 temp: Cell<Carried>
+    %4 temp: Route<Dropped>
+  bb0:
+    %0 = struct3 {}
+    %3 = call fn4(copy %1) -> bb1
+  bb1:
+    %0.field18 = move %3
+    %4 = call fn0(copy %2) -> bb2
+  bb2:
+    %0.field19 = move %4
+    return move %0
+
+fn carried (FuncId(7)) -> Carried
+  locals
+    %0 param this: Pair<Carried, Dropped>
+    %1 temp: Cell<Carried>
+    %2 temp: Carried
+  bb0:
+    %1 = copy %0.field18
+    %2 = call fn5(copy %0.field18) -> bb1
+  bb1:
+    return move %2
+
+fn main (FuncId(8)) -> None
+  locals
+    %0 user route: Route<String>
+    %1 user session: Session<Float>
+    %2 user cell: Cell<String>
+    %3 user pair: Pair<Float, String>
+    %4 temp: Route<String>
+    %5 temp: String
+    %6 temp: None
+    %7 temp: Session<Float>
+    %8 temp: fn(Session<Float>) -> String
+    %9 temp: String
+    %10 temp: None
+    %11 temp: fn(Session<Float>) -> String
+    %12 temp: String
+    %13 temp: None
+    %14 temp: Cell<String>
+    %15 temp: String
+    %16 temp: None
+    %17 temp: Pair<Float, String>
+    %18 temp: Float
+    %19 temp: Float
+    %20 temp: None
+    %21 temp: Route<String>
+    %22 temp: String
+    %23 temp: None
+  bb0:
+    %4 = call fn0("/users") -> bb1
+  bb1:
+    %0 = move %4
+    %5 = call fn1(move %0) -> bb2
+  bb2:
+    %6 = call @console_log(move %5) -> bb3
+  bb3:
+    %7 = call fn2("s1") -> bb4
+  bb4:
+    %1 = move %7
+    %8 = closure ClosureId(0) []
+    %1.field14 = move %8
+    %9 = call fn3(copy %1) -> bb5
+  bb5:
+    %10 = call @console_log(move %9) -> bb6
+  bb6:
+    %11 = copy %1.field14
+    %12 = closure_call move %11(move %1)
+    %13 = call @console_log(move %12) -> bb7
+  bb7:
+    %14 = call fn4("held") -> bb8
+  bb8:
+    %2 = move %14
+    %15 = call fn5(move %2) -> bb9
+  bb9:
+    %16 = call @console_log(move %15) -> bb10
+  bb10:
+    %17 = call fn6(41.0, "/posts") -> bb11
+  bb11:
+    %3 = move %17
+    %18 = call fn7(copy %3) -> bb12
+  bb12:
+    %19 = move %18 + 1.0
+    %20 = call @console_log(move %19) -> bb13
+  bb13:
+    %21 = copy %3.field19
+    %22 = call fn1(copy %3.field19) -> bb14
+  bb14:
+    %23 = call @console_log(move %22) -> bb15
+  bb15:
+    return none
+
+closure ClosureId(0) -> String
+  locals
+    %0 param __callback_param_0: Session<Float>
+    %1 temp: String
+  bb0:
+    %1 = "renewed " + copy %0.field13
+    return copy %1
+

@@ -170,7 +170,11 @@ impl FunctionEmitter<'_> {
             };
             field_text.push(format!("{field_name}: {value}"));
         }
-        if !args.is_empty() {
+        if self
+            .context
+            .type_param_elision()
+            .emits_phantom(*name, args.len())
+        {
             field_text.push("_smelt_phantom: ::std::marker::PhantomData".to_owned());
         }
 
@@ -1236,7 +1240,11 @@ impl FunctionEmitter<'_> {
                         ));
                     }
                 }
-                if !mir_class.type_params.is_empty() {
+                if self
+                    .context
+                    .type_param_elision()
+                    .emits_phantom(mir_class.name, mir_class.type_params.len())
+                {
                     parts.push("_smelt_phantom: ::std::marker::PhantomData".to_owned());
                 }
                 // A reference class wraps its inner record in a fresh shared cell.
@@ -2544,7 +2552,11 @@ impl FunctionEmitter<'_> {
             };
             field_text.push(format!("{field_name}: {value}"));
         }
-        if !type_args.is_empty() {
+        if self
+            .context
+            .type_param_elision()
+            .emits_phantom(type_symbol, type_args.len())
+        {
             field_text.push("_smelt_phantom: ::std::marker::PhantomData".to_owned());
         }
 
@@ -2806,9 +2818,14 @@ impl FunctionEmitter<'_> {
             return Ok("(*self).clone()".to_owned());
         };
         let mut class_name = crate::classes::class_name_text(self.mir, class_item)?;
-        if !class_item.type_params.is_empty() {
-            let args = class_item
-                .type_params
+        // Only the parameters the emitted struct declares are spelled: an
+        // elided position has no slot to fill (see `crate::generic_elision`).
+        let carried_params = self.context.type_param_elision().retain_carried(
+            class_item.name,
+            class_item.type_params.iter().collect::<Vec<_>>(),
+        );
+        if !carried_params.is_empty() {
+            let args = carried_params
                 .iter()
                 .map(|_| "SmeltUnknown")
                 .collect::<Vec<_>>()
@@ -2822,7 +2839,7 @@ impl FunctionEmitter<'_> {
                 Ok(format!("{name}: self.{name}.clone()"))
             })
             .collect::<Result<Vec<_>, EmitError>>()?;
-        if !class_item.type_params.is_empty() {
+        if !carried_params.is_empty() {
             fields.push("_smelt_phantom: ::std::marker::PhantomData".to_owned());
         }
         Ok(format!("{class_name} {{ {} }}", fields.join(", ")))

@@ -103,6 +103,7 @@ mod http_server_prelude;
 // live: the safety valve consults `collect_bindings` and `TypeParamBinding`
 // directly, so the module no longer needs a `dead_code` expectation.
 pub(crate) mod generic_bindings;
+pub(crate) mod generic_elision;
 mod reflection_prelude;
 pub(crate) mod runtime_prelude;
 pub mod rust;
@@ -5363,8 +5364,8 @@ fn emit_source_with_free_function_router(
         if !emitted_class_names.insert(name.clone()) {
             continue;
         }
-        let type_params = interface_type_params_text(mir, interface)?;
-        let impl_generics = interface_impl_generics_text(mir, interface)?;
+        let type_params = interface_type_params_text(mir, &context, interface)?;
+        let impl_generics = interface_impl_generics_text(mir, &context, interface)?;
         let fields = effective_interface_fields(mir, interface);
         // A shape whose fields are written after construction is a reference
         // record: it needs the shared-cell handle so aliases observe the write,
@@ -5386,6 +5387,7 @@ fn emit_source_with_free_function_router(
                         .iter()
                         .map(|param| param.name)
                         .collect(),
+                    declared_name: interface.name,
                     // An object shape has no method bodies to bind.
                     has_proto_entries: false,
                 },
@@ -5423,16 +5425,25 @@ fn emit_source_with_free_function_router(
                 "#[derive(Clone, Debug, Default{interface_partial_eq_derive})]"
             ));
         }
-        let interface_param_idents = interface
-            .type_params
-            .iter()
-            .map(|param| {
-                mir.symbols
-                    .get(param.name)
-                    .map(|param_name| RustIdent::new(param_name).into_string())
-                    .ok_or_else(|| EmitError::new("interface type parameter has unknown symbol"))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        // Only the parameters the emitted Rust declares: a position
+        // `generic_elision` dropped is spelled nowhere, so it must not appear in
+        // the `PhantomData` filler or in any hand-written impl's generic list
+        // either (see `crate::generic_elision`).
+        let interface_param_idents = context.type_param_elision().retain_carried(
+            interface.name,
+            interface
+                .type_params
+                .iter()
+                .map(|param| {
+                    mir.symbols
+                        .get(param.name)
+                        .map(|param_name| RustIdent::new(param_name).into_string())
+                        .ok_or_else(|| {
+                            EmitError::new("interface type parameter has unknown symbol")
+                        })
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        );
         let phantom_args = interface_param_idents.join(", ");
         let scoped_type_params = interface
             .type_params
@@ -5457,7 +5468,7 @@ fn emit_source_with_free_function_router(
                 .unwrap_or_else(|_| "SmeltUnknown".to_owned());
                 block_writer.line(format!("{field_name}: {field_ty},"));
             }
-            if !interface.type_params.is_empty() {
+            if !interface_param_idents.is_empty() {
                 block_writer.line(format!(
                     "_smelt_phantom: ::std::marker::PhantomData<({phantom_args})>,"
                 ));
@@ -5803,8 +5814,8 @@ fn emit_source_with_free_function_router(
             emit_reference_class_storage(&mut writer, mir, &context, class, needs_unknown)?;
             continue;
         }
-        let type_params = class_type_params_text(mir, class)?;
-        let impl_generics = class_impl_generics_text(mir, class)?;
+        let type_params = class_type_params_text(mir, &context, class)?;
+        let impl_generics = class_impl_generics_text(mir, &context, class)?;
         let _inherited_trait_methods = inherited_trait_methods(mir, class);
         let mut field_lines = Vec::new();
         let fields = effective_class_fields(mir, class);
@@ -5813,16 +5824,21 @@ fn emit_source_with_free_function_router(
             .iter()
             .map(|param| param.name)
             .collect::<HashSet<_>>();
-        let class_param_idents = class
-            .type_params
-            .iter()
-            .map(|param| {
-                mir.symbols
-                    .get(param.name)
-                    .map(|param_name| RustIdent::new(param_name).into_string())
-                    .ok_or_else(|| EmitError::new("class type parameter has unknown symbol"))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        // Only the parameters the emitted Rust declares; see the sibling
+        // comment on the interface path and `crate::generic_elision`.
+        let class_param_idents = context.type_param_elision().retain_carried(
+            class.name,
+            class
+                .type_params
+                .iter()
+                .map(|param| {
+                    mir.symbols
+                        .get(param.name)
+                        .map(|param_name| RustIdent::new(param_name).into_string())
+                        .ok_or_else(|| EmitError::new("class type parameter has unknown symbol"))
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        );
         let has_function_field = fields
             .iter()
             .any(|field| type_contains_function(mir, field.ty));
@@ -5852,7 +5868,10 @@ fn emit_source_with_free_function_router(
         // and that cascade is why the concrete-union emitter keeps its `pub enum`
         // bare and spells out each impl with the bound set it needs. Same choice
         // here — the impls are emitted by hand just below with `impl_generics`.
-        let is_generic = !class.type_params.is_empty();
+        // A class every one of whose parameters was elided is NOT generic in
+        // Rust: it declares no parameters, so the ordinary derives apply and no
+        // hand-written bounded impl is needed.
+        let is_generic = !class_param_idents.is_empty();
         if has_function_field {
             writer.line("#[derive(Clone)]");
             writer.line("#[allow(dead_code)]");
@@ -5886,7 +5905,7 @@ fn emit_source_with_free_function_router(
             ));
             field_type_texts.push(field_type_text);
         }
-        if !class.type_params.is_empty() {
+        if !class_param_idents.is_empty() {
             let phantom_args = class_param_idents.join(", ");
             field_lines.push(format!(
                 "_smelt_phantom: ::std::marker::PhantomData<({phantom_args})>,"
@@ -6114,8 +6133,8 @@ fn emit_source_with_free_function_router(
         if !emitted_impl_names.insert(name.clone()) {
             continue;
         }
-        let impl_generics = class_impl_generics_text(mir, class)?;
-        let type_args = class_type_args_text(mir, class)?;
+        let impl_generics = class_impl_generics_text(mir, &context, class)?;
+        let type_args = class_type_args_text(mir, &context, class)?;
         out.push_str(&format!("\nimpl{impl_generics} {name}{type_args} {{\n"));
         if !class.is_abstract
             && let Some(constructor) = class.constructor
@@ -6931,12 +6950,13 @@ fn emit_reference_class_storage(
         context,
         &ReferenceRecordShape {
             name: class_name_text(mir, class)?,
-            type_params: class_type_params_text(mir, class)?,
-            type_args: class_type_args_text(mir, class)?,
-            impl_generics: class_impl_generics_text(mir, class)?,
+            type_params: class_type_params_text(mir, context, class)?,
+            type_args: class_type_args_text(mir, context, class)?,
+            impl_generics: class_impl_generics_text(mir, context, class)?,
             fields: effective_class_fields(mir, class),
             static_fields: &class.static_fields,
             type_param_names: class.type_params.iter().map(|param| param.name).collect(),
+            declared_name: class.name,
             has_proto_entries: class_proto::class_has_proto_entries(mir, context, class),
         },
         needs_unknown,
@@ -6965,7 +6985,15 @@ struct ReferenceRecordShape<'a> {
     /// Materialized class-level fields; always empty for a shape.
     static_fields: &'a [smelt_mir::MirStaticField],
     /// Generic parameter symbols, for the lexical type-parameter scope.
+    ///
+    /// This is the FULL declared list: an elided parameter stays in lexical
+    /// scope so a stray occurrence renders its name and fails loudly with
+    /// `cannot find type`, rather than silently erasing to `SmeltUnknown`.
+    /// What the emitted Rust declares is [`Self::declared_name`]'s carried
+    /// subset (see `crate::generic_elision`).
     type_param_names: Vec<smelt_hir::Symbol>,
+    /// Name symbol of the declaring class or interface, for the elision map.
+    declared_name: smelt_hir::Symbol,
     /// Whether the type emits `__smelt_proto_entries` (see [`crate::class_proto`]).
     ///
     /// Only a `class` has method bodies to bind; an object *shape* has none, so
@@ -6989,6 +7017,7 @@ fn emit_reference_record_storage(
         fields,
         static_fields,
         type_param_names,
+        declared_name,
         has_proto_entries,
     } = shape;
     let inner_name = format!("{name}Inner");
@@ -6996,15 +7025,18 @@ fn emit_reference_record_storage(
     let has_function_field = fields
         .iter()
         .any(|field| type_contains_function(mir, field.ty));
-    let record_param_idents = type_param_names
-        .iter()
-        .map(|param| {
-            mir.symbols
-                .get(*param)
-                .map(|param_name| RustIdent::new(param_name).into_string())
-                .ok_or_else(|| EmitError::new("record type parameter has unknown symbol"))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let record_param_idents = context.type_param_elision().retain_carried(
+        *declared_name,
+        type_param_names
+            .iter()
+            .map(|param| {
+                mir.symbols
+                    .get(*param)
+                    .map(|param_name| RustIdent::new(param_name).into_string())
+                    .ok_or_else(|| EmitError::new("record type parameter has unknown symbol"))
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+    );
     let phantom_args = record_param_idents.join(", ");
 
     // The handle newtype. `#[derive(Clone)]` is intentionally NOT used: a derived

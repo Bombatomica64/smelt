@@ -1130,7 +1130,11 @@ impl<'mir> FunctionEmitter<'mir> {
             };
             field_text.push(format!("{field_name}: {value}"));
         }
-        if !args.is_empty() {
+        if self
+            .context
+            .type_param_elision()
+            .emits_phantom(*name, args.len())
+        {
             field_text.push("_smelt_phantom: ::std::marker::PhantomData".to_owned());
         }
         Ok(Some(format!(
@@ -1660,7 +1664,11 @@ impl<'mir> FunctionEmitter<'mir> {
             };
             field_text.push(format!("{field_name}: {value}"));
         }
-        if !args.is_empty() {
+        if self
+            .context
+            .type_param_elision()
+            .emits_phantom(*name, args.len())
+        {
             field_text.push("_smelt_phantom: ::std::marker::PhantomData".to_owned());
         }
         // A reference class is a `Rc<RefCell<Inner>>` newtype, not a named-field

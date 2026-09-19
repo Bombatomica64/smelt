@@ -12,7 +12,10 @@ use smelt_mir::{
     Operand, Place, Rvalue, Statement, Terminator,
 };
 
-use crate::{EmitError, emitter::FunctionEmitter, generic_bindings, id_index, rust::RustIdent};
+use crate::{
+    EmitError, emitter::EmitContext, emitter::FunctionEmitter, generic_bindings, id_index,
+    rust::RustIdent,
+};
 
 /// The trait bounds every generated type parameter carries.
 ///
@@ -48,22 +51,31 @@ pub(crate) fn class_name_text(mir: &Mir, class: &MirClass) -> Result<String, Emi
 ///
 /// The returned text is empty for non-generic classes so callers can append it
 /// directly after a struct, trait, or impl target name without extra branching.
-pub(crate) fn class_type_params_text(mir: &Mir, class: &MirClass) -> Result<String, EmitError> {
+pub(crate) fn class_type_params_text(
+    mir: &Mir,
+    context: &EmitContext,
+    class: &MirClass,
+) -> Result<String, EmitError> {
     if class.type_params.is_empty() {
         return Ok(String::new());
     }
-    let params = class
-        .type_params
-        .iter()
-        .map(|param| {
-            mir.symbols
-                .get(param.name)
-                .map(|name| RustIdent::new(name).into_string())
-                .ok_or_else(|| EmitError::new("class type parameter has unknown symbol"))
-        })
-        .collect::<Result<Vec<_>, _>>()?
-        .join(", ");
-    Ok(format!("<{params}>"))
+    let params = context.type_param_elision().retain_carried(
+        class.name,
+        class
+            .type_params
+            .iter()
+            .map(|param| {
+                mir.symbols
+                    .get(param.name)
+                    .map(|name| RustIdent::new(name).into_string())
+                    .ok_or_else(|| EmitError::new("class type parameter has unknown symbol"))
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+    );
+    if params.is_empty() {
+        return Ok(String::new());
+    }
+    Ok(format!("<{}>", params.join(", ")))
 }
 
 /// Render the generic parameter declaration suffix for an interface.
@@ -74,57 +86,74 @@ pub(crate) fn class_type_params_text(mir: &Mir, class: &MirClass) -> Result<Stri
 /// emission and is empty for non-generic interfaces.
 pub(crate) fn interface_type_params_text(
     mir: &Mir,
+    context: &EmitContext,
     interface: &MirInterface,
 ) -> Result<String, EmitError> {
     if interface.type_params.is_empty() {
         return Ok(String::new());
     }
-    let params = interface
-        .type_params
-        .iter()
-        .map(|param| {
-            mir.symbols
-                .get(param.name)
-                .map(|name| RustIdent::new(name).into_string())
-                .ok_or_else(|| EmitError::new("interface type parameter has unknown symbol"))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let params = context.type_param_elision().retain_carried(
+        interface.name,
+        interface
+            .type_params
+            .iter()
+            .map(|param| {
+                mir.symbols
+                    .get(param.name)
+                    .map(|name| RustIdent::new(name).into_string())
+                    .ok_or_else(|| EmitError::new("interface type parameter has unknown symbol"))
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+    );
+    if params.is_empty() {
+        return Ok(String::new());
+    }
     Ok(format!("<{}>", params.join(", ")))
 }
 
 /// Render bounded generic parameters for interface impl blocks.
 pub(crate) fn interface_impl_generics_text(
     mir: &Mir,
+    context: &EmitContext,
     interface: &MirInterface,
 ) -> Result<String, EmitError> {
     if interface.type_params.is_empty() {
         return Ok(String::new());
     }
-    let params = interface
-        .type_params
-        .iter()
-        .map(|param| {
-            mir.symbols
-                .get(param.name)
-                .map(|name| {
-                    format!(
-                        "{}: {GENERATED_TYPE_PARAM_BOUNDS}",
-                        RustIdent::new(name).into_string()
-                    )
-                })
-                .ok_or_else(|| EmitError::new("interface type parameter has unknown symbol"))
-        })
-        .collect::<Result<Vec<_>, _>>()?
-        .join(", ");
-    Ok(format!("<{params}>"))
+    let params = context.type_param_elision().retain_carried(
+        interface.name,
+        interface
+            .type_params
+            .iter()
+            .map(|param| {
+                mir.symbols
+                    .get(param.name)
+                    .map(|name| {
+                        format!(
+                            "{}: {GENERATED_TYPE_PARAM_BOUNDS}",
+                            RustIdent::new(name).into_string()
+                        )
+                    })
+                    .ok_or_else(|| EmitError::new("interface type parameter has unknown symbol"))
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+    );
+    if params.is_empty() {
+        return Ok(String::new());
+    }
+    Ok(format!("<{}>", params.join(", ")))
 }
 
 /// Render the generic argument suffix for a class, such as `<T>`.
 ///
 /// This mirrors [`class_type_params_text`] for places where the generated Rust
 /// references an already-declared class type rather than declaring parameters.
-pub(crate) fn class_type_args_text(mir: &Mir, class: &MirClass) -> Result<String, EmitError> {
-    class_type_params_text(mir, class)
+pub(crate) fn class_type_args_text(
+    mir: &Mir,
+    context: &EmitContext,
+    class: &MirClass,
+) -> Result<String, EmitError> {
+    class_type_params_text(mir, context, class)
 }
 
 /// Return whether the class type parameter `name` is used as a map (`Dict`) key
@@ -212,7 +241,11 @@ fn type_param_in_dict_key(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
 /// A type parameter used as a map key in any field additionally gains the
 /// `SmeltJsKeyEq` bound the map methods require (see
 /// [`class_type_param_used_as_map_key`]).
-pub(crate) fn class_impl_generics_text(mir: &Mir, class: &MirClass) -> Result<String, EmitError> {
+pub(crate) fn class_impl_generics_text(
+    mir: &Mir,
+    context: &EmitContext,
+    class: &MirClass,
+) -> Result<String, EmitError> {
     if class.type_params.is_empty() {
         return Ok(String::new());
     }
@@ -234,9 +267,14 @@ pub(crate) fn class_impl_generics_text(mir: &Mir, class: &MirClass) -> Result<St
                 })
                 .ok_or_else(|| EmitError::new("class type parameter has unknown symbol"))
         })
-        .collect::<Result<Vec<_>, _>>()?
-        .join(", ");
-    Ok(format!("<{params}>"))
+        .collect::<Result<Vec<_>, _>>()?;
+    let params = context
+        .type_param_elision()
+        .retain_carried(class.name, params);
+    if params.is_empty() {
+        return Ok(String::new());
+    }
+    Ok(format!("<{}>", params.join(", ")))
 }
 
 /// Return whether a free function's signature should emit real Rust generics.
@@ -1364,12 +1402,13 @@ pub(crate) fn class_trait_name_text(mir: &Mir, class: &MirClass) -> Result<Strin
 )]
 pub(crate) fn class_trait_object_type_text(
     mir: &Mir,
+    context: &EmitContext,
     class: &MirClass,
 ) -> Result<String, EmitError> {
     Ok(format!(
         "Box<dyn {}{}>",
         class_trait_name_text(mir, class)?,
-        class_type_args_text(mir, class)?
+        class_type_args_text(mir, context, class)?
     ))
 }
 

@@ -1,0 +1,114 @@
+module examples/typescript/end-to-end/100_elided_type_parameters/input.ts (ModuleId(0))
+  body BodyId(9)
+  items
+    class Route fields [Public path: String] constructor Some(ItemId(0)) methods [ItemId(1)] implements []
+    class Session fields [Public name: String, Public renew: Optional<fn(Session<Env>) -> String>] constructor Some(ItemId(3)) methods [ItemId(4)] implements []
+    class Cell fields [Public value: T] constructor Some(ItemId(6)) methods [ItemId(7)] implements []
+    class Pair fields [Public left: Cell<Carried>, Public right: Route<Dropped>] constructor Some(ItemId(9)) methods [ItemId(10)] implements []
+  locals
+    %0 const route: Route<String>
+    %1 const session: Session<Float>
+    %2 const cell: Cell<String>
+    %3 const pair: Pair<Float, String>
+  exprs
+    #0: String = "/users"
+    #1: Route<String> = new Route(#0)
+    #2: Route<String> = %0
+    #3: fn() -> String = #2.describe
+    #4: Route<String> = %0
+    #5: String = #4.describe()
+    #6: None = @12(console_log)
+    #7: None = call #6(#5)
+    #8: String = "s1"
+    #9: Session<Float> = new Session(#8)
+    #10: Session<Float> = %1
+    #11: Optional<fn(Session<Float>) -> String> = #10.renew
+    #12: fn(Session<Float>) -> String = closure BodyId(8) captures 0 -> String
+    #13: Session<Float> = %1
+    #14: fn() -> String = #13.label
+    #15: Session<Float> = %1
+    #16: String = #15.label()
+    #17: None = @13(console_log)
+    #18: None = call #17(#16)
+    #19: Session<Float> = %1
+    #20: Optional<fn(Session<Float>) -> String> = #19.renew
+    #21: Session<Float> = %1
+    #22: Session<Float> = %1
+    #23: fn(Session<Float>) -> String = assert_type #20
+    #24: String = closure_call #23(#22)
+    #25: None = @14(console_log)
+    #26: None = call #25(#24)
+    #27: String = "held"
+    #28: Cell<String> = new Cell(#27)
+    #29: Cell<String> = %2
+    #30: Cell<String> = %2
+    #31: Cell<String> = %2
+    #32: Cell<String> = %2
+    #33: Cell<String> = %2
+    #34: fn() -> T = #33.get
+    #35: Cell<String> = %2
+    #36: String = #35.get()
+    #37: None = @15(console_log)
+    #38: None = call #37(#36)
+    #39: Float = 41.0
+    #40: String = "/posts"
+    #41: Pair<Float, String> = new Pair(#39, #40)
+    #42: Pair<Float, String> = %3
+    #43: fn() -> Carried = #42.carried
+    #44: Pair<Float, String> = %3
+    #45: Float = #44.carried()
+    #46: Float = 1.0
+    #47: Float = Add #45, #46
+    #48: None = @16(console_log)
+    #49: None = call #48(#47)
+    #50: Pair<Float, String> = %3
+    #51: Route<String> = #50.right
+    #52: fn() -> String = #51.describe
+    #53: Pair<Float, String> = %3
+    #54: Route<String> = #53.right
+    #55: String = #54.describe()
+    #56: None = @17(console_log)
+    #57: None = call #56(#55)
+  stmts
+    s0: let %0: Route<String> = #1
+    s1: #7
+    s2: let %1: Session<Float> = #9
+    s3: #11 = #12
+    s4: #18
+    s5: #26
+    s6: let %2: Cell<String> = #28
+    s7: #38
+    s8: let %3: Pair<Float, String> = #41
+    s9: #49
+    s10: #57
+
+interned types
+  t0 = String
+  t1 = Route
+  t2 = Session
+  t3 = Cell
+  t4 = Float
+  t5 = Pair
+  t6 = Method
+  t7 = Env
+  t8 = T
+  t9 = Carried
+  t10 = Dropped
+  t11 = Route<Method>
+  t12 = None
+  t13 = Session<Env>
+  t14 = fn(Session<Env>) -> String
+  t15 = Optional<fn(Session<Env>) -> String>
+  t16 = Cell<T>
+  t17 = Pair<Carried, Dropped>
+  t18 = Cell<Carried>
+  t19 = Route<Dropped>
+  t20 = fn() -> T
+  t21 = Route<String>
+  t22 = fn() -> String
+  t23 = Session<Float>
+  t24 = fn(Session<Float>) -> String
+  t25 = Optional<fn(Session<Float>) -> String>
+  t26 = Cell<String>
+  t27 = Pair<Float, String>
+  t28 = fn() -> Carried

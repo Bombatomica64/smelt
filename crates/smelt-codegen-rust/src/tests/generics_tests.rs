@@ -1449,3 +1449,156 @@ export function fill(store: Store<[string, number]>): number {
         "the declared `&T` slot must be called by reference: {source}"
     );
 }
+
+// --- Type-parameter elision (see `crate::generic_elision`) ------------------
+//
+// A generic class's Rust arity is the set of parameters its emitted Rust
+// actually spells, computed as a least fixpoint. These pin the rule on the
+// shapes it has to get right; each one states what the emitted arity must be
+// and why.
+
+#[test]
+fn a_type_parameter_no_field_carries_is_not_declared_in_rust() {
+    // `Tag` reaches nothing: the struct would declare it only to fill a
+    // `PhantomData`. A hand-writing Rust team does not declare it at all.
+    //
+    // NON-VACUOUS: without the elision the struct is `Tagged<Tag>` with a
+    // phantom field, and every reference has to spell an argument for it.
+    let source = source_for(
+        r"
+class Tagged<Tag> {
+  label: string;
+  constructor(label: string) { this.label = label; }
+  read(): string { return this.label; }
+}
+export function useTagged(): string { return new Tagged<number>('x').read(); }
+",
+    );
+
+    assert!(
+        source.contains("struct Tagged {"),
+        "a phantom-only parameter must not be declared: {source}"
+    );
+    assert!(
+        !source.contains("struct Tagged<"),
+        "a phantom-only parameter must not be declared: {source}"
+    );
+    assert!(
+        !source.contains("PhantomData<(Tag)>"),
+        "the filler goes with the parameters it filled for: {source}"
+    );
+}
+
+#[test]
+fn a_type_parameter_a_field_carries_stays_declared() {
+    // The mirror of the test above, and the reason the rule is a fixpoint
+    // rather than a blanket drop: `T` is the type of stored data.
+    let source = source_for(
+        r"
+class Cell<T> {
+  value: T;
+  constructor(value: T) { this.value = value; }
+  get(): T { return this.value; }
+}
+export function useCell(): string { return new Cell<string>('hi').get(); }
+",
+    );
+
+    assert!(
+        source.contains("struct Cell<T>"),
+        "a stored parameter stays declared: {source}"
+    );
+    assert!(
+        source.contains("Cell<String>"),
+        "and the instantiation stays concrete: {source}"
+    );
+}
+
+#[test]
+fn a_parameter_reached_only_through_its_own_class_is_not_declared() {
+    // The shape the rule exists for. `Env` is mentioned exactly once, in a
+    // field whose type names the class itself at `Env`'s own position, so the
+    // least fixpoint never forces it: nothing outside that circle holds an
+    // `Env`. Starting from "carried" instead would keep it forever.
+    //
+    // NON-VACUOUS: a greatest fixpoint — or a plain "does the symbol occur"
+    // scan — answers `Session<Env>` here.
+    let source = source_for(
+        r"
+class Session<Env> {
+  name: string;
+  next: ((session: Session<Env>) => string) | null;
+  constructor(name: string) { this.name = name; this.next = null; }
+  label(): string { return this.name; }
+}
+export function useSession(): string { return new Session<number>('s').label(); }
+",
+    );
+
+    assert!(
+        !source.contains("Session<Env>") && !source.contains("SessionInner<Env>"),
+        "a self-referential-only parameter is not declared: {source}"
+    );
+}
+
+#[test]
+fn a_parameter_reaching_another_class_follows_that_class_answer() {
+    // Transitivity, in both directions at once. `Carried` reaches a `Cell`
+    // position that IS declared, so it survives; `Dropped` reaches only a
+    // `Tagged` position that is NOT, so it does not. One rule, two answers.
+    let source = source_for(
+        r"
+class Tagged<Tag> {
+  label: string;
+  constructor(label: string) { this.label = label; }
+}
+class Cell<T> {
+  value: T;
+  constructor(value: T) { this.value = value; }
+}
+class Pair<Carried, Dropped> {
+  left: Cell<Carried>;
+  right: Tagged<Dropped>;
+  constructor(left: Cell<Carried>, right: Tagged<Dropped>) {
+    this.left = left;
+    this.right = right;
+  }
+}
+export function usePair(): number {
+  const pair = new Pair<number, string>(new Cell<number>(1), new Tagged<string>('t'));
+  return pair.left.value;
+}
+",
+    );
+
+    assert!(
+        source.contains("struct Pair<Carried>"),
+        "the position that reaches storage survives, the other does not: {source}"
+    );
+}
+
+#[test]
+fn a_parameter_a_method_signature_spells_stays_declared() {
+    // The documented conservatism: `T` is never stored, but a method's
+    // parameter type names it, and the emitted `impl` has to spell that type.
+    // The analysis answers "must the emitted Rust spell it", which is a
+    // superset of "does the data hold it" — see `crate::generic_elision`.
+    let source = source_for(
+        r"
+class Sink<T> {
+  count: number;
+  constructor() { this.count = 0; }
+  accept(value: T): number { this.count = this.count + 1; return this.count; }
+}
+export function useSink(): number {
+  const sink = new Sink<string>();
+  return sink.accept('a');
+}
+",
+    );
+
+    assert!(
+        source.contains("Sink<T>"),
+        "a parameter a method signature spells stays declared: {source}"
+    );
+}
