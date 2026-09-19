@@ -1,0 +1,89 @@
+fn describe (FuncId(0)) -> String
+  locals
+    %0 param maker: Bool | fn(Float) -> ArrayBuffer
+    %1 user buffer: ArrayBuffer
+    %2 temp: Bool
+    %3 temp: fn(Float) -> ArrayBuffer
+    %4 temp: ArrayBuffer
+    %5 temp: Float
+    %6 temp: String
+    %7 temp: Bool
+    %8 temp: String
+  bb0:
+    %2 = unknown_is Function copy %0
+    switch move %2 ? bb1 : bb2
+  bb1:
+    %3 = unknown_cast copy %0 as t3
+    %4 = closure_call move %3(4.0)
+    %1 = move %4
+    %5 = byte_array_byte_length move %1
+    %6 = "bytes=" + move %5
+    return move %6
+  bb2:
+    %7 = unknown_cast copy %0 as t0
+    %8 = "flag=" + move %7
+    return move %8
+
+fn label (FuncId(1)) -> String
+  locals
+    %0 param maker: Bool | fn(Float) -> ArrayBuffer
+    %1 temp: String
+    %2 temp: String
+  bb0:
+    %1 = typeof copy %0
+    %2 = "" + move %1
+    return move %2
+
+fn make__module_examples/typescript/end-to-end/101_erased_callback_returns_a_host_class/input.ts (FuncId(2)) -> ArrayBuffer
+  locals
+    %0 param size: Float
+    %1 temp: ArrayBuffer
+  bb0:
+    %1 = typed_array_new ArrayBuffer copy %0
+    return move %1
+
+fn main (FuncId(3)) -> None
+  locals
+    %0 temp: fn(Float) -> ArrayBuffer
+    %1 temp: String
+    %2 temp: None
+    %3 temp: String
+    %4 temp: None
+    %5 temp: fn(Float) -> ArrayBuffer
+    %6 temp: String
+    %7 temp: None
+  bb0:
+    %0 = closure ClosureId(0) []
+    %1 = call fn0(move %0) -> bb1
+  bb1:
+    %2 = call @console_log(move %1) -> bb2
+  bb2:
+    %3 = call fn0(true) -> bb3
+  bb3:
+    %4 = call @console_log(move %3) -> bb4
+  bb4:
+    %5 = closure ClosureId(1) []
+    %6 = call fn1(move %5) -> bb5
+  bb5:
+    %7 = call @console_log(move %6) -> bb6
+  bb6:
+    return none
+
+closure ClosureId(0) -> ArrayBuffer
+  locals
+    %0 param size: Float
+    %1 temp: ArrayBuffer
+  bb0:
+    %1 = call fn2(copy %0) -> bb1
+  bb1:
+    return copy %1
+
+closure ClosureId(1) -> ArrayBuffer
+  locals
+    %0 param size: Float
+    %1 temp: ArrayBuffer
+  bb0:
+    %1 = call fn2(copy %0) -> bb1
+  bb1:
+    return copy %1
+

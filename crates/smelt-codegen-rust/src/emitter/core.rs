@@ -4169,7 +4169,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 self.mir.types.get(target_return_ty),
                 Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
             )
-            && self.class_has_no_known_fields(source.return_ty)
+            && self.is_erased_class_type(source.return_ty)
         {
             call_value.clone()
         } else {
@@ -4353,26 +4353,6 @@ impl<'mir> FunctionEmitter<'mir> {
         }))
     }
 
-    /// Return true for structural class/interface placeholders that have no
-    /// emitted fields Smelt can use to construct an erased object.
-    pub(super) fn class_has_no_known_fields(&self, ty: TypeId) -> bool {
-        let Some(Type::Class { name, .. }) = self.mir.types.get(ty) else {
-            return false;
-        };
-        if let Some(class) = self.mir.classes.iter().find(|class| class.name == *name) {
-            return crate::classes::effective_class_fields(self.mir, class).is_empty();
-        }
-        if let Some(interface) = self
-            .mir
-            .interfaces
-            .iter()
-            .find(|interface| interface.name == *name)
-        {
-            return crate::classes::effective_interface_fields(self.mir, interface).is_empty();
-        }
-        true
-    }
-
     /// If `operand` is a bare function-item-as-value wrapper, return its crate
     /// unique item cache key and the self-contained erased `SmeltUnknown::Function`
     /// accessor body for that item.
@@ -4487,7 +4467,13 @@ impl<'mir> FunctionEmitter<'mir> {
         } else if matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_))) {
             let value = self.erase_value_text(&call, source.return_ty)?;
             format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})")
-        } else if self.class_has_no_known_fields(source.return_ty) {
+            // A return value skips erasure only when its Rust
+            // representation already IS `SmeltUnknown`
+            // (`is_erased_class_type`), not merely when the class declares no
+            // fields: a MODELED host class such as `Request` or `ArrayBuffer`
+            // declares none here yet renders as its own concrete struct. See
+            // the same seam in `coercion::erase_value_text`.
+        } else if self.is_erased_class_type(source.return_ty) {
             if source.may_throw {
                 call
             } else {
@@ -4601,7 +4587,13 @@ impl<'mir> FunctionEmitter<'mir> {
         } else if matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_))) {
             let value = self.erase_value_text(&call, source.return_ty)?;
             format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})")
-        } else if self.class_has_no_known_fields(source.return_ty) {
+            // A return value skips erasure only when its Rust
+            // representation already IS `SmeltUnknown`
+            // (`is_erased_class_type`), not merely when the class declares no
+            // fields: a MODELED host class such as `Request` or `ArrayBuffer`
+            // declares none here yet renders as its own concrete struct. See
+            // the same seam in `coercion::erase_value_text`.
+        } else if self.is_erased_class_type(source.return_ty) {
             if source.may_throw {
                 call
             } else {

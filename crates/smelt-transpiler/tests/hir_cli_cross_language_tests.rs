@@ -1024,6 +1024,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "98_async_iife_return_channel",
     "99_substituted_parameter_keeps_its_abi",
     "100_exclude_over_a_literal_union",
+    "101_erased_callback_returns_a_host_class",
 ];
 
 /// The generated-Rust goldens cover EVERY emitted file, not just `main.rs`.

@@ -1951,7 +1951,22 @@ impl FunctionEmitter<'_> {
                     };
                     let erased_return = self.erase_value_text(&future_call, function.return_ty)?;
                     format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({erased_return})")
-                } else if self.class_has_no_known_fields(function.return_ty) {
+                // A returned value skips the erasure step only when its Rust
+                // representation ALREADY IS `SmeltUnknown`. That is what
+                // `is_erased_class_type` answers. This used to ask
+                // `class_has_no_known_fields`, which answers a different
+                // question — "the class declares no fields I can build an
+                // object from" — and is true of every MODELED host class too,
+                // because a modeled class is not in `mir.classes`. So a
+                // callback returning a `Request` or an `ArrayBuffer` had its
+                // concrete `SmeltRequest` / `SmeltArrayBuffer` handed straight
+                // to `Ok::<SmeltUnknown, _>(..)` (E0308, two sites in Hono).
+                // The general arms below already know how each class erases —
+                // a fetch runtime class through `into_smelt_unknown`, a `Date`
+                // through its identity, any other through its fields — and an
+                // erased class's own arm returns the text unchanged, so this
+                // branch keeps doing exactly what it did for those.
+                } else if self.is_erased_class_type(function.return_ty) {
                     if function.may_throw {
                         call_text
                     } else {
