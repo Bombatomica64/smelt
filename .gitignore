@@ -314,3 +314,6 @@ third_party/es-toolkit-src/
 !blocker-logs/hono-round31-brief.md
 !blocker-logs/hono-round31-generics.md
 !blocker-logs/hono-round31-emitter.md
+!blocker-logs/hono-round32-brief.md
+!blocker-logs/hono-round32-generics.md
+!blocker-logs/hono-round32-emitter.md

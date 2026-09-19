@@ -5,6 +5,13 @@
 - Files scanned: 258 · with blockers: 0
 
 
+## Whole-crate `cargo check` (round 31 merged head `bec88f30`)
+
+Orchestrator measurement, clean clone, fresh full-feature binary, repo-root `--manifest-path`:
+33 modules, **45 errors** (E0308 35, E0631 5, E0425 2, E0609 1, E0271 1), from 90. Two clusters
+remain — uncarried generic-class type parameters (~29) and emitter singletons (~16); owners in
+`hono-round32-brief.md`.
+
 ## Whole-crate `cargo check` (round 30 merged head `06c69924`)
 
 Orchestrator measurement, clean clone, fresh full-feature binary, repo-root `--manifest-path`:
