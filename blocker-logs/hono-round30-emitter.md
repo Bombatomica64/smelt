@@ -265,3 +265,54 @@ Node 22; nothing in it makes the getter actually throw from the infallible side,
 that escapes an infallible callback is a process stop rather than a catchable error — that is the
 floor being recorded, not a behaviour to diff). The codegen test
 `a_throwing_getter_read_is_fallible_in_both_enclosures` pins both forms.
+
+## Final measurement
+
+Clean clone of `eebdf7be…` + `.github/compat/hono/.`, `dist-smelt` deleted and regenerated with a
+freshly built full-feature `smelt`, `cargo check --message-format=short` from the repo root with
+`--manifest-path`:
+
+| code | baseline | after | delta | owner |
+| --- | ---: | ---: | ---: | --- |
+| E0107 | 136 | 136 | 0 | Agent C (type-parameter defaults) |
+| E0308 | 134 | 40 | **-94** | Agent D (items 1, 3) + the remainder split across owners |
+| E0609 | 17 | 1 | **-16** | Agent D (item 2); the survivor is `router` on `Hono<E, S, BasePath>` |
+| E0282 | 10 | 10 | 0 | unowned |
+| E0121 | 10 | 10 | 0 | Agent C |
+| E0382 | 8 | 5 | **-3** | Agent D (item 1b); the survivors are a MIR last-use family |
+| E0277 | 5 | 2 | **-3** | Agent D (item 4); the survivors are the tuple `SmeltFromUnknown` family |
+| E0063 | 5 | 5 | 0 | Agent C |
+| E0425 | 2 | 2 | 0 | unowned |
+| E0599 | 1 | 1 | 0 | unowned |
+| E0271 | 1 | 1 | 0 | unowned |
+| **total** | **329** | **213** | **-116** | |
+
+The 40 remaining `E0308`s, by shape: 7 `&(SmeltUnknown, RouterRoute)` vs `&SmeltUnknown`
+(Agent C), 5 `SmeltUnion1313` vs `SmeltUnknown`, 4 `SmeltUnion778` vs `SmeltUnknown`, 4
+`Result<SmeltUnknown, _>` vs `Result<SmeltUnion66, _>`, 4 `Option<SmeltHeaders>` vs
+`Option<SmeltRecord<String, String>>` (the `??` join unmasked by item 3, written up above), 3
+`Rc<dyn Fn(.., &(..))>` vs `Rc<dyn Fn(.., (..))>`, and eleven singletons.
+
+## Gates
+
+| gate | result |
+| --- | --- |
+| examples invariant (`--fail-on-regression`) | avoidable erasure **0**, unchanged |
+| es-toolkit ratchet vs `smelt-unknown-baseline-es-toolkit.json` | avoidable **31716**, exactly the baseline (did not increase) |
+| remeda generated `cargo test` | **1789 passed / 0 failed** |
+| radash generated `cargo test` | **84 passed / 0 failed** |
+| `cargo test -p smelt-frontend-ts --no-default-features` | 1085 passed / 0 failed |
+| `cargo test -p smelt-codegen-rust` | 1060 passed / 0 failed (tiers `#[ignore]`d) |
+| `cargo test -p smelt-codegen-rust --test fetch_init_runtime -- --ignored` | 8 passed / 0 failed (was 7/1 on the base) |
+| `cargo test -p smelt-codegen-rust --test request_runtime --test fetch_response_runtime --test fetch_types_runtime -- --ignored` | 12 passed / 1 failed — `an_erased_request_info_input_takes_every_arm`, RED on the base too (see item 2) |
+| `cargo test --bin smelt` | 57 passed / 0 failed |
+| `cargo test -p smelt-transpiler --test hir_cli_cross_language_tests` | 17 passed / 0 failed |
+| `cargo clippy --all-targets` | no findings |
+
+## SmeltUnknown delta
+
+Net **zero**. Nothing in these four items introduces a `SmeltUnknown`: item 1 replaces an erased
+`ToNumber` match with a typed concatenation, item 2 adds eight concrete `String`/`bool` fields,
+item 3 replaces a `String` unification with the concrete `SmeltHeaders`/`Optional<SmeltHeaders>`
+and removes one record-to-unknown mismatch, and item 4 changes only which fallible form a read
+takes. The examples invariant stays at 0 and the es-toolkit ratchet is unmoved.
