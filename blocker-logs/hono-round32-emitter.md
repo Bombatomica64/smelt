@@ -302,6 +302,15 @@ reference's scope one decision, as H42's render-scope rule does for types.
 | `cargo test -p smelt-transpiler --test hir_cli_cross_language_tests` | 17 passed / 0 failed |
 | `union_receiver_runtime -- --ignored` | **4 passed / 0 failed** (was 3/1 on the base) |
 | `cargo clippy --all-targets` | 0 errors; no new finding in any file this round touched |
+| `fetch_types_runtime` / `fetch_response_runtime` / `fetch_init_runtime -- --ignored` | 9/0, 1/0, 8/0 |
+| `host_representation_runtime -- --ignored` | 7 passed / **1 pre-existing failure** (below) |
+
+`host_representation_runtime::arguments_object_carries_values_with_a_non_enumerable_length` fails
+with `E0057: this function takes 1 argument but 0 arguments were supplied` in the generated crate.
+Verified PRE-EXISTING: the same test fails with `crates/` checked out at the round-32 brief commit
+`0721c7c6`, so it is not from this round. Like the `union_receiver_runtime` case that round 31
+recorded and this round fixed, it is a tier nobody has been running; it is in the
+`runtime-tiers.yml` matrix and should be picked up as its own item.
 
 ## SmeltUnknown delta
 
