@@ -2213,12 +2213,15 @@ return_ty: function.return_ty,
                 // See `type_arguments_with_defaults` for the rule and for why an
                 // `any` default is a genuine dynamic boundary rather than an
                 // erasure this lowering chose.
-                // This module's own classes come from the prepass registry
-                // (they may not be items yet); classes from earlier modules are
-                // read off the crate.
+                // The prepass registry answers first: it covers every class the
+                // crate declares, including ones not lowered yet. `find_class`
+                // is the fallback for a class that reached the crate some other
+                // way (a merged declaration file, a synthesized constructor
+                // function) and therefore has an item but no prepass entry.
                 if let Some(class_type_params) = self
-                    .types
-                    .class_type_params(symbol)
+                    .ctx
+                    .class_type_params
+                    .get(&symbol)
                     .cloned()
                     .or_else(|| self.find_class(symbol).map(|class| class.type_params.clone()))
                     && let Some(completed) =

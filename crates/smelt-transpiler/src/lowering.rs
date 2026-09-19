@@ -102,6 +102,11 @@ struct FrontendLoweringState {
     ts_date_returning_functions: std::collections::HashSet<smelt_hir::ItemId>,
     /// TypeScript structural type-alias fields visible across manifest entries.
     ts_type_alias_fields: HashMap<smelt_hir::Symbol, Vec<smelt_hir::Field>>,
+    /// TypeScript class type-parameter declarations visible across manifest entries.
+    ///
+    /// Carries the DEFAULTS a type reference takes when it omits trailing type
+    /// arguments, so the answer is the same whichever entry lowers first.
+    ts_class_type_params: HashMap<smelt_hir::Symbol, Vec<smelt_hir::TypeParamDef>>,
     /// TypeScript interface heritage edges visible across manifest entries.
     ts_interface_extends: HashMap<smelt_hir::Symbol, Vec<smelt_frontend_ts::InterfaceHeritageRef>>,
     /// TypeScript interface string index signature value types visible across manifest entries.
@@ -850,6 +855,7 @@ fn predeclare_manifest_type_declarations(
         function_rests: state.ts_function_rests,
         date_returning_functions: state.ts_date_returning_functions,
         type_alias_fields: state.ts_type_alias_fields,
+        class_type_params: state.ts_class_type_params,
         interface_extends: state.ts_interface_extends,
         interface_index_values: state.ts_interface_index_values,
         class_index_values: state.ts_class_index_values,
@@ -892,6 +898,7 @@ fn predeclare_manifest_type_declarations(
     state.ts_function_rests = ctx.function_rests;
     state.ts_date_returning_functions = ctx.date_returning_functions;
     state.ts_type_alias_fields = ctx.type_alias_fields;
+    state.ts_class_type_params = ctx.class_type_params;
     state.ts_interface_extends = ctx.interface_extends;
     state.ts_interface_index_values = ctx.interface_index_values;
     state.ts_class_index_values = ctx.class_index_values;
@@ -1053,6 +1060,7 @@ fn lower_manifest_source(
                 function_rests: state.ts_function_rests,
                 date_returning_functions: state.ts_date_returning_functions,
                 type_alias_fields: state.ts_type_alias_fields,
+                class_type_params: state.ts_class_type_params,
                 interface_extends: state.ts_interface_extends,
                 interface_index_values: state.ts_interface_index_values,
                 class_index_values: state.ts_class_index_values,
@@ -1096,6 +1104,7 @@ fn lower_manifest_source(
                 ts_function_rests: ctx.function_rests,
                 ts_date_returning_functions: ctx.date_returning_functions,
                 ts_type_alias_fields: ctx.type_alias_fields,
+                ts_class_type_params: ctx.class_type_params,
                 ts_interface_extends: ctx.interface_extends,
                 ts_interface_index_values: ctx.interface_index_values,
                 ts_class_index_values: ctx.class_index_values,
@@ -1136,6 +1145,7 @@ fn lower_manifest_source(
                 ts_function_rests: state.ts_function_rests,
                 ts_date_returning_functions: state.ts_date_returning_functions,
                 ts_type_alias_fields: state.ts_type_alias_fields,
+                ts_class_type_params: state.ts_class_type_params,
                 ts_interface_extends: state.ts_interface_extends,
                 ts_interface_index_values: state.ts_interface_index_values,
                 ts_class_index_values: state.ts_class_index_values,

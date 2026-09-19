@@ -3169,8 +3169,9 @@ impl ModuleBuilder<'_> {
         // where nothing declares it. See
         // `ModuleBuilder::type_arguments_with_defaults`.
         if let Some(base_type_params) = self
-            .types
-            .class_type_params(base)
+            .ctx
+            .class_type_params
+            .get(&base)
             .cloned()
             .or_else(|| self.find_class(base).map(|class| class.type_params.clone()))
             && let Some(completed) = self.type_arguments_with_defaults(&base_type_params, &args)

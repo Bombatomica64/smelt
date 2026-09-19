@@ -1667,3 +1667,55 @@ class TaggedSlot extends Slot<boolean> {
     ));
     Ok(())
 }
+
+#[test]
+fn class_reference_takes_defaults_from_a_module_lowered_later() -> Result<(), String> {
+    // The crate-wide half of the rule. A dependency cycle through a barrel file
+    // routinely lowers a CONSUMER before the module that declares the class it
+    // references, so "the class is already an `Item::Class`" is not a condition
+    // the defaults rule can depend on. The crate-wide predeclaration pass
+    // records every class's type parameters before any body is lowered; here the
+    // consumer is lowered FIRST and still takes the defaults.
+    let mut ctx = HirCtx::new();
+    let declaring = ts!(r"
+export class Slot<T, U = string, V = number> {
+  first: T;
+  second: U;
+  third: V;
+  constructor(first: T, second: U, third: V) {
+    this.first = first;
+    this.second = second;
+    this.third = third;
+  }
+}
+");
+    let consuming = ts!(r"
+export class Holder {
+  slot: Slot<boolean>;
+  constructor(slot: Slot<boolean>) {
+    this.slot = slot;
+  }
+}
+");
+    crate::lowering::predeclare_type_declarations_with_path(
+        declaring,
+        FileId(0),
+        "/src/slot.ts",
+        &mut ctx,
+    )
+    .map_err(|errors| format!("predeclaration failed: {errors:?}"))?;
+    crate::lowering::predeclare_type_declarations_with_path(
+        consuming,
+        FileId(1),
+        "/src/holder.ts",
+        &mut ctx,
+    )
+    .map_err(|errors| format!("predeclaration failed: {errors:?}"))?;
+    lower_path_ok(consuming, "/src/holder.ts", &mut ctx)?;
+    let args = class_field_type_args(&ctx, "Holder")?;
+    ensure_eq!(args.len(), 3);
+    ensure!(matches!(ctx.krate.types.get(args[0]), Some(Type::Bool)));
+    ensure!(matches!(ctx.krate.types.get(args[1]), Some(Type::String)));
+    ensure!(matches!(ctx.krate.types.get(args[2]), Some(Type::Float)));
+    Ok(())
+}

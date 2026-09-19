@@ -62,15 +62,30 @@ impl ModuleBuilder<'_> {
 
     /// Record the type-parameter declarations of every class in this program.
     ///
-    /// A PREPASS, run before any body is lowered. TypeScript hoists class TYPES:
-    /// a type reference may name a class declared later in the same file, and a
-    /// signature collected by an earlier prepass (forward function types,
-    /// predeclared methods) is lowered before any class item exists at all. Such
-    /// a reference still has to take the declaration's type-parameter DEFAULTS,
-    /// so the defaults have to be readable before the class is an HIR item —
-    /// which is what this map provides. Classes declared by EARLIER modules need
-    /// no entry: they are already `Item::Class` and `find_class` reads their
-    /// parameters off the crate.
+    /// A PREPASS. It runs twice over the crate for two different reasons, and
+    /// both are needed:
+    ///
+    /// * crate-wide, from `predeclare_type_declarations_with_path`, before ANY
+    ///   module body is lowered — a dependency cycle through a barrel file
+    ///   routinely lowers a consumer before the module that declares the class
+    ///   it references, and such a reference must still take the declaration's
+    ///   type-parameter DEFAULTS;
+    /// * per module, from `ModuleBuilder::module`, so a standalone lowering
+    ///   (`dump-hir`, the frontend's own tests) that never runs the crate-wide
+    ///   pass still sees its own classes. TypeScript hoists class TYPES, and the
+    ///   forward-function-type and predeclaration passes lower signatures before
+    ///   any class item exists, so "the class is already an `Item::Class`" is
+    ///   not a condition this rule can depend on even within one file.
+    ///
+    /// Recording is keyed by the symbol the DECLARATION itself gets, which is
+    /// `module_qualified_type_name` where the crate declares the spelling more
+    /// than once and the bare interned spelling otherwise — the same two-step
+    /// `class_declaration` and `resolve_type_reference_symbol` both take. Keying
+    /// by the bare spelling instead would merge two unrelated declarations: a
+    /// crate with a generic `class Context<E, P, I>` in one module and a plain
+    /// `class Context` in another renames one of them, and a reference to the
+    /// plain one must not pick up the generic one's defaults. The map is on
+    /// [`crate::context::HirCtx`] so it outlives the module.
     ///
     /// Each declaration's parameters are lowered in the declaration's OWN
     /// parameter scope, because a default may mention an earlier parameter of
@@ -102,8 +117,10 @@ impl ModuleBuilder<'_> {
                 continue;
             };
             self.pop_type_parameter_scope();
-            let symbol = self.resolve_type_reference_symbol(id.name.as_str());
-            self.types.set_class_type_params(symbol, lowered);
+            let symbol = self
+                .module_qualified_type_name(id.name.as_str())
+                .unwrap_or_else(|| self.intern_type_name(id.name.as_str()));
+            self.ctx.class_type_params.insert(symbol, lowered);
         }
     }
 

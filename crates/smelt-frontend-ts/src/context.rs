@@ -164,6 +164,19 @@ pub struct HirCtx {
     pub interface_extends: HashMap<smelt_hir::Symbol, Vec<crate::lowering::InterfaceHeritageRef>>,
     /// Value types declared by interface string index signatures.
     pub interface_index_values: HashMap<smelt_hir::Symbol, TypeId>,
+    /// Declared type parameters of every class the crate lowers, by name symbol.
+    ///
+    /// CRATE-scoped rather than per-module, and filled by the crate-wide
+    /// predeclaration pass before any module body is lowered, because a type
+    /// reference must take a generic class's type-parameter DEFAULTS even when
+    /// the declaring module has not been lowered yet. Dependency cycles through
+    /// barrel files routinely put a consumer first, and within one module
+    /// TypeScript hoists class types anyway, so "the class is already an
+    /// `Item::Class`" is not a condition the defaults rule can depend on.
+    ///
+    /// Keyed by the interned spelling of the declared name, which is what an
+    /// unqualified type reference to it resolves to.
+    pub class_type_params: HashMap<smelt_hir::Symbol, Vec<smelt_hir::TypeParamDef>>,
     /// Value types declared by class string index signatures (`[k: string]: T`).
     ///
     /// Populated when a class declaration carries a `TSIndexSignature`, and read
@@ -275,6 +288,7 @@ impl HirCtx {
             function_rests: HashMap::new(),
             date_returning_functions: HashSet::new(),
             type_alias_fields: HashMap::new(),
+            class_type_params: HashMap::new(),
             interface_extends: HashMap::new(),
             interface_index_values: HashMap::new(),
             class_index_values: HashMap::new(),

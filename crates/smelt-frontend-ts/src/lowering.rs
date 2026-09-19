@@ -480,6 +480,13 @@ pub fn predeclare_type_declarations_with_path(
     );
     builder.predeclare_class_method_fields(&parsed.program);
     builder.predeclare_type_alias_items(&parsed.program);
+    // Class type-parameter DEFAULTS have to be readable crate-wide before any
+    // body is lowered: a dependency cycle through a barrel file routinely
+    // lowers a consumer before the module that declares the class it
+    // references, and a reference that omits defaulted trailing type arguments
+    // must still take them. See
+    // `ModuleBuilder::collect_class_type_parameter_defaults`.
+    builder.collect_class_type_parameter_defaults(&parsed.program);
     Ok(())
 }
 
