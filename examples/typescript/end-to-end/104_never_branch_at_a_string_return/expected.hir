@@ -1,0 +1,31 @@
+module examples/typescript/end-to-end/104_never_branch_at_a_string_return/input.ts (ModuleId(0))
+  body BodyId(2)
+  items
+    fn describe__module_examples/typescript/end-to-end/104_never_branch_at_a_string_return/input.ts owner Module
+    fn describe_block owner Module
+  exprs
+    #0: Float = 3.0
+    #1: ArrayBuffer = typed_array_new ArrayBuffer #0
+    #2: fn(ArrayBuffer) -> String = @1(describe__module_examples/typescript/end-to-end/104_never_branch_at_a_string_return/input.ts)
+    #3: String = call #2(#1)
+    #4: None = @2(console_log)
+    #5: None = call #4(#3)
+    #6: Float = 4.0
+    #7: ArrayBuffer = typed_array_new ArrayBuffer #6
+    #8: fn(ArrayBuffer) -> String = @0(describe_block)
+    #9: String = call #8(#7)
+    #10: None = @3(console_log)
+    #11: None = call #10(#9)
+  stmts
+    s0: #5
+    s1: #11
+
+interned types
+  t0 = ArrayBuffer
+  t1 = String
+  t2 = fn(ArrayBuffer) -> String
+  t3 = fn(ArrayBuffer) -> String
+  t4 = Bool
+  t5 = Float
+  t6 = Unknown
+  t7 = None

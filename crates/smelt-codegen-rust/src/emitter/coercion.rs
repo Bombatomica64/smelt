@@ -641,6 +641,29 @@ impl FunctionEmitter<'_> {
         {
             return self.value_truthy_text(&operand_text, source_ty);
         }
+        // The `string` sibling of the truthiness arm above, and stated in the
+        // same place and for the same reason: a value asked for at `string` is
+        // its STRING CONVERSION, which is what JavaScript does wherever a
+        // string is expected. See `value_at_type_text`'s copy for the shape
+        // that needs it (`never` flowing into a string slot, which TypeScript
+        // permits and which used to be handed back at its own type — text that
+        // does not compile, so nothing that worked is displaced).
+        if self.mir.types.get(target) == Some(&Type::String)
+            && matches!(
+                self.mir.types.get(source_ty),
+                Some(
+                    Type::Class { .. }
+                        | Type::List(_)
+                        | Type::Set(_)
+                        | Type::Dict(_, _)
+                        | Type::JsMap(_, _)
+                        | Type::Tuple(_)
+                )
+            )
+        {
+            let erased = self.erase_value_text(&operand_text, source_ty)?;
+            return self.extract_value_text(&erased, target, scope);
+        }
         self.operand_text(operand)
     }
 
@@ -1251,6 +1274,45 @@ impl FunctionEmitter<'_> {
             )?
         {
             return Ok(adapter);
+        }
+        // Last resort, after every structural rule above has declined: a value
+        // asked for at `string` is its STRING CONVERSION. That is what
+        // JavaScript does wherever a string is expected, and it is the sibling
+        // of the truthiness arm near the top of this function ("a value asked
+        // for at `bool` is a truthiness test, not a cast").
+        //
+        // It is reached only where nothing else had an answer, and where
+        // nothing else has an answer the value used to be handed back at its
+        // own type — which does not compile, so no working conversion is
+        // displaced. tsc has already rejected any genuinely ill-typed
+        // assignment before Smelt runs; what survives is the shape TypeScript
+        // itself permits, `never` flowing into a string slot:
+        //
+        // ```ts
+        // const bufferToString = (buffer: ArrayBuffer): string => {
+        //   if (buffer instanceof ArrayBuffer) { return decoder.decode(buffer); }
+        //   return buffer;   // `buffer` is `never` here
+        // };
+        // ```
+        //
+        // The CLOSURE-bodied spelling of that same function already emitted
+        // exactly this conversion (its return channel erases first), so this
+        // makes the two paths agree rather than inventing a rule for one.
+        if self.mir.types.get(target) == Some(&Type::String)
+            && matches!(
+                self.mir.types.get(source),
+                Some(
+                    Type::Class { .. }
+                        | Type::List(_)
+                        | Type::Set(_)
+                        | Type::Dict(_, _)
+                        | Type::JsMap(_, _)
+                        | Type::Tuple(_)
+                )
+            )
+        {
+            let erased = self.erase_value_text(value_text, source)?;
+            return self.extract_value_text(&erased, target, scope);
         }
         Ok(value_text.to_owned())
     }

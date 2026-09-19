@@ -1027,6 +1027,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "101_erased_callback_returns_a_host_class",
     "102_union_instanceof_through_arm_tags",
     "103_host_value_at_a_record_type",
+    "104_never_branch_at_a_string_return",
 ];
 
 /// The generated-Rust goldens cover EVERY emitted file, not just `main.rs`.
