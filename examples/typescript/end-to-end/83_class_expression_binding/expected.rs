@@ -2805,7 +2805,7 @@ struct __smelt_anon_class_1394Inner<T> {
     items: SmeltList<T>,
     _smelt_phantom: ::std::marker::PhantomData<(T)>,
 }
-impl<T: Default> Default for __smelt_anon_class_1394Inner<T> {
+impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Default for __smelt_anon_class_1394Inner<T> {
     fn default() -> Self {
         Self {
             items: SmeltList::new(Vec::<T>::new()),
@@ -2975,7 +2975,7 @@ struct BoxedInner<T> {
     items: SmeltList<T>,
     _smelt_phantom: ::std::marker::PhantomData<(T)>,
 }
-impl<T: Default> Default for BoxedInner<T> {
+impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Default for BoxedInner<T> {
     fn default() -> Self {
         Self {
             items: SmeltList::new(Vec::<T>::new()),

@@ -2810,7 +2810,7 @@ struct Slot<T, U, V> {
     third: V,
     _smelt_phantom: ::std::marker::PhantomData<(T, U, V)>,
 }
-impl<T: Default, U: Default, V: Default> Default for Slot<T, U, V> where T: Default, U: Default, V: Default {
+impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, U: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, V: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Default for Slot<T, U, V> where T: Default, U: Default, V: Default {
     fn default() -> Self {
         Self {
             first: Default::default(),
@@ -2896,7 +2896,7 @@ struct Config<A, B> {
     value: B,
     _smelt_phantom: ::std::marker::PhantomData<(A, B)>,
 }
-impl<A: Default, B: Default> Default for Config<A, B> where A: Default, B: Default {
+impl<A: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, B: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Default for Config<A, B> where A: Default, B: Default {
     fn default() -> Self {
         Self {
             key: Default::default(),
@@ -2953,7 +2953,7 @@ struct Pair<A, B> {
     rest: B,
     _smelt_phantom: ::std::marker::PhantomData<(A, B)>,
 }
-impl<A: Default, B: Default> Default for Pair<A, B> where A: Default, B: Default {
+impl<A: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, B: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Default for Pair<A, B> where A: Default, B: Default {
     fn default() -> Self {
         Self {
             head: Default::default(),

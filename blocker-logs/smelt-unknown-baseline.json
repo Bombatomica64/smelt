@@ -1,9 +1,9 @@
 {
   "files_scanned": 92,
-  "total": 56130,
+  "total": 56139,
   "category_totals": {
     "legitimate-boundary": 1200,
-    "runtime-prelude": 54930
+    "runtime-prelude": 54939
   },
   "shapes": [
     {
@@ -3096,7 +3096,7 @@
     {
       "category": "runtime-prelude",
       "shape": "impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'C'",
-      "occurrences": 33,
+      "occurrences": 35,
       "files": 3,
       "example": "examples/typescript/end-to-end/63_generic_init_union_arm/expected.rs:2481"
     },
@@ -3585,6 +3585,13 @@
     },
     {
       "category": "runtime-prelude",
+      "shape": "impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'C'static, V: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'C'",
+      "occurrences": 10,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/90_type_parameter_defaults/expected.rs:2813"
+    },
+    {
+      "category": "runtime-prelude",
       "shape": "let SmeltUnknown::Object(map) = value else { return Self::new(N) };",
       "occurrences": 10,
       "files": 10,
@@ -3687,13 +3694,6 @@
       "occurrences": 7,
       "files": 7,
       "example": "examples/typescript/end-to-end/44_node_http_echo/expected.rs:3448"
-    },
-    {
-      "category": "runtime-prelude",
-      "shape": "impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'C'static, V: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'C'",
-      "occurrences": 7,
-      "files": 1,
-      "example": "examples/typescript/end-to-end/90_type_parameter_defaults/expected.rs:2843"
     },
     {
       "category": "runtime-prelude",
@@ -4471,6 +4471,20 @@
       "occurrences": 2,
       "files": 2,
       "example": "examples/typescript/end-to-end/45_text_codec/expected.rs:3329"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl<A: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'C'static> Default for Config<A, B> where A: Default, B: Default {",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/90_type_parameter_defaults/expected.rs:2899"
+    },
+    {
+      "category": "runtime-prelude",
+      "shape": "impl<A: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'C'static> Default for Pair<A, B> where A: Default, B: Default {",
+      "occurrences": 2,
+      "files": 1,
+      "example": "examples/typescript/end-to-end/90_type_parameter_defaults/expected.rs:2956"
     },
     {
       "category": "runtime-prelude",
