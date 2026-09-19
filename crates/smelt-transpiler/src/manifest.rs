@@ -68,6 +68,56 @@ struct ManifestGraphVisit<'a> {
     permanent: HashSet<usize>,
 }
 
+/// The manifest directory in the form `[sources] exclude` globs are matched
+/// against: absolute and canonical when the directory exists.
+///
+/// An exclude glob is written relative to the MANIFEST, and the paths it is
+/// matched against are produced by the module resolver, which canonicalizes
+/// them. Making the two comparable is this function's whole job, and it closes
+/// two traps that each silently disabled every exclude:
+///
+/// * `Path::new("Smelt.toml").parent()` is `Some("")`, not `None`, so the usual
+///   `.unwrap_or(Path::new("."))` never fired for a manifest named with no
+///   directory component — `smelt build` in a project root, or
+///   `--manifest-path Smelt.toml`. An empty prefix makes `strip_prefix` succeed
+///   while stripping nothing, so a canonical dependency path stayed ABSOLUTE
+///   and no manifest-relative glob could match it. Hono then lowered the
+///   `src/client/**` its manifest excludes.
+/// * A relative directory is relative to the process's working directory, which
+///   is not the manifest's directory in general.
+///
+/// It deliberately does NOT replace the manifest directory used to RESOLVE
+/// paths: a root or entry keeps the spelling the manifest gave it, because that
+/// spelling becomes the lowered module's path and is visible in HIR dumps, in
+/// generated file names and in diagnostics. Only the comparison is normalized.
+///
+/// Canonicalization is best-effort: a directory that does not exist on disk
+/// keeps its literal form rather than failing the build.
+pub(crate) fn exclusion_base(manifest_dir: &Path) -> PathBuf {
+    let base = if manifest_dir.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        manifest_dir
+    };
+    base.canonicalize().unwrap_or_else(|_| base.to_path_buf())
+}
+
+/// Strip `base` off `path`, trying the canonical form of each first.
+///
+/// The two sides reach this from different directions — a manifest root is
+/// joined onto the manifest directory as written, while a resolved dependency
+/// is canonical — so neither form alone strips both. Returns the path unchanged
+/// when it lies outside the manifest directory, which is what
+/// `path_matches_glob` then declines to match.
+pub(crate) fn manifest_relative_path(path: &Path, base: &Path) -> PathBuf {
+    let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    canonical
+        .strip_prefix(base)
+        .map(Path::to_path_buf)
+        .or_else(|_| path.strip_prefix(base).map(Path::to_path_buf))
+        .unwrap_or_else(|_| path.to_path_buf())
+}
+
 /// Resolves a path relative to the manifest directory, or returns it if absolute.
 pub(crate) fn resolve_manifest_path(manifest_dir: &Path, path: &Path) -> PathBuf {
     if path.is_absolute() {
@@ -176,6 +226,10 @@ struct DependencyCollector {
     /// `[sources] exclude` globs applied to every resolved dependency.
     excludes: Vec<String>,
     /// Manifest directory the exclude globs are relative to.
+    ///
+    /// Canonical and absolute (see [`manifest_directory`]): the paths this is
+    /// stripped from are canonicalized by the resolver, so anything else makes
+    /// the strip a no-op and silently disables every exclude.
     manifest_dir: PathBuf,
 }
 
@@ -195,22 +249,21 @@ impl DependencyCollector {
 
     /// Returns whether a resolved dependency path is excluded by the manifest.
     ///
-    /// Resolved paths are canonicalized, so the exclude globs — which are
-    /// written relative to the manifest directory — are matched against the
-    /// canonicalized manifest directory too. Without that, a manifest reached
-    /// through a symlink would silently match nothing.
+    /// Resolved paths are canonicalized, and `manifest_dir` is canonical too
+    /// ([`manifest_directory`]), so the exclude globs — which are written
+    /// relative to the manifest directory — are matched against the path the
+    /// manifest's author wrote. A manifest reached through a symlink, or named
+    /// without a directory component so that its parent is `""`, both used to
+    /// leave the dependency path ABSOLUTE after the prefix strip, which no
+    /// manifest-relative glob can match.
     fn excluded_target(&self, path: &Path) -> bool {
         if self.excludes.is_empty() {
             return false;
         }
-        let manifest_dir = self
-            .manifest_dir
-            .canonicalize()
-            .unwrap_or_else(|_| self.manifest_dir.clone());
-        let relative = path.strip_prefix(&manifest_dir).unwrap_or(path);
+        let relative = manifest_relative_path(path, &exclusion_base(&self.manifest_dir));
         self.excludes
             .iter()
-            .any(|pattern| crate::lowering::path_matches_glob(relative, pattern))
+            .any(|pattern| crate::lowering::path_matches_glob(&relative, pattern))
     }
 }
 

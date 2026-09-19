@@ -53,6 +53,31 @@ pub(crate) fn smelt(args: &[&str]) -> TestResult<String> {
     Ok(String::from_utf8(output.stdout)?)
 }
 
+/// Runs the `smelt` binary from `dir` and returns stdout.
+///
+/// The companion of [`smelt`], which always runs from the workspace root. A
+/// manifest path is resolved against the process's working directory, and
+/// everything INSIDE the manifest is resolved against the manifest's own
+/// directory — so a test that wants to prove the two are not confused has to
+/// choose the working directory itself.
+pub(crate) fn smelt_in(dir: &Path, args: &[&str]) -> TestResult<String> {
+    let output = Command::new(env!("CARGO_BIN_EXE_smelt"))
+        .current_dir(dir)
+        .args(args)
+        .output()?;
+
+    if !output.status.success() {
+        return Err(io::Error::other(format!(
+            "smelt failed\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ))
+        .into());
+    }
+
+    Ok(String::from_utf8(output.stdout)?)
+}
+
 /// Temporary project directory used by integration tests.
 pub(crate) struct TempProject {
     path: PathBuf,

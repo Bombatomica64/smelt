@@ -14,8 +14,8 @@ use smelt_hir::{FileId, ModuleId};
 use smelt_stdlib::DiagnosticCategory;
 
 use crate::manifest::{
-    ManifestSource, dependency_closure, order_manifest_sources, read_manifest_source,
-    resolve_manifest_path,
+    ManifestSource, dependency_closure, exclusion_base, manifest_relative_path,
+    order_manifest_sources, read_manifest_source, resolve_manifest_path,
 };
 use crate::timing;
 
@@ -570,11 +570,16 @@ fn retain_included_paths(paths: &mut Vec<PathBuf>, excludes: &[String], manifest
 }
 
 /// Returns whether `path` matches any `exclude` glob relative to `manifest_dir`.
+///
+/// The comparison goes through [`exclusion_base`] / [`manifest_relative_path`]
+/// so a manifest named with no directory component, or reached through a
+/// symlink, matches the same globs as an absolute one. The ROOT set and the
+/// dependency closure ask the same question and must not answer it differently.
 fn is_excluded_source(path: &Path, excludes: &[String], manifest_dir: &Path) -> bool {
-    let relative = path.strip_prefix(manifest_dir).unwrap_or(path);
+    let relative = manifest_relative_path(path, &exclusion_base(manifest_dir));
     excludes
         .iter()
-        .any(|pattern| path_matches_glob(relative, pattern))
+        .any(|pattern| path_matches_glob(&relative, pattern))
 }
 
 /// Discovers test files matching configured source-root-relative glob patterns.

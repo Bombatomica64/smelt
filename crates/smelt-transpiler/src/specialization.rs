@@ -22,7 +22,7 @@ use smelt_specialize::{
 use crate::{
     config::Config,
     lowering::SourceLang,
-    manifest::{ManifestSource, resolve_manifest_path},
+    manifest::{ManifestSource, exclusion_base, resolve_manifest_path},
 };
 
 /// Per-language manifests supplied to pure frontend entry points.
@@ -46,10 +46,11 @@ pub(crate) fn prepare(
         return Ok(PreparedSpecialization::default());
     }
 
-    let manifest_dir = manifest_path
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .canonicalize()?;
+    // `exclusion_base` rather than a bare `parent().canonicalize()?`: the
+    // parent of a manifest named with no directory component is `""`, which
+    // canonicalizes to an error and failed the whole pass.
+    let manifest_dir =
+        exclusion_base(manifest_path.parent().unwrap_or_else(|| Path::new(".")));
     let output_dir = resolve_manifest_path(&manifest_dir, config.output_target());
     let cache =
         SpecializationArtifactStore::new(manifest_dir.join(".smelt").join("specialization-cache"));
