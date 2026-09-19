@@ -967,6 +967,7 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
             headers,
             body,
             signal,
+            init_members,
         } => {
             let mut parts = vec![format!("input={}", operand_text(input))];
             if let Some(method) = method {
@@ -980,6 +981,9 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
             }
             if let Some(signal) = signal {
                 parts.push(format!("signal={}", operand_text(signal)));
+            }
+            for (member, value) in init_members {
+                parts.push(format!("{}={}", member.field_name(), operand_text(value)));
             }
             format!("request_new {}", parts.join(" "))
         }
@@ -996,6 +1000,7 @@ fn rvalue_text(rvalue: &Rvalue) -> String {
                 smelt_hir::RequestOp::Bytes => "bytes",
                 smelt_hir::RequestOp::Clone => "clone",
                 smelt_hir::RequestOp::Signal => "signal",
+                smelt_hir::RequestOp::Init(member) => member.field_name(),
             };
             let mut text = format!("request_{name} {}", operand_text(request));
             for arg in args {

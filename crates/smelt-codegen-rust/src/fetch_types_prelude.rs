@@ -818,9 +818,66 @@ fn emit_response_inherent_impl(writer: &mut CodeWriter) {
 /// Gated like `SmeltResponse`, and it turns the same two gates on with it: a
 /// request has a header list and a body.
 pub fn emit_request(writer: &mut CodeWriter, needs_unknown: bool) {
+    emit_request_init(writer);
     emit_request_struct(writer);
     emit_request_inherent_impl(writer);
     emit_request_traits(writer, needs_unknown);
+}
+
+/// Emit `SmeltRequestInit`: the stored, read-only half of a `RequestInit`.
+///
+/// These eight members (`cache`, `credentials`, `integrity`, `keepalive`,
+/// `mode`, `redirect`, `referrer`, `referrerPolicy`) are scalars a request
+/// keeps from construction and answers unchanged — no transport behaviour reads
+/// them here, so they are storage plus getters, exactly as the spec describes
+/// them. They live in their own struct rather than as eight more `SmeltRequest`
+/// fields because they move together: a `Request` input copies the whole group,
+/// `clone()` carries the whole group, and the defaults are one value.
+///
+/// Every field is a concrete Rust type — `String` for the WebIDL enumerations,
+/// `bool` for `keepalive` — so nothing here reaches `SmeltUnknown`.
+fn emit_request_init(writer: &mut CodeWriter) {
+    writer.line("/// The stored, read-only members of a WHATWG `RequestInit`.");
+    writer.line("///");
+    writer.line("/// `Default` is the spec's own set for a request constructed from a URL,");
+    writer.line("/// which is what Node answers for `new Request(url)`.");
+    writer.line("#[derive(Clone, PartialEq, Eq, Debug)]");
+    writer.block("pub struct SmeltRequestInit", |struct_writer| {
+        for member in smelt_hir::RequestInitMember::ALL {
+            let rust_ty = if member.is_boolean() { "bool" } else { "String" };
+            struct_writer.line(format!("/// The spec's `{}`.", member.property_name()));
+            struct_writer.line(format!("pub {}: {rust_ty},", member.field_name()));
+        }
+    });
+    writer.blank_line();
+    writer.block("impl Default for SmeltRequestInit", |impl_writer| {
+        impl_writer.block("fn default() -> Self", |fn_writer| {
+            let fields = smelt_hir::RequestInitMember::ALL
+                .into_iter()
+                .map(|member| {
+                    format!("{}: {}", member.field_name(), member.default_rust_literal())
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            fn_writer.line(format!("Self {{ {fields} }}"));
+        });
+    });
+    writer.blank_line();
+    writer.line("#[allow(dead_code)]");
+    writer.block("impl SmeltRequestInit", |impl_writer| {
+        impl_writer.line("/// Serialize a spelled `referrer` the way the spec stores it.");
+        impl_writer.line("///");
+        impl_writer.line("/// The referrer is parsed as a URL and stored as its serialization,");
+        impl_writer.line("/// so `\"https://c.test\"` reads back as `\"https://c.test/\"`. The two");
+        impl_writer.line("/// values that are not URLs — the empty string (no referrer) and");
+        impl_writer.line("/// `about:client` — pass through, which falling back to the spelled");
+        impl_writer.line("/// text gives for free. This is the same rule `from_parts` applies to");
+        impl_writer.line("/// the request URL itself.");
+        impl_writer.line(
+            "pub fn serialize_referrer(referrer: &str) -> String { ::url::Url::parse(referrer).map_or_else(|_| referrer.to_owned(), |parsed| parsed.to_string()) }",
+        );
+    });
+    writer.blank_line();
 }
 
 /// Emit the `SmeltRequest` struct and its comparisons.
@@ -837,10 +894,12 @@ fn emit_request_struct(writer: &mut CodeWriter) {
         struct_writer.line("method: String,");
         struct_writer.line("headers: SmeltHeaders,");
         struct_writer.line("body: SmeltBody,");
+        struct_writer.line("/// The stored `RequestInit` members; see `SmeltRequestInit`.");
+        struct_writer.line("init: SmeltRequestInit,");
     });
     writer.blank_line();
     writer.line(
-        "impl PartialEq for SmeltRequest { fn eq(&self, other: &Self) -> bool { self.url == other.url && self.method == other.method && self.headers == other.headers && self.body == other.body } }",
+        "impl PartialEq for SmeltRequest { fn eq(&self, other: &Self) -> bool { self.url == other.url && self.method == other.method && self.headers == other.headers && self.body == other.body && self.init == other.init } }",
     );
     writer.line(
         "impl ::std::fmt::Debug for SmeltRequest { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_struct(\"SmeltRequest\").field(\"method\", &self.method).field(\"url\", &self.url).field(\"headers\", &self.headers).field(\"body\", &self.body).finish() } }",
@@ -860,8 +919,12 @@ fn emit_request_inherent_impl(writer: &mut CodeWriter) {
         impl_writer.line("/// a `Content-Type` adds it unless the caller set one, exactly as on a");
         impl_writer.line("/// response — the pairing belongs to the body, so both holders get it");
         impl_writer.line("/// from the same place.");
+        impl_writer.line(
+            "pub fn from_parts(input: &str, method: String, headers: SmeltHeaders, body: SmeltBody) -> Self { Self::from_parts_with_init(input, method, headers, body, SmeltRequestInit::default()) }",
+        );
+        impl_writer.line("/// The same assembly, carrying the stored `RequestInit` members.");
         impl_writer.block(
-            "pub fn from_parts(input: &str, method: String, headers: SmeltHeaders, body: SmeltBody) -> Self",
+            "pub fn from_parts_with_init(input: &str, method: String, headers: SmeltHeaders, body: SmeltBody, init: SmeltRequestInit) -> Self",
             |fn_writer| {
                 fn_writer.line("let url = ::url::Url::parse(input).map_or_else(|_| input.to_owned(), |parsed| parsed.to_string());");
                 fn_writer.block(
@@ -870,7 +933,7 @@ fn emit_request_inherent_impl(writer: &mut CodeWriter) {
                         arm_writer.line("headers.append(\"content-type\", &content_type);");
                     },
                 );
-                fn_writer.line("Self { id: smelt_next_object_id(), url, method: Self::normalize_method(&method), headers, body }");
+                fn_writer.line("Self { id: smelt_next_object_id(), url, method: Self::normalize_method(&method), headers, body, init }");
             },
         );
         impl_writer.line("/// The spec's method normalization.");
@@ -918,8 +981,26 @@ fn emit_request_inherent_impl(writer: &mut CodeWriter) {
         impl_writer.line("/// The url is already serialized, so it is passed through `from_parts`");
         impl_writer.line("/// unchanged; re-parsing a serialization is a no-op.");
         impl_writer.line(
-            "pub fn tee(&self) -> Self { Self::from_parts(&self.url, self.method.clone(), SmeltHeaders::from_pairs(self.headers.entries_in_insertion_order()), self.body.tee()) }",
+            "pub fn tee(&self) -> Self { Self::from_parts_with_init(&self.url, self.method.clone(), SmeltHeaders::from_pairs(self.headers.entries_in_insertion_order()), self.body.tee(), self.init.clone()) }",
         );
+        impl_writer.line("/// The stored `RequestInit` members, as a copy.");
+        impl_writer.line("pub fn init(&self) -> SmeltRequestInit { self.init.clone() }");
+        impl_writer.line("/// `cache`: a stored `RequestInit` member.");
+        impl_writer.line("pub fn cache(&self) -> String { self.init.cache.clone() }");
+        impl_writer.line("/// `credentials`: a stored `RequestInit` member.");
+        impl_writer.line("pub fn credentials(&self) -> String { self.init.credentials.clone() }");
+        impl_writer.line("/// `integrity`: a stored `RequestInit` member.");
+        impl_writer.line("pub fn integrity(&self) -> String { self.init.integrity.clone() }");
+        impl_writer.line("/// `keepalive`: a stored `RequestInit` member.");
+        impl_writer.line("pub fn keepalive(&self) -> bool { self.init.keepalive }");
+        impl_writer.line("/// `mode`: a stored `RequestInit` member.");
+        impl_writer.line("pub fn mode(&self) -> String { self.init.mode.clone() }");
+        impl_writer.line("/// `redirect`: a stored `RequestInit` member.");
+        impl_writer.line("pub fn redirect(&self) -> String { self.init.redirect.clone() }");
+        impl_writer.line("/// `referrer`: a stored `RequestInit` member.");
+        impl_writer.line("pub fn referrer(&self) -> String { self.init.referrer.clone() }");
+        impl_writer.line("/// `referrerPolicy`: a stored `RequestInit` member.");
+        impl_writer.line("pub fn referrer_policy(&self) -> String { self.init.referrer_policy.clone() }");
     });
     writer.blank_line();
 }

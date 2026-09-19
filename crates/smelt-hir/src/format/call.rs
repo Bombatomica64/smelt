@@ -550,6 +550,7 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             headers,
             body,
             signal,
+            init_members,
         } => {
             let mut parts = vec![format!("input={}", expr_ref(*input))];
             if let Some(method) = method {
@@ -563,6 +564,9 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             }
             if let Some(signal) = signal {
                 parts.push(format!("signal={}", expr_ref(*signal)));
+            }
+            for (member, value) in init_members {
+                parts.push(format!("{}={}", member.field_name(), expr_ref(*value)));
             }
             format!("request_new {}", parts.join(" "))
         }
@@ -1391,6 +1395,7 @@ const fn request_op_name(op: crate::expr::RequestOp) -> &'static str {
         crate::expr::RequestOp::Bytes => "bytes",
         crate::expr::RequestOp::Clone => "clone",
         crate::expr::RequestOp::Signal => "signal",
+        crate::expr::RequestOp::Init(member) => member.field_name(),
     }
 }
 

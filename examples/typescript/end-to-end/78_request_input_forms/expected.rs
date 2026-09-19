@@ -3303,6 +3303,49 @@ impl SmeltBody {
     pub fn tee(&self) -> Self { let mut body = Self::from_payload(self.payload.borrow().clone()); body.content_type = self.content_type.clone(); body }
 }
 
+/// The stored, read-only members of a WHATWG `RequestInit`.
+///
+/// `Default` is the spec's own set for a request constructed from a URL,
+/// which is what Node answers for `new Request(url)`.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct SmeltRequestInit {
+    /// The spec's `cache`.
+    pub cache: String,
+    /// The spec's `credentials`.
+    pub credentials: String,
+    /// The spec's `integrity`.
+    pub integrity: String,
+    /// The spec's `keepalive`.
+    pub keepalive: bool,
+    /// The spec's `mode`.
+    pub mode: String,
+    /// The spec's `redirect`.
+    pub redirect: String,
+    /// The spec's `referrer`.
+    pub referrer: String,
+    /// The spec's `referrerPolicy`.
+    pub referrer_policy: String,
+}
+
+impl Default for SmeltRequestInit {
+    fn default() -> Self {
+        Self { cache: "default".to_owned(), credentials: "same-origin".to_owned(), integrity: String::new(), keepalive: false, mode: "cors".to_owned(), redirect: "follow".to_owned(), referrer: "about:client".to_owned(), referrer_policy: String::new() }
+    }
+}
+
+#[allow(dead_code)]
+impl SmeltRequestInit {
+    /// Serialize a spelled `referrer` the way the spec stores it.
+    ///
+    /// The referrer is parsed as a URL and stored as its serialization,
+    /// so `"https://c.test"` reads back as `"https://c.test/"`. The two
+    /// values that are not URLs — the empty string (no referrer) and
+    /// `about:client` — pass through, which falling back to the spelled
+    /// text gives for free. This is the same rule `from_parts` applies to
+    /// the request URL itself.
+    pub fn serialize_referrer(referrer: &str) -> String { ::url::Url::parse(referrer).map_or_else(|_| referrer.to_owned(), |parsed| parsed.to_string()) }
+}
+
 /// A WHATWG `Request`: a serialized URL, a method, headers, and a body.
 ///
 /// The same split as `SmeltResponse`: the URL and method are immutable on
@@ -3315,9 +3358,11 @@ pub struct SmeltRequest {
     method: String,
     headers: SmeltHeaders,
     body: SmeltBody,
+    /// The stored `RequestInit` members; see `SmeltRequestInit`.
+    init: SmeltRequestInit,
 }
 
-impl PartialEq for SmeltRequest { fn eq(&self, other: &Self) -> bool { self.url == other.url && self.method == other.method && self.headers == other.headers && self.body == other.body } }
+impl PartialEq for SmeltRequest { fn eq(&self, other: &Self) -> bool { self.url == other.url && self.method == other.method && self.headers == other.headers && self.body == other.body && self.init == other.init } }
 impl ::std::fmt::Debug for SmeltRequest { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_struct("SmeltRequest").field("method", &self.method).field("url", &self.url).field("headers", &self.headers).field("body", &self.body).finish() } }
 
 #[allow(dead_code)]
@@ -3330,12 +3375,14 @@ impl SmeltRequest {
     /// a `Content-Type` adds it unless the caller set one, exactly as on a
     /// response — the pairing belongs to the body, so both holders get it
     /// from the same place.
-    pub fn from_parts(input: &str, method: String, headers: SmeltHeaders, body: SmeltBody) -> Self {
+    pub fn from_parts(input: &str, method: String, headers: SmeltHeaders, body: SmeltBody) -> Self { Self::from_parts_with_init(input, method, headers, body, SmeltRequestInit::default()) }
+    /// The same assembly, carrying the stored `RequestInit` members.
+    pub fn from_parts_with_init(input: &str, method: String, headers: SmeltHeaders, body: SmeltBody, init: SmeltRequestInit) -> Self {
         let url = ::url::Url::parse(input).map_or_else(|_| input.to_owned(), |parsed| parsed.to_string());
         if let Some(content_type) = body.content_type() && !headers.has("content-type") {
             headers.append("content-type", &content_type);
         }
-        Self { id: smelt_next_object_id(), url, method: Self::normalize_method(&method), headers, body }
+        Self { id: smelt_next_object_id(), url, method: Self::normalize_method(&method), headers, body, init }
     }
     /// The spec's method normalization.
     ///
@@ -3373,7 +3420,25 @@ impl SmeltRequest {
     ///
     /// The url is already serialized, so it is passed through `from_parts`
     /// unchanged; re-parsing a serialization is a no-op.
-    pub fn tee(&self) -> Self { Self::from_parts(&self.url, self.method.clone(), SmeltHeaders::from_pairs(self.headers.entries_in_insertion_order()), self.body.tee()) }
+    pub fn tee(&self) -> Self { Self::from_parts_with_init(&self.url, self.method.clone(), SmeltHeaders::from_pairs(self.headers.entries_in_insertion_order()), self.body.tee(), self.init.clone()) }
+    /// The stored `RequestInit` members, as a copy.
+    pub fn init(&self) -> SmeltRequestInit { self.init.clone() }
+    /// `cache`: a stored `RequestInit` member.
+    pub fn cache(&self) -> String { self.init.cache.clone() }
+    /// `credentials`: a stored `RequestInit` member.
+    pub fn credentials(&self) -> String { self.init.credentials.clone() }
+    /// `integrity`: a stored `RequestInit` member.
+    pub fn integrity(&self) -> String { self.init.integrity.clone() }
+    /// `keepalive`: a stored `RequestInit` member.
+    pub fn keepalive(&self) -> bool { self.init.keepalive }
+    /// `mode`: a stored `RequestInit` member.
+    pub fn mode(&self) -> String { self.init.mode.clone() }
+    /// `redirect`: a stored `RequestInit` member.
+    pub fn redirect(&self) -> String { self.init.redirect.clone() }
+    /// `referrer`: a stored `RequestInit` member.
+    pub fn referrer(&self) -> String { self.init.referrer.clone() }
+    /// `referrerPolicy`: a stored `RequestInit` member.
+    pub fn referrer_policy(&self) -> String { self.init.referrer_policy.clone() }
 }
 
 /// Erase a request for a dynamic boundary (identity marker + url/method).
@@ -3463,9 +3528,9 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_61: String;
     let _smelt_tmp_62: String;
     let _smelt_tmp_9: SmeltRecord<String, String> = SmeltRecord::from([("x-tag".to_owned(), "t".to_owned())]);
-    let _smelt_tmp_10: SmeltRequest = SmeltRequest::from_parts(&"https://a.test/one".to_owned(), "POST".to_owned(), SmeltHeaders::from_pairs(_smelt_tmp_9.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::from_text(&"payload".to_owned()));
+    let _smelt_tmp_10: SmeltRequest = SmeltRequest::from_parts_with_init(&"https://a.test/one".to_owned(), "POST".to_owned(), SmeltHeaders::from_pairs(_smelt_tmp_9.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::from_text(&"payload".to_owned()), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
     let source: SmeltRequest = _smelt_tmp_10;
-    let _smelt_tmp_11: SmeltRequest = SmeltRequest::from_parts(&source.clone().url(), source.clone().method(), source.clone().headers(), SmeltBody::take_from_source(&source.clone().body()));
+    let _smelt_tmp_11: SmeltRequest = SmeltRequest::from_parts_with_init(&source.clone().url(), source.clone().method(), source.clone().headers(), SmeltBody::take_from_source(&source.clone().body()), source.clone().init());
     let copied: SmeltRequest = _smelt_tmp_11;
     let _smelt_tmp_12: String = copied.clone().url();
     let _smelt_tmp_13: String = copied.clone().method();
@@ -3482,8 +3547,8 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_24 = copied.body_used();
     let _ = { println!("{} {}", _smelt_tmp_23, _smelt_tmp_24); };
     _smelt_tmp_26 = SmeltRecord::from([("x-tag".to_owned(), "u".to_owned())]);
-    _smelt_tmp_27 = SmeltRequest::from_parts(&"https://a.test/two".to_owned(), "PUT".to_owned(), SmeltHeaders::from_pairs(_smelt_tmp_26.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::empty());
-    _smelt_tmp_28 = SmeltRequest::from_parts(&_smelt_tmp_27.url(), "DELETE".to_owned(), _smelt_tmp_27.headers(), SmeltBody::take_from_source(&_smelt_tmp_27.body()));
+    _smelt_tmp_27 = SmeltRequest::from_parts_with_init(&"https://a.test/two".to_owned(), "PUT".to_owned(), SmeltHeaders::from_pairs(_smelt_tmp_26.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::empty(), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
+    _smelt_tmp_28 = SmeltRequest::from_parts_with_init(&_smelt_tmp_27.url(), "DELETE".to_owned(), _smelt_tmp_27.headers(), SmeltBody::take_from_source(&_smelt_tmp_27.body()), { let mut smelt_request_init = _smelt_tmp_27.init(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
     overridden = _smelt_tmp_28;
     _smelt_tmp_29 = overridden.clone().url();
     _smelt_tmp_30 = overridden.clone().method();
@@ -3491,20 +3556,20 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_32 = _smelt_tmp_31.get(&"x-tag".to_owned());
     let _ = { println!("{} {} {}", _smelt_tmp_29, _smelt_tmp_30, match &_smelt_tmp_32 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
     _smelt_tmp_34 = SmeltRecord::from([("a".to_owned(), "1".to_owned())]);
-    _smelt_tmp_35 = SmeltRequest::from_parts(&"https://a.test/three".to_owned(), "PATCH".to_owned(), SmeltHeaders::from_pairs(_smelt_tmp_34.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::empty());
+    _smelt_tmp_35 = SmeltRequest::from_parts_with_init(&"https://a.test/three".to_owned(), "PATCH".to_owned(), SmeltHeaders::from_pairs(_smelt_tmp_34.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<(String, String)>>()), SmeltBody::empty(), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
     template = _smelt_tmp_35;
     _smelt_tmp_36 = template.clone().method();
     _smelt_tmp_37 = template.clone().headers();
-    _smelt_tmp_38 = SmeltRequest::from_parts(&template.clone().url(), _smelt_tmp_36, SmeltHeaders::from_pairs(_smelt_tmp_37.entries_sorted()), SmeltBody::take_from_source(&template.clone().body()));
+    _smelt_tmp_38 = SmeltRequest::from_parts_with_init(&template.clone().url(), _smelt_tmp_36, SmeltHeaders::from_pairs(_smelt_tmp_37.entries_sorted()), template.clone().body(), { let mut smelt_request_init = template.clone().init(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
     both = _smelt_tmp_38;
     _smelt_tmp_39 = both.clone().url();
     _smelt_tmp_40 = both.clone().method();
     _smelt_tmp_41 = both.headers();
     _smelt_tmp_42 = _smelt_tmp_41.get(&"a".to_owned());
     let _ = { println!("{} {} {}", _smelt_tmp_39, _smelt_tmp_40, match &_smelt_tmp_42 { Some(value) => format!("{}", value), None => "undefined".to_owned() }); };
-    _smelt_tmp_44 = SmeltRequest::from_parts(&"https://a.test/four".to_owned(), "HEAD".to_owned(), SmeltHeaders::new(), SmeltBody::empty());
+    _smelt_tmp_44 = SmeltRequest::from_parts_with_init(&"https://a.test/four".to_owned(), "HEAD".to_owned(), SmeltHeaders::new(), SmeltBody::empty(), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
     bare = _smelt_tmp_44;
-    _smelt_tmp_45 = SmeltRequest::from_parts(&bare.clone().url(), bare.clone().method(), bare.clone().headers(), SmeltBody::take_from_source(&bare.clone().body()));
+    _smelt_tmp_45 = SmeltRequest::from_parts_with_init(&bare.clone().url(), bare.clone().method(), bare.clone().headers(), SmeltBody::take_from_source(&bare.clone().body()), bare.clone().init());
     bare_copy = _smelt_tmp_45;
     _smelt_tmp_46 = bare_copy.clone().method();
     _smelt_tmp_47 = bare_copy.clone().body_used();
@@ -3513,15 +3578,15 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_50 = { let smelt_body = bare_copy.body(); if smelt_body.is_empty() { None } else { Some(smelt_body) } };
     _smelt_tmp_51 = _smelt_tmp_50.is_none();
     let _ = { println!("{}", _smelt_tmp_51); };
-    _smelt_tmp_53 = SmeltRequest::from_parts(&"https://a.test/five".to_owned(), "POST".to_owned(), SmeltHeaders::new(), SmeltBody::from_text(&"from source".to_owned()));
-    _smelt_tmp_54 = SmeltRequest::from_parts(&_smelt_tmp_53.url(), _smelt_tmp_53.method(), _smelt_tmp_53.headers(), SmeltBody::from_text(&"from init".to_owned()));
+    _smelt_tmp_53 = SmeltRequest::from_parts_with_init(&"https://a.test/five".to_owned(), "POST".to_owned(), SmeltHeaders::new(), SmeltBody::from_text(&"from source".to_owned()), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
+    _smelt_tmp_54 = SmeltRequest::from_parts_with_init(&_smelt_tmp_53.url(), _smelt_tmp_53.method(), _smelt_tmp_53.headers(), SmeltBody::from_text(&"from init".to_owned()), { let mut smelt_request_init = _smelt_tmp_53.init(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
     replaced = _smelt_tmp_54;
     _smelt_tmp_55 = replaced.clone().url();
     let _smelt_tmp_56: SmeltFuture<String> = { let smelt_request = replaced.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(smelt_request.take_text()?) })) };
     _smelt_tmp_57 = _smelt_tmp_56.await?;
     let _ = { println!("{} {}", _smelt_tmp_55, _smelt_tmp_57); };
     _smelt_tmp_59 = url::Url::parse(&"https://a.test/six?q=1".to_owned()).expect("URL parse failed").to_string();
-    _smelt_tmp_60 = SmeltRequest::from_parts(&_smelt_tmp_59, "PUT".to_owned(), SmeltHeaders::new(), SmeltBody::empty());
+    _smelt_tmp_60 = SmeltRequest::from_parts_with_init(&_smelt_tmp_59, "PUT".to_owned(), SmeltHeaders::new(), SmeltBody::empty(), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
     from_url = _smelt_tmp_60;
     _smelt_tmp_61 = from_url.clone().url();
     _smelt_tmp_62 = from_url.method();

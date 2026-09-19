@@ -28,7 +28,10 @@ use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use oxc::ast::ast::Expression;
 use oxc::span::GetSpan;
-use smelt_hir::{Body, EventEmitterOp, Expr, ExprKind, HeadersOp, RequestOp, ResponseOp, Type};
+use smelt_hir::{
+    Body, EventEmitterOp, Expr, ExprKind, HeadersOp, RequestInitMember, RequestOp, ResponseOp,
+    Type,
+};
 use smelt_stdlib::RuleId;
 
 
@@ -36,7 +39,32 @@ use smelt_stdlib::RuleId;
 const RESPONSE_INIT_KEYS: &[&str] = &["status", "statusText", "headers"];
 
 /// The `RequestInit` keys Smelt models.
-const REQUEST_INIT_KEYS: &[&str] = &["method", "headers", "body", "signal"];
+///
+/// The first four feed the request's transport identity (or, for `signal`, a
+/// dependent-signal follow); the rest are the STORED members of
+/// [`RequestInitMember`], appended from that table so the key set and the
+/// stored surface cannot drift apart.
+fn request_init_keys() -> Vec<&'static str> {
+    let mut keys = vec!["method", "headers", "body", "signal"];
+    keys.extend(
+        RequestInitMember::ALL
+            .into_iter()
+            .map(RequestInitMember::property_name),
+    );
+    keys
+}
+
+/// Collect the stored `RequestInit` members an init supplied, in table order.
+fn taken_request_init_members(fields: &InitFields) -> Vec<(RequestInitMember, smelt_hir::ExprId)> {
+    RequestInitMember::ALL
+        .into_iter()
+        .filter_map(|member| {
+            fields
+                .take(member.property_name())
+                .map(|value| (member, value))
+        })
+        .collect()
+}
 
 /// Per-key init operands collected from a literal, a spread, or a typed value.
 ///
@@ -786,7 +814,7 @@ impl ModuleBuilder<'_> {
         let input = self.argument(input_argument, body)?;
         let mut fields = InitFields::default();
         if let Some(init_argument) = new_expr.arguments.get(1) {
-            self.lower_fetch_init(init_argument, REQUEST_INIT_KEYS, "Request", &mut fields, body)?;
+            self.lower_fetch_init(init_argument, &request_init_keys(), "Request", &mut fields, body)?;
         }
         let (method, headers, body_expr, signal) = (
             fields.take("method"),
@@ -794,6 +822,7 @@ impl ModuleBuilder<'_> {
             fields.take("body"),
             fields.take("signal"),
         );
+        let init_members = taken_request_init_members(&fields);
         let ty = self.request_type();
         Ok(body.push_expr(Expr {
             kind: ExprKind::RequestNew {
@@ -802,6 +831,7 @@ impl ModuleBuilder<'_> {
                 headers,
                 body: body_expr,
                 signal,
+                init_members,
             },
             ty,
             span: self.span(new_expr.span.start, new_expr.span.end),
@@ -822,13 +852,14 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let span = self.span(init_argument.span().start, init_argument.span().end);
         let mut fields = InitFields::default();
-        self.lower_fetch_init(init_argument, REQUEST_INIT_KEYS, "fetch", &mut fields, body)?;
+        self.lower_fetch_init(init_argument, &request_init_keys(), "fetch", &mut fields, body)?;
         let (method, headers, body_expr, signal) = (
             fields.take("method"),
             fields.take("headers"),
             fields.take("body"),
             fields.take("signal"),
         );
+        let init_members = taken_request_init_members(&fields);
         let ty = self.request_type();
         Ok(body.push_expr(Expr {
             kind: ExprKind::RequestNew {
@@ -837,6 +868,7 @@ impl ModuleBuilder<'_> {
                 headers,
                 body: body_expr,
                 signal,
+                init_members,
             },
             ty,
             span,
@@ -917,7 +949,12 @@ impl ModuleBuilder<'_> {
             // model, named rather than erased into a field read that does not
             // compile.
             "body" => Some(RequestOp::Body),
-            _ => return Ok(None),
+            // The stored `RequestInit` members: read-only getters over values
+            // the constructor kept, so one arm answers the whole table.
+            other => match RequestInitMember::from_property_name(other) {
+                Some(member) => Some(RequestOp::Init(member)),
+                None => return Ok(None),
+            },
         };
         let Ok(receiver) = self.expression(&member.object, body) else {
             return Ok(None);
@@ -975,6 +1012,15 @@ impl ModuleBuilder<'_> {
             // one abort member path rather than a second one. It is never
             // `null` in the spec, so the type is not optional.
             RequestOp::Signal => self.ctx.krate.types.intern(Type::Unknown),
+            // Every stored init member is a WebIDL enumeration surfaced as a
+            // `string`, except `keepalive`, which is a `boolean`.
+            RequestOp::Init(member) => {
+                if member.is_boolean() {
+                    self.ctx.krate.types.intern(Type::Bool)
+                } else {
+                    self.ctx.krate.types.intern(Type::String)
+                }
+            }
             RequestOp::Text => {
                 let string_ty = self.ctx.krate.types.intern(Type::String);
                 self.ctx.krate.types.intern(Type::Future(string_ty))
@@ -1274,6 +1320,9 @@ impl ModuleBuilder<'_> {
                     fields.set(key, source);
                     continue;
                 }
+                // A `Request` at the init position is converted to the
+                // dictionary by READING its properties, prototype getters
+                // included, so the stored members copy across with the rest.
                 _ => continue,
             };
             let ty = self.request_op_result_type(op);

@@ -344,3 +344,86 @@ test('a union of a number, an init and a Response reaches every arm', () => {
 "#;
     run_fixture(source, "body_init_union_runtime");
 }
+
+/// The STORED `RequestInit` members, read off a typed init rather than a
+/// literal.
+///
+/// Every key on `RequestInit` is optional, so a key read off a typed init has
+/// type `Optional<T>` where the same key in a literal has type `T` — which is
+/// the defaulting question this tier exists for, asked of the eight members
+/// that the request keeps and answers unchanged (`cache`, `credentials`,
+/// `integrity`, `keepalive`, `mode`, `redirect`, `referrer`,
+/// `referrerPolicy`).
+///
+/// The non-empty-init referrer reset is asserted here too, because it is the
+/// one rule in the group that is not "copy or default": the spec puts the
+/// referrer and the referrer policy back to their defaults whenever a
+/// `Request` input is re-initialized with a non-empty init, and an EMPTY init
+/// still copies. Every expectation was diffed against Node 22.
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn the_stored_request_init_members_default_and_override() {
+    let source = r"
+import { test, expect } from 'vitest';
+
+function make(url: string, init: RequestInit): Request {
+  return new Request(url, init);
+}
+
+test('an absent key falls back to the spec default', () => {
+  const request = make('https://a.test/one', { method: 'POST' });
+  expect(request.cache).toBe('default');
+  expect(request.credentials).toBe('same-origin');
+  expect(request.integrity).toBe('');
+  expect(request.keepalive).toBe(false);
+  expect(request.mode).toBe('cors');
+  expect(request.redirect).toBe('follow');
+  expect(request.referrer).toBe('about:client');
+  expect(request.referrerPolicy).toBe('');
+});
+
+test('a present key overrides its slot', () => {
+  const request = make('https://a.test/two', {
+    cache: 'no-store',
+    credentials: 'include',
+    integrity: 'sha256-abc',
+    keepalive: true,
+    mode: 'same-origin',
+    redirect: 'manual',
+    referrer: 'https://c.test',
+    referrerPolicy: 'no-referrer',
+  });
+  expect(request.cache).toBe('no-store');
+  expect(request.credentials).toBe('include');
+  expect(request.integrity).toBe('sha256-abc');
+  expect(request.keepalive).toBe(true);
+  expect(request.mode).toBe('same-origin');
+  expect(request.redirect).toBe('manual');
+  expect(request.referrer).toBe('https://c.test/');
+  expect(request.referrerPolicy).toBe('no-referrer');
+});
+
+test('a Request input copies the group, and a non-empty init resets the referrer pair', () => {
+  const source = new Request('https://a.test/three', {
+    cache: 'reload',
+    keepalive: true,
+    referrer: 'https://c.test/from',
+    referrerPolicy: 'origin',
+  });
+  const copied = new Request(source);
+  expect(copied.cache).toBe('reload');
+  expect(copied.keepalive).toBe(true);
+  expect(copied.referrer).toBe('https://c.test/from');
+  expect(copied.referrerPolicy).toBe('origin');
+
+  const reinitialized = new Request(source, { method: 'POST' });
+  expect(reinitialized.cache).toBe('reload');
+  expect(reinitialized.keepalive).toBe(true);
+  expect(reinitialized.referrer).toBe('about:client');
+  expect(reinitialized.referrerPolicy).toBe('');
+
+  expect(source.clone().referrer).toBe('https://c.test/from');
+});
+";
+    run_fixture(source, "request_init_members_runtime");
+}

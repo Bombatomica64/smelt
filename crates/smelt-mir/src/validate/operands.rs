@@ -70,9 +70,13 @@ impl Rvalue {
                 headers,
                 body,
                 signal,
+                init_members,
             } => {
                 visit(input);
                 for operand in [method, headers, body, signal].into_iter().flatten() {
+                    visit(operand);
+                }
+                for (_, operand) in init_members {
                     visit(operand);
                 }
             }
@@ -1001,9 +1005,13 @@ impl Rvalue {
                 headers,
                 body,
                 signal,
+                init_members,
             } => {
                 visit(input);
                 for operand in [method, headers, body, signal].into_iter().flatten() {
+                    visit(operand);
+                }
+                for (_, operand) in init_members.iter_mut() {
                     visit(operand);
                 }
             }

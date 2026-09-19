@@ -553,12 +553,16 @@ fn rewrite_rvalue(
             headers,
             body,
             signal,
+            init_members,
         } => {
             let mut rewritten = rewrite_operand_except(input, aliases, dest);
             for operand in [method, headers, body, signal] {
                 if let Some(operand) = operand.as_mut() {
                     rewritten |= rewrite_operand_except(operand, aliases, dest);
                 }
+            }
+            for (_, operand) in init_members.iter_mut() {
+                rewritten |= rewrite_operand_except(operand, aliases, dest);
             }
             rewritten
         }

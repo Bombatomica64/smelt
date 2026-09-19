@@ -1123,12 +1123,14 @@ impl FunctionEmitter<'_> {
                 headers,
                 body,
                 signal,
+                init_members,
             } => self.request_new_text(
                 input,
                 method.as_ref(),
                 headers.as_ref(),
                 body.as_ref(),
                 signal.as_ref(),
+                init_members,
             ),
             Rvalue::RequestOp { op, request, args } => {
                 self.request_op_text(*op, request, args)

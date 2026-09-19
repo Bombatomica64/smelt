@@ -425,6 +425,131 @@ pub enum RequestOp {
     /// optional — and reads of it answer the SAME signal, which is what
     /// `request.signal === request.signal` observes.
     Signal,
+    /// A STORED `RequestInit` member read back off the request.
+    ///
+    /// One variant for the whole family rather than eight, because they differ
+    /// in nothing a dispatch site cares about: each is a scalar the constructor
+    /// stored and the getter answers unchanged. [`RequestInitMember`] carries
+    /// which one, the same way `DataView`'s accessor name carries its element
+    /// kind instead of eighteen rules.
+    Init(RequestInitMember),
+}
+
+/// A `RequestInit` member that a `Request` STORES and answers unchanged.
+///
+/// These are the eight members of the spec's `RequestInit` that are neither
+/// part of the request's transport identity (`method`, `headers`, `body`) nor a
+/// live object (`signal`): each is a scalar fixed at construction and read back
+/// through a read-only getter. They share one enum because they share their
+/// whole lifecycle — a default, an init override, a copy on `clone()`, and a
+/// getter — and only their spelling, their type and their default differ, which
+/// is exactly the table below.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RequestInitMember {
+    /// `cache`: the spec's cache mode. Default `"default"`.
+    Cache,
+    /// `credentials`: the credentials mode. Default `"same-origin"`.
+    Credentials,
+    /// `integrity`: the subresource-integrity metadata. Default `""`.
+    Integrity,
+    /// `keepalive`: whether the request outlives its page. Default `false`.
+    Keepalive,
+    /// `mode`: the request mode. Default `"cors"` for a constructed request.
+    Mode,
+    /// `redirect`: the redirect mode. Default `"follow"`.
+    Redirect,
+    /// `referrer`: the serialized referrer, or `"about:client"`.
+    Referrer,
+    /// `referrerPolicy`: the referrer policy. Default `""`.
+    ReferrerPolicy,
+}
+
+impl RequestInitMember {
+    /// Every stored member, in the order the spec's dictionary lists them.
+    pub const ALL: [Self; 8] = [
+        Self::Cache,
+        Self::Credentials,
+        Self::Integrity,
+        Self::Keepalive,
+        Self::Mode,
+        Self::Redirect,
+        Self::Referrer,
+        Self::ReferrerPolicy,
+    ];
+
+    /// The member's TypeScript/JavaScript property spelling.
+    #[must_use]
+    pub const fn property_name(self) -> &'static str {
+        match self {
+            Self::Cache => "cache",
+            Self::Credentials => "credentials",
+            Self::Integrity => "integrity",
+            Self::Keepalive => "keepalive",
+            Self::Mode => "mode",
+            Self::Redirect => "redirect",
+            Self::Referrer => "referrer",
+            Self::ReferrerPolicy => "referrerPolicy",
+        }
+    }
+
+    /// The member's field and getter spelling in generated Rust.
+    #[must_use]
+    pub const fn field_name(self) -> &'static str {
+        match self {
+            Self::ReferrerPolicy => "referrer_policy",
+            other => other.property_name(),
+        }
+    }
+
+    /// The member named by a JavaScript property spelling, when it is one.
+    #[must_use]
+    pub fn from_property_name(name: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|member| member.property_name() == name)
+    }
+
+    /// Whether the member's value is a `boolean` rather than a `string`.
+    ///
+    /// `keepalive` is the only one; the rest are spec enumerations, which `WebIDL`
+    /// surfaces as strings.
+    #[must_use]
+    pub const fn is_boolean(self) -> bool {
+        matches!(self, Self::Keepalive)
+    }
+
+    /// The member's default as a Rust literal expression.
+    ///
+    /// These are the values Node 22 answers for `new Request(url)`, which are
+    /// the spec's own: a request constructed from a URL is `"cors"`/`"follow"`/
+    /// `"same-origin"`, its referrer is the client, and the rest are empty.
+    #[must_use]
+    pub const fn default_rust_literal(self) -> &'static str {
+        match self {
+            Self::Cache => "\"default\".to_owned()",
+            Self::Credentials => "\"same-origin\".to_owned()",
+            Self::Integrity | Self::ReferrerPolicy => "String::new()",
+            Self::Keepalive => "false",
+            Self::Mode => "\"cors\".to_owned()",
+            Self::Redirect => "\"follow\".to_owned()",
+            Self::Referrer => "\"about:client\".to_owned()",
+        }
+    }
+
+    /// Whether a NON-EMPTY init resets the member to its default instead of
+    /// copying it from a `Request` input.
+    ///
+    /// The spec's `Request` constructor copies every stored member from a
+    /// `Request` input, then — "if init is not empty" — puts the referrer and
+    /// the referrer policy back to their defaults, because a request being
+    /// re-initialized is a new request as far as referrer leakage goes. Node 22
+    /// agrees: `new Request(src, { method: 'POST' }).referrer` is
+    /// `"about:client"` even though `src.referrer` was set, while
+    /// `new Request(src, {}).referrer` still copies.
+    #[must_use]
+    pub const fn resets_on_non_empty_init(self) -> bool {
+        matches!(self, Self::Referrer | Self::ReferrerPolicy)
+    }
 }
 
 /// A directly lowered WHATWG `Response` operation.

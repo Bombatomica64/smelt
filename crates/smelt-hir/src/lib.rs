@@ -74,6 +74,7 @@ pub use expr::{
     HttpServerOp,
     IncomingMessageOp,
     ServerResponseOp,
+    RequestInitMember,
     RequestOp,
     ResponseOp,
     UrlSearchParamsOp,

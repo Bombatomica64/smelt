@@ -455,7 +455,15 @@ impl ExprKind {
                 headers,
                 body,
                 signal,
+                init_members,
             } => Self::RequestNew {
+                init_members: {
+                    let mut mapped = Vec::with_capacity(init_members.len());
+                    for (member, value) in init_members {
+                        mapped.push((member, f(value)?));
+                    }
+                    mapped
+                },
                 input: f(input)?,
                 method: match method {
                     Some(method) => Some(f(method)?),

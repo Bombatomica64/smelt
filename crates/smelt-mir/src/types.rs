@@ -1407,6 +1407,9 @@ pub enum Rvalue {
         /// The request's own signal FOLLOWS this one rather than being it (see
         /// `smelt_hir::ExprKind::RequestNew`).
         signal: Option<Operand>,
+        /// The STORED `RequestInit` members the init supplied, in source order
+        /// (see `smelt_hir::ExprKind::RequestNew`).
+        init_members: Vec<(smelt_hir::RequestInitMember, Operand)>,
     },
     /// A `Request` member operation on a concrete `Request` receiver.
     RequestOp {

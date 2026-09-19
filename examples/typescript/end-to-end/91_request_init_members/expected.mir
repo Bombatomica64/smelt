@@ -1,0 +1,126 @@
+fn describe (FuncId(0)) -> String
+  locals
+    %0 param request: Request
+    %1 temp: String
+    %2 temp: String
+    %3 temp: String
+    %4 temp: Bool
+    %5 temp: String
+    %6 temp: String
+    %7 temp: String
+    %8 temp: String
+    %9 temp: String
+    %10 temp: List<String>
+    %11 temp: String
+  bb0:
+    %1 = request_cache copy %0
+    %2 = request_credentials copy %0
+    %3 = request_integrity copy %0
+    %4 = request_keepalive copy %0
+    %5 = "" + move %4
+    %6 = request_mode copy %0
+    %7 = request_redirect copy %0
+    %8 = request_referrer copy %0
+    %9 = request_referrer_policy copy %0
+    %10 = [move %1, move %2, move %3, move %5, move %6, move %7, move %8, move %9]
+    %11 = string_join move %10, "|"
+    return move %11
+
+fn main (FuncId(1)) -> None
+  locals
+    %0 user plain: Request
+    %1 user full: Request
+    %2 temp: Request
+    %3 temp: String
+    %4 temp: None
+    %5 temp: Request
+    %6 temp: String
+    %7 temp: None
+    %8 temp: String
+    %9 temp: String
+    %10 temp: String
+    %11 temp: None
+    %12 temp: Bool
+    %13 temp: String
+    %14 temp: String
+    %15 temp: None
+    %16 temp: String
+    %17 temp: String
+    %18 temp: None
+    %19 temp: Request
+    %20 temp: String
+    %21 temp: None
+    %22 temp: Request
+    %23 temp: String
+    %24 temp: None
+    %25 temp: Request
+    %26 temp: String
+    %27 temp: None
+    %28 temp: Request
+    %29 temp: String
+    %30 temp: None
+    %31 temp: Request
+    %32 temp: String
+    %33 temp: None
+    %34 temp: Request
+    %35 temp: String
+    %36 temp: None
+  bb0:
+    %2 = request_new input="https://a.test/one"
+    %0 = move %2
+    %3 = call fn0(move %0) -> bb1
+  bb1:
+    %4 = call @console_log(move %3) -> bb2
+  bb2:
+    %5 = request_new input="https://a.test/two" cache="no-store" credentials="include" integrity="sha256-abc" keepalive=true mode="same-origin" redirect="manual" referrer="https://c.test" referrer_policy="no-referrer"
+    %1 = move %5
+    %6 = call fn0(copy %1) -> bb3
+  bb3:
+    %7 = call @console_log(move %6) -> bb4
+  bb4:
+    %8 = request_cache copy %1
+    %9 = request_credentials copy %1
+    %10 = request_integrity copy %1
+    %11 = call @console_log(move %8, move %9, move %10) -> bb5
+  bb5:
+    %12 = request_keepalive copy %1
+    %13 = request_mode copy %1
+    %14 = request_redirect copy %1
+    %15 = call @console_log(move %12, move %13, move %14) -> bb6
+  bb6:
+    %16 = request_referrer copy %1
+    %17 = request_referrer_policy copy %1
+    %18 = call @console_log(move %16, move %17) -> bb7
+  bb7:
+    %19 = request_new input=copy %1
+    %20 = call fn0(move %19) -> bb8
+  bb8:
+    %21 = call @console_log(move %20) -> bb9
+  bb9:
+    %22 = request_new input=copy %1
+    %23 = call fn0(move %22) -> bb10
+  bb10:
+    %24 = call @console_log(move %23) -> bb11
+  bb11:
+    %25 = request_new input=copy %1 method="POST"
+    %26 = call fn0(move %25) -> bb12
+  bb12:
+    %27 = call @console_log(move %26) -> bb13
+  bb13:
+    %28 = request_new input=copy %1 referrer="https://d.test/here"
+    %29 = call fn0(move %28) -> bb14
+  bb14:
+    %30 = call @console_log(move %29) -> bb15
+  bb15:
+    %31 = request_clone move %1
+    %32 = call fn0(move %31) -> bb16
+  bb16:
+    %33 = call @console_log(move %32) -> bb17
+  bb17:
+    %34 = request_new input="https://a.test/three" method="PUT"
+    %35 = call fn0(move %34) -> bb18
+  bb18:
+    %36 = call @console_log(move %35) -> bb19
+  bb19:
+    return none
+
