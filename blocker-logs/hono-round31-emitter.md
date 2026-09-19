@@ -309,17 +309,27 @@ not in the brief's gate list, which is presumably why nobody has seen it.
 | gate | result |
 | --- | --- |
 | examples invariant (`--fail-on-regression`) | avoidable erasure **0**, unchanged |
-| es-toolkit ratchet | avoidable **31714**, was 31716 — a FALL of 2, re-snapshotted in the same commit |
-| remeda generated `cargo test` | see final report |
-| radash generated `cargo test` | see final report |
+| es-toolkit ratchet | avoidable **31716**, exactly the committed baseline (+0) |
+| remeda generated `cargo test` | **1789 passed / 0 failed** |
+| radash generated `cargo test` | **84 passed / 0 failed** |
 | `cargo test -p smelt-frontend-ts --no-default-features` | 1092 passed / 0 failed |
 | `cargo test -p smelt-codegen-rust` | 1060 passed / 0 failed (tiers `#[ignore]`d) |
+| `cargo test --bin smelt` | 57 passed / 0 failed |
 | `cargo test -p smelt-transpiler --test hir_cli_cross_language_tests` | 17 passed / 0 failed |
-| new runtime tier cases | `fetch_types_runtime` 9/0, `union_receiver_runtime` 2 new cases pass |
+| new runtime tier cases | `fetch_types_runtime` 9/0, `union_receiver_runtime` 2 new + 1 pre-existing RED (below) |
+| `cargo clippy --all-targets` | 0 errors; the three new findings on lines this round added were cleared, every other finding in the touched files is pre-existing |
+
+While the reverted item 3a was in, the es-toolkit ratchet read **31714** — a fall of 2. Rebuilt
+from a clean `dist-smelt` after the revert it is back to the baseline's 31716, so the baseline file
+is left unchanged.
 
 ## SmeltUnknown delta
 
 Net **negative**. Item 1 replaces three erased runtime-shape matches with typed per-arm dispatch,
-item 2 removes a false "unclonable" claim (no representation change), and item 3 recovers two
-concrete types the frontend was erasing. The examples invariant stays at 0 and the es-toolkit
-ratchet FELL by 2 avoidable occurrences.
+item 2 removes a false "unclonable" claim (no representation change), and item 3b recovers the
+concrete promise type the async IIFE was widening away. Nothing here adds a `SmeltUnknown`. The
+examples invariant stays at 0 and the es-toolkit ratchet is unmoved at 31716 (it fell to 31714 with
+the reverted item 3a in, which is the erasure that change was removing).
+
+Final Hono measurement, clean clone, `dist-smelt` regenerated with the binary at the branch head:
+**70 errors** — E0308 36, E0277 24, E0631 5, E0425 2, E0609 1, E0599 1, E0271 1.
