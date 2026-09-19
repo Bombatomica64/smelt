@@ -1352,6 +1352,47 @@ impl<'builder> ModuleBuilder<'builder> {
         Ok(Some(expr))
     }
 
+    /// Return whether an immediately-invoked callee expression is `async`.
+    ///
+    /// Mirrors the callee shapes [`Self::immediately_invoked_function_call_with_hint`]
+    /// accepts, including the parenthesized spellings, so the asyncness question
+    /// is answered for exactly the callees that take a contextual hint.
+    fn iife_callee_is_async(callee: &Expression<'_>) -> bool {
+        match callee {
+            Expression::FunctionExpression(function) => function.r#async,
+            Expression::ArrowFunctionExpression(arrow) => arrow.r#async,
+            Expression::ParenthesizedExpression(paren) => {
+                Self::iife_callee_is_async(&paren.expression)
+            }
+            _ => false,
+        }
+    }
+
+    /// Reduce a contextual type to the promise it offers an async return channel.
+    ///
+    /// An `async` function always returns a promise, so only a `Promise<T>` part
+    /// of the contextual type can describe its return. A `Promise<T>` answers
+    /// itself; a union answers its single promise arm; anything else answers
+    /// `None`, which drops the hint and leaves the callee's own inference to
+    /// decide. A union with more than one promise arm is ambiguous and is left
+    /// to inference for the same reason.
+    fn future_contextual_arm(&self, ty: smelt_hir::TypeId) -> Option<smelt_hir::TypeId> {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Future(_)) => Some(ty),
+            Some(Type::Union(members)) => {
+                let mut futures = members
+                    .iter()
+                    .copied()
+                    .filter(|member| {
+                        matches!(self.ctx.krate.types.get(*member), Some(Type::Future(_)))
+                    });
+                let only = futures.next()?;
+                futures.next().is_none().then_some(only)
+            }
+            _ => None,
+        }
+    }
+
     /// Lower an immediately-invoked function expression (IIFE).
     ///
     /// `(function (a, b) { ... })(1, 2)` and `((a) => ...)(5)` invoke a function
@@ -1460,6 +1501,23 @@ impl<'builder> ModuleBuilder<'builder> {
             Some(Type::Optional(inner)) => *inner,
             _ => hint,
         });
+        // An ASYNC callee's return channel is a promise, so only the part of the
+        // contextual type an async function can actually produce reaches it. A
+        // union contributes its promise ARM (`Response | Promise<Response>`
+        // says `Promise<Response>` to an async callee), and a contextual type
+        // with no promise arm at all says nothing.
+        //
+        // Without this, `return (async () => new Response(..))()` inside a
+        // function declared `Response | Promise<Response>` gave the arrow the
+        // whole union as its return type, so it lowered as
+        // `async fn() -> Future<Response | Future<Response>>` and the call
+        // produced a promise of the union where the union itself was expected
+        // (Hono's `hono-base.ts` HEAD branch, 6 × E0308).
+        let type_hint = if Self::iife_callee_is_async(&call.callee) {
+            type_hint.and_then(|hint| self.future_contextual_arm(hint))
+        } else {
+            type_hint
+        };
         let callee_hint = type_hint.map(|return_ty| {
             self.ctx
                 .krate
