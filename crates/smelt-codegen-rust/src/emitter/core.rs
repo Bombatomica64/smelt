@@ -3181,8 +3181,25 @@ impl<'mir> FunctionEmitter<'mir> {
             .map(|index| format!("arg{index}"))
             .collect::<Vec<_>>()
             .join(", ");
+        // The wrapped callable is CAPTURED by the `move` closure, so naming it
+        // in the body moves it out of whatever binding holds it. When that
+        // binding is a parameter of an enclosing closure — `closure_arg_1`,
+        // bound by value as an owned `Rc<dyn Fn(..)>` — the enclosing closure is
+        // an `Fn` and cannot give a captured variable away (E0507: "cannot move
+        // out of `closure_arg_1`, a captured variable in an `Fn` closure").
+        //
+        // Bind a clone in front of the closure, which is the clone discipline
+        // every sibling adapter already uses: `_smelt_adapted_callback` in
+        // `function_shape_adapter_text` and `smelt_callback` in
+        // `rendered_function_shape_adapter_text` are both `{place}.clone()`
+        // preludes for exactly this reason. The clone is one `Rc` bump per
+        // evaluation of this expression, not per invocation of the handle it
+        // builds. `&dyn Fn` — the borrowed-parameter shape this helper is named
+        // for — is `Copy`, so `.clone()` on it yields the same shared reference
+        // and that emission is unchanged.
         Ok(format!(
-            "::std::rc::Rc::new(move |{}| {function_text}({args}))",
+            "{{ let smelt_handle_callback = {function_text}.clone(); \
+             ::std::rc::Rc::new(move |{}| (smelt_handle_callback)({args})) }}",
             params.join(", ")
         ))
     }
