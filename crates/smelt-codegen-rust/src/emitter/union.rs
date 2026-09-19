@@ -965,8 +965,9 @@ pub(crate) fn emit_union_definitions(
                     .iter()
                     .map(|param| {
                         Ok(format!(
-                            "{}: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static",
-                            emitter.union_type_param_name(*param)?
+                            "{}: {}",
+                            emitter.union_type_param_name(*param)?,
+                            crate::classes::GENERATED_TYPE_PARAM_BOUNDS
                         ))
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?

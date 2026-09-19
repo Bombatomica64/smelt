@@ -5899,10 +5899,15 @@ fn emit_source_with_free_function_router(
         });
         if has_function_field || is_generic {
             let phantom_args = class_param_idents.join(", ");
-            // Derive-equivalent bounds, plus the field-type `where` clause the
-            // emitter adds. See `derive_generics_text` for why both are needed.
+            // The generated bound set, plus the field-type `where` clause the
+            // emitter adds. See `derive_generics_text` for why both are needed,
+            // and `classes::GENERATED_TYPE_PARAM_BOUNDS` for why the set is the
+            // full one rather than the derive-equivalent `T: Default`.
             let default_generics = if is_generic {
-                derive_generics_text(&class_param_idents, "Default")
+                derive_generics_text(
+                    &class_param_idents,
+                    crate::classes::GENERATED_TYPE_PARAM_BOUNDS,
+                )
             } else {
                 impl_generics.clone()
             };
@@ -7038,17 +7043,29 @@ fn emit_reference_record_storage(
                 emit_reference_inner_fields(block_writer, mir, context, fields, &scoped_type_params, &phantom_args);
             },
         );
-        // Per-trait bounds, for the reason the value-class site spells out:
-        // `Default`'s body constructs each field's default explicitly and so
-        // needs only what a derive asked (`T: Default`, for a bare `T` field),
-        // and `Debug` names the struct and stops, so it needs no bound. Handing
-        // either the full generated set would over-constrain the impl and break
-        // consumers that can only prove the derive-equivalent bound.
+        // Per-trait bounds. `Debug` names the struct and stops, so it needs no
+        // bound at all. `Default` DOES take the full generated set
+        // (`classes::GENERATED_TYPE_PARAM_BOUNDS`): its body constructs every
+        // field's default explicitly, and a field default can reach another
+        // generated class — Hono's `Hono_1Inner<E, S, BasePath, CurrentPath>`
+        // defaults its `onError`/`notFound` slots to closures RETURNING
+        // `Hono_1<E, S, BasePath, CurrentPath>`, so the body needs
+        // `Hono_1: Default`, which is emitted with the full set. The
+        // derive-equivalent `T: Default` cannot prove it, and no `where` clause
+        // on a field's TYPE reaches it either, because the requirement comes
+        // from the default EXPRESSION and not from the slot's `Rc<dyn Fn(..)>`
+        // type. Since every generic item the crate emits carries the same set,
+        // asking for it here cannot fail for an in-crate consumer, and a
+        // parameter instantiated at a concrete generated type satisfies it by
+        // construction.
         let (default_generics, debug_generics) = if type_params.is_empty() {
             (impl_generics.clone(), impl_generics.clone())
         } else {
             (
-                derive_generics_text(&record_param_idents, "Default"),
+                derive_generics_text(
+                    &record_param_idents,
+                    crate::classes::GENERATED_TYPE_PARAM_BOUNDS,
+                ),
                 type_params.clone(),
             )
         };
@@ -7320,12 +7337,29 @@ fn emit_default_impl_for_storage_type(
             field.ty,
             &TypeSubstitution::lexical(scoped_type_params),
         )?;
-        field_defaults.push((field_name, field_type_text, default_value));
+        // A CALLABLE slot is never a delegation, whatever its default text
+        // looks like. The emitter always spells such a field's default out as a
+        // constructed no-op closure, and `Rc<dyn Fn(..)>` implements no
+        // `Default` for the clause to name — but the closure BODY may itself
+        // delegate, because the slot's return type has to be produced from
+        // somewhere. Hono's `Hono_1Inner` defaults `onError` to
+        // `Rc::new(move |..| -> Hono_1<..> { Default::default() })`, whose
+        // `default()` belongs to the RETURN type and not to the field type, so
+        // a purely textual search sees a delegation and asks for
+        // `Rc<dyn Fn(..)>: Default` — an unsatisfiable clause that makes the
+        // whole `Default` impl unusable (E0599 at every `Inner::default()`).
+        // The nested requirement is carried by the impl's own type-parameter
+        // bounds instead (`classes::GENERATED_TYPE_PARAM_BOUNDS`), which is what
+        // the return type's `Default` impl asks for.
+        let is_callable_slot = type_contains_function(mir, field.ty);
+        field_defaults.push((field_name, field_type_text, default_value, is_callable_slot));
     }
     let delegating_field_types = field_defaults
         .iter()
-        .filter(|(_, _, default_value)| default_expression_delegates(default_value))
-        .map(|(_, field_type_text, _)| field_type_text.clone())
+        .filter(|(_, _, default_value, is_callable_slot)| {
+            !is_callable_slot && default_expression_delegates(default_value)
+        })
+        .map(|(_, field_type_text, _, _)| field_type_text.clone())
         .collect::<Vec<_>>();
     let where_clause = if impl_generics.is_empty() {
         String::new()
@@ -7337,7 +7371,7 @@ fn emit_default_impl_for_storage_type(
         |impl_writer| {
             impl_writer.block("fn default() -> Self", |fn_writer| {
                 fn_writer.block("Self", |self_writer| {
-                    for (field_name, _, default_value) in &field_defaults {
+                    for (field_name, _, default_value, _) in &field_defaults {
                         self_writer.line(format!("{field_name}: {default_value},"));
                     }
                     if !phantom_args.is_empty() {

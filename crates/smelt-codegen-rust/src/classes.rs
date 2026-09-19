@@ -14,6 +14,22 @@ use smelt_mir::{
 
 use crate::{EmitError, emitter::FunctionEmitter, generic_bindings, id_index, rust::RustIdent};
 
+/// The trait bounds every generated type parameter carries.
+///
+/// ONE set, spelled once. A generated type parameter is reached through the
+/// crate's own erasure round trip (`IntoSmeltUnknown` / `SmeltFromUnknown`), is
+/// stored in `Rc`-shared cells (`Clone`, `'static`) and is materialized by
+/// `Default::default()` in every generated `Default` body — so every generic
+/// item the crate emits needs the same set, and a per-item subset is a bug
+/// waiting on the first field whose type is another generated class.
+///
+/// Bounds that belong to ONE parameter's use rather than to all of them are
+/// appended by the caller, not added here: `SmeltJsKeyEq` for a parameter used
+/// as a map key (see [`class_type_param_used_as_map_key`]) and the generated
+/// `F{n}: Fn(..) + ?Sized` callback bounds are both of that kind.
+pub(crate) const GENERATED_TYPE_PARAM_BOUNDS: &str =
+    "Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static";
+
 /// Return the sanitized Rust storage type name for a MIR class.
 ///
 /// Class names can originate from TypeScript or Python identifiers, so this
@@ -92,7 +108,7 @@ pub(crate) fn interface_impl_generics_text(
                 .get(param.name)
                 .map(|name| {
                     format!(
-                        "{}: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static",
+                        "{}: {GENERATED_TYPE_PARAM_BOUNDS}",
                         RustIdent::new(name).into_string()
                     )
                 })
@@ -208,7 +224,7 @@ pub(crate) fn class_impl_generics_text(mir: &Mir, class: &MirClass) -> Result<St
                 .get(param.name)
                 .map(|name| {
                     let mut bound = format!(
-                        "{}: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static",
+                        "{}: {GENERATED_TYPE_PARAM_BOUNDS}",
                         RustIdent::new(name).into_string()
                     );
                     if class_type_param_used_as_map_key(mir, class, param.name) {
@@ -1318,7 +1334,7 @@ pub(crate) fn function_impl_generics_list(
                 .get(param.name)
                 .map(|name| {
                     format!(
-                        "{}: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static",
+                        "{}: {GENERATED_TYPE_PARAM_BOUNDS}",
                         RustIdent::new(name).into_string()
                     )
                 })

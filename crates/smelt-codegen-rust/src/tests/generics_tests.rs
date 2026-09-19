@@ -1351,3 +1351,65 @@ export function use0(cbp0: (v: number) => number): number {
 
     assert!(source.contains("fn use0(cbp0: ::std::rc::Rc<dyn Fn(f64) -> f64>)"));
 }
+
+#[test]
+fn generic_class_default_impl_carries_the_generated_bound_set() {
+    // Round 31, Agent E item 2. A generic reference class's inner-record
+    // `Default` impl used to declare the derive-equivalent `T: Default` and
+    // nothing more. That cannot prove what a DELEGATING field default needs: a
+    // field whose type is another generated class resolves through that class's
+    // own `Default`, which is emitted with the crate's full generated bound set
+    // (`classes::GENERATED_TYPE_PARAM_BOUNDS`).
+    //
+    // NON-VACUOUS: with `T: Default` alone this reports "the trait
+    // `Clone`/`IntoSmeltUnknown`/`SmeltFromUnknown` is not implemented for `T`"
+    // once per missing bound, at every field default that reaches a generated
+    // class.
+    let source = source_for(
+        r"
+class Leaf<T> {
+  value: T;
+  constructor(value: T) { this.value = value; }
+  set(value: T): void { this.value = value; }
+}
+class Holder<T> {
+  leaf: Leaf<T>;
+  constructor(leaf: Leaf<T>) { this.leaf = leaf; }
+  swap(leaf: Leaf<T>): void { this.leaf = leaf; }
+}
+",
+    );
+
+    assert!(source.contains(
+        "impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Default for HolderInner<T> where Leaf<T>: Default"
+    ));
+}
+
+#[test]
+fn a_callable_field_is_never_a_delegation_of_its_own_type() {
+    // The other half of the same rule. A callable field's default is a
+    // CONSTRUCTED no-op closure, so the field type is not what `default()`
+    // resolves through — but the closure's BODY delegates whenever the slot's
+    // return type has to be produced from somewhere, and a textual search for
+    // `default()` saw that and asked for `Rc<dyn Fn(..)>: Default`. Nothing
+    // implements it, so the whole `Default` impl became unusable and every
+    // `Inner::default()` reported E0599 ("trait bounds were not satisfied").
+    //
+    // NON-VACUOUS: without the fix the impl header carries
+    // `where ::std::rc::Rc<dyn Fn() -> Chain<T>>: Default`.
+    let source = source_for(
+        r"
+class Chain<T> {
+  value: T;
+  rewind: () => Chain<T>;
+  constructor(value: T) {
+    this.value = value;
+    this.rewind = () => { this.value = value; return this; };
+  }
+}
+",
+    );
+
+    assert!(source.contains("Default for ChainInner<T>"));
+    assert!(!source.contains("Chain<T>>: Default"));
+}
