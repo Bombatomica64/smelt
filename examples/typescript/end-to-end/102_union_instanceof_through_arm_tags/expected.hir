@@ -1,0 +1,41 @@
+module examples/typescript/end-to-end/102_union_instanceof_through_arm_tags/input.ts (ModuleId(0))
+  body BodyId(4)
+  items
+    fn label owner Module
+    fn size owner Module
+    fn lookup owner Module
+    fn run owner Module
+  exprs
+    #0: async fn() -> Future<None> = @3(run)
+    #1: Future<None> = call #0()
+    #2: None = async_spawn_local(#1)
+    #3: Future<None> = async_exit_drain()
+    #4: None = await #3
+  stmts
+    s0: #2
+    s1: #4
+  async state machine
+    states [state0, state1]
+    suspend #4 on #3 -> state5
+
+interned types
+  t0 = String
+  t1 = Future<String>
+  t2 = String | Future<String>
+  t3 = async fn(String | Future<String>) -> Future<String>
+  t4 = List<String>
+  t5 = String | List<String>
+  t6 = fn(String | List<String>) -> String
+  t7 = Float
+  t8 = Map<String, Float>
+  t9 = Float | Map<String, Float>
+  t10 = fn(Float | Map<String, Float>) -> String
+  t11 = None
+  t12 = Future<None>
+  t13 = async fn() -> Future<None>
+  t14 = Bool
+  t15 = Unknown
+  t16 = async fn(String | Future<String>) -> Future<String>
+  t17 = fn(String | List<String>) -> String
+  t18 = fn(Float | Map<String, Float>) -> String
+  t19 = async fn() -> Future<None>

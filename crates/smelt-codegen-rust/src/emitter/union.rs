@@ -580,18 +580,45 @@ impl FunctionEmitter<'_> {
             members
                 .iter()
                 .enumerate()
-                .filter(|(_, member)| {
-                    matches!(
-                        self.mir.types.get(**member),
-                        Some(Type::Class {
-                            name: class_symbol,
-                            ..
-                        }) if *class_symbol == class
-                    )
-                })
+                .filter(|(_, member)| self.union_member_is_class(**member, class))
                 .map(|(index, _)| format!("{union_enum_name}::M{index}(_)"))
                 .collect::<Vec<_>>(),
         )
+    }
+
+    /// Whether a union arm's type IS the class `instanceof` names.
+    ///
+    /// A nominal answer is not enough. Several JavaScript classes lower to a
+    /// dedicated `Type` variant rather than to `Type::Class`, because Smelt
+    /// models their data directly: a `Promise<T>` is `Type::Future`, an array
+    /// is `Type::List`, a `Map` is `Type::JsMap`, a `Set` is `Type::Set`. Those
+    /// arms are still that class, and `value instanceof Promise` on a
+    /// `string | Promise<string>` is the discriminant test for the future arm.
+    ///
+    /// Asking only "is this arm `Type::Class { name: Promise }`?" answered no
+    /// for every one of them, and an empty pattern list is emitted as a
+    /// constant `false` — a real answer for a union that genuinely cannot hold
+    /// the class, but here it made the promise branch DEAD CODE and the
+    /// function returned its string-formatted promise instead of awaiting it.
+    /// That is silently wrong output, not a compile error, which is why it
+    /// survived so long.
+    ///
+    /// Stated over the representation, so any class Smelt models as its own
+    /// `Type` variant is answered here rather than by naming spellings.
+    fn union_member_is_class(&self, member: TypeId, class: Symbol) -> bool {
+        let Ok(class_name) = self.symbol_name(class) else {
+            return false;
+        };
+        match self.mir.types.get(member) {
+            Some(Type::Class { name, .. }) => {
+                self.symbol_name(*name).is_ok_and(|name| name == class_name)
+            }
+            Some(Type::Future(_)) => class_name == "Promise",
+            Some(Type::List(_) | Type::Tuple(_)) => class_name == "Array",
+            Some(Type::JsMap(_, _)) => class_name == "Map",
+            Some(Type::Set(_)) => class_name == "Set",
+            _ => false,
+        }
     }
 
     /// Return the `SmeltUnknown` variant pattern a concrete member reconstructs from.

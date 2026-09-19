@@ -1025,6 +1025,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "99_substituted_parameter_keeps_its_abi",
     "100_exclude_over_a_literal_union",
     "101_erased_callback_returns_a_host_class",
+    "102_union_instanceof_through_arm_tags",
 ];
 
 /// The generated-Rust goldens cover EVERY emitted file, not just `main.rs`.
