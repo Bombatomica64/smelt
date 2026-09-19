@@ -1142,6 +1142,9 @@ impl<'mir> FunctionEmitter<'mir> {
                     &TypeSubstitution::erased(),
                 )?
             };
+            // A callable slot keeps the ABI its DECLARATION gave it, whatever
+            // the record was instantiated at (`emitter::record_slot_abi`).
+            let value = self.record_field_value_at_slot_abi(value, target, &target_field)?;
             field_text.push(format!("{field_name}: {value}"));
         }
         if self
@@ -1743,6 +1746,9 @@ impl<'mir> FunctionEmitter<'mir> {
                     &TypeSubstitution::erased(),
                 )?
             };
+            // A callable slot keeps the ABI its DECLARATION gave it, whatever
+            // the record was instantiated at (`emitter::record_slot_abi`).
+            let value = self.record_field_value_at_slot_abi(value, target, &field)?;
             field_text.push(format!("{field_name}: {value}"));
         }
         if self

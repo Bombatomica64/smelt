@@ -1906,6 +1906,35 @@ impl FunctionEmitter<'_> {
             let _ = function;
             return self.value_at_type(arg, source_ty);
         }
+        // The same rule one level down. A constructor or method parameter can
+        // MENTION the callee's type parameters without being one — `class
+        // Pair<A> { constructor(left: Cell<A>) }` declares `Cell<A>` — and the
+        // declared spelling is the only thing MIR hands this site: nothing
+        // substituted `A`. Coercing the argument to it asks for a `Cell<A>`
+        // where a `Cell<f64>` is in hand, and the record adapter dutifully
+        // rebuilds the struct with its `value` field erased to `SmeltUnknown`
+        // (round 32, "a record rebuilt at a substituted argument erases its
+        // field").
+        //
+        // The argument's own type is the evidence Rust's inference would use,
+        // so bind the callee's parameters from the declared/actual pair and
+        // coerce to the SUBSTITUTED parameter type. Where nothing is bound, or
+        // the substituted type was never interned, `substituted_type_id` fails
+        // closed and the declared type stays in charge exactly as before.
+        if !class_type_params.is_empty() {
+            let declared_names = class_type_params.iter().copied().collect::<Vec<_>>();
+            let bindings = collect_bindings_from_types(
+                self.mir,
+                &declared_names,
+                &[target_ty],
+                &[Some(self.operand_ty(arg)?)],
+            );
+            if let Some(substituted) = substituted_type_id(self.mir, target_ty, &bindings)
+                && substituted != target_ty
+            {
+                return self.value_at_type(arg, substituted);
+            }
+        }
         self.value_at_type(arg, target_ty)
     }
 
