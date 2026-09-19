@@ -286,3 +286,22 @@ alike. Measured both ways: 31741 without it, 31716 (the baseline, +0) with it.
 Examples invariant: avoidable **0**, delta **+0**. Runtime prelude grew by the
 one new blanket impl (+196 occurrences across 87 files) and the baseline is
 re-snapshot for that growth alone.
+
+## Gates
+
+| gate | result |
+| --- | --- |
+| examples invariant (`--fail-on-regression`) | avoidable **0**, delta +0 in all three categories; baseline re-snapshot for prelude growth (+196, the new blanket impl) and for fixture 90 |
+| es-toolkit ratchet (`--fail-on-regression`) | avoidable **31716** vs baseline 31716, **+0**; legitimate +0, prelude +4. Equal, so not re-snapshot |
+| remeda generated `cargo test` | **1789 passed / 0 failed** |
+| radash generated `cargo test` | **84 passed / 0 failed** |
+| `cargo test -p smelt-frontend-ts --no-default-features` | 1092 passed / 0 failed (1085 before this round, +7 new) |
+| `cargo test -p smelt-codegen-rust` | all 84 result lines ok / 0 failed |
+| `cargo test -p smelt-transpiler` | 117 passed / 0 failed, incl. the 87-fixture end-to-end suite |
+| `type_param_render_scope_runtime -- --ignored` | 2 passed / 0 failed |
+| `cargo clippy --all-targets` | no new findings |
+
+Corpora were rebuilt from clean checkouts with the final binary:
+es-toolkit `e008a2818cd8d07469a5cc12ee0c02405d523e07`, remeda
+`3c80f28bb394edbf89f1fc9978571dec8ed20edc`, radash
+`4cab1900d08e0997abc4f17aec3cbfe18958d766`.
