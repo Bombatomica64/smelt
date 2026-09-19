@@ -4705,9 +4705,24 @@ impl<'mir> FunctionEmitter<'mir> {
             Some(Type::Dict(key, value)) => {
                 self.type_contains_noncloneable(*key) || self.type_contains_noncloneable(*value)
             }
-            Some(Type::Tuple(items) | Type::Union(items)) => items
+            Some(Type::Tuple(items)) => items
                 .iter()
                 .any(|item| self.type_contains_noncloneable(*item)),
+            // A union's cloneability is its RUST representation's, not its
+            // arms'. A union that erases stores a `SmeltUnknown`, and a union
+            // with concrete storage stores a generated `SmeltUnion…` that
+            // derives `Clone`; either way, reading one out of a place yields an
+            // owned value and the read must clone.
+            //
+            // Recursing into the arms claimed otherwise as soon as ONE arm was a
+            // future: `str: string | Promise<string> | HtmlEscapedString` is a
+            // plain `SmeltUnknown` parameter in the generated Rust, but every
+            // read of it was emitted without `.clone()`, so the first read moved
+            // out of the parameter and every later one was `use of moved value`
+            // (5 × E0382 in Hono's `html.rs`). Erasing a value to inspect it is
+            // a read, not a move — the same rule the concrete-union arm of
+            // `coercion::erase` already states.
+            Some(Type::Union(_)) => false,
             _ => false,
         }
     }
