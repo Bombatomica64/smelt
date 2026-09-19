@@ -3,6 +3,7 @@
 mod ambient_globals;
 mod arguments_forwarding;
 mod function_statics;
+mod hoisting;
 mod specialization;
 pub(in crate::lowering) mod spread_arguments;
 mod state;
