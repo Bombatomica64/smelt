@@ -1079,6 +1079,19 @@ impl FunctionEmitter<'_> {
         {
             return Ok(format!("SmeltRegExp::new({value_text}, String::new())"));
         }
+        // A value at a `Headers` slot is the spec's `HeadersInit` conversion of
+        // it: WHATWG says a header list is built from a `Headers`, a
+        // `Record<string, string>` or a sequence of name/value pairs, and
+        // `headers_conversion_text` is already that conversion — the `new
+        // Headers(init)` constructor and every init-dictionary key go through
+        // it. A coercion seam reaches the same pairing whenever an init arm
+        // flows into a `Headers`-typed slot (Hono's
+        // `responseHeaders ?? (headers as Record<string, string> | undefined)`),
+        // and without the arm the record was assigned to the header list
+        // unconverted.
+        if self.is_headers_class_type(target)? && self.is_headers_init_type(source)? {
+            return self.headers_conversion_text(value_text, source);
+        }
         if let (Some(Type::Optional(source_inner)), Some(Type::Optional(target_inner))) =
             (self.mir.types.get(source), self.mir.types.get(target))
             && self.mir.types.get(*source_inner) == Some(&Type::Optional(*target_inner))

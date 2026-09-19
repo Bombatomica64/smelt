@@ -125,6 +125,33 @@ impl FunctionEmitter<'_> {
         }
     }
 
+    /// Whether a value of this type is a `HeadersInit` the spec's conversion models.
+    ///
+    /// The predicate half of [`Self::headers_conversion_text`]: the arms are
+    /// the same, so a coercion seam can ask whether the conversion exists
+    /// before committing to it and the two cannot disagree about which shapes
+    /// `HeadersInit` admits. A value that already IS a `Headers` is excluded —
+    /// there is nothing to convert, and the ordinary identity path answers it.
+    pub(super) fn is_headers_init_type(&self, ty: TypeId) -> Result<bool, EmitError> {
+        if self.is_headers_class_type(ty)? {
+            return Ok(false);
+        }
+        Ok(match self.mir.types.get(ty) {
+            // `Record<string, string>`.
+            Some(&Type::Dict(key, value)) => {
+                matches!(self.mir.types.get(key), Some(Type::String))
+                    && matches!(self.mir.types.get(value), Some(Type::String))
+            }
+            // `[string, string][]`, and the `string[][]` a bare literal infers.
+            Some(&Type::List(item)) => {
+                self.is_string_pair_type(item)
+                    || matches!(self.mir.types.get(item), Some(&Type::List(inner))
+                        if matches!(self.mir.types.get(inner), Some(Type::String)))
+            }
+            _ => false,
+        })
+    }
+
     /// Emit one `Headers` operation as a method call on the concrete value.
     ///
     /// Argument arity is checked here because the source surface fixes it: a
