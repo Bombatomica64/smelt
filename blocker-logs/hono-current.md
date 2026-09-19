@@ -5,6 +5,12 @@
 - Files scanned: 258 · with blockers: 0
 
 
+## Whole-crate `cargo check` (round 32 merged head `b291fc07`)
+
+Orchestrator measurement, clean clone, fresh full-feature binary, repo-root `--manifest-path`:
+33 modules, **9 errors** (E0308 3, E0507 2, E0425 2, E0609 1), from 45. Uncarried generic-class
+type parameters are now elided (`generic_elision.rs`). Owners: `hono-round33-brief.md`.
+
 ## Whole-crate `cargo check` (round 31 merged head `bec88f30`)
 
 Orchestrator measurement, clean clone, fresh full-feature binary, repo-root `--manifest-path`:
