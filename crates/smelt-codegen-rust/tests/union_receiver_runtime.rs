@@ -205,3 +205,45 @@ test('an empty list arm answers undefined', () => {
 ";
     run_fixture(source, "smelt_union_optional_element_read");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_generated_union_dispatches_a_property_through_its_own_arms() {
+    // A property read and a property write on a value whose static type is a
+    // GENERATED union. Every arm declares `tag` at one type, so both sides are
+    // dispatched on the tag and each arm touches its own struct field: nothing
+    // is erased, and no `SmeltUnknown` runtime-shape `match` is involved (one
+    // would not even type-check against a `SmeltUnion…` scrutinee).
+    //
+    // The VALUE is the assertion, not the spelling: a write that landed on a
+    // copy of the receiver — the failure mode of an erase/mutate path with no
+    // write-back — still compiles and still reads back the OLD tag.
+    let source = r"
+import { test, expect } from 'vitest';
+
+interface Keyed {
+  tag: string;
+  kind: string;
+}
+
+interface Noted {
+  tag: string;
+  note: string;
+}
+
+type Tagged = Keyed | Noted;
+
+function retag(value: Tagged, next: string): string {
+  value.tag = next;
+  return value.tag;
+}
+
+test('each arm writes and reads its own field', () => {
+  const keyed: Keyed = { tag: 'first', kind: 'k' };
+  const noted: Noted = { tag: 'third', note: 'n' };
+  expect(retag(keyed, 'second')).toBe('second');
+  expect(retag(noted, 'fourth')).toBe('fourth');
+});
+";
+    run_fixture(source, "smelt_generated_union_property_dispatch");
+}

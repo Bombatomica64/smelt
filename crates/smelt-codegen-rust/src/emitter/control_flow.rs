@@ -554,6 +554,43 @@ impl FunctionEmitter<'_> {
                     ));
                     return Ok(());
                 }
+                // A CONCRETE union stores a tagged `SmeltUnion…` enum, so a
+                // dotted property write cannot be matched with
+                // `SmeltUnknown::Object(..)` patterns the way the erased arm
+                // below does (`expected SmeltUnion778, found SmeltUnknown`).
+                //
+                // The dispatch rule is the union's OWN arms. When every arm
+                // declares the property, each arm takes its member's typed
+                // field write and nothing is erased. When it does not — the
+                // property belongs to one arm only, which is the shape a
+                // source-level narrowing selects — the write crosses the same
+                // boundary adapter the INDEXED write on a union receiver
+                // already uses (see the `Place::Index` arm below, H26's rule on
+                // the write path): erase out, mutate the erased view, convert
+                // back in and commit. Mutating a copy without committing it
+                // would drop the write silently. `x.k = v` and `x["k"] = v` are
+                // one operation in TypeScript, so they take one rule here.
+                if self.concrete_union_members(base_ty).is_some() {
+                    if let Some(statement) =
+                        self.concrete_union_field_assign_text(*base, *field, value)?
+                    {
+                        out.push_str("    ");
+                        out.push_str(&statement);
+                        out.push('\n');
+                        return Ok(());
+                    }
+                    let unknown_ty = self.type_id(Type::Unknown)?;
+                    let rendered_value = self.rvalue_text_for_dest(value, unknown_ty)?;
+                    let field_name = self.symbol_source_name(*field)?;
+                    let union_text = self.union_type_text(base_ty)?;
+                    let erased =
+                        self.erase_concrete_union_text(&self.local_value_text(*base)?, base_ty);
+                    out.push_str(&format!(
+                        "    {{ let smelt_value = {rendered_value}; let mut smelt_erased = {erased}; smelt_index_assign(&mut smelt_erased, {field_name:?}.to_owned(), smelt_value); {} = {union_text}::from_smelt_unknown(smelt_erased); }}\n",
+                        self.local_mut_value_text(*base)?
+                    ));
+                    return Ok(());
+                }
                 if matches!(
                     self.mir.types.get(base_ty),
                     Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })

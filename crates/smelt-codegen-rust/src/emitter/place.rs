@@ -87,6 +87,15 @@ impl FunctionEmitter<'_> {
                 {
                     return Ok(format!("({}.len() as f64)", self.local_value_text(*base)?));
                 }
+                // A value whose static type is a GENERATED union is dispatched
+                // through its own enum arms: when every arm declares the
+                // property at one type, the read is that type and each arm
+                // projects its own struct field. Erasing first would throw away
+                // a type the source already fixed, and in a crate that interns
+                // no `unknown` there is no erased carrier to answer with at all.
+                if let Some(text) = self.concrete_union_field_read_text(*base, *field)? {
+                    return Ok(text);
+                }
                 if matches!(
                     self.mir.types.get(base_ty),
                     Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })

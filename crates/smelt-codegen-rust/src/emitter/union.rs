@@ -868,6 +868,150 @@ impl FunctionEmitter<'_> {
         })
     }
 
+    /// Emit a dotted property write dispatched through a generated union's arms.
+    ///
+    /// A value whose static type is a concrete union is a tagged `SmeltUnion…`
+    /// enum, so the write is dispatched on the tag and each arm performs its own
+    /// member's typed struct-field assignment — the value is rendered at that
+    /// arm's declared field type, so nothing is erased on the way in.
+    ///
+    /// Returns `None` when at least one arm does not declare the property as a
+    /// named field. TypeScript only accepts such a write after narrowing the
+    /// receiver to the one arm that has it, and the tag alone cannot reproduce a
+    /// narrowing the MIR did not record, so the caller falls back to the erased
+    /// boundary adapter (documented at the call site in `control_flow`).
+    pub(super) fn concrete_union_field_assign_text(
+        &self,
+        base: LocalId,
+        field: Symbol,
+        value: &Rvalue,
+    ) -> Result<Option<String>, EmitError> {
+        let base_ty = self.local_decl(base)?.ty;
+        let Some(members) = self.concrete_union_members(base_ty) else {
+            return Ok(None);
+        };
+        let members = members.to_vec();
+        let field_types = members
+            .iter()
+            .map(|member| self.class_named_field_ty(*member, field))
+            .collect::<Vec<_>>();
+        if field_types.iter().any(Option::is_none) {
+            return Ok(None);
+        }
+        let union_enum_name = union_name(base_ty);
+        let field_name = sanitize_ident(self.symbol_name(field)?);
+        let mut arms = Vec::with_capacity(members.len());
+        for (index, field_ty) in field_types.into_iter().enumerate() {
+            let Some(field_ty) = field_ty else {
+                return Ok(None);
+            };
+            let rendered_value = self.rvalue_text_for_dest(value, field_ty)?;
+            arms.push(format!(
+                "{union_enum_name}::M{index}(smelt_union_arm) => {{ smelt_union_arm.{field_name} = {rendered_value}; }}"
+            ));
+        }
+        Ok(Some(format!(
+            "match &mut {} {{ {} }}",
+            self.local_mut_value_text(base)?,
+            arms.join(", ")
+        )))
+    }
+
+    /// Emit a dotted property read dispatched through a generated union's arms.
+    ///
+    /// The mirror of [`Self::concrete_union_field_assign_text`] on the read
+    /// side: each arm projects its own member's struct field, so the value keeps
+    /// the type the source gave it instead of being erased and looked up by
+    /// name at run time.
+    ///
+    /// Returns `None` unless every arm declares the property at ONE type. Arms
+    /// that disagree on the field's type would need the field's own union, which
+    /// this rule does not mint; the caller keeps its existing path for those.
+    pub(super) fn concrete_union_field_read_text(
+        &self,
+        base: LocalId,
+        field: Symbol,
+    ) -> Result<Option<String>, EmitError> {
+        let base_ty = self.local_decl(base)?.ty;
+        if self.concrete_union_field_ty(base_ty, field).is_none() {
+            return Ok(None);
+        }
+        let Some(members) = self.concrete_union_members(base_ty) else {
+            return Ok(None);
+        };
+        let member_count = members.len();
+        let union_enum_name = union_name(base_ty);
+        let field_name = sanitize_ident(self.symbol_name(field)?);
+        let arms = (0..member_count)
+            .map(|index| {
+                format!(
+                    "{union_enum_name}::M{index}(smelt_union_arm) => smelt_union_arm.{field_name}.clone()"
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        Ok(Some(format!(
+            "match &{} {{ {arms} }}",
+            self.local_value_text(base)?
+        )))
+    }
+
+    /// Resolve the one type every arm of a concrete union gives a named field.
+    ///
+    /// `None` when the receiver is not a concrete union, when an arm does not
+    /// declare the field, or when the arms disagree about its type — the three
+    /// cases in which the tag alone cannot decide a single static read type.
+    pub(super) fn concrete_union_field_ty(&self, union_ty: TypeId, field: Symbol) -> Option<TypeId> {
+        let members = self.concrete_union_members(union_ty)?;
+        let mut resolved: Option<TypeId> = None;
+        for member in members {
+            let field_ty = self.class_named_field_ty(*member, field)?;
+            match resolved {
+                Some(previous) if previous != field_ty => return None,
+                _ => resolved = Some(field_ty),
+            }
+        }
+        resolved
+    }
+
+    /// Resolve the declared type of one named struct field on a record type.
+    ///
+    /// A class and an interface (or a synthesized object-literal shape) are the
+    /// same kind of record here — both emit a Rust struct with the same field
+    /// spelling — so both field tables answer, exactly as
+    /// [`Self::class_has_named_field`] consults both.
+    ///
+    /// Returns `None` when the type is not a materialized record or the field is
+    /// not one of its declared members, which is how the union write dispatch
+    /// above decides that an arm cannot take a typed write.
+    fn class_named_field_ty(&self, ty: TypeId, field: Symbol) -> Option<TypeId> {
+        if !self.class_has_named_field(ty, field) {
+            return None;
+        }
+        let Some(Type::Class { name, .. }) = self.mir.types.get(ty) else {
+            return None;
+        };
+        let fields = self
+            .mir
+            .classes
+            .iter()
+            .find(|class| class.name == *name)
+            .map(|class| crate::classes::effective_class_fields(self.mir, class))
+            .or_else(|| {
+                self.mir
+                    .interfaces
+                    .iter()
+                    .find(|interface| interface.name == *name)
+                    .map(|interface| {
+                        crate::classes::effective_interface_fields(self.mir, interface)
+                    })
+            })?;
+        fields
+            .into_iter()
+            .find(|candidate| candidate.name == field)
+            .map(|candidate| candidate.ty)
+    }
+
     /// Return whether a concrete union member type statically carries a field.
     ///
     /// Mirrors the frontend field-presence rule so the emitted discriminant

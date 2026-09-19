@@ -1018,6 +1018,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "92_request_init_members",
     "93_nullish_assign_and_optional_receiver",
     "94_throwing_getter_in_callback",
+    "95_union_value_dispatch",
 ];
 
 /// The generated-Rust goldens cover EVERY emitted file, not just `main.rs`.

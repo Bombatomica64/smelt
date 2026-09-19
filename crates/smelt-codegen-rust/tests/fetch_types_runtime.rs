@@ -446,3 +446,32 @@ test("an erased fetch value enumerates no own keys", () => {
 "#;
     run_fetch_fixture(source, "fetch_boundary");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_body_init_union_is_extracted_per_arm() {
+    // `BodyInit` is a union whose every arm names a concrete type, so it lowers
+    // to a generated `SmeltUnion…` enum. The extraction is dispatched on the tag
+    // and each arm takes its own rule -- a string arm is text, a buffer-source
+    // arm contributes its bytes, a `Blob` arm contributes bytes AND its MIME
+    // type. Erasing the value first and shape-testing it at run time would
+    // answer the same bytes for the two byte-backed arms but lose the blob's
+    // content type, which is what the third case pins.
+    let source = r#"
+import { test, expect } from "vitest";
+const read = async (init: string | Uint8Array | Blob): Promise<string> =>
+  await new Response(init).text();
+test("the string arm is text", async () => {
+  expect(await read("hello")).toBe("hello");
+});
+test("the buffer-source arm is its bytes", async () => {
+  expect(await read(new Uint8Array([104, 105, 33]))).toBe("hi!");
+});
+test("the blob arm carries its own content type", async () => {
+  const blob = new Blob(["body"], { type: "text/plain" });
+  expect(await read(blob)).toBe("body");
+  expect(new Response(blob).headers.get("content-type")).toBe("text/plain");
+});
+"#;
+    run_fetch_fixture(source, "fetch_body_init_union");
+}

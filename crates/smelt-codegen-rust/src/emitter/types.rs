@@ -730,6 +730,14 @@ impl FunctionEmitter<'_> {
                 if matches!(self.mir.types.get(base_ty), Some(Type::String)) {
                     return Ok(self.string_field_read("", *field)?.1);
                 }
+                // A GENERATED union receiver whose every arm declares the field
+                // at one type reads at that type: `place::place_text` dispatches
+                // it through the union's own arms, so reporting the erased
+                // fallback here would make callers re-coerce an already concrete
+                // value. The text and the type are decided by the same rule.
+                if let Some(field_ty) = self.concrete_union_field_ty(base_ty, *field) {
+                    return Ok(field_ty);
+                }
                 if let Some((_, descriptor)) = self.descriptor_for_field(base_ty, *field) {
                     return Ok(descriptor.read_ty);
                 }

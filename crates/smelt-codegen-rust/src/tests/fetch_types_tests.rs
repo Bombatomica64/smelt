@@ -381,18 +381,23 @@ console.log(contentTypeOf([["content-type", "text/html"]]));
     );
 }
 
-/// An erased `BodyInit` body dispatches at run time instead of being refused.
+/// A `BodyInit` body is dispatched through the generated union's OWN arms.
 ///
-/// `BodyInit` is a union whose unmodeled arms are host classes, so a
-/// `body?: BodyInit | null | undefined` parameter — Hono's own
-/// `createResponseInstance` signature — erases, and the whole constructor call
-/// used to be a build-time blocker including for the string every real caller
-/// passes. The arms are distinguishable at run time by tag and only there, so
-/// the conversion dispatches on the tag: a string is text, a nullish value is
-/// the empty body, and an unmodeled arm throws naming itself rather than
-/// putting wrong bytes in the body.
+/// `body?: BodyInit | null | undefined` — Hono's own `createResponseInstance`
+/// signature — is an optional `BodyInit`, and every arm of `BodyInit` names a
+/// concrete modeled type, so the union has a generated tagged enum. The tag
+/// already says which arm is live: each arm takes its own member's extraction
+/// rule (a string arm is text, a buffer-source arm is its bytes, a blob arm
+/// carries its MIME type), and the absent arm is the empty body.
+///
+/// The negative assertions are the rule: matching a `SmeltUnion…` scrutinee
+/// with `SmeltUnknown::…` patterns does not type-check, and erasing the value
+/// first would throw away an arm the compiler already knows. The erased
+/// runtime-shape `match` stays for a body whose static type really is erased —
+/// one reaching this slot through `unknown` — which is a different receiver
+/// type, not a different spelling of this one.
 #[test]
-fn an_erased_body_init_dispatches_on_the_runtime_tag() {
+fn a_body_init_union_dispatches_through_its_own_arms() {
     let source = source_for(
         r#"
 const make = (body?: BodyInit | null | undefined): Response => new Response(body);
@@ -402,16 +407,20 @@ const empty = make();
     );
 
     assert!(
-        source.contains("SmeltUnknown::String(value) => SmeltBody::from_text("),
-        "a string arm must become a text body:\n{source}"
+        source.contains("SmeltBody::from_text(&smelt_body_arm)"),
+        "the string arm must become a text body from its own payload:\n{source}"
     );
     assert!(
-        source.contains("SmeltUnknown::Null | SmeltUnknown::Undefined => SmeltBody::empty()"),
-        "a nullish arm must become the empty body:\n{source}"
+        source.contains("None => SmeltBody::empty()"),
+        "an absent body must become the empty body:\n{source}"
     );
     assert!(
-        source.contains("body arm is not modeled yet"),
-        "an unmodeled arm must name itself at run time:\n{source}"
+        !source.contains("SmeltUnknown::String(value) => SmeltBody::from_text("),
+        "a generated union must not be matched with erased runtime-shape arms:\n{source}"
+    );
+    assert!(
+        !source.contains("body arm is not modeled yet"),
+        "every arm of the tagged union is modeled, so no arm may panic:\n{source}"
     );
 }
 

@@ -709,6 +709,24 @@ impl FunctionEmitter<'_> {
                 "{{ let smelt_boundary = smelt_multipart_boundary(); SmeltBody::from_blob({body_text}.to_multipart(&smelt_boundary), format!(\"multipart/form-data; boundary={{smelt_boundary}}\")) }}"
             ));
         }
+        // A value whose static type is a GENERATED union is dispatched through
+        // its OWN enum arms, never through the `SmeltUnknown` runtime-shape
+        // `match` below. `BodyInit` is exactly such a union: every arm names a
+        // concrete WHATWG type, so each arm's payload takes that type's own
+        // extraction rule (a `string` arm is text, a `Blob` arm contributes its
+        // bytes and MIME type, a `ReadableStream` arm passes its handle
+        // through). Matching a `SmeltUnion…` scrutinee with `SmeltUnknown::…`
+        // patterns does not type-check, and erasing the value first would throw
+        // away the static arm the source already decided.
+        if let Some(members) = self.concrete_union_members(body_ty) {
+            let union = crate::emitter::union::union_name(body_ty);
+            let mut arms = Vec::with_capacity(members.len());
+            for (index, member) in members.iter().copied().enumerate() {
+                let arm = self.body_conversion_text("smelt_body_arm", member)?;
+                arms.push(format!("{union}::M{index}(smelt_body_arm) => {arm}"));
+            }
+            return Ok(format!("match {body_text} {{ {} }}", arms.join(", ")));
+        }
         match self.mir.types.get(body_ty) {
             Some(Type::String) => Ok(format!("SmeltBody::from_text(&{body_text})")),
             Some(Type::None) => Ok("SmeltBody::empty()".to_owned()),
