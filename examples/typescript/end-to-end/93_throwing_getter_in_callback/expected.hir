@@ -1,0 +1,104 @@
+module examples/typescript/end-to-end/93_throwing_getter_in_callback/input.ts (ModuleId(0))
+  body BodyId(7)
+  items
+    class Registry fields [Private slots: List<String>] constructor Some(ItemId(5)) methods [ItemId(0), ItemId(1), ItemId(2), ItemId(3), ItemId(4)] implements []
+  locals
+    %0 const registry: Registry
+    %1 let caught: String
+  exprs
+    #0: Registry = new Registry()
+    #1: Registry = %0
+    #2: Registry = %0
+    #3: fn(String) -> None = #2.add
+    #4: Registry = %0
+    #5: String = "alpha"
+    #6: None = #4.add(#5)
+    #7: Registry = %0
+    #8: Registry = %0
+    #9: fn(String) -> None = #8.add
+    #10: Registry = %0
+    #11: String = "beta"
+    #12: None = #10.add(#11)
+    #13: Registry = %0
+    #14: Unknown = #13.first
+    #15: None = @7(console_log)
+    #16: None = call #15(#14)
+    #17: Registry = %0
+    #18: fn() -> String = #17.describe
+    #19: Registry = %0
+    #20: String = #19.describe()
+    #21: None = @8(console_log)
+    #22: None = call #21(#20)
+    #23: Registry = %0
+    #24: fn() -> String = #23.label
+    #25: Registry = %0
+    #26: String = #25.label()
+    #27: None = @9(console_log)
+    #28: None = call #27(#26)
+    #29: Registry = %0
+    #30: fn(List<String>) -> List<String> = #29.tagged
+    #31: Registry = %0
+    #32: String = "a"
+    #33: String = "b"
+    #34: List<String> = [#32, #33]
+    #35: List<String> = #31.tagged(#34)
+    #36: String = ","
+    #37: String = string_join #35, #36
+    #38: None = @10(console_log)
+    #39: None = call #38(#37)
+    #40: Registry = %0
+    #41: Registry = %0
+    #42: fn(String) -> None = #41.add
+    #43: Registry = %0
+    #44: String = "gamma"
+    #45: None = #43.add(#44)
+    #46: Registry = %0
+    #47: Registry = %0
+    #48: fn(String) -> None = #47.add
+    #49: Registry = %0
+    #50: String = "delta"
+    #51: None = #49.add(#50)
+    #52: String = "none"
+    #53: Registry = %0
+    #54: fn() -> String = #53.describe
+    #55: Registry = %0
+    #56: String = #55.describe()
+    #57: String = %1
+    #58: String = "no throw"
+    #59: String = %1
+    #60: String = "threw"
+    #61: String = %1
+    #62: None = @11(console_log)
+    #63: None = call #62(#61)
+  stmts
+    s0: let %0: Registry = #0
+    s1: #6
+    s2: #12
+    s3: #16
+    s4: #22
+    s5: #28
+    s6: #39
+    s7: #45
+    s8: #51
+    s9: let %1: String = #52
+    s10: #56
+    s11: #57 = #58
+    s12: #59 = #60
+    s13: try BlockId(1) catch BlockId(2)
+    s14: #63
+
+interned types
+  t0 = Registry
+  t1 = String
+  t2 = List<String>
+  t3 = None
+  t4 = Float
+  t5 = Bool
+  t6 = Unknown
+  t7 = Dict<String, Unknown>
+  t8 = Int
+  t9 = fn(String, Int, List<String>) -> String
+  t10 = List<Unknown>
+  t11 = fn(String) -> None
+  t12 = fn() -> String
+  t13 = fn(List<String>) -> List<String>

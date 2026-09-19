@@ -226,3 +226,42 @@ Fixtures: `examples/typescript/end-to-end/92_nullish_assign_and_optional_receive
 against Node 22) covers rules 1, 2 and 3. Sub-fix 3b has no end-to-end fixture: the record reaches
 that slot from a SYNTHESIZED default rather than from anything a source file can spell, so its
 evidence is the corpus measurement (10 → 0) plus the unchanged emitter suite.
+
+## Item 4 — `?` inside a closure whose generated return type is not `Result`
+
+**Rule.** A getter whose body can throw is emitted returning `Result`, so reading the property is
+a fallible operation. `?` is only one of the two ways to be fallible, and it travels ONLY where
+the enclosing function returns `Result`. A closure whose contextual callback type is a plain
+`Fn(..) -> T` is not such a function, so a `?` in its body is
+`error[E0277]: the ? operator can only be used in a closure that returns Result`. Hono hits it
+three times, reading `c.executionCtx` — a getter that throws when the context has none — inside a
+callback the framework types as infallible.
+
+**Fix.** `emitter/place.rs`'s descriptor-getter read chose `?` from the GETTER's fallibility
+alone. It now also asks the enclosing function: fallible reader → `?`; non-fallible reader → the
+panic path (`unwrap_or_else(|error| smelt_panic_throw(error))`), which is the round-6 floor every
+other non-fallible callback seam already uses. The throw is not dropped: the program stops at it
+rather than continuing with a fabricated value.
+
+Both branches of the rule existed only by accident before: the previous emission put `?` in a
+plain non-throwing METHOD too (`fn spread(&self) -> SmeltUnknown` with `self.__smelt_get_active()?`
+in its body), which is the same `E0277` — the codegen test that pinned it asserted text, never
+compilability, so it passed. That test now asserts both forms.
+
+**Result:** E0277 5 → 2; the two survivors are the `(SmeltUnknown, RouterRoute): SmeltFromUnknown`
+tuple family, Agent C's. Crate total 216 → 213.
+
+**Follow-up, not done here.** The better answer for a plain method is to make the READER fallible
+so the `?` form applies, rather than to panic. That is a MIR change:
+`lower/passes/throwing.rs` keys off CALLS (`Callee::Builtin`, a call to a throwing function), and
+a descriptor-getter read is a `Place::Field` read, not a call — so the pass never sees it. Adding
+it would mark `spread`-shaped methods throwing and let their throws stay catchable. It would also
+mark the Hono closures, whose contextual callback type is NOT fallible, so that change has to come
+with the decision about what a throwing closure does against an infallible `dyn Fn` signature —
+which is why it is recorded rather than folded into this item.
+
+Fixture: `examples/typescript/end-to-end/93_throwing_getter_in_callback/` (verified against
+Node 22; nothing in it makes the getter actually throw from the infallible side, because a throw
+that escapes an infallible callback is a process stop rather than a catchable error — that is the
+floor being recorded, not a behaviour to diff). The codegen test
+`a_throwing_getter_read_is_fallible_in_both_enclosures` pins both forms.

@@ -649,9 +649,26 @@ impl FunctionEmitter<'_> {
         // mismatch naming the property. Every consumer of a property read wants
         // the value, never the `Result`, so the propagation belongs here rather
         // than in each consumer.
-        let propagate = if getter.can_throw { "?" } else { "" };
+        //
+        // `?` only travels where the ENCLOSING function returns `Result`. A
+        // closure whose contextual callback type is not fallible is emitted as
+        // a plain `Fn(..) -> T`, so a `?` in its body is `E0277` ("the `?`
+        // operator can only be used in a closure that returns `Result`"). The
+        // throw is not dropped there: it takes the same panic path every other
+        // non-fallible callback seam uses (`blocker-logs/hono-fallible-ops.md`,
+        // the round-6 floor), so the program still stops at the throw instead
+        // of continuing with a fabricated value.
+        let fallible_read = |read: String| -> String {
+            if !getter.can_throw {
+                return read;
+            }
+            if self.function.can_throw {
+                return format!("{read}?");
+            }
+            format!("{read}.unwrap_or_else(|error| smelt_panic_throw(error))")
+        };
         if getter_class == owner.name {
-            return Ok(Some(format!("{base_text}.{method_name}(){propagate}")));
+            return Ok(Some(fallible_read(format!("{base_text}.{method_name}()"))));
         }
         let descriptor_value = self.descriptor_value_text(getter_class, descriptor)?;
         let arguments = getter
@@ -668,9 +685,9 @@ impl FunctionEmitter<'_> {
             })
             .collect::<Vec<_>>()
             .join(", ");
-        Ok(Some(format!(
-            "{descriptor_value}.{method_name}({arguments}){propagate}"
-        )))
+        Ok(Some(fallible_read(format!(
+            "{descriptor_value}.{method_name}({arguments})"
+        ))))
     }
 
     /// Emits a descriptor setter statement for one statically known class field.

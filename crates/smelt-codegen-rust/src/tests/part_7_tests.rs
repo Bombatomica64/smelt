@@ -13976,15 +13976,29 @@ export function use(bag: Bag): string {
 }
 
 /// A getter that can throw is emitted returning `Result`, so reading the
-/// property has to propagate with `?` like any other fallible call.
+/// property is a fallible operation and never hands its consumer the `Result`
+/// itself. The first thing done to a read value is usually `.clone()`, and
+/// `Box<dyn Error>` is not `Clone`, so that surfaced as `E0599` on the `Result`
+/// rather than as a type mismatch naming the property.
 ///
-/// Without the `?` the read hands its consumer the `Result` itself. The first
-/// thing done to a read value is usually `.clone()`, and `Box<dyn Error>` is
-/// not `Clone`, so this surfaced as `E0599` on the `Result` rather than as a
-/// type mismatch naming the property -- 1 error in the hono slice, on a
-/// throwing `get activeRouter()` spread into an object.
+/// WHICH fallible form is emitted depends on the enclosing item, because `?`
+/// only travels where the enclosing function returns `Result`:
+///
+/// * a reader that is itself fallible propagates with `?`;
+/// * a reader that is NOT — a plain method, or a closure whose contextual
+///   callback type is a plain `Fn(..) -> T` — takes the panic path, the same
+///   floor every other non-fallible callback seam uses
+///   (`blocker-logs/hono-fallible-ops.md`). Emitting `?` there was `E0277`
+///   ("the `?` operator can only be used in a closure that returns `Result`"),
+///   which is what three of Hono's closures hit.
+///
+/// The throw is not dropped in the second case: the program stops at it rather
+/// than continuing with a fabricated value. Making the READER fallible instead,
+/// so the `?` form applies more often, is a MIR throwing-propagation change —
+/// that pass keys off calls, and a property read is not one — and is recorded
+/// in `blocker-logs/hono-round30-emitter.md`.
 #[test]
-fn a_throwing_getter_read_propagates_with_question_mark() {
+fn a_throwing_getter_read_is_fallible_in_both_enclosures() {
     let source = source_for(
         r"
 export class Holder {
@@ -13999,20 +14013,34 @@ export class Holder {
   spread(): unknown {
     return { ...this.active };
   }
+  rethrow(): string {
+    if (this.inner === 'x') {
+      throw new Error('x');
+    }
+    return this.active;
+  }
 }
 ",
     );
 
     // The enabling condition: the getter really is emitted as fallible. If this
-    // stops holding the assertion below would pass for the wrong reason.
+    // stops holding the assertions below would pass for the wrong reason.
     assert!(
         source
             .contains("fn __smelt_get_active(&self) -> Result<String, Box<dyn std::error::Error>>"),
         "a throwing getter must be emitted returning Result: {source}"
     );
+    // A fallible reader propagates.
     assert!(
         source.contains("self.__smelt_get_active()?"),
-        "a throwing getter read must propagate with `?`: {source}"
+        "a fallible reader must propagate with `?`: {source}"
+    );
+    // A non-fallible reader takes the panic path instead of an invalid `?`.
+    assert!(
+        source.contains(
+            "self.__smelt_get_active().unwrap_or_else(|error| smelt_panic_throw(error))"
+        ),
+        "a non-fallible reader must take the panic path: {source}"
     );
     assert!(
         !source.contains("self.__smelt_get_active().clone()"),
