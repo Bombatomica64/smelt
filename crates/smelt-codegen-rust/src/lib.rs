@@ -5195,6 +5195,30 @@ fn emit_source_with_free_function_router(
         writer.line("impl<T: SmeltFromUnknown> SmeltFromUnknown for Option<T> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Null | SmeltUnknown::Undefined => None, other => Some(T::smelt_from_unknown(other)) } } }");
         writer.line("impl<T: SmeltFromUnknown + Clone + IntoSmeltUnknown> SmeltFromUnknown for SmeltJsSet<T> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Object(object) => { if let Some(SmeltUnknown::Array(members)) = object.get(\"__smelt_set\") { let mut set = SmeltJsSet::with_id(object.id); for member in members.into_vec() { set.insert(T::smelt_from_unknown(member)); } set } else { SmeltJsSet::default() } }, SmeltUnknown::Array(members) => { let mut set = SmeltJsSet::new(); for member in members.into_vec() { set.insert(T::smelt_from_unknown(member)); } set }, _ => SmeltJsSet::default() } } }");
         writer.blank_line();
+        // Un-erase a TUPLE: the exact inverse of `IntoSmeltUnknown for (A, B)`
+        // below, which encodes a pair as a two-element `SmeltUnknown::Array`.
+        //
+        // Without this, a generic whose argument is a tuple had no way back from
+        // the runtime carrier: a `T` recovered as `<T as
+        // SmeltFromUnknown>::smelt_from_unknown(..)` (the recovery arm the
+        // render scope selects when the position CAN spell the parameter — see
+        // `blocker-logs/hono-h42-erasure-substitution.md`) failed to compile the
+        // moment `T` was instantiated at a tuple, which is what Hono's
+        // `Router<[unknown, RouterRoute]>` is. The recovery rule was general;
+        // the trait's coverage of the type it recovers INTO was not, and a
+        // missing impl is not a reason to erase the value instead.
+        //
+        // Arity mirrors `IntoSmeltUnknown` exactly: adding an arity to one side
+        // without the other would make the round trip asymmetric, which is the
+        // defect this closes.
+        //
+        // A non-array value, or an array shorter than the tuple, fills the
+        // missing slots from `Undefined` and lets each element type apply its
+        // own JS coercion — the same tolerant fallback every container impl
+        // above takes, rather than a panic on a shape the source already
+        // declared.
+        writer.line("impl<A: SmeltFromUnknown, B: SmeltFromUnknown> SmeltFromUnknown for (A, B) { fn smelt_from_unknown(value: SmeltUnknown) -> Self { let mut items = match value { SmeltUnknown::Array(values) => values.into_vec().into_iter(), _ => Vec::new().into_iter() }; (A::smelt_from_unknown(items.next().unwrap_or(SmeltUnknown::Undefined)), B::smelt_from_unknown(items.next().unwrap_or(SmeltUnknown::Undefined))) } }");
+        writer.blank_line();
         writer.block("trait SmeltIntoF64", |trait_writer| {
             trait_writer.line("fn smelt_into_f64(self) -> f64;");
         });

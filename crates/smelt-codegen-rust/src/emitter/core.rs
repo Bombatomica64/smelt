@@ -3632,6 +3632,44 @@ impl<'mir> FunctionEmitter<'mir> {
     /// the closure's own parameter list — was rendered by value, and packing
     /// `&(..)` for it would not type-check (E0308). The two sites disagree about
     /// the callee, not about the rule, so the caller states which callee it has.
+    /// Render one erased argument at a callee parameter's declared type.
+    ///
+    /// The ordinary answer is [`Self::extract_value_text`] at the ambient render
+    /// scope. The exception is a parameter whose declared type is a
+    /// `Type::TypeParam` this position CANNOT spell: the erasure arm there
+    /// answers `SmeltUnknown`, which is a claim about the callee's Rust
+    /// signature that this position is in no state to make. The callee is
+    /// reached through a value whose type arguments were fixed somewhere else --
+    /// a method of `Router<[unknown, RouterRoute]>` erased into a callable,
+    /// whose `add(.., handler: T)` really takes `&(SmeltUnknown, RouterRoute)` --
+    /// so asserting `SmeltUnknown` is wrong wherever the instantiation was not
+    /// itself erased (E0308, 8 of them in Hono's router).
+    ///
+    /// An ARGUMENT position is exactly where the right answer needs no scope:
+    /// the callee's signature IS the expected type, so
+    /// `SmeltFromUnknown::smelt_from_unknown(..)` with an INFERRED target lets
+    /// rustc solve it from the position, and the identity impl on `SmeltUnknown`
+    /// makes a genuinely erased parameter render the value unchanged. This is
+    /// the H42 rule -- the render position decides what a type parameter means --
+    /// at the one position whose decision is not the emitter's to make.
+    ///
+    /// This is NOT a general licence for inference: it applies only where the
+    /// declared type is a bare type parameter with no Rust name in scope. Every
+    /// other shape keeps its checked extraction.
+    fn erased_argument_at_param_text(
+        &self,
+        item: &str,
+        param_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let scope = self.render_scope();
+        if let Some(Type::TypeParam { name }) = self.mir.types.get(param_ty)
+            && !scope.spells(*name)
+        {
+            return Ok(format!("SmeltFromUnknown::smelt_from_unknown({item})"));
+        }
+        self.extract_value_text(item, param_ty, &scope)
+    }
+
     pub(super) fn function_args_from_smelt_args_text(
         &self,
         function: &FunctionType,
@@ -3659,7 +3697,7 @@ impl<'mir> FunctionEmitter<'mir> {
                     ));
                 }
                 let item = format!("smelt_args.get({index}).cloned().unwrap_or(SmeltUnknown::Null)");
-                let value = self.extract_value_text(&item, *param_ty, &self.render_scope())?;
+                let value = self.erased_argument_at_param_text(&item, *param_ty)?;
                 let arg = if function
                     .required_params
                     .is_some_and(|required_params| index >= required_params)

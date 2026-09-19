@@ -262,3 +262,85 @@ fn a_generic_class_rebuilds_the_same_type_parameter_on_every_side() {
     // The expected values are Node 22's, byte for byte.
     run_fixture(RENDER_SCOPE_FIXTURE, "type_param_render_scope");
 }
+
+/// The tuple-instantiation fixture.
+///
+/// Kept beside `RENDER_SCOPE_FIXTURE` for the same reason: the assertion the
+/// tier makes should read next to its `run_fixture` call.
+const TUPLE_RECOVERY_FIXTURE: &str = r#"
+import { test, expect } from "vitest";
+
+type Route = [string, number];
+
+function pick<T>(table: Record<string, T[]>, key: string): T[] {
+  const found = table[key];
+  return found === undefined ? [] : found;
+}
+
+class TupleRegistry<T> {
+  flat: Record<string, T[]>;
+
+  constructor(seed: T) {
+    const flatSeed: Record<string, unknown> = { seeded: [seed] };
+    this.flat = flatSeed as Record<string, T[]>;
+  }
+
+  add(key: string, value: T): void {
+    const list = this.flat[key];
+    if (list === undefined) {
+      this.flat[key] = [value];
+    } else {
+      list.push(value);
+    }
+  }
+
+  entriesFor(key: string): T[] {
+    return pick(this.flat, key);
+  }
+}
+
+function render(entries: Route[]): string {
+  return entries.map((entry) => entry[0] + ':' + entry[1]).join(',');
+}
+
+test("a type parameter instantiated at a tuple round-trips through the carrier", () => {
+  const root: Route = ['root', 0];
+  const first: Route = ['a', 1];
+  const second: Route = ['b', 2];
+  const third: Route = ['c', 3];
+  const registry = new TupleRegistry<Route>(root);
+  registry.add('get', first);
+  registry.add('get', second);
+  registry.add('post', third);
+
+  // The seeded entry is the one that crossed into `unknown` and back: it can
+  // only come out as a real `[string, number]` if the recovery names a tuple.
+  expect(render(registry.entriesFor('seeded'))).toBe('root:0');
+  expect(render(registry.entriesFor('get'))).toBe('a:1,b:2');
+  expect(render(registry.entriesFor('post'))).toBe('c:3');
+  expect(registry.entriesFor('delete').length).toBe(0);
+});
+"#;
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_type_parameter_instantiated_at_a_tuple_round_trips_through_the_carrier() {
+    // The same render-scope recovery as the test above, with `T` instantiated at
+    // a TUPLE. The recovery arm the scope selects renders
+    // `<T as SmeltFromUnknown>::smelt_from_unknown(..)`, so it can only compile
+    // where the type `T` is instantiated at implements that trait — and a tuple
+    // did not. `IntoSmeltUnknown for (A, B)` had existed since tuples were first
+    // erased; the inverse had not, so the round trip was one-way and a generic
+    // whose argument is a tuple failed with
+    // `the trait bound `(SmeltUnknown, RouterRoute): SmeltFromUnknown` is not
+    // satisfied` (3 of them in Hono, plus an `E0599` that fell out with them).
+    //
+    // A missing impl on one side of a round trip is not a reason to erase the
+    // value on the other, which is why the fix is the impl rather than a
+    // narrower recovery rule. The assertion is the VALUE — a seeded
+    // `['root', 0]` that crossed into `unknown` and came back — so a recovery
+    // that merely type-checked while losing the payload would still fail here.
+    //
+    // The expected values are Node 22's, byte for byte.
+    run_fixture(TUPLE_RECOVERY_FIXTURE, "type_param_tuple_recovery");
+}
