@@ -5,6 +5,13 @@
 - Files scanned: 258 · with blockers: 0
 
 
+## Whole-crate `cargo check` (round 30 merged head `06c69924`)
+
+Orchestrator measurement, clean clone, fresh full-feature binary, repo-root `--manifest-path`:
+33 modules, **90 errors** (E0308 51, E0277 24, E0631 5, E0382 5, E0425 2, E0609 1, E0599 1,
+E0271 1), from 329 at the start of round 30 (the 329 counts 10 E0282s the round-29 table
+omitted). Families and owners for round 31: `hono-round31-brief.md`.
+
 ## Whole-crate `cargo check` (round 29 merged head `c2f22267`)
 
 Measured by the orchestrator from a clean `dist-smelt` with a freshly built full-feature binary:
