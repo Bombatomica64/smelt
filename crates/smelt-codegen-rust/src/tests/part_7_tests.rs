@@ -14463,7 +14463,7 @@ export function hex(bytes: Uint8Array): string {
 #[test]
 fn a_primitive_set_program_defines_the_object_id_counter() {
     let source = source_for(
-        r#"
+        r"
 export function unique(values: string[]): number {
   const seen = new Set<string>();
   for (const value of values) {
@@ -14471,7 +14471,7 @@ export function unique(values: string[]): number {
   }
   return seen.size;
 }
-"#,
+",
     );
 
     if source.contains("smelt_next_object_id()") {

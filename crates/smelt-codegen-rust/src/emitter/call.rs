@@ -731,7 +731,7 @@ impl FunctionEmitter<'_> {
             }
         }
         let call = format!("(smelt_timer_callback)({})", call_args.join(", "));
-        if self.function_value_call_is_fallible(&function) {
+        if self.function_value_call_is_fallible(function) {
             Ok(format!("{{ {prelude}({call}).map(|_| ()) }}"))
         } else {
             Ok(format!(
@@ -3340,7 +3340,7 @@ impl FunctionEmitter<'_> {
         } else {
             format!("({receiver_text}.{method_name}.clone())({rendered_args})")
         };
-        if self.function_value_call_is_fallible(&function) {
+        if self.function_value_call_is_fallible(function) {
             Ok(Some(format!("{call}?")))
         } else {
             Ok(Some(call))
