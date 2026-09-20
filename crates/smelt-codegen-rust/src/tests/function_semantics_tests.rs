@@ -231,3 +231,41 @@ export function run(prototype: unknown): unknown {
         "the prototype link must not be a hidden object entry:\n{source}"
     );
 }
+
+#[test]
+fn a_callback_handle_rebuilt_in_a_nested_closure_is_cloned_not_moved() {
+    // Round 33, item 5. `next` is a parameter of the middleware closure, bound
+    // by value as an owned `Rc<dyn Fn() -> String>`. The inner `again` closure
+    // captures it and hands it to `call`, which needs its own owned handle, so
+    // the adapter wraps it in a fresh `move` closure. Naming the capture inside
+    // that `move` gives it away — and `again` is an `Fn`, which cannot give a
+    // captured variable away at all (E0507, Hono `main.rs:11023` and `:11077`).
+    //
+    // The handle is cloned in front of the wrapper instead, which is the clone
+    // discipline `function_shape_adapter_text` and
+    // `rendered_function_shape_adapter_text` already apply to the callable they
+    // bind. One `Rc` bump per evaluation, not per invocation.
+    //
+    // NON-VACUOUS: without the fix the argument reads
+    // `::std::rc::Rc::new(move || closure_arg_1())`.
+    let source = source_for(
+        r"
+type Next = () => string;
+type Middleware = (label: string, next: Next) => string;
+export function wrap(call: Middleware): Middleware {
+  return (label: string, next: Next) => {
+    const again = () => call(label, next);
+    return again();
+  };
+}
+",
+    );
+
+    assert!(
+        source.contains(
+            "{ let smelt_handle_callback = closure_arg_1.clone(); \
+             ::std::rc::Rc::new(move || (smelt_handle_callback)()) }"
+        ),
+        "the captured handle must be cloned before the wrapper closure:\n{source}"
+    );
+}

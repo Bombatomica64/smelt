@@ -129,6 +129,7 @@ mod map;
 mod numeric;
 mod optional_access;
 mod place;
+mod record_slot_abi;
 mod render_scope;
 mod rendered_text_rewrite;
 mod rendered_value;

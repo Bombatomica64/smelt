@@ -1450,6 +1450,80 @@ export function fill(store: Store<[string, number]>): number {
     );
 }
 
+#[test]
+fn a_generic_interface_slot_is_built_at_its_declared_abi() {
+    // Round 33, item 4 — the CONSTRUCTION side of the rule above, and the
+    // reason that test could only assert emitted text. `Sink<T>`'s `add` slot
+    // is emitted `Rc<dyn Fn(String, &T)>`, so at `Sink<[string, number]>` the
+    // struct field is `Rc<dyn Fn(String, &(String, f64))>`. The callable a
+    // projection rebuilds for that field is rendered from the SUBSTITUTED field
+    // type — a tuple, passed by value on its own terms — and did not fit
+    // (E0308). `crate::emitter::record_slot_abi` recovers the declaration's ABI
+    // and bridges the two with a typed adapter: one `.clone()` at the parameter
+    // whose ABI moved, and no erasure anywhere.
+    //
+    // NON-VACUOUS: without the fix the rebuilt callable is annotated
+    // `Rc<dyn Fn(String, (String, f64))>` and no `smelt_slot_adapted` binding
+    // is emitted at all.
+    let source = source_for(
+        r"
+interface Sink<T> {
+  add: (label: string, value: T) => void;
+  size: () => number;
+}
+export function fill(raw: unknown): number {
+  const sink = raw as Sink<[string, number]>;
+  sink.add('first', ['x', 1]);
+  return sink.size();
+}
+",
+    );
+
+    assert!(
+        source.contains("smelt_slot_adapted: ::std::rc::Rc<dyn Fn(String, &(String, f64)) -> ()>"),
+        "the rebuilt slot must be adapted to the declared `&T` ABI: {source}"
+    );
+}
+
+#[test]
+fn a_constructor_parameter_mentioning_a_class_parameter_is_taken_at_its_argument() {
+    // Round 33, item 4 — round 32's "a record rebuilt at a substituted argument
+    // erases its field". `Pair<A>`'s constructor declares `left: Cell<A>`, and
+    // MIR hands the call site that declared spelling with nothing substituted.
+    // Coercing a `Cell<number>` to it ran the structural record adapter, which
+    // rebuilt the struct with `value` erased to `SmeltUnknown` against a field
+    // declared `f64`. The argument's own type is the evidence Rust's inference
+    // would use, so the parameter is taken at `Cell<f64>` and no adapter runs.
+    //
+    // NON-VACUOUS: without the fix the call emits
+    // `Pair::new({ let smelt_struct_value = ..; Cell { value: SmeltUnknown::Number(..) } })`.
+    let source = source_for(
+        r"
+class Cell<T> {
+  value: T;
+  constructor(value: T) {
+    this.value = value;
+  }
+}
+class Pair<A> {
+  left: Cell<A>;
+  constructor(left: Cell<A>) {
+    this.left = left;
+  }
+}
+export function build(): number {
+  return new Pair<number>(new Cell<number>(7)).left.value;
+}
+",
+    );
+
+    assert!(
+        !source.contains("Cell { value: SmeltUnknown::"),
+        "the constructor argument must not be rebuilt at the unsubstituted \
+         declaration: {source}"
+    );
+}
+
 // --- Type-parameter elision (see `crate::generic_elision`) ------------------
 //
 // A generic class's Rust arity is the set of parameters its emitted Rust

@@ -1,0 +1,102 @@
+module examples/typescript/end-to-end/109_substituted_slot_keeps_its_abi/input.ts (ModuleId(0))
+  body BodyId(6)
+  items
+    class Cell fields [Public value: T] constructor Some(ItemId(0)) methods [] implements []
+    class Pair fields [Public left: Cell<A>] constructor Some(ItemId(2)) methods [] implements []
+    interface Sink<T> fields [Public add: fn(String, T) -> None, Public size: fn() -> Float] methods []
+  locals
+    %0 const pair: Pair<Float>
+    %1 const entries: List<(String, Float)>
+    %2 const raw: Unknown
+    %3 const sink: Sink<(String, Float)>
+  exprs
+    #0: Float = 7.0
+    #1: Cell<Float> = new Cell(#0)
+    #2: Pair<Float> = new Pair(#1)
+    #3: Pair<Float> = %0
+    #4: Cell<Float> = #3.left
+    #5: Float = #4.value
+    #6: None = @5(console_log)
+    #7: None = call #6(#5)
+    #8: List<(String, Float)> = []
+    #9: String = "add"
+    #10: fn(String, (String, Float)) -> Unknown = closure BodyId(4) captures 1 -> Unknown
+    #11: String = "size"
+    #12: fn() -> Unknown = closure BodyId(5) captures 1 -> Unknown
+    #13: Dict<String, Unknown> = {#9: #10, #11: #12}
+    #14: Unknown = %2
+    #15: Sink<(String, Float)> = unknown_cast #14 as Sink<(String, Float)>
+    #16: Sink<(String, Float)> = %3
+    #17: Sink<(String, Float)> = %3
+    #18: fn(String, (String, Float)) -> None = #17.add
+    #19: Sink<(String, Float)> = %3
+    #20: String = "first"
+    #21: String = "a"
+    #22: Float = 1.0
+    #23: List<Unknown> = [#21, #22]
+    #24: None = closure_call #18(#20, #23)
+    #25: Sink<(String, Float)> = %3
+    #26: Sink<(String, Float)> = %3
+    #27: fn(String, (String, Float)) -> None = #26.add
+    #28: Sink<(String, Float)> = %3
+    #29: String = "second"
+    #30: String = "b"
+    #31: Float = 2.0
+    #32: List<Unknown> = [#30, #31]
+    #33: None = closure_call #27(#29, #32)
+    #34: Sink<(String, Float)> = %3
+    #35: fn() -> Float = #34.size
+    #36: Sink<(String, Float)> = %3
+    #37: Float = closure_call #35()
+    #38: None = @6(console_log)
+    #39: None = call #38(#37)
+    #40: List<(String, Float)> = %1
+    #41: Float = 0.0
+    #42: (String, Float) = #40[#41]
+    #43: Float = 0.0
+    #44: String = tuple_index #42, 0
+    #45: None = @7(console_log)
+    #46: None = call #45(#44)
+    #47: List<(String, Float)> = %1
+    #48: Float = 1.0
+    #49: (String, Float) = #47[#48]
+    #50: Float = 1.0
+    #51: Float = tuple_index #49, 1
+    #52: None = @8(console_log)
+    #53: None = call #52(#51)
+  stmts
+    s0: let %0: Pair<Float> = #2
+    s1: #7
+    s2: let %1: List<(String, Float)> = #8
+    s3: let %2: Unknown = #13
+    s4: let %3: Sink<(String, Float)> = #15
+    s5: #24
+    s6: #33
+    s7: #39
+    s8: #46
+    s9: #53
+
+interned types
+  t0 = Float
+  t1 = Cell
+  t2 = Pair
+  t3 = String
+  t4 = (String, Float)
+  t5 = List<(String, Float)>
+  t6 = Unknown
+  t7 = fn(String, (String, Float)) -> Unknown
+  t8 = fn() -> Unknown
+  t9 = Dict<String, Unknown>
+  t10 = List<Unknown>
+  t11 = Sink<(String, Float)>
+  t12 = T
+  t13 = A
+  t14 = Cell<T>
+  t15 = None
+  t16 = Pair<A>
+  t17 = Cell<A>
+  t18 = fn(String, T) -> None
+  t19 = fn() -> Float
+  t20 = Cell<Float>
+  t21 = Pair<Float>
+  t22 = fn(String, (String, Float)) -> None
