@@ -152,6 +152,43 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Return whether a function VALUE of `actual` can be adapted to `expected`
+    /// by ignoring the arguments it does not declare.
+    ///
+    /// JavaScript drops the trailing arguments a callback does not name, so
+    /// `() => boolean` inhabits `(attempt: number) => boolean` and TypeScript
+    /// reduces the union of the two to the wider one. A Rust closure has a fixed
+    /// arity, so the adaptation is not free: the Rust backend renders it with the
+    /// arity-widening branch of its function-shape adapter. That is why this is a
+    /// separate question from [`Self::function_arity_assignable`], which answers
+    /// whether the value can be used AS IS.
+    ///
+    /// Only a narrower value with the same parameter prefix, the same async bit
+    /// and an assignable return type widens; a rest parameter in the value is
+    /// left to the ordinary assignability rule, which already covers it.
+    pub(in crate::lowering) fn function_value_widens_to(
+        &self,
+        actual: smelt_hir::TypeId,
+        expected: smelt_hir::TypeId,
+    ) -> bool {
+        let (Some(Type::Function(actual_fn)), Some(Type::Function(expected_fn))) = (
+            self.ctx.krate.types.get(actual).cloned(),
+            self.ctx.krate.types.get(expected).cloned(),
+        ) else {
+            return false;
+        };
+        if actual_fn.rest.is_some() || actual_fn.params.len() >= expected_fn.params.len() {
+            return false;
+        }
+        actual_fn.is_async == expected_fn.is_async
+            && actual_fn
+                .params
+                .iter()
+                .zip(expected_fn.params.iter())
+                .all(|(actual_param, expected_param)| actual_param == expected_param)
+            && self.type_assignable_to(actual_fn.return_ty, expected_fn.return_ty)
+    }
+
     /// Return whether a source function's arity can satisfy an expected function type.
     ///
     /// TypeScript permits assigning a function to a target type that calls it with

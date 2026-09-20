@@ -14481,3 +14481,63 @@ export function unique(values: string[]): number {
         );
     }
 }
+
+/// A `??` whose fallback is a NARROWER callback keeps the declared callback
+/// type instead of interning a two-arm union.
+///
+/// TypeScript reduces `NonNullable<A> | B` to `A` when `B` is assignable to it,
+/// and a callback that ignores trailing arguments is: `() => boolean` inhabits
+/// `(attempt: number) => boolean`. Interning the union instead produced a
+/// generated union whose call site knew only the declared arm, so selecting the
+/// fallback panicked at runtime with "union guard selected an excluded member".
+#[test]
+fn a_narrower_callback_fallback_keeps_the_declared_callback_type() {
+    let source = source_for(
+        r"
+interface Options {
+  shouldRetry?: (attempt: number) => boolean;
+}
+
+const DEFAULT_SHOULD_RETRY = () => true;
+
+export function pick(options?: Options): boolean {
+  const shouldRetry = options?.shouldRetry ?? DEFAULT_SHOULD_RETRY;
+  return shouldRetry(0);
+}
+",
+    );
+
+    assert!(
+        !source.contains("union guard selected an excluded member"),
+        "the fallback must be adapted, not routed through a union guard:\n{source}"
+    );
+}
+
+/// Calling an async function VALUE that can throw renders no `?`.
+///
+/// An async function reports even a synchronous throw as a REJECTED future, so
+/// its emitted Rust return type is `SmeltFuture<T>` with no `Result` wrapper
+/// (see `function_value_return_type_text`). A call site that read `may_throw`
+/// directly emitted `(boom)()?` on a `SmeltFuture<f64>`, which needs `Try`
+/// (E0277).
+#[test]
+fn calling_a_throwing_async_closure_value_is_not_fallible() {
+    let source = source_for(
+        r"
+export async function run(): Promise<number> {
+  const boom = async (): Promise<number> => {
+    throw new Error('boom');
+  };
+  const pending = boom();
+  return await pending;
+}
+",
+    );
+
+    for line in source.lines() {
+        assert!(
+            !line.contains("(boom)()?"),
+            "an async callee answers a future, so its call is infallible:\n{line}"
+        );
+    }
+}

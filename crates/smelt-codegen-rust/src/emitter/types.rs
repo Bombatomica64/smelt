@@ -1115,6 +1115,23 @@ impl FunctionEmitter<'_> {
         Ok(inner_return_ty)
     }
 
+    /// Whether a call to a function VALUE of this type answers a `Result`.
+    ///
+    /// The mirror of [`Self::function_value_return_type_text`], and the reason
+    /// it exists: a future-returning function reports even a SYNCHRONOUS throw
+    /// as a rejected future, so no `Result` wraps its emitted return type and
+    /// its call site must not render `?`. Reading `may_throw` directly at a call
+    /// site made the two disagree — `let p = boom()?;` on an async arrow that
+    /// throws before its first `await`, where `boom()` is a `SmeltFuture<f64>`
+    /// and `?` needs `Try` (E0277).
+    pub(super) fn function_value_call_is_fallible(&self, function: &FunctionType) -> bool {
+        function.may_throw
+            && !matches!(
+                self.mir.types.get(function.return_ty),
+                Some(Type::Future(_))
+            )
+    }
+
     /// Convert a function parameter type to Rust.
     ///
     /// Callback parameters are borrowed as reentrant functions so callers can
