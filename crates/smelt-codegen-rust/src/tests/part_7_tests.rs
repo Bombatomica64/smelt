@@ -14418,3 +14418,66 @@ export function run(formatLong: FormatLong): string {
         "{source}"
     );
 }
+
+/// An indexed read on a typed-array view is already an `f64`, so a `Number(..)`
+/// over it must not run the erased numeric-conversion match.
+///
+/// `place_ty` used to answer the erased fallback for the read while
+/// `typed_array_index_read_text` rendered `view.get(i).unwrap_or(0.0)`, so the
+/// conversion matched `SmeltUnknown` arms against an `f64` scrutinee and the
+/// crate did not compile (E0308, ~50 of them in one `hex()` helper). The text
+/// and the type are now decided by the same rule.
+#[test]
+fn a_typed_array_element_read_is_a_concrete_number() {
+    let source = source_for(
+        r#"
+export function hex(bytes: Uint8Array): string {
+  let out = "";
+  for (let index = 0; index < bytes.length; index = index + 1) {
+    out = out + Number(bytes[index]).toString(16);
+  }
+  return out;
+}
+"#,
+    );
+
+    assert!(
+        source.contains(".get(") && source.contains("unwrap_or(0.0)"),
+        "the element read should decode at the view's width:\n{source}"
+    );
+    for line in source.lines() {
+        assert!(
+            !(line.contains("unwrap_or(0.0)") && line.contains("__smelt_date")),
+            "a concrete element read must not be converted through the erased \
+             numeric match:\n{line}"
+        );
+    }
+}
+
+/// A program whose only identity-bearing container is a primitive-keyed `Set`
+/// still defines the object-id counter its constructor calls.
+///
+/// `SmeltPrimSet::new` mints an id, but the identity gate's demand list did not
+/// name the primitive set, so the emitted constructor called a function the
+/// crate never declared (E0425).
+#[test]
+fn a_primitive_set_program_defines_the_object_id_counter() {
+    let source = source_for(
+        r#"
+export function unique(values: string[]): number {
+  const seen = new Set<string>();
+  for (const value of values) {
+    seen.add(value);
+  }
+  return seen.size;
+}
+"#,
+    );
+
+    if source.contains("smelt_next_object_id()") {
+        assert!(
+            source.contains("fn smelt_next_object_id()"),
+            "the crate calls the object-id counter but never defines it:\n{source}"
+        );
+    }
+}

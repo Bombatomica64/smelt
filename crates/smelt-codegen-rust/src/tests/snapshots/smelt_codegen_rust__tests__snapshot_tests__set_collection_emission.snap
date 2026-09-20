@@ -42,6 +42,15 @@ fn smelt_number_to_string<N: ::std::borrow::Borrow<f64>>(value: N) -> String {
 /// `console.log`'s number formatting: the spec's rule, but `-0` prints `-0`.
 fn smelt_console_number<N: ::std::borrow::Borrow<f64>>(value: N) -> String { let value = *value.borrow(); if value == 0.0 && value.is_sign_negative() { return "-0".to_owned(); } smelt_number_to_string(value) }
 
+thread_local! {
+    static SMELT_NEXT_OBJECT_ID: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
+}
+
+#[allow(dead_code)]
+fn smelt_next_object_id() -> usize {
+    SMELT_NEXT_OBJECT_ID.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id })
+}
+
 #[derive(Debug, Clone)]
 pub struct SmeltPrimSetStore<T> {
     entries: Vec<T>,

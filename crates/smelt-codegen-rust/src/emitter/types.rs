@@ -883,6 +883,19 @@ impl FunctionEmitter<'_> {
             }
             Place::Index { base, index, .. } => {
                 let base_ty = self.local_decl(*base)?.ty;
+                // An indexed read on a typed-array view decodes ONE element at
+                // the view's own width and renders as an `f64` (see
+                // `typed_array::typed_array_index_read_text`), so its value type
+                // is `Float`, not the erased fallback the class arm below would
+                // report. Same rule as the concrete `.length` read above: the
+                // text and the type are decided together, so a caller coerces
+                // FROM the concrete value instead of treating an already
+                // concrete `f64` as erased. Without this, `Number(view[i])` ran
+                // the `SmeltUnknown` numeric-conversion match over an `f64`
+                // scrutinee and did not compile (E0308).
+                if self.is_typed_array_view_class_type(base_ty)? {
+                    return self.type_id(Type::Float);
+                }
                 if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
                     && self.is_match_class_symbol(*name)?
                 {
