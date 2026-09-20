@@ -5,6 +5,18 @@
 - Files scanned: 258 · with blockers: 0
 
 
+## Whole-crate `cargo check` (round 33 partial merge, head `39c9be73`)
+
+Orchestrator measurement, clean clone, fresh full-feature binary, repo-root `--manifest-path`:
+33 modules, **3 errors**: E0425 `dispatch` (nested function declaration hoisting), E0425
+`__smelt_fn_value_627` (synthesized name scope), E0609 `router` on `Hono` (import-aliased base
+class). Round 33 agent J landed both ABI/clone items (6 errors). Agent I's hoisting commit
+`a6b308a2` is on `origin/worktree-agent-aefb17f85813045db` (plus a WIP checkpoint `afaf178e`) and
+is NOT merged: it raises the es-toolkit ratchet by 4 (`curry.rs`: the self-recursive closure knot
+`Rc<RefCell<SmeltErasedFunction>>` is erased where the closure type is concrete). Next session:
+type the knot at the closure's own `Rc<dyn Fn..>` before merging, then items 2 and 3 of
+`hono-round33-brief.md`, then `hono-phase3-brief.md`.
+
 ## Whole-crate `cargo check` (round 32 merged head `b291fc07`)
 
 Orchestrator measurement, clean clone, fresh full-feature binary, repo-root `--manifest-path`:
