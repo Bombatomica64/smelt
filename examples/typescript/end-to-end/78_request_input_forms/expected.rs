@@ -3444,16 +3444,28 @@ impl SmeltRequest {
 }
 
 /// Erase a request for a dynamic boundary (identity marker + url/method).
+///
+/// Retains the live request under the record's object id, so narrowing the
+/// erased value back hands out the SAME request rather than a rebuilt copy:
+/// `new Request(input)` on an erased input must disturb the ORIGINAL's body
+/// (Node leaves `input.bodyUsed` true at once), which a rebuilt copy cannot
+/// do. Same rule, and the same registry, as `host_value_erasure`'s pair.
 impl IntoSmeltUnknown for SmeltRequest {
     fn into_smelt_unknown(self) -> SmeltUnknown {
+        smelt_register_host_origin(self.id, self.clone());
         let body_text = String::from_utf8_lossy(&self.body.peek_bytes()).into_owned();
         SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([("__smelt_request".to_owned(), SmeltUnknown::Bool(true)), ("url".to_owned(), SmeltUnknown::String(self.url.into())), ("method".to_owned(), SmeltUnknown::String(self.method.into())), ("headers".to_owned(), self.headers.into_smelt_unknown()), ("body".to_owned(), SmeltUnknown::String(body_text.into()))])))
     }
 }
 
-/// Rebuild a request from an erased value.
+/// Recover a request from an erased value.
+///
+/// A record that came from an erasure in this thread hands back the SAME
+/// request, body handle and `bodyUsed` cell included. Only a record that did
+/// not (one rebuilt from JSON, say) is reconstructed from its fields.
 impl SmeltFromUnknown for SmeltRequest {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        if let Some(origin) = smelt_restore_host_origin::<Self>(&value) { return origin; }
         let SmeltUnknown::Object(map) = value else { return Self::from_parts("about:blank", "GET".to_owned(), SmeltHeaders::new(), SmeltBody::empty()) };
         let url = match map.get("url") { Some(SmeltUnknown::String(url)) => url.to_string(), _ => "about:blank".to_owned() };
         let method = match map.get("method") { Some(SmeltUnknown::String(method)) => method.to_string(), _ => "GET".to_owned() };

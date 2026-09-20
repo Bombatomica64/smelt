@@ -3183,16 +3183,25 @@ impl SmeltResponse {
 }
 
 /// Erase a response for a dynamic boundary (identity marker + status line).
+///
+/// Retains the live response, for the reason its `Request` sibling does:
+/// erasing a value and narrowing it back is the SAME object in JavaScript,
+/// body handle and `bodyUsed` cell included.
 impl IntoSmeltUnknown for SmeltResponse {
     fn into_smelt_unknown(self) -> SmeltUnknown {
+        smelt_register_host_origin(self.id, self.clone());
         let body_text = String::from_utf8_lossy(&self.body.peek_bytes()).into_owned();
         SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([("__smelt_response".to_owned(), SmeltUnknown::Bool(true)), ("status".to_owned(), SmeltUnknown::Number(self.status)), ("statusText".to_owned(), SmeltUnknown::String(self.status_text.into())), ("ok".to_owned(), SmeltUnknown::Bool(self.status >= 200.0 && self.status <= 299.0)), ("headers".to_owned(), self.headers.into_smelt_unknown()), ("body".to_owned(), SmeltUnknown::String(body_text.into()))])))
     }
 }
 
-/// Rebuild a response from an erased value.
+/// Recover a response from an erased value.
+///
+/// The retained origin first, exactly as for a request; a record that did
+/// not come from an erasure is rebuilt from its fields.
 impl SmeltFromUnknown for SmeltResponse {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        if let Some(origin) = smelt_restore_host_origin::<Self>(&value) { return origin; }
         let SmeltUnknown::Object(map) = value else { return Self::new() };
         let status = match map.get("status") { Some(SmeltUnknown::Number(status)) => status, _ => 200.0 };
         let status_text = match map.get("statusText") { Some(SmeltUnknown::String(text)) => text.to_string(), _ => String::new() };

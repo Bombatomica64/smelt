@@ -853,6 +853,42 @@ pub(crate) fn needs_panic_route(mir: &Mir) -> bool {
         || mir.types.all().iter().any(|ty| {
             matches!(ty, smelt_hir::Type::Function(function) if function.may_throw)
         })
+        // The signature-shaped clauses above answer "can something in this crate
+        // throw?", which is the demand for the THROW half of the route. The
+        // RECOVERY half has its own demand: `emit_throwing_call_terminator`
+        // emits `catch_unwind` and `smelt_panic_message` for every `Call` that
+        // carries an exception handler, including one whose callee is
+        // infallible -- a non-throwing callee can still be handed a closure
+        // that reports a throw by panicking, so the `catch` has to recover it.
+        // Without this clause a `try` around a call to a non-throwing function
+        // emitted `smelt_panic_message` into a crate whose prelude never
+        // defined it (E0425); `py_try_lambda_classbody` in the compile corpus
+        // is exactly that program. One decision now drives both ends: the emit
+        // site's own condition.
+        || mir_catches_a_call(mir)
+}
+
+/// Answers whether any lowered body catches a call, i.e. holds a
+/// [`Terminator::Call`] with an exception handler.
+///
+/// This mirrors the condition under which
+/// `emitter::control_flow::FunctionEmitter::emit_throwing_call_terminator`
+/// runs, so that every emission of the panic-recovery helpers is matched by a
+/// prelude that defines them. Class methods and constructors are reached
+/// through [`Mir::functions`] (a class stores `FuncId`s into it), so walking
+/// functions and closures covers every lowered body.
+fn mir_catches_a_call(mir: &Mir) -> bool {
+    let function_blocks = mir.functions.iter().flat_map(|function| &function.blocks);
+    let closure_blocks = mir.closures.iter().flat_map(|closure| &closure.blocks);
+    function_blocks.chain(closure_blocks).any(|block| {
+        matches!(
+            block.terminator,
+            Some(Terminator::Call {
+                unwind: Some(_),
+                ..
+            })
+        )
+    })
 }
 
 pub(crate) fn needs_unknown_type(mir: &Mir) -> bool {

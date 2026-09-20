@@ -14418,3 +14418,126 @@ export function run(formatLong: FormatLong): string {
         "{source}"
     );
 }
+
+/// An indexed read on a typed-array view is already an `f64`, so a `Number(..)`
+/// over it must not run the erased numeric-conversion match.
+///
+/// `place_ty` used to answer the erased fallback for the read while
+/// `typed_array_index_read_text` rendered `view.get(i).unwrap_or(0.0)`, so the
+/// conversion matched `SmeltUnknown` arms against an `f64` scrutinee and the
+/// crate did not compile (E0308, ~50 of them in one `hex()` helper). The text
+/// and the type are now decided by the same rule.
+#[test]
+fn a_typed_array_element_read_is_a_concrete_number() {
+    let source = source_for(
+        r#"
+export function hex(bytes: Uint8Array): string {
+  let out = "";
+  for (let index = 0; index < bytes.length; index = index + 1) {
+    out = out + Number(bytes[index]).toString(16);
+  }
+  return out;
+}
+"#,
+    );
+
+    assert!(
+        source.contains(".get(") && source.contains("unwrap_or(0.0)"),
+        "the element read should decode at the view's width:\n{source}"
+    );
+    for line in source.lines() {
+        assert!(
+            !(line.contains("unwrap_or(0.0)") && line.contains("__smelt_date")),
+            "a concrete element read must not be converted through the erased \
+             numeric match:\n{line}"
+        );
+    }
+}
+
+/// A program whose only identity-bearing container is a primitive-keyed `Set`
+/// still defines the object-id counter its constructor calls.
+///
+/// `SmeltPrimSet::new` mints an id, but the identity gate's demand list did not
+/// name the primitive set, so the emitted constructor called a function the
+/// crate never declared (E0425).
+#[test]
+fn a_primitive_set_program_defines_the_object_id_counter() {
+    let source = source_for(
+        r"
+export function unique(values: string[]): number {
+  const seen = new Set<string>();
+  for (const value of values) {
+    seen.add(value);
+  }
+  return seen.size;
+}
+",
+    );
+
+    if source.contains("smelt_next_object_id()") {
+        assert!(
+            source.contains("fn smelt_next_object_id()"),
+            "the crate calls the object-id counter but never defines it:\n{source}"
+        );
+    }
+}
+
+/// A `??` whose fallback is a NARROWER callback keeps the declared callback
+/// type instead of interning a two-arm union.
+///
+/// TypeScript reduces `NonNullable<A> | B` to `A` when `B` is assignable to it,
+/// and a callback that ignores trailing arguments is: `() => boolean` inhabits
+/// `(attempt: number) => boolean`. Interning the union instead produced a
+/// generated union whose call site knew only the declared arm, so selecting the
+/// fallback panicked at runtime with "union guard selected an excluded member".
+#[test]
+fn a_narrower_callback_fallback_keeps_the_declared_callback_type() {
+    let source = source_for(
+        r"
+interface Options {
+  shouldRetry?: (attempt: number) => boolean;
+}
+
+const DEFAULT_SHOULD_RETRY = () => true;
+
+export function pick(options?: Options): boolean {
+  const shouldRetry = options?.shouldRetry ?? DEFAULT_SHOULD_RETRY;
+  return shouldRetry(0);
+}
+",
+    );
+
+    assert!(
+        !source.contains("union guard selected an excluded member"),
+        "the fallback must be adapted, not routed through a union guard:\n{source}"
+    );
+}
+
+/// Calling an async function VALUE that can throw renders no `?`.
+///
+/// An async function reports even a synchronous throw as a REJECTED future, so
+/// its emitted Rust return type is `SmeltFuture<T>` with no `Result` wrapper
+/// (see `function_value_return_type_text`). A call site that read `may_throw`
+/// directly emitted `(boom)()?` on a `SmeltFuture<f64>`, which needs `Try`
+/// (E0277).
+#[test]
+fn calling_a_throwing_async_closure_value_is_not_fallible() {
+    let source = source_for(
+        r"
+export async function run(): Promise<number> {
+  const boom = async (): Promise<number> => {
+    throw new Error('boom');
+  };
+  const pending = boom();
+  return await pending;
+}
+",
+    );
+
+    for line in source.lines() {
+        assert!(
+            !line.contains("(boom)()?"),
+            "an async callee answers a future, so its call is infallible:\n{line}"
+        );
+    }
+}

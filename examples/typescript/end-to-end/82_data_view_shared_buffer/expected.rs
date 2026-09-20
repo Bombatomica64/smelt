@@ -3470,7 +3470,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     over_shared.set_index(0.0, 7.0);
     _smelt_tmp_23 = over_shared.clone().buffer();
     _smelt_tmp_24 = _smelt_tmp_23.is_shared();
-    let _ = { println!("{} {}", over_shared.get(0.0).unwrap_or(0.0).clone(), _smelt_tmp_24); };
+    let _ = { println!("{} {}", smelt_console_number(over_shared.get(0.0).unwrap_or(0.0)), _smelt_tmp_24); };
     _smelt_tmp_26 = shared.clone().slice((0.0) as i64, Some((4.0) as i64));
     copied = _smelt_tmp_26;
     _smelt_tmp_27 = copied.clone().byte_length();

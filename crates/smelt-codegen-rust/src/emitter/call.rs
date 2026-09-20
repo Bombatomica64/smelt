@@ -653,7 +653,7 @@ impl FunctionEmitter<'_> {
             && let Some(Type::Function(function)) = self.mir.types.get(callback_ty)
             && function.params.is_empty()
         {
-            return Ok(if function.may_throw {
+            return Ok(if self.function_value_call_is_fallible(function) {
                 "(smelt_timer_callback)().map(|_| ())".to_owned()
             } else {
                 "Ok::<(), Box<dyn std::error::Error>>({ (smelt_timer_callback)(); () })"
@@ -731,7 +731,7 @@ impl FunctionEmitter<'_> {
             }
         }
         let call = format!("(smelt_timer_callback)({})", call_args.join(", "));
-        if function.may_throw {
+        if self.function_value_call_is_fallible(function) {
             Ok(format!("{{ {prelude}({call}).map(|_| ()) }}"))
         } else {
             Ok(format!(
@@ -1321,7 +1321,11 @@ impl FunctionEmitter<'_> {
                         declared_abi.as_deref(),
                     )?,
                 };
-                let suffix = if function.may_throw { "?" } else { "" };
+                let suffix = if self.function_value_call_is_fallible(function) {
+                    "?"
+                } else {
+                    ""
+                };
                 // A callee read out of a `RefCell` — a reference class's
                 // function-typed field, or a shared closure capture — renders as
                 // `recv.0.borrow().f.clone()`. The `Ref` guard that read creates
@@ -1959,7 +1963,7 @@ impl FunctionEmitter<'_> {
 
         let callee_text = self.operand_text(callee)?;
         let rendered_args = self.indirect_call_args_text(function, args)?;
-        let raw_call = if function.may_throw {
+        let raw_call = if self.function_value_call_is_fallible(function) {
             if unwrap_errors {
                 format!(
                     "(smelt_function)({rendered_args}).unwrap_or_else(|error| smelt_panic_throw(error))"
@@ -3336,7 +3340,7 @@ impl FunctionEmitter<'_> {
         } else {
             format!("({receiver_text}.{method_name}.clone())({rendered_args})")
         };
-        if function.may_throw {
+        if self.function_value_call_is_fallible(function) {
             Ok(Some(format!("{call}?")))
         } else {
             Ok(Some(call))

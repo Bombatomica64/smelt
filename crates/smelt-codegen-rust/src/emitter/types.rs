@@ -883,6 +883,19 @@ impl FunctionEmitter<'_> {
             }
             Place::Index { base, index, .. } => {
                 let base_ty = self.local_decl(*base)?.ty;
+                // An indexed read on a typed-array view decodes ONE element at
+                // the view's own width and renders as an `f64` (see
+                // `typed_array::typed_array_index_read_text`), so its value type
+                // is `Float`, not the erased fallback the class arm below would
+                // report. Same rule as the concrete `.length` read above: the
+                // text and the type are decided together, so a caller coerces
+                // FROM the concrete value instead of treating an already
+                // concrete `f64` as erased. Without this, `Number(view[i])` ran
+                // the `SmeltUnknown` numeric-conversion match over an `f64`
+                // scrutinee and did not compile (E0308).
+                if self.is_typed_array_view_class_type(base_ty)? {
+                    return self.type_id(Type::Float);
+                }
                 if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
                     && self.is_match_class_symbol(*name)?
                 {
@@ -1100,6 +1113,23 @@ impl FunctionEmitter<'_> {
             ));
         }
         Ok(inner_return_ty)
+    }
+
+    /// Whether a call to a function VALUE of this type answers a `Result`.
+    ///
+    /// The mirror of [`Self::function_value_return_type_text`], and the reason
+    /// it exists: a future-returning function reports even a SYNCHRONOUS throw
+    /// as a rejected future, so no `Result` wraps its emitted return type and
+    /// its call site must not render `?`. Reading `may_throw` directly at a call
+    /// site made the two disagree — `let p = boom()?;` on an async arrow that
+    /// throws before its first `await`, where `boom()` is a `SmeltFuture<f64>`
+    /// and `?` needs `Try` (E0277).
+    pub(super) fn function_value_call_is_fallible(&self, function: &FunctionType) -> bool {
+        function.may_throw
+            && !matches!(
+                self.mir.types.get(function.return_ty),
+                Some(Type::Future(_))
+            )
     }
 
     /// Convert a function parameter type to Rust.

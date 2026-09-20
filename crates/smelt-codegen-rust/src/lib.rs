@@ -876,16 +876,28 @@ fn emit_source_with_free_function_router(
     // The text codecs join that list: each of the three types carries a JS
     // reference identity, so a program that only encodes a string still mints
     // ids.
-    if (needs_regex
+    // Every runtime type below carries a JavaScript reference identity and mints
+    // it with `smelt_next_object_id` in its own constructor, so naming one of
+    // them is what demands the counter. The list is the demand side of the gate
+    // and must hold EVERY id-minting block emitted outside `needs_smelt_list`:
+    // a missing entry emits a constructor calling a function the crate never
+    // declares (E0425), which is how a program whose only container was a
+    // primitive-keyed `Set` (`SmeltPrimSet::new`) failed to compile.
+    let mints_object_ids = needs_regex
         || needs_headers
         || needs_url_search_params
         || needs_form_data
         || needs_byte_array
         || needs_text_encoder
         || needs_text_decoder
-        || needs_blob)
-        && !needs_smelt_list
-    {
+        || needs_blob
+        || needs_prim_set
+        || needs_event_emitter
+        || needs_http_server
+        || needs_request
+        || needs_response
+        || needs_body;
+    if mints_object_ids && !needs_smelt_list {
         emit_runtime_gate(&mut writer, PreludeGate::ObjectIdentity)?;
     }
     if needs_smelt_list {

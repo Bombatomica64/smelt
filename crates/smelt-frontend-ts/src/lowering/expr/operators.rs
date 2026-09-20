@@ -2218,6 +2218,29 @@ impl ModuleBuilder<'_> {
             && !self.erased_or_union_surface(fallback_ty)
             && !self.concrete_type_requires_never_value(ty)
             && !self.concrete_type_requires_never_value(fallback_ty)
+            && (self.type_assignable_to(fallback_ty, ty)
+                || self.function_value_widens_to(fallback_ty, ty))
+        {
+            // `NonNullable<typeof a> | typeof b` REDUCES to the left arm when
+            // the fallback is assignable to it, which is what TypeScript reports
+            // for `options.shouldRetry ?? (() => true)`: a callback may ignore
+            // trailing parameters, so `() => boolean` already inhabits
+            // `(attempt: number) => boolean`. Interning the two-arm union
+            // instead produced a generated union whose call site knew only the
+            // declared arm, so selecting the fallback panicked with "union guard
+            // selected an excluded member" at runtime. Both arms are concrete
+            // here (the guards above), so the fallback enters the left arm
+            // through the ordinary assertion adapter.
+            fallback = body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: fallback },
+                ty,
+                span: self.span(logical.right.span().start, logical.right.span().end),
+            });
+            ty
+        } else if !self.erased_or_union_surface(ty)
+            && !self.erased_or_union_surface(fallback_ty)
+            && !self.concrete_type_requires_never_value(ty)
+            && !self.concrete_type_requires_never_value(fallback_ty)
         {
             // TypeScript types `a ?? b` as `NonNullable<typeof a> | typeof b`.
             // When both arms are concrete and unrelated — `process.env.PORT ??

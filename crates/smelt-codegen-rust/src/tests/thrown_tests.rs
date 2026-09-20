@@ -481,3 +481,103 @@ export function reject(flag: boolean): number {
         );
     }
 }
+
+/// Names of the panic-route helpers whose call sites the emitter spells
+/// literally, paired with the prelude item that defines each one.
+///
+/// `emit_throwing_call_terminator` renders a `catch_unwind` recovery for every
+/// caught call, and the prelude emits the helpers behind
+/// `stdlib::needs_panic_route`. The two decisions used to be independent, so a
+/// `try` around a call to a NON-throwing function emitted a call to
+/// `smelt_panic_message` into a crate whose prelude never declared it (E0425).
+const PANIC_ROUTE_HELPERS: &[&str] = &[
+    "smelt_panic_message",
+    "smelt_panic_class",
+    "smelt_panic_error_value",
+    "smelt_panic_throw",
+];
+
+/// Asserts the crate-level invariant "a helper call implies a helper
+/// definition" over every panic-route helper.
+///
+/// A helper is "called" when its name appears followed by `(` on a line that is
+/// not its own definition, and "defined" when the prelude emits `fn <name>(`.
+fn assert_panic_route_helpers_are_defined(source: &str) {
+    for helper in PANIC_ROUTE_HELPERS {
+        let definition = format!("fn {helper}(");
+        let call = format!("{helper}(");
+        let called = source
+            .lines()
+            .any(|line| line.contains(&call) && !line.contains(&definition));
+        if called {
+            assert!(
+                source.contains(&definition),
+                "generated crate calls {helper} but never defines it:\n{source}"
+            );
+        }
+    }
+}
+
+/// A `catch` around a call to a non-throwing callee still recovers panics, so
+/// the crate that emits that recovery must also define the helpers it names.
+///
+/// This is the `py_try_lambda_classbody` corpus program: nothing in it can
+/// throw (`apply` is infallible and the lambda is a plain `int -> int`), yet
+/// the `try` emits `catch_unwind` because a closure handed to a non-throwing
+/// parameter can only report a throw by panicking.
+#[test]
+fn a_catch_around_an_infallible_call_defines_the_panic_helpers_it_calls() {
+    let source = source_for_py_path(
+        r#"
+from typing import Callable
+
+
+class Marker:
+    """A placeholder class."""
+    ...
+
+
+def apply(f: Callable[[int], int], value: int) -> int:
+    return f(value)
+
+
+def guarded(value: int) -> int:
+    try:
+        return apply(lambda x: x + 1, value)
+    except ValueError as error:
+        print(error)
+        return 0
+    finally:
+        print("done")
+"#,
+        "corpus/main.py",
+    );
+
+    assert!(
+        source.contains("catch_unwind"),
+        "a caught call must emit the panic recovery:\n{source}"
+    );
+    assert_panic_route_helpers_are_defined(&source);
+}
+
+/// The same invariant on the TypeScript path, so the rule is not a Python one.
+#[test]
+fn a_typescript_catch_defines_the_panic_helpers_it_calls() {
+    let source = source_for(
+        r"
+function apply(f: (x: number) => number, value: number): number {
+  return f(value);
+}
+
+export function guarded(value: number): number {
+  try {
+    return apply((x) => x + 1, value);
+  } catch {
+    return 0;
+  }
+}
+",
+    );
+
+    assert_panic_route_helpers_are_defined(&source);
+}
