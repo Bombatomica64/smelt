@@ -74,6 +74,7 @@ pub(in crate::lowering) fn hoisted_statements<'a, 'src>(
     // index of the first earlier statement that mentions each one. Computing
     // this first keeps the scan off every block that has no declaration at all,
     // which is almost all of them.
+    if std::env::var_os("SMELT_NO_HOIST").is_some() { return statements.iter().collect(); }
     let mut hoists: Vec<(usize, usize)> = Vec::new();
     let mut seen: HashSet<&str> = HashSet::new();
     for (index, statement) in statements.iter().enumerate() {

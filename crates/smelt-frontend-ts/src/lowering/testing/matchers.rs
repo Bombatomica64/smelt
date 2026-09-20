@@ -3239,7 +3239,7 @@ impl ModuleBuilder<'_> {
         let mut captures = Vec::new();
         for statement in earlier {
             self.collect_statement_capture_names(statement, &HashSet::new(), &mut captures);
-            self.collect_function_declaration_capture_names(statement, &mut captures);
+            self.collect_function_declaration_capture_names(statement, &HashSet::new(), &mut captures);
         }
         if let Some(previous) = previous {
             self.scope.bind(name.to_owned(), previous);
@@ -3253,13 +3253,20 @@ impl ModuleBuilder<'_> {
     ///
     /// A hoisted local function is deferred code exactly as an arrow is: its
     /// body runs when it is called, so it may read a `const` declared below it.
-    /// The shared capture walk does not descend into a function declaration --
-    /// a function item is not a closure at every site that walk serves -- so
-    /// the forward-reference pass descends itself. Its own parameters are
-    /// excluded, since those are not enclosing names.
-    fn collect_function_declaration_capture_names(
+    /// Inside a CLOSURE body such a declaration lowers to a local closure of
+    /// that body, so every name free in it is free in the enclosing closure too
+    /// and has to be captured there — a `function step()` that reads a
+    /// parameter of the closure's own enclosing closure needs that value routed
+    /// through two capture lists, and collecting only the outer one left the
+    /// inner read bound to whatever else happened to occupy the name.
+    ///
+    /// `bound` is the set of names the enclosing walk already treats as local;
+    /// the declaration's own parameters and its own name are added to it,
+    /// since neither is an enclosing name.
+    pub(in crate::lowering) fn collect_function_declaration_capture_names(
         &self,
         statement: &Statement<'_>,
+        bound: &HashSet<String>,
         captures: &mut Vec<String>,
     ) {
         let Statement::FunctionDeclaration(function) = statement else {
@@ -3268,7 +3275,10 @@ impl ModuleBuilder<'_> {
         let Some(function_body) = &function.body else {
             return;
         };
-        let mut param_names = HashSet::new();
+        let mut param_names = bound.clone();
+        if let Some(id) = &function.id {
+            param_names.insert(id.name.as_str().to_owned());
+        }
         for param in &function.params.items {
             let mut binding_names = Vec::new();
             Self::binding_pattern_names(&param.pattern, &mut binding_names);

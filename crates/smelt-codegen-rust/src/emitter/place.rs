@@ -711,9 +711,10 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         };
         let Some(setter_id) = descriptor.setter else {
-            return Err(EmitError::new(
-                "materialized descriptor write has no source setter",
-            ));
+            return Err(EmitError::new(format!(
+                "materialized descriptor write has no source setter: {}.{}",
+                self.mir.symbols.get(owner.name).unwrap_or_default(), self.mir.symbols.get(field).unwrap_or_default()
+            )));
         };
         let setter = self
             .mir

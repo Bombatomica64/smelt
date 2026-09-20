@@ -218,8 +218,70 @@ impl LoweringCtx<'_> {
             dest: local,
             value: crate::Rvalue::Use(Operand::Copy(place.clone())),
         });
-        writebacks.push((place, local));
+        // A receiver read through a getter-only accessor has nowhere to commit
+        // back to, and needs none: see `Self::field_read_is_getter_only`.
+        let commits_back = match &receiver_expr.kind {
+            ExprKind::Field { receiver, field } | ExprKind::OptionalField { receiver, field } => {
+                let base_ty = self.hir_expr(*receiver)?.ty;
+                !self.field_read_is_getter_only(base_ty, *field)
+            }
+            _ => true,
+        };
+        if commits_back {
+            writebacks.push((place, local));
+        }
         Ok((local, writebacks))
+    }
+
+    /// Whether reading `field` off a value of `receiver_ty` goes through a class
+    /// ACCESSOR that declares a getter and no setter.
+    ///
+    /// Such a member cannot be assigned: TypeScript rejects `a.b = v` outright
+    /// ("cannot assign to a read-only property"), so an assignment to one can
+    /// only be a synthesized receiver writeback. And JavaScript agrees about
+    /// what the source meant: `a.b.c = v` READS `a.b` and sets `.c` on the
+    /// object that read produced — it never assigns `a.b`. So the writeback
+    /// [`Self::place_base_local`] normally records must be skipped here, both
+    /// because it is unspellable (the class has no setter to call) and because
+    /// emitting it would write a member the source never writes.
+    ///
+    /// The walk follows the single-inheritance chain, because an accessor
+    /// declared on a base class is an accessor on the derived one too.
+    fn field_read_is_getter_only(
+        &self,
+        receiver_ty: smelt_hir::TypeId,
+        field: smelt_hir::Symbol,
+    ) -> bool {
+        let Some(smelt_hir::Type::Class { name, .. }) = self.krate.types.get(receiver_ty) else {
+            return false;
+        };
+        let mut class = *name;
+        // A malformed base chain cannot loop forever: every step must find a
+        // DIFFERENT declared class, and the crate declares finitely many.
+        let mut visited = Vec::new();
+        loop {
+            if visited.contains(&class) {
+                return false;
+            }
+            visited.push(class);
+            let Some(class_item) = self.krate.items.iter().find_map(|item| match item {
+                smelt_hir::Item::Class(class_item) if class_item.name == class => Some(class_item),
+                _ => None,
+            }) else {
+                return false;
+            };
+            if let Some(descriptor) = class_item
+                .descriptors
+                .iter()
+                .find(|descriptor| descriptor.name == field && !descriptor.is_static)
+            {
+                return descriptor.getter.is_some() && descriptor.setter.is_none();
+            }
+            match class_item.base {
+                Some(base) => class = base,
+                None => return false,
+            }
+        }
     }
 
     /// Materializes an assignment receiver whose type is still optional, as a
