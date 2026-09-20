@@ -565,6 +565,12 @@ jobs:
         run: target/debug/smelt --manifest-path target/compat-repos/hono/Smelt.toml build
 
       - name: Compile the generated Hono crate (advisory)
+        # Advisory like the probe steps above it: the generated Hono crate still
+        # has a small, tracked set of `cargo check` errors
+        # (`blocker-logs/hono-current.md`), and this step exists to report that
+        # count, not to gate the merge. Without this the step's non-zero exit
+        # marked the whole job failed even though the job is `continue-on-error`.
+        continue-on-error: true
         run: |
           RUSTFLAGS=-Awarnings cargo check \
             --manifest-path target/compat-repos/hono/dist-smelt/Cargo.toml
