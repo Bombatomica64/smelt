@@ -1654,13 +1654,13 @@ const EXPECTED_FIXTURE_FAILURES: &[ExpectedFailure] = &[
     // is a regression from PRs #202/#203.
     ExpectedFailure {
         name: "generic_class_method_callback",
-        errors: 208,
+        errors: 276,
         cause: "generic class construction with a composite `T[]` constructor parameter: the \
                 emitted struct is used unparameterized, so nearly every use is E0277",
     },
     ExpectedFailure {
         name: "generic_class_two_methods_callback",
-        errors: 4,
+        errors: 2,
         cause: "a generic class whose two methods pin `T` differently; the method receivers \
                 disagree with the constructed type (E0308)",
     },
@@ -1671,19 +1671,8 @@ const EXPECTED_FIXTURE_FAILURES: &[ExpectedFailure] = &[
                 the substituted, type (E0308)",
     },
     ExpectedFailure {
-        name: "string_length_in_callback_only",
-        errors: 20,
-        cause: "`.length` read off a string inside a non-generic `.map` callback (E0308)",
-    },
-    ExpectedFailure {
-        name: "two_call_sites_pin_differently",
-        errors: 10,
-        cause: "two call sites pinning one callee differently; the second site reuses the \
-                first site's substitution (E0308)",
-    },
-    ExpectedFailure {
         name: "source_class_named_box_with_callback_sink",
-        errors: 27,
+        errors: 43,
         cause: "a source class named `Box` collides with the generated/prelude `Box`, so its \
                 uses take the wrong arity (E0107)",
     },
@@ -1693,19 +1682,13 @@ const EXPECTED_FIXTURE_FAILURES: &[ExpectedFailure] = &[
         cause: "a non-generic callback sunk into a method call from a generic caller is \
                 passed at the caller's borrowed type (E0308)",
     },
-    ExpectedFailure {
-        name: "concrete_and_generic_callbacks_two_sinks",
-        errors: 10,
-        cause: "one generic and one concrete callback in one signature: the concrete one is \
-                still monomorphized with the generic one (E0308)",
-    },
     // -- Also failing at HEAD. These come from the same rescued suite but were
     // not part of the campaign's re-verified ten, so they are recorded as
     // observed rather than asserted to be pre-existing. Anyone fixing one
     // should confirm which it is and update this note.
     ExpectedFailure {
         name: "generic_class_method_and_free_maker",
-        errors: 208,
+        errors: 282,
         cause: "same generic-class family as generic_class_method_callback: the class's own \
                 `T` never reaches the emitted struct (E0277)",
     },
@@ -1720,12 +1703,6 @@ const EXPECTED_FIXTURE_FAILURES: &[ExpectedFailure] = &[
         errors: 0,
         cause: "rejected during emission: \"indirect call has too many arguments\" for a \
                 `cb?:` parameter called at both arities",
-    },
-    ExpectedFailure {
-        name: "second_type_param_pinned_by_key_callback",
-        errors: 0,
-        cause: "rejected during emission: \"type table does not contain literal operand type \
-                Int\" when `K` is pinned only through the callback return",
     },
     ExpectedFailure {
         name: "variadic_type_param_callback",
