@@ -294,10 +294,15 @@ console.log(answer.headers.get('x-kept'));
 console.log(await answer.text());
 server.close();
 ";
+    // `getHeader` answers `undefined` for a header that was never set, and
+    // `JSON.stringify` OMITS an undefined-valued property rather than writing
+    // `null` for it -- so `missing` does not appear at all. Diffed against Node
+    // 22.22 (the recorded expectation said `"missing":null`, which Node does not
+    // print).
     assert_program_output(
         source,
         "http_headers_runtime",
-        "202\ntext/csv\nyes\n{\"type\":\"text/csv\",\"kept\":\"yes\",\"missing\":null,\"status\":202}\n",
+        "202\ntext/csv\nyes\n{\"type\":\"text/csv\",\"kept\":\"yes\",\"status\":202}\n",
     );
 }
 

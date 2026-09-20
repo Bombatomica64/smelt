@@ -1032,16 +1032,25 @@ fn emit_response_traits(writer: &mut CodeWriter, needs_unknown: bool) {
         return;
     }
     writer.line("/// Erase a response for a dynamic boundary (identity marker + status line).");
+    writer.line("///");
+    writer.line("/// Retains the live response, for the reason its `Request` sibling does:");
+    writer.line("/// erasing a value and narrowing it back is the SAME object in JavaScript,");
+    writer.line("/// body handle and `bodyUsed` cell included.");
     writer.block("impl IntoSmeltUnknown for SmeltResponse", |impl_writer| {
         impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
+            fn_writer.line("smelt_register_host_origin(self.id, self.clone());");
             fn_writer.line("let body_text = String::from_utf8_lossy(&self.body.peek_bytes()).into_owned();");
             fn_writer.line("SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([(\"__smelt_response\".to_owned(), SmeltUnknown::Bool(true)), (\"status\".to_owned(), SmeltUnknown::Number(self.status)), (\"statusText\".to_owned(), SmeltUnknown::String(self.status_text.into())), (\"ok\".to_owned(), SmeltUnknown::Bool(self.status >= 200.0 && self.status <= 299.0)), (\"headers\".to_owned(), self.headers.into_smelt_unknown()), (\"body\".to_owned(), SmeltUnknown::String(body_text.into()))])))");
         });
     });
     writer.blank_line();
-    writer.line("/// Rebuild a response from an erased value.");
+    writer.line("/// Recover a response from an erased value.");
+    writer.line("///");
+    writer.line("/// The retained origin first, exactly as for a request; a record that did");
+    writer.line("/// not come from an erasure is rebuilt from its fields.");
     writer.block("impl SmeltFromUnknown for SmeltResponse", |impl_writer| {
         impl_writer.block("fn smelt_from_unknown(value: SmeltUnknown) -> Self", |fn_writer| {
+            fn_writer.line("if let Some(origin) = smelt_restore_host_origin::<Self>(&value) { return origin; }");
             fn_writer.line("let SmeltUnknown::Object(map) = value else { return Self::new() };");
             fn_writer.line("let status = match map.get(\"status\") { Some(SmeltUnknown::Number(status)) => status, _ => 200.0 };");
             fn_writer.line("let status_text = match map.get(\"statusText\") { Some(SmeltUnknown::String(text)) => text.to_string(), _ => String::new() };");
@@ -1062,16 +1071,28 @@ fn emit_request_traits(writer: &mut CodeWriter, needs_unknown: bool) {
         return;
     }
     writer.line("/// Erase a request for a dynamic boundary (identity marker + url/method).");
+    writer.line("///");
+    writer.line("/// Retains the live request under the record's object id, so narrowing the");
+    writer.line("/// erased value back hands out the SAME request rather than a rebuilt copy:");
+    writer.line("/// `new Request(input)` on an erased input must disturb the ORIGINAL's body");
+    writer.line("/// (Node leaves `input.bodyUsed` true at once), which a rebuilt copy cannot");
+    writer.line("/// do. Same rule, and the same registry, as `host_value_erasure`'s pair.");
     writer.block("impl IntoSmeltUnknown for SmeltRequest", |impl_writer| {
         impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
+            fn_writer.line("smelt_register_host_origin(self.id, self.clone());");
             fn_writer.line("let body_text = String::from_utf8_lossy(&self.body.peek_bytes()).into_owned();");
             fn_writer.line("SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([(\"__smelt_request\".to_owned(), SmeltUnknown::Bool(true)), (\"url\".to_owned(), SmeltUnknown::String(self.url.into())), (\"method\".to_owned(), SmeltUnknown::String(self.method.into())), (\"headers\".to_owned(), self.headers.into_smelt_unknown()), (\"body\".to_owned(), SmeltUnknown::String(body_text.into()))])))");
         });
     });
     writer.blank_line();
-    writer.line("/// Rebuild a request from an erased value.");
+    writer.line("/// Recover a request from an erased value.");
+    writer.line("///");
+    writer.line("/// A record that came from an erasure in this thread hands back the SAME");
+    writer.line("/// request, body handle and `bodyUsed` cell included. Only a record that did");
+    writer.line("/// not (one rebuilt from JSON, say) is reconstructed from its fields.");
     writer.block("impl SmeltFromUnknown for SmeltRequest", |impl_writer| {
         impl_writer.block("fn smelt_from_unknown(value: SmeltUnknown) -> Self", |fn_writer| {
+            fn_writer.line("if let Some(origin) = smelt_restore_host_origin::<Self>(&value) { return origin; }");
             fn_writer.line("let SmeltUnknown::Object(map) = value else { return Self::from_parts(\"about:blank\", \"GET\".to_owned(), SmeltHeaders::new(), SmeltBody::empty()) };");
             fn_writer.line("let url = match map.get(\"url\") { Some(SmeltUnknown::String(url)) => url.to_string(), _ => \"about:blank\".to_owned() };");
             fn_writer.line("let method = match map.get(\"method\") { Some(SmeltUnknown::String(method)) => method.to_string(), _ => \"GET\".to_owned() };");
