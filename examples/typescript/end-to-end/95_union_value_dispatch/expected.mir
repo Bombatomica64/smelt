@@ -1,0 +1,82 @@
+interface Keyed
+interface Noted
+
+async fn body_text (FuncId(0)) -> String
+  locals
+    %0 param init: String | Uint8Array
+    %1 temp: Response
+    %2 temp: Future<String>
+    %3 temp: String
+  bb0:
+    %1 = response_new body=copy %0
+    %2 = response_text move %1
+    %3 = await move %2
+    return move %3
+
+fn retag (FuncId(1)) -> String
+  locals
+    %0 param value: Keyed | Noted
+    %1 param next: String
+  bb0:
+    %0.field11 = copy %1
+    return copy %0.field11
+
+async fn run (FuncId(2)) -> None
+  locals
+    %0 user counted: Keyed
+    %1 user noted: Noted
+    %2 temp: Future<String>
+    %3 temp: String
+    %4 temp: None
+    %5 temp: List<Float>
+    %6 temp: Uint8Array
+    %7 temp: Future<String>
+    %8 temp: String
+    %9 temp: None
+    %10 temp: Dict<String, String>
+    %11 temp: Dict<String, String>
+    %12 temp: String
+    %13 temp: None
+    %14 temp: String
+    %15 temp: None
+  bb0:
+    %2 = call fn0("hello") -> bb1
+  bb1:
+    %3 = await move %2
+    %4 = call @console_log(move %3) -> bb2
+  bb2:
+    %5 = [104.0, 105.0, 33.0]
+    %6 = typed_array_new Uint8Array move %5
+    %7 = call fn0(move %6) -> bb3
+  bb3:
+    %8 = await move %7
+    %9 = call @console_log(move %8) -> bb4
+  bb4:
+    %10 = {"tag": "first", "kind": "k"}
+    %0 = move %10
+    %11 = {"tag": "third", "note": "n"}
+    %1 = move %11
+    %12 = call fn1(move %0, "second") -> bb5
+  bb5:
+    %13 = call @console_log(move %12) -> bb6
+  bb6:
+    %14 = call fn1(move %1, "fourth") -> bb7
+  bb7:
+    %15 = call @console_log(move %14) -> bb8
+  bb8:
+    return none
+
+async fn main (FuncId(3)) -> None throws
+  locals
+    %0 temp: Future<None>
+    %1 temp: None
+    %2 temp: Future<None>
+    %3 temp: None
+  bb0:
+    %0 = call fn2() -> bb1
+  bb1:
+    %1 = await move %0
+    %2 = async_exit_drain()
+    %3 = await move %2
+    return none
+

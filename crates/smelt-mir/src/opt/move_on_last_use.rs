@@ -34,7 +34,8 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    BasicBlock, Callee, LocalId, LocalKind, Mir, MirFunction, Operand, Place, Rvalue, Statement,
+    BasicBlock, Callee, GlobalProjection, LocalId, LocalKind, Mir, MirFunction, Operand, Place,
+    Rvalue, Statement,
     Terminator,
 };
 
@@ -365,6 +366,14 @@ fn statement_reads(stmt: &Statement, out: &mut Vec<LocalId>) {
                     out.push(*base);
                     collect_operand_reads(index, out);
                 }
+                // No base local, but the index operand is still a read: if it
+                // were missed, this pass could move the local out before the
+                // global write consumes it.
+                Place::Global { projection, .. } => {
+                    if let GlobalProjection::Index { index, .. } = projection {
+                        collect_operand_reads(index, out);
+                    }
+                }
             }
             value.for_each_operand(|operand| collect_operand_reads(operand, out));
         }
@@ -419,6 +428,9 @@ fn collect_operand_reads(operand: &Operand, out: &mut Vec<LocalId>) {
                 out.push(*base);
                 collect_operand_reads(index, out);
             }
+            // A global-rooted place is an assignment target, never an operand,
+            // so it contributes no operand reads.
+            Place::Global { .. } => {}
         },
     }
 }

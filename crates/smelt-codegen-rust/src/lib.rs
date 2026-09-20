@@ -79,20 +79,31 @@ use std::{
 
 use crate::{rust::erased_string, type_substitution::TypeSubstitution};
 use smelt_hir::{AsyncOp, BodyId, Type, TypeId};
-use smelt_mir::{HirOrigin, Mir, MirClassProtocol, MirFunction, Rvalue};
+use smelt_mir::{HirOrigin, Mir, MirClassProtocol, MirFunction, MirGlobalInit, Rvalue};
 
 mod asymmetric_matcher_prelude;
 mod builtin_member_prelude;
 mod byte_buffer_prelude;
+mod event_emitter_prelude;
+mod host_value_erasure;
+mod number_format_prelude;
+mod blob_prelude;
+mod fetch_types_prelude;
+mod crypto_prelude;
+mod form_data_prelude;
+mod text_codec_prelude;
+mod typed_array_prelude;
 pub(crate) mod class_proto;
 pub(crate) mod classes;
 pub(crate) mod classify;
 pub(crate) mod deps;
 mod function_object_prelude;
+mod http_server_prelude;
 // Increment 3 of the callback-generics plan made the last dormant entry point
 // live: the safety valve consults `collect_bindings` and `TypeParamBinding`
 // directly, so the module no longer needs a `dead_code` expectation.
 pub(crate) mod generic_bindings;
+pub(crate) mod generic_elision;
 mod reflection_prelude;
 pub(crate) mod runtime_prelude;
 pub mod rust;
@@ -280,17 +291,52 @@ impl CrateKind {
 }
 
 /// An error encountered during code emission.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct EmitError {
     /// The error message.
     pub message: String,
+    /// The generated function the blocker fired in, and where it came from in
+    /// source: `` `buildRegExpStr` at src/router/reg-exp-router/node.ts:1234..1560 ``.
+    ///
+    /// Emitter blockers are raised deep in emission — a list mutation, a tuple
+    /// index, a coercion — and carried a message about the SHAPE only, with
+    /// nothing about where it was. A whole-crate build of Hono printed
+    /// `list unshift item must match the list element type` and stopped, and
+    /// pinning that meant bisecting the manifest's `exclude` list one directory
+    /// at a time (two rounds' worth of notes say so: H48's closing section and
+    /// H54's opening one).
+    ///
+    /// It is set ONCE, by the function-emission entry points, on the way out. A
+    /// blocker cannot know its site (the deep helpers have no reason to hold
+    /// one) and the driver cannot know the message, so the two meet here.
+    /// `Option` rather than a `String` because a synthesized function has no
+    /// source of its own, and because a blocker raised outside function
+    /// emission (a class shape, a prelude gate) has no function to name.
+    pub site: Option<String>,
 }
 
 impl std::fmt::Display for EmitError {
-    /// Formats the error message for display.
+    /// Formats the error message for display, naming the site when known.
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.message)
+        match &self.site {
+            Some(site) => write!(formatter, "{} (in {site})", self.message),
+            None => formatter.write_str(&self.message),
+        }
+    }
+}
+
+impl std::fmt::Debug for EmitError {
+    /// Formats the same text as [`Display`](std::fmt::Display).
+    ///
+    /// A failed `smelt build` reaches the terminal through `Box<dyn Error>`,
+    /// which Rust's runtime prints with `Debug`. The derived form printed
+    /// `EmitError { message: "list unshift item must match the list element
+    /// type", site: Some("`build_reg_exp_str` at .../node.ts:4178..5003") }` --
+    /// the site was there and buried in struct syntax. Delegating makes the one
+    /// line a reader sees the readable one.
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self, formatter)
     }
 }
 
@@ -301,7 +347,22 @@ impl EmitError {
     fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
+            site: None,
         }
+    }
+
+    /// Record the generated function a blocker fired in, if it has none yet.
+    ///
+    /// Idempotent on purpose: emission nests (a method emits a closure emits a
+    /// call), so the innermost frame that knows a site wins and the outer ones
+    /// leave it alone. That is why this is a field rather than text appended to
+    /// the message — appending could not tell whether a site was already there
+    /// without matching on the message.
+    fn with_site(mut self, site: impl FnOnce() -> String) -> Self {
+        if self.site.is_none() {
+            self.site = Some(site());
+        }
+        self
     }
 }
 
@@ -318,17 +379,18 @@ fn id_index(index: u32, context: &'static str) -> Result<usize, EmitError> {
 /// `smelt_stdlib::host_object` registry so this runtime filter, the frontend
 /// construction path, and the `instanceof` codegen path share one source of
 /// truth. Appended to that are the markers owned by other runtime subsystems
-/// (abort controllers/signals, builtin namespaces, the global object) whose
-/// records must equally hide their internal keys but which are not part of the
-/// host-object registry proper.
+/// (builtin namespaces, the global object) whose records must equally hide
+/// their internal keys but which are not part of the host-object registry
+/// proper.
+///
+/// `__smelt_abortcontroller` / `__smelt_abortsignal` used to be appended here.
+/// They are registry entries now, so appending them would list them twice —
+/// and, before they were entries, this was the only list that knew about them,
+/// which is why an `AbortSignal`'s `__smelt_abort_listeners` was already hidden
+/// while `instanceof` had to answer from a table of its own.
 fn host_marker_registry_array() -> String {
     let markers = smelt_stdlib::host_object_markers()
-        .chain([
-            "__smelt_abortcontroller",
-            "__smelt_abortsignal",
-            "__smelt_builtin_namespace",
-            "__smelt_global_object",
-        ])
+        .chain(["__smelt_builtin_namespace", "__smelt_global_object"])
         .map(|marker| format!("\"{marker}\""))
         .collect::<Vec<_>>()
         .join(", ");
@@ -467,11 +529,44 @@ fn needs_math_round(mir: &Mir) -> bool {
 /// synthesized closure body (e.g. the first-class `setTimeout` value form),
 /// and the prelude must still define the timer queue for it.
 fn needs_timer_helpers(mir: &Mir) -> bool {
+    // An async module body ends by running the event loop to idle, which is the
+    // timer helpers' own run-until-idle entry, so a program whose top level is
+    // async needs them even when it arms no timer of its own -- for instance a
+    // top-level `await fetch(..)`, whose op is not in the list below.
+    if mir.functions.iter().any(|function| {
+        function.is_async
+            && !function.is_test
+            && mir.symbols.get(function.name) == Some("main")
+    }) {
+        return true;
+    }
+    // A `node:http` server registers a live handle with the exit drain, which
+    // is emitted with the timer helpers. The handle accounting has to exist
+    // wherever the server does, whether or not the program also has a timer.
+    if stdlib::needs_http_server_runtime(mir) {
+        return true;
+    }
     stdlib::rvalues(mir).any(|value| {
+        // `AbortSignal.timeout(ms)` is the one non-`AsyncOp` that arms a timer:
+        // it schedules its own abort on the promise-task queue
+        // (`smelt_spawn_promise_task` + `smelt_sleep_ms`). Its result type is a
+        // signal and mentions nothing async, so a program whose only timer is a
+        // timeout signal emitted both calls against a prelude that defined
+        // neither — E0425 twice, in a crate that otherwise compiled.
+        if matches!(
+            value,
+            Rvalue::AbortSignalOp {
+                op: smelt_hir::AbortSignalOp::Timeout,
+                ..
+            }
+        ) {
+            return true;
+        }
         matches!(
             value,
             Rvalue::AsyncOp {
                 op: AsyncOp::Sleep
+                    | AsyncOp::ExitDrain
                     | AsyncOp::Resolve
                     | AsyncOp::Reject
                     | AsyncOp::SetTimeout
@@ -539,7 +634,25 @@ fn emit_source_with_free_function_router(
     let needs_regex =
         stdlib::backend_dependencies(mir).contains(&smelt_stdlib::BackendDependency::Regex);
     let needs_unknown = stdlib::needs_unknown_type(mir);
+    // The fetch types are pay-for-use: a crate that never mentions `Headers`
+    // carries none of `SmeltHeaders`.
+    let needs_headers = stdlib::needs_headers_runtime(mir);
+    let needs_url_search_params = stdlib::needs_url_search_params_runtime(mir);
+    let needs_crypto_random_values = stdlib::needs_crypto_random_values_runtime(mir);
+    let needs_crypto_digest = stdlib::needs_crypto_digest_runtime(mir);
+    let needs_form_data = stdlib::needs_form_data_runtime(mir);
+    let needs_response = stdlib::needs_response_runtime(mir);
+    let needs_request = stdlib::needs_request_runtime(mir);
+    let needs_event_emitter = stdlib::needs_event_emitter_runtime(mir);
+    let needs_http_server = stdlib::needs_http_server_runtime(mir);
+    let needs_body = stdlib::needs_body_runtime(mir);
+    let needs_text_encoder = stdlib::needs_text_encoder_runtime(mir);
+    let needs_text_decoder = stdlib::needs_text_decoder_runtime(mir);
+    let needs_byte_array = stdlib::needs_byte_array_runtime(mir);
+    let needs_data_view = stdlib::needs_data_view_runtime(mir);
+    let needs_blob = stdlib::needs_blob_runtime(mir);
     let needs_smelt_list = stdlib::needs_smelt_list(mir);
+    let needs_prim_set = stdlib::needs_prim_set(mir);
     let needs_erased_function = needs_erased_function_runtime(mir);
     let needs_date_now = stdlib::needs_date_now_runtime(mir);
     let needs_date_timezone_offset = stdlib::needs_date_timezone_offset_runtime(mir);
@@ -599,6 +712,20 @@ fn emit_source_with_free_function_router(
         writer.line("#[global_allocator]");
         writer.line("static SMELT_GLOBAL_ALLOCATOR: ::mimalloc::MiMalloc = ::mimalloc::MiMalloc;");
         writer.blank_line();
+    }
+    // JavaScript's number-to-string rule, ahead of everything that stringifies
+    // a value: `Display for SmeltUnknown`, every static `String(x)` and
+    // template coercion, a property key, an array join and `console.log` all
+    // reach it, so it leads the prelude rather than sitting behind a gate that
+    // would have to name all of them.
+    number_format_prelude::emit(&mut writer);
+    // The panic route is the error channel for every generated body that cannot
+    // propagate a `Result`, and both of its ends -- the throw adapter and the
+    // `catch_unwind` recovery helpers -- are needed wherever a `try` or a
+    // non-propagating fallible call is emitted. One predicate covers both; see
+    // `stdlib::needs_panic_route`.
+    if stdlib::needs_panic_route(mir) {
+        thrown::emit_panic_route_support(&mut writer, needs_unknown);
     }
     if needs_date_now {
         emit_runtime_gate(&mut writer, PreludeGate::DateNow)?;
@@ -746,7 +873,19 @@ fn emit_source_with_free_function_router(
     // identity when later erased to `SmeltUnknown`). Emit it standalone only in
     // that regex-without-list case so list-using programs keep byte-identical
     // output. `needs_smelt_list` already subsumes `needs_unknown`.
-    if needs_regex && !needs_smelt_list {
+    // The text codecs join that list: each of the three types carries a JS
+    // reference identity, so a program that only encodes a string still mints
+    // ids.
+    if (needs_regex
+        || needs_headers
+        || needs_url_search_params
+        || needs_form_data
+        || needs_byte_array
+        || needs_text_encoder
+        || needs_text_decoder
+        || needs_blob)
+        && !needs_smelt_list
+    {
         emit_runtime_gate(&mut writer, PreludeGate::ObjectIdentity)?;
     }
     if needs_smelt_list {
@@ -755,6 +894,88 @@ fn emit_source_with_free_function_router(
         // `SmeltUnknown`-dependent impls (erase / `From<SmeltArray>` / serde) are
         // still emitted by the `needs_unknown` block below.
         emit_runtime_gate(&mut writer, PreludeGate::SmeltList)?;
+    }
+
+    // A source `Set` whose elements can key a Rust hash map: `SmeltPrimSet`.
+    //
+    // JavaScript specifies `Set` iteration as INSERTION ORDER, and these sets
+    // used to be a bare `::std::collections::HashSet`, which has none:
+    // `[...new Set('hello')].join('')` answered `leoh` from one construction and
+    // `hoel` from another in the same program. Sizes and membership were right,
+    // so nothing threw — code that de-duplicates while preserving order, one of
+    // the commonest JS idioms there is, silently scrambled its output.
+    //
+    // The shape is the record store's: a `Vec` of entries for order plus a hash
+    // index for lookup, so `has`/`add`/`delete` stay hashed while iteration,
+    // `forEach`, spread and `Array.from` answer in source order. Its method set
+    // and signatures deliberately match `SmeltJsSet`'s (below, under
+    // `needs_unknown`), so one emitted call text serves either backing.
+    //
+    // It exists SEPARATELY from `SmeltJsSet` because that container's membership
+    // runs every element through `IntoSmeltUnknown` for SameValueZero, which
+    // pulls the whole erased-value carrier into any program holding a set: the
+    // snapshot for a four-line `Set<string>` program went from 18 lines to over
+    // 450 when both backings were merged. For `bool`/`i64`/`String` (and
+    // optionals/unions of those) SameValueZero IS Rust equality, so nothing is
+    // lost by hashing the values directly, and pay-for-use is kept.
+    //
+    // Members live behind an `Rc` and clone as a refcount bump, matching
+    // `SmeltJsSet`: codegen clones a set at every use of a captured one, and the
+    // store is copy-on-write (`Rc::make_mut`) so a cloned set stays an
+    // independent value.
+    if needs_prim_set {
+        writer.line("#[derive(Debug, Clone)]");
+        writer.line("pub struct SmeltPrimSetStore<T> {");
+        writer.line("    entries: Vec<T>,");
+        writer.line("    index: ::std::collections::HashSet<T>,");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("pub struct SmeltPrimSet<T> {");
+        writer.line("    id: usize,");
+        writer.line("    store: ::std::rc::Rc<SmeltPrimSetStore<T>>,");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("impl<T> SmeltPrimSet<T> {");
+        writer.line("    fn new() -> Self { Self::with_id(smelt_next_object_id()) }");
+        writer.line("    fn with_id(id: usize) -> Self { Self { id, store: ::std::rc::Rc::new(SmeltPrimSetStore { entries: Vec::new(), index: ::std::collections::HashSet::new() }) } }");
+        writer.line("    fn len(&self) -> usize { self.store.entries.len() }");
+        writer.line("    fn is_empty(&self) -> bool { self.store.entries.is_empty() }");
+        writer.line("    fn iter(&self) -> ::std::slice::Iter<'_, T> { self.store.entries.iter() }");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("impl<T: Clone + ::std::cmp::Eq + ::std::hash::Hash> SmeltPrimSet<T> {");
+        writer.line("    fn store_mut(&mut self) -> &mut SmeltPrimSetStore<T> { ::std::rc::Rc::make_mut(&mut self.store) }");
+        writer.line("    fn contains(&self, value: &T) -> bool { self.store.index.contains(value) }");
+        // `add` on an element already present is a no-op in JS, and in
+        // particular does NOT move it to the end of the iteration order.
+        writer.line("    fn insert(&mut self, value: T) -> bool { if self.store.index.contains(&value) { return false; } let store = self.store_mut(); store.index.insert(value.clone()); store.entries.push(value); true }");
+        writer.line("    fn remove(&mut self, value: &T) -> bool { if !self.store.index.contains(value) { return false; } let store = self.store_mut(); store.index.remove(value); store.entries.retain(|entry| entry != value); true }");
+        writer.line("    fn clear(&mut self) { let store = self.store_mut(); store.entries.clear(); store.index.clear(); }");
+        writer.line("    fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) { for value in iter { self.insert(value); } }");
+        writer.line("    fn is_disjoint(&self, other: &Self) -> bool { self.store.entries.iter().all(|value| !other.contains(value)) }");
+        writer.line("    fn is_subset(&self, other: &Self) -> bool { self.store.entries.iter().all(|value| other.contains(value)) }");
+        writer.line("    fn is_superset(&self, other: &Self) -> bool { other.is_subset(self) }");
+        // The set-algebra helpers answer iterators of borrowed members in
+        // insertion order, matching both `HashSet`'s signatures (so the emitted
+        // call text is unchanged) and `SmeltJsSet`'s ordering.
+        writer.line("    fn union<'smelt_set>(&'smelt_set self, other: &'smelt_set Self) -> ::std::vec::IntoIter<&'smelt_set T> { let mut out: Vec<&T> = self.store.entries.iter().collect(); out.extend(other.store.entries.iter().filter(|value| !self.contains(value))); out.into_iter() }");
+        writer.line("    fn intersection<'smelt_set>(&'smelt_set self, other: &'smelt_set Self) -> ::std::vec::IntoIter<&'smelt_set T> { self.store.entries.iter().filter(|value| other.contains(value)).collect::<Vec<_>>().into_iter() }");
+        writer.line("    fn difference<'smelt_set>(&'smelt_set self, other: &'smelt_set Self) -> ::std::vec::IntoIter<&'smelt_set T> { self.store.entries.iter().filter(|value| !other.contains(value)).collect::<Vec<_>>().into_iter() }");
+        writer.line("    fn symmetric_difference<'smelt_set>(&'smelt_set self, other: &'smelt_set Self) -> ::std::vec::IntoIter<&'smelt_set T> { let mut out: Vec<&T> = self.store.entries.iter().filter(|value| !other.contains(value)).collect(); for value in other.store.entries.iter() { if !self.contains(value) { out.push(value); } } out.into_iter() }");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("impl<T> Clone for SmeltPrimSet<T> { fn clone(&self) -> Self { Self { id: self.id, store: self.store.clone() } } }");
+        writer.line("impl<T: ::std::fmt::Debug> ::std::fmt::Debug for SmeltPrimSet<T> { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_struct(\"SmeltPrimSet\").field(\"id\", &self.id).field(\"entries\", &self.store.entries).finish() } }");
+        writer.line("impl<T> Default for SmeltPrimSet<T> { fn default() -> Self { Self::new() } }");
+        writer.line("impl<T: Clone + ::std::cmp::Eq + ::std::hash::Hash, const N: usize> From<[T; N]> for SmeltPrimSet<T> { fn from(values: [T; N]) -> Self { values.into_iter().collect() } }");
+        writer.line("impl<T: Clone + ::std::cmp::Eq + ::std::hash::Hash> ::std::iter::FromIterator<T> for SmeltPrimSet<T> { fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self { let mut set = Self::new(); set.extend(iter); set } }");
+        writer.line("impl<T: Clone> IntoIterator for SmeltPrimSet<T> { type Item = T; type IntoIter = ::std::vec::IntoIter<T>; fn into_iter(self) -> Self::IntoIter { match ::std::rc::Rc::try_unwrap(self.store) { Ok(store) => store.entries.into_iter(), Err(store) => store.entries.clone().into_iter() } } }");
+        writer.line("impl<'smelt_set, T> IntoIterator for &'smelt_set SmeltPrimSet<T> { type Item = &'smelt_set T; type IntoIter = ::std::slice::Iter<'smelt_set, T>; fn into_iter(self) -> Self::IntoIter { self.store.entries.iter() } }");
+        // Two sets are equal when they hold the same members, as JS structural
+        // comparison helpers (`isEqual`) expect; `===` identity is answered by
+        // the `id` field through `reference_identity_text`, not by this impl.
+        writer.line("impl<T: Clone + ::std::cmp::Eq + ::std::hash::Hash> PartialEq for SmeltPrimSet<T> { fn eq(&self, other: &Self) -> bool { self.store.entries.len() == other.store.entries.len() && self.store.entries.iter().all(|value| other.contains(value)) } }");
+        writer.blank_line();
     }
 
     if needs_unknown {
@@ -1300,6 +1521,87 @@ fn emit_source_with_free_function_router(
         writer.line("    SMELT_FUNCTION_ORIGINS.with(|origins| origins.borrow().get(&smelt_erased_function_key(function)).and_then(|origin| origin.downcast_ref::<T>()).cloned())");
         writer.line("}");
         writer.blank_line();
+        // Pay-for-use. Only the six classes whose state is not a record retain
+        // their live value, so a program that erases none of them must not carry
+        // the registry — sixteen example goldens grew by it before this gate.
+        // `Headers`, `URLSearchParams` and `FormData` joined the list in round
+        // 18: their records round-trip STRUCTURALLY, but a member resolved off
+        // an erased view (`smelt_host_method`) has to act on the SAME value, so
+        // they retain their origin too — a `set` through an erased view is
+        // visible on the concrete value the program still holds.
+        // The typed-array family joined for the same reason: a write through an
+        // erased view (`(view as any)[0] = 9`) has to reach the SAME storage the
+        // concrete value still holds, and `smelt_typed_array_write_origin` finds
+        // it through this registry.
+        if needs_text_encoder
+            || needs_text_decoder
+            || needs_event_emitter
+            || needs_http_server
+            || needs_headers
+            || needs_url_search_params
+            || needs_form_data
+            || stdlib::needs_byte_array_runtime(mir)
+        {
+            // Host values whose state is NOT representable as a record.
+            //
+            // `Headers` and `Blob` round-trip structurally: their erased record
+            // carries the header pairs or the bytes, so `SmeltFromUnknown` can
+            // rebuild an equal value from it. The text codecs, the `node:events`
+            // emitter and the three `node:http` types cannot — their state is
+            // closures, cells and a tokio shutdown sender — so there is nothing to
+            // rebuild FROM.
+            //
+            // What JavaScript does there is not rebuild anything: erasing a value
+            // and narrowing it back yields the SAME object, so
+            // `const x: unknown = emitter; (x as EventEmitter).on(..)` reaches the
+            // same listener list. This registry is how the generated runtime keeps
+            // that promise: the erasure retains the live value under the erased
+            // record's object id, and `SmeltFromUnknown` hands that value back.
+            //
+            // Keyed on the JavaScript object id, not on an `Rc` address, so unlike
+            // the sibling callable registries it needs no address-reuse guard: ids
+            // are minted monotonically by `smelt_next_object_id` and are never
+            // reused within a thread. Entries are never removed, for the same
+            // reason as the callable registries — there is no drop hook — and the
+            // growth is one entry per host value that crosses the boundary.
+            writer.line("thread_local! {");
+            writer.line("    /// Live host values reachable from their erased records, by object id.");
+            writer.line("    static SMELT_HOST_ORIGINS: ::std::cell::RefCell<::std::collections::HashMap<usize, Box<dyn ::std::any::Any>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());");
+            writer.line("}");
+            writer.blank_line();
+            writer.line("/// Retain a host value so its erased record can hand back the same object.");
+            writer.line("///");
+            writer.line("/// Call this from the value's `IntoSmeltUnknown`, with the id the erased");
+            writer.line("/// record is built with, so the record and the retained value agree.");
+            writer.line("#[allow(dead_code)]");
+            writer.line("fn smelt_register_host_origin<T: Clone + 'static>(id: usize, value: T) {");
+            writer.line("    SMELT_HOST_ORIGINS.with(|origins| { origins.borrow_mut().insert(id, Box::new(value)); });");
+            writer.line("}");
+            writer.blank_line();
+            writer.line("/// Recover the host value an erased record was made from.");
+            writer.line("///");
+            writer.line("/// `None` for a record that did not come from an erasure — a hand-built");
+            writer.line("/// object carrying the marker, or one that crossed a process boundary. Each");
+            writer.line("/// caller decides what that means for its own type rather than being given");
+            writer.line("/// a fabricated value here.");
+            writer.line("#[allow(dead_code)]");
+            writer.line("fn smelt_restore_host_origin<T: Clone + 'static>(value: &SmeltUnknown) -> Option<T> {");
+            writer.line("    let SmeltUnknown::Object(map) = value else { return None };");
+            writer.line("    smelt_restore_host_origin_by_id::<T>(map.id)");
+            writer.line("}");
+            writer.blank_line();
+            writer.line("/// The same lookup from an object id alone.");
+            writer.line("///");
+            writer.line("/// A write THROUGH an erased record needs this: it holds the record's id");
+            writer.line("/// (and its storage record's id) rather than a whole value, and it has to");
+            writer.line("/// reach the live object those ids stand for.");
+            writer.line("#[allow(dead_code)]");
+            writer.line("fn smelt_restore_host_origin_by_id<T: Clone + 'static>(id: usize) -> Option<T> {");
+            writer.line("    SMELT_HOST_ORIGINS.with(|origins| origins.borrow().get(&id).and_then(|origin| origin.downcast_ref::<T>()).cloned())");
+            writer.line("}");
+            writer.blank_line();
+        }
+
         // A JavaScript "callable object" (a function with attached own
         // properties, e.g. remeda's `map(cb)` carrying `.lazy`/`.lazyArgs`)
         // erases to `SmeltUnknown::Object { __smelt_call, ...props }`. When such
@@ -2010,7 +2312,9 @@ fn emit_source_with_free_function_router(
         let host_marker_array = host_marker_registry_array();
         writer.line(format!("fn smelt_object_has_host_marker(object: &SmeltObject) -> bool {{ {host_marker_array}.iter().any(|marker| object.contains_key(marker)) }}"));
         writer.line(format!("fn smelt_record_has_host_marker<V>(record: &SmeltRecord<String, V>) -> bool {{ {host_marker_array}.iter().any(|marker| record.contains_key(*marker)) }}"));
-        byte_buffer_prelude::emit(&mut writer);
+        // The concrete typed-array family's presence decides whether the
+        // erased index write has a live value to write through to.
+        byte_buffer_prelude::emit(&mut writer, stdlib::needs_byte_array_runtime(mir));
         // The `arguments` exotic object. Its indexed elements are enumerable own
         // properties but its `length` is not, which is what makes
         // `isEqual(toArgs([1, 2, 3]), { 0: 1, 1: 2, 2: 3 })` hold: both sides
@@ -2045,10 +2349,20 @@ fn emit_source_with_free_function_router(
         // `__smelt_proto:`-prefixed entries hold members INHERITED from a
         // prototype (`Object.create(proto)`), so they are never own keys — JS
         // `Object.keys` / `for...in` own-key enumeration must skip them.
-        writer.line("fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { if smelt_object_has_host_marker(object) { return false; } !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && key != \"__smelt_map\" && key != \"__smelt_set\" && !(object.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\" | \"lastIndex\")) && !(object.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\" | \"stack\")) && !(object.contains_key(\"__smelt_arguments\") && matches!(key, \"__smelt_arguments\" | \"length\")) }");
+        //
+        // A symbol-keyed property is skipped for a stronger reason: in
+        // JavaScript a symbol key NEVER appears in string-key enumeration
+        // (`Object.keys`, `Object.values`, `Object.entries`, `for...in`,
+        // `JSON.stringify`), only in `Object.getOwnPropertySymbols` and
+        // `Reflect.ownKeys`. Every storage spelling of a symbol key shares the
+        // `__smelt_symbol` stem (`smelt_stdlib::symbol_keys::SYMBOL_KEY_STEM`) —
+        // the opaque `__smelt_symbol:<description>` form, the folded registry and
+        // unique member names, and the well-known keys — so one prefix test
+        // covers all of them.
+        writer.line("fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { if smelt_object_has_host_marker(object) { return false; } !key.starts_with(\"__smelt_symbol\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && key != \"__smelt_map\" && key != \"__smelt_set\" && !(object.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\" | \"lastIndex\")) && !(object.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\" | \"stack\")) && !(object.contains_key(\"__smelt_arguments\") && matches!(key, \"__smelt_arguments\" | \"length\")) }");
         writer
             .line("/// Return whether a record key is visible to JavaScript `for...in` iteration.");
-        writer.line("fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> bool { if smelt_record_has_host_marker(record) { return false; } !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && !(record.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\" | \"lastIndex\")) && !(record.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\" | \"stack\")) && !(record.contains_key(\"__smelt_arguments\") && matches!(key, \"__smelt_arguments\" | \"length\")) }");
+        writer.line("fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> bool { if smelt_record_has_host_marker(record) { return false; } !key.starts_with(\"__smelt_symbol\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_date\" && key != \"__smelt_timezone\" && key != \"__smelt_class\" && !(record.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\" | \"lastIndex\")) && !(record.contains_key(\"__smelt_error\") && matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\" | \"stack\")) && !(record.contains_key(\"__smelt_arguments\") && matches!(key, \"__smelt_arguments\" | \"length\")) }");
         // `for...in` walks the PROTOTYPE CHAIN; `Object.keys` does not. The two
         // therefore cannot share one key list. Inherited members live behind the
         // `__smelt_proto:` prefix, which the own-key filters above exclude — right
@@ -2090,8 +2404,8 @@ fn emit_source_with_free_function_router(
         writer.line("///");
         writer.line("/// Drops `__smelt_proto:` / `__smelt_method:` / `__smelt_class` keys (inherited");
         writer.line("/// members, prototype methods and class provenance are not own properties) and");
-        writer.line("/// restores a `__smelt_symbol:` key to its `SmeltUnknown::Symbol` tag.");
-        writer.line("fn smelt_own_js_map_entries<V: Clone>(map: &SmeltJsMap<SmeltUnknown, V>) -> Vec<(SmeltUnknown, V)> { map.iter().filter_map(|(key, value)| { let SmeltUnknown::String(text) = &key else { return Some((key, value)); }; let text = text.to_string(); if text.starts_with(\"__smelt_proto:\") || text.starts_with(\"__smelt_method:\") || text == \"__smelt_class\" { return None; } if let Some(description) = text.strip_prefix(\"__smelt_symbol:\") { return Some((SmeltUnknown::Symbol(description.into()), value)); } Some((key, value)) }).collect() }");
+        writer.line("/// restores any symbol key to its `SmeltUnknown::Symbol` tag.");
+        writer.line("fn smelt_own_js_map_entries<V: Clone>(map: &SmeltJsMap<SmeltUnknown, V>) -> Vec<(SmeltUnknown, V)> { map.iter().filter_map(|(key, value)| { let SmeltUnknown::String(text) = &key else { return Some((key, value)); }; let text = text.to_string(); if text.starts_with(\"__smelt_proto:\") || text.starts_with(\"__smelt_method:\") || text == \"__smelt_class\" { return None; } if let Some(symbol) = smelt_own_symbol_key_value(&text) { return Some((symbol, value)); } Some((key, value)) }).collect() }");
         writer.blank_line();
         writer.line("/// Every key JavaScript `for...in` yields for a `SmeltJsMap` backing.");
         writer.line("///");
@@ -2316,7 +2630,7 @@ fn emit_source_with_free_function_router(
                 },
             );
             writer.line(format!(
-                "fn smelt_object_to_string_tag(value: &SmeltUnknown) -> String {{ match value {{ SmeltUnknown::Null => \"[object Null]\".to_owned(), SmeltUnknown::Undefined => \"[object Undefined]\".to_owned(), SmeltUnknown::Bool(_) => \"[object Boolean]\".to_owned(), SmeltUnknown::Number(_) => \"[object Number]\".to_owned(), SmeltUnknown::String(_) => \"[object String]\".to_owned(), SmeltUnknown::Symbol(_) => \"[object Symbol]\".to_owned(), SmeltUnknown::Array(_) => \"[object Array]\".to_owned(), SmeltUnknown::Function(_) => \"[object Function]\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned(), SmeltUnknown::Object(map) => {{ if let Some(SmeltUnknown::String(tag)) = map.get({to_string_tag_key:?}) {{ return format!(\"[object {{tag}}]\"); }} if map.contains_key(\"__smelt_date\") {{ return \"[object Date]\".to_owned(); }} if map.contains_key(\"__smelt_regexp\") {{ return \"[object RegExp]\".to_owned(); }} if map.contains_key(\"__smelt_error\") {{ return \"[object Error]\".to_owned(); }} if map.contains_key(\"__smelt_global_object\") {{ return \"[object global]\".to_owned(); }} if map.contains_key(\"__smelt_abortcontroller\") {{ return \"[object AbortController]\".to_owned(); }} if map.contains_key(\"__smelt_abortsignal\") {{ return \"[object AbortSignal]\".to_owned(); }} if map.contains_key(\"__smelt_map\") {{ return \"[object Map]\".to_owned(); }} if map.contains_key(\"__smelt_set\") {{ return \"[object Set]\".to_owned(); }} if map.contains_key(\"__smelt_arguments\") {{ return \"[object Arguments]\".to_owned(); }} {host_tag_arms}if map.contains_key(\"__smelt_builtin_namespace\") {{ if let Some(SmeltUnknown::String(name)) = map.get(\"name\") {{ return format!(\"[object {{name}}]\"); }} }} \"[object Object]\".to_owned() }} }} }}",
+                "fn smelt_object_to_string_tag(value: &SmeltUnknown) -> String {{ match value {{ SmeltUnknown::Null => \"[object Null]\".to_owned(), SmeltUnknown::Undefined => \"[object Undefined]\".to_owned(), SmeltUnknown::Bool(_) => \"[object Boolean]\".to_owned(), SmeltUnknown::Number(_) => \"[object Number]\".to_owned(), SmeltUnknown::String(_) => \"[object String]\".to_owned(), SmeltUnknown::Symbol(_) => \"[object Symbol]\".to_owned(), SmeltUnknown::Array(_) => \"[object Array]\".to_owned(), SmeltUnknown::Function(_) => \"[object Function]\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned(), SmeltUnknown::Object(map) => {{ if let Some(SmeltUnknown::String(tag)) = map.get({to_string_tag_key:?}) {{ return format!(\"[object {{tag}}]\"); }} if map.contains_key(\"__smelt_date\") {{ return \"[object Date]\".to_owned(); }} if map.contains_key(\"__smelt_regexp\") {{ return \"[object RegExp]\".to_owned(); }} if map.contains_key(\"__smelt_error\") {{ return \"[object Error]\".to_owned(); }} if map.contains_key(\"__smelt_global_object\") {{ return \"[object global]\".to_owned(); }} if map.contains_key(\"__smelt_map\") {{ return \"[object Map]\".to_owned(); }} if map.contains_key(\"__smelt_set\") {{ return \"[object Set]\".to_owned(); }} if map.contains_key(\"__smelt_arguments\") {{ return \"[object Arguments]\".to_owned(); }} {host_tag_arms}if map.contains_key(\"__smelt_builtin_namespace\") {{ if let Some(SmeltUnknown::String(name)) = map.get(\"name\") {{ return format!(\"[object {{name}}]\"); }} }} \"[object Object]\".to_owned() }} }} }}",
             ));
         }
         writer.blank_line();
@@ -2650,6 +2964,44 @@ fn emit_source_with_free_function_router(
         writer.line("    Ok(current)");
         writer.line("}");
         writer.blank_line();
+        // `promise.then(..)`, `.catch(..)` and `.finally(..)` reached through an
+        // ERASED receiver. The typed spelling lowers to an `AsyncOp` in the
+        // frontend, but a promise that arrives as `SmeltUnknown` — the result of
+        // calling an erased callable, which is what a generic
+        // `TFunction extends () => any` parameter is — reads its member through
+        // `smelt_get_unknown_field`, and that answered `undefined`: the
+        // continuation silently vanished and the chain's value became a default
+        // (radash's `guard`, whose `func()` result is erased, answered its
+        // fallback for every input; H66).
+        //
+        // The derived promise is lazy exactly like every other one here: the
+        // future is not driven until `smelt_await`, which is what JavaScript
+        // does too. A handler's returned promise is flattened
+        // (`smelt_await_flatten`), so `then` never answers `Promise<Promise<T>>`.
+        writer.line("/// Run one promise continuation handler over a settled value.");
+        writer.line("///");
+        writer.line("/// A missing or non-callable handler passes the value through, which is");
+        writer.line("/// what `promise.then(undefined)` does in JavaScript.");
+        writer.line("#[allow(dead_code)]");
+        writer.line("async fn smelt_promise_continue(handler: Option<SmeltUnknown>, value: SmeltUnknown) -> Result<SmeltUnknown, Box<dyn std::error::Error>> {");
+        writer.line("    match handler {");
+        writer.line("        Some(SmeltUnknown::Function(handler)) => smelt_await_flatten((handler)(::std::vec![value])?).await,");
+        writer.line("        _ => Ok(value),");
+        writer.line("    }");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("/// Read a modeled member off an erased promise (`then`/`catch`/`finally`).");
+        writer.line("#[allow(dead_code)]");
+        writer.line("fn smelt_promise_member(promise: &SmeltPromise, field: &str) -> SmeltUnknown {");
+        writer.line("    let member: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = match field {");
+        writer.line("        \"then\" => { let source = promise.clone(); ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| { let source = source.clone(); let on_fulfilled = smelt_args.first().cloned(); let on_rejected = smelt_args.get(1).cloned(); Ok(SmeltUnknown::Promise(SmeltPromise::from_future(Box::pin(async move { match source.smelt_await().await { Ok(value) => smelt_promise_continue(on_fulfilled, value).await, Err(error) => match on_rejected { Some(handler) => smelt_promise_continue(Some(handler), smelt_thrown_value(&*error)).await, None => Err(error) } } })))) }) }");
+        writer.line("        \"catch\" => { let source = promise.clone(); ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| { let source = source.clone(); let on_rejected = smelt_args.first().cloned(); Ok(SmeltUnknown::Promise(SmeltPromise::from_future(Box::pin(async move { match source.smelt_await().await { Ok(value) => Ok(value), Err(error) => smelt_promise_continue(on_rejected, smelt_thrown_value(&*error)).await } })))) }) }");
+        writer.line("        \"finally\" => { let source = promise.clone(); ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| { let source = source.clone(); let on_settled = smelt_args.first().cloned(); Ok(SmeltUnknown::Promise(SmeltPromise::from_future(Box::pin(async move { let settled = source.smelt_await().await; if let Some(SmeltUnknown::Function(handler)) = on_settled { (handler)(::std::vec![])?; } settled })))) }) }");
+        writer.line("        _ => return SmeltUnknown::Undefined,");
+        writer.line("    };");
+        writer.line("    SmeltUnknown::Function(member)");
+        writer.line("}");
+        writer.blank_line();
         // Generic promise-value ABI. A source `Promise<T>` / `Type::Future(T)`
         // lowers to `SmeltFuture<T>` in *every* position (parameter, field,
         // return, local, async-op result), so the same MIR future type renders
@@ -2921,10 +3273,101 @@ fn emit_source_with_free_function_router(
         // clear) registered `'abort'` listeners.
         writer.line("/// Resolve the AbortSignal record behind an abort controller or signal object.");
         writer.line("fn smelt_abort_signal_object(object: &SmeltObject) -> Option<SmeltObject> { if object.contains_key(\"__smelt_abortsignal\") { return Some(object.clone()); } match object.get(\"signal\") { Some(SmeltUnknown::Object(signal)) if signal.contains_key(\"__smelt_abortsignal\") => Some(signal), _ => None } }");
-        writer.line("/// Mark an AbortSignal aborted and fire (then clear) its registered `'abort'` listeners.");
-        writer.line("fn smelt_abort_signal_fire(signal: &SmeltObject) { if matches!(signal.get(\"aborted\"), Some(SmeltUnknown::Bool(true))) { return; } signal.insert(\"aborted\".to_owned(), SmeltUnknown::Bool(true)); let listeners = match signal.get(\"__smelt_abort_listeners\") { Some(SmeltUnknown::Array(values)) => values.clone().into_vec(), _ => Vec::new() }; signal.insert(\"__smelt_abort_listeners\".to_owned(), SmeltUnknown::Array(Vec::new().into())); for listener in listeners { if let SmeltUnknown::Function(callback) = listener { let event = SmeltObject::new(Vec::from([(\"type\".to_owned(), SmeltUnknown::String(\"abort\".into()))])); let _ = callback(vec![SmeltUnknown::Object(event)]); } } }");
+        // The spec's two default reasons. Both are `DOMException`s, so the
+        // record carries the DOMException marker as well as the error brand:
+        // `error.name` and `error.message` read off the error fields, and
+        // `reason instanceof DOMException` answers through the marker, which is
+        // how Node reports them.
+        writer.line("/// The `AbortError` reason `abort()` uses when the caller names none.");
+        writer.line(format!(
+            "fn smelt_abort_default_reason() -> SmeltUnknown {{ {} }}",
+            crate::thrown::dom_exception_record_expr(
+                "AbortError",
+                "This operation was aborted"
+            )
+        ));
+        writer.line("/// The `TimeoutError` reason `AbortSignal.timeout(ms)` aborts with.");
+        writer.line(format!(
+            "fn smelt_abort_timeout_reason() -> SmeltUnknown {{ {} }}",
+            crate::thrown::dom_exception_record_expr(
+                "TimeoutError",
+                "The operation was aborted due to timeout"
+            )
+        ));
+        // `abort(undefined)` is `abort()`: Node answers the default `AbortError`
+        // for both, so an absent argument and an explicit `undefined` are the
+        // same request. Every other value -- a string, a number, a plain object
+        // -- is carried VERBATIM, which is why the reason is an erased value and
+        // not an error type.
+        //
+        // `Null` counts as absent here too, and that is a KNOWN approximation
+        // rather than the spec: Node gives `abort(null)` the reason `null`. HIR
+        // lowers `null` and `undefined` to the same `Type::None`, so the two
+        // spellings are indistinguishable by the time this helper sees them
+        // (the deferred `Type::Null` family -- see the round-9 note in
+        // `blocker-logs/standards-round9-progress.md` section 8, which records
+        // the same conflation costing the `Optional` string coercion). Given one
+        // answer for both, the default is the right one: `abort(undefined)` is a
+        // spelling real code uses and `abort(null)` is not.
+        writer.line("/// The reason an `abort`/`AbortSignal.abort` argument list asks for.");
+        writer.line("fn smelt_abort_reason_argument(args: &[SmeltUnknown]) -> SmeltUnknown { match args.first() { None | Some(SmeltUnknown::Undefined | SmeltUnknown::Null) => smelt_abort_default_reason(), Some(reason) => reason.clone() } }");
+        // Only the slots a signal always has. An un-aborted signal's `reason`
+        // is `undefined`, which is what reading an absent key answers, and the
+        // follow list is created by `smelt_abort_signal_follow` when something
+        // actually follows -- so neither is stored up front, and a program that
+        // never asks about either pays nothing for them. See the matching note
+        // in `abort_controller_constructor_expression`.
+        writer.line("/// Build a fresh AbortSignal record, optionally already aborted.");
+        writer.line("fn smelt_abort_signal_record(reason: Option<SmeltUnknown>) -> SmeltObject { let aborted = reason.is_some(); let mut fields = Vec::from([(\"__smelt_abortsignal\".to_owned(), SmeltUnknown::Bool(true)), (\"aborted\".to_owned(), SmeltUnknown::Bool(aborted)), (\"__smelt_abort_listeners\".to_owned(), SmeltUnknown::Array(Vec::new().into()))]); if let Some(reason) = reason { fields.push((\"reason\".to_owned(), reason)); } SmeltObject::new(fields) }");
+        // Firing is idempotent (a second `abort()` is a no-op in the spec, and
+        // the first reason stands), sets the reason BEFORE running listeners --
+        // Node's listeners already see `signal.reason` -- and clears the list so
+        // a listener registered after the abort never runs.
+        //
+        // Then it propagates to the signals FOLLOWING this one. A dependent
+        // signal is what `new Request(url, { signal })` holds: a distinct object
+        // (`request.signal !== init.signal` in Node) that aborts with the same
+        // reason when its source does. Propagation is depth-first through the
+        // same function, so a chain of dependents settles in one call, and the
+        // idempotence check above is what stops a cycle.
+        writer.line("/// Mark an AbortSignal aborted with a reason, fire its listeners, and propagate to its dependents.");
+        writer.line("fn smelt_abort_signal_fire(signal: &SmeltObject, reason: SmeltUnknown) { if matches!(signal.get(\"aborted\"), Some(SmeltUnknown::Bool(true))) { return; } signal.insert(\"aborted\".to_owned(), SmeltUnknown::Bool(true)); signal.insert(\"reason\".to_owned(), reason.clone()); let listeners = match signal.get(\"__smelt_abort_listeners\") { Some(SmeltUnknown::Array(values)) => values.clone().into_vec(), _ => Vec::new() }; signal.insert(\"__smelt_abort_listeners\".to_owned(), SmeltUnknown::Array(Vec::new().into())); for listener in listeners { if let SmeltUnknown::Function(callback) = listener { let event = SmeltObject::new(Vec::from([(\"type\".to_owned(), SmeltUnknown::String(\"abort\".into()))])); let _ = callback(vec![SmeltUnknown::Object(event)]); } } let follows = match signal.get(\"__smelt_abort_follows\") { Some(SmeltUnknown::Array(values)) => values.clone().into_vec(), _ => Vec::new() }; for follower in follows { if let SmeltUnknown::Object(dependent) = follower { smelt_abort_signal_fire(&dependent, reason.clone()); } } }");
+        writer.line("/// Register `dependent` to abort whenever `source` does, settling it now when `source` already has.");
+        writer.line("fn smelt_abort_signal_follow(source: &SmeltObject, dependent: &SmeltObject) { if matches!(source.get(\"aborted\"), Some(SmeltUnknown::Bool(true))) { let reason = source.get(\"reason\").unwrap_or(SmeltUnknown::Undefined); smelt_abort_signal_fire(dependent, reason); return; } let mut follows = match source.get(\"__smelt_abort_follows\") { Some(SmeltUnknown::Array(values)) => values.into_vec(), _ => Vec::new() }; follows.push(SmeltUnknown::Object(dependent.clone())); source.insert(\"__smelt_abort_follows\".to_owned(), SmeltUnknown::Array(follows.into())); }");
+        // `throwIfAborted` throws the REASON ITSELF, not a wrapper: a string
+        // reason arrives at a `catch` as that string. `smelt_throw` is the same
+        // channel a source `throw` uses, so the two cannot be told apart.
+        // A request's signal, kept BESIDE the request rather than in it.
+        //
+        // `SmeltRequest` is emitted for any crate that holds a request, and a
+        // signal is an erased record — so a `signal` field would make the
+        // request type depend on the `SmeltUnknown` carrier that a crate
+        // touching no dynamic value does not emit. Keying the signal by the
+        // request's JS reference id keeps the request type unchanged and puts
+        // this table, like the helpers it sits with, behind the carrier's own
+        // gate. It is the same id-keyed side-table shape
+        // `smelt_recorded_object_prototype` already uses.
+        //
+        // Created on FIRST READ and remembered, which is what makes
+        // `request.signal === request.signal` true, and what lets a request
+        // built with no `init.signal` still answer a signal — every request has
+        // one in the spec, so the member is never null.
+        writer.line("/// Every request's `AbortSignal`, keyed by the request's JS reference id.");
+        writer.line("thread_local! { static SMELT_REQUEST_SIGNALS: ::std::cell::RefCell<::std::collections::HashMap<usize, SmeltObject>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }");
+        writer.line("/// The request's signal, minting and remembering one on first read.");
+        writer.line("fn smelt_request_signal_record(id: usize) -> SmeltObject { SMELT_REQUEST_SIGNALS.with(|table| table.borrow_mut().entry(id).or_insert_with(|| smelt_abort_signal_record(None)).clone()) }");
+        writer.line("/// `request.signal`.");
+        writer.line("fn smelt_request_signal(id: usize) -> SmeltUnknown { SmeltUnknown::Object(smelt_request_signal_record(id)) }");
+        // The spec's dependent signal: `new Request(url, { signal })` does not
+        // HOLD the given signal, it holds a new one that follows it. Node
+        // answers `false` for `request.signal === init.signal` and still aborts
+        // the request's signal when the source aborts, reason included -- and a
+        // source that is ALREADY aborted settles the dependent at construction,
+        // which `smelt_abort_signal_follow` does.
+        writer.line("/// Make a request's signal follow the `init.signal` it was constructed with.");
+        writer.line("fn smelt_request_follow_signal(id: usize, source: SmeltUnknown) { let dependent = smelt_request_signal_record(id); if let SmeltUnknown::Object(source) = source { if let Some(source) = smelt_abort_signal_object(&source) { smelt_abort_signal_follow(&source, &dependent); } } }");
         writer.line("/// Return an erased AbortController/AbortSignal method bound to its shared record.");
-        writer.line("fn smelt_abort_method(object: SmeltObject, method: &str) -> SmeltUnknown { let method = method.to_owned(); SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let signal = smelt_abort_signal_object(&object); match method.as_str() { \"abort\" | \"dispatchEvent\" => { if let Some(signal) = signal { smelt_abort_signal_fire(&signal); } Ok(if method == \"dispatchEvent\" { SmeltUnknown::Bool(true) } else { SmeltUnknown::Undefined }) } \"addEventListener\" => { if let Some(signal) = signal { let event_type = match args.first() { Some(SmeltUnknown::String(value)) => value.to_string(), _ => String::new() }; if event_type == \"abort\" { if let Some(listener @ SmeltUnknown::Function(_)) = args.get(1).cloned() { let mut listeners = match signal.get(\"__smelt_abort_listeners\") { Some(SmeltUnknown::Array(values)) => values.into_vec(), _ => Vec::new() }; listeners.push(listener); signal.insert(\"__smelt_abort_listeners\".to_owned(), SmeltUnknown::Array(listeners.into())); } } } Ok(SmeltUnknown::Undefined) } \"removeEventListener\" => { if let Some(signal) = signal { if let Some(target @ SmeltUnknown::Function(_)) = args.get(1).cloned() { let listeners: Vec<SmeltUnknown> = match signal.get(\"__smelt_abort_listeners\") { Some(SmeltUnknown::Array(values)) => values.into_vec(), _ => Vec::new() }.into_iter().filter(|listener| !listener.js_strict_eq(&target)).collect(); signal.insert(\"__smelt_abort_listeners\".to_owned(), SmeltUnknown::Array(listeners.into())); } } Ok(SmeltUnknown::Undefined) } _ => Ok(SmeltUnknown::Undefined) } })) }");
+        writer.line("fn smelt_abort_method(object: SmeltObject, method: &str) -> SmeltUnknown { let method = method.to_owned(); SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let signal = smelt_abort_signal_object(&object); match method.as_str() { \"abort\" => { if let Some(signal) = signal { smelt_abort_signal_fire(&signal, smelt_abort_reason_argument(&args)); } Ok(SmeltUnknown::Undefined) } \"dispatchEvent\" => { if let Some(signal) = signal { smelt_abort_signal_fire(&signal, smelt_abort_default_reason()); } Ok(SmeltUnknown::Bool(true)) } \"throwIfAborted\" => { if let Some(signal) = signal { if matches!(signal.get(\"aborted\"), Some(SmeltUnknown::Bool(true))) { return Err(smelt_throw(signal.get(\"reason\").unwrap_or(SmeltUnknown::Undefined))); } } Ok(SmeltUnknown::Undefined) } \"addEventListener\" => { if let Some(signal) = signal { let event_type = match args.first() { Some(SmeltUnknown::String(value)) => value.to_string(), _ => String::new() }; if event_type == \"abort\" { if let Some(listener @ SmeltUnknown::Function(_)) = args.get(1).cloned() { let mut listeners = match signal.get(\"__smelt_abort_listeners\") { Some(SmeltUnknown::Array(values)) => values.into_vec(), _ => Vec::new() }; listeners.push(listener); signal.insert(\"__smelt_abort_listeners\".to_owned(), SmeltUnknown::Array(listeners.into())); } } } Ok(SmeltUnknown::Undefined) } \"removeEventListener\" => { if let Some(signal) = signal { if let Some(target @ SmeltUnknown::Function(_)) = args.get(1).cloned() { let listeners: Vec<SmeltUnknown> = match signal.get(\"__smelt_abort_listeners\") { Some(SmeltUnknown::Array(values)) => values.into_vec(), _ => Vec::new() }.into_iter().filter(|listener| !listener.js_strict_eq(&target)).collect(); signal.insert(\"__smelt_abort_listeners\".to_owned(), SmeltUnknown::Array(listeners.into())); } } Ok(SmeltUnknown::Undefined) } _ => Ok(SmeltUnknown::Undefined) } })) }");
         writer.blank_line();
         // The one place that decides "own member, else synthesized host
         // method". A host object such as an `AbortSignal` is a marker-bearing
@@ -2936,7 +3379,28 @@ fn emit_source_with_free_function_router(
         // spy resolves the same member the program would have called.
         writer.line("/// The synthesized host method a member read resolves to, if the object");
         writer.line("/// carries a host marker and has no OWN member of that name.");
-        writer.line("fn smelt_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if object.contains_key(name) { return None; } if (object.contains_key(\"__smelt_abortcontroller\") || object.contains_key(\"__smelt_abortsignal\")) && matches!(name, \"abort\" | \"addEventListener\" | \"removeEventListener\" | \"dispatchEvent\" | \"throwIfAborted\") { return Some(smelt_abort_method(object.clone(), name)); } None }");
+        // Each modeled host class with an erasure adapter contributes its own
+        // resolver, and only when its prelude is emitted at all: the fetch
+        // types are pay-for-use, so a crate that never mentions `Headers`
+        // carries neither `SmeltHeaders` nor its resolver.
+        let mut class_resolvers = String::new();
+        for (enabled, resolver) in [
+            (needs_headers, "smelt_headers_host_method"),
+            (
+                needs_url_search_params,
+                "smelt_url_search_params_host_method",
+            ),
+            (needs_form_data, "smelt_form_data_host_method"),
+            (needs_text_encoder, "smelt_text_encoder_host_method"),
+            (needs_text_decoder, "smelt_text_decoder_host_method"),
+        ] {
+            if enabled {
+                class_resolvers.push_str(&format!(
+                    "if let Some(found) = {resolver}(object, name) {{ return Some(found); }} "
+                ));
+            }
+        }
+        writer.line(format!("fn smelt_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> {{ if object.contains_key(name) {{ return None; }} if (object.contains_key(\"__smelt_abortcontroller\") || object.contains_key(\"__smelt_abortsignal\")) && matches!(name, \"abort\" | \"addEventListener\" | \"removeEventListener\" | \"dispatchEvent\" | \"throwIfAborted\") {{ return Some(smelt_abort_method(object.clone(), name)); }} {class_resolvers}None }}"));
         writer.blank_line();
         writer.block("pub enum SmeltUnknown", |unknown_writer| {
             unknown_writer.line("Null,");
@@ -3339,43 +3803,80 @@ fn emit_source_with_free_function_router(
             // (`smelt_reflected_construct`, always emitted) builds `Blob`/`File`
             // through this helper, so it cannot be gated on the crate spelling a
             // `new Blob(...)` itself.
-            writer.line("/// Build the modeled host `Blob`/`File` record for `new Blob(...)` / `new File(...)`.");
+            writer.line("/// Concatenate an erased `BlobPart` array into the bytes it contributes.");
             writer.line("///");
-            writer.line("/// Concatenates BlobPart contents (strings verbatim; nested Blob/File records");
-            writer.line("/// contribute their stored `content`; other parts stringify like JavaScript)");
-            writer.line("/// and stores the UTF-8 byte length as `size`. Passing a file name stamps the");
-            writer.line("/// `__smelt_file` marker on top of `__smelt_blob`, so `file instanceof Blob`");
-            writer.line("/// observes the host subtype relationship; `lastModified` defaults to `0.0`");
-            writer.line("/// for determinism instead of the wall clock.");
+            writer.line("/// A `BlobPart` is `Blob | BufferSource | string` — a heterogeneous host");
+            writer.line("/// union whose arm is a runtime fact — which is why the parts array is");
+            writer.line("/// erased and walked here. Strings contribute their UTF-8 bytes; a nested");
+            writer.line("/// `Blob`/`File` record contributes its stored `content`; a byte-backed");
+            writer.line("/// host record (`Uint8Array`, `ArrayBuffer`, `DataView`, ...) contributes");
+            writer.line("/// its raw `bytes`, which the pre-byte-backed version stringified and so");
+            writer.line("/// corrupted; anything else stringifies the way JavaScript does.");
+            writer.line("///");
+            writer.line("/// Shared by `new Blob(..)` (through `SmeltBlob::from_parts_unknown`) and by");
+            writer.line("/// the reflected host construction below, so a directly-constructed blob and");
+            writer.line("/// a reflectively-constructed one cannot disagree about their bytes.");
+            writer.line("fn smelt_blob_parts_bytes(parts: SmeltUnknown) -> Vec<u8> {");
+            writer.line("    let mut bytes: Vec<u8> = Vec::new();");
+            writer.line("    if let SmeltUnknown::Array(items) = parts {");
+            writer.line("        for item in items.iter() {");
+            writer.line("            match item {");
+            writer.line("                SmeltUnknown::String(text) => bytes.extend_from_slice(text.as_bytes()),");
+            writer.line("                SmeltUnknown::Object(map) if map.contains_key(\"__smelt_blob\") => {");
+            writer.line("                    if let Some(SmeltUnknown::String(text)) = map.get(\"content\") { bytes.extend_from_slice(text.as_bytes()); }");
+            writer.line("                }");
+            writer.line("                SmeltUnknown::Object(map) if matches!(map.get(\"bytes\"), Some(SmeltUnknown::Array(_))) => {");
+            writer.line("                    if let Some(SmeltUnknown::Array(elements)) = map.get(\"bytes\") {");
+            writer.line("                        for element in elements.iter() { if let SmeltUnknown::Number(value) = element { bytes.push(value as u8); } }");
+            writer.line("                    }");
+            writer.line("                }");
+            writer.line("                other => bytes.extend_from_slice(other.to_string().as_bytes()),");
+            writer.line("            }");
+            writer.line("        }");
+            writer.line("    }");
+            writer.line("    bytes");
+            writer.line("}");
+            writer.blank_line();
+            writer.line("/// The ERASED form of a blob: the one definition of the record shape.");
+            writer.line("///");
+            writer.line("/// Called both by the reflected constructor below (through");
+            writer.line("/// `smelt_blob_record_from_parts`) and by `impl IntoSmeltUnknown for");
+            writer.line("/// SmeltBlob`, so a concrete blob crossing a dynamic boundary and a");
+            writer.line("/// reflectively-constructed one are the same record. `content` is the");
+            writer.line("/// UTF-8 decoding of the bytes, which is what every existing consumer of an");
+            writer.line("/// erased blob reads; the concrete `SmeltBlob` is the value that carries");
+            writer.line("/// the bytes losslessly.");
+            writer.line("///");
+            writer.line("/// A file name stamps `__smelt_file` on top of `__smelt_blob`, so");
+            writer.line("/// `file instanceof Blob` observes the host subtype relationship.");
+            writer.line("fn smelt_blob_record(id: usize, bytes: &[u8], blob_type: &str, file_name: Option<String>, last_modified: f64) -> SmeltUnknown {");
+            writer.line("    let content = String::from_utf8_lossy(bytes).into_owned();");
+            writer.line("    let record = Vec::from([");
+            writer.line("        (\"__smelt_blob\".to_owned(), SmeltUnknown::Bool(true)),");
+            writer.line("        (\"type\".to_owned(), SmeltUnknown::String(blob_type.to_owned().into())),");
+            writer.line("        (\"size\".to_owned(), SmeltUnknown::Number(bytes.len() as f64)),");
+            writer.line("        (\"content\".to_owned(), SmeltUnknown::String(content.into())),");
+            writer.line("    ]);");
+            writer.line("    let record = SmeltObject::with_id(id, record);");
+            writer.line("    if let Some(name) = file_name {");
+            writer.line("        record.insert(\"__smelt_file\".to_owned(), SmeltUnknown::Bool(true));");
+            writer.line("        record.insert(\"name\".to_owned(), SmeltUnknown::String(name.into()));");
+            writer.line("        record.insert(\"lastModified\".to_owned(), SmeltUnknown::Number(last_modified));");
+            writer.line("    }");
+            writer.line("    SmeltUnknown::Object(record)");
+            writer.line("}");
+            writer.blank_line();
+            writer.line("/// Build the erased `Blob`/`File` record for the reflected constructor.");
+            writer.line("///");
+            writer.line("/// Kept separate from the concrete `SmeltBlob` so a crate that reflects over");
+            writer.line("/// host constructors but never names a blob does not carry the blob type.");
+            writer.line("/// `lastModified` defaults to `0.0` for determinism instead of the wall clock.");
             writer.line(format!(
                 "fn {}(parts: SmeltUnknown, blob_type: String, file_name: Option<String>, last_modified: Option<f64>) -> SmeltUnknown {{",
                 smelt_stdlib::runtime_symbols::host::BLOB_RECORD_FROM_PARTS,
             ));
-            writer.line("    let mut content = String::new();");
-            writer.line("    if let SmeltUnknown::Array(items) = parts {");
-            writer.line("        for item in items.iter() {");
-            writer.line("            match item {");
-            writer.line("                SmeltUnknown::String(text) => content.push_str(&text),");
-            writer.line("                SmeltUnknown::Object(map) if map.contains_key(\"__smelt_blob\") => {");
-            writer.line("                    if let Some(SmeltUnknown::String(text)) = map.get(\"content\") { content.push_str(&text); }");
-            writer.line("                }");
-            writer.line("                other => content.push_str(&other.to_string()),");
-            writer.line("            }");
-            writer.line("        }");
-            writer.line("    }");
-            writer.line("    let record = Vec::from([");
-            writer.line("        (\"__smelt_blob\".to_owned(), SmeltUnknown::Bool(true)),");
-            writer.line("        (\"type\".to_owned(), SmeltUnknown::String(blob_type.into())),");
-            writer.line("        (\"size\".to_owned(), SmeltUnknown::Number(content.len() as f64)),");
-            writer.line("        (\"content\".to_owned(), SmeltUnknown::String(content.into())),");
-            writer.line("    ]);");
-            writer.line("    let record = SmeltObject::new(record);");
-            writer.line("    if let Some(name) = file_name {");
-            writer.line("        record.insert(\"__smelt_file\".to_owned(), SmeltUnknown::Bool(true));");
-            writer.line("        record.insert(\"name\".to_owned(), SmeltUnknown::String(name.into()));");
-            writer.line("        record.insert(\"lastModified\".to_owned(), SmeltUnknown::Number(last_modified.unwrap_or(0.0)));");
-            writer.line("    }");
-            writer.line("    SmeltUnknown::Object(record)");
+            writer.line("    let bytes = smelt_blob_parts_bytes(parts);");
+            writer.line("    smelt_blob_record(smelt_next_object_id(), &bytes, &blob_type, file_name, last_modified.unwrap_or(0.0))");
             writer.line("}");
             writer.blank_line();
         }
@@ -3414,31 +3915,9 @@ fn emit_source_with_free_function_router(
         writer.line("    }");
         writer.line("}");
         writer.blank_line();
-        // The property key a SYMBOL value indexes.
-        //
-        // A well-known symbol (`Symbol.iterator`, `Symbol.toStringTag`, ...) is a
-        // constant of the language, so `obj[Symbol.iterator]` and a declared
-        // `[Symbol.iterator]` member must name ONE member. The frontend folds the
-        // static key spelling through `smelt_stdlib::well_known_symbols`; this is
-        // the runtime half of that same table, for the spelling that only exists
-        // as a value at compile time (a `const s = Symbol.iterator` alias handed
-        // through an erased slot, a symbol read out of `Object.getOwnPropertySymbols`).
-        // Every other symbol — unique `Symbol('d')`, registry `Symbol.for('d')` —
-        // keeps the generic `__smelt_symbol:<description>` storage form, which is
-        // what makes it a key distinct from its own description string.
-        writer.line("/// The property key a symbol value indexes.");
-        {
-            let well_known_arms = smelt_stdlib::well_known_symbols::spelling_key_pairs()
-                .into_iter()
-                .fold(String::new(), |mut arms, (spelling, key)| {
-                    use ::std::fmt::Write as _;
-                    let _ = write!(arms, "{spelling:?} => {key:?}.to_owned(), ");
-                    arms
-                });
-            writer.line(format!(
-                "fn smelt_symbol_property_key(description: &str) -> String {{ match description {{ {well_known_arms}other => format!(\"__smelt_symbol:{{other}}\") }} }}"
-            ));
-        }
+        // The runtime half of the symbol-value/property-key correspondence the
+        // frontend folds statically; see `emit_symbol_key_derivation`.
+        emit_symbol_key_derivation(&mut writer);
         writer.blank_line();
         // JavaScript property-key coercion: `obj[key]` stringifies whatever `key`
         // is. Lives in the prelude because it was previously emitted as a full
@@ -3449,7 +3928,7 @@ fn emit_source_with_free_function_router(
         // A symbol key keeps its `__smelt_symbol:` prefix, which is the storage
         // form symbol-keyed properties use, so a symbol round-trips as a distinct
         // key rather than colliding with its own description string.
-        writer.line("fn smelt_property_key(value: SmeltUnknown) -> String { match value { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => smelt_symbol_property_key(&value), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(values) => values.into_vec().into_iter().map(smelt_property_key).collect::<Vec<_>>().join(\",\"), SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() } }");
+        writer.line("fn smelt_property_key(value: SmeltUnknown) -> String { match value { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => smelt_symbol_property_key(&value), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(values) => values.into_vec().into_iter().map(smelt_property_key).collect::<Vec<_>>().join(\",\"), SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() } }");
         writer.blank_line();
         // JavaScript `Array.prototype.concat` normalizes each argument with
         // `IsConcatSpreadable`: an array contributes its elements, and any other
@@ -3650,7 +4129,7 @@ fn emit_source_with_free_function_router(
         writer.line("    let smelt_field_value = match map.get(field) { Some(value) => Some(value), None => match map.get(&format!(\"__smelt_proto:{field}\")) { Some(value) => Some(value), None => map.get(&format!(\"__smelt_method:{field}\")) } };");
         writer.line("    match smelt_field_value.unwrap_or(SmeltUnknown::Undefined) {");
         writer.line("        SmeltUnknown::Object(getter) if getter.contains_key(\"__smelt_get\") => match getter.get(\"__smelt_get\") {");
-        writer.line("            Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| panic!(\"{}\", error)),");
+        writer.line("            Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| smelt_panic_throw(error)),");
         writer.line("            _ => SmeltUnknown::Null,");
         writer.line("        },");
         writer.line("        value => value,");
@@ -3762,10 +4241,22 @@ fn emit_source_with_free_function_router(
         writer.line("/// Read a property off any erased value (JS `value.field`).");
         writer.line("fn smelt_get_unknown_field(value: &SmeltUnknown, field: &str) -> SmeltUnknown {");
         writer.line("    match value {");
-        writer.line("        SmeltUnknown::Object(map) => match smelt_get_object_field(map, field) { SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },");
+        // A marker-bearing host record resolves its MODELED MEMBERS first.
+        // `smelt_host_method` answers `None` for a record with an own key of
+        // that name, so an own property still wins as JavaScript's own-property
+        // lookup does; what changes is that `(headers as any).get` is the
+        // header list's `get` rather than `undefined`. The sibling erased-read
+        // path in `place.rs` already asked; this one did not, so the same read
+        // answered differently depending on which spelling reached it.
+        writer.line("        SmeltUnknown::Object(map) => match smelt_host_method(map, field).unwrap_or_else(|| smelt_get_object_field(map, field)) { SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },");
         writer.line("        SmeltUnknown::Array(values) => smelt_get_array_field(values, field),");
         writer.line("        SmeltUnknown::String(marker) if &**marker == \"__smelt_proto:object\" => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined),");
         writer.line("        SmeltUnknown::Function(function) => match smelt_function_value_property(function, field) { SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },");
+        // A PROMISE reached dynamically still has its continuation members: the
+        // typed `p.catch(f)` lowers to an `AsyncOp`, and this is the same
+        // operation for a promise the static types lost (see
+        // `smelt_promise_member`).
+        writer.line("        SmeltUnknown::Promise(promise) => smelt_promise_member(promise, field),");
         writer.line("        _ => SmeltUnknown::Undefined,");
         writer.line("    }");
         writer.line("}");
@@ -4123,7 +4614,7 @@ fn emit_source_with_free_function_router(
             writer.line("        });");
             writer.line("        if due.is_empty() { break; }");
             writer.line("        for timer in due {");
-            writer.line("            (&mut *timer.callback.borrow_mut())().unwrap_or_else(|error| panic!(\"{}\", error));");
+            writer.line("            (&mut *timer.callback.borrow_mut())().unwrap_or_else(|error| smelt_panic_throw(error));");
             writer.line("            // Re-arm repeating `setInterval` timers for their next period. The");
             writer.line("            // next fire is scheduled `period` ms from the current virtual time, so");
             writer.line("            // it is strictly in the future and cannot re-fire within this drain pass.");
@@ -4240,6 +4731,7 @@ fn emit_source_with_free_function_router(
             writer.line("    if SMELT_RACE_DEPTH.with(::std::cell::Cell::get) == 0 { tokio::task::yield_now().await; }");
             writer.line("}");
             writer.blank_line();
+            emit_exit_drain_support(&mut writer);
             // `Promise.race` on the virtual clock. Every generated promise value
             // is a spin-loop future that, when polled, advances virtual time by
             // at most one timer step and then yields. So within a single poll
@@ -4384,7 +4876,10 @@ fn emit_source_with_free_function_router(
                         match_writer.line("Self::Null => formatter.write_str(\"null\"),");
                         match_writer.line("Self::Undefined => formatter.write_str(\"undefined\"),");
                         match_writer.line("Self::Bool(value) => write!(formatter, \"{value}\"),");
-                        match_writer.line("Self::Number(value) => write!(formatter, \"{value}\"),");
+                        match_writer.line(format!(
+                            "Self::Number(value) => formatter.write_str(&{fn_name}(*value)),",
+                            fn_name = crate::number_format_prelude::NUMBER_TO_STRING_FN,
+                        ));
                         match_writer.line("Self::String(value) => formatter.write_str(value),");
                         match_writer.line("Self::Symbol(value) => formatter.write_str(value),");
                         match_writer.line("Self::Array(_) | Self::Object(_) => formatter.write_str(\"[object Object]\"),");
@@ -4397,11 +4892,28 @@ fn emit_source_with_free_function_router(
         // The exception-payload ABI sits right after `Display for SmeltUnknown`
         // because `SmeltThrown`'s own `Display` falls back to it for non-error
         // payloads.
-        thrown::emit_thrown_payload_support(&mut writer);
+        thrown::emit_thrown_payload_support(&mut writer, stdlib::needs_panic_route(mir));
         // The fallible `JSON.parse` adapter reports through that same channel,
         // so it follows the ABI it depends on.
         if needs_serde_json && stdlib::needs_json_parse_runtime(mir) {
             thrown::emit_json_parse_support(&mut writer);
+        }
+        // The URI decoders report through the same channel, so they follow the
+        // same ABI dependency. They need no Serde, only the payload support
+        // emitted just above.
+        if stdlib::needs_uri_decode_runtime(mir) {
+            thrown::emit_uri_decode_support(&mut writer);
+        }
+        // The `DataView` accessors, same channel and same ABI dependency. They
+        // name `SmeltDataView` and `SmeltTypedArrayKind`, both emitted with the
+        // byte family above, so they come after it.
+        if stdlib::needs_data_view_access_runtime(mir) {
+            thrown::emit_data_view_access_support(&mut writer);
+        }
+        // The base64 codec, same channel and same ABI dependency. Both
+        // directions throw, so both adapters are emitted together.
+        if stdlib::needs_base64_runtime(mir) {
+            thrown::emit_base64_support(&mut writer);
         }
         writer.blank_line();
         writer.line("impl Eq for SmeltUnknown {}");
@@ -4649,7 +5161,7 @@ fn emit_source_with_free_function_router(
             impl_writer.block(
                 "fn smelt_from_unknown(value: SmeltUnknown) -> Self",
                 |fn_writer| {
-                    fn_writer.line("match value { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }");
+                    fn_writer.line("match value { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }");
                 },
             );
         });
@@ -4683,6 +5195,30 @@ fn emit_source_with_free_function_router(
         // set members via SameValueZero insert. Any other value yields an empty set.
         writer.line("impl<T: SmeltFromUnknown> SmeltFromUnknown for Option<T> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Null | SmeltUnknown::Undefined => None, other => Some(T::smelt_from_unknown(other)) } } }");
         writer.line("impl<T: SmeltFromUnknown + Clone + IntoSmeltUnknown> SmeltFromUnknown for SmeltJsSet<T> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Object(object) => { if let Some(SmeltUnknown::Array(members)) = object.get(\"__smelt_set\") { let mut set = SmeltJsSet::with_id(object.id); for member in members.into_vec() { set.insert(T::smelt_from_unknown(member)); } set } else { SmeltJsSet::default() } }, SmeltUnknown::Array(members) => { let mut set = SmeltJsSet::new(); for member in members.into_vec() { set.insert(T::smelt_from_unknown(member)); } set }, _ => SmeltJsSet::default() } } }");
+        writer.blank_line();
+        // Un-erase a TUPLE: the exact inverse of `IntoSmeltUnknown for (A, B)`
+        // below, which encodes a pair as a two-element `SmeltUnknown::Array`.
+        //
+        // Without this, a generic whose argument is a tuple had no way back from
+        // the runtime carrier: a `T` recovered as `<T as
+        // SmeltFromUnknown>::smelt_from_unknown(..)` (the recovery arm the
+        // render scope selects when the position CAN spell the parameter — see
+        // `blocker-logs/hono-h42-erasure-substitution.md`) failed to compile the
+        // moment `T` was instantiated at a tuple, which is what Hono's
+        // `Router<[unknown, RouterRoute]>` is. The recovery rule was general;
+        // the trait's coverage of the type it recovers INTO was not, and a
+        // missing impl is not a reason to erase the value instead.
+        //
+        // Arity mirrors `IntoSmeltUnknown` exactly: adding an arity to one side
+        // without the other would make the round trip asymmetric, which is the
+        // defect this closes.
+        //
+        // A non-array value, or an array shorter than the tuple, fills the
+        // missing slots from `Undefined` and lets each element type apply its
+        // own JS coercion — the same tolerant fallback every container impl
+        // above takes, rather than a panic on a shape the source already
+        // declared.
+        writer.line("impl<A: SmeltFromUnknown, B: SmeltFromUnknown> SmeltFromUnknown for (A, B) { fn smelt_from_unknown(value: SmeltUnknown) -> Self { let mut items = match value { SmeltUnknown::Array(values) => values.into_vec().into_iter(), _ => Vec::new().into_iter() }; (A::smelt_from_unknown(items.next().unwrap_or(SmeltUnknown::Undefined)), B::smelt_from_unknown(items.next().unwrap_or(SmeltUnknown::Undefined))) } }");
         writer.blank_line();
         writer.block("trait SmeltIntoF64", |trait_writer| {
             trait_writer.line("fn smelt_into_f64(self) -> f64;");
@@ -4798,7 +5334,7 @@ fn emit_source_with_free_function_router(
             "impl<K, T> IntoSmeltUnknown for ::std::collections::HashMap<K, T> where K: IntoSmeltUnknown + Eq + ::std::hash::Hash, T: IntoSmeltUnknown",
             |impl_writer| {
                 impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
-                    fn_writer.line("SmeltUnknown::Object(SmeltObject::new(self.into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => smelt_symbol_property_key(&value), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => \"null\".to_owned(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))");
+                    fn_writer.line("SmeltUnknown::Object(SmeltObject::new(self.into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => smelt_symbol_property_key(&value), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => \"null\".to_owned(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))");
                 });
             },
         );
@@ -4807,7 +5343,7 @@ fn emit_source_with_free_function_router(
             "impl<K, T> IntoSmeltUnknown for SmeltRecord<K, T> where K: IntoSmeltUnknown + Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, T: IntoSmeltUnknown + Clone",
             |impl_writer| {
                 impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
-                    fn_writer.line("SmeltUnknown::Object(SmeltObject::with_id(self.id, self.iter().into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => smelt_symbol_property_key(&value), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => \"null\".to_owned(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))");
+                    fn_writer.line("SmeltUnknown::Object(SmeltObject::with_id(self.id, self.iter().into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => smelt_symbol_property_key(&value), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => \"null\".to_owned(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))");
                 });
             },
         );
@@ -4828,8 +5364,8 @@ fn emit_source_with_free_function_router(
         if !emitted_class_names.insert(name.clone()) {
             continue;
         }
-        let type_params = interface_type_params_text(mir, interface)?;
-        let impl_generics = interface_impl_generics_text(mir, interface)?;
+        let type_params = interface_type_params_text(mir, &context, interface)?;
+        let impl_generics = interface_impl_generics_text(mir, &context, interface)?;
         let fields = effective_interface_fields(mir, interface);
         // A shape whose fields are written after construction is a reference
         // record: it needs the shared-cell handle so aliases observe the write,
@@ -4851,6 +5387,7 @@ fn emit_source_with_free_function_router(
                         .iter()
                         .map(|param| param.name)
                         .collect(),
+                    declared_name: interface.name,
                     // An object shape has no method bodies to bind.
                     has_proto_entries: false,
                 },
@@ -4888,17 +5425,26 @@ fn emit_source_with_free_function_router(
                 "#[derive(Clone, Debug, Default{interface_partial_eq_derive})]"
             ));
         }
-        let phantom_args = interface
-            .type_params
-            .iter()
-            .map(|param| {
-                mir.symbols
-                    .get(param.name)
-                    .map(|param_name| RustIdent::new(param_name).into_string())
-                    .ok_or_else(|| EmitError::new("interface type parameter has unknown symbol"))
-            })
-            .collect::<Result<Vec<_>, _>>()?
-            .join(", ");
+        // Only the parameters the emitted Rust declares: a position
+        // `generic_elision` dropped is spelled nowhere, so it must not appear in
+        // the `PhantomData` filler or in any hand-written impl's generic list
+        // either (see `crate::generic_elision`).
+        let interface_param_idents = context.type_param_elision().retain_carried(
+            interface.name,
+            interface
+                .type_params
+                .iter()
+                .map(|param| {
+                    mir.symbols
+                        .get(param.name)
+                        .map(|param_name| RustIdent::new(param_name).into_string())
+                        .ok_or_else(|| {
+                            EmitError::new("interface type parameter has unknown symbol")
+                        })
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        );
+        let phantom_args = interface_param_idents.join(", ");
         let scoped_type_params = interface
             .type_params
             .iter()
@@ -4922,7 +5468,7 @@ fn emit_source_with_free_function_router(
                 .unwrap_or_else(|_| "SmeltUnknown".to_owned());
                 block_writer.line(format!("{field_name}: {field_ty},"));
             }
-            if !interface.type_params.is_empty() {
+            if !interface_param_idents.is_empty() {
                 block_writer.line(format!(
                     "_smelt_phantom: ::std::marker::PhantomData<({phantom_args})>,"
                 ));
@@ -4939,6 +5485,7 @@ fn emit_source_with_free_function_router(
                 &fields,
                 &phantom_args,
                 &scoped_type_params,
+                &interface_param_idents,
             )?;
             emit_debug_impl_for_storage_type(&mut writer, &name, &impl_generics, &type_params);
         }
@@ -5109,8 +5656,14 @@ fn emit_source_with_free_function_router(
                 fn_writer.line("let regex = self.compiled();");
                 fn_writer.line("let start = if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow() } else { 0 };");
                 fn_writer.line("let suffix = haystack.get(start..).unwrap_or(\"\");");
-                fn_writer.line("let captures = regex.captures(suffix).ok().flatten()?;");
-                fn_writer.line("let matched = captures.get(0)?;");
+                // A FAILED search on a stateful regex resets `lastIndex` to 0,
+                // which is what makes `/a/g` over "aa" answer true, true,
+                // false and then true AGAIN: the third call exhausts the string
+                // and rewinds, so the fourth starts over. Returning `None`
+                // without the reset left the regex permanently exhausted, so
+                // every later call answered false.
+                fn_writer.line("let Some(captures) = regex.captures(suffix).ok().flatten() else { if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow_mut() = 0; } return None; };");
+                fn_writer.line("let Some(matched) = captures.get(0) else { if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow_mut() = 0; } return None; };");
                 fn_writer.line("if self.has_flag('y') && matched.start() != 0 { *self.last_index.borrow_mut() = 0; return None; }");
                 fn_writer.line("if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow_mut() = start + matched.end(); }");
                 fn_writer.line("Some(SmeltMatch::from_captures(&regex, &captures, start + matched.start(), haystack))");
@@ -5187,6 +5740,71 @@ fn emit_source_with_free_function_router(
         writer.blank_line();
         emit_smelt_match(&mut writer, needs_unknown);
     }
+    if needs_headers {
+        fetch_types_prelude::emit(&mut writer, needs_unknown);
+    }
+    if needs_url_search_params {
+        fetch_types_prelude::emit_url_search_params(&mut writer, needs_unknown);
+    }
+    // After `SmeltBlob` in the dependency sense (a form entry holds one) and
+    // beside the params list in the semantic one: both parse the urlencoded
+    // form through `url::form_urlencoded`.
+    if needs_form_data {
+        form_data_prelude::emit(&mut writer, needs_unknown);
+    }
+    // `SmeltBody` is emitted before `SmeltResponse` because the response holds
+    // one by value; both are gated on a type that HAS a body being present.
+    if needs_body {
+        fetch_types_prelude::emit_body(&mut writer, needs_unknown);
+    }
+    if needs_response {
+        fetch_types_prelude::emit_response(&mut writer, needs_unknown);
+    }
+    if needs_request {
+        fetch_types_prelude::emit_request(&mut writer, needs_unknown);
+    }
+    // The byte view is emitted before the codecs and the blob, which mention it
+    // in their signatures.
+    if needs_byte_array {
+        text_codec_prelude::emit_byte_array(&mut writer, needs_unknown, needs_data_view);
+    }
+    if needs_blob {
+        blob_prelude::emit(&mut writer, needs_unknown);
+    }
+    if needs_text_encoder {
+        text_codec_prelude::emit_encoder(&mut writer, needs_unknown);
+    }
+    if needs_text_decoder {
+        text_codec_prelude::emit_decoder(&mut writer, needs_unknown);
+    }
+    // After the byte view: both WebCrypto helpers name `SmeltUint8Array` in
+    // their signatures, and `getRandomValues` reaches into its byte storage.
+    // Emitted only for the members a program actually calls, so a crate that
+    // hashes carries neither `getrandom` nor the fill helper.
+    if needs_crypto_random_values || needs_crypto_digest {
+        crypto_prelude::emit(
+            &mut writer,
+            crypto_prelude::CryptoDemand {
+                // A fill helper names its byte carrier in its signature, so it
+                // is emitted only when the crate emits that carrier too.
+                fill_concrete_view: needs_crypto_random_values && needs_byte_array,
+                fill_erased_view: needs_crypto_random_values && needs_unknown,
+                digest: needs_crypto_digest.then_some(if needs_unknown {
+                    crypto_prelude::DigestThrow::Branded
+                } else {
+                    crypto_prelude::DigestThrow::Message
+                }),
+            },
+        );
+    }
+    if needs_event_emitter {
+        event_emitter_prelude::emit(&mut writer);
+    }
+    // After the emitter, which `SmeltIncomingMessage` composes, and after
+    // `SmeltHeaders`, whose insertion-ordered pairs `writeHead` merges.
+    if needs_http_server {
+        http_server_prelude::emit(&mut writer);
+    }
     for class in &mir.classes {
         let name = class_name_text(mir, class)?;
         if !emitted_class_names.insert(name.clone()) {
@@ -5196,8 +5814,8 @@ fn emit_source_with_free_function_router(
             emit_reference_class_storage(&mut writer, mir, &context, class, needs_unknown)?;
             continue;
         }
-        let type_params = class_type_params_text(mir, class)?;
-        let impl_generics = class_impl_generics_text(mir, class)?;
+        let type_params = class_type_params_text(mir, &context, class)?;
+        let impl_generics = class_impl_generics_text(mir, &context, class)?;
         let _inherited_trait_methods = inherited_trait_methods(mir, class);
         let mut field_lines = Vec::new();
         let fields = effective_class_fields(mir, class);
@@ -5206,6 +5824,21 @@ fn emit_source_with_free_function_router(
             .iter()
             .map(|param| param.name)
             .collect::<HashSet<_>>();
+        // Only the parameters the emitted Rust declares; see the sibling
+        // comment on the interface path and `crate::generic_elision`.
+        let class_param_idents = context.type_param_elision().retain_carried(
+            class.name,
+            class
+                .type_params
+                .iter()
+                .map(|param| {
+                    mir.symbols
+                        .get(param.name)
+                        .map(|param_name| RustIdent::new(param_name).into_string())
+                        .ok_or_else(|| EmitError::new("class type parameter has unknown symbol"))
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        );
         let has_function_field = fields
             .iter()
             .any(|field| type_contains_function(mir, field.ty));
@@ -5219,8 +5852,30 @@ fn emit_source_with_free_function_router(
             type_supports_partial_eq(mir, &context, field.ty, &mut Vec::new())
         });
         let partial_eq_derive = if supports_partial_eq { ", PartialEq" } else { "" };
+        // A GENERIC value class cannot use these derives at all. Every one of
+        // them generates an impl bounded by its own trait and nothing more
+        // (`impl<T: Clone> Clone`, `impl<T: Default> Default`, …), which is not
+        // enough as soon as a field's type is another generated class: those
+        // carry the full generated bound set
+        // (`Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static`,
+        // see `class_impl_generics_text`). Hono's
+        // `struct TrieRouter<T> { root: Node<T> }` reported "the trait
+        // `Clone`/`Default`/`IntoSmeltUnknown`/`SmeltFromUnknown` is not
+        // implemented for `T`" once per derive (H29).
+        //
+        // The bounds are NOT moved onto the struct declaration: a bounded
+        // declaration propagates to every generated type that mentions this one,
+        // and that cascade is why the concrete-union emitter keeps its `pub enum`
+        // bare and spells out each impl with the bound set it needs. Same choice
+        // here — the impls are emitted by hand just below with `impl_generics`.
+        // A class every one of whose parameters was elided is NOT generic in
+        // Rust: it declares no parameters, so the ordinary derives apply and no
+        // hand-written bounded impl is needed.
+        let is_generic = !class_param_idents.is_empty();
         if has_function_field {
             writer.line("#[derive(Clone)]");
+            writer.line("#[allow(dead_code)]");
+        } else if is_generic {
             writer.line("#[allow(dead_code)]");
         } else if needs_serde_json && class_is_json_serializable(mir, class) {
             writer.line(format!(
@@ -5229,34 +5884,29 @@ fn emit_source_with_free_function_router(
         } else {
             writer.line(format!("#[derive(Clone, Debug, Default{partial_eq_derive})]"));
         }
+        // The field types are kept as text as well: a hand-written `Clone` or
+        // `PartialEq` bounds them in a `where` clause, which is the exact
+        // requirement its body has (see the derive-gating comment above).
+        let mut field_type_texts = Vec::with_capacity(fields.len());
         for field in &fields {
+            let field_type_text = FunctionEmitter::type_text_for_with_scoped_type_params(
+                mir,
+                &context,
+                field.ty,
+                &TypeSubstitution::lexical(&scoped_type_params),
+            )?;
             field_lines.push(format!(
-                "{}: {},",
+                "{}: {field_type_text},",
                 RustIdent::new(
                     mir.symbols
                         .get(field.name)
                         .ok_or_else(|| EmitError::new("field has unknown symbol"))?
                 ),
-                FunctionEmitter::type_text_for_with_scoped_type_params(
-                    mir,
-                    &context,
-                    field.ty,
-                    &TypeSubstitution::lexical(&scoped_type_params),
-                )?
             ));
+            field_type_texts.push(field_type_text);
         }
-        if !class.type_params.is_empty() {
-            let phantom_args = class
-                .type_params
-                .iter()
-                .map(|param| {
-                    mir.symbols
-                        .get(param.name)
-                        .map(|param_name| RustIdent::new(param_name).into_string())
-                        .ok_or_else(|| EmitError::new("class type parameter has unknown symbol"))
-                })
-                .collect::<Result<Vec<_>, _>>()?
-                .join(", ");
+        if !class_param_idents.is_empty() {
+            let phantom_args = class_param_idents.join(", ");
             field_lines.push(format!(
                 "_smelt_phantom: ::std::marker::PhantomData<({phantom_args})>,"
             ));
@@ -5266,30 +5916,84 @@ fn emit_source_with_free_function_router(
                 block_writer.line(field_line);
             }
         });
-        if has_function_field {
-            let phantom_args = class
-                .type_params
-                .iter()
-                .map(|param| {
-                    mir.symbols
-                        .get(param.name)
-                        .map(|param_name| RustIdent::new(param_name).into_string())
-                        .ok_or_else(|| EmitError::new("class type parameter has unknown symbol"))
-                })
-                .collect::<Result<Vec<_>, _>>()?
-                .join(", ");
+        if has_function_field || is_generic {
+            let phantom_args = class_param_idents.join(", ");
+            // The generated bound set, plus the field-type `where` clause the
+            // emitter adds. See `derive_generics_text` for why both are needed,
+            // and `classes::GENERATED_TYPE_PARAM_BOUNDS` for why the set is the
+            // full one rather than the derive-equivalent `T: Default`.
+            let default_generics = if is_generic {
+                derive_generics_text(
+                    &class_param_idents,
+                    crate::classes::GENERATED_TYPE_PARAM_BOUNDS,
+                )
+            } else {
+                impl_generics.clone()
+            };
             emit_default_impl_for_storage_type(
                 &mut writer,
                 mir,
                 &context,
                 &name,
-                &impl_generics,
+                &default_generics,
                 &type_params,
                 &fields,
                 &phantom_args,
                 &scoped_type_params,
+                &class_param_idents,
             )?;
-            emit_debug_impl_for_storage_type(&mut writer, &name, &impl_generics, &type_params);
+            // `Debug` names the struct and stops, so it needs no bound at all.
+            let debug_generics = if is_generic {
+                type_params.clone()
+            } else {
+                impl_generics.clone()
+            };
+            emit_debug_impl_for_storage_type(&mut writer, &name, &debug_generics, &type_params);
+        }
+        // A generic value class also loses its `Clone` and `PartialEq` derives
+        // for the same reason, so those are spelled out too. The callback case
+        // keeps `#[derive(Clone)]` (its `dyn Fn` field is an `Rc`, and it has no
+        // `PartialEq` to begin with), so this is the generic case only.
+        //
+        // Both bound their FIELD TYPES in a `where` clause rather than bounding
+        // `T`. That is the exact requirement of a field-by-field body, and it is
+        // the only formulation that is right for both shapes at once:
+        // `Ok<T> { value: T }` needs `T: Clone` (so a union deriving `Clone`
+        // over an `Ok<T>` arm can still satisfy it), while
+        // `TrieRouter<T> { root: Node<T> }` needs `Node<T>: Clone`, which pulls
+        // the whole generated bound set — a requirement of `Node`, not of
+        // `TrieRouter`, and one only its own use sites can discharge.
+        if is_generic && !has_function_field {
+            let field_names = fields
+                .iter()
+                .map(|field| {
+                    mir.symbols
+                        .get(field.name)
+                        .map(|field_name| RustIdent::new(field_name).into_string())
+                        .ok_or_else(|| EmitError::new("field has unknown symbol"))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            emit_clone_impl_for_value_class(
+                &mut writer,
+                &name,
+                &type_params,
+                &type_params,
+                &field_names,
+                &field_type_texts,
+                &class_param_idents,
+                true,
+            );
+            if supports_partial_eq {
+                emit_partial_eq_impl_for_value_class(
+                    &mut writer,
+                    &name,
+                    &type_params,
+                    &type_params,
+                    &field_names,
+                    &field_type_texts,
+                    &class_param_idents,
+                );
+            }
         }
         if !class.static_fields.is_empty() {
             writer.block(
@@ -5371,7 +6075,7 @@ fn emit_source_with_free_function_router(
     // `RefCell` form because a `.to_owned()` initializer cannot be `const`.
     if !mir.globals.is_empty() {
         out.push('\n');
-        out.push_str(&emit_mutable_globals(mir)?);
+        out.push_str(&emit_mutable_globals(mir, &context)?);
     }
 
     let mut has_emitted_root_function = false;
@@ -5429,8 +6133,8 @@ fn emit_source_with_free_function_router(
         if !emitted_impl_names.insert(name.clone()) {
             continue;
         }
-        let impl_generics = class_impl_generics_text(mir, class)?;
-        let type_args = class_type_args_text(mir, class)?;
+        let impl_generics = class_impl_generics_text(mir, &context, class)?;
+        let type_args = class_type_args_text(mir, &context, class)?;
         out.push_str(&format!("\nimpl{impl_generics} {name}{type_args} {{\n"));
         if !class.is_abstract
             && let Some(constructor) = class.constructor
@@ -5727,6 +6431,70 @@ fn insert_after_crate_header(mut root: String, text: &str) -> String {
 /// The runtime used to push the replacement verbatim, so `'\\$&'` — the whole
 /// point of a pattern like `escapeRegExp`'s — inserted the two characters `$&`
 /// instead of the matched text.
+/// Emit the live-handle counter and the event loop's exit drain.
+///
+/// # Why the exit drain is not `sleep(0)`
+///
+/// It was, and that made every async program's last act "drain the microtask
+/// queue and the due timers, then return". Node does that too — and then keeps
+/// going while a REFERENCED HANDLE is open. A listening `http.Server` is such a
+/// handle, which is the whole reason `createServer(..).listen(3000)` serves in
+/// Node rather than exiting immediately. With the drain spelled as `sleep(0)`,
+/// the generated program returned from `main` the instant the queue was empty
+/// and the server task was dropped mid-flight.
+///
+/// A mid-program `await sleep(0)` must NOT wait on handles — it would never
+/// return while a server was up — so the two cannot be the same operation.
+/// Hence [`smelt_hir::AsyncOp::ExitDrain`], which is what the module body's
+/// last statement lowers to.
+///
+/// The counter lives here rather than in the `node:http` prelude because the
+/// drain that reads it is emitted for EVERY async program, while the server
+/// prelude is emitted only for programs that serve. Anything else that gains a
+/// process-keeping handle later (a listening socket, a watched file) increments
+/// the same counter.
+fn emit_exit_drain_support(writer: &mut CodeWriter) {
+    writer.line("thread_local! {");
+    writer.line("    /// Open handles that keep the program alive, in Node's sense.");
+    writer.line("    static SMELT_LIVE_HANDLES: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) };");
+    writer.line("}");
+    writer.line("/// Register a handle that must keep the program from exiting.");
+    writer.line("#[allow(dead_code)]");
+    writer.line("fn smelt_retain_handle() { SMELT_LIVE_HANDLES.with(|handles| handles.set(handles.get().saturating_add(1))); }");
+    writer.line("/// Release a handle registered by `smelt_retain_handle`.");
+    writer.line("#[allow(dead_code)]");
+    writer.line("fn smelt_release_handle() { SMELT_LIVE_HANDLES.with(|handles| handles.set(handles.get().saturating_sub(1))); }");
+    writer.line("/// Run the event loop until the program is allowed to exit.");
+    writer.line("///");
+    writer.line("/// First the ordinary run-until-idle drain, then Node's ref'd-handle");
+    writer.line("/// rule: stay alive while any handle is open. Polling (rather than a");
+    writer.line("/// notification) is deliberate -- this loop runs once, at the very end of");
+    writer.line("/// the program, and only while a handle really is open, so its cost is a");
+    writer.line("/// wakeup every few milliseconds in a process that is otherwise just");
+    writer.line("/// serving.");
+    writer.line("#[allow(dead_code)]");
+    writer.block(
+        format!(
+            "async fn {exit_drain}()",
+            exit_drain = smelt_stdlib::runtime_symbols::timers::RUN_UNTIL_EXIT,
+        ),
+        |fn_writer| {
+            fn_writer.line(format!(
+                "{sleep_ms}(0.0).await;",
+                sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
+            ));
+            fn_writer.block(
+                "while SMELT_LIVE_HANDLES.with(::std::cell::Cell::get) > 0",
+                |loop_writer| {
+                    loop_writer
+                        .line("tokio::time::sleep(::std::time::Duration::from_millis(5)).await;");
+                },
+            );
+        },
+    );
+    writer.blank_line();
+}
+
 fn emit_regex_substitution(writer: &mut CodeWriter) {
     writer.line("/// Expand one JavaScript replacement pattern against a match (ECMA-262 `GetSubstitution`).");
     writer.line("///");
@@ -5775,6 +6543,76 @@ fn emit_regex_substitution(writer: &mut CodeWriter) {
     writer.line("}");
 }
 
+/// Emits the runtime symbol-value ⇄ property-key correspondence.
+///
+/// A symbol is a value and a property key at once, and the two spellings have to
+/// agree: a computed key the frontend folded statically (`{ [KEY]: 1 }`,
+/// `class C { get [KEY]() {} }`) and a key the generated code derives from an
+/// erased symbol value (`obj[prop]` where `prop` arrived through a
+/// `SmeltUnknown` slot) must name the SAME record entry. That is why the
+/// derivation is owned by `smelt_stdlib::symbol_keys` and rendered here rather
+/// than invented twice: a well-known symbol is a language constant, a registry
+/// `Symbol.for('d')` is interned by description, and a unique `Symbol('d')`
+/// carries the source offset of the binding that created it — each folds to an
+/// identifier-safe synthetic member name (a symbol key can also name a *class*
+/// member, which has to be spellable as a Rust identifier), and every other
+/// spelling keeps the generic `__smelt_symbol:<description>` form so a symbol
+/// key never collides with the plain string key of its own description.
+///
+/// Three functions come out of it:
+///
+/// * `smelt_symbol_key_escape` / `smelt_symbol_key_unescape` — the reversible
+///   identifier encoding (`_<hex>_` for every non-alphanumeric character), so a
+///   folded key can be read back as the description it came from;
+/// * `smelt_symbol_property_key` — the key a symbol value indexes; and
+/// * `smelt_folded_symbol_key_spelling` — its inverse, which is what
+///   `Object.getOwnPropertySymbols`, `Reflect.ownKeys` and erased-Map
+///   enumeration hand back to the program as a symbol.
+fn emit_symbol_key_derivation(writer: &mut CodeWriter) {
+    let well_known_arms = smelt_stdlib::well_known_symbols::spelling_key_pairs()
+        .into_iter()
+        .fold(String::new(), |mut arms, (spelling, key)| {
+            use ::std::fmt::Write as _;
+            let _ = write!(arms, "{spelling:?} => {key:?}.to_owned(), ");
+            arms
+        });
+    let registry_prefix = smelt_stdlib::symbol_keys::REGISTRY_SYMBOL_PREFIX;
+    let unique_prefix = smelt_stdlib::symbol_keys::UNIQUE_SYMBOL_PREFIX;
+    let opaque_prefix = smelt_stdlib::symbol_keys::OPAQUE_SYMBOL_PREFIX;
+    let offset_separator = smelt_stdlib::symbol_keys::UNIQUE_OFFSET_SEPARATOR;
+    writer.line("/// An identifier-safe, reversible encoding of a symbol description.");
+    writer.line(
+        "fn smelt_symbol_key_escape(text: &str) -> String { let mut escaped = String::with_capacity(text.len()); for ch in text.chars() { if ch.is_ascii_alphanumeric() { escaped.push(ch); } else { escaped.push('_'); escaped.push_str(&format!(\"{:x}\", u32::from(ch))); escaped.push('_'); } } escaped }",
+    );
+    writer.blank_line();
+    writer.line("/// Decodes `smelt_symbol_key_escape`; a malformed escape passes through.");
+    writer.line(
+        "fn smelt_symbol_key_unescape(escaped: &str) -> String { let mut decoded = String::with_capacity(escaped.len()); let mut rest = escaped; while let Some(index) = rest.find('_') { decoded.push_str(&rest[..index]); let tail = &rest[index + 1..]; let Some((hex, remainder)) = tail.split_once('_') else { decoded.push('_'); decoded.push_str(tail); return decoded; }; match u32::from_str_radix(hex, 16).ok().and_then(char::from_u32) { Some(ch) => decoded.push(ch), None => { decoded.push('_'); decoded.push_str(hex); decoded.push('_'); } } rest = remainder; } decoded.push_str(rest); decoded }",
+    );
+    writer.blank_line();
+    writer.line("/// The property key a symbol value indexes.");
+    writer.line(format!(
+        "fn smelt_symbol_property_key(description: &str) -> String {{ match description {{ {well_known_arms}other => {{ if let Some(registry) = other.strip_prefix(\"Symbol.for(\").and_then(|rest| rest.strip_suffix(')')) {{ return format!(\"{registry_prefix}{{}}\", smelt_symbol_key_escape(registry)); }} let unique = other.rsplit_once('@').filter(|(_, offset)| !offset.is_empty() && offset.bytes().all(|byte| byte.is_ascii_digit())).and_then(|(head, offset)| head.strip_prefix(\"Symbol(\").and_then(|rest| rest.strip_suffix(')')).map(|unique| (unique, offset))); match unique {{ Some((unique, offset)) => format!(\"{unique_prefix}{{}}{offset_separator}{{offset}}\", smelt_symbol_key_escape(unique)), None => format!(\"{opaque_prefix}{{other}}\") }} }} }} }}"
+    ));
+    writer.blank_line();
+    writer.line("/// The symbol value spelling a folded symbol key came from.");
+    writer.line(format!(
+        "fn smelt_folded_symbol_key_spelling(key: &str) -> Option<String> {{ if let Some(escaped) = key.strip_prefix({unique_prefix:?}) {{ let (description, offset) = escaped.rsplit_once({offset_separator:?})?; return Some(format!(\"Symbol({{}})@{{offset}}\", smelt_symbol_key_unescape(description))); }} let escaped = key.strip_prefix({registry_prefix:?})?; Some(format!(\"Symbol.for({{}})\", smelt_symbol_key_unescape(escaped))) }}"
+    ));
+    writer.blank_line();
+    // `Object.getOwnPropertySymbols` reports the symbols a program itself put on
+    // an object: the opaque form and the two folded forms. A well-known key is
+    // deliberately NOT one of them here — Smelt also writes
+    // `__smelt_symbol_iterator` onto erased iterables as part of their
+    // representation, and reporting that as a source symbol would invent a
+    // property the source never wrote. `smelt_key_symbol_value` is the wider
+    // view, for `Reflect.ownKeys`, where the well-known table already applied.
+    writer.line("/// The symbol value a program-written symbol key denotes.");
+    writer.line(format!(
+        "fn smelt_own_symbol_key_value(key: &str) -> Option<SmeltUnknown> {{ if let Some(description) = key.strip_prefix({opaque_prefix:?}) {{ return Some(SmeltUnknown::Symbol(description.into())); }} smelt_folded_symbol_key_spelling(key).map(|spelling| SmeltUnknown::Symbol(spelling.into())) }}"
+    ));
+}
+
 /// Emits the `Reflect.ownKeys` projection and the storage-key → symbol inverse.
 ///
 /// `Reflect.ownKeys(o)` answers *every* own key: the string keys in JavaScript's
@@ -5807,7 +6645,7 @@ fn emit_own_keys_projection(writer: &mut CodeWriter) {
         });
     writer.line("/// The symbol value a stored property key denotes, if it is a symbol key.");
     writer.line(format!(
-        "fn smelt_key_symbol_value(key: &str) -> Option<SmeltUnknown> {{ if let Some(description) = key.strip_prefix(\"__smelt_symbol:\") {{ return Some(SmeltUnknown::Symbol(description.into())); }} match key {{ {well_known_arms}_ => None }} }}"
+        "fn smelt_key_symbol_value(key: &str) -> Option<SmeltUnknown> {{ if let Some(description) = key.strip_prefix(\"__smelt_symbol:\") {{ return Some(SmeltUnknown::Symbol(description.into())); }} if let Some(spelling) = smelt_folded_symbol_key_spelling(key) {{ return Some(SmeltUnknown::Symbol(spelling.into())); }} match key {{ {well_known_arms}_ => None }} }}"
     ));
     writer.blank_line();
     writer.line("/// `Reflect.ownKeys` over a string-keyed record: string keys, then symbol keys.");
@@ -5998,12 +6836,52 @@ fn emit_unknown_serde_impls(writer: &mut CodeWriter) {
                     match_writer.line("Self::Null => serializer.serialize_none(),");
                     match_writer.line("Self::Undefined => serializer.serialize_none(),");
                     match_writer.line("Self::Bool(value) => serializer.serialize_bool(*value),");
-                    match_writer.line("Self::Number(value) => serializer.serialize_f64(*value),");
+                    // ECMA-262 `JSON.stringify` renders a number with the
+                    // JavaScript number-to-string algorithm, not Rust's float
+                    // formatting: an integral value has no fraction (`1`, not
+                    // `1.0`), `-0` is `0`, and a non-finite number is `null`
+                    // because JSON has no NaN or Infinity.
+                    match_writer.line("Self::Number(value) => if !value.is_finite() { serializer.serialize_none() } else if *value == value.trunc() && value.abs() < 1e21 { serializer.serialize_i64(*value as i64) } else { serializer.serialize_f64(*value) },");
                     match_writer.line("Self::String(value) => serializer.serialize_str(value),");
-                    match_writer.line("Self::Symbol(value) => serializer.serialize_str(value),");
+                    match_writer.line("Self::Symbol(_) => serializer.serialize_none(),");
                     match_writer.line("Self::Array(values) => serde::Serialize::serialize(&*values.values.borrow(), serializer),");
-                    match_writer.line("Self::Object(values) => serde::Serialize::serialize(&values.iter().filter(|(key, _)| key != \"__smelt_class\" && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\")).collect::<::std::collections::HashMap<_, _>>(), serializer),");
-                    match_writer.line("Self::Function(_) => serializer.serialize_str(\"function () { [native code] }\"),");
+                    // `JSON.stringify` serializes an object's OWN ENUMERABLE
+                    // properties, in order. That is the same rule `for...in`
+                    // uses, so both read one predicate
+                    // (`smelt_is_for_in_object_key`) rather than keeping two
+                    // lists of internal keys that can drift apart. Three
+                    // consequences, each matching Node:
+                    //
+                    // * a HOST OBJECT serializes as `{}` — its state lives in
+                    //   internal slots, not in properties, so the marker and
+                    //   the slots must not appear (`JSON.stringify(new
+                    //   Headers([["a","b"]]))` is `{}`);
+                    // * key order is INSERTION order, which the previous
+                    //   `HashMap` collect destroyed;
+                    // * a property whose value is `undefined` is OMITTED, not
+                    //   emitted as `null` (`{a: undefined, b: 1}` is `{"b":1}`).
+                    //   Inside an ARRAY `undefined` still serializes as `null`,
+                    //   which the `Self::Undefined` arm above already does.
+                    // A byte-backed host record serializes as its OWN
+                    // enumerable properties, which for an element-typed view
+                    // are its indices: `JSON.stringify(new Uint8Array([1,2]))`
+                    // is `{"0":1,"1":2}` in Node, not `{}`. Byte storage and a
+                    // `DataView` have no indexed properties of their own and
+                    // stay `{}`, which is the same answer the own-key filter
+                    // below already gives — so one helper
+                    // (`smelt_host_buffer_own_elements`) decides it for every
+                    // byte-backed shape, and `Object.keys`, `for...in` and this
+                    // serializer cannot drift apart.
+                    match_writer.line(format!(
+                        "Self::Object(values) => {{ use serde::ser::SerializeMap as _; if let Some(elements) = {own_elements}(self) {{ let mut map = serializer.serialize_map(Some(elements.len()))?; for (index, element) in elements.iter().enumerate() {{ map.serialize_entry(&index.to_string(), element)?; }} return map.end(); }} let entries = values.iter().filter(|(key, value)| !matches!(value, Self::Undefined | Self::Function(_) | Self::Symbol(_)) && smelt_is_for_in_object_key(values, key)).collect::<Vec<_>>(); let mut map = serializer.serialize_map(Some(entries.len()))?; for (key, value) in &entries {{ map.serialize_entry(key, value)?; }} map.end() }},",
+                        own_elements = smelt_stdlib::runtime_symbols::byte_buffer::OWN_ELEMENTS,
+                    ));
+                    // A function or symbol VALUE is not JSON: inside an array
+                    // it is `null` and as a property it is omitted (the Object
+                    // arm's filter below drops it). Serializing the native-code
+                    // string, or a symbol's description, invented data that
+                    // JavaScript never writes.
+                    match_writer.line("Self::Function(_) => serializer.serialize_none(),");
                     match_writer.line("Self::Promise(_) => serializer.serialize_str(\"[object Promise]\"),");
                 });
             },
@@ -6072,12 +6950,13 @@ fn emit_reference_class_storage(
         context,
         &ReferenceRecordShape {
             name: class_name_text(mir, class)?,
-            type_params: class_type_params_text(mir, class)?,
-            type_args: class_type_args_text(mir, class)?,
-            impl_generics: class_impl_generics_text(mir, class)?,
+            type_params: class_type_params_text(mir, context, class)?,
+            type_args: class_type_args_text(mir, context, class)?,
+            impl_generics: class_impl_generics_text(mir, context, class)?,
             fields: effective_class_fields(mir, class),
             static_fields: &class.static_fields,
             type_param_names: class.type_params.iter().map(|param| param.name).collect(),
+            declared_name: class.name,
             has_proto_entries: class_proto::class_has_proto_entries(mir, context, class),
         },
         needs_unknown,
@@ -6106,7 +6985,15 @@ struct ReferenceRecordShape<'a> {
     /// Materialized class-level fields; always empty for a shape.
     static_fields: &'a [smelt_mir::MirStaticField],
     /// Generic parameter symbols, for the lexical type-parameter scope.
+    ///
+    /// This is the FULL declared list: an elided parameter stays in lexical
+    /// scope so a stray occurrence renders its name and fails loudly with
+    /// `cannot find type`, rather than silently erasing to `SmeltUnknown`.
+    /// What the emitted Rust declares is [`Self::declared_name`]'s carried
+    /// subset (see `crate::generic_elision`).
     type_param_names: Vec<smelt_hir::Symbol>,
+    /// Name symbol of the declaring class or interface, for the elision map.
+    declared_name: smelt_hir::Symbol,
     /// Whether the type emits `__smelt_proto_entries` (see [`crate::class_proto`]).
     ///
     /// Only a `class` has method bodies to bind; an object *shape* has none, so
@@ -6130,6 +7017,7 @@ fn emit_reference_record_storage(
         fields,
         static_fields,
         type_param_names,
+        declared_name,
         has_proto_entries,
     } = shape;
     let inner_name = format!("{name}Inner");
@@ -6137,16 +7025,19 @@ fn emit_reference_record_storage(
     let has_function_field = fields
         .iter()
         .any(|field| type_contains_function(mir, field.ty));
-    let phantom_args = type_param_names
-        .iter()
-        .map(|param| {
-            mir.symbols
-                .get(*param)
-                .map(|param_name| RustIdent::new(param_name).into_string())
-                .ok_or_else(|| EmitError::new("record type parameter has unknown symbol"))
-        })
-        .collect::<Result<Vec<_>, _>>()?
-        .join(", ");
+    let record_param_idents = context.type_param_elision().retain_carried(
+        *declared_name,
+        type_param_names
+            .iter()
+            .map(|param| {
+                mir.symbols
+                    .get(*param)
+                    .map(|param_name| RustIdent::new(param_name).into_string())
+                    .ok_or_else(|| EmitError::new("record type parameter has unknown symbol"))
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+    );
+    let phantom_args = record_param_idents.join(", ");
 
     // The handle newtype. `#[derive(Clone)]` is intentionally NOT used: a derived
     // clone would require `Inner: Clone` and clone the cell contents. We hand-
@@ -6156,9 +7047,27 @@ fn emit_reference_record_storage(
         "struct {name}{type_params}(::std::rc::Rc<::std::cell::RefCell<{inner_name}{type_args}>>);"
     ));
 
-    // The inner record. Debug/Default are derived unless a callback field blocks
-    // the derives, matching the value-struct rules.
-    if has_function_field {
+    // The inner record. `Debug`/`Default` are derived only when the record is
+    // NON-GENERIC and no callback field blocks the derives.
+    //
+    // A derive on a generic struct generates `impl<T: Debug> Debug` /
+    // `impl<T: Default> Default` — its own bound and nothing more. That is not
+    // enough whenever a field's type is another generated class, because those
+    // carry the full generated bound set
+    // (`Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static`, see
+    // `class_impl_generics_text`). Hono's `SmartRouterInner<T>` holds a
+    // `SmeltList<Router<T>>` and `NodeInner<T>` a `SmeltRecord<String, Node<T>>`,
+    // so `derive(Default)` demanded `Router<T>: Default` with only `T: Default`
+    // in scope: "the trait `Clone`/`Default`/`IntoSmeltUnknown`/
+    // `SmeltFromUnknown` is not implemented for `T`" (H29).
+    //
+    // The bounds do NOT go on the struct declaration: a bounded declaration
+    // propagates to every type that mentions it — starting with the handle
+    // newtype whose field is `Rc<RefCell<Inner<T>>>` — and that cascade is why
+    // the concrete-union emitter keeps its `pub enum` declaration bare and
+    // hand-writes each impl with the bound set it needs. Same choice here, and
+    // both hand-written impls already exist for the callback case.
+    if has_function_field || !type_params.is_empty() {
         writer.line("#[allow(dead_code)]");
         writer.block(
             format!("struct {inner_name}{type_params}"),
@@ -6166,18 +7075,45 @@ fn emit_reference_record_storage(
                 emit_reference_inner_fields(block_writer, mir, context, fields, &scoped_type_params, &phantom_args);
             },
         );
+        // Per-trait bounds. `Debug` names the struct and stops, so it needs no
+        // bound at all. `Default` DOES take the full generated set
+        // (`classes::GENERATED_TYPE_PARAM_BOUNDS`): its body constructs every
+        // field's default explicitly, and a field default can reach another
+        // generated class — Hono's `Hono_1Inner<E, S, BasePath, CurrentPath>`
+        // defaults its `onError`/`notFound` slots to closures RETURNING
+        // `Hono_1<E, S, BasePath, CurrentPath>`, so the body needs
+        // `Hono_1: Default`, which is emitted with the full set. The
+        // derive-equivalent `T: Default` cannot prove it, and no `where` clause
+        // on a field's TYPE reaches it either, because the requirement comes
+        // from the default EXPRESSION and not from the slot's `Rc<dyn Fn(..)>`
+        // type. Since every generic item the crate emits carries the same set,
+        // asking for it here cannot fail for an in-crate consumer, and a
+        // parameter instantiated at a concrete generated type satisfies it by
+        // construction.
+        let (default_generics, debug_generics) = if type_params.is_empty() {
+            (impl_generics.clone(), impl_generics.clone())
+        } else {
+            (
+                derive_generics_text(
+                    &record_param_idents,
+                    crate::classes::GENERATED_TYPE_PARAM_BOUNDS,
+                ),
+                type_params.clone(),
+            )
+        };
         emit_default_impl_for_storage_type(
             writer,
             mir,
             context,
             &inner_name,
-            impl_generics,
+            &default_generics,
             type_args,
             fields,
             &phantom_args,
             &scoped_type_params,
+            &record_param_idents,
         )?;
-        emit_debug_impl_for_storage_type(writer, &inner_name, impl_generics, type_args);
+        emit_debug_impl_for_storage_type(writer, &inner_name, &debug_generics, type_args);
     } else {
         writer.line("#[derive(Debug, Default)]");
         writer.line("#[allow(dead_code)]");
@@ -6402,24 +7338,72 @@ fn emit_default_impl_for_storage_type(
     fields: &[smelt_mir::MirField],
     phantom_args: &str,
     scoped_type_params: &HashSet<smelt_hir::Symbol>,
+    type_param_idents: &[String],
 ) -> Result<(), EmitError> {
+    // Each field's default expression is computed ONCE and used twice: for the
+    // body, and to decide the impl's `where` clause.
+    //
+    // The clause has to follow the body rather than the field list. Most field
+    // defaults are spelled out and need nothing of their type — a callback field
+    // gets a constructed no-op closure, and `Rc<dyn Fn(..)>` is not `Default`, so
+    // naming every field type demanded something false. The defaults that DELEGATE
+    // (`Default::default()` for a bare `T`, `Node::default()` for a
+    // reference-class field) are exactly the ones whose type must be `Default`,
+    // and those cannot be covered by bounding `T` either:
+    // `impl<T: Default> Default for TrieRouter<T>` could not prove
+    // `Node<T>: Default`, whose own impl carries the full generated bound set.
+    let mut field_defaults = Vec::with_capacity(fields.len());
+    for field in fields {
+        let field_name =
+            RustIdent::new(mir.symbols.get(field.name).unwrap_or("field")).into_string();
+        let default_value = FunctionEmitter::default_value_for_with_scoped_type_params(
+            mir,
+            context,
+            field.ty,
+            &TypeSubstitution::lexical(scoped_type_params),
+        )
+        .unwrap_or_else(|_| "Default::default()".to_owned());
+        let field_type_text = FunctionEmitter::type_text_for_with_scoped_type_params(
+            mir,
+            context,
+            field.ty,
+            &TypeSubstitution::lexical(scoped_type_params),
+        )?;
+        // A CALLABLE slot is never a delegation, whatever its default text
+        // looks like. The emitter always spells such a field's default out as a
+        // constructed no-op closure, and `Rc<dyn Fn(..)>` implements no
+        // `Default` for the clause to name — but the closure BODY may itself
+        // delegate, because the slot's return type has to be produced from
+        // somewhere. Hono's `Hono_1Inner` defaults `onError` to
+        // `Rc::new(move |..| -> Hono_1<..> { Default::default() })`, whose
+        // `default()` belongs to the RETURN type and not to the field type, so
+        // a purely textual search sees a delegation and asks for
+        // `Rc<dyn Fn(..)>: Default` — an unsatisfiable clause that makes the
+        // whole `Default` impl unusable (E0599 at every `Inner::default()`).
+        // The nested requirement is carried by the impl's own type-parameter
+        // bounds instead (`classes::GENERATED_TYPE_PARAM_BOUNDS`), which is what
+        // the return type's `Default` impl asks for.
+        let is_callable_slot = type_contains_function(mir, field.ty);
+        field_defaults.push((field_name, field_type_text, default_value, is_callable_slot));
+    }
+    let delegating_field_types = field_defaults
+        .iter()
+        .filter(|(_, _, default_value, is_callable_slot)| {
+            !is_callable_slot && default_expression_delegates(default_value)
+        })
+        .map(|(_, field_type_text, _, _)| field_type_text.clone())
+        .collect::<Vec<_>>();
+    let where_clause = if impl_generics.is_empty() {
+        String::new()
+    } else {
+        trait_where_clause_for_field_types(&delegating_field_types, "Default", type_param_idents)
+    };
     writer.block(
-        format!("impl{impl_generics} Default for {name}{type_args}"),
+        format!("impl{impl_generics} Default for {name}{type_args}{where_clause}"),
         |impl_writer| {
             impl_writer.block("fn default() -> Self", |fn_writer| {
                 fn_writer.block("Self", |self_writer| {
-                    for field in fields {
-                        let field_name =
-                            RustIdent::new(mir.symbols.get(field.name).unwrap_or("field"))
-                                .into_string();
-                        let default_value =
-                            FunctionEmitter::default_value_for_with_scoped_type_params(
-                                mir,
-                                context,
-                                field.ty,
-                                &TypeSubstitution::lexical(scoped_type_params),
-                            )
-                            .unwrap_or_else(|_| "Default::default()".to_owned());
+                    for (field_name, _, default_value, _) in &field_defaults {
                         self_writer.line(format!("{field_name}: {default_value},"));
                     }
                     if !phantom_args.is_empty() {
@@ -6430,6 +7414,21 @@ fn emit_default_impl_for_storage_type(
         },
     );
     Ok(())
+}
+
+/// Whether a rendered field default resolves through the field type's `Default`.
+///
+/// `Default::default()` (a bare type parameter) and `Type::default()` (a
+/// generated class) both do; a spelled-out constructor such as
+/// `SmeltList::new(Vec::<T>::new())` or a no-op closure does not. Only the
+/// former need the field type bounded on the impl.
+///
+/// The call can be NESTED — a promise field defaults to
+/// `SmeltFuture::resolved(SmeltUnion9::M0(Default::default()))`, whose `T:
+/// Default` requirement reaches the impl through the field type all the same —
+/// so the whole expression is searched rather than only its tail.
+fn default_expression_delegates(default_value: &str) -> bool {
+    default_value.contains("default()")
 }
 
 /// Emits a conservative `Debug` impl for storage structs that contain callbacks.
@@ -6455,6 +7454,149 @@ fn emit_debug_impl_for_storage_type(
                     ));
                 },
             );
+        },
+    );
+}
+
+/// Build ` where <field type>: Trait, …` for a field-by-field impl.
+///
+/// A field-by-field body needs exactly one thing: every field's type implements
+/// the trait. Bounding the FIELD TYPES says that and nothing else, where
+/// bounding `T` says either too little (a `T`-typed field) or too much (a field
+/// whose type is another generated class, which needs the whole generated bound
+/// set). Duplicate field types are emitted once; an empty list yields no clause.
+fn trait_where_clause_for_field_types(
+    field_type_texts: &[String],
+    bound: &str,
+    type_param_idents: &[String],
+) -> String {
+    let mut seen = Vec::new();
+    for field_type_text in field_type_texts {
+        // A field type that mentions no type parameter is decided already:
+        // `where String: Clone` is noise, and if such a bound were unsatisfied
+        // the impl body would report it directly. Only a type whose
+        // satisfiability depends on `T` needs saying.
+        if !mentions_type_param(field_type_text, type_param_idents) {
+            continue;
+        }
+        if !seen.contains(field_type_text) {
+            seen.push(field_type_text.clone());
+        }
+    }
+    if seen.is_empty() {
+        return String::new();
+    }
+    let clauses = seen
+        .iter()
+        .map(|field_type_text| format!("{field_type_text}: {bound}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(" where {clauses}")
+}
+
+/// Render `<T: Bound, …>` — the bound `#[derive(Bound)]` would have imposed.
+///
+/// Used together with a field-type `where` clause, never instead of it. The
+/// clause alone is not enough: a field default can require the bound through an
+/// expression the field's TYPE does not mention, as a promise field defaulting
+/// to `SmeltFuture::resolved(SmeltUnion9::M0(Default::default()))` does when the
+/// union renders without its argument. Since a derive would have imposed exactly
+/// this bound, adding it can never leave a consumer worse off than the derive it
+/// replaces.
+fn derive_generics_text(type_param_idents: &[String], bound: &str) -> String {
+    if type_param_idents.is_empty() {
+        return String::new();
+    }
+    let params = type_param_idents
+        .iter()
+        .map(|ident| format!("{ident}: {bound}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("<{params}>")
+}
+
+/// Whether a rendered type mentions one of these type parameters as a whole
+/// identifier, so `T` matches in `Node<T>` but not inside `Trie` or `TABLE`.
+fn mentions_type_param(type_text: &str, type_param_idents: &[String]) -> bool {
+    type_param_idents.iter().any(|ident| {
+        type_text
+            .match_indices(ident.as_str())
+            .any(|(at, matched)| {
+                let before = type_text[..at].chars().next_back();
+                let after = type_text[at + matched.len()..].chars().next();
+                let boundary = |ch: Option<char>| {
+                    ch.is_none_or(|ch| !ch.is_alphanumeric() && ch != '_')
+                };
+                boundary(before) && boundary(after)
+            })
+    })
+}
+
+/// Emit a field-by-field `Clone` for a generic value class.
+///
+/// `#[derive(Clone)]` would generate `impl<T: Clone> Clone`, whose single bound
+/// cannot satisfy a field whose type is another generated class — those carry
+/// the full generated bound set (see `class_impl_generics_text`). The impl is
+/// spelled out with bare parameters plus a field-type `where` clause instead.
+fn emit_clone_impl_for_value_class(
+    writer: &mut CodeWriter,
+    name: &str,
+    impl_generics: &str,
+    type_args: &str,
+    field_names: &[String],
+    field_type_texts: &[String],
+    type_param_idents: &[String],
+    has_phantom: bool,
+) {
+    let where_clause = trait_where_clause_for_field_types(field_type_texts, "Clone", type_param_idents);
+    writer.block(
+        format!("impl{impl_generics} Clone for {name}{type_args}{where_clause}"),
+        |impl_writer| {
+            impl_writer.block("fn clone(&self) -> Self", |fn_writer| {
+                fn_writer.block(name, |init_writer| {
+                    for field_name in field_names {
+                        init_writer.line(format!("{field_name}: self.{field_name}.clone(),"));
+                    }
+                    if has_phantom {
+                        init_writer.line("_smelt_phantom: ::std::marker::PhantomData,");
+                    }
+                });
+            });
+        },
+    );
+}
+
+/// Emit a field-by-field `PartialEq` for a generic value class.
+///
+/// The `Clone` reasoning above applies unchanged: a derived `PartialEq` carries
+/// only `T: PartialEq`, which a generated-class field does not satisfy. The
+/// phantom field is skipped — `PhantomData` compares equal to itself and says
+/// nothing about the value.
+fn emit_partial_eq_impl_for_value_class(
+    writer: &mut CodeWriter,
+    name: &str,
+    impl_generics: &str,
+    type_args: &str,
+    field_names: &[String],
+    field_type_texts: &[String],
+    type_param_idents: &[String],
+) {
+    let where_clause = trait_where_clause_for_field_types(field_type_texts, "PartialEq", type_param_idents);
+    writer.block(
+        format!("impl{impl_generics} PartialEq for {name}{type_args}{where_clause}"),
+        |impl_writer| {
+            impl_writer.block("fn eq(&self, other: &Self) -> bool", |fn_writer| {
+                if field_names.is_empty() {
+                    fn_writer.line("true");
+                    return;
+                }
+                let comparisons = field_names
+                    .iter()
+                    .map(|field_name| format!("self.{field_name} == other.{field_name}"))
+                    .collect::<Vec<_>>()
+                    .join(" && ");
+                fn_writer.line(comparisons);
+            });
         },
     );
 }
@@ -6781,6 +7923,52 @@ fn emit_record_from_smelt_unknown_impl(
     Ok(())
 }
 
+/// Recovers a value of type `ty` from a `SmeltUnknown` expression.
+///
+/// The mirror of [`record_field_unknown_text`], and it exists for the same
+/// reason: a Rust TUPLE has no `SmeltFromUnknown` impl, so the blanket
+/// `SmeltFromUnknown::smelt_from_unknown(…)` an erased adapter reaches for does
+/// not compile against a tuple parameter. `RegExpRouter#add`'s
+/// `HandlerWithMetadata<T> = [T, Record<string, number>]` parameter reported
+/// "the trait `SmeltFromUnknown` is not implemented for
+/// `(T, SmeltRecord<String, f64>)`".
+///
+/// A tuple is recovered ELEMENT-WISE from the erased array it was written as,
+/// recursing so a tuple of tuples works too. Everything else keeps the blanket
+/// impl, which is what its type provides.
+///
+/// The `panic!` on a non-array matches the spelling the emitter's other
+/// tuple-extraction sites already use, rather than inventing a second answer for
+/// the same impossible input.
+pub(crate) fn record_field_from_unknown_text(
+    mir: &Mir,
+    value_text: &str,
+    ty: TypeId,
+) -> Result<String, EmitError> {
+    let Some(Type::Tuple(items)) = mir.types.get(ty) else {
+        return Ok(format!(
+            "SmeltFromUnknown::smelt_from_unknown({value_text})"
+        ));
+    };
+    let elements = items
+        .iter()
+        .enumerate()
+        .map(|(index, item)| {
+            record_field_from_unknown_text(
+                mir,
+                &format!(
+                    "smelt_tuple_values.get({index}).cloned().unwrap_or(SmeltUnknown::Undefined)"
+                ),
+                *item,
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .join(", ");
+    Ok(format!(
+        "(if let SmeltUnknown::Array(smelt_tuple_values) = {value_text} {{ ({elements}) }} else {{ panic!(\"unknown is not tuple\") }})"
+    ))
+}
+
 /// Renders a generated record field as a `SmeltUnknown` expression.
 pub(crate) fn record_field_unknown_text(mir: &Mir, value_text: &str, ty: TypeId) -> Result<String, EmitError> {
     Ok(match mir.types.get(ty) {
@@ -6816,7 +8004,30 @@ pub(crate) fn record_field_unknown_text(mir: &Mir, value_text: &str, ty: TypeId)
                 "SmeltUnknown::Object(SmeltObject::new({value_text}.into_iter().map(|(key, value)| (key, {item_text})).collect()))"
             )
         }
-        Some(Type::Dict(_, _) | Type::JsMap(_, _) | Type::Tuple(_) | Type::Class { .. }) => {
+        // A tuple erases ELEMENT-WISE to a JS array, like every other structural
+        // shape above it. It was grouped with the shapes that have an
+        // `IntoSmeltUnknown` impl, but a Rust tuple has none — the prototype
+        // carrier for `RegExpRouter#buildAllMatchers`, whose return type is
+        // `[RegExp, HandlerParamsSet<T>[][], …]`, asked for
+        // `(value).into_smelt_unknown()` and got "no method named
+        // `into_smelt_unknown` found for tuple" (H29, second half).
+        //
+        // The value is bound once: `value_text` is an arbitrary expression here,
+        // and indexing it per element would evaluate it once per element.
+        Some(Type::Tuple(items)) => {
+            let elements = items
+                .iter()
+                .enumerate()
+                .map(|(index, item)| {
+                    record_field_unknown_text(mir, &format!("smelt_tuple.{index}"), *item)
+                })
+                .collect::<Result<Vec<_>, _>>()?
+                .join(", ");
+            format!(
+                "{{ let smelt_tuple = {value_text}; SmeltUnknown::Array(vec![{elements}].into()) }}"
+            )
+        }
+        Some(Type::Dict(_, _) | Type::JsMap(_, _) | Type::Class { .. }) => {
             format!("({value_text}).into_smelt_unknown()")
         }
         Some(Type::Function(_)) => "SmeltUnknown::Null".to_owned(),
@@ -6962,38 +8173,76 @@ pub(crate) fn sanitize_ident(name: &str) -> String {
 /// (`f64`/`i64`/`bool`) use a `const`-initialized [`std::cell::Cell`]; strings
 /// use a [`std::cell::RefCell`] with the non-const initializer form because a
 /// `.to_owned()` initializer cannot appear in a `const` block.
-fn emit_mutable_globals(mir: &Mir) -> Result<String, EmitError> {
+fn emit_mutable_globals(mir: &Mir, context: &EmitContext) -> Result<String, EmitError> {
     let mut writer = CodeWriter::new();
     writer.line("thread_local! {");
     for (index, global) in mir.globals.iter().enumerate() {
         let name = global_static_name(mir, compact_index(index, "global index")?);
-        let init = emitter::literals::constant_text(&global.init);
+        // The cell's initial value. A constant is emitted inline; an expression
+        // initializer is a CALL to the nullary function the frontend
+        // synthesized from it, which is emitted like any other function. A
+        // `thread_local!` initializer is an arbitrary expression evaluated once
+        // per thread on first access, so a call is as legal there as a literal
+        // — and that timing is exactly JavaScript's "module state is
+        // initialized before any consumer runs", per generated test thread.
+        let init = match &global.init {
+            MirGlobalInit::Constant(constant) => emitter::literals::constant_text(constant),
+            MirGlobalInit::Call(func_id) => {
+                let function = mir
+                    .functions
+                    .get(usize::try_from(func_id.0).unwrap_or(usize::MAX))
+                    .ok_or_else(|| {
+                        EmitError::new(
+                            "mutable global initializer references an unknown function",
+                        )
+                    })?;
+                let function_name = context
+                    .function_names
+                    .get(&function.id)
+                    .cloned()
+                    .map_or_else(
+                        || {
+                            Ok::<String, EmitError>(sanitize_ident(
+                                mir.symbols.get(function.name).ok_or_else(|| {
+                                    EmitError::new("mutable global initializer has no name")
+                                })?,
+                            ))
+                        },
+                        Ok,
+                    )?;
+                format!("{function_name}()")
+            }
+        };
+        // A Copy primitive uses `Cell`, which needs no borrow bookkeeping and
+        // can be `const`-initialized from a literal. Everything else — a
+        // `String`, a record, a list, a map — is not `Copy`, so its cell is a
+        // `RefCell`; an owned or computed initializer cannot be `const` either.
+        let is_constant_init = matches!(global.init, MirGlobalInit::Constant(_));
         match mir.types.get(global.ty) {
-            Some(Type::String) => {
-                // `init` is already the owned-string expression (`"…".to_owned()`),
-                // which cannot appear in a `const` block, hence the non-const form.
+            Some(Type::Float | Type::Int | Type::Bool) if is_constant_init => {
+                let rust_ty = match mir.types.get(global.ty) {
+                    Some(Type::Float) => "f64",
+                    Some(Type::Int) => "i64",
+                    _ => "bool",
+                };
                 writer.line(format!(
-                    "    static {name}: ::std::cell::RefCell<String> = ::std::cell::RefCell::new({init});"
+                    "    static {name}: ::std::cell::Cell<{rust_ty}> = const {{ ::std::cell::Cell::new({init}) }};"
                 ));
             }
-            Some(Type::Float) => {
+            Some(Type::Float | Type::Int | Type::Bool) => {
+                let rust_ty = match mir.types.get(global.ty) {
+                    Some(Type::Float) => "f64",
+                    Some(Type::Int) => "i64",
+                    _ => "bool",
+                };
                 writer.line(format!(
-                    "    static {name}: ::std::cell::Cell<f64> = const {{ ::std::cell::Cell::new({init}) }};"
-                ));
-            }
-            Some(Type::Int) => {
-                writer.line(format!(
-                    "    static {name}: ::std::cell::Cell<i64> = const {{ ::std::cell::Cell::new({init}) }};"
-                ));
-            }
-            Some(Type::Bool) => {
-                writer.line(format!(
-                    "    static {name}: ::std::cell::Cell<bool> = const {{ ::std::cell::Cell::new({init}) }};"
+                    "    static {name}: ::std::cell::Cell<{rust_ty}> = ::std::cell::Cell::new({init});"
                 ));
             }
             _ => {
-                return Err(EmitError::new(
-                    "mutable global has a non-primitive type; only Float/Int/Bool/String are supported",
+                let value_ty = FunctionEmitter::type_text_for_with_context(mir, context, global.ty)?;
+                writer.line(format!(
+                    "    static {name}: ::std::cell::RefCell<{value_ty}> = ::std::cell::RefCell::new({init});"
                 ));
             }
         }

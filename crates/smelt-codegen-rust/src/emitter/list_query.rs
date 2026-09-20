@@ -38,7 +38,7 @@ impl FunctionEmitter<'_> {
         let item_text = if self.operand_ty(item)? == element_ty {
             self.operand_text(item)?
         } else {
-            self.value_at_type_text(&self.operand_text(item)?, self.operand_ty(item)?, element_ty)?
+            self.value_at_type_text(&self.operand_text(item)?, self.operand_ty(item)?, element_ty, &self.render_scope())?
         };
         // `operand_borrow_text` is this borrow, plus the shared-capture guard the
         // hand-rolled version lacked (see its doc comment); the list's own shared
@@ -172,7 +172,7 @@ impl FunctionEmitter<'_> {
         // value rather than a `Result`; a non-throwing callback is used directly.
         let raw_call_text = if function_ty.may_throw {
             format!(
-                "({callback_call_text}).unwrap_or_else(|error: Box<dyn std::error::Error>| panic!(\"{{}}\", error))"
+                "({callback_call_text}).unwrap_or_else(|error: Box<dyn std::error::Error>| smelt_panic_throw(error))"
             )
         } else {
             callback_call_text
@@ -278,13 +278,13 @@ impl FunctionEmitter<'_> {
             self.callback_invocation_text(function_ty, &call_args.join(", "));
         let call_text = if function_ty.may_throw {
             format!(
-                "({callback_call_text}).unwrap_or_else(|error: Box<dyn std::error::Error>| panic!(\"{{}}\", error))"
+                "({callback_call_text}).unwrap_or_else(|error: Box<dyn std::error::Error>| smelt_panic_throw(error))"
             )
         } else {
             callback_call_text
         };
         let value_text =
-            self.value_at_type_text(&call_text, function_ty.return_ty, *dest_item_ty)?;
+            self.value_at_type_text(&call_text, function_ty.return_ty, *dest_item_ty, &self.render_scope())?;
         Ok(format!(
             "{{ let smelt_callback = {closure_text}; {}{}.iter().enumerate().map(|(index, item)| {{ {value_text} }}).collect::<Vec<_>>() }}",
             list_iteration.prefix, list_iteration.iter_text
@@ -348,19 +348,19 @@ impl FunctionEmitter<'_> {
         let flattened_text = match self.mir.types.get(function_ty.return_ty) {
             Some(Type::List(callback_item_ty)) => {
                 let value_text =
-                    self.value_at_type_text("value", *callback_item_ty, *dest_item_ty)?;
+                    self.value_at_type_text("value", *callback_item_ty, *dest_item_ty, &self.render_scope())?;
                 format!("smelt_result.into_iter().map(|value| {value_text}).collect::<Vec<_>>()")
             }
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => {
                 let unknown_ty = self.type_id(Type::Unknown)?;
-                let value_text = self.value_at_type_text("value", unknown_ty, *dest_item_ty)?;
+                let value_text = self.value_at_type_text("value", unknown_ty, *dest_item_ty, &self.render_scope())?;
                 format!(
                     "match smelt_result {{ SmeltUnknown::Array(values) => values.into_iter().map(|value| {value_text}).collect::<Vec<_>>(), value => vec![{value_text}] }}"
                 )
             }
             _ => {
                 let value_text =
-                    self.value_at_type_text("smelt_result", function_ty.return_ty, *dest_item_ty)?;
+                    self.value_at_type_text("smelt_result", function_ty.return_ty, *dest_item_ty, &self.render_scope())?;
                 format!("vec![{value_text}]")
             }
         };
@@ -384,7 +384,7 @@ impl FunctionEmitter<'_> {
     /// `SmeltErasedFunction` value rather than a Rust `Fn`, so it must be invoked
     /// through the erased callable ABI (`.call(..)`). Every other callback is a
     /// concrete closure and uses direct call syntax.
-    fn callback_invocation_text(&self, function_ty: &FunctionType, args: &str) -> String {
+    pub(super) fn callback_invocation_text(&self, function_ty: &FunctionType, args: &str) -> String {
         if self.is_erased_unknown_rest_function(function_ty) {
             format!("smelt_callback.call({args})")
         } else {
@@ -438,7 +438,7 @@ impl FunctionEmitter<'_> {
                 } else {
                     call_args.push(format!(
                         "&({})",
-                        self.value_at_type_text("item.clone()", element_ty, item_param_ty)?
+                        self.value_at_type_text("item.clone()", element_ty, item_param_ty, &self.render_scope())?
                     ));
                 }
             } else {
@@ -446,6 +446,7 @@ impl FunctionEmitter<'_> {
                     "item.clone()",
                     element_ty,
                     item_param_ty,
+                    &self.render_scope(),
                 )?);
             }
         }
@@ -464,6 +465,7 @@ impl FunctionEmitter<'_> {
                 index_value,
                 index_source_ty,
                 index_param_ty,
+                &self.render_scope(),
             )?);
         }
         let needs_array_snapshot = function_ty.params.get(2).is_some();
@@ -483,7 +485,7 @@ impl FunctionEmitter<'_> {
                     // lifetime Rust extends to the end of the statement.
                     call_args.push(format!(
                         "&({})",
-                        self.value_at_type_text("smelt_array.clone()", list_ty, array_param_ty)?
+                        self.value_at_type_text("smelt_array.clone()", list_ty, array_param_ty, &self.render_scope())?
                     ));
                 }
             } else {
@@ -491,6 +493,7 @@ impl FunctionEmitter<'_> {
                     "smelt_array.clone()",
                     list_ty,
                     array_param_ty,
+                    &self.render_scope(),
                 )?);
             }
             (
@@ -539,7 +542,7 @@ impl FunctionEmitter<'_> {
                 function_ty,
                 0,
                 item_param_ty,
-                self.value_at_type_text("SmeltUnknown::Null", unknown_ty, item_param_ty)?,
+                self.value_at_type_text("SmeltUnknown::Null", unknown_ty, item_param_ty, &self.render_scope())?,
             ));
         }
         if let Some(index_param_ty) = function_ty.params.get(1).copied() {
@@ -547,7 +550,7 @@ impl FunctionEmitter<'_> {
                 function_ty,
                 1,
                 index_param_ty,
-                self.value_at_type_text("index as f64", float_ty, index_param_ty)?,
+                self.value_at_type_text("index as f64", float_ty, index_param_ty, &self.render_scope())?,
             ));
         }
         let call_text = self.callback_invocation_text(function_ty, &call_args.join(", "));
@@ -717,7 +720,7 @@ impl FunctionEmitter<'_> {
                     // lifetime Rust extends to the end of the statement.
                     call_args.push(format!(
                         "&({})",
-                        self.value_at_type_text(value_text, source_ty, param_ty)?
+                        self.value_at_type_text(value_text, source_ty, param_ty, &self.render_scope())?
                     ));
                 } else if index == ARRAY_ARG_INDEX && array_by_ref {
                     // The array position is already bound as a reference (see
@@ -730,7 +733,7 @@ impl FunctionEmitter<'_> {
                 }
                 continue;
             }
-            call_args.push(self.value_at_type_text(value_text, source_ty, param_ty)?);
+            call_args.push(self.value_at_type_text(value_text, source_ty, param_ty, &self.render_scope())?);
         }
         if let Some(initial_operand) = initial
             && self.operand_ty(initial_operand)? != dest_ty
@@ -765,7 +768,7 @@ impl FunctionEmitter<'_> {
         // (but not identical) return type still produces the next `acc` value.
         let call_expr = self.callback_invocation_text(function_ty, &call_args.join(", "));
         let callback_result_text =
-            self.value_at_type_text(&call_expr, callback_return_ty, dest_ty)?;
+            self.value_at_type_text(&call_expr, callback_return_ty, dest_ty, &self.render_scope())?;
         let callback_text =
             format!("{{ let smelt_callback = {callback_closure}; {callback_result_text} }}");
         // Same read borrow, and the same known limitation, as the shared

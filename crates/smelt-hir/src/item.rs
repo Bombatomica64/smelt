@@ -358,15 +358,42 @@ pub struct ParamSig {
 /// and codegen emits one thread-local cell per global. Non-mutated module
 /// bindings keep the existing inline/const-item path and never become a
 /// `MutableGlobalItem`.
+/// How a mutable global's initial value is produced.
+///
+/// A literal is the simple case and is stored inline. Anything else — a call, a
+/// constructor, an object or array literal — is an *expression* that has to run,
+/// and it is represented as a synthesized nullary function item so it reaches
+/// codegen through the ordinary function path and can be called from the cell's
+/// lazy initializer. JavaScript module state is initialized once before any
+/// consumer runs, and a `thread_local!` initializer runs once per thread on
+/// first access, which is the same guarantee per generated test.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum MutableGlobalInit {
+    /// A literal initializer, stored inline.
+    Literal(Literal),
+    /// A synthesized nullary [`Item::Function`] returning the binding's
+    /// initializer expression.
+    Initializer(ItemId),
+    /// The binding's initializer is an expression that has not been lowered
+    /// yet.
+    ///
+    /// The mutable-global classification pass runs before imports and function
+    /// items are resolvable, so a non-literal initializer cannot be lowered
+    /// there. It is lowered when the module body reaches the binding's own
+    /// declaration and this is replaced with [`Self::Initializer`]. A global
+    /// still `Pending` when MIR lowering runs is a compiler bug, not a source
+    /// problem, and is reported as one rather than defaulted.
+    Pending,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MutableGlobalItem {
     /// The name of the binding.
     pub name: Symbol,
-    /// The lowered type of the binding (always a primitive in V1: Float, Int,
-    /// Bool, or String).
+    /// The lowered type of the binding.
     pub ty: TypeId,
-    /// The literal initializer captured from the binding declaration.
-    pub init: Literal,
+    /// How the binding's initial value is produced.
+    pub init: MutableGlobalInit,
     /// The visibility of the binding (exported bindings are `Public`).
     pub visibility: Visibility,
     /// Source location of the binding declaration.

@@ -11,7 +11,7 @@
 //!    survivors. The hash index stores *positions* into that `Vec`, so a removal
 //!    has to shift every later position down by one; if it does not, members
 //!    after the hole are looked up at the wrong slot.
-//! 2. **`NaN` is a member of itself** under SameValueZero, unlike `f64`
+//! 2. **`NaN` is a member of itself** under `SameValueZero`, unlike `f64`
 //!    `PartialEq`, so every `NaN` has to hash as one canonical `NaN`.
 //! 3. **`+0` and `-0` are one member**, and their `f64` bit patterns differ, so
 //!    the hash has to normalize the sign of zero.
@@ -89,9 +89,21 @@ fn run_set_fixture(source: &str, crate_name: &str) {
     let target_dir = root.join("target");
     std::fs::create_dir_all(&crate_dir).expect("create crate dir");
     std::fs::create_dir_all(&target_dir).expect("create target dir");
-    emit_program(source, crate_name, &crate_dir);
-    run_generated_tests(&crate_dir, &target_dir);
-    drop(std::fs::remove_dir_all(&root));
+    let outcome = std::panic::catch_unwind(|| {
+        emit_program(source, crate_name, &crate_dir);
+        run_generated_tests(&crate_dir, &target_dir);
+    });
+    // The scratch root holds a whole nested cargo target directory, so it is
+    // removed on the FAILURE path too: leaving one behind per failing case is
+    // what fills `/tmp`, and an ENOSPC inside a later nested build reads as a
+    // failing assertion rather than as a full disk.
+    // `SMELT_KEEP_RUNTIME_SCRATCH=1` keeps it for a debugging session.
+    if std::env::var_os("SMELT_KEEP_RUNTIME_SCRATCH").is_none() {
+        drop(std::fs::remove_dir_all(&root));
+    }
+    if let Err(payload) = outcome {
+        std::panic::resume_unwind(payload);
+    }
 }
 
 #[test]

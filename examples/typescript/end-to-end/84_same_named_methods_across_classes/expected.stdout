@@ -1,0 +1,5 @@
+void method: 2
+value method: labelled!
+bound value: labelled?
+same name, other params: labelled/3
+other class: 4

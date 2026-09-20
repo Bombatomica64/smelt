@@ -287,7 +287,7 @@ impl FunctionEmitter<'_> {
     /// real Rust generic whose elements must be converted, while an out-of-scope
     /// one is erased to `SmeltUnknown` and aliases.
     fn erased_array_writeback_value_text(&self, list_text: &str, list_ty: TypeId) -> String {
-        if self.list_items_render_as_unknown(list_ty) {
+        if self.list_items_render_as_unknown(list_ty, &self.render_scope()) {
             format!("SmeltUnknown::Array({list_text}.clone().into())")
         } else {
             format!(
@@ -343,6 +343,10 @@ impl FunctionEmitter<'_> {
                         | Operand::Move(Place::Local(source_local)) => {
                             self.list_alias_origin_inner(*source_local, seen)
                         }
+                        // A global-rooted place is an assignment target, never
+                        // a source operand, so it is not an alias origin.
+                        Operand::Copy(Place::Global { .. })
+                        | Operand::Move(Place::Global { .. }) => None,
                         Operand::Const(_) => None,
                     };
                 }
@@ -563,12 +567,13 @@ impl FunctionEmitter<'_> {
             }
             Some(Type::Optional(_)) => {
                 let pop_ty = self.type_id(Type::Optional(item_ty))?;
-                self.value_at_type_text(&format!("{list_mut}.pop()"), pop_ty, dest_ty)
+                self.value_at_type_text(&format!("{list_mut}.pop()"), pop_ty, dest_ty, &self.render_scope())
             }
             _ => self.value_at_type_text(
                 &format!("{list_mut}.pop().expect(\"pop from empty list\")"),
                 item_ty,
                 dest_ty,
+                &self.render_scope(),
             ),
         }
     }
@@ -839,11 +844,13 @@ impl FunctionEmitter<'_> {
                 Ok(None)
             }
             Some(Type::Unknown | Type::Union(_) | Type::Never | Type::TypeParam { .. }) => {
-                let left_key = Self::js_string_coercion_match_text(
+                let left_key = self.js_string_coercion_match_text(
                     &self.erase_concrete_union_text("left.clone()", element_ty),
+                    self.absent_spelling(),
                 );
-                let right_key = Self::js_string_coercion_match_text(
+                let right_key = self.js_string_coercion_match_text(
                     &self.erase_concrete_union_text("right.clone()", element_ty),
+                    self.absent_spelling(),
                 );
                 Ok(Some(format!(
                     "{list_text}.sort_by(|left, right| ({left_key}).cmp(&({right_key})))"
@@ -959,13 +966,13 @@ impl FunctionEmitter<'_> {
             function_ty,
             0,
             left_param_ty,
-            self.value_at_type_text("left.clone()", element_ty, left_param_ty)?,
+            self.value_at_type_text("left.clone()", element_ty, left_param_ty, &self.render_scope())?,
         );
         let right_arg = self.callback_call_arg_text(
             function_ty,
             1,
             right_param_ty,
-            self.value_at_type_text("right.clone()", element_ty, right_param_ty)?,
+            self.value_at_type_text("right.clone()", element_ty, right_param_ty, &self.render_scope())?,
         );
         let ordering_coercion = if coerce_result { ".smelt_into_f64()" } else { "" };
         Ok(format!(

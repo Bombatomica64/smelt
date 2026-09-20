@@ -161,13 +161,14 @@ impl FunctionEmitter<'_> {
                 "list-to-set destination must be set of the list item type",
             ));
         }
-        // Collect into whichever container the destination `Set` uses: a plain
-        // `HashSet` for value-equality primitives, or `SmeltJsSet` (SameValueZero
-        // membership, insertion order) for `f64`, unions, generics, and
-        // object-like elements. Both dedup on `FromIterator`, matching JS
-        // `new Set(array)`.
+        // Collect into whichever container the destination `Set` uses:
+        // `SmeltPrimSet` (Rust equality, hash index) for value-equality
+        // primitives, or `SmeltJsSet` (SameValueZero membership) for `f64`,
+        // unions, generics, and object-like elements. Both are
+        // insertion-ordered and both dedup on `FromIterator`, so
+        // `new Set(array)` keeps first-appearance order as JS requires.
         let container = if self.type_is_hash_set_key_safe(set_item_ty) {
-            "::std::collections::HashSet<_>"
+            "SmeltPrimSet<_>"
         } else {
             "SmeltJsSet<_>"
         };
@@ -240,9 +241,9 @@ impl FunctionEmitter<'_> {
             // the erased side's elements are unwrapped to the concrete element type
             // and `List<Unknown>` need not be interned for this function.
             let list_ty = self.concat_result_list_ty(left, right)?;
-            let left_text = self.value_at_type_text(&self.operand_text(left)?, left_ty, list_ty)?;
+            let left_text = self.value_at_type_text(&self.operand_text(left)?, left_ty, list_ty, &self.render_scope())?;
             let right_text =
-                self.value_at_type_text(&self.operand_text(right)?, right_ty, list_ty)?;
+                self.value_at_type_text(&self.operand_text(right)?, right_ty, list_ty, &self.render_scope())?;
             let left_read = list_read_text(&left_text);
             let right_read = list_read_text(&right_text);
             return Ok(format!(
@@ -306,9 +307,9 @@ impl FunctionEmitter<'_> {
             // different concrete unions is exactly that shape.
             if let Some(list_ty) = self.narrowest_common_list_ty(*left_item, *right_item) {
                 let left_text =
-                    self.value_at_type_text(&self.operand_text(left)?, left_ty, list_ty)?;
+                    self.value_at_type_text(&self.operand_text(left)?, left_ty, list_ty, &self.render_scope())?;
                 let right_text =
-                    self.value_at_type_text(&self.operand_text(right)?, right_ty, list_ty)?;
+                    self.value_at_type_text(&self.operand_text(right)?, right_ty, list_ty, &self.render_scope())?;
                 return Ok(format!(
                     "{}.iter().cloned().chain({}.iter().cloned()).collect::<Vec<_>>()",
                     list_read_text(&left_text),
@@ -536,14 +537,14 @@ impl FunctionEmitter<'_> {
             let sliced = format!(
                 "SmeltList::with_id(smelt_next_object_id(), {list_read}.iter().skip({start_text}).take({len_text}).cloned().collect::<Vec<_>>())"
             );
-            return self.value_at_type_text(&sliced, list_ty, dest_ty);
+            return self.value_at_type_text(&sliced, list_ty, dest_ty, &self.render_scope());
         };
         if source_item_ty == dest_item_ty {
             return Ok(format!(
                 "{list_read}.iter().skip({start_text}).take({len_text}).cloned().collect::<Vec<_>>()"
             ));
         }
-        let item_text = { self.value_at_type_text("value", *source_item_ty, *dest_item_ty)? };
+        let item_text = { self.value_at_type_text("value", *source_item_ty, *dest_item_ty, &self.render_scope())? };
         Ok(format!(
             "{list_read}.iter().skip({start_text}).take({len_text}).cloned().map(|value| {item_text}).collect::<Vec<_>>()"
         ))
@@ -881,6 +882,7 @@ impl FunctionEmitter<'_> {
                         &format!("items.{index}.clone()"),
                         *item_ty,
                         *dest_item_ty,
+                        &self.render_scope(),
                     )
                 })
                 .collect::<Result<Vec<_>, _>>()?
@@ -962,7 +964,7 @@ impl FunctionEmitter<'_> {
                             "dynamic array values destination must be a list",
                         ));
                     };
-                    let item_text = self.extract_value_text("item", *value_ty)?;
+                    let item_text = self.extract_value_text("item", *value_ty, &self.render_scope())?;
                     Ok(format!(
                         "match {list_text}.clone() {{ SmeltUnknown::Array(values) => values.into_iter().map(|item| {item_text}).collect::<Vec<_>>(), _ => Vec::new() }}"
                     ))
@@ -985,7 +987,7 @@ impl FunctionEmitter<'_> {
                             "dynamic array entries destination must contain an item type",
                         ));
                     };
-                    let item_text = self.extract_value_text("item", item_ty)?;
+                    let item_text = self.extract_value_text("item", item_ty, &self.render_scope())?;
                     Ok(format!(
                         "match {list_text}.clone() {{ SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(idx, item)| (idx as i64, {item_text})).collect::<Vec<_>>(), _ => Vec::new() }}"
                     ))

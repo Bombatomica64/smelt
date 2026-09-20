@@ -41,7 +41,7 @@ pub(crate) struct ListEscapeReportOptions<'a> {
     /// Rendering format.
     pub format: ListEscapeReportFormat,
     /// Function names to expand into a per-local detail section. Matching is on
-    /// the MIR function name, which is the snake_cased source name.
+    /// the MIR function name, which is the `snake_case`d source name.
     pub functions: &'a [String],
     /// How many rows the "top bodies by local lists" table keeps.
     pub top: usize,
@@ -91,7 +91,7 @@ fn share(count: usize, total: usize) -> String {
         clippy::cast_precision_loss,
         reason = "counts here are report percentages, far below f64's exact-integer range"
     )]
-    let percent = (count as f64) * 100.0 / (total as f64);
+    let percent = (count as f64) * 100.0_f64 / (total as f64);
     format!("{count} ({percent:.1}%)")
 }
 

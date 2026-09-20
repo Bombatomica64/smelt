@@ -90,7 +90,7 @@ fn decorated_members_match_node_output() -> ParityResult {
     let expected = run_node(&node, &emitted_path)?;
     let manifest = NodeSpecializer::new(backend).specialize(&NodeSpecializationRequest {
         smelt_version: "parity-test".to_owned(),
-        node_executable: node.to_path_buf(),
+        node_executable: node.clone(),
         project_root: project.path().to_path_buf(),
         modules: vec![NodeModule {
             name: "fixture".to_owned(),
@@ -165,6 +165,7 @@ fn emit_and_compare(
         &mut ctx,
         FrontendOptions {
             specialization: Some(manifest),
+            ..FrontendOptions::default()
         },
     )
     .map_err(|errors| format!("manifest-aware HIR lowering failed: {errors:?}"))?;

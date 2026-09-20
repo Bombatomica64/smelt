@@ -86,8 +86,8 @@ impl FunctionEmitter<'_> {
             };
             let return_ty = function_ty.return_ty;
             let param_ty = function_ty.params.first().copied().unwrap_or(element_ty);
-            let left_arg = self.value_at_type_text("left.clone()", element_ty, param_ty)?;
-            let right_arg = self.value_at_type_text("right.clone()", element_ty, param_ty)?;
+            let left_arg = self.value_at_type_text("left.clone()", element_ty, param_ty, &self.render_scope())?;
+            let right_arg = self.value_at_type_text("right.clone()", element_ty, param_ty, &self.render_scope())?;
             let closure_text = match self.closure_operand_text_for_declared_type(key_operand) {
                 Ok(closure_text) => closure_text,
                 Err(_) => self.operand_text(key_operand)?,
@@ -193,7 +193,7 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(list_ty),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) {
-            let item_text = self.extract_value_text("item", *value_ty)?;
+            let item_text = self.extract_value_text("item", *value_ty, &self.render_scope())?;
             return Ok(format!(
                 "match {}.clone() {{ SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(idx, item)| (idx as i64, {item_text})).collect::<Vec<_>>(), _ => Vec::new() }}",
                 self.operand_text(list)?

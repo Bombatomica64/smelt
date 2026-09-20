@@ -1,0 +1,38 @@
+[project]
+name = "hono-routers"
+version = "0.0.0"
+description = "Hono router+utils slice, for phase-2 generated-Rust triage while the fetch types are unmodeled"
+
+[sources]
+roots = ["src"]
+entries = [
+  "src/router/reg-exp-router/index.ts",
+  "src/router/trie-router/index.ts",
+  "src/router/pattern-router/index.ts",
+  "src/router/smart-router/index.ts",
+  "src/utils/url.ts",
+]
+test-prefix = ["src/**/*.test.ts"]
+exclude = [
+  "src/client/**",
+  "src/helper/testing/**",
+  "src/helper/streaming/**",
+  "src/helper/websocket/**",
+  "src/utils/jwt/**",
+  "src/middleware/jwt/**",
+]
+
+[output]
+target = "./dist-routers"
+crate-name = "hono_routers_probe"
+build = false
+
+[rust]
+edition = "2024"
+
+[strict]
+typescript = true
+python = true
+
+[runtime]
+clone-strategy = "aggressive"

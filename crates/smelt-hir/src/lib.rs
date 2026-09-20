@@ -67,19 +67,41 @@ pub use expr::{
     ClosureCapture, ClosureExpr, DatePart, DictProjectionOp, Expr, ExprKind, GeneratorResumeKind,
     ListCallbackOp,
     ListProjectionOp, ListSearchOp, ListSpliceItem, Literal, NumericExtremaOp, NumericPredicateOp,
-    NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp, PropertyLookup, RegexMatchOp, SetBinaryOp,
-    SetProjectionOp, SetRelationOp, SetRemoveOp, StringAffixOp, StringCaseOp, StringNormalizeForm,
+    NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp, PropertyLookup, RegexMatchOp,
+    RegexReplaceArg, SetBinaryOp,
+    HeadersOp, SetProjectionOp, SetRelationOp, SetRemoveOp, StringAffixOp, StringCaseOp,
+    EventEmitterOp,
+    HttpServerOp,
+    IncomingMessageOp,
+    ServerResponseOp,
+    RequestInitMember,
+    RequestOp,
+    ResponseOp,
+    UrlSearchParamsOp,
+    AbortSignalOp,
+    CryptoOp,
+    FormDataOp,
+    TextEncoderOp,
+    TextDecoderOp,
+    Base64Op,
+    ByteArrayOp,
+    BlobOp,
+    StringNormalizeForm,
     StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, UnaryOp,
-    UnknownKind, UrlField, bin_op_text,
+    UnknownKind, UriTranscodeOp, UrlField, bin_op_text,
 };
-pub use format::format_compact;
+pub use format::{format_compact, type_display};
+/// The stdlib element table, re-exported so MIR and codegen name the SAME
+/// type HIR does rather than each reaching for the registry crate.
+pub use smelt_stdlib::TypedArrayElement;
 pub use ids::{
     BlockId, BodyId, ExprId, FileId, ItemId, LocalId, ModuleId, PatternId, Span, StmtId, Symbol,
     TypeId,
 };
 pub use item::{
     Class, ClassKind, ClassProtocol, ConstItem, Descriptor, DescriptorValueField, Field, Function,
-    FunctionOwner, Interface, InterfaceHeritage, Item, MethodSig, MutableGlobalItem, Param,
+    FunctionOwner, Interface, InterfaceHeritage, Item, MethodSig, MutableGlobalInit,
+    MutableGlobalItem, Param,
     ParamSig, StaticField, TypeAlias, TypeParamDef, Visibility,
 };
 pub use krate::{

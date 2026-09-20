@@ -11,11 +11,13 @@
 use crate::generic_bindings::CalleeTypeParamBindings;
 use crate::rust::RustType;
 use crate::type_substitution::{Resolved, TypeSubstitution};
+use render_scope::RenderScope;
 use crate::{EmitError, compact_index, id_index, sanitize_ident};
 use literals::{operand_local, operand_mutation_root};
 use smelt_hir::{FileId, PropertyLookup, Span, Symbol, Type, TypeId};
 use smelt_mir::{
-    BasicBlock, BuiltinFn, Callee, Constant, FuncId, HirOrigin, LocalDecl, LocalId, LocalKind, Mir,
+    AbsentSpelling, BasicBlock, BuiltinFn, Callee, Constant, FuncId, HirOrigin, LocalDecl,
+    LocalId, LocalKind, Mir,
     MirClass, MirClosure, MirDescriptor, MirField, MirFunction, MirListSpliceItem, NegativeIndex,
     Operand, Place, Rvalue, Statement, Terminator,
 };
@@ -107,7 +109,16 @@ mod construct;
 mod control_flow_match;
 mod core;
 mod dict_entry_update;
+mod blob;
+mod fetch_types;
+mod abort_signal;
+mod crypto;
+mod form_data;
+mod text_codec;
+mod typed_array;
+mod host_member_read;
 mod host_interop;
+mod http_server;
 mod list;
 mod list_mutation;
 mod list_ordering;
@@ -118,6 +129,8 @@ mod map;
 mod numeric;
 mod optional_access;
 mod place;
+mod record_slot_abi;
+mod render_scope;
 mod rendered_text_rewrite;
 mod rendered_value;
 /// Debug-only emitter self-consistency checks; the module does not exist in a
@@ -150,7 +163,7 @@ pub(crate) struct EmitContext {
     /// Whether emitted native tests must isolate virtual timer runtime state.
     needs_timer_helpers: bool,
     /// Rust function names keyed by MIR function ID.
-    function_names: HashMap<FuncId, String>,
+    pub(crate) function_names: HashMap<FuncId, String>,
     /// Emitted parameter types keyed by Rust function name.
     function_param_types: HashMap<String, Vec<TypeId>>,
     /// Emitted return types keyed by Rust function name.
@@ -197,6 +210,15 @@ pub(crate) struct EmitContext {
     /// `Rc<RefCell<Inner>>`), computed once by [`crate::classify`]. Every class
     /// not in this set stays a by-value value class with its current emission.
     reference_classes: HashSet<Symbol>,
+    /// Which declared type-parameter positions each generated class and
+    /// interface keeps in its emitted Rust, computed once by
+    /// [`crate::generic_elision::compute`].
+    ///
+    /// A parameter the emitted Rust never spells is dropped from the struct,
+    /// from every impl header and from every reference, so this map must be
+    /// read by BOTH the declaration and the reference side or the two disagree
+    /// on arity.
+    type_param_elision: crate::generic_elision::TypeParamElision,
 }
 
 impl EmitContext {
@@ -258,14 +280,22 @@ impl EmitContext {
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             let priority = emitted_signature_priority(function);
+            // Keyed by the emitted-signature key, not the bare Rust name: a
+            // method's name is unique only inside its own `impl` block (see
+            // `FunctionEmitter::emitted_signature_key_in`).
+            let signature_key = core::emitted_signature_key_in(
+                function,
+                &rust_name,
+                |symbol| mir.symbols.get(symbol).map(str::to_owned),
+            );
             if function_param_type_priorities
-                .get(&rust_name)
+                .get(&signature_key)
                 .copied()
                 .is_none_or(|existing| priority > existing)
             {
-                function_param_types.insert(rust_name.clone(), params);
-                function_return_types.insert(rust_name.clone(), function.return_ty);
-                function_param_type_priorities.insert(rust_name.clone(), priority);
+                function_param_types.insert(signature_key.clone(), params);
+                function_return_types.insert(signature_key.clone(), function.return_ty);
+                function_param_type_priorities.insert(signature_key, priority);
             }
             function_names.insert(function.id, rust_name);
         }
@@ -287,6 +317,7 @@ impl EmitContext {
             ),
             generic_functions: RefCell::new(HashSet::new()),
             reference_classes: crate::classify::reference_classes(mir),
+            type_param_elision: crate::generic_elision::compute(mir),
         })
     }
 
@@ -296,6 +327,11 @@ impl EmitContext {
     /// mutability; value classes keep the current by-value struct emission.
     pub(crate) fn is_reference_class(&self, symbol: Symbol) -> bool {
         self.reference_classes.contains(&symbol)
+    }
+
+    /// Return which type-parameter positions the emitted Rust declares.
+    pub(crate) fn type_param_elision(&self) -> &crate::generic_elision::TypeParamElision {
+        &self.type_param_elision
     }
 
     /// Compute, once, which free functions emit real Rust generics.

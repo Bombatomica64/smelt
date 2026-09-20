@@ -1,0 +1,43 @@
+module examples/typescript/end-to-end/95_union_value_dispatch/input.ts (ModuleId(0))
+  body BodyId(3)
+  items
+    fn body_text owner Module
+    interface Keyed fields [Public tag: String, Public kind: String] methods []
+    interface Noted fields [Public tag: String, Public note: String] methods []
+    type Tagged = Keyed | Noted
+    fn retag owner Module
+    fn run owner Module
+  exprs
+    #0: async fn() -> Future<None> = @4(run)
+    #1: Future<None> = call #0()
+    #2: None = await #1
+    #3: Future<None> = async_exit_drain()
+    #4: None = await #3
+  stmts
+    s0: #2
+    s1: #4
+  async state machine
+    states [state0, state1, state2]
+    suspend #2 on #1 -> state3
+    suspend #4 on #3 -> state5
+
+interned types
+  t0 = Keyed
+  t1 = Noted
+  t2 = Keyed | Noted
+  t3 = String
+  t4 = Uint8Array
+  t5 = String | Uint8Array
+  t6 = Future<String>
+  t7 = async fn(String | Uint8Array) -> Future<String>
+  t8 = fn(Keyed | Noted, String) -> String
+  t9 = None
+  t10 = Future<None>
+  t11 = async fn() -> Future<None>
+  t12 = Response
+  t13 = async fn(String | Uint8Array) -> Future<String>
+  t14 = Float
+  t15 = List<Float>
+  t16 = Dict<String, String>
+  t17 = fn(Keyed | Noted, String) -> String
+  t18 = async fn() -> Future<None>

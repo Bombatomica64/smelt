@@ -14,6 +14,10 @@
 //! (`array_containment_projects_an_optional_union_receiver`), which can prove the
 //! projection is emitted but not that it selects the right arm.
 //!
+//! The second case in this tier is the same shape one step further out: an
+//! ELEMENT read through an optional chain on a union receiver, where the value
+//! the read answers — not the spelling that carries it — is the whole assertion.
+//!
 //! The tier is `#[ignore]`d because it compiles and executes real crates:
 //!
 //! ```sh
@@ -82,9 +86,21 @@ fn run_fixture(source: &str, crate_name: &str) {
     let target_dir = root.join("target");
     std::fs::create_dir_all(&crate_dir).expect("create crate dir");
     std::fs::create_dir_all(&target_dir).expect("create target dir");
-    emit_program(source, crate_name, &crate_dir);
-    run_generated_tests(&crate_dir, &target_dir);
-    drop(std::fs::remove_dir_all(&root));
+    let outcome = std::panic::catch_unwind(|| {
+        emit_program(source, crate_name, &crate_dir);
+        run_generated_tests(&crate_dir, &target_dir);
+    });
+    // The scratch root holds a whole nested cargo target directory, so it is
+    // removed on the FAILURE path too: leaving one behind per failing case is
+    // what fills `/tmp`, and an ENOSPC inside a later nested build reads as a
+    // failing assertion rather than as a full disk.
+    // `SMELT_KEEP_RUNTIME_SCRATCH=1` keeps it for a debugging session.
+    if std::env::var_os("SMELT_KEEP_RUNTIME_SCRATCH").is_none() {
+        drop(std::fs::remove_dir_all(&root));
+    }
+    if let Err(payload) = outcome {
+        std::panic::resume_unwind(payload);
+    }
 }
 
 #[test]
@@ -130,4 +146,153 @@ test('a non-matching array leaves the string alone', () => {
 });
 ";
     run_fixture(source, "smelt_narrowed_union_containment");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn union_optional_element_read_narrows_at_runtime() {
+    // An ELEMENT read through an optional chain whose receiver is a generated
+    // union (`number | [string, number][]`). Three rules, all three of them
+    // families the Hono router slice hit, and all three only observable in the
+    // VALUE the read answers:
+    //
+    // 1. the receiver reaches the runtime narrowing through its
+    //    `IntoSmeltUnknown` boundary adapter, not by matching `SmeltUnknown`
+    //    arms against the union's own enum — matching the enum against the
+    //    tagged value never selects an arm, so the read answered the result
+    //    type's default;
+    // 2. the erased element that narrowing produces is converted to the read's
+    //    declared RESULT type (`[string, number] | undefined`), so the tuple
+    //    arrives as a tuple and not as a defaulted one;
+    // 3. the arm that is NOT indexable (`number`) answers `undefined` rather
+    //    than a fabricated element.
+    //
+    // The path is erased by construction — a union whose arms are not all
+    // indexable has no concrete Rust element type to carry — which is why this
+    // lives here and not in the examples corpus, whose invariant is zero
+    // avoidable erasure. The concrete half of the same source fixture (a
+    // throwing method inside an optional chain) stays in
+    // `examples/typescript/end-to-end/80_optional_chain_union_and_throw`.
+    let source = r"
+import { test, expect } from 'vitest';
+
+type Slot = number | [string, number][];
+
+function firstPair(slot: Slot): [string, number] | undefined {
+  const pairs = slot?.[0];
+  if (typeof pairs === 'number' || pairs === undefined) {
+    return undefined;
+  }
+  return pairs;
+}
+
+test('the non-indexable arm answers undefined', () => {
+  expect(firstPair(7)).toBe(undefined);
+});
+
+test('the list arm answers its own first element', () => {
+  const pairs: [string, number][] = [['a', 1], ['b', 2]];
+  const first = firstPair(pairs);
+  expect(first === undefined).toBe(false);
+  expect((first as [string, number])[0]).toBe('a');
+  expect((first as [string, number])[1]).toBe(1);
+});
+
+test('an empty list arm answers undefined', () => {
+  const empty: [string, number][] = [];
+  expect(firstPair(empty)).toBe(undefined);
+});
+";
+    run_fixture(source, "smelt_union_optional_element_read");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_generated_union_dispatches_a_property_through_its_own_arms() {
+    // A property read and a property write on a value whose static type is a
+    // GENERATED union. Every arm declares `tag` at one type, so both sides are
+    // dispatched on the tag and each arm touches its own struct field: nothing
+    // is erased, and no `SmeltUnknown` runtime-shape `match` is involved (one
+    // would not even type-check against a `SmeltUnion…` scrutinee).
+    //
+    // The VALUE is the assertion, not the spelling: a write that landed on a
+    // copy of the receiver — the failure mode of an erase/mutate path with no
+    // write-back — still compiles and still reads back the OLD tag.
+    let source = r"
+import { test, expect } from 'vitest';
+
+interface Keyed {
+  tag: string;
+  kind: string;
+}
+
+interface Noted {
+  tag: string;
+  note: string;
+}
+
+type Tagged = Keyed | Noted;
+
+function retag(value: Tagged, next: string): string {
+  value.tag = next;
+  return value.tag;
+}
+
+test('each arm writes and reads its own field', () => {
+  const keyed: Keyed = { tag: 'first', kind: 'k' };
+  const noted: Noted = { tag: 'third', note: 'n' };
+  expect(retag(keyed, 'second')).toBe('second');
+  expect(retag(noted, 'fourth')).toBe('fourth');
+});
+";
+    run_fixture(source, "smelt_generated_union_property_dispatch");
+}
+
+#[test]
+#[ignore = "compiles and runs a generated crate"]
+fn union_instanceof_selects_the_arm_that_is_that_class() {
+    // `x instanceof C` on a generated union is the discriminant test for the
+    // arms that ARE that class. Several JavaScript classes lower to their own
+    // representation rather than to a nominal class — a `Promise<T>` is a
+    // future, an array is a list, a `Map` is a keyed map — and asking only for
+    // a `Type::Class` named `Promise` answered "no arm" for all of them, which
+    // is emitted as a constant `false`.
+    //
+    // The VALUE is the assertion: nothing failed to compile. The guarded branch
+    // simply became dead code, so `label` formatted its promise instead of
+    // awaiting it and `size` reported a string length for an array.
+    let source = r"
+import { test, expect } from 'vitest';
+
+async function label(value: string | Promise<string>): Promise<string> {
+  if (value instanceof Promise) {
+    return 'deferred:' + (await value);
+  }
+  return 'direct:' + value;
+}
+
+function size(value: string | string[]): string {
+  if (value instanceof Array) {
+    return 'list:' + value.length;
+  }
+  return 'text:' + value.length;
+}
+
+function lookup(value: Map<string, number> | number): string {
+  if (value instanceof Map) {
+    return 'map:' + value.size;
+  }
+  return 'num:' + value;
+}
+
+test('an instanceof guard selects the union arm that is that class', async () => {
+  expect(await label('now')).toBe('direct:now');
+  expect(await label(Promise.resolve('later'))).toBe('deferred:later');
+  expect(size('abc')).toBe('text:3');
+  expect(size(['a', 'b'])).toBe('list:2');
+  expect(lookup(7)).toBe('num:7');
+  expect(lookup(new Map([['a', 3]]))).toBe('map:1');
+});
+";
+    run_fixture(source, "smelt_union_instanceof_arm_tags");
 }

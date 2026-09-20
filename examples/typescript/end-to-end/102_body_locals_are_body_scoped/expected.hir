@@ -1,0 +1,43 @@
+module examples/typescript/end-to-end/102_body_locals_are_body_scoped/input.ts (ModuleId(0))
+  body BodyId(13)
+  locals
+    %0 const run: fn(String, fn() -> String) -> String
+  exprs
+    #0: fn(String, fn() -> String) -> String = closure BodyId(0) captures 0 -> String
+    #1: String = "first"
+    #2: fn() -> String = closure BodyId(4) captures 0 -> String
+    #3: String = closure_call #0(#1, #2)
+    #4: None = @0(console_log)
+    #5: None = call #4(#3)
+    #6: fn(String, fn() -> String) -> String = closure BodyId(5) captures 0 -> String
+    #7: String = "second"
+    #8: fn() -> String = closure BodyId(10) captures 0 -> String
+    #9: String = closure_call #6(#7, #8)
+    #10: None = @1(console_log)
+    #11: None = call #10(#9)
+    #12: fn(String, fn() -> String) -> String = closure BodyId(11) captures 0 -> String
+    #13: String = "third"
+    #14: fn() -> String = closure BodyId(12) captures 0 -> String
+    #15: String = closure_call #12(#13, #14)
+    #16: None = @2(console_log)
+    #17: None = call #16(#15)
+  stmts
+    s0: #5
+    s1: #11
+    s2: #17
+
+interned types
+  t0 = String
+  t1 = fn() -> String
+  t2 = fn(String, fn() -> String) -> String
+  t3 = Float
+  t4 = Unknown
+  t5 = fn(Float) -> Unknown
+  t6 = fn(Float) -> Float
+  t7 = fn(Float) -> fn(Float) -> Float
+  t8 = fn(Float) -> fn(Float) -> Float
+  t9 = fn(Float) -> Float
+  t10 = fn() -> String
+  t11 = None
+  t12 = fn(Float) -> String
+  t13 = fn(Float) -> String

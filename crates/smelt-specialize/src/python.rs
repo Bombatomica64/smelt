@@ -449,7 +449,7 @@ mod tests {
         policy.memory_bytes = 512 * 1024 * 1024;
         let request = PythonSpecializationRequest {
             smelt_version: "test".to_owned(),
-            python_executable: python.clone(),
+            python_executable: python,
             project_root: project,
             modules: vec![PythonModule {
                 name: "fixture".to_owned(),

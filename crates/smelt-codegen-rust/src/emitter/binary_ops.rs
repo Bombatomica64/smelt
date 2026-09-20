@@ -79,7 +79,7 @@ impl FunctionEmitter<'_> {
                     match inner {
                         Some(inner_ty) if emitter.is_erased_relational(inner_ty) => {
                             let erased = emitter.erase(operand)?;
-                            emitter.value_at_type_text(&erased, unknown_ty, float_ty)
+                            emitter.value_at_type_text(&erased, unknown_ty, float_ty, &self.render_scope())
                         }
                         Some(inner_ty) => {
                             emitter.option_value_as_type_text(operand, inner_ty, float_ty)
@@ -388,6 +388,16 @@ impl FunctionEmitter<'_> {
         strict_nullish: bool,
         inner: TypeId,
     ) -> Result<String, EmitError> {
+        // A CONCRETE payload can never hold a nullish tag, so the comparison is
+        // presence and nothing else: `res.body === null` on an
+        // `Option<SmeltBody>` is `res.body.is_none()`. Matching `SmeltUnknown`
+        // patterns against such a payload does not even type-check, which is
+        // what a body handle (`StdlibClass::ReadableStream`) hit first.
+        if self.static_tag_check(inner, smelt_hir::UnknownKind::Null) == Some(false)
+            && self.static_tag_check(inner, smelt_hir::UnknownKind::Undefined) == Some(false)
+        {
+            return Ok(format!("{option_text}.is_none()"));
+        }
         let pattern = if strict_nullish {
             if matches!(singleton, Operand::Const(Constant::Undefined)) {
                 "SmeltUnknown::Undefined"
@@ -556,9 +566,9 @@ impl FunctionEmitter<'_> {
         }
         Ok(Some(format!(
             "{} {} {}",
-            self.value_at_type_text(&lhs_text, lhs_ty, common_ty)?,
+            self.value_at_type_text(&lhs_text, lhs_ty, common_ty, &self.render_scope())?,
             smelt_hir::bin_op_text(op),
-            self.value_at_type_text(&rhs_text, rhs_ty, common_ty)?
+            self.value_at_type_text(&rhs_text, rhs_ty, common_ty, &self.render_scope())?
         )))
     }
 
@@ -898,9 +908,11 @@ impl FunctionEmitter<'_> {
                 Some(format!("{text}.id"))
             }
             Type::JsMap(_, _) => Some(format!("{text}.id")),
-            Type::Set(item) if !self.type_is_hash_set_key_safe(*item) => {
-                Some(format!("{text}.id"))
-            }
+            // Both set backings mint a stable object id, so `setA === setB`
+            // compares identity as JavaScript does. Before `SmeltPrimSet` a
+            // primitive set had no id and fell through to structural equality,
+            // which answered `true` for two distinct sets of the same members.
+            Type::Set(_) => Some(format!("{text}.id")),
             // The two prelude-backed builtin classes — `SmeltRegExp` (a source
             // `RegExp`) and `SmeltMatch` (a match result) — both mint an object
             // id on construction and share it through `Clone`, exactly like the
@@ -911,6 +923,35 @@ impl FunctionEmitter<'_> {
                     || self.is_match_class_symbol(*name).unwrap_or(false) =>
             {
                 Some(format!("{text}.id"))
+            }
+            // Every OTHER modeled class backed by a generated runtime type.
+            // Each of those types mints an object id on construction and shares
+            // it through `Clone` — that is what makes them JavaScript reference
+            // values — so their identity is observable and `===` has to read
+            // it. The registry answers which classes those are
+            // (`erases_through_adapter`, the same question that decides whether
+            // a class has an erasure adapter at all), so a class that gains a
+            // runtime type is answered here without touching this function.
+            //
+            // Reached AFTER the `RegExp`/`SmeltMatch` arm above, which spells
+            // its id as a public FIELD rather than an accessor; ordering is what
+            // keeps the two spellings from needing a second predicate.
+            //
+            // Structural `PartialEq` stays for the loose and deep comparisons
+            // (`toEqual`, `isDeepEqual`), which is why these types still derive
+            // it: `expect(encoder.encode("a")).toEqual(new Uint8Array([97]))`
+            // compares contents. `===` never does — before this arm,
+            // `new Blob(["x"]) === new Blob(["x"])` answered `true` where every
+            // JavaScript engine answers `false`, and so did `Headers`,
+            // `FormData`, `Response`, `Request`, the byte view and the codecs.
+            Type::Class { name, .. }
+                if self
+                    .stdlib_class_of_symbol(*name)
+                    .ok()
+                    .flatten()
+                    .is_some_and(smelt_stdlib::StdlibClass::erases_through_adapter) =>
+            {
+                Some(format!("{text}.id()"))
             }
             _ => None,
         }
@@ -935,16 +976,38 @@ impl FunctionEmitter<'_> {
         lhs: &Operand,
         rhs: &Operand,
     ) -> Result<Option<String>, EmitError> {
-        if !matches!(
+        // Two operators reach here, and they are NOT the same operator.
+        //
+        // `StrictEq` is SameValue — `Object.is` — and `JsStrictEq` is the
+        // source's `===`. They agree on reference values and disagree on
+        // exactly two numbers: `Object.is(NaN, NaN)` is `true` where
+        // `NaN === NaN` is `false`, and `Object.is(-0, 0)` is `false` where
+        // `-0 === 0` is `true`. Numbers are the ONLY place they differ, so the
+        // numeric arm below answers for SameValue only and every other arm
+        // answers for both: functions and references compare by identity under
+        // either operator. The reference arm is the one `===` was missing, and
+        // why `===` between two concrete modeled-class values fell through to
+        // structural `PartialEq`.
+        let same_value = matches!(
             op,
             smelt_hir::BinOp::StrictEq | smelt_hir::BinOp::StrictNotEq
-        ) {
+        );
+        if !same_value
+            && !matches!(
+                op,
+                smelt_hir::BinOp::JsStrictEq | smelt_hir::BinOp::JsStrictNotEq
+            )
+        {
             return Ok(None);
         }
+        let negate = matches!(
+            op,
+            smelt_hir::BinOp::StrictNotEq | smelt_hir::BinOp::JsStrictNotEq
+        );
         let lhs_ty = self.operand_ty(lhs)?;
         let rhs_ty = self.operand_ty(rhs)?;
         let equal_text = match (self.mir.types.get(lhs_ty), self.mir.types.get(rhs_ty)) {
-            (Some(Type::Int | Type::Float), Some(Type::Int | Type::Float)) => {
+            (Some(Type::Int | Type::Float), Some(Type::Int | Type::Float)) if same_value => {
                 let lhs_text = self.float_operand_text(lhs)?;
                 let rhs_text = self.float_operand_text(rhs)?;
                 format!(
@@ -973,7 +1036,7 @@ impl FunctionEmitter<'_> {
             }
             _ => return Ok(None),
         };
-        Ok(Some(if op == smelt_hir::BinOp::StrictNotEq {
+        Ok(Some(if negate {
             format!("!({equal_text})")
         } else {
             equal_text
@@ -1144,6 +1207,92 @@ impl FunctionEmitter<'_> {
         }
     }
 
+    /// Returns whether an operand's static type makes `+` a STRING
+    /// CONCATENATION rather than an addition.
+    ///
+    /// ECMAScript's `ApplyStringOrNumericBinaryOperator` coerces both operands
+    /// of `+` with `ToPrimitive` and concatenates as soon as either result is a
+    /// String; only when neither is does it add. Statically that question is
+    /// answered by the operand types, and this predicate mirrors the frontend's
+    /// `has_static_string_type` exactly so the emitted code agrees with the
+    /// result type HIR already gave the expression:
+    ///
+    /// - `string` is the direct case;
+    /// - an optional whose inner type is string-like still concatenates
+    ///   (`undefined + "x"` is `"undefinedx"`, not `NaN`);
+    /// - a union with at least ONE string arm concatenates, because a value of
+    ///   that type can be the String that flips the operator, and TypeScript
+    ///   types the whole expression `string` for that reason. A non-string arm
+    ///   reaching the site is stringified with the same `ToString` coercion a
+    ///   `${}` template uses, which is what JavaScript does to the non-string
+    ///   side of a concatenation.
+    ///
+    /// `unknown` and type parameters are deliberately NOT included: nothing is
+    /// statically known about them, so they keep the erased
+    /// number-or-string runtime path in `erased_arithmetic_text`.
+    pub(super) fn add_operand_is_string_like(&self, ty: TypeId) -> bool {
+        match self.mir.types.get(ty) {
+            Some(Type::String) => true,
+            Some(Type::Optional(inner)) => self.add_operand_is_string_like(*inner),
+            Some(Type::Union(items)) => items
+                .iter()
+                .copied()
+                .any(|item| self.add_operand_is_string_like(item)),
+            _ => false,
+        }
+    }
+
+    /// Emits `+` as a string concatenation when JavaScript's rule says it is
+    /// one, coercing the concatenated `String` into the destination type.
+    ///
+    /// The destination is not always `String`. A compound assignment writes the
+    /// result back into the place it read (`buffer[0] += str` on a
+    /// `(string | Promise<string>)[]`), so the statement's destination is the
+    /// element's own union while the `+` itself is still a concatenation. The
+    /// concatenation is therefore built at `String` and then handed to the
+    /// ordinary coercion seam, which re-wraps it in the union's string arm.
+    /// Without this the union operand fell through to the erased numeric path
+    /// and the whole expression became a `ToNumber` `match` over the wrong enum.
+    ///
+    /// An `Int`/`Float` destination keeps the numeric path: a destination the
+    /// frontend typed as a number is an addition whatever the operands look
+    /// like here.
+    pub(super) fn string_addition_text(
+        &self,
+        op: smelt_hir::BinOp,
+        lhs: &Operand,
+        rhs: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<Option<String>, EmitError> {
+        if op != smelt_hir::BinOp::Add {
+            return Ok(None);
+        }
+        let dest_is_string = matches!(self.mir.types.get(dest_ty), Some(Type::String));
+        if !dest_is_string {
+            if matches!(self.mir.types.get(dest_ty), Some(Type::Int | Type::Float)) {
+                return Ok(None);
+            }
+            let concatenates = self.add_operand_is_string_like(self.operand_ty(lhs)?)
+                || self.add_operand_is_string_like(self.operand_ty(rhs)?);
+            if !concatenates {
+                return Ok(None);
+            }
+        }
+        let lhs_text = self.string_like_operand_text(lhs, "string addition")?;
+        let rhs_text = self.string_like_operand_text(rhs, "string addition")?;
+        let text = format!("{lhs_text} + &{rhs_text}");
+        if dest_is_string {
+            return Ok(Some(text));
+        }
+        let string_ty = self.type_id(Type::String)?;
+        Ok(Some(self.value_at_type_text(
+            &text,
+            string_ty,
+            dest_ty,
+            &self.render_scope(),
+        )?))
+    }
+
     /// Emits arithmetic involving erased operands through JavaScript-like numbers.
     pub(super) fn erased_arithmetic_text(
         &self,
@@ -1263,6 +1412,6 @@ impl FunctionEmitter<'_> {
         target: TypeId,
     ) -> Result<String, EmitError> {
         let value = self.option_value_text(operand, inner)?;
-        self.value_at_type_text(&value, inner, target)
+        self.value_at_type_text(&value, inner, target, &self.render_scope())
     }
 }

@@ -1,0 +1,72 @@
+class Chain fields [Public value: T, Public advance: fn(T) -> Chain<T>, Public seen: List<T>] constructor Some(FuncId(0)) methods []
+
+fn new (FuncId(0)) -> Chain<T>
+  locals
+    %0 user this: Chain<T>
+    %1 param value: T
+    %2 temp: List<T>
+    %3 temp: fn(T) -> Chain<T>
+  bb0:
+    %0 = struct0 {}
+    %0.field2 = copy %1
+    %2 = [copy %1]
+    %0.field4 = move %2
+    %3 = closure ClosureId(0) [copy %0]
+    %0.field3 = move %3
+    return move %0
+
+fn main (FuncId(1)) -> None throws
+  locals
+    %0 user numbers: Chain<Float>
+    %1 user words: Chain<String>
+    %2 temp: Chain<Float>
+    %3 temp: Chain<Float>
+    %4 temp: None
+    %5 temp: Chain<Float>
+    %6 temp: None
+    %7 temp: String
+    %8 temp: None
+    %9 temp: Chain<String>
+    %10 temp: Chain<String>
+    %11 temp: None
+    %12 temp: Chain<String>
+    %13 temp: String
+    %14 temp: None
+  bb0:
+    %2 = call fn0(1.0) -> bb1
+  bb1:
+    %0 = move %2
+    %3 = closure_call copy %0.field3(2.0)
+    %4 = call @console_log(copy %3.field2) -> bb2
+  bb2:
+    %5 = closure_call copy %0.field3(7.0)
+    %6 = call @console_log(copy %5.field2) -> bb3
+  bb3:
+    %7 = string_join copy %0.field4, ","
+    %8 = call @console_log(move %7) -> bb4
+  bb4:
+    %9 = call fn0("a") -> bb5
+  bb5:
+    %1 = move %9
+    %10 = closure_call copy %1.field3("b")
+    %11 = call @console_log(copy %10.field2) -> bb6
+  bb6:
+    %12 = closure_call copy %1.field3("c")
+    %13 = string_join copy %12.field4, "|"
+    %14 = call @console_log(move %13) -> bb7
+  bb7:
+    return none
+
+closure ClosureId(0) -> Chain<T>
+  locals
+    %0 param next: T
+    %1 user this: Chain<T>
+    %2 temp: List<T>
+    %3 temp: Float
+  bb0:
+    %1.field2 = copy %0
+    %2 = copy %1.field4
+    %3 = list_push copy %2, copy %0
+    %1.field4 = copy %2
+    return copy %1
+

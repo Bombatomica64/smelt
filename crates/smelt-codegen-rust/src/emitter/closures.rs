@@ -1,6 +1,13 @@
 //! Closure rendering engine: emits Rust closure literals and their block/match bodies for MIR closures, including extra-parameter adapters, await detection, and closure operand text.
 
 use super::*;
+
+/// The binding a captured receiver takes inside a closure.
+///
+/// `self` cannot be a `let` binding in Rust, so a closure that captures the
+/// enclosing method's receiver binds it under this name and its body's uses are
+/// rewritten to match.
+const SELF_CAPTURE_NAME: &str = "smelt_self";
 use smelt_hir::FunctionType;
 use rendered_text_rewrite::{
     SELF_RECURSIVE_UPGRADE, replace_shared_capture_uses, shared_capture_cell_name,
@@ -196,6 +203,19 @@ impl FunctionEmitter<'_> {
                                     "let smelt_capture_{name} = smelt_capture_{name}.clone();"
                                 );
                             }
+                            // `self` is a Rust keyword and cannot be bound, so a
+                            // capture of the receiver takes a non-keyword name and
+                            // the body's uses are rewritten to it — the same
+                            // machinery the shared-storage case above uses.
+                            // `let self = self.clone();` is what the emitter used
+                            // to produce (E0424, 2 of the router slice's errors):
+                            // naming the binding `self` made the body text work
+                            // unchanged, which Rust does not allow.
+                            if name == "self" {
+                                shared_replacements
+                                    .push((name.clone(), SELF_CAPTURE_NAME.to_owned()));
+                                return format!("let {SELF_CAPTURE_NAME} = self.clone();");
+                            }
                             // Mutability is driven purely by whether the closure
                             // body actually writes through the capture. A blanket
                             // `mut` for every list/set/dict capture made almost
@@ -275,7 +295,7 @@ impl FunctionEmitter<'_> {
                 )?;
                 let call = if source_closure.can_throw {
                     format!(
-                        "(smelt_callback)({args}).unwrap_or_else(|error| panic!(\"{{}}\", error))"
+                        "(smelt_callback)({args}).unwrap_or_else(|error| smelt_panic_throw(error))"
                     )
                 } else {
                     format!("(smelt_callback)({args})")
@@ -289,7 +309,7 @@ impl FunctionEmitter<'_> {
                         // the callback result behave as in JS.
                         format!("{{ {call}; SmeltUnknown::Undefined }}")
                     } else {
-                        self.value_at_type_text(&call, source_closure.return_ty, unknown_ty)?
+                        self.value_at_type_text(&call, source_closure.return_ty, unknown_ty, &self.render_scope())?
                     };
                 let length = source_closure
                     .required_params
@@ -475,6 +495,10 @@ impl FunctionEmitter<'_> {
                 locals: closure_locals,
                 blocks: closure.blocks.clone(),
                 entry: closure.entry,
+                // The closure body's own source language, carried from MIR: a
+                // callback that stringifies an absent value has to spell it the
+                // way its own file's language does.
+                absent: closure.absent,
             };
             let mut emitter = FunctionEmitter::new(self.mir, self.context, &function)?;
             // The closure is emitted inline inside the enclosing function, so
@@ -584,7 +608,7 @@ impl FunctionEmitter<'_> {
                     // `clippy::single_match_else` rejects.
                     if let Some(target_ty) = retype {
                         let target_ty_text = emitter.type_text_with_impl_trait(target_ty, false)?;
-                        let coerced = emitter.value_at_type_text(&name, target_ty, local.ty)?;
+                        let coerced = emitter.value_at_type_text(&name, target_ty, local.ty, &self.render_scope())?;
                         param_rebinds.push_str(&format!(
                             "let {mutability}{name}: {local_ty_text} = {coerced};\n"
                         ));
@@ -718,7 +742,7 @@ impl FunctionEmitter<'_> {
                     )
                 } else {
                     let completion = if closure.can_throw {
-                        "value.unwrap_or_else(|error| panic!(\"{}\", error))"
+                        "value.unwrap_or_else(|error| smelt_panic_throw(error))"
                     } else {
                         "value"
                     };
@@ -908,6 +932,31 @@ impl FunctionEmitter<'_> {
                 format!(
                     "|{params_text}| -> Result<{return_ty_text}, Box<dyn std::error::Error>> {{{owned_param_prelude_block}\n{body_text}    }}"
                 )
+            } else if matches!(
+                emitter.mir.types.get(function.return_ty),
+                Some(Type::Function(_))
+            ) {
+                // A closure that RETURNS a callable says so.
+                //
+                // A callable is a `Rc<dyn Fn(..)>` trait object, and the value
+                // the body hands back is an `Rc` of the CONCRETE closure type
+                // (a `Function`-typed local is deliberately left unannotated so
+                // it keeps that concrete type -- see the `annotation` choice in
+                // `emitter::control_flow`). Rust unsizes one into the other only
+                // at a coercion site, and a closure with no return annotation
+                // has none: its return type is whatever the tail expression is,
+                // so the concrete closure type escaped into the closure's own
+                // type and every consumer expecting the `dyn Fn` spelling
+                // reported E0271 (`expected .. to return `Rc<dyn Fn() -> f64>`,
+                // but it returns `Rc<{closure}>``, radash's `useZero`/`compose`
+                // shapes). Spelling the declared return type makes the return
+                // the coercion site, which is what the source says the closure
+                // produces.
+                let return_ty_text =
+                    emitter.type_text_with_impl_trait(function.return_ty, false)?;
+                format!(
+                    "|{params_text}| -> {return_ty_text} {{{owned_param_prelude_block}\n{body_text}    }}"
+                )
             } else {
                 // Shared captures are emitted as safe `Rc<RefCell<T>>` and accessed via
                 // `borrow_mut()` (see core.rs), so the closure body contains no `unsafe`
@@ -999,6 +1048,14 @@ impl FunctionEmitter<'_> {
                             );
                         }
                         return format!("let smelt_capture_{name} = smelt_capture_{name}.clone();");
+                    }
+                    // `self` cannot be a `let` binding in Rust, so a captured
+                    // receiver takes `SELF_CAPTURE_NAME` and the body's uses are
+                    // rewritten to it — see the sibling prelude above, which
+                    // does the same for the other closure shape.
+                    if name == "self" {
+                        shared_replacements.push((name.clone(), SELF_CAPTURE_NAME.to_owned()));
+                        return format!("let {SELF_CAPTURE_NAME} = {source_name}.clone();");
                     }
                     // See the sibling capture-prelude above: mutability follows
                     // real writes only, no blanket `mut` for collection types.

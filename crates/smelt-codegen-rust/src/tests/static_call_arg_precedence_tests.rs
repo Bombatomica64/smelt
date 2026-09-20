@@ -131,3 +131,73 @@ export function useApply(): number[] {
     );
 }
 
+
+/// H25: a CLASS METHOD's parameters carry the same ABI as every other callee's.
+///
+/// A parameter the callee mutates in place is emitted `&mut T` by the very
+/// predicate the call site can consult (`parameter_needs_mutable_reference_in`),
+/// and a parameter the call omits is padded with its default. Both were already
+/// true for free functions, static methods and constructors; the instance-method
+/// arm asked neither question, so Hono's `#pushHandlerSets(handlerSets, node,
+/// method, nodeParams, params?)` -- a private method that pushes into its first
+/// parameter and is called both with and without the optional tail -- produced
+/// `expected &mut SmeltList<_>, found SmeltList<_>` and `takes 5 arguments but 4
+/// were supplied`: together 419 of the router slice's 498 errors.
+#[test]
+fn a_method_call_borrows_a_mutated_parameter_and_pads_an_omitted_one() {
+    let source = source_for(
+        r"
+type Row = { id: number };
+
+class Collector {
+  rows: Row[] = [];
+
+  #addRow(into: Row[], row: Row, tag?: string): void {
+    into.push(row);
+    if (tag) {
+      into.push({ id: row.id + 1 });
+    }
+  }
+
+  collect(): number {
+    const sink: Row[] = [];
+    this.#addRow(sink, { id: 1 });
+    this.#addRow(sink, { id: 5 }, 'twice');
+    return sink.length;
+  }
+}
+
+const total = new Collector().collect();
+console.log(total);
+",
+    );
+
+    // The signature side: the mutated parameter really is by-reference here, so
+    // the call-site assertions below are not vacuous.
+    assert!(
+        source.contains("into: &mut SmeltList<"),
+        "the mutated parameter did not lower to `&mut`, so this fixture does not \
+         exercise the ABI:\n{source}"
+    );
+    // The call with the optional argument omitted passes `None` for it rather
+    // than being short one argument.
+    assert!(
+        source.contains("self._add_row(&mut sink,"),
+        "a method call passed a `&mut` parameter by value:\n{source}"
+    );
+    assert!(
+        !source.contains("self._add_row(sink.clone()"),
+        "the mutated argument is still cloned by value:\n{source}"
+    );
+    // The two calls differ only in the optional tail: the one that omits it
+    // pads `None`, the one that writes it passes `Some(..)`. Both must be
+    // present, so neither the padding nor the ordinary argument regressed.
+    assert!(
+        source.contains(", None::<String>);"),
+        "the omitted optional parameter was not padded:\n{source}"
+    );
+    assert!(
+        source.contains("Some(\"twice\".to_owned()));"),
+        "the supplied optional argument no longer reaches the call:\n{source}"
+    );
+}

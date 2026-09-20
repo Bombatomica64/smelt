@@ -6,6 +6,8 @@
 
 use std::collections::HashMap;
 
+use oxc::ast::ast::{Class as TSClass, Declaration, Program, Statement};
+
 use crate::lowering::ModuleBuilder;
 use crate::SmeltError;
 use smelt_hir::{Field, FunctionType, MethodSig, Span, Type, TypeParamDef};
@@ -58,6 +60,70 @@ impl ModuleBuilder<'_> {
         Ok(lowered)
     }
 
+    /// Record the type-parameter declarations of every class in this program.
+    ///
+    /// A PREPASS. It runs twice over the crate for two different reasons, and
+    /// both are needed:
+    ///
+    /// * crate-wide, from `predeclare_type_declarations_with_path`, before ANY
+    ///   module body is lowered — a dependency cycle through a barrel file
+    ///   routinely lowers a consumer before the module that declares the class
+    ///   it references, and such a reference must still take the declaration's
+    ///   type-parameter DEFAULTS;
+    /// * per module, from `ModuleBuilder::module`, so a standalone lowering
+    ///   (`dump-hir`, the frontend's own tests) that never runs the crate-wide
+    ///   pass still sees its own classes. TypeScript hoists class TYPES, and the
+    ///   forward-function-type and predeclaration passes lower signatures before
+    ///   any class item exists, so "the class is already an `Item::Class`" is
+    ///   not a condition this rule can depend on even within one file.
+    ///
+    /// Recording is keyed by the symbol the DECLARATION itself gets, which is
+    /// `module_qualified_type_name` where the crate declares the spelling more
+    /// than once and the bare interned spelling otherwise — the same two-step
+    /// `class_declaration` and `resolve_type_reference_symbol` both take. Keying
+    /// by the bare spelling instead would merge two unrelated declarations: a
+    /// crate with a generic `class Context<E, P, I>` in one module and a plain
+    /// `class Context` in another renames one of them, and a reference to the
+    /// plain one must not pick up the generic one's defaults. The map is on
+    /// [`crate::context::HirCtx`] so it outlives the module.
+    ///
+    /// Each declaration's parameters are lowered in the declaration's OWN
+    /// parameter scope, because a default may mention an earlier parameter of
+    /// the same list (`class Pair<A, B = A[]>`). A class whose parameters fail
+    /// to lower is skipped rather than reported: this pass exists only to
+    /// enrich later references, and the real diagnostic is raised when the class
+    /// itself is lowered.
+    pub(in crate::lowering) fn collect_class_type_parameter_defaults(
+        &mut self,
+        program: &Program<'_>,
+    ) {
+        for statement in &program.body {
+            let exported = match statement {
+                Statement::ExportDeclaration(export) => Some(&export.declaration),
+                _ => None,
+            };
+            let class: Option<&TSClass<'_>> = match (statement, exported) {
+                (Statement::ClassDeclaration(class), _) => Some(class.as_ref()),
+                (_, Some(Declaration::ClassDeclaration(class))) => Some(class.as_ref()),
+                _ => None,
+            };
+            let Some(class) = class else { continue };
+            let Some(id) = class.id.as_ref() else { continue };
+            let Some(params) = class.type_parameters.as_deref() else {
+                continue;
+            };
+            let Ok(lowered) = self.push_type_parameter_scope(Some(params)) else {
+                self.pop_type_parameter_scope();
+                continue;
+            };
+            self.pop_type_parameter_scope();
+            let symbol = self
+                .module_qualified_type_name(id.name.as_str())
+                .unwrap_or_else(|| self.intern_type_name(id.name.as_str()));
+            self.ctx.class_type_params.insert(symbol, lowered);
+        }
+    }
+
     /// Pop the current TypeScript type parameter scope.
     pub(in crate::lowering) fn pop_type_parameter_scope(&mut self) {
         self.types.pop_param_scope();
@@ -104,6 +170,54 @@ impl ModuleBuilder<'_> {
             substitutions.insert(param.name, actual);
         }
         Ok(substitutions)
+    }
+
+    /// Complete a short type-argument list from the declaration's defaults.
+    ///
+    /// TypeScript lets a type reference omit TRAILING type arguments whenever
+    /// every omitted parameter declares a default: `class C<A, B = string,
+    /// C = number>` referenced as `C<X>` means `C<X, string, number>`, and a
+    /// declaration whose parameters ALL have defaults may be referenced with no
+    /// argument list at all (`C` where every parameter is defaulted). A default
+    /// is itself lowered in the declaration's own parameter scope, so an
+    /// earlier parameter may appear in a later default (`<A, B = A[]>`); the
+    /// substitution map is therefore built left to right and applied to each
+    /// default as it is taken.
+    ///
+    /// Returns `None` when the list cannot be completed — some omitted
+    /// parameter has no default, which `tsc` rejects except where inference
+    /// supplies the argument. Callers keep whatever shorter list they already
+    /// had in that case rather than inventing arguments.
+    ///
+    /// DYNAMIC BOUNDARY: a parameter defaulted to `any` (`E extends Env = any`)
+    /// lowers to [`Type::Unknown`], because source `any` in a type position IS
+    /// a dynamic boundary under the project's `SmeltUnknown` rules — the
+    /// declaration itself says "whatever the instantiation supplies, unchecked".
+    /// Taking the default is still strictly better than dropping the argument:
+    /// a dropped argument leaves the reference with the WRONG ARITY, which no
+    /// later stage can repair, whereas the default is the type the source
+    /// actually means.
+    pub(in crate::lowering) fn type_arguments_with_defaults(
+        &mut self,
+        type_params: &[TypeParamDef],
+        args: &[smelt_hir::TypeId],
+    ) -> Option<Vec<smelt_hir::TypeId>> {
+        if type_params.is_empty() || args.len() >= type_params.len() {
+            return None;
+        }
+        let mut substitutions = HashMap::new();
+        let mut completed = Vec::with_capacity(type_params.len());
+        for (idx, param) in type_params.iter().enumerate() {
+            let actual = if let Some(arg) = args.get(idx) {
+                *arg
+            } else {
+                let default = param.default?;
+                self.substitute_type_params(default, &substitutions)
+            };
+            substitutions.insert(param.name, actual);
+            completed.push(actual);
+        }
+        Some(completed)
     }
 
     /// Substitute generic type parameters within a previously lowered HIR type.

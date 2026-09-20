@@ -103,9 +103,21 @@ fn run_fixture(source: &str, crate_name: &str) {
     let target_dir = root.join("target");
     std::fs::create_dir_all(&crate_dir).expect("create crate dir");
     std::fs::create_dir_all(&target_dir).expect("create target dir");
-    emit_program(source, crate_name, &crate_dir);
-    run_generated_tests(&crate_dir, &target_dir);
-    drop(std::fs::remove_dir_all(&root));
+    let outcome = std::panic::catch_unwind(|| {
+        emit_program(source, crate_name, &crate_dir);
+        run_generated_tests(&crate_dir, &target_dir);
+    });
+    // The scratch root holds a whole nested cargo target directory, so it is
+    // removed on the FAILURE path too: leaving one behind per failing case is
+    // what fills `/tmp`, and an ENOSPC inside a later nested build reads as a
+    // failing assertion rather than as a full disk.
+    // `SMELT_KEEP_RUNTIME_SCRATCH=1` keeps it for a debugging session.
+    if std::env::var_os("SMELT_KEEP_RUNTIME_SCRATCH").is_none() {
+        drop(std::fs::remove_dir_all(&root));
+    }
+    if let Err(payload) = outcome {
+        std::panic::resume_unwind(payload);
+    }
 }
 
 #[test]
@@ -324,4 +336,71 @@ test("an async closure returning a promise resolves through it", async () => {
 });
 "#;
     run_fixture(source, "smelt_async_closure_returns_promise");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_union_of_object_arms_is_always_truthy() {
+    // Only seven values are falsy in JavaScript, and none of them is an object,
+    // so a union whose every arm is an object has no falsy inhabitant. Smelt
+    // knew this for a single object type (`if (t)` over a tuple folded to
+    // `true`) but not for a union of them, and rejected the guard outright:
+    // "condition expression must be boolean or optional (got Some(Union(..)))".
+    // The union arms add no falsy value, only a type shape.
+    //
+    // Hono's router `Result<T> = [[T, ParamIndexMap][], ParamStash] | [[T,
+    // Params][]]` is the shape; the assertions below are what tell "always
+    // truthy" apart from the two ways it could go wrong -- folding to `false`
+    // (so the guard is never taken) or reading the wrong arm.
+    // Only the guard's OUTCOME is asserted, with any payload carried alongside
+    // the union rather than read back out of it: constructing and reading
+    // through a generated union arm are separate gaps, and mixing them in would
+    // make a failure ambiguous about which rule broke. See
+    // blocker-logs/hono-h4-union-truthiness.md.
+    let source = r"
+import { test, expect } from 'vitest';
+
+// The exact shape of Hono's router `Result<T>`: a union of tuple arms.
+type Slots = [string, string] | [string];
+
+function reached(value: Slots, mark: string): string {
+  if (value) {
+    return `truthy:${mark}`;
+  }
+  return `falsy:${mark}`;
+}
+
+function reachedNegated(value: Slots, mark: string): string {
+  if (!value) {
+    return `falsy:${mark}`;
+  }
+  return `truthy:${mark}`;
+}
+
+function reachedOptional(value: Slots | undefined, mark: string): string {
+  if (value) {
+    return `present:${mark}`;
+  }
+  return `absent:${mark}`;
+}
+
+test('a union of object arms is truthy for either arm', () => {
+  expect(reached(['a', 'b'], 'one')).toBe('truthy:one');
+  expect(reached(['c'], 'two')).toBe('truthy:two');
+});
+test('a falsy member does not make the object falsy', () => {
+  // The tuple is truthy even though every member it carries is the falsy `''`:
+  // truthiness is of the object, never of what it contains.
+  expect(reached([''], 'three')).toBe('truthy:three');
+  expect(reached(['', ''], 'four')).toBe('truthy:four');
+});
+test('negating the guard reaches the other branch', () => {
+  expect(reachedNegated(['a', 'b'], 'five')).toBe('truthy:five');
+});
+test('the same union behind an optional still tests for presence', () => {
+  expect(reachedOptional(['a', 'b'], 'six')).toBe('present:six');
+  expect(reachedOptional(undefined, 'seven')).toBe('absent:seven');
+});
+";
+    run_fixture(source, "smelt_object_union_truthiness");
 }

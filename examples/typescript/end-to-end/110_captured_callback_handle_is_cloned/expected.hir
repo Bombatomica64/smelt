@@ -1,0 +1,41 @@
+module examples/typescript/end-to-end/110_captured_callback_handle_is_cloned/input.ts (ModuleId(0))
+  body BodyId(7)
+  items
+    type Next = fn() -> String
+    type Middleware = fn(String, fn() -> String) -> String
+    fn wrap owner Module
+  locals
+    %0 const wrapped: fn(String, fn() -> String) -> String
+  exprs
+    #0: fn(String, fn() -> String) -> String = closure BodyId(4) captures 0 -> String
+    #1: fn(fn(String, fn() -> String) -> String) -> fn(String, fn() -> String) -> String = @4(wrap)
+    #2: fn(String, fn() -> String) -> String = call #1(#0)
+    #3: fn(String, fn() -> String) -> String = %0
+    #4: String = "a"
+    #5: fn() -> String = closure BodyId(5) captures 0 -> String
+    #6: String = closure_call #3(#4, #5)
+    #7: None = @7(console_log)
+    #8: None = call #7(#6)
+    #9: fn(String, fn() -> String) -> String = %0
+    #10: String = "b"
+    #11: fn() -> String = closure BodyId(6) captures 0 -> String
+    #12: String = closure_call #9(#10, #11)
+    #13: None = @8(console_log)
+    #14: None = call #13(#12)
+  stmts
+    s0: let %0: fn(String, fn() -> String) -> String = #2
+    s1: #8
+    s2: #14
+
+interned types
+  t0 = String
+  t1 = fn() -> String
+  t2 = fn(String, fn() -> String) -> String
+  t3 = Unknown
+  t4 = Dict<String, Unknown>
+  t5 = fn(String, fn() -> String) -> String
+  t6 = fn(fn(String, fn() -> String) -> String) -> fn(String, fn() -> String) -> String
+  t7 = fn() -> Unknown
+  t8 = fn() -> String
+  t9 = fn(fn(String, fn() -> String) -> String) -> fn(String, fn() -> String) -> String
+  t10 = None

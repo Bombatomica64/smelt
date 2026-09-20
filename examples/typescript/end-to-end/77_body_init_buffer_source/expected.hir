@@ -1,0 +1,45 @@
+module examples/typescript/end-to-end/77_body_init_buffer_source/input.ts (ModuleId(0))
+  body BodyId(1)
+  items
+    fn run owner Module
+  exprs
+    #0: async fn() -> Future<None> = @0(run)
+    #1: Future<None> = call #0()
+    #2: None = async_spawn_local(#1)
+    #3: Future<None> = async_exit_drain()
+    #4: None = await #3
+  stmts
+    s0: #2
+    s1: #4
+  async state machine
+    states [state0, state1]
+    suspend #4 on #3 -> state5
+
+interned types
+  t0 = None
+  t1 = Future<None>
+  t2 = async fn() -> Future<None>
+  t3 = Float
+  t4 = ArrayBuffer
+  t5 = Uint8Array
+  t6 = Unknown
+  t7 = Response
+  t8 = Future<ArrayBuffer>
+  t9 = String
+  t10 = Future<String>
+  t11 = Future<Uint8Array>
+  t12 = Bool
+  t13 = List<Float>
+  t14 = Uint32Array
+  t15 = Headers
+  t16 = Optional<String>
+  t17 = URLSearchParams
+  t18 = FormData
+  t19 = File
+  t20 = String | File
+  t21 = Request
+  t22 = Future<FormData>
+  t23 = Optional<String | File>
+  t24 = List<String>
+  t25 = Blob
+  t26 = async fn() -> Future<None>

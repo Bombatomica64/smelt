@@ -325,7 +325,14 @@ impl FunctionEmitter<'_> {
                 rendered_args.push(self.default_value(target_ty)?);
             }
             StaticArgumentKind::Coerced { target_ty } => {
-                rendered_args.push(self.value_at_type(arg, target_ty)?);
+                // The target is the CALLEE's declared parameter type, so the
+                // render scope is the seam's intersection rather than the
+                // caller's own lexical scope (H42).
+                rendered_args.push(self.value_at_type_in(
+                    arg,
+                    target_ty,
+                    &self.callee_parameter_render_scope(function),
+                )?);
             }
         }
         Ok(())

@@ -1,0 +1,115 @@
+module examples/typescript/end-to-end/92_request_init_members/input.ts (ModuleId(0))
+  body BodyId(1)
+  items
+    fn describe owner Module
+  locals
+    %0 const plain: Request
+    %1 const full: Request
+  exprs
+    #0: String = "https://a.test/one"
+    #1: Request = request_new input=#0
+    #2: Request = %0
+    #3: fn(Request) -> String = @0(describe)
+    #4: String = call #3(#2)
+    #5: None = @1(console_log)
+    #6: None = call #5(#4)
+    #7: String = "https://a.test/two"
+    #8: String = "no-store"
+    #9: String = "include"
+    #10: String = "sha256-abc"
+    #11: Bool = true
+    #12: String = "same-origin"
+    #13: String = "manual"
+    #14: String = "https://c.test"
+    #15: String = "no-referrer"
+    #16: Request = request_new input=#7 cache=#8 credentials=#9 integrity=#10 keepalive=#11 mode=#12 redirect=#13 referrer=#14 referrer_policy=#15
+    #17: Request = %1
+    #18: fn(Request) -> String = @0(describe)
+    #19: String = call #18(#17)
+    #20: None = @2(console_log)
+    #21: None = call #20(#19)
+    #22: Request = %1
+    #23: String = request_cache #22
+    #24: Request = %1
+    #25: String = request_credentials #24
+    #26: Request = %1
+    #27: String = request_integrity #26
+    #28: None = @3(console_log)
+    #29: None = call #28(#23, #25, #27)
+    #30: Request = %1
+    #31: Bool = request_keepalive #30
+    #32: Request = %1
+    #33: String = request_mode #32
+    #34: Request = %1
+    #35: String = request_redirect #34
+    #36: None = @4(console_log)
+    #37: None = call #36(#31, #33, #35)
+    #38: Request = %1
+    #39: String = request_referrer #38
+    #40: Request = %1
+    #41: String = request_referrer_policy #40
+    #42: None = @5(console_log)
+    #43: None = call #42(#39, #41)
+    #44: Request = %1
+    #45: Request = request_new input=#44
+    #46: fn(Request) -> String = @0(describe)
+    #47: String = call #46(#45)
+    #48: None = @6(console_log)
+    #49: None = call #48(#47)
+    #50: Request = %1
+    #51: Request = request_new input=#50
+    #52: fn(Request) -> String = @0(describe)
+    #53: String = call #52(#51)
+    #54: None = @7(console_log)
+    #55: None = call #54(#53)
+    #56: Request = %1
+    #57: String = "POST"
+    #58: Request = request_new input=#56 method=#57
+    #59: fn(Request) -> String = @0(describe)
+    #60: String = call #59(#58)
+    #61: None = @8(console_log)
+    #62: None = call #61(#60)
+    #63: Request = %1
+    #64: String = "https://d.test/here"
+    #65: Request = request_new input=#63 referrer=#64
+    #66: fn(Request) -> String = @0(describe)
+    #67: String = call #66(#65)
+    #68: None = @9(console_log)
+    #69: None = call #68(#67)
+    #70: Request = %1
+    #71: Request = %1
+    #72: Request = request_clone #71
+    #73: fn(Request) -> String = @0(describe)
+    #74: String = call #73(#72)
+    #75: None = @10(console_log)
+    #76: None = call #75(#74)
+    #77: String = "https://a.test/three"
+    #78: String = "PUT"
+    #79: Request = request_new input=#77 method=#78
+    #80: fn(Request) -> String = @0(describe)
+    #81: String = call #80(#79)
+    #82: None = @11(console_log)
+    #83: None = call #82(#81)
+  stmts
+    s0: let %0: Request = #1
+    s1: #6
+    s2: let %1: Request = #16
+    s3: #21
+    s4: #29
+    s5: #37
+    s6: #43
+    s7: #49
+    s8: #55
+    s9: #62
+    s10: #69
+    s11: #76
+    s12: #83
+
+interned types
+  t0 = String
+  t1 = Request
+  t2 = Bool
+  t3 = fn(Request) -> String
+  t4 = List<String>
+  t5 = fn(Request) -> String
+  t6 = None

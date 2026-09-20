@@ -1,0 +1,189 @@
+fn constant_time_equal_string (FuncId(0)) -> Bool
+  locals
+    %0 param a: String
+    %1 param b: String
+    %2 user a_len: Float
+    %3 user b_len: Float
+    %4 user max_len: Float
+    %5 user diff: Float
+    %6 user i: Float
+    %7 user a_char: Float
+    %8 user b_char: Float
+    %9 temp: Float
+    %10 temp: Float
+    %11 temp: Float
+    %12 temp: Float
+    %13 temp: Bool
+    %14 temp: Bool
+    %15 temp: Float
+    %16 temp: Float
+    %17 temp: Bool
+    %18 temp: Float
+    %19 temp: Float
+    %20 temp: Float
+    %21 temp: Float
+    %22 temp: Float
+    %23 temp: Bool
+  bb0:
+    %9 = len copy %0
+    %2 = move %9
+    %10 = len copy %1
+    %3 = move %10
+    %11 = numeric_max copy %2, copy %3
+    %4 = move %11
+    %12 = copy %2 ^ copy %3
+    %5 = move %12
+    %6 = 0.0
+    goto bb1
+  bb1:
+    %13 = copy %6 < copy %4
+    switch move %13 ? bb2 : bb4
+  bb2:
+    %14 = copy %6 < copy %2
+    switch move %14 ? bb5 : bb6
+  bb3:
+    %22 = move %6 + 1.0
+    %6 = move %22
+    goto bb1
+  bb4:
+    %23 = move %5 == 0.0
+    return move %23
+  bb5:
+    %16 = string_char_code_at copy %0, copy %6
+    %15 = move %16
+    goto bb7
+  bb6:
+    %15 = 0.0
+    goto bb7
+  bb7:
+    %7 = move %15
+    %17 = copy %6 < copy %3
+    switch move %17 ? bb8 : bb9
+  bb8:
+    %19 = string_char_code_at copy %1, copy %6
+    %18 = move %19
+    goto bb10
+  bb9:
+    %18 = 0.0
+    goto bb10
+  bb10:
+    %8 = move %18
+    %20 = move %7 ^ move %8
+    %21 = move %5 | move %20
+    %5 = move %21
+    goto bb3
+
+fn main (FuncId(1)) -> None
+  locals
+    %0 user out: Float
+    %1 user mask: Float
+    %2 user shifted: Float
+    %3 user signed: Float
+    %4 user unsigned: Float
+    %5 user rest: Float
+    %6 user flipped: Float
+    %7 user values: List<Float>
+    %8 user hash: Float
+    %9 user value: Float
+    %10 temp: Float
+    %11 temp: Float
+    %12 temp: None
+    %13 temp: Float
+    %14 temp: None
+    %15 temp: Float
+    %16 temp: None
+    %17 temp: Float
+    %18 temp: Float
+    %19 temp: None
+    %20 temp: Float
+    %21 temp: Float
+    %22 temp: None
+    %23 temp: Float
+    %24 temp: None
+    %25 temp: Float
+    %26 temp: None
+    %27 temp: List<Float>
+    %28 temp: Float
+    %29 temp: Float
+    %30 temp: Bool
+    %31 temp: Float
+    %32 temp: None
+    %33 temp: Bool
+    %34 temp: None
+    %35 temp: Bool
+    %36 temp: None
+    %37 temp: Bool
+    %38 temp: None
+  bb0:
+    %10 = 5.0 ^ 3.0
+    %0 = move %10
+    %11 = move %0 | 8.0
+    %0 = move %11
+    %12 = call @console_log(move %0) -> bb1
+  bb1:
+    %1 = 255.0
+    %13 = move %1 & 15.0
+    %1 = move %13
+    %14 = call @console_log(move %1) -> bb2
+  bb2:
+    %2 = 1.0
+    %15 = move %2 << 4.0
+    %2 = move %15
+    %16 = call @console_log(move %2) -> bb3
+  bb3:
+    %17 = -16.0
+    %3 = move %17
+    %18 = move %3 >> 2.0
+    %3 = move %18
+    %19 = call @console_log(move %3) -> bb4
+  bb4:
+    %20 = -16.0
+    %4 = move %20
+    %21 = move %4 >>> 28.0
+    %4 = move %21
+    %22 = call @console_log(move %4) -> bb5
+  bb5:
+    %5 = 17.0
+    %23 = move %5 % 5.0
+    %5 = move %23
+    %24 = call @console_log(move %5) -> bb6
+  bb6:
+    %6 = 6.0
+    %25 = move %6 ^ 3.0
+    %6 = move %25
+    %26 = call @console_log(move %6) -> bb7
+  bb7:
+    %27 = [1.0, 2.0, 3.0, 4.0]
+    %7 = move %27
+    %8 = 0.0
+    %28 = 0.0
+    goto bb8
+  bb8:
+    %29 = len copy %7
+    %30 = copy %28 < move %29
+    switch move %30 ? bb9 : bb11
+  bb9:
+    %9 = copy %7[copy %28]
+    %31 = move %8 | move %9
+    %8 = move %31
+    goto bb10
+  bb10:
+    %28 = copy %28 + 1.0
+    goto bb8
+  bb11:
+    %32 = call @console_log(move %8) -> bb12
+  bb12:
+    %33 = call fn0("abc", "abc") -> bb13
+  bb13:
+    %34 = call @console_log(move %33) -> bb14
+  bb14:
+    %35 = call fn0("abc", "abd") -> bb15
+  bb15:
+    %36 = call @console_log(move %35) -> bb16
+  bb16:
+    %37 = call fn0("abc", "abcd") -> bb17
+  bb17:
+    %38 = call @console_log(move %37) -> bb18
+  bb18:
+    return none
+

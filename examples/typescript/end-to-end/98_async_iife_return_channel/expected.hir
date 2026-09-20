@@ -1,0 +1,75 @@
+module examples/typescript/end-to-end/98_async_iife_return_channel/input.ts (ModuleId(0))
+  body BodyId(6)
+  items
+    class Reply fields [Public status: Float] constructor Some(ItemId(3)) methods [] implements []
+    fn direct owner Module
+    fn head owner Module
+    fn plain owner Module
+  exprs
+    #0: Bool = true
+    #1: fn(Bool) -> Reply | Future<Reply> = @1(head)
+    #2: Reply | Future<Reply> = call #1(#0)
+    #3: Future<Reply> = assert_type #2
+    #4: Reply = await #3
+    #5: Bool = true
+    #6: fn(Bool) -> Reply | Future<Reply> = @1(head)
+    #7: Reply | Future<Reply> = call #6(#5)
+    #8: Future<Reply> = assert_type #7
+    #9: Reply = await #8
+    #10: Float = #9.status
+    #11: None = @5(console_log)
+    #12: None = call #11(#10)
+    #13: Bool = false
+    #14: fn(Bool) -> Reply | Future<Reply> = @1(head)
+    #15: Reply | Future<Reply> = call #14(#13)
+    #16: Future<Reply> = assert_type #15
+    #17: Reply = await #16
+    #18: Bool = false
+    #19: fn(Bool) -> Reply | Future<Reply> = @1(head)
+    #20: Reply | Future<Reply> = call #19(#18)
+    #21: Future<Reply> = assert_type #20
+    #22: Reply = await #21
+    #23: Float = #22.status
+    #24: None = @6(console_log)
+    #25: None = call #24(#23)
+    #26: fn() -> Future<Reply> = @2(plain)
+    #27: Future<Reply> = call #26()
+    #28: Reply = await #27
+    #29: fn() -> Future<Reply> = @2(plain)
+    #30: Future<Reply> = call #29()
+    #31: Reply = await #30
+    #32: Float = #31.status
+    #33: None = @7(console_log)
+    #34: None = call #33(#32)
+    #35: Future<None> = async_exit_drain()
+    #36: None = await #35
+  stmts
+    s0: #12
+    s1: #25
+    s2: #34
+    s3: #36
+  async state machine
+    states [state0, state1, state2, state3, state4, state5, state6, state7]
+    suspend #4 on #3 -> state5
+    suspend #9 on #8 -> state10
+    suspend #17 on #16 -> state18
+    suspend #22 on #21 -> state23
+    suspend #28 on #27 -> state29
+    suspend #31 on #30 -> state32
+    suspend #36 on #35 -> state37
+
+interned types
+  t0 = Reply
+  t1 = Future<Reply>
+  t2 = Reply | Future<Reply>
+  t3 = fn() -> Reply | Future<Reply>
+  t4 = Bool
+  t5 = fn(Bool) -> Reply | Future<Reply>
+  t6 = fn() -> Future<Reply>
+  t7 = Float
+  t8 = None
+  t9 = async fn() -> Future<Reply>
+  t10 = fn() -> Reply | Future<Reply>
+  t11 = fn(Bool) -> Reply | Future<Reply>
+  t12 = fn() -> Future<Reply>
+  t13 = Future<None>

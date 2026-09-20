@@ -1,0 +1,128 @@
+module examples/typescript/end-to-end/90_type_parameter_defaults/input.ts (ModuleId(0))
+  body BodyId(12)
+  items
+    class Slot fields [Public first: T, Public second: U, Public third: V] constructor Some(ItemId(2)) methods [ItemId(3), ItemId(4)] implements []
+    class Holder fields [Public slot: Slot<Bool, String, Float>] constructor Some(ItemId(6)) methods [ItemId(7)] implements []
+    fn relabel owner Module
+    class Config fields [Public key: A, Public value: B] constructor Some(ItemId(9)) methods [ItemId(10), ItemId(11)] implements []
+    fn read_config owner Module
+    class Pair fields [Public head: A, Public rest: B] constructor Some(ItemId(13)) methods [ItemId(14)] implements []
+  locals
+    %0 const holder: Holder
+    %1 const relabelled: Slot<Bool, String, Float>
+    %2 const config: Config<String, Float>
+    %3 const pair: Pair<Bool, List<Bool>>
+  exprs
+    #0: Bool = true
+    #1: String = "one"
+    #2: Float = 1.0
+    #3: Slot<Bool, String, Float> = new Slot(#0, #1, #2)
+    #4: Holder = new Holder(#3)
+    #5: Holder = %0
+    #6: fn() -> String = #5.describe
+    #7: Holder = %0
+    #8: String = #7.describe()
+    #9: Holder = %0
+    #10: Slot<Bool, String, Float> = #9.slot
+    #11: Bool = #10.first
+    #12: None = @16(console_log)
+    #13: None = call #12(#8, #11)
+    #14: Holder = %0
+    #15: Slot<Bool, String, Float> = #14.slot
+    #16: String = "two"
+    #17: fn(Slot<Bool, String, Float>, String) -> Slot<Bool, String, Float> = @0(relabel)
+    #18: Slot<Bool, String, Float> = call #17(#15, #16)
+    #19: Slot<Bool, String, Float> = %1
+    #20: fn() -> U = #19.label
+    #21: Slot<Bool, String, Float> = %1
+    #22: String = #21.label()
+    #23: Slot<Bool, String, Float> = %1
+    #24: fn() -> V = #23.count
+    #25: Slot<Bool, String, Float> = %1
+    #26: Float = #25.count()
+    #27: Slot<Bool, String, Float> = %1
+    #28: Bool = #27.first
+    #29: None = @17(console_log)
+    #30: None = call #29(#22, #26, #28)
+    #31: String = "width"
+    #32: Float = 42.0
+    #33: Config<String, Float> = new Config(#31, #32)
+    #34: Config<String, Float> = %2
+    #35: fn() -> A = #34.name
+    #36: Config<String, Float> = %2
+    #37: String = #36.name()
+    #38: Config<String, Float> = %2
+    #39: fn() -> B = #38.amount
+    #40: Config<String, Float> = %2
+    #41: Float = #40.amount()
+    #42: None = @18(console_log)
+    #43: None = call #42(#37, #41)
+    #44: Config<String, Float> = %2
+    #45: fn(Config<String, Float>) -> String = @1(read_config)
+    #46: String = call #45(#44)
+    #47: None = @19(console_log)
+    #48: None = call #47(#46)
+    #49: Bool = true
+    #50: Bool = false
+    #51: Bool = true
+    #52: List<Bool> = [#50, #51]
+    #53: Pair<Bool, List<Bool>> = new Pair(#49, #52)
+    #54: Pair<Bool, List<Bool>> = %3
+    #55: Bool = #54.head
+    #56: Pair<Bool, List<Bool>> = %3
+    #57: fn() -> B = #56.tail
+    #58: Pair<Bool, List<Bool>> = %3
+    #59: List<Bool> = #58.tail()
+    #60: Float = len #59
+    #61: Pair<Bool, List<Bool>> = %3
+    #62: fn() -> B = #61.tail
+    #63: Pair<Bool, List<Bool>> = %3
+    #64: List<Bool> = #63.tail()
+    #65: Float = 1.0
+    #66: Bool = #64[#65]
+    #67: None = @20(console_log)
+    #68: None = call #67(#55, #60, #66)
+  stmts
+    s0: let %0: Holder = #4
+    s1: #13
+    s2: let %1: Slot<Bool, String, Float> = #18
+    s3: #30
+    s4: let %2: Config<String, Float> = #33
+    s5: #43
+    s6: #48
+    s7: let %3: Pair<Bool, List<Bool>> = #53
+    s8: #68
+
+interned types
+  t0 = Bool
+  t1 = String
+  t2 = Float
+  t3 = Slot
+  t4 = Holder
+  t5 = Unknown
+  t6 = Dict<String, Unknown>
+  t7 = Config
+  t8 = Pair<Bool>
+  t9 = T
+  t10 = U
+  t11 = V
+  t12 = A
+  t13 = B
+  t14 = List<A>
+  t15 = Slot<Bool, String, Float>
+  t16 = fn(Slot<Bool, String, Float>, String) -> Slot<Bool, String, Float>
+  t17 = Config<String, Float>
+  t18 = fn(Config<String, Float>) -> String
+  t19 = Slot<T, U, V>
+  t20 = None
+  t21 = fn() -> U
+  t22 = fn() -> V
+  t23 = Config<A, B>
+  t24 = fn() -> A
+  t25 = fn() -> B
+  t26 = Pair<A, B>
+  t27 = fn() -> String
+  t28 = fn(Slot<Bool, String, Float>, String) -> Slot<Bool, String, Float>
+  t29 = fn(Config<String, Float>) -> String
+  t30 = List<Bool>
+  t31 = Pair<Bool, List<Bool>>

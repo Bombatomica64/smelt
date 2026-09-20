@@ -1,0 +1,49 @@
+async fn label (FuncId(0)) -> String
+  locals
+    %0 param value: String | Future<String>
+    %1 temp: Bool
+    %2 temp: String
+    %3 temp: String
+    %4 temp: Future<String>
+    %5 temp: String
+    %6 temp: String
+  bb0:
+    %1 = unknown_is String copy %0
+    switch move %1 ? bb1 : bb2
+  bb1:
+    %2 = unknown_cast copy %0 as t0
+    %3 = "direct:" + move %2
+    return move %3
+  bb2:
+    %4 = unknown_cast copy %0 as t1
+    %5 = await move %4
+    %6 = "deferred:" + move %5
+    return move %6
+
+async fn main (FuncId(1)) -> None throws
+  locals
+    %0 temp: Future<String>
+    %1 temp: String
+    %2 temp: None
+    %3 temp: Future<String>
+    %4 temp: Future<String>
+    %5 temp: String
+    %6 temp: None
+    %7 temp: Future<None>
+    %8 temp: None
+  bb0:
+    %0 = call fn0("here") -> bb1
+  bb1:
+    %1 = await move %0
+    %2 = call @console_log(move %1) -> bb2
+  bb2:
+    %3 = async_resolve(0.0, "later")
+    %4 = call fn0(move %3) -> bb3
+  bb3:
+    %5 = await move %4
+    %6 = call @console_log(move %5) -> bb4
+  bb4:
+    %7 = async_exit_drain()
+    %8 = await move %7
+    return none
+

@@ -446,8 +446,8 @@ fn mutual_recursion_terminates_and_confines_a_read_only_argument() {
                   \x20 const numbers: number[] = [1, 2, 3];\n\
                   \x20 return even(numbers, 4);\n\
                   }\n";
-    assert_eq!(summary_of(source, "even").param_escapes[0], false);
-    assert_eq!(summary_of(source, "odd").param_escapes[0], false);
+    assert!(!summary_of(source, "even").param_escapes[0]);
+    assert!(!summary_of(source, "odd").param_escapes[0]);
     let (class, _) = class_of(source, "run", "numbers");
     assert_eq!(class, ListLocalClass::LocalImmutable);
 }
@@ -469,10 +469,9 @@ fn mutual_recursion_propagates_a_real_escape_through_the_cycle() {
                   \x20 const numbers: number[] = [1, 2, 3];\n\
                   \x20 return even(numbers, 4).length;\n\
                   }\n";
-    assert_eq!(summary_of(source, "odd").param_escapes[0], true);
-    assert_eq!(
+    assert!(summary_of(source, "odd").param_escapes[0]);
+    assert!(
         summary_of(source, "even").param_escapes[0],
-        true,
         "the escape has to travel back around the cycle"
     );
     let (class, reason) = class_of(source, "run", "numbers");

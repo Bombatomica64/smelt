@@ -252,7 +252,7 @@ impl FunctionEmitter<'_> {
                 Some(Type::List(element_ty)) => *element_ty,
                 _ => return Err(EmitError::new("numeric extrema spread must be a list")),
             };
-            let element_text = self.value_at_type_text("smelt_element", element_ty, dest_ty)?;
+            let element_text = self.value_at_type_text("smelt_element", element_ty, dest_ty, &self.render_scope())?;
             rendered = format!(
                 "{list_text}.iter().cloned().fold({rendered}, |smelt_acc, smelt_element| smelt_acc.{method_name}({element_text}))"
             );

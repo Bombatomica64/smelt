@@ -1,0 +1,41 @@
+module examples/typescript/end-to-end/96_union_read_is_not_a_move/input.ts (ModuleId(0))
+  body BodyId(1)
+  items
+    fn label owner Module
+  exprs
+    #0: String = "here"
+    #1: async fn(String | Future<String>) -> Future<String> = @0(label)
+    #2: Future<String> = call #1(#0)
+    #3: String = await #2
+    #4: None = @1(console_log)
+    #5: None = call #4(#3)
+    #6: String = "later"
+    #7: Float = 0.0
+    #8: Future<String> = async_resolve(#7, #6)
+    #9: async fn(String | Future<String>) -> Future<String> = @0(label)
+    #10: Future<String> = call #9(#8)
+    #11: String = await #10
+    #12: None = @2(console_log)
+    #13: None = call #12(#11)
+    #14: Future<None> = async_exit_drain()
+    #15: None = await #14
+  stmts
+    s0: #5
+    s1: #13
+    s2: #15
+  async state machine
+    states [state0, state1, state2, state3]
+    suspend #3 on #2 -> state4
+    suspend #11 on #10 -> state12
+    suspend #15 on #14 -> state16
+
+interned types
+  t0 = String
+  t1 = Future<String>
+  t2 = String | Future<String>
+  t3 = async fn(String | Future<String>) -> Future<String>
+  t4 = Bool
+  t5 = async fn(String | Future<String>) -> Future<String>
+  t6 = None
+  t7 = Float
+  t8 = Future<None>

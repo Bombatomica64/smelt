@@ -1351,3 +1351,328 @@ export function use0(cbp0: (v: number) => number): number {
 
     assert!(source.contains("fn use0(cbp0: ::std::rc::Rc<dyn Fn(f64) -> f64>)"));
 }
+
+#[test]
+fn generic_class_default_impl_carries_the_generated_bound_set() {
+    // Round 31, Agent E item 2. A generic reference class's inner-record
+    // `Default` impl used to declare the derive-equivalent `T: Default` and
+    // nothing more. That cannot prove what a DELEGATING field default needs: a
+    // field whose type is another generated class resolves through that class's
+    // own `Default`, which is emitted with the crate's full generated bound set
+    // (`classes::GENERATED_TYPE_PARAM_BOUNDS`).
+    //
+    // NON-VACUOUS: with `T: Default` alone this reports "the trait
+    // `Clone`/`IntoSmeltUnknown`/`SmeltFromUnknown` is not implemented for `T`"
+    // once per missing bound, at every field default that reaches a generated
+    // class.
+    let source = source_for(
+        r"
+class Leaf<T> {
+  value: T;
+  constructor(value: T) { this.value = value; }
+  set(value: T): void { this.value = value; }
+}
+class Holder<T> {
+  leaf: Leaf<T>;
+  constructor(leaf: Leaf<T>) { this.leaf = leaf; }
+  swap(leaf: Leaf<T>): void { this.leaf = leaf; }
+}
+",
+    );
+
+    assert!(source.contains(
+        "impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Default for HolderInner<T> where Leaf<T>: Default"
+    ));
+}
+
+#[test]
+fn a_callable_field_is_never_a_delegation_of_its_own_type() {
+    // The other half of the same rule. A callable field's default is a
+    // CONSTRUCTED no-op closure, so the field type is not what `default()`
+    // resolves through — but the closure's BODY delegates whenever the slot's
+    // return type has to be produced from somewhere, and a textual search for
+    // `default()` saw that and asked for `Rc<dyn Fn(..)>: Default`. Nothing
+    // implements it, so the whole `Default` impl became unusable and every
+    // `Inner::default()` reported E0599 ("trait bounds were not satisfied").
+    //
+    // NON-VACUOUS: without the fix the impl header carries
+    // `where ::std::rc::Rc<dyn Fn() -> Chain<T>>: Default`.
+    let source = source_for(
+        r"
+class Chain<T> {
+  value: T;
+  rewind: () => Chain<T>;
+  constructor(value: T) {
+    this.value = value;
+    this.rewind = () => { this.value = value; return this; };
+  }
+}
+",
+    );
+
+    assert!(source.contains("Default for ChainInner<T>"));
+    assert!(!source.contains("Chain<T>>: Default"));
+}
+
+#[test]
+fn a_generic_interface_slot_is_called_with_its_declared_abi() {
+    // Round 31, Agent E item 3, the INTERFACE half. `Store<T>` declares
+    // `add: (label: string, value: T) => void`, so its slot is emitted as
+    // `Rc<dyn Fn(String, &T)>` — a bare type parameter takes the by-shared-
+    // reference ABI, because the ABI is the callee's and only the declaration
+    // knows it. A call through `Store<[string, number]>` is handed the
+    // SUBSTITUTED parameter, a tuple, which is passed by value on its own terms;
+    // the argument was packed by value against a slot spelled `&`. That is
+    // Hono's last `&(SmeltUnknown, RouterRoute)` E0308.
+    //
+    // It is asserted as emitted text rather than as a corpus fixture because
+    // BUILDING such a record from an object literal is a separate open seam
+    // (`blocker-logs/hono-round31-generics.md`), so the shape does not compile
+    // end to end yet for a reason this rule does not own.
+    //
+    // NON-VACUOUS: without the fix the argument renders without the `&`.
+    let source = source_for(
+        r"
+interface Store<T> {
+  add: (label: string, value: T) => void;
+  size: () => number;
+}
+export function fill(store: Store<[string, number]>): number {
+  store.add('first', ['x', 1]);
+  return store.size();
+}
+",
+    );
+
+    assert!(
+        source.contains("(store.add.clone())(\"first\".to_owned(), &("),
+        "the declared `&T` slot must be called by reference: {source}"
+    );
+}
+
+#[test]
+fn a_generic_interface_slot_is_built_at_its_declared_abi() {
+    // Round 33, item 4 — the CONSTRUCTION side of the rule above, and the
+    // reason that test could only assert emitted text. `Sink<T>`'s `add` slot
+    // is emitted `Rc<dyn Fn(String, &T)>`, so at `Sink<[string, number]>` the
+    // struct field is `Rc<dyn Fn(String, &(String, f64))>`. The callable a
+    // projection rebuilds for that field is rendered from the SUBSTITUTED field
+    // type — a tuple, passed by value on its own terms — and did not fit
+    // (E0308). `crate::emitter::record_slot_abi` recovers the declaration's ABI
+    // and bridges the two with a typed adapter: one `.clone()` at the parameter
+    // whose ABI moved, and no erasure anywhere.
+    //
+    // NON-VACUOUS: without the fix the rebuilt callable is annotated
+    // `Rc<dyn Fn(String, (String, f64))>` and no `smelt_slot_adapted` binding
+    // is emitted at all.
+    let source = source_for(
+        r"
+interface Sink<T> {
+  add: (label: string, value: T) => void;
+  size: () => number;
+}
+export function fill(raw: unknown): number {
+  const sink = raw as Sink<[string, number]>;
+  sink.add('first', ['x', 1]);
+  return sink.size();
+}
+",
+    );
+
+    assert!(
+        source.contains("smelt_slot_adapted: ::std::rc::Rc<dyn Fn(String, &(String, f64)) -> ()>"),
+        "the rebuilt slot must be adapted to the declared `&T` ABI: {source}"
+    );
+}
+
+#[test]
+fn a_constructor_parameter_mentioning_a_class_parameter_is_taken_at_its_argument() {
+    // Round 33, item 4 — round 32's "a record rebuilt at a substituted argument
+    // erases its field". `Pair<A>`'s constructor declares `left: Cell<A>`, and
+    // MIR hands the call site that declared spelling with nothing substituted.
+    // Coercing a `Cell<number>` to it ran the structural record adapter, which
+    // rebuilt the struct with `value` erased to `SmeltUnknown` against a field
+    // declared `f64`. The argument's own type is the evidence Rust's inference
+    // would use, so the parameter is taken at `Cell<f64>` and no adapter runs.
+    //
+    // NON-VACUOUS: without the fix the call emits
+    // `Pair::new({ let smelt_struct_value = ..; Cell { value: SmeltUnknown::Number(..) } })`.
+    let source = source_for(
+        r"
+class Cell<T> {
+  value: T;
+  constructor(value: T) {
+    this.value = value;
+  }
+}
+class Pair<A> {
+  left: Cell<A>;
+  constructor(left: Cell<A>) {
+    this.left = left;
+  }
+}
+export function build(): number {
+  return new Pair<number>(new Cell<number>(7)).left.value;
+}
+",
+    );
+
+    assert!(
+        !source.contains("Cell { value: SmeltUnknown::"),
+        "the constructor argument must not be rebuilt at the unsubstituted \
+         declaration: {source}"
+    );
+}
+
+// --- Type-parameter elision (see `crate::generic_elision`) ------------------
+//
+// A generic class's Rust arity is the set of parameters its emitted Rust
+// actually spells, computed as a least fixpoint. These pin the rule on the
+// shapes it has to get right; each one states what the emitted arity must be
+// and why.
+
+#[test]
+fn a_type_parameter_no_field_carries_is_not_declared_in_rust() {
+    // `Tag` reaches nothing: the struct would declare it only to fill a
+    // `PhantomData`. A hand-writing Rust team does not declare it at all.
+    //
+    // NON-VACUOUS: without the elision the struct is `Tagged<Tag>` with a
+    // phantom field, and every reference has to spell an argument for it.
+    let source = source_for(
+        r"
+class Tagged<Tag> {
+  label: string;
+  constructor(label: string) { this.label = label; }
+  read(): string { return this.label; }
+}
+export function useTagged(): string { return new Tagged<number>('x').read(); }
+",
+    );
+
+    assert!(
+        source.contains("struct Tagged {"),
+        "a phantom-only parameter must not be declared: {source}"
+    );
+    assert!(
+        !source.contains("struct Tagged<"),
+        "a phantom-only parameter must not be declared: {source}"
+    );
+    assert!(
+        !source.contains("PhantomData<(Tag)>"),
+        "the filler goes with the parameters it filled for: {source}"
+    );
+}
+
+#[test]
+fn a_type_parameter_a_field_carries_stays_declared() {
+    // The mirror of the test above, and the reason the rule is a fixpoint
+    // rather than a blanket drop: `T` is the type of stored data.
+    let source = source_for(
+        r"
+class Cell<T> {
+  value: T;
+  constructor(value: T) { this.value = value; }
+  get(): T { return this.value; }
+}
+export function useCell(): string { return new Cell<string>('hi').get(); }
+",
+    );
+
+    assert!(
+        source.contains("struct Cell<T>"),
+        "a stored parameter stays declared: {source}"
+    );
+    assert!(
+        source.contains("Cell<String>"),
+        "and the instantiation stays concrete: {source}"
+    );
+}
+
+#[test]
+fn a_parameter_reached_only_through_its_own_class_is_not_declared() {
+    // The shape the rule exists for. `Env` is mentioned exactly once, in a
+    // field whose type names the class itself at `Env`'s own position, so the
+    // least fixpoint never forces it: nothing outside that circle holds an
+    // `Env`. Starting from "carried" instead would keep it forever.
+    //
+    // NON-VACUOUS: a greatest fixpoint — or a plain "does the symbol occur"
+    // scan — answers `Session<Env>` here.
+    let source = source_for(
+        r"
+class Session<Env> {
+  name: string;
+  next: ((session: Session<Env>) => string) | null;
+  constructor(name: string) { this.name = name; this.next = null; }
+  label(): string { return this.name; }
+}
+export function useSession(): string { return new Session<number>('s').label(); }
+",
+    );
+
+    assert!(
+        !source.contains("Session<Env>") && !source.contains("SessionInner<Env>"),
+        "a self-referential-only parameter is not declared: {source}"
+    );
+}
+
+#[test]
+fn a_parameter_reaching_another_class_follows_that_class_answer() {
+    // Transitivity, in both directions at once. `Carried` reaches a `Cell`
+    // position that IS declared, so it survives; `Dropped` reaches only a
+    // `Tagged` position that is NOT, so it does not. One rule, two answers.
+    let source = source_for(
+        r"
+class Tagged<Tag> {
+  label: string;
+  constructor(label: string) { this.label = label; }
+}
+class Cell<T> {
+  value: T;
+  constructor(value: T) { this.value = value; }
+}
+class Pair<Carried, Dropped> {
+  left: Cell<Carried>;
+  right: Tagged<Dropped>;
+  constructor(left: Cell<Carried>, right: Tagged<Dropped>) {
+    this.left = left;
+    this.right = right;
+  }
+}
+export function usePair(): number {
+  const pair = new Pair<number, string>(new Cell<number>(1), new Tagged<string>('t'));
+  return pair.left.value;
+}
+",
+    );
+
+    assert!(
+        source.contains("struct Pair<Carried>"),
+        "the position that reaches storage survives, the other does not: {source}"
+    );
+}
+
+#[test]
+fn a_parameter_a_method_signature_spells_stays_declared() {
+    // The documented conservatism: `T` is never stored, but a method's
+    // parameter type names it, and the emitted `impl` has to spell that type.
+    // The analysis answers "must the emitted Rust spell it", which is a
+    // superset of "does the data hold it" — see `crate::generic_elision`.
+    let source = source_for(
+        r"
+class Sink<T> {
+  count: number;
+  constructor() { this.count = 0; }
+  accept(value: T): number { this.count = this.count + 1; return this.count; }
+}
+export function useSink(): number {
+  const sink = new Sink<string>();
+  return sink.accept('a');
+}
+",
+    );
+
+    assert!(
+        source.contains("Sink<T>"),
+        "a parameter a method signature spells stays declared: {source}"
+    );
+}

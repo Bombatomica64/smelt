@@ -1,0 +1,69 @@
+class Reply fields [Public status: Float] constructor Some(FuncId(1)) methods [FuncId(2)]
+
+fn render (FuncId(0)) -> String
+  locals
+    %0 param value: String | Bool
+    %1 temp: Bool
+    %2 temp: String
+    %3 temp: String
+    %4 temp: Bool
+    %5 temp: String
+  bb0:
+    %1 = unknown_is String copy %0
+    switch move %1 ? bb1 : bb2
+  bb1:
+    %2 = unknown_cast copy %0 as t1
+    %3 = "s:" + move %2
+    return move %3
+  bb2:
+    %4 = unknown_cast copy %0 as t2
+    %5 = "b:" + move %4
+    return move %5
+
+fn new (FuncId(1)) -> Reply
+  locals
+    %0 user this: Reply
+    %1 param status: Float
+  bb0:
+    %0 = struct6 {}
+    %0.field9 = copy %1
+    return move %0
+
+fn describe (FuncId(2)) -> String
+  locals
+    %0 param this: Reply
+    %1 temp: Float
+    %2 temp: String
+  bb0:
+    %1 = copy %0.field9 + 1.0
+    %2 = "status=" + move %1
+    return move %2
+
+fn main (FuncId(3)) -> None
+  locals
+    %0 user reply: Reply
+    %1 temp: Reply
+    %2 temp: String
+    %3 temp: None
+    %4 temp: String
+    %5 temp: None
+    %6 temp: String
+    %7 temp: None
+  bb0:
+    %1 = call fn1(404.0) -> bb1
+  bb1:
+    %0 = move %1
+    %2 = call fn2(move %0) -> bb2
+  bb2:
+    %3 = call @console_log(move %2) -> bb3
+  bb3:
+    %4 = call fn0("hi") -> bb4
+  bb4:
+    %5 = call @console_log(move %4) -> bb5
+  bb5:
+    %6 = call fn0(true) -> bb6
+  bb6:
+    %7 = call @console_log(move %6) -> bb7
+  bb7:
+    return none
+

@@ -29,6 +29,71 @@ class Counter {
 }
 
 #[test]
+fn lowers_private_class_method_call() -> Result<(), String> {
+    // `this.#bump(by)` is a member CALL whose property is a private name. The
+    // call dispatch used to match only `StaticMemberExpression` callees, so a
+    // private method call fell through every arm and reported "call expression
+    // is not lowered yet" — even though the private FIELD read on the line
+    // above it lowered fine. Both spellings now share one member-call path.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+class Counter {
+  #count: number = 0;
+  #bump(by: number): number {
+    this.#count = this.#count + by;
+    return this.#count;
+  }
+  add(by: number): number {
+    return this.#bump(by);
+  }
+}
+
+export const run = (): number => new Counter().add(3);
+"),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_private_class_method_call_on_another_instance() -> Result<(), String> {
+    // ES private names are class-scoped, not instance-scoped: a method may call
+    // a private method on ANY instance of its own class, not only on `this`.
+    // Hono's trie router does exactly this (`nextNode.#children`), so the
+    // receiver of a private call must be an ordinary lowered expression rather
+    // than an implicit `this`.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r"
+class Node {
+  #depth: number = 0;
+  #deeper(): number {
+    return this.#depth + 1;
+  }
+  compare(other: Node): number {
+    // `other.#depth` is also a private read in ARGUMENT position, which the
+    // argument lowering rejected separately from the call itself.
+    return other.#deeper() + this.#atLeast(other.#depth);
+  }
+
+  #atLeast(value: number): number {
+    return value < 0 ? 0 : value;
+  }
+}
+
+export const run = (): number => new Node().compare(new Node());
+"),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_this_parameter_function_type() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -786,8 +851,8 @@ export interface Matcher {
     let matcher = interface_named(&ctx, module, "Matcher")?;
     ensure!(
         matcher.methods.iter().any(|method| ctx.krate.symbols.get(method.name)
-            == Some("__smelt_symbol_for_ts_pattern_matcher")),
-        "expected a `__smelt_symbol_for_ts_pattern_matcher` method, got {:?}",
+            == Some(smelt_stdlib::symbol_keys::registry_symbol_key("@ts-pattern/matcher").as_str())),
+        "expected the folded `Symbol.for(\"@ts-pattern/matcher\")` method, got {:?}",
         matcher.methods
     );
     Ok(())
@@ -812,8 +877,8 @@ export interface Branded {
     let branded = interface_named(&ctx, module, "Branded")?;
     ensure!(
         branded.fields.iter().any(|field| ctx.krate.symbols.get(field.name)
-            == Some("__smelt_symbol_for_ts_pattern_override")),
-        "expected a `__smelt_symbol_for_ts_pattern_override` field, got {:?}",
+            == Some(smelt_stdlib::symbol_keys::registry_symbol_key("@ts-pattern/override").as_str())),
+        "expected the folded `Symbol.for(\"@ts-pattern/override\")` field, got {:?}",
         branded.fields
     );
     Ok(())
@@ -850,21 +915,28 @@ export interface Override {
     let override_iface = interface_named(&ctx, module, "Override")?;
     ensure!(
         override_iface.fields.iter().any(|field| ctx.krate.symbols.get(field.name)
-            == Some("__smelt_symbol_for_ts_pattern_override")),
-        "expected a `__smelt_symbol_for_ts_pattern_override` field, got {:?}",
+            == Some(smelt_stdlib::symbol_keys::registry_symbol_key("@ts-pattern/override").as_str())),
+        "expected the folded `Symbol.for(\"@ts-pattern/override\")` field, got {:?}",
         override_iface.fields
     );
     Ok(())
 }
 
-/// A *unique* `Symbol("desc")` (no `.for`) aliased to a const has fresh identity
-/// each evaluation and is not a stable static key, so using it as a computed
-/// property name still reports the dynamic-key diagnostic (issue #115 folds only
-/// globally-interned registry symbols, not unique brands).
+/// A *unique* `Symbol("desc")` bound to a MODULE-LEVEL const is a stable static
+/// key, so it names an ordinary member.
+///
+/// This test asserted the opposite until round 8. The old reasoning -- "a unique
+/// symbol has fresh identity each evaluation" -- is true of a `Symbol()`
+/// evaluated per call, and it is exactly why the *general* fold still refuses
+/// one. It is not true of a module-level `const`: that initializer runs once, so
+/// the symbol it binds is one symbol for the program's lifetime and its
+/// span-tagged spelling is a stable, collision-free name for it. Refusing it
+/// made Hono's `get [GET_MATCH_RESULT]()` a blocker for a member whose identity
+/// is fully static.
 #[test]
-fn rejects_unique_symbol_const_computed_property_name() -> Result<(), String> {
+fn lowers_unique_symbol_const_computed_property_name() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let errors = lowering_errors(
+    let module_id = lower_ok(
         ts!(r"
 const brand = Symbol('brand');
 
@@ -874,10 +946,18 @@ class Branded {
 "),
         &mut ctx,
     )?;
-    assert_unsupported_ts(
-        &errors,
-        "dynamic computed property names are not lowered yet",
-    )?;
+    let module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    let branded = class_named(&ctx, module, "Branded")?;
+    ensure!(
+        branded.fields.iter().any(|field| ctx
+            .krate
+            .symbols
+            .get(field.name)
+            .is_some_and(|name| name.starts_with("__smelt_symbol_unique_"))),
+        "expected a unique-symbol-keyed field, got {:?}",
+        branded.fields
+    );
     Ok(())
 }
 
@@ -1326,5 +1406,316 @@ export function run(holder: Holder): number {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+/// The `Type::Class` arguments of the single field of the class named `name`.
+///
+/// The defaults tests below all assert the same thing — how many type arguments
+/// a lowered reference ended up carrying — so the walk from crate to field type
+/// is shared rather than repeated per test.
+fn class_field_type_args(ctx: &HirCtx, name: &str) -> Result<Vec<smelt_hir::TypeId>, String> {
+    let class = ctx
+        .krate
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Item::Class(class) if ctx.krate.symbols.get(class.name) == Some(name) => Some(class),
+            _ => None,
+        })
+        .ok_or_else(|| format!("no class named `{name}` was lowered"))?;
+    let field = class
+        .fields
+        .first()
+        .ok_or_else(|| format!("class `{name}` has no field"))?;
+    match ctx.krate.types.get(field.ty) {
+        Some(Type::Class { args, .. }) => Ok(args.clone()),
+        other => Err(format!("field type of `{name}` is not a class: {other:?}")),
+    }
+}
+
+#[test]
+fn class_reference_takes_trailing_type_parameter_defaults() -> Result<(), String> {
+    // TypeScript lets a type reference omit TRAILING type arguments that the
+    // declaration defaults, so `Slot<boolean>` against
+    // `class Slot<T, U = string, V = number>` MEANS `Slot<boolean, string,
+    // number>`. Interface and alias references already took their defaults;
+    // a class reference kept whatever short list the source wrote, and the
+    // resulting wrong-arity reference is unrepairable downstream.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+class Slot<T, U = string, V = number> {
+  first: T;
+  second: U;
+  third: V;
+  constructor(first: T, second: U, third: V) {
+    this.first = first;
+    this.second = second;
+    this.third = third;
+  }
+}
+
+class Holder {
+  slot: Slot<boolean>;
+  constructor(slot: Slot<boolean>) {
+    this.slot = slot;
+  }
+}
+"),
+        &mut ctx,
+    )?;
+    let args = class_field_type_args(&ctx, "Holder")?;
+    ensure_eq!(args.len(), 3);
+    ensure!(matches!(ctx.krate.types.get(args[0]), Some(Type::Bool)));
+    ensure!(matches!(ctx.krate.types.get(args[1]), Some(Type::String)));
+    ensure!(matches!(ctx.krate.types.get(args[2]), Some(Type::Float)));
+    Ok(())
+}
+
+#[test]
+fn class_reference_with_no_arguments_takes_every_default() -> Result<(), String> {
+    // A declaration whose parameters are ALL defaulted may be referenced with no
+    // argument list at all.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+class Config<A = string, B = number> {
+  key: A;
+  value: B;
+  constructor(key: A, value: B) {
+    this.key = key;
+    this.value = value;
+  }
+}
+
+class Holder {
+  config: Config;
+  constructor(config: Config) {
+    this.config = config;
+  }
+}
+"),
+        &mut ctx,
+    )?;
+    let args = class_field_type_args(&ctx, "Holder")?;
+    ensure_eq!(args.len(), 2);
+    ensure!(matches!(ctx.krate.types.get(args[0]), Some(Type::String)));
+    ensure!(matches!(ctx.krate.types.get(args[1]), Some(Type::Float)));
+    Ok(())
+}
+
+#[test]
+fn later_type_parameter_default_sees_earlier_arguments() -> Result<(), String> {
+    // A default is lowered in the declaration's OWN parameter scope, so it may
+    // mention an earlier parameter of the same list: `Pair<boolean>` against
+    // `class Pair<A, B = A[]>` means `Pair<boolean, boolean[]>`, which only
+    // holds if the substitution map is built left to right and applied to each
+    // default as it is taken.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+class Pair<A, B = A[]> {
+  head: A;
+  rest: B;
+  constructor(head: A, rest: B) {
+    this.head = head;
+    this.rest = rest;
+  }
+}
+
+class Holder {
+  pair: Pair<boolean>;
+  constructor(pair: Pair<boolean>) {
+    this.pair = pair;
+  }
+}
+"),
+        &mut ctx,
+    )?;
+    let args = class_field_type_args(&ctx, "Holder")?;
+    ensure_eq!(args.len(), 2);
+    ensure!(matches!(ctx.krate.types.get(args[0]), Some(Type::Bool)));
+    let Some(Type::List(item)) = ctx.krate.types.get(args[1]).cloned() else {
+        return Err(format!(
+            "second argument is not a list: {:?}",
+            ctx.krate.types.get(args[1])
+        ));
+    };
+    ensure!(matches!(ctx.krate.types.get(item), Some(Type::Bool)));
+    Ok(())
+}
+
+#[test]
+fn class_reference_forward_to_a_later_declaration_takes_defaults() -> Result<(), String> {
+    // TypeScript hoists class TYPES: a reference may name a class declared
+    // LATER in the same file, and it still takes that declaration's defaults.
+    // The declaration is not an HIR item when the reference is lowered, which is
+    // why the defaults come from a prepass registry rather than from the crate.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+class Holder {
+  slot: Slot<boolean>;
+  constructor(slot: Slot<boolean>) {
+    this.slot = slot;
+  }
+}
+
+class Slot<T, U = string, V = number> {
+  first: T;
+  second: U;
+  third: V;
+  constructor(first: T, second: U, third: V) {
+    this.first = first;
+    this.second = second;
+    this.third = third;
+  }
+}
+"),
+        &mut ctx,
+    )?;
+    let args = class_field_type_args(&ctx, "Holder")?;
+    ensure_eq!(args.len(), 3);
+    ensure!(matches!(ctx.krate.types.get(args[1]), Some(Type::String)));
+    ensure!(matches!(ctx.krate.types.get(args[2]), Some(Type::Float)));
+    Ok(())
+}
+
+#[test]
+fn class_reference_without_defaults_invents_no_arguments() -> Result<(), String> {
+    // The rule is DEFAULTS, not padding. A parameter with no default cannot be
+    // omitted in TypeScript, and where inference is what supplies it there is no
+    // declaration-side answer to take — so a short list stays short rather than
+    // being filled with a parameter name the referring item never declared.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+class Slot<T, U> {
+  first: T;
+  second: U;
+  constructor(first: T, second: U) {
+    this.first = first;
+    this.second = second;
+  }
+}
+
+class Holder {
+  slot: Slot<boolean>;
+  constructor(slot: Slot<boolean>) {
+    this.slot = slot;
+  }
+}
+"),
+        &mut ctx,
+    )?;
+    let args = class_field_type_args(&ctx, "Holder")?;
+    ensure_eq!(args.len(), 1);
+    Ok(())
+}
+
+#[test]
+fn heritage_clause_takes_base_type_parameter_defaults() -> Result<(), String> {
+    // A heritage clause is a type reference and obeys the same rule: `extends
+    // Slot<boolean>` against `class Slot<T, U = string, V = number>` records
+    // three base arguments, not one. This matters beyond arity — a subclass is
+    // flattened against `base_args`, so a missing argument leaves the base's own
+    // parameter name standing in an inherited member's signature.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+class Slot<T, U = string, V = number> {
+  first: T;
+  second: U;
+  third: V;
+  constructor(first: T, second: U, third: V) {
+    this.first = first;
+    this.second = second;
+    this.third = third;
+  }
+}
+
+class TaggedSlot extends Slot<boolean> {
+  tag: string;
+  constructor(first: boolean, second: string, third: number, tag: string) {
+    super(first, second, third);
+    this.tag = tag;
+  }
+}
+"),
+        &mut ctx,
+    )?;
+    let class = ctx
+        .krate
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Item::Class(class) if ctx.krate.symbols.get(class.name) == Some("TaggedSlot") => {
+                Some(class)
+            }
+            _ => None,
+        })
+        .ok_or("no class named `TaggedSlot` was lowered")?;
+    ensure_eq!(class.base_args.len(), 3);
+    ensure!(matches!(
+        ctx.krate.types.get(class.base_args[1]),
+        Some(Type::String)
+    ));
+    ensure!(matches!(
+        ctx.krate.types.get(class.base_args[2]),
+        Some(Type::Float)
+    ));
+    Ok(())
+}
+
+#[test]
+fn class_reference_takes_defaults_from_a_module_lowered_later() -> Result<(), String> {
+    // The crate-wide half of the rule. A dependency cycle through a barrel file
+    // routinely lowers a CONSUMER before the module that declares the class it
+    // references, so "the class is already an `Item::Class`" is not a condition
+    // the defaults rule can depend on. The crate-wide predeclaration pass
+    // records every class's type parameters before any body is lowered; here the
+    // consumer is lowered FIRST and still takes the defaults.
+    let mut ctx = HirCtx::new();
+    let declaring = ts!(r"
+export class Slot<T, U = string, V = number> {
+  first: T;
+  second: U;
+  third: V;
+  constructor(first: T, second: U, third: V) {
+    this.first = first;
+    this.second = second;
+    this.third = third;
+  }
+}
+");
+    let consuming = ts!(r"
+export class Holder {
+  slot: Slot<boolean>;
+  constructor(slot: Slot<boolean>) {
+    this.slot = slot;
+  }
+}
+");
+    crate::lowering::predeclare_type_declarations_with_path(
+        declaring,
+        FileId(0),
+        "/src/slot.ts",
+        &mut ctx,
+    )
+    .map_err(|errors| format!("predeclaration failed: {errors:?}"))?;
+    crate::lowering::predeclare_type_declarations_with_path(
+        consuming,
+        FileId(1),
+        "/src/holder.ts",
+        &mut ctx,
+    )
+    .map_err(|errors| format!("predeclaration failed: {errors:?}"))?;
+    lower_path_ok(consuming, "/src/holder.ts", &mut ctx)?;
+    let args = class_field_type_args(&ctx, "Holder")?;
+    ensure_eq!(args.len(), 3);
+    ensure!(matches!(ctx.krate.types.get(args[0]), Some(Type::Bool)));
+    ensure!(matches!(ctx.krate.types.get(args[1]), Some(Type::String)));
+    ensure!(matches!(ctx.krate.types.get(args[2]), Some(Type::Float)));
     Ok(())
 }

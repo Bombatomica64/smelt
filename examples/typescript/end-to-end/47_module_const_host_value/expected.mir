@@ -1,0 +1,176 @@
+fn encoded_length (FuncId(0)) -> Float
+  locals
+    %0 param text: String
+    %1 temp: TextEncoder
+    %2 temp: Uint8Array
+    %3 temp: Float
+  bb0:
+    %1 = global_get #0
+    %2 = text_encoder_encode move %1 copy %0
+    %3 = byte_array_length move %2
+    return move %3
+
+fn round_trip (FuncId(1)) -> String
+  locals
+    %0 param text: String
+    %1 temp: TextDecoder
+    %2 temp: TextEncoder
+    %3 temp: Uint8Array
+    %4 temp: String
+  bb0:
+    %1 = global_get #1
+    %2 = global_get #0
+    %3 = text_encoder_encode move %2 copy %0
+    %4 = text_decoder_decode move %1 move %3
+    return move %4
+
+fn content_type (FuncId(2)) -> String
+  locals
+    %0 temp: Headers
+    %1 temp: Optional<String>
+    %2 temp: String
+  bb0:
+    %0 = global_get #2
+    %1 = headers_get move %0, "content-type"
+    %2 = move %1 ?? "none"
+    return move %2
+
+fn add_header (FuncId(3)) -> None
+  locals
+    %0 temp: Headers
+    %1 temp: None
+  bb0:
+    %0 = global_get #2
+    %1 = headers_set move %0, "x-extra", "added"
+    return none
+
+fn extra (FuncId(4)) -> String
+  locals
+    %0 temp: Headers
+    %1 temp: Optional<String>
+    %2 temp: String
+  bb0:
+    %0 = global_get #2
+    %1 = headers_get move %0, "x-extra"
+    %2 = move %1 ?? "missing"
+    return move %2
+
+fn param_a (FuncId(5)) -> String
+  locals
+    %0 temp: URLSearchParams
+    %1 temp: Optional<String>
+    %2 temp: String
+  bb0:
+    %0 = global_get #3
+    %1 = url_search_params_get move %0, "a"
+    %2 = move %1 ?? "none"
+    return move %2
+
+fn append_param (FuncId(6)) -> None
+  locals
+    %0 temp: URLSearchParams
+    %1 temp: None
+  bb0:
+    %0 = global_get #3
+    %1 = url_search_params_append move %0, "c", "3"
+    return none
+
+fn smelt_global_init__encoder__0 (FuncId(7)) -> TextEncoder
+  locals
+    %0 temp: TextEncoder
+  bb0:
+    %0 = text_encoder_new
+    return move %0
+
+fn smelt_global_init__decoder__1 (FuncId(8)) -> TextDecoder
+  locals
+    %0 temp: TextDecoder
+  bb0:
+    %0 = text_decoder_new
+    return move %0
+
+fn smelt_global_init__headers__2 (FuncId(9)) -> Headers
+  locals
+    %0 temp: Dict<String, String>
+    %1 temp: Headers
+  bb0:
+    %0 = {"content-type": "text/plain"}
+    %1 = headers_new move %0
+    return move %1
+
+fn smelt_global_init__params__3 (FuncId(10)) -> URLSearchParams
+  locals
+    %0 temp: URLSearchParams
+  bb0:
+    %0 = url_search_params_new "a=1&b=2"
+    return move %0
+
+fn main (FuncId(11)) -> None
+  locals
+    %0 temp: Float
+    %1 temp: None
+    %2 temp: Float
+    %3 temp: None
+    %4 temp: String
+    %5 temp: None
+    %6 temp: String
+    %7 temp: None
+    %8 temp: String
+    %9 temp: None
+    %10 temp: None
+    %11 temp: String
+    %12 temp: None
+    %13 temp: String
+    %14 temp: None
+    %15 temp: None
+    %16 temp: URLSearchParams
+    %17 temp: String
+    %18 temp: None
+    %19 temp: Headers
+    %20 temp: Optional<String>
+    %21 temp: String
+    %22 temp: None
+  bb0:
+    %0 = call fn0("hello") -> bb1
+  bb1:
+    %1 = call @console_log(move %0) -> bb2
+  bb2:
+    %2 = call fn0("héllo") -> bb3
+  bb3:
+    %3 = call @console_log(move %2) -> bb4
+  bb4:
+    %4 = call fn1("round trip") -> bb5
+  bb5:
+    %5 = call @console_log(move %4) -> bb6
+  bb6:
+    %6 = call fn2() -> bb7
+  bb7:
+    %7 = call @console_log(move %6) -> bb8
+  bb8:
+    %8 = call fn4() -> bb9
+  bb9:
+    %9 = call @console_log(move %8) -> bb10
+  bb10:
+    %10 = call fn3() -> bb11
+  bb11:
+    %11 = call fn4() -> bb12
+  bb12:
+    %12 = call @console_log(move %11) -> bb13
+  bb13:
+    %13 = call fn5() -> bb14
+  bb14:
+    %14 = call @console_log(move %13) -> bb15
+  bb15:
+    %15 = call fn6() -> bb16
+  bb16:
+    %16 = global_get #3
+    %17 = url_search_params_to_text move %16
+    %18 = call @console_log(move %17) -> bb17
+  bb17:
+    %19 = global_get #2
+    %20 = headers_get move %19, "content-type"
+    %21 = move %20 ?? "none"
+    %22 = call @console_log(move %21) -> bb18
+  bb18:
+    return none
+

@@ -13,7 +13,10 @@
 
 use std::collections::{HashSet, VecDeque};
 
-use crate::{Callee, LocalId, MirFunction, Mir, Operand, Place, Rvalue, Statement, Terminator};
+use crate::{
+    Callee, GlobalProjection, LocalId, Mir, MirFunction, Operand, Place, Rvalue, Statement,
+    Terminator,
+};
 
 use super::structure::validate_local_exists;
 use super::{ValidationError, error, block_index, local_index};
@@ -109,7 +112,9 @@ fn accumulate_block_definitions(block: &crate::BasicBlock, definitions: &mut Has
                 Place::Local(local) => {
                     definitions.insert(*local);
                 }
-                Place::Field { .. } | Place::Index { .. } => {}
+                // Writing through a projection -- into a local's interior or
+                // into a mutable global's cell -- defines no new local.
+                Place::Field { .. } | Place::Index { .. } | Place::Global { .. } => {}
             },
             // The fused entry update defines `current`; its container target is
             // written through a place and so defines nothing new, exactly like
@@ -220,7 +225,7 @@ fn report_statement_reads(
                 Place::Local(local) => {
                     definitions.insert(*local);
                 }
-                Place::Field { .. } | Place::Index { .. } => {
+                Place::Field { .. } | Place::Index { .. } | Place::Global { .. } => {
                     validate_place(mir, function, definitions, place, errors);
                 }
             }
@@ -356,6 +361,14 @@ fn validate_place(
         Place::Index { base, index, .. } => {
             validate_place(mir, function, definitions, &Place::Local(*base), errors);
             validate_operand(mir, function, definitions, index, errors);
+        }
+        // The base is a `thread_local!` cell, which is defined for the whole
+        // program and needs no definite-assignment check. The index operand
+        // does still need one.
+        Place::Global { projection, .. } => {
+            if let GlobalProjection::Index { index, .. } = projection {
+                validate_operand(mir, function, definitions, index, errors);
+            }
         }
     }
 }

@@ -35,6 +35,11 @@ impl FunctionEmitter<'_> {
     pub(super) fn place_text(&self, place: &Place) -> Result<String, EmitError> {
         match place {
             Place::Local(local) => self.local_value_text(*local),
+            // A read of a mutable global lowers to `ExprKind::GlobalGet`, not
+            // to a place, so `Place::Global` never appears in a read position.
+            Place::Global { .. } => Err(EmitError::new(
+                "internal: a mutable-global place was read as a value;                  reads lower to GlobalGet",
+            )),
             Place::Field { base, field } => {
                 let base_ty = self.local_decl(*base)?.ty;
                 if let Some(Type::Dict(key, value)) = self.mir.types.get(base_ty) {
@@ -81,6 +86,15 @@ impl FunctionEmitter<'_> {
                     == Some(smelt_stdlib::FieldRule::TsLength)
                 {
                     return Ok(format!("({}.len() as f64)", self.local_value_text(*base)?));
+                }
+                // A value whose static type is a GENERATED union is dispatched
+                // through its own enum arms: when every arm declares the
+                // property at one type, the read is that type and each arm
+                // projects its own struct field. Erasing first would throw away
+                // a type the source already fixed, and in a crate that interns
+                // no `unknown` there is no erased carrier to answer with at all.
+                if let Some(text) = self.concrete_union_field_read_text(*base, *field)? {
+                    return Ok(text);
                 }
                 if matches!(
                     self.mir.types.get(base_ty),
@@ -207,10 +221,42 @@ impl FunctionEmitter<'_> {
                 {
                     return self.regexp_field_text(&self.local_value_text(*base)?, *field);
                 }
+                if self.is_url_search_params_class_type(base_ty)? {
+                    return self
+                        .url_search_params_field_text(&self.local_value_text(*base)?, *field);
+                }
                 if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
                     && let Some(kind) = self.match_class_kind(*name)?
                 {
                     return self.match_field_text(&self.local_value_text(*base)?, kind, *field);
+                }
+                // A REFERENCE class reached through an optional receiver keeps
+                // its handle: its fields live behind `Rc<RefCell<Inner>>`, so
+                // the read is `.0.borrow().field`, never a field of the handle
+                // itself. Checked before the structural-record arm below because
+                // a reference class is still record-shaped structurally — that
+                // arm emitted `_smelt_value.field` and the generated crate did
+                // not compile (E0609).
+                if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
+                    && self.is_reference_class_type(*inner)
+                    && self.class_has_named_field(*inner, *field)
+                    && let Some(field_ty) = self
+                        .structural_record_fields(*inner)
+                        .and_then(|fields| {
+                            fields
+                                .iter()
+                                .find(|candidate| candidate.name == *field)
+                                .map(|candidate| candidate.ty)
+                        })
+                {
+                    let base_text = self.local_value_text(*base)?;
+                    let field_name = sanitize_ident(self.symbol_name(*field)?);
+                    let read = format!("_smelt_value.0.borrow().{field_name}.clone()");
+                    return if matches!(self.mir.types.get(field_ty), Some(Type::Optional(_))) {
+                        Ok(format!("{base_text}.as_ref().and_then(|_smelt_value| {read})"))
+                    } else {
+                        Ok(format!("{base_text}.as_ref().map(|_smelt_value| {read})"))
+                    };
                 }
                 if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
                     && let Some(fields) = self.structural_record_fields(*inner)
@@ -284,6 +330,21 @@ impl FunctionEmitter<'_> {
                     return Ok(getter);
                 }
                 if self.storage_field_is_function(base_ty, *field) {
+                    // A function-typed field of a REFERENCE class lives inside
+                    // the shared cell like every other declared field, so it is
+                    // read through `.0.borrow()`. Without this the arm below
+                    // named a field the handle newtype does not have (E0609);
+                    // it is reached before the general reference-class field arm
+                    // further down, so the projection has to be repeated here.
+                    if self.is_reference_class_type(base_ty)
+                        && self.class_has_named_field(base_ty, *field)
+                    {
+                        return Ok(format!(
+                            "{}.0.borrow().{}.clone()",
+                            self.local_value_text(*base)?,
+                            sanitize_ident(self.symbol_name(*field)?)
+                        ));
+                    }
                     return Ok(format!(
                         "{}.{}.clone()",
                         self.local_value_text(*base)?,
@@ -375,6 +436,14 @@ impl FunctionEmitter<'_> {
                 {
                     return self.match_index_text(&self.local_value_text(*base)?, index);
                 }
+                // An indexed read on a typed-array view decodes ONE element at
+                // the view's own width and signedness. A negative or fractional
+                // index is a named property in JavaScript, not an element, and
+                // `get` answers `None` for it — the same "no such element"
+                // answer an out-of-range read gets.
+                if let Some(text) = self.typed_array_index_read_text(base_ty, *base, index)? {
+                    return Ok(text);
+                }
                 match self.mir.types.get(base_ty) {
                     Some(Type::List(item_ty)) => {
                         // A list index READ only ever calls `.get(..).cloned()`
@@ -444,10 +513,21 @@ impl FunctionEmitter<'_> {
                         };
                         let base_text = self.local_value_text(*base)?;
                         let default_value = self.default_value(*value_ty)?;
+                        // A missing key answers `undefined`, which only a value
+                        // type that RENDERS as `SmeltUnknown` can hold. A union
+                        // with a generated enum (`SmeltUnionNNNN`) does not: the
+                        // record's Rust value type is that enum, so answering
+                        // `SmeltUnknown::Undefined` was `expected SmeltUnion127,
+                        // found SmeltUnknown` (9 of the router slice's errors).
+                        // It falls to the same `unwrap_or(default)` every other
+                        // concrete value type uses, whose union arm
+                        // `default_value` already emits. A union WITHOUT a
+                        // generated enum still renders as `SmeltUnknown` and
+                        // still answers `undefined`.
                         let value_is_unknownish = matches!(
                             self.mir.types.get(*value_ty),
                             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-                        );
+                        ) && self.concrete_union_members(*value_ty).is_none();
                         if (self.dict_uses_smelt_record(*key_ty)
                             || self.dict_uses_js_key_map(*key_ty))
                             && value_is_unknownish
@@ -483,7 +563,18 @@ impl FunctionEmitter<'_> {
                         ))
                     }
                     Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => {
-                        self.unknown_index_text(&self.local_value_text(*base)?, index)
+                        // A concrete generated union is not a `SmeltUnknown`, so
+                        // the runtime-narrowing `match` below cannot scrutinise
+                        // it directly: it goes through the union's
+                        // `IntoSmeltUnknown` boundary adapter first, exactly as
+                        // the INDEX operand of the same read already does.
+                        // Without it the arms read `expected SmeltUnion127,
+                        // found SmeltUnknown` (6 of the router slice's errors).
+                        let base_text = self.erase_concrete_union_text(
+                            &self.local_value_text(*base)?,
+                            base_ty,
+                        );
+                        self.unknown_index_text(&base_text, index)
                     }
                     Some(Type::Tuple(items)) => {
                         let tuple_index = self.tuple_index(index, items.len())?;
@@ -503,7 +594,15 @@ impl FunctionEmitter<'_> {
                         let store_text =
                             format!("{base_text}.{}", smelt_hir::CLASS_INDEX_STORE_FIELD);
                         let optional_read =
-                            self.dict_index_optional_read_text(&store_text, key_ty, index)?;
+                            self.dict_index_optional_read_text(&store_text, key_ty, value_ty, index)?;
+                        // An optional store value has already been flattened by
+                        // the read, so the result IS the value type — a missing
+                        // key and a stored `undefined` are the same `None`. Its
+                        // default is that `None`, so defaulting again would try
+                        // to `unwrap_or` an `Option<inner>` with an `Option`.
+                        if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
+                            return Ok(optional_read);
+                        }
                         let default_value = self.default_value(value_ty)?;
                         Ok(format!("{optional_read}.unwrap_or({default_value})"))
                     }
@@ -549,8 +648,36 @@ impl FunctionEmitter<'_> {
         };
         let method_name = sanitize_ident(self.symbol_name(method_symbol)?);
         let base_text = self.local_value_text(base)?;
+        // A getter that can throw is emitted returning
+        // `Result<_, Box<dyn Error>>`, so the READ has to propagate like any
+        // other fallible call. Without the `?` the caller gets the `Result`
+        // itself where the property's value is expected, and the first thing
+        // done to a read value is usually `.clone()` -- which is how this
+        // surfaced: `Box<dyn Error>` is not `Clone`, so a spread of a throwing
+        // getter failed with `E0599` on the `Result` rather than with a type
+        // mismatch naming the property. Every consumer of a property read wants
+        // the value, never the `Result`, so the propagation belongs here rather
+        // than in each consumer.
+        //
+        // `?` only travels where the ENCLOSING function returns `Result`. A
+        // closure whose contextual callback type is not fallible is emitted as
+        // a plain `Fn(..) -> T`, so a `?` in its body is `E0277` ("the `?`
+        // operator can only be used in a closure that returns `Result`"). The
+        // throw is not dropped there: it takes the same panic path every other
+        // non-fallible callback seam uses (`blocker-logs/hono-fallible-ops.md`,
+        // the round-6 floor), so the program still stops at the throw instead
+        // of continuing with a fabricated value.
+        let fallible_read = |read: String| -> String {
+            if !getter.can_throw {
+                return read;
+            }
+            if self.function.can_throw {
+                return format!("{read}?");
+            }
+            format!("{read}.unwrap_or_else(|error| smelt_panic_throw(error))")
+        };
         if getter_class == owner.name {
-            return Ok(Some(format!("{base_text}.{method_name}()")));
+            return Ok(Some(fallible_read(format!("{base_text}.{method_name}()"))));
         }
         let descriptor_value = self.descriptor_value_text(getter_class, descriptor)?;
         let arguments = getter
@@ -567,9 +694,9 @@ impl FunctionEmitter<'_> {
             })
             .collect::<Vec<_>>()
             .join(", ");
-        Ok(Some(format!(
+        Ok(Some(fallible_read(format!(
             "{descriptor_value}.{method_name}({arguments})"
-        )))
+        ))))
     }
 
     /// Emits a descriptor setter statement for one statically known class field.
@@ -654,10 +781,22 @@ impl FunctionEmitter<'_> {
             .iter()
             .find(|descriptor| descriptor.name == field)
         {
+            // An instance DATA property shadows a prototype accessor of the same
+            // name, which is why a matching field wins here. A `Visibility::
+            // Hidden` field is not an own property at all — a JavaScript `#name`
+            // private field lives in a separate private-name namespace, and a
+            // synthesized storage slot has no source name — so it cannot shadow
+            // anything. Counting it did: `#res` and `get res()/set res()` on the
+            // same class (Hono's `context.ts`) intern the same symbol, so the
+            // accessor pair was ignored and `ctx.res = r` wrote the private slot
+            // directly, skipping the setter's body.
             let instance_storage_shadows = !descriptor.data_descriptor
                 && crate::classes::effective_class_fields(self.mir, class)
                     .iter()
-                    .any(|candidate| candidate.name == field);
+                    .any(|candidate| {
+                        candidate.name == field
+                            && candidate.visibility != smelt_hir::Visibility::Hidden
+                    });
             if !instance_storage_shadows {
                 return Some((class, descriptor));
             }
@@ -714,6 +853,14 @@ impl FunctionEmitter<'_> {
     pub(super) fn assignment_place_text(&self, place: &Place) -> Result<String, EmitError> {
         match place {
             Place::Local(local) => self.local_mut_value_text(*local),
+            // A write through a mutable global is emitted as one whole
+            // statement (`global_place_assign_text`) because the cell borrow
+            // has to scope the mutation. There is no lvalue FRAGMENT that
+            // callers could compose, so this is an error rather than a
+            // best-effort spelling that would borrow twice.
+            Place::Global { .. } => Err(EmitError::new(
+                "write through a mutable global has no lvalue fragment;                  it is emitted as a whole statement",
+            )),
             Place::Index {
                 base,
                 index,
@@ -763,7 +910,34 @@ impl FunctionEmitter<'_> {
                 }
             }
             Place::Field { base, field } => {
-                let base_ty = self.local_decl(*base)?.ty;
+                let declared_ty = self.local_decl(*base)?.ty;
+                // A receiver whose type is still optional at the WRITE. `tsc`
+                // proved it present (the source either narrowed it or asserted
+                // it), so the lvalue unwraps in place: `as_mut()` keeps the
+                // write inside the value the binding holds, where a copy would
+                // silently drop it. Without this the lvalue fell through to the
+                // READ expression below (`base.as_ref().and_then(..)`), which is
+                // not an lvalue at all (E0070).
+                let (base_ty, base_read_text, base_write_text) =
+                    if let Some(Type::Optional(inner)) = self.mir.types.get(declared_ty) {
+                        (
+                            *inner,
+                            format!(
+                                "{}.as_ref().expect(\"optional value was absent after narrowing\")",
+                                self.local_value_text(*base)?
+                            ),
+                            format!(
+                                "{}.as_mut().expect(\"optional value was absent after narrowing\")",
+                                self.local_mut_value_text(*base)?
+                            ),
+                        )
+                    } else {
+                        (
+                            declared_ty,
+                            self.local_value_text(*base)?,
+                            self.local_mut_value_text(*base)?,
+                        )
+                    };
                 // A declared field of a reference class is written through a
                 // narrow `borrow_mut()`. The statement's right-hand side has
                 // already been reduced to an operand by MIR temping, so the
@@ -774,15 +948,13 @@ impl FunctionEmitter<'_> {
                     && self.class_has_named_field(base_ty, *field)
                 {
                     return Ok(format!(
-                        "{}.0.borrow_mut().{}",
-                        self.local_value_text(*base)?,
+                        "{base_read_text}.0.borrow_mut().{}",
                         sanitize_ident(self.symbol_name(*field)?)
                     ));
                 }
                 if self.structural_record_fields(base_ty).is_some() {
                     return Ok(format!(
-                        "{}.{}",
-                        self.local_mut_value_text(*base)?,
+                        "{base_write_text}.{}",
                         sanitize_ident(self.symbol_name(*field)?)
                     ));
                 }
@@ -981,7 +1153,7 @@ impl FunctionEmitter<'_> {
                 if self.mir.types.get(item_ty) == Some(&Type::Optional(inner)) {
                     return Ok(Some(format!("{read}.flatten()")));
                 }
-                let Ok(mapped) = self.value_at_type_text("value", item_ty, inner) else {
+                let Ok(mapped) = self.value_at_type_text("value", item_ty, inner, &self.render_scope()) else {
                     return Ok(None);
                 };
                 Ok(Some(format!("{read}.map(|value| {mapped})")))

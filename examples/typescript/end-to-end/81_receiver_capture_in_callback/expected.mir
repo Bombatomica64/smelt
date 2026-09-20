@@ -1,0 +1,120 @@
+class Index fields [Hidden #known: Dict<String, Bool>] constructor Some(FuncId(3)) methods [FuncId(0), FuncId(1), FuncId(2)]
+
+fn add (FuncId(0)) -> None
+  locals
+    %0 param this: Index
+    %1 param key: String
+    %2 temp: Dict<String, Bool>
+  bb0:
+    %2 = copy %0.field1
+    %2[copy %1] = true
+    %0.field1 = move %2
+    return none
+
+fn keep (FuncId(1)) -> List<String>
+  locals
+    %0 param this: Index
+    %1 param keys: List<String>
+    %2 temp: fn(String, Int, List<String>) -> Bool
+    %3 temp: List<String>
+  bb0:
+    %2 = closure ClosureId(0) [copy %0]
+    %3 = list_filter copy %1, move %2
+    return move %3
+
+fn label (FuncId(2)) -> List<String>
+  locals
+    %0 param this: Index
+    %1 param keys: List<String>
+    %2 param suffix: String
+    %3 temp: fn(String, Int, List<String>) -> String
+    %4 temp: List<String>
+  bb0:
+    %3 = closure ClosureId(1) [copy %2, copy %0]
+    %4 = list_map copy %1, move %3
+    return move %4
+
+fn new (FuncId(3)) -> Index
+  locals
+    %0 user this: Index
+    %1 temp: Dict<String, Bool>
+  bb0:
+    %0 = struct0 {}
+    %1 = {}
+    %0.field1 = move %1
+    return move %0
+
+fn main (FuncId(4)) -> None
+  locals
+    %0 user index: Index
+    %1 temp: Index
+    %2 temp: None
+    %3 temp: None
+    %4 temp: List<String>
+    %5 temp: List<String>
+    %6 temp: String
+    %7 temp: String
+    %8 temp: None
+    %9 temp: List<String>
+    %10 temp: List<String>
+    %11 temp: String
+    %12 temp: String
+    %13 temp: None
+  bb0:
+    %1 = call fn3() -> bb1
+  bb1:
+    %0 = move %1
+    %2 = call fn0(copy %0, "a") -> bb2
+  bb2:
+    %3 = call fn0(copy %0, "c") -> bb3
+  bb3:
+    %4 = ["a", "b", "c"]
+    %5 = call fn1(copy %0, move %4) -> bb4
+  bb4:
+    %6 = string_join move %5, ","
+    %7 = "kept: " + move %6
+    %8 = call @console_log(move %7) -> bb5
+  bb5:
+    %9 = ["a", "b"]
+    %10 = call fn2(move %0, move %9, "!") -> bb6
+  bb6:
+    %11 = string_join move %10, ","
+    %12 = "labelled: " + move %11
+    %13 = call @console_log(move %12) -> bb7
+  bb7:
+    return none
+
+closure ClosureId(0) -> Bool
+  locals
+    %0 param key: String
+    %1 user this: Index
+    %2 temp: Dict<String, Bool>
+    %3 temp: Bool
+  bb0:
+    %2 = copy %1.field1
+    %3 = copy %2[copy %0] == true
+    return copy %3
+
+closure ClosureId(1) -> String
+  locals
+    %0 param key: String
+    %1 user suffix: String
+    %2 user this: Index
+    %3 temp: Dict<String, Bool>
+    %4 temp: Bool
+    %5 temp: String
+    %6 temp: String
+  bb0:
+    %3 = copy %2.field1
+    %4 = copy %3[copy %0] == true
+    switch copy %4 ? bb1 : bb2
+  bb1:
+    %6 = copy %0 + copy %1
+    %5 = copy %6
+    goto bb3
+  bb2:
+    %5 = copy %0
+    goto bb3
+  bb3:
+    return copy %5
+

@@ -2152,10 +2152,60 @@ impl ModuleBuilder<'_> {
                     })
             }
             "undefined" => self.ctx.krate.types.intern(Type::None),
-            "object" => self.ctx.krate.types.intern(Type::Unknown),
+            // `typeof x === 'object'` on a UNION keeps the object-kinded arms
+            // rather than erasing the value. Answering `Unknown` here threw
+            // away everything the union knew — Hono's
+            // `typeof arg === 'object' && arg.headers`, on
+            // `StatusCode | ResponseInit | Response`, left `arg` erased inside
+            // its own guard, so the member read became a runtime property
+            // lookup and every consumer downstream saw `SmeltUnknown`. The
+            // guard PROVES the value is one of the object arms, which is
+            // strictly more than "some runtime value".
+            //
+            // A union with no object arm (or a non-union receiver) still
+            // answers `Unknown`: there is nothing more precise to say, and a
+            // tagged runtime value is the honest type for it.
+            "object" => self
+                .typeof_object_arms(name, body)
+                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown)),
             _ => return None,
         };
         Some((name.to_owned(), ty))
+    }
+
+    /// The object-kinded arms of a union local, as proven by
+    /// `typeof local === 'object'`.
+    ///
+    /// `None` when the local is not a union, or when no arm is object-kinded —
+    /// both cases where the caller has nothing better than the erased boundary
+    /// to narrow to.
+    ///
+    /// An `Optional` wrapper is dropped rather than retained: the absent value
+    /// of an `x?: T` parameter is `undefined`, whose `typeof` is `"undefined"`,
+    /// so the guard excludes it. A `T | null` spelling is a union WITH a `None`
+    /// arm instead, and that arm is retained — `typeof null === "object"` in
+    /// JavaScript.
+    fn typeof_object_arms(&mut self, name: &str, body: &Body) -> Option<smelt_hir::TypeId> {
+        let local = self.scope.lookup(name)?;
+        let local_ty = self
+            .narrowed_type(name)
+            .unwrap_or_else(|| Self::local_ty(body, local));
+        let inner = match self.ctx.krate.types.get(local_ty).cloned() {
+            Some(Type::Optional(inner)) => inner,
+            _ => local_ty,
+        };
+        let Some(Type::Union(items)) = self.ctx.krate.types.get(inner).cloned() else {
+            return None;
+        };
+        let retained = items
+            .into_iter()
+            .filter(|item| self.type_matches_typeof(*item, "object"))
+            .collect::<Vec<_>>();
+        match retained.as_slice() {
+            [] => None,
+            [single] => Some(*single),
+            _ => Some(self.ctx.krate.types.intern(Type::Union(retained))),
+        }
     }
 
     /// Return the local type proven by excluding one `typeof` kind.
@@ -2805,7 +2855,23 @@ impl ModuleBuilder<'_> {
             .narrowed_type(local_name)
             .unwrap_or_else(|| Self::local_ty(body, local));
         let class_name = class.name.as_str();
-        let retained = self.filtered_union_members(ty, |member| {
+        // `instanceof` PROVES the value is present: `null instanceof File` and
+        // `undefined instanceof File` are both `false` in JavaScript, so no
+        // absent value can reach the true branch. That is what lets an OPTIONAL
+        // union narrow to the arm itself rather than to an optional of it —
+        // `form.get(name) instanceof File` gives `File`, not
+        // `File | undefined`.
+        //
+        // The unwrap is HERE and not in `filtered_union_members`, which several
+        // guards share, because only this guard proves presence.
+        // `typeof x !== "string"` does not: `typeof undefined` is
+        // `"undefined"`, which is also not `"string"`, so that guard's filter
+        // has to keep the optional it was given.
+        let ty = match self.ctx.krate.types.get(ty) {
+            Some(Type::Optional(inner)) => *inner,
+            _ => ty,
+        };
+        if let Some(retained) = self.filtered_union_members(ty, |member| {
             matches!(
                 member,
                 Type::Class {
@@ -2813,8 +2879,39 @@ impl ModuleBuilder<'_> {
                     ..
                 } if self.ctx.krate.symbols.get(*class_symbol) == Some(class_name)
             )
-        })?;
-        let narrowed = self.intern_filtered_union(retained)?;
+        }) {
+            let narrowed = self.intern_filtered_union(retained)?;
+            return Some((local_name.to_owned(), narrowed));
+        }
+        // The local is not a union, so there is nothing to filter — which used
+        // to end the narrowing here and leave an ERASED local erased across the
+        // guard. `if (x instanceof Headers)` then read `x.get(..)` through the
+        // erased member path, which has no `get` on the header record and
+        // answered `undefined`: a silently wrong value where the equivalent
+        // user type predicate (`x is Headers`) narrowed correctly and emitted
+        // the right checked cast (`blocker-logs/standards-instanceof-narrowing.md`).
+        //
+        // An erased local narrows to the target class whenever that class can be
+        // recovered from an erased value — `StdlibClass::narrows_from_erased`,
+        // which is true exactly for the classes whose runtime type declares a
+        // `SmeltFromUnknown` adapter next to its host marker. Asking the
+        // registry that question is what keeps this a general rule: the
+        // narrowing is emitted precisely where it can be materialized, and a
+        // class with no adapter still keeps its erased type rather than being
+        // given an invented conversion.
+        //
+        // Only an ERASED local narrows this way. A local already typed as some
+        // concrete thing is not made into something else by an `instanceof`
+        // test: that is either a tautology or dead code, and rewriting its type
+        // would discard what the source said it was.
+        if !matches!(self.ctx.krate.types.get(ty), Some(Type::Unknown)) {
+            return None;
+        }
+        let target = Self::stdlib_class_for_name(class_name)?;
+        if !target.narrows_from_erased() || self.user_class_shadows(class_name) {
+            return None;
+        }
+        let narrowed = self.stdlib_class_type(class_name);
         Some((local_name.to_owned(), narrowed))
     }
 
@@ -3297,6 +3394,15 @@ impl ModuleBuilder<'_> {
             if let BindingPattern::BindingIdentifier(binding) = &declarator.id
                 && self.is_lifted_global_declarator(binding.name.as_str(), binding.span)
             {
+                // A NON-literal initializer could not be lowered by the
+                // classification pass (it runs before imports and function
+                // items resolve), so this is where it happens: the expression
+                // becomes a synthesized nullary initializer function the cell
+                // calls lazily. A literal initializer is already stored on the
+                // item and this is a no-op.
+                if let Some(init) = &declarator.init {
+                    self.lower_pending_mutable_global_init(binding.name.as_str(), init)?;
+                }
                 continue;
             }
             // A `const Foo = function () { … }` binding recognized as a
@@ -3306,6 +3412,20 @@ impl ModuleBuilder<'_> {
                 && Self::const_constructor_function(declarator).is_some()
                 && self.classes.contains(binding.name.as_str())
             {
+                continue;
+            }
+            // `const Foo = class { … }` is a class declaration named `Foo`: it
+            // lowers as one and contributes no runtime binding, exactly like the
+            // constructor-function case above. Lowered as a value instead, the
+            // binding held a placeholder instance and `new Foo()` erased into a
+            // dynamic construction whose methods answered `null` (H68).
+            if let Some((name, class)) = Self::const_class_expression(declarator) {
+                let previous = self
+                    .class_expression_binding_name
+                    .replace(name.to_owned());
+                let lowered = self.class_declaration(class);
+                self.class_expression_binding_name = previous;
+                lowered?;
                 continue;
             }
             // `const { placeholder } = partial;` destructures a static property off
@@ -3736,6 +3856,38 @@ impl ModuleBuilder<'_> {
                 return Ok(());
             }
             let value = self.arrow_closure_body_expr(arrow, &params, return_ty, body)?;
+            // `fn_ty` was interned before the body was lowered, so its
+            // `may_throw` is the syntactic guess `false`. The lowered closure
+            // KNOWS whether its body throws
+            // (`closure_body_expr_from_parts` derives it from
+            // `body_contains_uncaught_throw`), and the binding must carry that:
+            // a call that passes this local on is typed from the local's own
+            // function type, so a `false` here tells every consumer the callback
+            // cannot throw. That is what made a throwing handler passed to an
+            // erased promise's `.catch(..)` be adapted DOWN to the non-throwing
+            // ABI through the panic route — and a panic route only reaches a
+            // source `catch` when the `catch_unwind` is around the INVOCATION,
+            // which a continuation invoked later during an `await` does not
+            // have, so the throw escaped the program (H70).
+            let fn_ty = self.throwing_widened_function_ty(fn_ty, Self::expr_ty(body, value));
+            // An arrow with no return annotation and no contextual signature
+            // INFERS its return type from its body — that is what `tsc` does,
+            // and a `const` with no annotation takes its initializer's type. The
+            // signature above was interned before the body was lowered, so its
+            // return is still the `Unknown` placeholder; the lowered closure
+            // knows the real one, and the binding must carry it.
+            //
+            // Without this, `const res = (t: string) => this.make(t)` bound
+            // `fn(string) -> unknown` while the closure it holds is
+            // `fn(string) -> Response`, and every consumer of the binding read
+            // the erased spelling: `promise.then(res)` typed itself
+            // `Promise<unknown>` over a continuation that resolves a `Response`
+            // (E0271 in Hono's `context.rs` slice of `main.rs`).
+            let fn_ty = if arrow.return_type.is_none() && contextual_function.is_none() {
+                self.inferred_return_function_ty(fn_ty, Self::expr_ty(body, value))
+            } else {
+                fn_ty
+            };
             let local =
                 self.local_arrow_binding_local(name, symbol, fn_ty, self.span(start, end), body);
             self.scope.bind(name.to_owned(), local);
@@ -3760,6 +3912,79 @@ impl ModuleBuilder<'_> {
             self.scope.bind(name.to_owned(), local);
         }
         result
+    }
+
+    /// Re-intern a declared function type with the lowered value's return type.
+    ///
+    /// `declared` is the signature the binding was interned with before its body
+    /// was lowered; `value` is the type the lowered closure actually has. Only
+    /// the return type is taken from the value, and only when the declaration
+    /// left it erased — an arrow whose return type is annotated, or fixed by a
+    /// contextual signature, keeps what the declaration resolved, so this is the
+    /// inference step and never an override. An `async` arrow's placeholder is
+    /// `Future<unknown>`, which is why both spellings are recognized.
+    ///
+    /// Returns `declared` unchanged when either type is not a function or the
+    /// declaration already names a return type.
+    fn inferred_return_function_ty(
+        &mut self,
+        declared: smelt_hir::TypeId,
+        value: smelt_hir::TypeId,
+    ) -> smelt_hir::TypeId {
+        let Some(Type::Function(declared_ty)) = self.ctx.krate.types.get(declared).cloned() else {
+            return declared;
+        };
+        let declared_is_erased = match self.ctx.krate.types.get(declared_ty.return_ty) {
+            Some(Type::Unknown) => true,
+            Some(Type::Future(inner)) => {
+                matches!(self.ctx.krate.types.get(*inner), Some(Type::Unknown))
+            }
+            _ => false,
+        };
+        if !declared_is_erased {
+            return declared;
+        }
+        let Some(Type::Function(value_ty)) = self.ctx.krate.types.get(value).cloned() else {
+            return declared;
+        };
+        if value_ty.return_ty == declared_ty.return_ty {
+            return declared;
+        }
+        let mut inferred = declared_ty;
+        inferred.return_ty = value_ty.return_ty;
+        self.ctx.krate.types.intern(Type::Function(inferred))
+    }
+
+    /// Re-intern a declared function type with the lowered value's `may_throw`.
+    ///
+    /// `declared` is the type the binding was interned with before its body was
+    /// lowered; `value` is the type the lowered closure actually has. Only the
+    /// `may_throw` bit is taken from the value, so every other part of the
+    /// declared signature (parameter types, arity, return type, asyncness) is
+    /// left exactly as the declaration resolved it and emissions for a
+    /// non-throwing closure stay byte-identical. Returns `declared` unchanged
+    /// when either type is not a function or the declared type already admits a
+    /// throw.
+    fn throwing_widened_function_ty(
+        &mut self,
+        declared: smelt_hir::TypeId,
+        value: smelt_hir::TypeId,
+    ) -> smelt_hir::TypeId {
+        let Some(Type::Function(value_ty)) = self.ctx.krate.types.get(value) else {
+            return declared;
+        };
+        if !value_ty.may_throw {
+            return declared;
+        }
+        let Some(Type::Function(declared_ty)) = self.ctx.krate.types.get(declared) else {
+            return declared;
+        };
+        if declared_ty.may_throw {
+            return declared;
+        }
+        let mut widened = declared_ty.clone();
+        widened.may_throw = true;
+        self.ctx.krate.types.intern(Type::Function(widened))
     }
 
     /// Bind parameter names that may be referenced by local callback default values.

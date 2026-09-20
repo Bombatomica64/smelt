@@ -1,0 +1,112 @@
+class Chain fields [Public value: T, Public history: List<T>, Public rewind: fn() -> Chain<T>] constructor Some(FuncId(0)) methods [FuncId(1)]
+class Track fields [Public chain: Chain<T>] constructor Some(FuncId(2)) methods [FuncId(3)]
+
+fn new (FuncId(0)) -> Chain<T>
+  locals
+    %0 user this: Chain<T>
+    %1 param value: T
+    %2 temp: List<T>
+    %3 temp: fn() -> Chain<T>
+  bb0:
+    %0 = struct0 {}
+    %0.field3 = copy %1
+    %2 = [copy %1]
+    %0.field4 = move %2
+    %3 = closure ClosureId(0) [copy %0]
+    %0.field5 = move %3
+    return move %0
+
+fn push (FuncId(1)) -> Chain<T>
+  locals
+    %0 param this: Chain<T>
+    %1 param next: T
+    %2 temp: List<T>
+    %3 temp: Float
+  bb0:
+    %2 = copy %0.field4
+    %3 = list_push copy %2, copy %1
+    %0.field4 = move %2
+    %0.field3 = copy %1
+    return copy %0
+
+fn new (FuncId(2)) -> Track<T>
+  locals
+    %0 user this: Track<T>
+    %1 param chain: Chain<T>
+  bb0:
+    %0 = struct1 {}
+    %0.field10 = copy %1
+    return move %0
+
+fn latest (FuncId(3)) -> T
+  locals
+    %0 param this: Track<T>
+    %1 temp: Chain<T>
+  bb0:
+    %1 = copy %0.field10
+    return copy %1.field3
+
+fn main (FuncId(4)) -> None throws
+  locals
+    %0 user numbers: Chain<Float>
+    %1 user words: Track<String>
+    %2 temp: Chain<Float>
+    %3 temp: Chain<Float>
+    %4 temp: Chain<Float>
+    %5 temp: None
+    %6 temp: String
+    %7 temp: None
+    %8 temp: Chain<Float>
+    %9 temp: None
+    %10 temp: Chain<String>
+    %11 temp: Track<String>
+    %12 temp: Chain<String>
+    %13 temp: Chain<String>
+    %14 temp: String
+    %15 temp: None
+    %16 temp: Chain<String>
+    %17 temp: Chain<String>
+    %18 temp: None
+  bb0:
+    %2 = call fn0(1.0) -> bb1
+  bb1:
+    %0 = move %2
+    %3 = call fn1(copy %0, 2.0) -> bb2
+  bb2:
+    %4 = call fn1(copy %0, 3.0) -> bb3
+  bb3:
+    %5 = call @console_log(copy %0.field3) -> bb4
+  bb4:
+    %6 = string_join copy %0.field4, ","
+    %7 = call @console_log(move %6) -> bb5
+  bb5:
+    %8 = closure_call copy %0.field5()
+    %9 = call @console_log(copy %8.field3) -> bb6
+  bb6:
+    %10 = call fn0("a") -> bb7
+  bb7:
+    %11 = call fn2(move %10) -> bb8
+  bb8:
+    %1 = move %11
+    %12 = copy %1.field10
+    %13 = call fn1(copy %1.field10, "b") -> bb9
+  bb9:
+    %14 = call fn3(copy %1) -> bb10
+  bb10:
+    %15 = call @console_log(move %14) -> bb11
+  bb11:
+    %16 = copy %1.field10
+    %17 = closure_call copy %16.field5()
+    %18 = call @console_log(copy %17.field3) -> bb12
+  bb12:
+    return none
+
+closure ClosureId(0) -> Chain<T>
+  locals
+    %0 user this: Chain<T>
+    %1 temp: List<T>
+  bb0:
+    %1 = copy %0.field4
+    %0.field3 = copy %1[0.0]
+    return copy %0
+

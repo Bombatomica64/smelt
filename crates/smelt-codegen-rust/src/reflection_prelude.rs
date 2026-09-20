@@ -130,6 +130,33 @@ fn constructor_class_markers() -> Vec<(&'static str, &'static str)> {
 /// record of that identity — so a class name and a live record agree on which
 /// constructor to run. `None` for names that are not modeled host objects.
 pub fn reflected_construct_kind(class_name: &str) -> Option<&'static str> {
+    // A class backed by a generated runtime type must not be reflectively
+    // constructed as a marker record: the record would answer `instanceof`
+    // correctly and then silently fail every method the program calls on it.
+    // `StdlibClass::reflects_to_marker_record` is that question, asked of the
+    // registry rather than of a list here — the list is what let `EventEmitter`
+    // be excluded while the five classes registered alongside it were not.
+    if smelt_stdlib::typescript_stdlib_class(class_name)
+        .is_some_and(|class| !class.reflects_to_marker_record())
+    {
+        return None;
+    }
+    // `ReadableStream` carries a marker for identity but has no modeled surface
+    // at all — not even a runtime type for the registry to recognize — so it
+    // needs naming here. The same reasoning applies: a marker record must not
+    // stand in for a surface that does not exist.
+    if class_name == "ReadableStream" {
+        return None;
+    }
+    // The host-object registry's own answer to the same question, for the
+    // identities whose METHODS a subsystem owns rather than the record:
+    // reflectively building an `AbortSignal` from its name alone would produce
+    // a record with no listener list for `addEventListener` to append to. Asked
+    // of the registry rather than named here, so a new such identity cannot
+    // silently become reflectively constructible.
+    if !smelt_stdlib::reflectively_constructible(class_name) {
+        return None;
+    }
     smelt_stdlib::host_object_marker(class_name).and_then(|marker| marker.strip_prefix("__smelt_"))
 }
 

@@ -1,0 +1,127 @@
+module examples/typescript/end-to-end/38_interface_literal_key_spellings/input.ts (ModuleId(0))
+  body BodyId(2)
+  items
+    interface Shape fields [Public plain?: Optional<Float>, Public camel_case?: Optional<String>, Public snake_case?: Optional<String>, Public a_very_long_camel_name?: Optional<Float>] methods []
+    interface Wrapper fields [Public inner_shape?: Optional<Shape>] methods []
+    fn text_of owner Module
+    fn number_of owner Module
+  locals
+    %0 const full: Shape
+    %1 const partial: Shape
+    %2 const nested: Wrapper
+    %3 const inner: Optional<Shape>
+  exprs
+    #0: String = "plain"
+    #1: Float = 1.0
+    #2: String = "camelCase"
+    #3: String = "a"
+    #4: String = "snake_case"
+    #5: String = "b"
+    #6: String = "aVeryLongCamelName"
+    #7: Float = 41.0
+    #8: Shape = {#0: #1, #2: #3, #4: #5, #6: #7}
+    #9: String = "camelCase"
+    #10: String = "only"
+    #11: Shape = {#9: #10}
+    #12: String = "innerShape"
+    #13: String = "camelCase"
+    #14: String = "deep"
+    #15: String = "plain"
+    #16: Float = 2.0
+    #17: Shape = {#13: #14, #15: #16}
+    #18: Wrapper = {#12: #17}
+    #19: Shape = %0
+    #20: Optional<Float> = #19.plain
+    #21: fn(Optional<Float>) -> String = @1(number_of)
+    #22: String = call #21(#20)
+    #23: None = @4(console_log)
+    #24: None = call #23(#22)
+    #25: Shape = %0
+    #26: Optional<String> = #25.camel_case
+    #27: fn(Optional<String>) -> String = @0(text_of)
+    #28: String = call #27(#26)
+    #29: None = @5(console_log)
+    #30: None = call #29(#28)
+    #31: Shape = %0
+    #32: Optional<String> = #31.snake_case
+    #33: fn(Optional<String>) -> String = @0(text_of)
+    #34: String = call #33(#32)
+    #35: None = @6(console_log)
+    #36: None = call #35(#34)
+    #37: Shape = %0
+    #38: Optional<Float> = #37.a_very_long_camel_name
+    #39: fn(Optional<Float>) -> String = @1(number_of)
+    #40: String = call #39(#38)
+    #41: None = @7(console_log)
+    #42: None = call #41(#40)
+    #43: Shape = %1
+    #44: Optional<String> = #43.camel_case
+    #45: fn(Optional<String>) -> String = @0(text_of)
+    #46: String = call #45(#44)
+    #47: None = @8(console_log)
+    #48: None = call #47(#46)
+    #49: Shape = %1
+    #50: Optional<String> = #49.snake_case
+    #51: fn(Optional<String>) -> String = @0(text_of)
+    #52: String = call #51(#50)
+    #53: None = @9(console_log)
+    #54: None = call #53(#52)
+    #55: Wrapper = %2
+    #56: Optional<Shape> = #55.inner_shape
+    #57: Optional<Shape> = %3
+    #58: None = undefined
+    #59: Bool = JsStrictEq #57, #58
+    #60: String = "no inner"
+    #61: Optional<Shape> = %3
+    #62: Optional<String> = #61?.camel_case
+    #63: fn(Optional<String>) -> String = @0(text_of)
+    #64: String = call #63(#62)
+    #65: String = if #59 then #60 else #64
+    #66: None = @10(console_log)
+    #67: None = call #66(#65)
+    #68: Optional<Shape> = %3
+    #69: None = undefined
+    #70: Bool = JsStrictEq #68, #69
+    #71: String = "no inner"
+    #72: Optional<Shape> = %3
+    #73: Optional<Float> = #72?.plain
+    #74: fn(Optional<Float>) -> String = @1(number_of)
+    #75: String = call #74(#73)
+    #76: String = if #70 then #71 else #75
+    #77: None = @11(console_log)
+    #78: None = call #77(#76)
+  stmts
+    s0: let %0: Shape = #8
+    s1: let %1: Shape = #11
+    s2: let %2: Wrapper = #18
+    s3: #24
+    s4: #30
+    s5: #36
+    s6: #42
+    s7: #48
+    s8: #54
+    s9: let %3: Optional<Shape> = #56
+    s10: #67
+    s11: #78
+
+interned types
+  t0 = Float
+  t1 = String
+  t2 = Unknown
+  t3 = Dict<String, Unknown>
+  t4 = List<Unknown>
+  t5 = Shape
+  t6 = Dict<String, String>
+  t7 = List<String>
+  t8 = Dict<String, Dict<String, Unknown>>
+  t9 = List<Dict<String, Unknown>>
+  t10 = Wrapper
+  t11 = None
+  t12 = Optional<String>
+  t13 = fn(Optional<String>) -> String
+  t14 = Optional<Float>
+  t15 = fn(Optional<Float>) -> String
+  t16 = Optional<Shape>
+  t17 = Bool
+  t18 = fn(Optional<Float>) -> String
+  t19 = fn(Optional<String>) -> String

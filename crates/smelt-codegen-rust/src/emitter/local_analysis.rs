@@ -183,10 +183,86 @@ impl FunctionEmitter<'_> {
         if !self.context.is_generic_function(callee.id) {
             return None;
         }
-        let rust_name = self.function_rust_name(callee).ok()?;
-        let return_ty = self.emitted_function_return_type(&rust_name)?;
+        let signature_key = self.emitted_signature_key(callee).ok()?;
+        let return_ty = self.emitted_function_return_type(&signature_key)?;
         match self.mir.types.get(return_ty) {
             Some(Type::Function(function)) => Some(function.clone()),
+            _ => None,
+        }
+    }
+
+    /// The DECLARED function type of a class's function-typed field, for a
+    /// callee operand that reads one.
+    ///
+    /// A field read on a GENERIC class hands the call site the field's type with
+    /// the class's type arguments already substituted, which erases the one
+    /// thing the callee's ABI depends on: whether the declaration wrote a bare
+    /// type parameter in that position. `class Chain<T> { next: (value: T) =>
+    /// Chain<T> }` is emitted as `Rc<dyn Fn(&T) -> Chain<T>>`, because
+    /// `param_type_is_by_shared_reference` answers TRUE for a type parameter —
+    /// the ABI has to be the callee's, and only its declaration knows it. Rust
+    /// instantiates that slot at `Fn(&f64)` for a `Chain<number>`, while MIR
+    /// tells the call site the parameter is `f64`, which the same predicate
+    /// answers FALSE for, so the argument was packed by value against a slot
+    /// spelled `&`. That is E0308, and it is the `&(SmeltUnknown, RouterRoute)`
+    /// family recorded in `blocker-logs/hono-round30-types.md`.
+    ///
+    /// The rule: SUBSTITUTING A TYPE PARAMETER AT A CALL SITE DOES NOT CHANGE
+    /// HOW THE CALLEE IS CALLED. The value is still rendered at the substituted
+    /// type — that is what it has to be coerced to — but the ABI is asked of the
+    /// declaration. The sibling [`Self::emitted_call_result_function_type`]
+    /// answers the same question for a local that received a generic call's
+    /// result.
+    ///
+    /// `None` for anything else — a local holding a closure, an erased callee, a
+    /// non-class base — which leaves the substituted types in charge as before.
+    /// A non-generic class answers with a parameter list identical to the
+    /// substituted one, so the lookup changes nothing where there is nothing to
+    /// substitute.
+    pub(super) fn class_field_declared_function_type(
+        &self,
+        callee: &Operand,
+    ) -> Option<FunctionType> {
+        let (Operand::Copy(Place::Field { base, field })
+        | Operand::Move(Place::Field { base, field })) = callee
+        else {
+            return None;
+        };
+        let base_ty = self.local_decl(*base).ok()?.ty;
+        let Type::Class { name, .. } = self.mir.types.get(base_ty)? else {
+            return None;
+        };
+        // `Type::Class` names a generated NOMINAL type, which is a class or an
+        // interface record: both carry function-typed slots and both are
+        // instantiated at their type arguments, so both have a declaration to
+        // ask. Hono reaches this through the interface side — `Router<T>`
+        // declares `add(method, path, handler: T)` and is instantiated at
+        // `Router<[unknown, RouterRoute]>`.
+        let declared_ty = self
+            .mir
+            .classes
+            .iter()
+            .find(|class| class.name == *name)
+            .and_then(|class| {
+                crate::classes::effective_class_fields(self.mir, class)
+                    .into_iter()
+                    .find(|candidate| candidate.name == *field)
+                    .map(|candidate| candidate.ty)
+            })
+            .or_else(|| {
+                let interface = self
+                    .mir
+                    .interfaces
+                    .iter()
+                    .find(|interface| interface.name == *name)?;
+                interface
+                    .fields
+                    .iter()
+                    .find(|candidate| candidate.name == *field)
+                    .map(|candidate| candidate.ty)
+            })?;
+        match self.mir.types.get(declared_ty)? {
+            Type::Function(declared_function) => Some(declared_function.clone()),
             _ => None,
         }
     }

@@ -127,7 +127,7 @@ impl FunctionEmitter<'_> {
         for (index, member) in members.iter().copied().enumerate() {
             let return_ty = self.union_member_method_return_type(member, method)?;
             let call = format!("value.{method_name}({args_text})");
-            let converted = self.value_at_type_text(&call, return_ty, dest_ty)?;
+            let converted = self.value_at_type_text(&call, return_ty, dest_ty, &self.render_scope())?;
             arms.push(format!("{union}::M{index}(value) => {converted}"));
         }
         Ok(format!("match {receiver_text} {{ {} }}", arms.join(", ")))
@@ -230,14 +230,27 @@ impl FunctionEmitter<'_> {
     /// operations (string coercion, structural `match`/`matches!`, `typeof`,
     /// property-key stringification) are emitted against `SmeltUnknown`. The
     /// generated `into_smelt_unknown()` conversion projects the tagged enum back
-    /// to the erased value those operations expect. `value_text` must be an
-    /// owned expression (the conversion consumes `self`).
+    /// to the erased value those operations expect.
+    ///
+    /// The projection is cloned first because every caller erases a value in
+    /// order to INSPECT it, and inspecting must not consume the source.
+    /// `into_smelt_unknown` takes `self` by value, so erasing a place read moved
+    /// out of it: `const first = table['a']` read twice — once indexed, once for
+    /// `.length` — emitted `first.into_smelt_unknown()` at both sites and the
+    /// second was a use-after-move (E0382). A `SmeltUnion…` is not `Copy`, and
+    /// the source expression is a place read as often as it is a temporary, so
+    /// the clone belongs here rather than at each call site. Cloning a
+    /// temporary is redundant but harmless; moving a place is a hard error.
     pub(super) fn erase_concrete_union_text(&self, value_text: &str, ty: TypeId) -> String {
-        if self.concrete_union_members(ty).is_some() {
-            format!("{value_text}.into_smelt_unknown()")
-        } else {
-            value_text.to_owned()
+        if self.concrete_union_members(ty).is_none() {
+            return value_text.to_owned();
         }
+        // A caller that already owns a clone needs no second one; `.clone().clone()`
+        // is not what a hand-writing Rust team would produce.
+        if value_text.ends_with(".clone()") {
+            return format!("{value_text}.into_smelt_unknown()");
+        }
+        format!("{value_text}.clone().into_smelt_unknown()")
     }
 
     /// Wrap a concrete value in the matching variant of a target union.
@@ -246,6 +259,7 @@ impl FunctionEmitter<'_> {
         value_text: &str,
         source: TypeId,
         target: TypeId,
+        scope: &RenderScope,
     ) -> Result<Option<String>, EmitError> {
         let Some(members) = self.concrete_union_members(target) else {
             return Ok(None);
@@ -285,7 +299,7 @@ impl FunctionEmitter<'_> {
             }
         }
         if let [index] = structural.as_slice() {
-            let coerced = self.value_at_type_text(value_text, source, members[*index])?;
+            let coerced = self.value_at_type_text(value_text, source, members[*index], scope)?;
             return Ok(Some(format!("{}::M{index}({coerced})", union_name(target))));
         }
         // An erased source (object-field read, erased return, nullish default)
@@ -302,6 +316,40 @@ impl FunctionEmitter<'_> {
             )));
         }
         Ok(None)
+    }
+
+    /// The single union arm a LIST LITERAL of `len` elements can be built at.
+    ///
+    /// A list literal fits a `List` arm (any element type — the elements coerce
+    /// into it) and a `Tuple` arm of the same arity. `None` when the target is
+    /// not a concrete union, when no arm is a collection, or when more than one
+    /// arm is: the literal's own element types cannot break that tie, so the
+    /// caller keeps its erased path rather than guessing an arm.
+    ///
+    /// Answering here rather than in `inject_union_value_text` is deliberate: a
+    /// literal has no single source type to inject FROM, so the arm has to be
+    /// chosen before the value is rendered, and the render then happens at the
+    /// arm's own type.
+    pub(super) fn union_collection_arm_for_list_literal(
+        &self,
+        union_ty: TypeId,
+        len: usize,
+    ) -> Option<(usize, TypeId)> {
+        let members = self.concrete_union_members(union_ty)?;
+        let candidates = members
+            .iter()
+            .enumerate()
+            .filter(|(_, member)| match self.mir.types.get(**member) {
+                Some(Type::List(_)) => true,
+                Some(Type::Tuple(items)) => items.len() == len,
+                _ => false,
+            })
+            .map(|(index, member)| (index, *member))
+            .collect::<Vec<_>>();
+        match candidates.as_slice() {
+            [single] => Some(*single),
+            _ => None,
+        }
     }
 
     /// Whether every required field of an object-shaped union `member` can be
@@ -382,6 +430,39 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         };
         let source_name = union_name(source);
+        // `await` over `T | Promise<T>`: every arm becomes a future of the same
+        // awaited type, the promise arms as themselves and the value arms as an
+        // already-resolved handle. Falling through to the single-member
+        // projection below would pick the promise arm and `unreachable!` the
+        // value arm, which is a wrong value for exactly the half of the union
+        // that needs no waiting -- Hono's `await this.#dispatch(..)` on
+        // `Response | Promise<Response>` is that shape.
+        if let Some(&Type::Future(awaited)) = self.mir.types.get(target)
+            && source_members.iter().all(|member| {
+                *member == target
+                    || *member == awaited
+                    || matches!(self.mir.types.get(*member), Some(Type::Future(inner)) if *inner == awaited)
+            })
+        {
+            let arms = source_members
+                .iter()
+                .enumerate()
+                .map(|(index, member)| {
+                    if *member == awaited {
+                        let awaited_text = self.type_text_with_impl_trait(awaited, false)?;
+                        Ok(format!(
+                            "{source_name}::M{index}(value) => SmeltFuture::<{awaited_text}>::resolved(value)"
+                        ))
+                    } else {
+                        Ok(format!("{source_name}::M{index}(value) => value"))
+                    }
+                })
+                .collect::<Result<Vec<_>, EmitError>>()?;
+            return Ok(Some(format!(
+                "match {value_text} {{ {} }}",
+                arms.join(", ")
+            )));
+        }
         if let Some(target_members) = self.concrete_union_members(target) {
             let target_name = union_name(target);
             let arms = source_members
@@ -443,27 +524,101 @@ impl FunctionEmitter<'_> {
         union_ty: TypeId,
         class: Symbol,
     ) -> Option<String> {
-        let members = self.concrete_union_members(union_ty)?;
-        let union_enum_name = union_name(union_ty);
-        let patterns = members
-            .iter()
-            .enumerate()
-            .filter(|(_, member)| {
-                matches!(
-                    self.mir.types.get(**member),
-                    Some(Type::Class {
-                        name: class_symbol,
-                        ..
-                    }) if *class_symbol == class
-                )
-            })
-            .map(|(index, _)| format!("{union_enum_name}::M{index}(_)"))
-            .collect::<Vec<_>>();
+        let patterns = self.concrete_union_class_patterns(union_ty, class)?;
         Some(if patterns.is_empty() {
             "false".to_owned()
         } else {
             format!("matches!({value_text}, {})", patterns.join(" | "))
         })
+    }
+
+    /// Emit the same test for an OPTIONAL union.
+    ///
+    /// `null instanceof File` is `false` in JavaScript, so an absent value is
+    /// simply not one of the accepted patterns: the check is the arm patterns
+    /// wrapped in `Some(..)`, which answers `false` for `None` by construction.
+    ///
+    /// Its own method rather than a flag on the check above, because the
+    /// patterns are the same and only their context differs — and because this
+    /// shape had no answer at all before. `form.get(name) instanceof File` is
+    /// `Optional<string | File>`, and the marker probe that claimed it emitted
+    /// `matches!(x.clone(), Some(SmeltUnknown::Object(value)) if ..)` against a
+    /// value of type `Option<SmeltUnion…>`, which does not compile.
+    pub(super) fn optional_union_class_check(
+        &self,
+        value_text: &str,
+        optional_ty: TypeId,
+        class: Symbol,
+    ) -> Option<String> {
+        let Some(&Type::Optional(inner)) = self.mir.types.get(optional_ty) else {
+            return None;
+        };
+        let patterns = self.concrete_union_class_patterns(inner, class)?;
+        Some(if patterns.is_empty() {
+            "false".to_owned()
+        } else {
+            format!(
+                "matches!({value_text}, {})",
+                patterns
+                    .iter()
+                    .map(|pattern| format!("Some({pattern})"))
+                    .collect::<Vec<_>>()
+                    .join(" | ")
+            )
+        })
+    }
+
+    /// The generated-union arm patterns that satisfy `instanceof <class>`.
+    ///
+    /// Empty when no arm is that class, which is a real `false` rather than a
+    /// missing answer — the union cannot hold one. `None` only when the type is
+    /// not a concrete generated union at all.
+    fn concrete_union_class_patterns(&self, union_ty: TypeId, class: Symbol) -> Option<Vec<String>> {
+        let members = self.concrete_union_members(union_ty)?;
+        let union_enum_name = union_name(union_ty);
+        Some(
+            members
+                .iter()
+                .enumerate()
+                .filter(|(_, member)| self.union_member_is_class(**member, class))
+                .map(|(index, _)| format!("{union_enum_name}::M{index}(_)"))
+                .collect::<Vec<_>>(),
+        )
+    }
+
+    /// Whether a union arm's type IS the class `instanceof` names.
+    ///
+    /// A nominal answer is not enough. Several JavaScript classes lower to a
+    /// dedicated `Type` variant rather than to `Type::Class`, because Smelt
+    /// models their data directly: a `Promise<T>` is `Type::Future`, an array
+    /// is `Type::List`, a `Map` is `Type::JsMap`, a `Set` is `Type::Set`. Those
+    /// arms are still that class, and `value instanceof Promise` on a
+    /// `string | Promise<string>` is the discriminant test for the future arm.
+    ///
+    /// Asking only "is this arm `Type::Class { name: Promise }`?" answered no
+    /// for every one of them, and an empty pattern list is emitted as a
+    /// constant `false` — a real answer for a union that genuinely cannot hold
+    /// the class, but here it made the promise branch DEAD CODE and the
+    /// function returned its string-formatted promise instead of awaiting it.
+    /// That is silently wrong output, not a compile error, which is why it
+    /// survived so long.
+    ///
+    /// Stated over the representation, so any class Smelt models as its own
+    /// `Type` variant is answered here rather than by naming spellings.
+    fn union_member_is_class(&self, member: TypeId, class: Symbol) -> bool {
+        let Ok(class_name) = self.symbol_name(class) else {
+            return false;
+        };
+        match self.mir.types.get(member) {
+            Some(Type::Class { name, .. }) => {
+                self.symbol_name(*name).is_ok_and(|name| name == class_name)
+            }
+            Some(Type::Future(_)) => class_name == "Promise",
+            Some(Type::List(_) | Type::Tuple(_)) => class_name == "Array",
+            Some(Type::JsMap(_, _)) => class_name == "Map",
+            Some(Type::Set(_)) => class_name == "Set",
+            _ => false,
+        }
     }
 
     /// Return the `SmeltUnknown` variant pattern a concrete member reconstructs from.
@@ -508,9 +663,25 @@ impl FunctionEmitter<'_> {
     /// erased values, which keeps every leaf as it arrived -- is preferred over
     /// one that would retype. That makes "no arm matched" resolve to keeping the
     /// erased value rather than to rewriting it.
-    pub(super) fn union_from_smelt_unknown_body(
+    /// Build the `from_smelt_unknown` body with the enum's own type parameters
+    /// spellable.
+    ///
+    /// A member that mentions one of them cannot be rebuilt field by field here:
+    /// the recovery is written against concrete field types, and `T` has none
+    /// until the enum is instantiated. It delegates to that member's own
+    /// `SmeltFromUnknown` instead, which the enum's `impl` bound already
+    /// requires of every declared parameter — so `ResponseInit<T>` recovers
+    /// through `ResponseInit`'s implementation with `T`'s recovery inside it,
+    /// rather than through a field-by-field rebuild that assumed
+    /// `Option<SmeltUnknown>` where the struct declares `Option<T>` (E0308).
+    /// Members that mention no parameter keep the field-by-field recovery
+    /// unchanged, so every non-generic union emits exactly the bytes it did --
+    /// a non-generic union declares no parameters, so `substitution.spells`
+    /// answers `false` for every member and this reduces to the original body.
+    pub(super) fn union_from_smelt_unknown_body_in_scope(
         &self,
         members: &[TypeId],
+        substitution: &TypeSubstitution<'_>,
     ) -> Result<String, EmitError> {
         let order = self.union_recovery_order(members);
         let mut body = String::new();
@@ -518,7 +689,17 @@ impl FunctionEmitter<'_> {
             let Some(&member) = members.get(index) else {
                 continue;
             };
-            let extracted = self.extract_value_text("value", member)?;
+            let mut member_params = Vec::new();
+            self.collect_union_type_params(member, &mut member_params)?;
+            let extracted = if member_params
+                .iter()
+                .any(|param| substitution.spells(*param))
+            {
+                let member_text = self.rust_type(member, false, substitution)?.into_string();
+                format!("<{member_text} as SmeltFromUnknown>::smelt_from_unknown(value)")
+            } else {
+                self.extract_value_text("value", member, &self.render_scope())?
+            };
             if Some(position) == order.len().checked_sub(1) {
                 body.push_str(&format!("        Self::M{index}({extracted})\n"));
             } else {
@@ -574,22 +755,26 @@ impl FunctionEmitter<'_> {
         order
     }
 
-    /// Build a structural key-presence guard that separates `member` from the
-    /// arms it shares a runtime tag with, if its declared shape allows one.
+    /// Build a structural guard that separates `member` from the arms it shares
+    /// a runtime tag with, if its declared shape allows one.
     ///
-    /// Only a class knows its own field names in MIR; a record is
-    /// `Dict(String, V)` and states no keys, so there is nothing to test and
-    /// this returns `None` for it. The guard asserts every field this arm
-    /// declares that at least one same-tag sibling does not.
+    /// Two shapes carry enough static evidence to discriminate:
+    ///
+    /// * a TUPLE states its arity, so a length test decides — used when no
+    ///   same-tag sibling has the same arity;
+    /// * a CLASS states its field names, so key presence decides — the guard
+    ///   asserts every field this arm declares that at least one same-tag
+    ///   sibling does not.
+    ///
+    /// Everything else returns `None`: a record is `Dict(String, V)` and states
+    /// no keys, a list states no length, so there is nothing to test. Those arms
+    /// still recover on the tag alone, which is all their type supports.
     fn union_member_structural_guard(
         &self,
         member: TypeId,
         members: &[TypeId],
         index: usize,
     ) -> Option<String> {
-        let Some(Type::Class { name, .. }) = self.mir.types.get(member) else {
-            return None;
-        };
         let tag = self.union_member_unknown_pattern(member);
         let siblings = members
             .iter()
@@ -602,6 +787,33 @@ impl FunctionEmitter<'_> {
         if siblings.is_empty() {
             return None;
         }
+        // A TUPLE's arity is part of its type, so when tag-sharing siblings
+        // disagree on length the length IS the discriminant — the same kind of
+        // static evidence the class branch below gets from field names.
+        //
+        // Without this, `Pair | Triple` (both `[string, number, ...]`, so both
+        // tagged `SmeltUnknown::Array`) recovered on the tag alone: the first
+        // arm won every time, and `table['b'] = ['y', 2, true]` came back as the
+        // 2-tuple with its third element silently dropped —
+        // `['y',2,true].length` answered 2 where Node answers 3, with nothing
+        // reported. Only emitted when no tag-sharing sibling has the same
+        // arity, so the check is decisive rather than merely narrowing.
+        if let Some(Type::Tuple(items)) = self.mir.types.get(member) {
+            let arity = items.len();
+            let ambiguous = siblings.iter().any(|sibling| {
+                matches!(self.mir.types.get(*sibling), Some(Type::Tuple(other)) if other.len() == arity)
+            });
+            return if ambiguous {
+                None
+            } else {
+                Some(format!(
+                    "(matches!(&value, SmeltUnknown::Array(smelt_arms) if smelt_arms.len() == {arity}))"
+                ))
+            };
+        }
+        let Some(Type::Class { name, .. }) = self.mir.types.get(member) else {
+            return None;
+        };
         let fields = self
             .mir
             .classes
@@ -681,6 +893,146 @@ impl FunctionEmitter<'_> {
         } else {
             format!("matches!({value_text}, {})", patterns.join(" | "))
         })
+    }
+
+    /// Emit a dotted property write dispatched through a generated union's arms.
+    ///
+    /// A value whose static type is a concrete union is a tagged `SmeltUnion…`
+    /// enum, so the write is dispatched on the tag and each arm performs its own
+    /// member's typed struct-field assignment — the value is rendered at that
+    /// arm's declared field type, so nothing is erased on the way in.
+    ///
+    /// Returns `None` when at least one arm does not declare the property as a
+    /// named field. TypeScript only accepts such a write after narrowing the
+    /// receiver to the one arm that has it, and the tag alone cannot reproduce a
+    /// narrowing the MIR did not record, so the caller falls back to the erased
+    /// boundary adapter (documented at the call site in `control_flow`).
+    pub(super) fn concrete_union_field_assign_text(
+        &self,
+        base: LocalId,
+        field: Symbol,
+        value: &Rvalue,
+    ) -> Result<Option<String>, EmitError> {
+        let base_ty = self.local_decl(base)?.ty;
+        let Some(members) = self.concrete_union_members(base_ty) else {
+            return Ok(None);
+        };
+        let resolved: Option<Vec<TypeId>> = members
+            .iter()
+            .map(|member| self.class_named_field_ty(*member, field))
+            .collect();
+        let Some(field_types) = resolved else {
+            return Ok(None);
+        };
+        let union_enum_name = union_name(base_ty);
+        let field_name = sanitize_ident(self.symbol_name(field)?);
+        let mut arms = Vec::with_capacity(field_types.len());
+        for (index, field_ty) in field_types.into_iter().enumerate() {
+            let rendered_value = self.rvalue_text_for_dest(value, field_ty)?;
+            arms.push(format!(
+                "{union_enum_name}::M{index}(smelt_union_arm) => {{ smelt_union_arm.{field_name} = {rendered_value}; }}"
+            ));
+        }
+        Ok(Some(format!(
+            "match &mut {} {{ {} }}",
+            self.local_mut_value_text(base)?,
+            arms.join(", ")
+        )))
+    }
+
+    /// Emit a dotted property read dispatched through a generated union's arms.
+    ///
+    /// The mirror of [`Self::concrete_union_field_assign_text`] on the read
+    /// side: each arm projects its own member's struct field, so the value keeps
+    /// the type the source gave it instead of being erased and looked up by
+    /// name at run time.
+    ///
+    /// Returns `None` unless every arm declares the property at ONE type. Arms
+    /// that disagree on the field's type would need the field's own union, which
+    /// this rule does not mint; the caller keeps its existing path for those.
+    pub(super) fn concrete_union_field_read_text(
+        &self,
+        base: LocalId,
+        field: Symbol,
+    ) -> Result<Option<String>, EmitError> {
+        let base_ty = self.local_decl(base)?.ty;
+        if self.concrete_union_field_ty(base_ty, field).is_none() {
+            return Ok(None);
+        }
+        let Some(members) = self.concrete_union_members(base_ty) else {
+            return Ok(None);
+        };
+        let member_count = members.len();
+        let union_enum_name = union_name(base_ty);
+        let field_name = sanitize_ident(self.symbol_name(field)?);
+        let arms = (0..member_count)
+            .map(|index| {
+                format!(
+                    "{union_enum_name}::M{index}(smelt_union_arm) => smelt_union_arm.{field_name}.clone()"
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        Ok(Some(format!(
+            "match &{} {{ {arms} }}",
+            self.local_value_text(base)?
+        )))
+    }
+
+    /// Resolve the one type every arm of a concrete union gives a named field.
+    ///
+    /// `None` when the receiver is not a concrete union, when an arm does not
+    /// declare the field, or when the arms disagree about its type — the three
+    /// cases in which the tag alone cannot decide a single static read type.
+    pub(super) fn concrete_union_field_ty(&self, union_ty: TypeId, field: Symbol) -> Option<TypeId> {
+        let members = self.concrete_union_members(union_ty)?;
+        let mut resolved: Option<TypeId> = None;
+        for member in members {
+            let field_ty = self.class_named_field_ty(*member, field)?;
+            match resolved {
+                Some(previous) if previous != field_ty => return None,
+                _ => resolved = Some(field_ty),
+            }
+        }
+        resolved
+    }
+
+    /// Resolve the declared type of one named struct field on a record type.
+    ///
+    /// A class and an interface (or a synthesized object-literal shape) are the
+    /// same kind of record here — both emit a Rust struct with the same field
+    /// spelling — so both field tables answer, exactly as
+    /// [`Self::class_has_named_field`] consults both.
+    ///
+    /// Returns `None` when the type is not a materialized record or the field is
+    /// not one of its declared members, which is how the union write dispatch
+    /// above decides that an arm cannot take a typed write.
+    fn class_named_field_ty(&self, ty: TypeId, field: Symbol) -> Option<TypeId> {
+        if !self.class_has_named_field(ty, field) {
+            return None;
+        }
+        let Some(Type::Class { name, .. }) = self.mir.types.get(ty) else {
+            return None;
+        };
+        let fields = self
+            .mir
+            .classes
+            .iter()
+            .find(|class| class.name == *name)
+            .map(|class| crate::classes::effective_class_fields(self.mir, class))
+            .or_else(|| {
+                self.mir
+                    .interfaces
+                    .iter()
+                    .find(|interface| interface.name == *name)
+                    .map(|interface| {
+                        crate::classes::effective_interface_fields(self.mir, interface)
+                    })
+            })?;
+        fields
+            .into_iter()
+            .find(|candidate| candidate.name == field)
+            .map(|candidate| candidate.ty)
     }
 
     /// Return whether a concrete union member type statically carries a field.
@@ -780,31 +1132,44 @@ pub(crate) fn emit_union_definitions(
                     .iter()
                     .map(|param| {
                         Ok(format!(
-                            "{}: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static",
-                            emitter.union_type_param_name(*param)?
+                            "{}: {}",
+                            emitter.union_type_param_name(*param)?,
+                            crate::classes::GENERATED_TYPE_PARAM_BOUNDS
                         ))
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?
                     .join(", ")
             )
         };
-        let default_generics = if params.is_empty() {
-            String::new()
-        } else {
-            format!(
-                "<{}>",
-                params
-                    .iter()
-                    .map(|param| Ok(format!("{}: Default", emitter.union_type_param_name(*param)?)))
-                    .collect::<Result<Vec<_>, EmitError>>()?
-                    .join(", ")
-            )
-        };
+        // `Default`'s body constructs the FIRST member's default, and a member
+        // is routinely another generated type whose own `Default` carries the
+        // crate bound set (`classes::GENERATED_TYPE_PARAM_BOUNDS`) — a
+        // `Result<T> = Ok<T> | Err<T>` union defaults to `Ok<T>::default()`.
+        // `T: Default` alone cannot prove that, so this takes the same set every
+        // other generic item the crate emits takes. `Debug` shares the binding
+        // and is not weakened by it: it routes through the erased view, which
+        // needs `IntoSmeltUnknown` anyway.
+        let default_generics = impl_generics.clone();
         let target = emitter.union_type_text(type_id)?;
+        // Render the members in the enum's OWN type-parameter environment. The
+        // default environment is the first function's lexical scope, which does
+        // not declare the union's parameters, so a member mentioning one erased
+        // it: `type ResponseOrInit<T> = ResponseInit<T> | Response` emitted
+        // `enum SmeltUnion4<T> { M0(ResponseInit<SmeltUnknown>), M1(SmeltResponse) }`
+        // -- `T` declared and used by nothing (E0392), the argument the MIR type
+        // carried discarded, and `T` uninferable at any construction site
+        // (E0282). `declaration_generics` is derived from exactly these
+        // parameters, so spelling them here is what makes the declaration and its
+        // members agree. This closes the "known gap" recorded on
+        // `FunctionEmitter::rust_type`.
+        let member_scope: ::std::collections::HashSet<Symbol> = params.iter().copied().collect();
+        let member_substitution = crate::type_substitution::TypeSubstitution::callee_emission(&member_scope);
         output.push_str("#[derive(Clone)]\n");
         output.push_str(&format!("pub enum {name}{declaration_generics} {{\n"));
         for (member_index, member) in members.iter().enumerate() {
-            let member_text = emitter.type_text_with_impl_trait(*member, false)?;
+            let member_text = emitter
+                .rust_type(*member, false, &member_substitution)?
+                .into_string();
             output.push_str(&format!("    M{member_index}({member_text}),\n"));
         }
         output.push_str("}\n");
@@ -838,7 +1203,9 @@ pub(crate) fn emit_union_definitions(
         output.push_str("        }\n    }\n}\n");
         output.push_str(&format!("impl{impl_generics} {target} {{\n"));
         output.push_str("    fn from_smelt_unknown(value: SmeltUnknown) -> Self {\n");
-        output.push_str(&emitter.union_from_smelt_unknown_body(members)?);
+        output.push_str(
+            &emitter.union_from_smelt_unknown_body_in_scope(members, &member_substitution)?,
+        );
         output.push_str("    }\n}\n");
         output.push_str(&format!("impl{impl_generics} PartialEq for {target} {{\n"));
         output.push_str("    fn eq(&self, other: &Self) -> bool {\n");

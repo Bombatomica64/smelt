@@ -19,9 +19,9 @@ class codes(IntEnum):
         &mut ctx,
     )?;
     lower_path_module(
-        py!(r#"
+        py!(r"
 from ._status_codes import codes
-"#),
+"),
         "src/httpx/__init__.py",
         &mut ctx,
     )?;
@@ -80,10 +80,10 @@ d: Dog = Dog("Rex")
 
 #[test]
 fn django_model_rejected() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 class MyModel(models.Model):
     name: str
-"#);
+");
     let mut ctx = HirCtx::new();
     let errors = lower_errors(source, &mut ctx)?;
     let error = first_error(&errors)?;
@@ -93,10 +93,10 @@ class MyModel(models.Model):
 
 #[test]
 fn abcmeta_metaclass_lowers_as_abstract_metadata() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 class Meta(metaclass=ABCMeta):
     pass
-"#);
+");
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
     Ok(())
@@ -106,10 +106,10 @@ class Meta(metaclass=ABCMeta):
 fn package_import_namespace_members_lower() -> TestResult {
     let mut ctx = HirCtx::new();
     lower_path_module(
-        py!(r#"
+        py!(r"
 def add(a: int, b: int) -> int:
     return a + b
-"#),
+"),
         "src/httpx/__init__.py",
         &mut ctx,
     )?;
@@ -120,11 +120,11 @@ def add(a: int, b: int) -> int:
         "expected httpx package namespace to export add",
     )?;
     let module_id = lower_path_module(
-        py!(r#"
+        py!(r"
 import httpx
 
 result: int = httpx.add(2, 3)
-"#),
+"),
         "tests/test_status_codes.py",
         &mut ctx,
     )?;
@@ -142,12 +142,12 @@ result: int = httpx.add(2, 3)
 
 #[test]
 fn function_item_references_keep_callable_type() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 def add(a: int, b: int) -> int:
     return a + b
 
 alias = add
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -166,7 +166,7 @@ alias = add
 
 #[test]
 fn callable_field_call_lowers_as_closure_call() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 from typing import Callable
 
 class Box:
@@ -174,7 +174,7 @@ class Box:
 
 box: Box = Box()
 value: int = box.callback(41)
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -213,13 +213,13 @@ value: int = callbacks["next"](41)
 
 #[test]
 fn constructed_module_constant_exports_class_instance() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 class NullFile:
     def __enter__(self) -> NullFile:
         return self
 
 NULL_FILE = NullFile()
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -245,7 +245,7 @@ NULL_FILE = NullFile()
 fn rich_package_import_aliases_export_null_file_members() -> TestResult {
     let mut ctx = HirCtx::new();
     lower_path_module(
-        py!(r#"
+        py!(r"
 class NullFile:
     def __enter__(self) -> NullFile:
         return self
@@ -253,7 +253,7 @@ class NullFile:
         pass
 
 NULL_FILE = NullFile()
-"#),
+"),
         "src/rich/_null_file.py",
         &mut ctx,
     )?;
@@ -267,12 +267,12 @@ __all__ = ["NULL_FILE", "NullFile"]
         &mut ctx,
     )?;
     lower_path_module(
-        py!(r#"
+        py!(r"
 from rich import NULL_FILE, NullFile
 
 value: NullFile = NULL_FILE
 made: NullFile = NullFile()
-"#),
+"),
         "tests/test_rich_imports.py",
         &mut ctx,
     )?;
@@ -335,11 +335,11 @@ for line in NULL_FILE:
 
 #[test]
 fn generic_base_class_lowers_as_base_metadata() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 class NullFile(IO[str]):
     def write(self, text: str) -> int:
         return 0
-"#);
+");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -358,10 +358,10 @@ class NullFile(IO[str]):
 
 #[test]
 fn multiple_inheritance_rejected() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 class C(A, B):
     pass
-"#);
+");
     let mut ctx = HirCtx::new();
     let errors = lower_errors(source, &mut ctx)?;
     let error = first_error(&errors)?;
@@ -371,11 +371,11 @@ class C(A, B):
 
 #[test]
 fn unknown_decorator_requires_specialization() -> TestResult {
-    let source = py!(r#"
+    let source = py!(r"
 @some_decorator
 class Foo:
     x: int
-"#);
+");
     let mut ctx = HirCtx::new();
     let errors = lower_errors(source, &mut ctx)?;
     let error = first_error(&errors)?;
@@ -387,12 +387,12 @@ class Foo:
 fn deferred_native_and_io_apis_have_targeted_diagnostics() -> TestResult {
     let mut ctx = HirCtx::new();
     let numpy_errors = lower_errors(
-        py!(r#"
+        py!(r"
 import numpy as np
 
 def run() -> int:
     return np.array([1, 2, 3])
-"#),
+"),
         &mut ctx,
     )?;
     let error = first_error(&numpy_errors)?;
@@ -404,12 +404,12 @@ def run() -> int:
 
     let mut ctx = HirCtx::new();
     let pandas_errors = lower_errors(
-        py!(r#"
+        py!(r"
 import pandas as pd
 
 def run() -> int:
     return pd.DataFrame()
-"#),
+"),
         &mut ctx,
     )?;
     let error = first_error(&pandas_errors)?;

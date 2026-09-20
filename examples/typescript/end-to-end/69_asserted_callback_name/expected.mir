@@ -1,0 +1,222 @@
+class Checker fields [] constructor Some(FuncId(2)) methods [FuncId(1)]
+
+fn is_long (FuncId(0)) -> Bool
+  locals
+    %0 param value: String
+    %1 temp: Float
+    %2 temp: Bool
+  bb0:
+    %1 = len copy %0
+    %2 = move %1 > 2.0
+    return move %2
+
+fn matches (FuncId(1)) -> Bool
+  locals
+    %0 param this: Checker
+    %1 param value: String
+    %2 temp: String
+    %3 temp: String
+    %4 temp: Bool
+  bb0:
+    %2 = copy %1
+    %3 = "ab"
+    %4 = string_starts_with copy %1, move %3
+    return move %4
+
+fn new (FuncId(2)) -> Checker
+  locals
+    %0 user this: Checker
+  bb0:
+    %0 = struct3 {}
+    return move %0
+
+fn main (FuncId(3)) -> None
+  locals
+    %0 user words: List<String>
+    %1 user lengths: List<Float>
+    %2 user checker: Checker
+    %3 temp: List<String>
+    %4 temp: fn(String, Int, List<String>) -> Bool
+    %5 temp: List<String>
+    %6 temp: String
+    %7 temp: None
+    %8 temp: fn(String, Int, List<String>) -> Bool
+    %9 temp: List<String>
+    %10 temp: String
+    %11 temp: None
+    %12 temp: fn(String, Int, List<String>) -> Bool
+    %13 temp: List<String>
+    %14 temp: String
+    %15 temp: None
+    %16 temp: fn(String, Int, List<String>) -> Bool
+    %17 temp: List<String>
+    %18 temp: String
+    %19 temp: None
+    %20 temp: fn(String) -> Bool
+    %21 temp: List<String>
+    %22 temp: String
+    %23 temp: None
+    %24 temp: fn(String) -> Float
+    %25 temp: List<Float>
+    %26 temp: String
+    %27 temp: None
+    %28 temp: Checker
+    %29 temp: fn(String, Int, List<String>) -> Bool
+    %30 temp: List<String>
+    %31 temp: String
+    %32 temp: None
+  bb0:
+    %3 = ["a", "abc", "ab", "abcd"]
+    %0 = move %3
+    %4 = closure ClosureId(0) []
+    %5 = list_filter copy %0, move %4
+    %6 = string_join move %5, ","
+    %7 = call @console_log(move %6) -> bb1
+  bb1:
+    %8 = closure ClosureId(2) []
+    %9 = list_filter copy %0, move %8
+    %10 = string_join move %9, ","
+    %11 = call @console_log(move %10) -> bb2
+  bb2:
+    %12 = closure ClosureId(4) []
+    %13 = list_filter copy %0, move %12
+    %14 = string_join move %13, ","
+    %15 = call @console_log(move %14) -> bb3
+  bb3:
+    %16 = closure ClosureId(6) []
+    %17 = list_filter copy %0, move %16
+    %18 = string_join move %17, ","
+    %19 = call @console_log(move %18) -> bb4
+  bb4:
+    %20 = closure ClosureId(8) []
+    %21 = list_filter copy %0, move %20
+    %22 = string_join move %21, ","
+    %23 = call @console_log(move %22) -> bb5
+  bb5:
+    %24 = closure ClosureId(9) []
+    %25 = list_map copy %0, move %24
+    %1 = move %25
+    %26 = string_join move %1, ","
+    %27 = call @console_log(move %26) -> bb6
+  bb6:
+    %28 = call fn2() -> bb7
+  bb7:
+    %2 = move %28
+    %29 = closure ClosureId(10) [copy %2]
+    %30 = list_filter move %0, move %29
+    %31 = string_join move %30, ","
+    %32 = call @console_log(move %31) -> bb8
+  bb8:
+    return none
+
+closure ClosureId(0) -> Bool
+  locals
+    %0 param __callback_param_0: String
+    %1 param __callback_param_1: Int
+    %2 param __callback_param_2: List<String>
+    %3 temp: fn(String) -> Bool
+    %4 temp: Bool
+  bb0:
+    %3 = closure ClosureId(1) []
+    %4 = closure_call copy %3(copy %0)
+    return copy %4
+
+closure ClosureId(1) -> Bool
+  locals
+    %0 param arg0: String
+    %1 temp: Bool
+  bb0:
+    %1 = call fn0(copy %0) -> bb1
+  bb1:
+    return copy %1
+
+closure ClosureId(2) -> Bool
+  locals
+    %0 param __callback_param_0: String
+    %1 param __callback_param_1: Int
+    %2 param __callback_param_2: List<String>
+    %3 temp: fn(String) -> Bool
+    %4 temp: Bool
+  bb0:
+    %3 = closure ClosureId(3) []
+    %4 = closure_call copy %3(copy %0)
+    return copy %4
+
+closure ClosureId(3) -> Bool
+  locals
+    %0 param arg0: String
+    %1 temp: Bool
+  bb0:
+    %1 = call fn0(copy %0) -> bb1
+  bb1:
+    return copy %1
+
+closure ClosureId(4) -> Bool
+  locals
+    %0 param __callback_param_0: String
+    %1 param __callback_param_1: Int
+    %2 param __callback_param_2: List<String>
+    %3 temp: fn(String) -> Bool
+    %4 temp: Bool
+  bb0:
+    %3 = closure ClosureId(5) []
+    %4 = closure_call copy %3(copy %0)
+    return copy %4
+
+closure ClosureId(5) -> Bool
+  locals
+    %0 param arg0: String
+    %1 temp: Bool
+  bb0:
+    %1 = call fn0(copy %0) -> bb1
+  bb1:
+    return copy %1
+
+closure ClosureId(6) -> Bool
+  locals
+    %0 param __callback_param_0: String
+    %1 param __callback_param_1: Int
+    %2 param __callback_param_2: List<String>
+    %3 temp: fn(String) -> Bool
+    %4 temp: Bool
+  bb0:
+    %3 = closure ClosureId(7) []
+    %4 = closure_call copy %3(copy %0)
+    return copy %4
+
+closure ClosureId(7) -> Bool
+  locals
+    %0 param arg0: String
+    %1 temp: Bool
+  bb0:
+    %1 = call fn0(copy %0) -> bb1
+  bb1:
+    return copy %1
+
+closure ClosureId(8) -> Bool
+  locals
+    %0 param value: String
+    %1 temp: Bool
+  bb0:
+    %1 = call fn0(copy %0) -> bb1
+  bb1:
+    return copy %1
+
+closure ClosureId(9) -> Float
+  locals
+    %0 param __callback_param_0: String
+  bb0:
+    return copy %0.field1
+
+closure ClosureId(10) -> Bool
+  locals
+    %0 param __callback_param_0: String
+    %1 param __callback_param_1: Int
+    %2 param __callback_param_2: List<String>
+    %3 user checker: Checker
+    %4 temp: Bool
+  bb0:
+    %4 = call fn1(copy %3, copy %0) -> bb1
+  bb1:
+    return copy %4
+
