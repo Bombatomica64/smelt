@@ -4037,20 +4037,26 @@ impl ModuleBuilder<'_> {
 
         let body_id = self.ctx.krate.push_body(body);
         let rest_index = rest.as_ref().map(|rest| rest.index);
-        let function_ty = hint_function.map_or_else(
-            || {
-                self.ctx.krate.types.intern(Type::Function(FunctionType {
-                    params: params.iter().map(|param| param.ty).collect(),
-                    rest: rest_index,
-                    required_params: Some(required_params),
-                    mutable_params: Vec::new(),
-                    return_ty,
-                    is_async: function.r#async,
-                    may_throw: false,
-                }))
-            },
-            |(ty, _)| ty,
-        );
+        // A contextual type describes the signature the SOURCE wrote. The
+        // variadic rewrite above replaced that signature with a single rest list
+        // (`lowering::arguments_forwarding`), so a hint taken here would type the
+        // closure at an arity its body no longer has: `(function () { return
+        // arguments; })()` was typed `() => unknown` while its lowered body takes
+        // `__smelt_arguments`, and the call site then invoked a one-parameter
+        // closure with no arguments at all (E0057). The rewritten signature is
+        // the only one that describes what was lowered.
+        let function_ty = match hint_function {
+            Some((ty, _)) if arguments_forwarding.is_none() => ty,
+            _ => self.ctx.krate.types.intern(Type::Function(FunctionType {
+                params: params.iter().map(|param| param.ty).collect(),
+                rest: rest_index,
+                required_params: Some(required_params),
+                mutable_params: Vec::new(),
+                return_ty,
+                is_async: function.r#async,
+                may_throw: false,
+            })),
+        };
         Ok(outer_body.push_expr(Expr {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {
                 params,
