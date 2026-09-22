@@ -333,3 +333,4 @@ third_party/es-toolkit-src/
 
 # CI triage note for the post-merge failures on main after 7899b194.
 !blocker-logs/ci-main-7899b194-fix.md
+target-basecheck/

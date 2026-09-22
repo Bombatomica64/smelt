@@ -5,6 +5,18 @@
 - Files scanned: 258 · with blockers: 0
 
 
+## Whole-crate `cargo check` (round 34 merged, head `76bda3df`) — PHASE 2 COMPLETE
+
+Orchestrator measurement, clean clone at `eebdf7be…` + `.github/compat/hono/.`, fresh full-feature
+binary, repo-root absolute `--manifest-path`: 33 modules, **0 errors** (418 warnings), and
+`cargo build` on `dist-smelt` **links** (`hono_probe` binary produced). Round 34 landed: nested
+function declaration hoisting + self-reference (K, `hono-round34-hoisting.md`), synthesized
+function-value name scope and symbol-keyed base-class chains incl. polymorphic-`this` inherited
+copies (L, `hono-round34-scoping.md`), transitive closure captures through nested function
+declarations + HIR frame-locality validation + distinct capture aliases (M,
+`hono-round34-captures.md`). Erasure: examples avoidable 0; es-toolkit ratchet 31645 → **31431**;
+remeda advisory 24873 → 24167. Phase 3 (Hono's own tests) is in progress: `hono-phase3-round1-brief.md`.
+
 ## Whole-crate `cargo check` (round 33 partial merge, head `39c9be73`)
 
 Orchestrator measurement, clean clone, fresh full-feature binary, repo-root `--manifest-path`:
