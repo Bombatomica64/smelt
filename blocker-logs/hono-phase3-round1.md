@@ -140,7 +140,29 @@ Host surfaces in the list that are arguably scope decisions rather than families
 
 Run once on the measurement slice (282 `#[test]`, `cookie.test.ts` removed for the reason below):
 
-<!-- CHECK_TESTS_TABLE -->
+Run once on a reduced slice: 20 generated test modules, **221 `#[test]`**, 43 MB of generated
+Rust (`Smelt-small.toml`). The larger 282-test slice could not be checked — see the duplication
+blocker below: rustc was still resident at 6 GB after 1h40m on it, and the full slice (with
+`cookie.test.ts`) is OOM-killed outright.
+
+`cargo check --tests` → **7722 errors**:
+
+| code | n | what it is |
+| --- | ---: | --- |
+| E0107 | 6473 | wrong number of generic arguments — `Context<E>` written against `class Context<E, P, I>` with defaults; the type-parameter-defaults family phase 2 already names, but the test bodies write `Context` far more often than the library does |
+| E0560 | 630 | struct has no such field |
+| E0308 | 331 | mismatched types |
+| E0609 | 225 | no field on this type |
+| E0615 | 26 | method used as a field (a callable field read without a call) |
+| E0277 | 10 | trait bound not satisfied |
+| E0425 | 9 | unresolved name |
+| E0618 | 7 | called something that is not a function |
+| E0605 | 3 | invalid cast |
+| E0599 | 2 | no method |
+| E0369 | 1 | binary operation not supported |
+
+461 warnings. Nothing here was fixed — round 2 owns this table, and E0107 alone is 84 % of it.
+
 
 ### The blocker that stops the test build: exponential `toThrow` duplication
 
@@ -157,7 +179,38 @@ the area another stream is working in this round.
 
 ## Gates
 
-<!-- GATES_TABLE -->
+| gate | expected | measured | verdict |
+| --- | --- | --- | --- |
+| examples invariant (`--fail-on-regression`) | avoidable 0 | avoidable **0**, 68700 total, exit 0 | pass |
+| es-toolkit ratchet (`--fail-on-regression`) | avoidable ≤ 31431 | avoidable **30809** (−622), exit 0 | pass, baseline re-snapshotted in `ac47e17c` |
+| remeda advisory report | — | avoidable **24142** (−731 vs baseline) | pass (advisory) |
+| remeda generated `cargo test` | 1789 / 0 | **1786 passed / 3 failed** (1789 total) | see below |
+| radash generated `cargo test` | 84 / 84 | **358 passed / 29 failed** (387 total) | see below |
+| `cargo test -p smelt-frontend-ts --no-default-features` | green | 1101 passed / 0 failed | pass |
+| `cargo test -p smelt-codegen-rust` | green | 1079 passed / 0 failed (+ ignored tiers) | pass |
+| `cargo test --bin smelt` | green | 60 passed / 0 failed | pass |
+| end-to-end (`hir_cli_cross_language_tests`) | green | 18 passed / 0 failed | pass |
+| vitest runtime tier (`--ignored`) | green | 19 passed / 0 failed (5 pre-existing + 14 new) | pass |
+| `cargo clippy --all-targets` | no new findings in touched files | one new (unnecessary qualification), fixed in `ce7b410b` | pass |
+
+### The two corpus test gates moved, and why
+
+Both moves are the vitest-globals fix telling the truth, not a behaviour regression:
+
+- **radash 84 → 387 tests.** Eight of radash's nine `src/tests/*.test.ts` files never import from
+  `vitest`; only `typed.test.ts` did (and only because the overlay's `sed` adds the import). So the
+  committed "84 / 84" was 84 tests out of 387, with 303 silently not emitted at all. All **29**
+  failures are in the eight newly-emitted modules (array 5, async 9, curry 11, number 1, series 3);
+  the 84 that used to run still pass. This needs a new committed baseline and a family pass.
+- **remeda 1789 → 1786 / 3.** The total is unchanged (remeda imports vitest), and the three
+  failures are assertions that previously lowered to NOTHING: `toBeLessThanOrEqual` /
+  `toBeGreaterThanOrEqual` were not in the matcher model, so the call fell through to the generic
+  dynamic-call path and asserted nothing. Now that they assert, they fail on
+  `randomBigInt`/`sample` because a `bigint` wider than `i64`
+  (`9_999_999_999_999_999_999_999n`) is typed as a float and the comparison emits
+  `(v as f64) < huge_number` — lossy at 1e22. That is the bigint literal-width family, not the
+  matcher: the matcher is what made it visible.
+
 
 ## Not fixed, found
 
