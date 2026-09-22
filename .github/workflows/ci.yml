@@ -500,29 +500,27 @@ jobs:
             --no-fail-fast 2>&1 | tee radash-tests.log
           grep -F "test result: ok. 84 passed; 0 failed;" radash-tests.log
 
-  # ADVISORY tracking job for the Hono campaign (blocker-logs/hono-campaign-plan.md).
+  # Regression gate for the Hono campaign (blocker-logs/hono-campaign-plan.md).
   #
   # Hono is pure TypeScript with zero runtime dependencies, so it is the corpus
   # that shows whether Smelt can transpile a FRAMEWORK — routers, middleware
   # composition, a context object, cookies, validators — rather than only
-  # utilities. It is not yet a gate: source lowering still reports blockers on
-  # names the standards-tier stream owns (`Response`, `Headers`, `BodyInit`,
-  # `TextEncoder`, `crypto`), and the whole-crate build aborts at the first file
-  # that needs one. So this job is `continue-on-error` and its only job today is
-  # to PRINT the current blocker count and shapes, so a change that improves or
-  # regresses them is visible in the log without failing anyone's PR.
-  #
-  # Turn off `continue-on-error` and add the `cargo test` assertion once phase 3
-  # of the campaign plan has a stable pass count (see the radash job below for
-  # the shape that takes).
-  hono-advisory:
+  # utilities. Phase 2 landed the whole non-test crate at 0 `cargo check`
+  # errors and linking (`blocker-logs/hono-current.md`), so `smelt build` +
+  # `cargo check` on `dist-smelt` are now a HARD gate, mirroring the radash job
+  # above. Phase 3 (bringing Hono's own `*.test.ts` files into scope) is in
+  # progress and its pass/fail baseline is not yet established, so
+  # `cargo test` stays ADVISORY (`continue-on-error: true`) until that baseline
+  # is stable, as this job's `cargo test` assertion becomes stable too — at
+  # which point it should be promoted to a hard `grep` assertion the way
+  # radash's is.
+  hono:
     # Opt-in on PRs via the `run-regressions` label; always on for main pushes.
     # See the banner above `remeda-regression`.
     if: >-
       ${{ github.event_name == 'push'
           || contains(github.event.pull_request.labels.*.name, 'run-regressions') }}
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -561,19 +559,35 @@ jobs:
           print(f'hono blockers: {len(rows)}')
           "
 
-      - name: Transpile Hono to Rust (advisory; aborts on the first blocked file)
-        run: target/debug/smelt --manifest-path target/compat-repos/hono/Smelt.toml build
+      - name: Transpile Hono to Rust + compile the generated crate (regression gate)
+        # HARD: the non-test Hono crate is at 0 cargo check errors and links
+        # (blocker-logs/hono-current.md), same bar as radash/remeda.
+        run: |
+          target/debug/smelt --manifest-path target/compat-repos/hono/Smelt.toml build
+          cargo check --manifest-path target/compat-repos/hono/dist-smelt/Cargo.toml
 
-      - name: Compile the generated Hono crate (advisory)
-        # Advisory like the probe steps above it: the generated Hono crate still
-        # has a small, tracked set of `cargo check` errors
-        # (`blocker-logs/hono-current.md`), and this step exists to report that
-        # count, not to gate the merge. Without this the step's non-zero exit
-        # marked the whole job failed even though the job is `continue-on-error`.
+      - name: Run generated Hono tests (advisory)
+        # ADVISORY: phase 3 (bringing Hono's own *.test.ts files into scope,
+        # blocker-logs/hono-phase3-brief.md) is in progress and has not yet
+        # established a stable pass/fail baseline. Promote this to a hard
+        # `grep`-asserted pass count, like radash's, once that baseline holds.
         continue-on-error: true
         run: |
-          RUSTFLAGS=-Awarnings cargo check \
-            --manifest-path target/compat-repos/hono/dist-smelt/Cargo.toml
+          cargo test --manifest-path target/compat-repos/hono/dist-smelt/Cargo.toml --no-fail-fast
+
+      # Advisory SmeltUnknown metric, remeda-style: never blocks, and only
+      # runs once blocker-logs/smelt-unknown-baseline-hono.json exists (it is
+      # committed separately once the phase-3/4 erasure baseline lands).
+      - name: SmeltUnknown usage report (advisory)
+        if: ${{ always() }}
+        run: |
+          if [ -f blocker-logs/smelt-unknown-baseline-hono.json ] && [ -d target/compat-repos/hono/dist-smelt/src ]; then
+            target/debug/smelt smelt-unknown-report \
+              target/compat-repos/hono/dist-smelt/src \
+              --baseline blocker-logs/smelt-unknown-baseline-hono.json || true
+          else
+            echo "No Hono SmeltUnknown baseline yet; skipping SmeltUnknown report."
+          fi
 
   # Regression gate: transpile es-toolkit at the ref pinned in
   # .github/compat/libraries.json with the smelt built from THIS commit, then

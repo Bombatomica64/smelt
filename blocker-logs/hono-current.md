@@ -3,6 +3,7 @@
 - Transpile: **yes** — Rust crate emitted
 - Generated `cargo test`: not run (pass `--run-tests`)
 - Files scanned: 258 · with blockers: 0
+- CI: `.github/workflows/ci.yml`'s `hono` job now hard-gates `smelt build` + `cargo check` on `dist-smelt` (mirroring radash); `cargo test` and the SmeltUnknown erasure report stay advisory until the phase-3 test baseline is stable.
 
 
 ## Whole-crate `cargo check` (round 34 merged, head `76bda3df`) — PHASE 2 COMPLETE
