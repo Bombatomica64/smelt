@@ -6,6 +6,31 @@
 - CI: `.github/workflows/ci.yml`'s `hono` job now hard-gates `smelt build` + `cargo check` on `dist-smelt` (mirroring radash); `cargo test` and the SmeltUnknown erasure report stay advisory until the phase-3 test baseline is stable.
 
 
+## Phase 3 overlay pass — the gated build passes again (`worktree-agent-a027ada4a0cd01ce8`)
+
+With the test glob fixed the committed overlay selected 84 test files and `smelt build` aborted
+on the first blocker of the test closure (`unresolved class ReadableStream` in
+`middleware/body-limit`). The overlay now excludes **64 test files** (79 exclude entries total),
+each under a grouped `phase 3 pending` comment naming its family; only test files, so no library
+module is pruned. 49 hit a source-lowering blocker (incl. `utils/cookie.test.ts`, the 616 MB
+`toThrow` duplication), 14 lower but pulled library modules with generated-Rust errors into the
+phase-2 gate (a first cut at 99 modules gave `cargo check` **125 errors**: E0308 59, E0107 53,
+E0425 9, E0605 3, E0609 1 — the `Context`/`Context_1` cross-kind collision with type arguments,
+`accept`, `basic-auth`, `concurrent`, `cookie`, `serve-static`; that check never finished, stopped
+after ~2 h), and 1 (`trailing-slash`) pulls a 3 MB module that OOMs plain `cargo check`.
+
+| gate | result |
+| --- | --- |
+| `smelt build` | passes — 63 modules, **211 `#[test]`** in 10 test modules |
+| `cargo check` (no tests) | **0 errors**, 438 warnings, 40 s |
+| `cargo build` | links (`hono_probe`) |
+| `cargo check --tests` (limit 30 min) | finished in 3 min 38 s: **402 errors** — E0308 285, E0609 69, E0615 26, E0560 22 |
+| `cargo test --no-fail-fast` | did not compile |
+| phase-3 baseline | **0 passed / 0 failed / 211 total (test binary does not compile)** |
+| SmeltUnknown (advisory, `smelt-unknown-baseline-hono.json`) | 101488 total, avoidable **8278** |
+
+Details: `hono-tests.md`; round-2 family queue: `hono-phase3-round2-brief.md`.
+
 ## Phase 3 round 1 (the test closure) — `worktree-agent-aabf2b588e2283140`
 
 The test glob was dead (`src/**/*.test.ts` under `roots = ["src"]` matches paths relative to the
