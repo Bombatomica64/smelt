@@ -3571,7 +3571,7 @@ fn main() {
     _smelt_tmp_84 = _smelt_tmp_82.len() as f64;
     _smelt_tmp_85 = _smelt_tmp_83 < _smelt_tmp_84;
     if !(_smelt_tmp_85) { break; }
-    element = _smelt_tmp_82.borrow().get({ let normalized = _smelt_tmp_83 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0);
+    element = _smelt_tmp_82.borrow().get({ let smelt_normalized = _smelt_tmp_83 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0);
     _smelt_tmp_86 = { let smelt_push_item = element; collected.borrow_mut().push(smelt_push_item); collected.len() as f64 };
     _smelt_tmp_83 = _smelt_tmp_83 + 1.0;
     }

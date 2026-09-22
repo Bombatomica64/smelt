@@ -3081,7 +3081,7 @@ pub(crate) async fn sum(values: SmeltList<f64>) -> Result<f64, Box<dyn std::erro
     _smelt_tmp_4 = values.len() as f64;
     _smelt_tmp_5 = _smelt_tmp_3 < _smelt_tmp_4;
     if !(_smelt_tmp_5) { break; }
-    value = values.borrow().get({ let normalized = _smelt_tmp_3 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0);
+    value = values.borrow().get({ let smelt_normalized = _smelt_tmp_3 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0);
     _smelt_tmp_6 = total + value;
     total = _smelt_tmp_6;
     _smelt_tmp_3 = _smelt_tmp_3 + 1.0;

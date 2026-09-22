@@ -627,16 +627,16 @@ impl FunctionEmitter<'_> {
                 Ok(format!(
                     r"match {scrutinee} {{
                         SmeltUnknown::String(value) => {{
-                            let len = value.chars().count() as i64;
-                            let index = {numeric_index_text} as i64;
-                            let normalized = if index < 0 {{ len + index }} else {{ index }};
-                            usize::try_from(normalized).ok().and_then(|index| {string_some})
+                            let smelt_len = value.chars().count() as i64;
+                            let smelt_index = {numeric_index_text} as i64;
+                            let smelt_normalized = if smelt_index < 0 {{ smelt_len + smelt_index }} else {{ smelt_index }};
+                            usize::try_from(smelt_normalized).ok().and_then(|index| {string_some})
                         }}
                         SmeltUnknown::Array(values) => {{
-                            let len = values.len() as i64;
-                            let index = {numeric_index_text} as i64;
-                            let normalized = if index < 0 {{ len + index }} else {{ index }};
-                            usize::try_from(normalized).ok().and_then(|index| {array_some})
+                            let smelt_len = values.len() as i64;
+                            let smelt_index = {numeric_index_text} as i64;
+                            let smelt_normalized = if smelt_index < 0 {{ smelt_len + smelt_index }} else {{ smelt_index }};
+                            usize::try_from(smelt_normalized).ok().and_then(|index| {array_some})
                         }}
                         SmeltUnknown::Object(values) => {object_some},
                         {primitive_none},
@@ -664,7 +664,7 @@ impl FunctionEmitter<'_> {
             self.value_at_type(index, self.type_id(Type::Float)?)?
         };
         Ok(format!(
-            "{{ let len = {len_expr} as i64; let index = {index_text} as i64; let normalized = if index < 0 {{ len + index }} else {{ index }}; usize::try_from(normalized).ok() }}"
+            "{{ let smelt_len = {len_expr} as i64; let smelt_index = {index_text} as i64; let smelt_normalized = if smelt_index < 0 {{ smelt_len + smelt_index }} else {{ smelt_index }}; usize::try_from(smelt_normalized).ok() }}"
         ))
     }
 }

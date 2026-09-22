@@ -150,7 +150,7 @@ fn main() {
     _smelt_tmp_15 = routes.len() as f64;
     _smelt_tmp_16 = i < _smelt_tmp_15;
     if !(_smelt_tmp_16) { break; }
-    __smelt_spread = routes.borrow().get({ let normalized = i as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), String::new(), 0.0));
+    __smelt_spread = routes.borrow().get({ let smelt_normalized = i as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), String::new(), 0.0));
     let _smelt_tmp_17: String = record(__smelt_spread.0.clone(), __smelt_spread.1.clone(), __smelt_spread.2);
     let _ = { println!("{}", _smelt_tmp_17); };
     _smelt_tmp_19 = i + 1.0;
@@ -161,7 +161,7 @@ fn main() {
     __smelt_spread_1 = tail;
     let _smelt_tmp_21: String = record("DELETE".to_owned(), __smelt_spread_1.0.clone(), __smelt_spread_1.1);
     let _ = { println!("{}", _smelt_tmp_21); };
-    __smelt_spread_2 = routes.borrow().get({ let normalized = 0.0 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), String::new(), 0.0));
+    __smelt_spread_2 = routes.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), String::new(), 0.0));
     _smelt_tmp_23 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: String, closure_arg_2: f64| {
     let _smelt_tmp_3 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: String, closure_arg_2: f64| {
     let _smelt_tmp_3: String = record(closure_arg_0.clone(), closure_arg_1.clone(), closure_arg_2);
@@ -175,7 +175,7 @@ fn main() {
     let _ = { println!("{}", _smelt_tmp_24); };
     let _smelt_tmp_26: Sink = Sink::new();
     sink = _smelt_tmp_26;
-    __smelt_spread_3 = routes.borrow().get({ let normalized = 1.0 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), String::new(), 0.0));
+    __smelt_spread_3 = routes.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), String::new(), 0.0));
     let _smelt_tmp_27: String = sink.take(__smelt_spread_3.0.clone(), __smelt_spread_3.1.clone(), __smelt_spread_3.2);
     let _ = { println!("{}", _smelt_tmp_27); };
     let _smelt_tmp_29: (String, String, f64) = make_route();
@@ -188,7 +188,7 @@ fn main() {
     _smelt_tmp_35 = ("PATCH".to_owned(), "/maybe".to_owned(), 4.0);
     _smelt_tmp_36 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, String, f64)> = vec![_smelt_tmp_35.clone()]; smelt_list_items }));
     one_route = Into::<SmeltList<_>>::into(_smelt_tmp_36);
-    __smelt_spread_5 = one_route.borrow().get({ let normalized = 0.0 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), String::new(), 0.0));
+    __smelt_spread_5 = one_route.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), String::new(), 0.0));
     let _smelt_tmp_37: String = record(__smelt_spread_5.0.clone(), __smelt_spread_5.1.clone(), __smelt_spread_5.2);
     let _ = { println!("{}", _smelt_tmp_37); };
     return;

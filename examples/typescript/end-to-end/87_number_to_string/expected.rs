@@ -2884,7 +2884,7 @@ fn main() {
     _smelt_tmp_9 = values.len() as f64;
     _smelt_tmp_10 = _smelt_tmp_8 < _smelt_tmp_9;
     if !(_smelt_tmp_10) { break; }
-    value = values.borrow().get({ let normalized = _smelt_tmp_8 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0);
+    value = values.borrow().get({ let smelt_normalized = _smelt_tmp_8 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0);
     _smelt_tmp_11 = "".to_owned() + &smelt_number_to_string(value);
     _smelt_tmp_12 = _smelt_tmp_11 + &"|".to_owned();
     _smelt_tmp_13 = smelt_number_to_string(value);
@@ -2915,7 +2915,7 @@ fn main() {
     keyed = _smelt_tmp_35;
     keyed.insert(smelt_number_to_string(1000000000000000000000.0), 1.0);
     _smelt_tmp_36 = Into::<SmeltList<_>>::into(keyed.keys().filter(|key| !key.starts_with("__smelt_symbol") && smelt_is_for_in_record_key(&keyed, key)).collect::<Vec<_>>());
-    let _ = { println!("{}", _smelt_tmp_36.borrow().get({ let normalized = 0.0 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new())); };
+    let _ = { println!("{}", _smelt_tmp_36.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new())); };
     _smelt_tmp_38 = SmeltRecord::from([("big".to_owned(), 1000000000000000000000.0), ("small".to_owned(), 0.0000001)]);
     _smelt_tmp_39 = serde_json::to_string(&{ let smelt_record = _smelt_tmp_38.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, SmeltUnknown::Number(value as f64))).collect())) }).expect("JSON serialization failed");
     let _ = { println!("{}", _smelt_tmp_39); };

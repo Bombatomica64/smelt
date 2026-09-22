@@ -2849,7 +2849,7 @@ fn main() {
     _smelt_tmp_9 = missing.as_ref().map(|_smelt_value| _smelt_value.name.clone());
     absent_name = _smelt_tmp_9;
     _smelt_tmp_10 = present.clone().as_ref().map(|_smelt_value| _smelt_value.scores.clone());
-    _smelt_tmp_11 = _smelt_tmp_10.as_ref().and_then(|_smelt_value| ({ let len = _smelt_value.len() as i64; let index = 0.0 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).ok() }).and_then(|index| _smelt_value.borrow().get(index).cloned()));
+    _smelt_tmp_11 = _smelt_tmp_10.as_ref().and_then(|_smelt_value| ({ let smelt_len = _smelt_value.len() as i64; let smelt_index = 0.0 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|index| _smelt_value.borrow().get(index).cloned()));
     score = _smelt_tmp_11;
     _smelt_tmp_12 = present.as_ref().map(|_smelt_value| _smelt_value.label());
     label = _smelt_tmp_12;

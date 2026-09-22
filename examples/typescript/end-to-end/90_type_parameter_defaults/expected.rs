@@ -3038,7 +3038,7 @@ fn main() {
     let _smelt_tmp_21: SmeltList<bool> = pair.tail();
     _smelt_tmp_22 = _smelt_tmp_21.len() as f64;
     let _smelt_tmp_23: SmeltList<bool> = pair.tail();
-    let _ = { println!("{} {} {}", pair.head, smelt_console_number(_smelt_tmp_22), _smelt_tmp_23.borrow().get({ let normalized = 1.0 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| false)); };
+    let _ = { println!("{} {} {}", pair.head, smelt_console_number(_smelt_tmp_22), _smelt_tmp_23.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| false)); };
     return;
 }
 

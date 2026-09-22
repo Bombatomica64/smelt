@@ -4,6 +4,19 @@ use super::*;
 use crate::rust::RustIdent;
 use smelt_hir::FunctionType;
 
+/// The default value of the erased-function carrier, `SmeltErasedFunction`.
+///
+/// A predeclared function-typed local (and a callable-interface `__smelt_call`
+/// slot) needs a value before the real callable is built — in particular the
+/// self-recursive closure knot, whose `Rc<RefCell<..>>` cell is created before
+/// the closure that fills it exists. That placeholder is runtime machinery, not
+/// program data, so it is factored into the prelude's `Default` impl (emitted
+/// beside the struct in `lib.rs`) instead of being inlined at every site. Doing
+/// so keeps the generated crate's `SmeltUnknown` occurrences to the places where
+/// a program value is actually erased, which is what
+/// `smelt smelt-unknown-report` measures.
+pub(super) const ERASED_FUNCTION_DEFAULT: &str = "SmeltErasedFunction::default()";
+
 /// Whether a callback parameter declared mutable gets a `&mut ` prefix.
 ///
 /// The callback-argument renderers historically differ here, and the difference
@@ -1898,7 +1911,7 @@ impl FunctionEmitter<'_> {
             Type::Class { .. } => Ok("Default::default()".to_owned()),
             Type::Function(function) => {
                 if self.is_erased_unknown_rest_function(function) && !function.may_throw {
-                    return Ok("SmeltErasedFunction { callback: ::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| SmeltUnknown::Null), length: 0.0, object: None }".to_owned());
+                    return Ok(ERASED_FUNCTION_DEFAULT.to_owned());
                 }
                 // The synthesized default callback is emitted INSIDE the body
                 // that needs it, and it is bound to a handle whose type
@@ -2018,7 +2031,7 @@ impl FunctionEmitter<'_> {
                 // default below emits an `Rc<dyn Fn(..)>` closure whose type
                 // mismatches the `SmeltErasedFunction` field (E0308).
                 if self.is_erased_unknown_rest_function(function) && !function.may_throw {
-                    return Ok("SmeltErasedFunction { callback: ::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| SmeltUnknown::Null), length: 0.0, object: None }".to_owned());
+                    return Ok(ERASED_FUNCTION_DEFAULT.to_owned());
                 }
                 let params = function
                     .params

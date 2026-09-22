@@ -249,7 +249,7 @@ result: int = sum_two(2, 3)
     assert!(source.contains("vec![closure_arg_0, closure_arg_1]"));
     // An element READ never panics: a still-negative normalized index misses
     // (`usize::MAX`) exactly like a positive out-of-range index does.
-    assert!(source.contains("usize::try_from(normalized).unwrap_or(usize::MAX)"));
+    assert!(source.contains("usize::try_from(smelt_normalized).unwrap_or(usize::MAX)"));
     assert!(source.contains("(2, 3)"));
 }
 
@@ -276,7 +276,7 @@ def run() -> int:
     assert!(source.contains("|closure_arg_0: &SmeltList<i64>|"));
     // An element READ never panics: a still-negative normalized index misses
     // (`usize::MAX`) exactly like a positive out-of-range index does.
-    assert!(source.contains("usize::try_from(normalized).unwrap_or(usize::MAX)"));
+    assert!(source.contains("usize::try_from(smelt_normalized).unwrap_or(usize::MAX)"));
     assert!(source.contains("vec![2, 3, 4]"));
     assert!(
         source.contains(

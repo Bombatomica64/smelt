@@ -2920,7 +2920,7 @@ impl Registry {
     return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record((SmeltRecord::from([("__smelt_error".to_owned(), SmeltUnknown::String("Error".into())), ("message".to_owned(), SmeltUnknown::String("registry is empty".into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)])).clone()))));
     } else {
     _smelt_tmp_5 = Into::<SmeltList<_>>::into(self.0.borrow().slots.clone());
-    return Ok(_smelt_tmp_5.borrow().get({ let normalized = 0.0 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()));
+    return Ok(_smelt_tmp_5.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()));
     }
     }
     fn add(&self, name: String) -> () {

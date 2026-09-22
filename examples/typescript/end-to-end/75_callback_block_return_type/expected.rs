@@ -2918,7 +2918,7 @@ pub(crate) fn joined(keys: SmeltList<String>) -> SmeltList<String> {
     _smelt_tmp_4 = closure_arg_0.chars().count() as f64;
     _smelt_tmp_5 = _smelt_tmp_3 < _smelt_tmp_4;
     if _smelt_tmp_5 {
-    ch = closure_arg_0.chars().nth({ let normalized = _smelt_tmp_3 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).expect("index out of bounds");
+    ch = closure_arg_0.chars().nth({ let smelt_normalized = _smelt_tmp_3 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).expect("index out of bounds");
     _smelt_tmp_6 = out.clone() + &ch.clone();
     out = _smelt_tmp_6.clone();
     _smelt_tmp_3 = _smelt_tmp_3 + 1.0;
@@ -2938,7 +2938,7 @@ pub(crate) fn joined(keys: SmeltList<String>) -> SmeltList<String> {
     _smelt_tmp_4 = closure_arg_0.chars().count() as f64;
     _smelt_tmp_5 = _smelt_tmp_3 < _smelt_tmp_4;
     if _smelt_tmp_5 {
-    ch = closure_arg_0.chars().nth({ let normalized = _smelt_tmp_3 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).expect("index out of bounds");
+    ch = closure_arg_0.chars().nth({ let smelt_normalized = _smelt_tmp_3 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).expect("index out of bounds");
     _smelt_tmp_6 = out.clone() + &ch.clone();
     out = _smelt_tmp_6.clone();
     _smelt_tmp_3 = _smelt_tmp_3 + 1.0;
@@ -3017,7 +3017,7 @@ pub(crate) fn widths(keys: SmeltList<String>) -> SmeltList<f64> {
     _smelt_tmp_4 = closure_arg_0.chars().count() as f64;
     _smelt_tmp_5 = _smelt_tmp_3 < _smelt_tmp_4;
     if _smelt_tmp_5 {
-    ch = closure_arg_0.chars().nth({ let normalized = _smelt_tmp_3 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).expect("index out of bounds");
+    ch = closure_arg_0.chars().nth({ let smelt_normalized = _smelt_tmp_3 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).expect("index out of bounds");
     _smelt_tmp_6 = ch.chars().count() as f64;
     _smelt_tmp_7 = total + _smelt_tmp_6;
     total = _smelt_tmp_7;
@@ -3039,7 +3039,7 @@ pub(crate) fn widths(keys: SmeltList<String>) -> SmeltList<f64> {
     _smelt_tmp_4 = closure_arg_0.chars().count() as f64;
     _smelt_tmp_5 = _smelt_tmp_3 < _smelt_tmp_4;
     if _smelt_tmp_5 {
-    ch = closure_arg_0.chars().nth({ let normalized = _smelt_tmp_3 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).expect("index out of bounds");
+    ch = closure_arg_0.chars().nth({ let smelt_normalized = _smelt_tmp_3 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).expect("index out of bounds");
     _smelt_tmp_6 = ch.chars().count() as f64;
     _smelt_tmp_7 = total + _smelt_tmp_6;
     total = _smelt_tmp_7;

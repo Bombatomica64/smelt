@@ -493,7 +493,7 @@ impl FunctionEmitter<'_> {
             _ => bound_text,
         };
         Ok(format!(
-            "{{ let len = {len_expr} as i64; let index = {index_text} as i64; if index < 0 {{ (len + index).clamp(0, len) as usize }} else {{ index.clamp(0, len) as usize }} }}"
+            "{{ let smelt_len = {len_expr} as i64; let smelt_index = {index_text} as i64; if smelt_index < 0 {{ (smelt_len + smelt_index).clamp(0, smelt_len) as usize }} else {{ smelt_index.clamp(0, smelt_len) as usize }} }}"
         ))
     }
 

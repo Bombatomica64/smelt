@@ -3034,7 +3034,7 @@ fn main() {
     _smelt_tmp_40 = _smelt_tmp_38.len() as f64;
     _smelt_tmp_41 = _smelt_tmp_39 < _smelt_tmp_40;
     if !(_smelt_tmp_41) { break; }
-    __smelt_for_item = _smelt_tmp_38.borrow().get({ let normalized = _smelt_tmp_39 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), String::new()));
+    __smelt_for_item = _smelt_tmp_38.borrow().get({ let smelt_normalized = _smelt_tmp_39 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), String::new()));
     _smelt_tmp_42 = __smelt_for_item.clone().0.clone();
     name = _smelt_tmp_42;
     _smelt_tmp_43 = __smelt_for_item.1.clone();

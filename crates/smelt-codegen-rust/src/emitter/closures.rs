@@ -876,6 +876,28 @@ impl FunctionEmitter<'_> {
                             .get(&capture.source_local)
                             .cloned()
                             .unwrap_or_else(|| source_name.clone());
+                        // The SOURCE binding may itself already render as an
+                        // enclosing closure's shared cell
+                        // (`(*smelt_capture_x.borrow_mut())`, possibly through
+                        // the self-recursive `Weak` upgrade). Its own local is
+                        // not flagged as shared storage -- the flag sits on the
+                        // local one level out -- so neither check below sees it,
+                        // and the plain branch emitted `let x = x.clone();`,
+                        // which the enclosing wrapper's
+                        // `replace_shared_capture_uses` turned into `let
+                        // (*smelt_capture_x.borrow_mut()) = ..`: a place
+                        // expression in a binding position, which is not a
+                        // pattern. Clone the CELL instead, exactly as the
+                        // sibling wrapper prelude does for the same shape.
+                        // Hono's `compose` reaches it: `() => dispatch(i + 1)`
+                        // is an async closure nested inside the body that holds
+                        // the `dispatch` knot.
+                        if let Some(cell) = shared_capture_cell_name(&source_name) {
+                            let cell = cell.to_owned();
+                            return cloned_async_captures
+                                .insert(cell.clone())
+                                .then(|| format!("let {cell} = {cell}.clone();"));
+                        }
                         // A capture that lives in shared `Rc<RefCell>` storage is
                         // read through `(*smelt_capture_x.borrow_mut())` in the
                         // body. The `async move` block must own its own `Rc` clone

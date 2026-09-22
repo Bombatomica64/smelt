@@ -4525,7 +4525,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_40 = _smelt_tmp_38.len() as f64;
     _smelt_tmp_41 = _smelt_tmp_39 < _smelt_tmp_40;
     if !(_smelt_tmp_41) { break; }
-    __smelt_for_item = _smelt_tmp_38.borrow().get({ let normalized = _smelt_tmp_39 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), SmeltUnion12::M0(String::new())));
+    __smelt_for_item = _smelt_tmp_38.borrow().get({ let smelt_normalized = _smelt_tmp_39 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), SmeltUnion12::M0(String::new())));
     _smelt_tmp_42 = __smelt_for_item.clone().0.clone();
     name = _smelt_tmp_42;
     _smelt_tmp_43 = __smelt_for_item.1.clone();
@@ -4559,7 +4559,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_66 = _smelt_tmp_64.len() as f64;
     _smelt_tmp_67 = _smelt_tmp_65 < _smelt_tmp_66;
     if !(_smelt_tmp_67) { break; }
-    entry = _smelt_tmp_64.borrow().get({ let normalized = _smelt_tmp_65 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| SmeltUnion12::M0(String::new()));
+    entry = _smelt_tmp_64.borrow().get({ let smelt_normalized = _smelt_tmp_65 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| SmeltUnion12::M0(String::new()));
     _smelt_tmp_68 = matches!(entry.clone(), SmeltUnion12::M0(_));
     if _smelt_tmp_68 {
     _smelt_tmp_69 = match entry { SmeltUnion12::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
@@ -4593,7 +4593,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_87 = _smelt_tmp_85.len() as f64;
     _smelt_tmp_88 = _smelt_tmp_86 < _smelt_tmp_87;
     if !(_smelt_tmp_88) { break; }
-    __smelt_for_item_1 = _smelt_tmp_85.borrow().get({ let normalized = _smelt_tmp_86 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), SmeltUnion12::M0(String::new())));
+    __smelt_for_item_1 = _smelt_tmp_85.borrow().get({ let smelt_normalized = _smelt_tmp_86 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), SmeltUnion12::M0(String::new())));
     _smelt_tmp_89 = __smelt_for_item_1.clone().0.clone();
     name_1 = _smelt_tmp_89;
     _smelt_tmp_90 = __smelt_for_item_1.1.clone();
@@ -4624,7 +4624,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_107 = _smelt_tmp_105.len() as f64;
     _smelt_tmp_108 = _smelt_tmp_106 < _smelt_tmp_107;
     if !(_smelt_tmp_108) { break; }
-    __smelt_for_item_2 = _smelt_tmp_105.borrow().get({ let normalized = _smelt_tmp_106 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), SmeltUnion12::M0(String::new())));
+    __smelt_for_item_2 = _smelt_tmp_105.borrow().get({ let smelt_normalized = _smelt_tmp_106 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), SmeltUnion12::M0(String::new())));
     _smelt_tmp_109 = __smelt_for_item_2.clone().0.clone();
     name_2 = _smelt_tmp_109;
     _smelt_tmp_110 = __smelt_for_item_2.1.clone();

@@ -465,7 +465,7 @@ export function chunkNumbers(data: number[], size: number): number[][] {
 
     // The slice still lowers to the same borrow-based iterator pipeline...
     assert!(source.contains("data.borrow().iter().skip("));
-    assert!(source.contains("let len = data.len() as i64"));
+    assert!(source.contains("let smelt_len = data.len() as i64"));
     // ...and no longer copies the receiver to get there.
     assert!(
         !source.contains("data.clone().iter()"),
@@ -495,11 +495,11 @@ last_text: str = word[-3:]
     );
 
     assert!(source.contains(".iter().skip(0usize).take("));
-    assert!(source.contains("let index = 1 as i64"));
-    assert!(source.contains("clamp(0, len) as usize"));
+    assert!(source.contains("let smelt_index = 1 as i64"));
+    assert!(source.contains("clamp(0, smelt_len) as usize"));
     assert!(source.contains(".cloned().collect::<Vec<_>>()"));
     assert!(source.contains(".chars().skip(0usize).take("));
-    assert!(source.matches("if index < 0").count() >= 2);
+    assert!(source.matches("if smelt_index < 0").count() >= 2);
     assert!(source.contains(".collect::<String>();"));
 }
 
@@ -514,9 +514,9 @@ last_char: str = word[-1]
 "#,
     );
 
-    assert!(source.contains("let normalized = if index < 0 { len + index } else { index }"));
-    assert!(source.contains(".get({ let len = values.len() as i64;"));
-    assert!(source.contains(".chars().nth({ let len = word.chars().count() as i64;"));
+    assert!(source.contains("let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }"));
+    assert!(source.contains(".get({ let smelt_len = values.len() as i64;"));
+    assert!(source.contains(".chars().nth({ let smelt_len = word.chars().count() as i64;"));
 }
 
 #[test]
@@ -687,7 +687,7 @@ function read(month: number): number | undefined {
         "{source}"
     );
     assert!(
-        source.contains("usize::try_from(normalized).ok()"),
+        source.contains("usize::try_from(smelt_normalized).ok()"),
         "{source}"
     );
     assert!(!source.contains("negative index out of bounds"), "{source}");
@@ -704,7 +704,7 @@ function last<T>(values: readonly T[]): T | undefined {
     );
 
     assert!(
-        source.contains("usize::try_from(normalized).ok()"),
+        source.contains("usize::try_from(smelt_normalized).ok()"),
         "{source}"
     );
     assert!(!source.contains("negative index out of bounds"), "{source}");

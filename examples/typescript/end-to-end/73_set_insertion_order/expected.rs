@@ -2909,7 +2909,7 @@ fn main() {
     _smelt_tmp_17 = _smelt_tmp_15.len() as f64;
     _smelt_tmp_18 = _smelt_tmp_16 < _smelt_tmp_17;
     if !(_smelt_tmp_18) { break; }
-    value = _smelt_tmp_15.borrow().get({ let normalized = _smelt_tmp_16 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new());
+    value = _smelt_tmp_15.borrow().get({ let smelt_normalized = _smelt_tmp_16 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new());
     _smelt_tmp_19 = { let smelt_push_item = value; seen.borrow_mut().push(smelt_push_item); seen.len() as f64 };
     _smelt_tmp_16 = _smelt_tmp_16 + 1.0;
     }
@@ -2923,7 +2923,7 @@ fn main() {
     _smelt_tmp_25 = _smelt_tmp_23.len() as f64;
     _smelt_tmp_26 = _smelt_tmp_24 < _smelt_tmp_25;
     if !(_smelt_tmp_26) { break; }
-    value_1 = _smelt_tmp_23.borrow().get({ let normalized = _smelt_tmp_24 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new());
+    value_1 = _smelt_tmp_23.borrow().get({ let smelt_normalized = _smelt_tmp_24 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new());
     _smelt_tmp_27 = { let smelt_push_item = value_1; iterated.borrow_mut().push(smelt_push_item); iterated.len() as f64 };
     _smelt_tmp_24 = _smelt_tmp_24 + 1.0;
     }
