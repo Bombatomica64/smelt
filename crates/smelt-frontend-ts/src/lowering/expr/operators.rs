@@ -3502,6 +3502,7 @@ impl ModuleBuilder<'_> {
                     )? {
                         let source_ty = Self::expr_ty(body, source);
                         if record_ty.is_none()
+                            && !erased_spread_requires_unknown_record
                             && matches!(self.ctx.krate.types.get(source_ty), Some(Type::Dict(_, _)))
                         {
                             record_ty = Some(source_ty);
@@ -3539,7 +3540,12 @@ impl ModuleBuilder<'_> {
                         });
                     }
                     let final_source_ty = Self::expr_ty(body, source);
+                    // An EARLIER erased source (`...route` of an erased
+                    // object) already carries heterogeneous values; adopting a
+                    // later homogeneous source's `Dict<String, f64>` would
+                    // coerce the earlier `path: string` to `NaN`.
                     if record_ty.is_none()
+                        && !erased_spread_requires_unknown_record
                         && matches!(
                             self.ctx.krate.types.get(final_source_ty),
                             Some(Type::Dict(_, _))
