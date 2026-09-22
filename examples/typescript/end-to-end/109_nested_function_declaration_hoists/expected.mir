@@ -1,0 +1,148 @@
+fn scaled (FuncId(0)) -> Float
+  locals
+    %0 param base: Float
+    %1 user step: fn(Float) -> Float
+    %2 user scale: Float
+    %3 temp: fn(Float) -> Float
+    %4 temp: Float
+  bb0:
+    %2 = 3.0
+    %3 = closure ClosureId(0) [copy %2]
+    %1 = move %3
+    %4 = closure_call move %1(copy %0)
+    return move %4
+
+fn count_up (FuncId(1)) -> Float
+  locals
+    %0 param base: Float
+    %1 user walk: fn(Float) -> Float
+    %2 user limit: Float
+    %3 temp: fn(Float) -> Float
+    %4 temp: Float
+  bb0:
+    %2 = 3.0
+    %3 = closure ClosureId(1) [copy %2, copy %1]
+    %1 = move %3
+    %4 = closure_call copy %1(copy %0)
+    return move %4
+
+fn count_up_hoisted (FuncId(2)) -> Float
+  locals
+    %0 param base: Float
+    %1 user climb: fn(Float) -> Float
+    %2 user limit: Float
+    %3 temp: fn(Float) -> Float
+    %4 temp: Float
+  bb0:
+    %2 = 4.0
+    %3 = closure ClosureId(2) [copy %1, copy %2]
+    %1 = move %3
+    %4 = closure_call copy %1(copy %0)
+    return move %4
+
+fn pick_label (FuncId(3)) -> String
+  locals
+    %0 param flag: Bool
+    %1 user decorate: fn(String) -> String
+    %2 temp: fn(String) -> String
+    %3 temp: String
+  bb0:
+    switch copy %0 ? bb1 : bb2
+  bb1:
+    %2 = closure ClosureId(3) []
+    %1 = move %2
+    %3 = closure_call move %1("on")
+    return move %3
+  bb2:
+    return "off"
+
+fn main (FuncId(4)) -> None
+  locals
+    %0 temp: Float
+    %1 temp: None
+    %2 temp: Float
+    %3 temp: None
+    %4 temp: Float
+    %5 temp: None
+    %6 temp: String
+    %7 temp: None
+    %8 temp: String
+    %9 temp: None
+  bb0:
+    %0 = call fn0(2.0) -> bb1
+  bb1:
+    %1 = call @console_log(move %0) -> bb2
+  bb2:
+    %2 = call fn1(0.0) -> bb3
+  bb3:
+    %3 = call @console_log(move %2) -> bb4
+  bb4:
+    %4 = call fn2(1.0) -> bb5
+  bb5:
+    %5 = call @console_log(move %4) -> bb6
+  bb6:
+    %6 = call fn3(true) -> bb7
+  bb7:
+    %7 = call @console_log(move %6) -> bb8
+  bb8:
+    %8 = call fn3(false) -> bb9
+  bb9:
+    %9 = call @console_log(move %8) -> bb10
+  bb10:
+    return none
+
+closure ClosureId(0) -> Float
+  locals
+    %0 param value: Float
+    %1 user scale: Float
+    %2 temp: Float
+  bb0:
+    %2 = copy %0 * copy %1
+    return copy %2
+
+closure ClosureId(1) -> Float
+  locals
+    %0 param i: Float
+    %1 user limit: Float
+    %2 user walk: fn(Float) -> Float
+    %3 temp: Bool
+    %4 temp: Float
+    %5 temp: Float
+  bb0:
+    %3 = copy %0 >= copy %1
+    switch copy %3 ? bb1 : bb2
+  bb1:
+    return copy %0
+  bb2:
+    %4 = copy %0 + 1.0
+    %5 = closure_call copy %2(copy %4)
+    return copy %5
+
+closure ClosureId(2) -> Float
+  locals
+    %0 param i: Float
+    %1 user climb: fn(Float) -> Float
+    %2 user limit: Float
+    %3 temp: Bool
+    %4 temp: Float
+    %5 temp: Float
+  bb0:
+    %3 = copy %0 >= copy %2
+    switch copy %3 ? bb1 : bb2
+  bb1:
+    return copy %0
+  bb2:
+    %4 = copy %0 + 1.0
+    %5 = closure_call copy %1(copy %4)
+    return copy %5
+
+closure ClosureId(3) -> String
+  locals
+    %0 param text: String
+    %1 temp: String
+    %2 temp: String
+  bb0:
+    %1 = "[" + copy %0
+    %2 = copy %1 + "]"
+    return copy %2
+

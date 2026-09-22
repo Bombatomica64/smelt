@@ -910,11 +910,11 @@ function sliceOptional(start?: number, end?: number): string {
     );
 
     assert!(source.contains(".iter().skip(0usize).take("));
-    assert!(source.contains("let index = 1.0 as i64"));
-    assert!(source.contains("clamp(0, len) as usize"));
+    assert!(source.contains("let smelt_index = 1.0 as i64"));
+    assert!(source.contains("clamp(0, smelt_len) as usize"));
     assert!(source.contains(".cloned().collect::<Vec<_>>()"));
     assert!(source.contains(".chars().skip(0usize).take("));
-    assert!(source.matches("if index < 0").count() >= 2);
+    assert!(source.matches("if smelt_index < 0").count() >= 2);
     assert!(source.contains(".collect::<String>();"));
     assert!(source.contains(".unwrap_or(0.0)"));
     assert!(source.contains(".chars().count() as f64"));

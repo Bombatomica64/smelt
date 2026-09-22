@@ -232,7 +232,7 @@ fn main() {
     _smelt_tmp_33 = _smelt_tmp_31.len() as f64;
     _smelt_tmp_34 = _smelt_tmp_32 < _smelt_tmp_33;
     if !(_smelt_tmp_34) { break; }
-    __smelt_for_item = _smelt_tmp_31.borrow().get({ let normalized = _smelt_tmp_32 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), String::new()));
+    __smelt_for_item = _smelt_tmp_31.borrow().get({ let smelt_normalized = _smelt_tmp_32 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), String::new()));
     _smelt_tmp_35 = __smelt_for_item.clone().0.clone();
     name = _smelt_tmp_35;
     _smelt_tmp_36 = __smelt_for_item.1.clone();

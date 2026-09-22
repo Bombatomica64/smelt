@@ -1569,7 +1569,10 @@ impl ModuleBuilder<'_> {
         let span = self.statement_span(statement);
         let block = body.push_block(span);
         if let Statement::BlockStatement(block_stmt) = statement {
-            for nested_statement in &block_stmt.body {
+            // A nested `function` declaration is bound for its whole BLOCK, not
+            // just from its textual position (`lowering::hoisting`).
+            for nested_statement in crate::lowering::hoisting::hoisted_statements(&block_stmt.body)
+            {
                 self.statement_in_block(nested_statement, body, block)?;
             }
         } else {
@@ -1585,7 +1588,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::BlockId, SmeltError> {
         let block = body.push_block(self.span(block_stmt.span.start, block_stmt.span.end));
-        for statement in &block_stmt.body {
+        for statement in crate::lowering::hoisting::hoisted_statements(&block_stmt.body) {
             self.statement_in_block(statement, body, block)?;
         }
         Ok(block)
@@ -4012,6 +4015,46 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Reserve the enclosing body's local that a nested function declaration is
+    /// bound to, before its own body is lowered.
+    ///
+    /// [`Self::predeclare_local_function_declarations`] already reserves one for
+    /// every declaration at the top of a function body, which is what makes an
+    /// earlier sibling able to call a later declaration. A declaration in a
+    /// NESTED block (inside an `if`, a loop or a `try`) has no such prepass, so
+    /// the local is minted here instead. Either way the local exists before the
+    /// declaration's body is lowered, so the body can capture it and recurse.
+    ///
+    /// The type is provisional: the real function type is only known once the
+    /// body has been lowered, and the caller overwrites it there.
+    fn reserve_local_function_local(
+        &self,
+        function_symbol: smelt_hir::Symbol,
+        id: &oxc::ast::ast::BindingIdentifier<'_>,
+        provisional_fn_ty: smelt_hir::TypeId,
+        outer_body: &mut Body,
+    ) -> smelt_hir::LocalId {
+        // A binding already in scope is this declaration's predeclared local
+        // only when it is a local OF THE BODY BEING LOWERED carrying this
+        // declaration's name; anything else is an enclosing scope's binding,
+        // which this declaration SHADOWS rather than reuses.
+        if let Some(existing) = self.scope.lookup(id.name.as_str())
+            && let Ok(index) = usize::try_from(existing.0)
+            && outer_body
+                .locals
+                .get(index)
+                .is_some_and(|decl| decl.name == Some(function_symbol))
+        {
+            return existing;
+        }
+        outer_body.push_local(LocalDecl {
+            name: Some(function_symbol),
+            ty: provisional_fn_ty,
+            mutable: false,
+            span: self.span(id.span.start, id.span.end),
+        })
+    }
+
     /// Lower a nested `function name(...) { ... }` declaration as a local closure.
     pub(in crate::lowering) fn local_function_declaration(
         &mut self,
@@ -4190,17 +4233,20 @@ impl ModuleBuilder<'_> {
                 may_throw: false,
             }));
             let function_symbol = self.intern_source_name(id.name.as_str());
-            let self_local = closure_body.push_local(LocalDecl {
-                name: Some(function_symbol),
-                ty: provisional_fn_ty,
-                mutable: false,
-                span: self.span(id.span.start, id.span.end),
-            });
-            param_names.insert(id.name.as_str().to_owned());
-            saved_locals.push((
-                id.name.as_str().to_owned(),
-                self.scope.bind(id.name.as_str().to_owned(), self_local),
-            ));
+            // A function declaration binds its OWN name for the whole scope it
+            // is declared in, its own body included, so `function walk(i) { …
+            // walk(i + 1) … }` is ordinary recursion. The name therefore has to
+            // denote the ENCLOSING body's local that this declaration is
+            // assigned to — the same shape as the self-recursive arrow
+            // `const walk = (i) => … walk(i + 1) …`, which already lowers to a
+            // genuine capture of that local and which codegen already ties with
+            // a weak `Rc<RefCell<…>>` knot. Binding the name to a fresh,
+            // never-assigned local inside the closure body instead (what this
+            // did before) emitted a reference to a name Rust has never seen.
+            let outer_local =
+                self.reserve_local_function_local(function_symbol, id, provisional_fn_ty, outer_body);
+            saved_locals.push((id.name.as_str().to_owned(), Some(outer_local)));
+            self.scope.bind(id.name.as_str().to_owned(), outer_local);
 
             let mut capture_names = Vec::new();
             for statement in &function_body.statements {
@@ -4264,7 +4310,7 @@ impl ModuleBuilder<'_> {
                 function.params.items.len()
             });
             let mut lowering_result = Ok(());
-            for statement in &function_body.statements {
+            for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
                 if let Err(error) = self.statement(statement, &mut closure_body) {
                     lowering_result = Err(error);
                     break;
@@ -4309,28 +4355,14 @@ impl ModuleBuilder<'_> {
                 is_async: function.r#async,
                 may_throw: false,
             }));
-            let local = if let Some(existing) = self.scope.lookup(id.name.as_str()) {
-                if let Ok(index) = usize::try_from(existing.0)
-                    && let Some(decl) = outer_body.locals.get_mut(index)
-                {
-                    decl.ty = fn_ty;
-                    existing
-                } else {
-                    outer_body.push_local(LocalDecl {
-                        name: Some(function_symbol),
-                        ty: fn_ty,
-                        mutable: false,
-                        span: self.span(id.span.start, id.span.end),
-                    })
-                }
-            } else {
-                outer_body.push_local(LocalDecl {
-                    name: Some(function_symbol),
-                    ty: fn_ty,
-                    mutable: false,
-                    span: self.span(id.span.start, id.span.end),
-                })
-            };
+            // The local was reserved before the body was lowered (the body may
+            // reference it), so only its TYPE is still provisional here.
+            let local = outer_local;
+            if let Ok(index) = usize::try_from(local.0)
+                && let Some(decl) = outer_body.locals.get_mut(index)
+            {
+                decl.ty = fn_ty;
+            }
             self.scope.bind(id.name.as_str().to_owned(), local);
             let value = outer_body.push_expr(Expr {
                 kind: ExprKind::Closure(smelt_hir::ClosureExpr {

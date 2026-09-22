@@ -2969,7 +2969,7 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Chain<T
     let smelt_capture_this = smelt_capture_this.clone();
     move || {
     let _smelt_tmp_1: SmeltList<T> = Into::<SmeltList<_>>::into((*smelt_capture_this.borrow()).0.borrow().history.clone());
-    (*smelt_capture_this.borrow()).0.borrow_mut().value = _smelt_tmp_1.borrow().get({ let normalized = 0.0 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| Default::default());
+    (*smelt_capture_this.borrow()).0.borrow_mut().value = _smelt_tmp_1.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| Default::default());
     (*smelt_capture_this.borrow()).clone()
     }
 });

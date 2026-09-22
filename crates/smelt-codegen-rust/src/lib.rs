@@ -3456,6 +3456,18 @@ fn emit_source_with_free_function_router(
             writer.line("    object: Option<SmeltObject>,");
             writer.line("}");
             writer.blank_line();
+            // The placeholder an erased callable takes before the real one is
+            // built (a predeclared function-typed local, a callable-interface
+            // `__smelt_call` slot, or the self-recursive closure knot, whose
+            // cell exists before the closure that fills it). It is runtime
+            // machinery rather than program data, so it lives here instead of
+            // being inlined at every emit site. See `ERASED_FUNCTION_DEFAULT`.
+            writer.line("impl Default for SmeltErasedFunction {");
+            writer.line("    fn default() -> Self {");
+            writer.line("        Self { callback: ::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| SmeltUnknown::Null), length: 0.0, object: None }");
+            writer.line("    }");
+            writer.line("}");
+            writer.blank_line();
             writer.line("impl SmeltErasedFunction {");
             writer.line("    /// Invoke an erased JavaScript callable through a reentrant handle.");
             writer.line("    fn call(&self, args: impl Into<Vec<SmeltUnknown>>) -> SmeltUnknown {");

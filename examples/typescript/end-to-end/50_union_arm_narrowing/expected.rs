@@ -3808,7 +3808,7 @@ fn main() {
     _smelt_tmp_47 = _smelt_tmp_45.len() as f64;
     _smelt_tmp_48 = _smelt_tmp_46 < _smelt_tmp_47;
     if !(_smelt_tmp_48) { break; }
-    value = _smelt_tmp_45.borrow().get({ let normalized = _smelt_tmp_46 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| SmeltUnion14::M0(String::new()));
+    value = _smelt_tmp_45.borrow().get({ let smelt_normalized = _smelt_tmp_46 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| SmeltUnion14::M0(String::new()));
     _smelt_tmp_49 = matches!(value.clone(), SmeltUnion14::M1(_));
     if _smelt_tmp_49 {
     _smelt_tmp_50 = match value { SmeltUnion14::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };

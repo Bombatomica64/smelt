@@ -1669,7 +1669,7 @@ impl ModuleBuilder<'_> {
                 }
                 ClosureBodyKind::Statements(statements) => {
                     let mut result = Ok(());
-                    for statement in statements {
+                    for statement in crate::lowering::hoisting::hoisted_statements(statements) {
                         if let Err(error) = self.statement(statement, &mut closure_body) {
                             result = Err(error);
                             break;

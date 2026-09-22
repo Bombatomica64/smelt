@@ -4036,7 +4036,7 @@ impl ModuleBuilder<'_> {
             } else {
                 function.params.items.len()
             });
-        for statement in &function_body.statements {
+        for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
             if let Err(error) = self.statement(statement, &mut body) {
                 errors.push(error);
             }

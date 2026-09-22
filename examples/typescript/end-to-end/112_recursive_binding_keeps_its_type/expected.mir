@@ -1,0 +1,135 @@
+fn total_down (FuncId(0)) -> Float
+  locals
+    %0 param start: Float
+    %1 user sum_down: fn(Float) -> Float
+    %2 temp: fn(Float) -> Float
+    %3 temp: Float
+  bb0:
+    %2 = closure ClosureId(0) [copy %1]
+    %1 = move %2
+    %3 = closure_call copy %1(copy %0)
+    return move %3
+
+fn banner (FuncId(1)) -> String
+  locals
+    %0 param text: String
+    %1 param times: Float
+    %2 user repeat: fn(Float, String) -> String
+    %3 temp: fn(Float, String) -> String
+    %4 temp: String
+  bb0:
+    %3 = closure ClosureId(1) [copy %0, copy %2]
+    %2 = move %3
+    %4 = closure_call copy %2(copy %1, "")
+    return move %4
+
+fn trim (FuncId(2)) -> String
+  locals
+    %0 param label: String
+    %1 user strip: fn(String) -> String
+    %2 user suffix: String
+    %3 temp: fn(String) -> String
+    %4 temp: String
+  bb0:
+    %2 = "!"
+    %3 = closure ClosureId(2) [copy %1, copy %2]
+    %1 = move %3
+    %4 = closure_call copy %1(copy %0)
+    return move %4
+
+fn main (FuncId(3)) -> None
+  locals
+    %0 temp: Float
+    %1 temp: None
+    %2 temp: String
+    %3 temp: None
+    %4 temp: String
+    %5 temp: None
+  bb0:
+    %0 = call fn0(4.0) -> bb1
+  bb1:
+    %1 = call @console_log(move %0) -> bb2
+  bb2:
+    %2 = call fn1("ab", 3.0) -> bb3
+  bb3:
+    %3 = call @console_log(move %2) -> bb4
+  bb4:
+    %4 = call fn2("done!!!") -> bb5
+  bb5:
+    %5 = call @console_log(move %4) -> bb6
+  bb6:
+    return none
+
+closure ClosureId(0) -> Float
+  locals
+    %0 param value: Float
+    %1 user sum_down: fn(Float) -> Float
+    %2 temp: Bool
+    %3 temp: Float
+    %4 temp: Float
+    %5 temp: Float
+  bb0:
+    %2 = copy %0 <= 0.0
+    switch copy %2 ? bb1 : bb2
+  bb1:
+    return 0.0
+  bb2:
+    %3 = copy %0 - 1.0
+    %4 = closure_call copy %1(copy %3)
+    %5 = copy %0 + copy %4
+    return copy %5
+
+closure ClosureId(1) -> String
+  locals
+    %0 param __callback_param_0: Float
+    %1 param __callback_param_1: String
+    %2 user text: String
+    %3 user repeat: fn(Float, String) -> String
+    %4 temp: Bool
+    %5 temp: String
+    %6 temp: Float
+    %7 temp: String
+    %8 temp: String
+  bb0:
+    %4 = copy %0 <= 0.0
+    switch copy %4 ? bb1 : bb2
+  bb1:
+    %5 = copy %1
+    goto bb3
+  bb2:
+    %6 = copy %0 - 1.0
+    %7 = copy %1 + copy %2
+    %8 = closure_call copy %3(copy %6, copy %7)
+    %5 = copy %8
+    goto bb3
+  bb3:
+    return copy %5
+
+closure ClosureId(2) -> String
+  locals
+    %0 param value: String
+    %1 user strip: fn(String) -> String
+    %2 user suffix: String
+    %3 temp: String
+    %4 temp: String
+    %5 temp: Bool
+    %6 temp: Bool
+    %7 temp: Float
+    %8 temp: Float
+    %9 temp: String
+    %10 temp: String
+  bb0:
+    %3 = copy %0
+    %4 = copy %2
+    %5 = string_ends_with copy %3, copy %4
+    %6 = !copy %5
+    switch copy %6 ? bb1 : bb2
+  bb1:
+    return copy %0
+  bb2:
+    %7 = len copy %0
+    %8 = copy %7 - 1.0
+    %9 = string_slice copy %0, 0.0, copy %8
+    %10 = closure_call copy %1(copy %9)
+    return copy %10
+

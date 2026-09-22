@@ -3061,7 +3061,7 @@ fn main() {
     _smelt_tmp_17 = "generic: ".to_owned() + &_smelt_tmp_16;
     _smelt_tmp_18 = _smelt_tmp_17 + &" ".to_owned();
     _smelt_tmp_19 = Into::<SmeltList<_>>::into(numbers.0.borrow().items.clone());
-    _smelt_tmp_20 = smelt_number_to_string(_smelt_tmp_19.borrow().get({ let normalized = 0.0 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0));
+    _smelt_tmp_20 = smelt_number_to_string(_smelt_tmp_19.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0));
     _smelt_tmp_21 = _smelt_tmp_18 + &_smelt_tmp_20;
     let _ = { println!("{}", _smelt_tmp_21); };
     _smelt_tmp_23 = true;

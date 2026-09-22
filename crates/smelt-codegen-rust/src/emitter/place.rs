@@ -711,9 +711,27 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         };
         let Some(setter_id) = descriptor.setter else {
-            return Err(EmitError::new(
-                "materialized descriptor write has no source setter",
-            ));
+            // An accessor that declares only a getter cannot be the target of a
+            // SOURCE assignment -- `tsc` rejects `c.req = x` for a getter-only
+            // `get req()` before Smelt ever sees it. So a write reaching here is
+            // always the writeback MIR synthesizes for a PROJECTED receiver
+            // (`c.req.routeIndex = i`, `PlaceWritebacks`): the projection was
+            // copied into a temporary, the real write landed in that temporary,
+            // and MIR replays the copy through the place it came from because it
+            // cannot tell a shared handle from a value representation.
+            //
+            // Through a getter-only accessor that replay is always a no-op:
+            // JavaScript hands the getter's object back BY REFERENCE, so the
+            // mutation the temporary received is already visible in the owner,
+            // and there is no setter for it to be committed through in the first
+            // place. Emitting the read-only note keeps the reason in the
+            // generated source instead of failing the whole crate. Covered by
+            // `writeback_through_a_getter_only_accessor_is_a_no_op`.
+            return Ok(Some(format!(
+                "// `{}.{}` is a getter-only accessor: the projected write already landed through the handle it returns.",
+                self.symbol_name(owner.name).unwrap_or("<class>"),
+                self.symbol_name(field).unwrap_or("<field>"),
+            )));
         };
         let setter = self
             .mir
@@ -993,7 +1011,7 @@ impl FunctionEmitter<'_> {
             len_expr,
             index,
             negative,
-            "usize::try_from(normalized).expect(\"negative index out of bounds\")",
+            "usize::try_from(smelt_normalized).expect(\"negative index out of bounds\")",
         )
     }
 
@@ -1053,7 +1071,7 @@ impl FunctionEmitter<'_> {
             len_expr,
             index,
             negative,
-            "usize::try_from(normalized).unwrap_or(usize::MAX)",
+            "usize::try_from(smelt_normalized).unwrap_or(usize::MAX)",
         )
     }
 
@@ -1071,6 +1089,14 @@ impl FunctionEmitter<'_> {
     /// with `xs[len - 1]` in generated TypeScript — a wrong value, not a crash.
     /// Leaving the index alone lets the same out-of-range machinery below turn
     /// it into the miss both languages already agree on for `xs[len]`.
+    /// The `smelt_`-prefixed binding names are load-bearing. This snippet is
+    /// emitted INTO a user function body, and a shared capture is rewritten
+    /// through that body textually (`replace_shared_capture_uses`), which cannot
+    /// tell an emitter-authored binding from a use of the captured local. Hono's
+    /// `compose` captures a mutable `index`, so plain `let index = ..` here came
+    /// back as `let (*smelt_capture_index.borrow_mut()) = ..`, which is not a
+    /// pattern and does not parse. `smelt_` is reserved and no source identifier
+    /// reaches it, so the collision cannot recur.
     fn normalized_index_text_with_fallback(
         &self,
         len_expr: &str,
@@ -1086,13 +1112,13 @@ impl FunctionEmitter<'_> {
         };
         let normalize = match negative {
             NegativeIndex::FromEnd => {
-                format!("let len = {len_expr} as i64; let index = {index_text} as i64; let normalized = if index < 0 {{ len + index }} else {{ index }};")
+                format!("let smelt_len = {len_expr} as i64; let smelt_index = {index_text} as i64; let smelt_normalized = if smelt_index < 0 {{ smelt_len + smelt_index }} else {{ smelt_index }};")
             }
             // No `len` binding: nothing consults the length when a negative
             // index cannot reach a slot, and emitting it anyway would take a
             // second borrow of the receiver inside its own `get(..)` argument.
             NegativeIndex::OutOfRange => {
-                format!("let normalized = {index_text} as i64;")
+                format!("let smelt_normalized = {index_text} as i64;")
             }
         };
         Ok(format!("{{ {normalize} {usize_conversion} }}"))
@@ -1321,16 +1347,16 @@ impl FunctionEmitter<'_> {
         Ok(format!(
             r"match {base_text} {{
                     SmeltUnknown::String(value) => {{
-                        let len = value.chars().count() as i64;
-                        let index = {numeric_index_text} as i64;
-                        let normalized = if index < 0 {{ len + index }} else {{ index }};
-                        usize::try_from(normalized).ok().and_then(|index| value.chars().nth(index).map(|ch| SmeltUnknown::String(ch.to_string().into()))).unwrap_or(SmeltUnknown::Undefined)
+                        let smelt_len = value.chars().count() as i64;
+                        let smelt_index = {numeric_index_text} as i64;
+                        let smelt_normalized = if smelt_index < 0 {{ smelt_len + smelt_index }} else {{ smelt_index }};
+                        usize::try_from(smelt_normalized).ok().and_then(|index| value.chars().nth(index).map(|ch| SmeltUnknown::String(ch.to_string().into()))).unwrap_or(SmeltUnknown::Undefined)
                     }}
                     SmeltUnknown::Array(values) => {{
-                        let len = values.len() as i64;
-                        let index = {numeric_index_text} as i64;
-                        let normalized = if index < 0 {{ len + index }} else {{ index }};
-                        usize::try_from(normalized).ok().and_then(|index| values.get(index).cloned()).unwrap_or(SmeltUnknown::Undefined)
+                        let smelt_len = values.len() as i64;
+                        let smelt_index = {numeric_index_text} as i64;
+                        let smelt_normalized = if smelt_index < 0 {{ smelt_len + smelt_index }} else {{ smelt_index }};
+                        usize::try_from(smelt_normalized).ok().and_then(|index| values.get(index).cloned()).unwrap_or(SmeltUnknown::Undefined)
                     }}
                 SmeltUnknown::Object(values) => smelt_get_object_field(&values, &{key_text}),
                 _ => SmeltUnknown::Undefined,
