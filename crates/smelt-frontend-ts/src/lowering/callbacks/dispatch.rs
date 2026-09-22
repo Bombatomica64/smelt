@@ -726,6 +726,8 @@ impl ModuleBuilder<'_> {
     /// Return whether compact callback lowering should retry as a normal closure.
     pub(in crate::lowering) fn should_fallback_to_closure_body_for_callback(error: &SmeltError) -> bool {
         error.message == "callback expression kind is not supported yet"
+            // `({ ...a, b })`: the compact IR has no ordered record merge.
+            || error.message == "callback object spread needs closure-body lowering"
             || error.message == "callback member assignment needs closure-body lowering"
             // Reassigning a callback parameter (`(value) => { value = ...; }`)
             // cannot be modeled by the side-effect-free expression IR, but the
@@ -1189,13 +1191,15 @@ impl ModuleBuilder<'_> {
                 let mut entries = Vec::new();
                 for property in &object.properties {
                     let ObjectPropertyKind::ObjectProperty(property) = property else {
-                        if let ObjectPropertyKind::SpreadProperty(spread) = property {
-                            drop(self.callback_expression(&spread.argument, params, body)?);
-                            continue;
-                        }
+                        // The callback expression language has no ordered
+                        // record-merge node, so a spread cannot be expressed
+                        // here. It used to be evaluated and DROPPED, which
+                        // silently built `{}` for `({ ...a, ...b })`; refusing
+                        // routes the arrow to the full body lowering, whose
+                        // `object_expression_with_spread` keeps every source.
                         return Err(SmeltError::unsupported(
                             self.span(property.span().start, property.span().end),
-                            "callback object literals only support plain properties",
+                            "callback object spread needs closure-body lowering",
                         ));
                     };
                     let key_text = match &property.key {
