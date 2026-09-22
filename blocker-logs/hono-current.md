@@ -5,6 +5,24 @@
 - Files scanned: 258 · with blockers: 0
 
 
+## Phase 3 round 1 (the test closure) — `worktree-agent-aabf2b588e2283140`
+
+The test glob was dead (`src/**/*.test.ts` under `roots = ["src"]` matches paths relative to the
+root, so it could never match); `smelt build`/`probe` now warn about a glob that matches nothing.
+With tests actually selected, the closure reports **66 files with blockers (30 of them test
+files), 140 diagnostics, 45 classes** — the phase-3 "→ 0" target is a multi-round campaign.
+
+Two defects were fixed and are why that number is trustworthy now: a frontend panic
+(`current_statement_block` carried into a closure body) used to abort the whole diagnostic pass at
+`src/jsx/dom/render.ts`, and 87 of the 101 test files never import from `vitest` (`globals: true`),
+so they were not test modules at all and their `expect(...)` lowered to an assertion that could not
+fail. Generated `#[test]` count on the buildable slice: **9 → 315**.
+
+Blocking round 2: sequential `expect(..).toThrow()` assertions duplicate the rest of the function
+each, so 12 of them in `src/utils/cookie.test.ts` emit a 616 MB / 9.5 M-line module and rustc is
+OOM-killed. Full inventory and the family table: `hono-phase3-round1.md` (+
+`hono-phase3-round1-families.md`).
+
 ## Whole-crate `cargo check` (round 33 partial merge, head `39c9be73`)
 
 Orchestrator measurement, clean clone, fresh full-feature binary, repo-root `--manifest-path`:
