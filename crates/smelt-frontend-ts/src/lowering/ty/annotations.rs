@@ -2895,11 +2895,12 @@ return_ty: function.return_ty,
                 }
                 if let Some((base, base_args)) =
                     class_item.and_then(|class| class.base.map(|base| (base, class.base_args)))
-                    .or_else(|| {
-                        class_name
-                            .as_deref()
-                            .and_then(|class_name| self.classes.base(class_name).cloned())
-                    })
+                    // Symbol-keyed, not name-keyed: the source spelling of a
+                    // class renamed for a cross-module collision is shared with
+                    // the class that displaced it, so a by-name fallback made an
+                    // imported base resolve back to the importing module's own
+                    // subclass and the chain walk below never terminated.
+                    .or_else(|| self.classes.base_of_symbol(name).cloned())
                 {
                     let substitutions = self.type_argument_substitution(
                         &self
@@ -3146,6 +3147,69 @@ return_ty: function.return_ty,
     /// Wrap a result type in `Optional`, avoiding nested optionals from optional fields.
     pub(in crate::lowering) fn optional_chain_result_type(&mut self, ty: smelt_hir::TypeId) -> smelt_hir::TypeId {
         smelt_hir::type_normalize::optional_of(&mut self.ctx.krate.types, ty)
+    }
+
+    /// Whether the method item `item` returns its own receiver from every
+    /// `return` it has.
+    ///
+    /// That is the body shape behind a fluent `return this`, and the only one
+    /// whose declared "returns my own class" annotation is JavaScript's
+    /// polymorphic `this` rather than a genuine base-instance factory. A method
+    /// with no body (declared-only) or no `return` at all answers `false`.
+    pub(in crate::lowering) fn method_returns_its_receiver(
+        &self,
+        item: smelt_hir::ItemId,
+    ) -> bool {
+        let Some(Item::Function(function)) = self
+            .ctx
+            .krate
+            .items
+            .get(usize::try_from(item.0).unwrap_or(usize::MAX))
+        else {
+            return false;
+        };
+        let Some(body) = function
+            .body
+            .and_then(|body| self.ctx.krate.bodies.get(usize::try_from(body.0).unwrap_or(usize::MAX)))
+        else {
+            return false;
+        };
+        let Some(receiver) = body.params.first().copied() else {
+            return false;
+        };
+        let mut saw_return = false;
+        for stmt in &body.stmts {
+            let smelt_hir::Stmt::Return(Some(value)) = stmt else {
+                continue;
+            };
+            saw_return = true;
+            let Some(expr) = body.exprs.get(usize::try_from(value.0).unwrap_or(usize::MAX)) else {
+                return false;
+            };
+            if !matches!(expr.kind, smelt_hir::ExprKind::Local(local) if local == receiver) {
+                return false;
+            }
+        }
+        saw_return
+    }
+
+    /// Look up the ITEM id of a class by its symbol.
+    ///
+    /// The symbol is the class's declared identity, so this answers correctly
+    /// for a class renamed apart from a cross-module collision, where the
+    /// by-name class registry is keyed by the shared source spelling.
+    pub(in crate::lowering) fn class_item_by_symbol(
+        &self,
+        name: smelt_hir::Symbol,
+    ) -> Option<smelt_hir::ItemId> {
+        self.ctx.krate.items.iter().enumerate().find_map(|(index, item)| {
+            if let Item::Class(class) = item
+                && class.name == name
+            {
+                return u32::try_from(index).ok().map(smelt_hir::ItemId);
+            }
+            None
+        })
     }
 
     /// Look up a class by its symbol.
@@ -3520,7 +3584,25 @@ return_ty: function.return_ty,
                 name: base,
                 args: base_args,
             });
-            return self.resolve_method(base_ty, method, span);
+            let (return_ty, item) = self.resolve_method(base_ty, method, span)?;
+            // JavaScript's polymorphic `this`: a base method annotated with its
+            // own class that RETURNS the receiver answers the receiver's class,
+            // not the base's. TypeScript spells the annotation nominally
+            // (`route(..): Hono<..> { return this }`), and Smelt flattens
+            // inheritance into separate structs, so typing the call at the base
+            // would contradict what the emitted method returns. The body check
+            // keeps a genuine base-instance FACTORY (`clone()`-style) at the base
+            // type; the emitter applies the same predicate when it renders the
+            // inherited copy's return type, so the two cannot drift.
+            if self.method_returns_its_receiver(item)
+                && matches!(
+                    self.ctx.krate.types.get(return_ty),
+                    Some(Type::Class { name: returned, .. }) if *returned == base
+                )
+            {
+                return Ok((receiver_ty, item));
+            }
+            return Ok((return_ty, item));
         }
         if self
             .ctx
@@ -3558,14 +3640,17 @@ return_ty: function.return_ty,
         method: smelt_hir::Symbol,
         span: oxc::span::Span,
     ) -> Option<(smelt_hir::TypeId, smelt_hir::ItemId)> {
-        let class_name = self
-            .ctx
-            .krate
-            .names
-            .get(class)
-            .or_else(|| self.ctx.krate.symbols.get(class))
-            .map(str::to_owned)?;
-        let (base, base_args) = self.classes.base(&class_name).cloned()?;
+        // Keyed by SYMBOL, never by the source spelling: a class renamed for a
+        // cross-module collision keeps its source name, so a by-name lookup of
+        // another module's `Store_1` answers with THIS module's `class Store
+        // extends Store_1` — whose base is the receiver again, and the walk below
+        // never terminates. The symbol-keyed map answers only for classes the
+        // module currently being lowered declared, which is the only set whose
+        // in-progress bases this recovery path is entitled to speak for.
+        let (base, base_args) = self.classes.base_of_symbol(class).cloned()?;
+        if base == class {
+            return None;
+        }
         let base_ty = self.ctx.krate.types.intern(Type::Class {
             name: base,
             args: base_args,

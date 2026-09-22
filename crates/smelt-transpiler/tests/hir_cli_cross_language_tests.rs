@@ -920,6 +920,70 @@ tag:shape
     Ok(())
 }
 
+/// A class extending a base reached under ANOTHER SPELLING inherits the base's
+/// fields, methods, and constructor.
+///
+/// `class Store {}; export { Store as StoreBase }` in one module and
+/// `class Store extends StoreBase` in another is the shape Hono's
+/// `class Hono extends HonoBase` has, and three rules had to key on the RESOLVED
+/// declaration for it to work — the test fails if any of them regresses:
+///
+/// * the export alias is published once the exporting module's items exist, so
+///   the importing module can bind `StoreBase` to a declaration at all;
+/// * the `extends` clause records that declaration's own symbol rather than the
+///   local spelling, without which the subclass struct had NO inherited fields
+///   (`E0609`) and its `super(..)` was dropped;
+/// * every base-chain walk keys on that symbol rather than the source spelling
+///   the two classes share once the collision is renamed apart — a by-name walk
+///   answers with the subclass itself and never terminates (the frontend
+///   overflowed its stack).
+///
+/// `rename` also pins the inherited fluent method: it is declared `(): Store` on
+/// the base and returns `this`, so the copy emitted into the subclass's `impl`
+/// returns `Self` — the subclass — rather than the base struct it is annotated
+/// with, which under flattened inheritance is a different Rust type.
+#[test]
+fn build_inherits_through_a_base_class_exported_under_another_name() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "aliased-base"
+version = "0.1.0"
+
+[sources]
+entries = ["src/base.ts", "src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "aliased_base"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(project_path.join("src/base.ts"), "class Store {\n  label: string;\n  constructor(label: string) {\n    this.label = label;\n  }\n  describe(): string {\n    return 'store:' + this.label;\n  }\n  rename(label: string): Store {\n    this.label = label;\n    return this;\n  }\n}\n\nexport { Store as StoreBase };\n")?;
+    fs::write(project_path.join("src/main.ts"), "import { StoreBase } from './base';\n\nexport class Store extends StoreBase {\n  extra: number;\n  constructor(label: string, extra: number) {\n    super(label);\n    this.extra = extra;\n  }\n  report(): string {\n    return this.describe() + '/' + this.extra;\n  }\n}\n\nconst store = new Store('a', 2);\nconsole.log(store.report());\nconsole.log(store.rename('b').describe());\n")?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    // Node 22's output: the inherited `label` slot exists, the forwarded
+    // `super(label)` filled it, and the inherited fluent method answers the
+    // receiver, so the chained call reads the label it just wrote.
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(
+        &actual_stdout,
+        &"store:a/2\nstore:b\n".to_owned(),
+        "unexpected stdout",
+    )?;
+
+    Ok(())
+}
+
 /// Every TypeScript end-to-end example the golden suite checks.
 ///
 /// A list rather than a directory scan: an example is only checked once it

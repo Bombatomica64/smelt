@@ -196,7 +196,7 @@ impl ModuleBuilder<'_> {
         // historical drop; see `class_is_reproducible_base` for why each is
         // excluded and what running their initialization would need instead.
         let error_base = is_error_like_base(&base_name);
-        if !error_base && !self.class_is_reproducible_base(&base_name) {
+        if !error_base && !self.class_is_reproducible_base(base) {
             return Ok(());
         }
         let span = self.span(call.span.start, call.span.end);
@@ -220,7 +220,6 @@ impl ModuleBuilder<'_> {
         } else {
             self.lower_declared_base_super_call(
                 base,
-                &base_name,
                 base_args,
                 &arguments,
                 this_local,
@@ -253,7 +252,6 @@ impl ModuleBuilder<'_> {
     pub(in crate::lowering) fn lower_declared_base_super_call(
         &mut self,
         base: smelt_hir::Symbol,
-        base_name: &str,
         base_args: Vec<smelt_hir::TypeId>,
         arguments: &[smelt_hir::ExprId],
         this_local: smelt_hir::LocalId,
@@ -286,7 +284,7 @@ impl ModuleBuilder<'_> {
             ty: base_ty,
             value: Some(constructed),
         });
-        for field in self.inherited_base_fields(base_name) {
+        for field in self.inherited_base_fields(base) {
             let receiver = body.push_expr(Expr {
                 kind: ExprKind::Local(this_local),
                 ty: class_ty,
@@ -513,14 +511,19 @@ impl ModuleBuilder<'_> {
     /// Fields that name a method somewhere in the chain are omitted: those are
     /// the callable slots synthesized for virtual dispatch, and the derived
     /// class's own initialization owns them.
-    fn inherited_base_fields(&mut self, base_name: &str) -> Vec<Field> {
-        let mut chain: Vec<(String, Vec<Field>, Vec<smelt_hir::Symbol>)> = Vec::new();
-        let mut cursor = Some(base_name.to_owned());
+    ///
+    /// The chain is walked by SYMBOL, never by source spelling: a class renamed
+    /// apart from a cross-module collision keeps its source name, so a by-name
+    /// walk of an import-aliased base either found the wrong class or none at
+    /// all — and a cycle in that mis-keyed chain does not terminate.
+    fn inherited_base_fields(&mut self, base: smelt_hir::Symbol) -> Vec<Field> {
+        let mut chain: Vec<(smelt_hir::Symbol, Vec<Field>, Vec<smelt_hir::Symbol>)> = Vec::new();
+        let mut cursor = Some(base);
         while let Some(name) = cursor {
-            if chain.iter().any(|(visited, _, _)| visited == &name) {
+            if chain.iter().any(|(visited, _, _)| *visited == name) {
                 break;
             }
-            let Some(item) = self.classes.item(&name) else {
+            let Some(item) = self.class_item_by_symbol(name) else {
                 break;
             };
             let Some((fields, method_items, abstract_methods, base, class_span)) =
@@ -528,9 +531,7 @@ impl ModuleBuilder<'_> {
             else {
                 break;
             };
-            let next = base
-                .and_then(|base| self.ctx.krate.symbols.get(base))
-                .map(ToOwned::to_owned);
+            let next = base;
             let mut method_names = method_items
                 .iter()
                 .filter_map(|method| {
@@ -542,7 +543,8 @@ impl ModuleBuilder<'_> {
                 })
                 .collect::<Vec<_>>();
             method_names.extend(abstract_methods);
-            let fields = if next.as_deref().is_some_and(is_error_like_base) {
+            let next_name = next.and_then(|next| self.ctx.krate.symbols.get(next).map(ToOwned::to_owned));
+            let fields = if next_name.as_deref().is_some_and(is_error_like_base) {
                 self.with_error_marker_fields(fields, class_span)
             } else {
                 fields
@@ -562,7 +564,7 @@ impl ModuleBuilder<'_> {
             .collect()
     }
 
-    /// Return whether a name resolves to a class this lowering can reproduce.
+    /// Return whether a base symbol resolves to a class this lowering can reproduce.
     ///
     /// Two kinds are excluded:
     ///
@@ -572,16 +574,17 @@ impl ModuleBuilder<'_> {
     ///   base's type parameters: a constructed `Box<string>` carries a `String`
     ///   slot where the derived struct declares the erased one, so the field
     ///   moves would not type-check.
-    pub(in crate::lowering) fn class_is_reproducible_base(&self, class_text: &str) -> bool {
-        let Some(item) = self.classes.item(class_text) else {
-            return false;
-        };
-        let index = usize::try_from(item.0).unwrap_or(usize::MAX);
-        matches!(
-            self.ctx.krate.items.get(index),
-            Some(Item::Class(class))
-                if class.kind != smelt_hir::ClassKind::Abstract && class.type_params.is_empty()
-        )
+    ///
+    /// Keyed on the base's resolved SYMBOL rather than its source spelling: a
+    /// class renamed for a cross-module collision (`Store_1`) is registered by
+    /// name under the source spelling it shares with the class that displaced
+    /// it, so a by-name lookup of an import-aliased base answered with the
+    /// importing module's own subclass (or with nothing at all, which silently
+    /// dropped the `super(...)` call).
+    pub(in crate::lowering) fn class_is_reproducible_base(&self, base: smelt_hir::Symbol) -> bool {
+        self.class_by_symbol(base).is_some_and(|class| {
+            class.kind != smelt_hir::ClassKind::Abstract && class.type_params.is_empty()
+        })
     }
 
     /// Read the layout-relevant parts of a lowered class item.
