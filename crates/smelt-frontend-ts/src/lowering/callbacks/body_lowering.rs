@@ -1550,6 +1550,17 @@ impl ModuleBuilder<'_> {
         // belongs here, not the outer declaration's pending deferral list (see
         // the matching reset in `function_expression_value`).
         let saved_deferred_updates = self.deferred_postfix_updates.take();
+        // A `BlockId` indexes the body that owns it, so the block the ENCLOSING
+        // statement is filling names nothing in this fresh closure body. Any
+        // assertion or deferred store synthesized while lowering the closure's
+        // own statements would be pushed at that stale index — which panicked
+        // (`index out of bounds` in `Body::push_stmt_to_block`) as soon as the
+        // outer block index was past this body's block count, and would have
+        // silently landed in the wrong block otherwise. Clearing it here makes
+        // the synthesized statement fall back to this body's root until the
+        // closure's own statement lowering sets it, exactly like the async flag
+        // and the return type above.
+        let saved_statement_block = self.current_statement_block.take();
         let infer_expression_return = is_expression_body
             && matches!(self.ctx.krate.types.get(return_ty), Some(Type::Unknown));
         // The same inference for a BLOCK-bodied callback.
@@ -1693,6 +1704,7 @@ impl ModuleBuilder<'_> {
         self.current_return_ty = saved_return_ty;
         self.scope.restore_narrowings(saved_narrowed_locals);
         self.deferred_postfix_updates = saved_deferred_updates;
+        self.current_statement_block = saved_statement_block;
         for (name, prior) in saved_locals.into_iter().rev() {
             if let Some(local) = prior {
                 self.scope.bind(name, local);

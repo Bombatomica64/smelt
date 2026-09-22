@@ -438,6 +438,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }
         }
         let test_module = self.is_test_tier_program(program);
+        if test_module {
+            self.mark_ambient_test_builtins(program);
+        }
         self.classify_pending_host_imports(test_module);
         let implemented_functions = implemented_function_names(program);
         self.shadow_cross_module_overloads(&implemented_functions);
@@ -3173,6 +3176,65 @@ impl<'ctx> ModuleBuilder<'ctx> {
             let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
             self.module_globals.insert(candidate.local, unknown_ty);
         }
+    }
+
+    /// Put the Vitest API names in scope for a test module that does not import
+    /// them.
+    ///
+    /// Vitest's `globals: true` publishes `describe`/`it`/`test`/`expect` and
+    /// the lifecycle hooks as globals inside test files, and most projects that
+    /// enable it stop importing them (87 of Hono's 101 `*.test.ts` files do).
+    /// Without this, `describe(...)` in such a file is an ordinary unresolved
+    /// call and `expect(x).toBe(y)` lowers through the erased dynamic-call path
+    /// — an assertion that cannot fail — so the file emitted no `#[test]` and
+    /// reported a pass either way.
+    ///
+    /// The names are the host module's, so this is the same model as the import
+    /// spelling and not a per-project rule. A name the file binds itself — an
+    /// import, or its own top-level declaration — keeps its own meaning: the
+    /// global is only the fallback vitest makes it.
+    fn mark_ambient_test_builtins(&mut self, program: &Program<'_>) {
+        let declared = Self::program_top_level_binding_names(program);
+        for name in test_support::vitest_builtin_names() {
+            if self.imports.is_imported_binding(name) || declared.contains(*name) {
+                continue;
+            }
+            self.imports.mark_test_builtin((*name).to_owned());
+        }
+    }
+
+    /// Collect the names a program binds at its top level.
+    ///
+    /// Only the forms that could shadow a vitest global matter here: a
+    /// `function`/`class` declaration and the identifier bindings of a
+    /// `const`/`let`/`var` statement (a destructuring pattern that rebinds
+    /// `expect` is not a shape any suite writes, and missing it only means the
+    /// global is preferred, which is what an un-shadowed file wants anyway).
+    fn program_top_level_binding_names(program: &Program<'_>) -> HashSet<String> {
+        let mut names = HashSet::new();
+        for statement in &program.body {
+            match statement {
+                Statement::FunctionDeclaration(function) => {
+                    if let Some(id) = &function.id {
+                        names.insert(id.name.as_str().to_owned());
+                    }
+                }
+                Statement::ClassDeclaration(class) => {
+                    if let Some(id) = &class.id {
+                        names.insert(id.name.as_str().to_owned());
+                    }
+                }
+                Statement::VariableDeclaration(declaration) => {
+                    for declarator in &declaration.declarations {
+                        if let BindingPattern::BindingIdentifier(binding) = &declarator.id {
+                            names.insert(binding.name.as_str().to_owned());
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        names
     }
 
     /// Return whether a program belongs to the test tier.

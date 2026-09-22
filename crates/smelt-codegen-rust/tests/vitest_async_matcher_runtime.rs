@@ -229,3 +229,230 @@ test("a resolving promise fails a rejects matcher", async () => {{
     );
     expect_generated_tests_fail(&source, "smelt_vitest_rejects_no_rejection");
 }
+
+
+// ---------------------------------------------------------------------------
+// Matcher-model coverage (`TestMatcher` and the mock-call matchers).
+//
+// Each matcher is exercised in BOTH directions: a satisfied assertion must
+// pass, and a deliberately false one must fail. Only the failing direction
+// proves the assertion was actually emitted rather than dropped.
+// ---------------------------------------------------------------------------
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn truthiness_matchers_follow_javascript_truthiness() {
+    let source = r#"
+import { test, expect } from "vitest";
+
+test("truthiness matchers", () => {
+  expect(1).toBeTruthy();
+  expect("text").toBeTruthy();
+  expect(0).toBeFalsy();
+  expect("").toBeFalsy();
+  expect(1).not.toBeFalsy();
+  const value: string | undefined = "here";
+  expect(value).toBeDefined();
+  expect(value).toBeTruthy();
+});
+"#;
+    expect_generated_tests_pass(source, "smelt_vitest_truthiness");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_wrong_truthiness_matcher_fails_the_generated_test() {
+    let source = r#"
+import { test, expect } from "vitest";
+
+test("a wrong truthiness matcher fails", () => {
+  expect(0).toBeTruthy();
+});
+"#;
+    expect_generated_tests_fail(source, "smelt_vitest_truthiness_wrong");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_wrong_to_be_defined_matcher_fails_the_generated_test() {
+    let source = r#"
+import { test, expect } from "vitest";
+
+test("a wrong toBeDefined fails", () => {
+  const value: string | undefined = undefined;
+  expect(value).toBeDefined();
+});
+"#;
+    expect_generated_tests_fail(source, "smelt_vitest_defined_wrong");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn to_match_accepts_a_substring_and_a_regexp() {
+    let source = r#"
+import { test, expect } from "vitest";
+
+test("toMatch", () => {
+  expect("hello world").toMatch("lo wo");
+  expect("hello world").toMatch(/^hello/);
+  expect("hello world").not.toMatch(/^world/);
+});
+"#;
+    expect_generated_tests_pass(source, "smelt_vitest_to_match");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_wrong_to_match_matcher_fails_the_generated_test() {
+    let source = r#"
+import { test, expect } from "vitest";
+
+test("a wrong toMatch fails", () => {
+  expect("hello world").toMatch(/^world/);
+});
+"#;
+    expect_generated_tests_fail(source, "smelt_vitest_to_match_wrong");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn comparison_and_type_matchers_assert_their_relation() {
+    let source = r#"
+import { test, expect } from "vitest";
+
+test("comparison matchers", () => {
+  expect(1).toBeLessThan(2);
+  expect(2).toBeLessThanOrEqual(2);
+  expect(3).toBeGreaterThan(2);
+  expect(3).toBeGreaterThanOrEqual(3);
+  expect("text").toBeTypeOf("string");
+  expect(1).toBeTypeOf("number");
+});
+"#;
+    expect_generated_tests_pass(source, "smelt_vitest_comparisons");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_wrong_comparison_matcher_fails_the_generated_test() {
+    let source = r#"
+import { test, expect } from "vitest";
+
+test("a wrong comparison fails", () => {
+  expect(3).toBeLessThan(2);
+});
+"#;
+    expect_generated_tests_fail(source, "smelt_vitest_comparison_wrong");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn to_throw_error_is_the_same_matcher_as_to_throw() {
+    let source = r#"
+import { test, expect } from "vitest";
+
+test("toThrowError alias", () => {
+  expect(() => {
+    throw new Error("boom");
+  }).toThrowError();
+  expect(() => 1).not.toThrowError();
+});
+"#;
+    expect_generated_tests_pass(source, "smelt_vitest_throw_error_alias");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_non_throwing_callback_fails_to_throw_error() {
+    let source = r#"
+import { test, expect } from "vitest";
+
+test("a non-throwing callback fails toThrowError", () => {
+  expect(() => 1).toThrowError();
+});
+"#;
+    expect_generated_tests_fail(source, "smelt_vitest_throw_error_wrong");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn to_match_object_is_a_recursive_subset() {
+    let source = r#"
+import { test, expect } from "vitest";
+
+test("toMatchObject", () => {
+  const value = { id: 1, name: "a", nested: { left: 1, right: 2 } };
+  expect(value).toMatchObject({ id: 1 });
+  expect(value).toMatchObject({ nested: { left: 1 } });
+  expect(value).not.toMatchObject({ id: 2 });
+});
+"#;
+    expect_generated_tests_pass(source, "smelt_vitest_match_object");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_wrong_to_match_object_fails_the_generated_test() {
+    let source = r#"
+import { test, expect } from "vitest";
+
+test("a wrong toMatchObject fails", () => {
+  const value = { id: 1, nested: { left: 1 } };
+  expect(value).toMatchObject({ nested: { left: 2 } });
+});
+"#;
+    expect_generated_tests_fail(source, "smelt_vitest_match_object_wrong");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn mock_call_matchers_and_their_jest_aliases_agree() {
+    let source = r#"
+import { test, expect, vi } from "vitest";
+
+test("mock call matchers", () => {
+  const spy = vi.fn();
+  spy(1);
+  expect(spy).toHaveBeenCalled();
+  expect(spy).toHaveBeenCalledOnce();
+  expect(spy).toBeCalled();
+  expect(spy).toBeCalledTimes(1);
+  expect(spy).toBeCalledWith(1);
+  expect(spy).toHaveBeenNthCalledWith(1, 1);
+  const unused = vi.fn();
+  expect(unused).not.toHaveBeenCalled();
+  expect(unused).not.toBeCalled();
+});
+"#;
+    expect_generated_tests_pass(source, "smelt_vitest_mock_call_matchers");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn an_uncalled_mock_fails_to_have_been_called() {
+    let source = r#"
+import { test, expect, vi } from "vitest";
+
+test("an uncalled mock fails toHaveBeenCalled", () => {
+  const spy = vi.fn();
+  expect(spy).toHaveBeenCalled();
+});
+"#;
+    expect_generated_tests_fail(source, "smelt_vitest_called_wrong");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_wrong_nth_call_fails_the_generated_test() {
+    let source = r#"
+import { test, expect, vi } from "vitest";
+
+test("a wrong nth call fails", () => {
+  const spy = vi.fn();
+  spy(1);
+  spy(2);
+  expect(spy).toHaveBeenNthCalledWith(2, 1);
+});
+"#;
+    expect_generated_tests_fail(source, "smelt_vitest_nth_call_wrong");
+}

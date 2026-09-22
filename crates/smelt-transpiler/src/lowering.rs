@@ -583,36 +583,91 @@ fn is_excluded_source(path: &Path, excludes: &[String], manifest_dir: &Path) -> 
 }
 
 /// Discovers test files matching configured source-root-relative glob patterns.
+///
+/// Test globs are matched against paths relative to EACH source root, so a
+/// glob that repeats the root's own name (`src/**/*.test.ts` under
+/// `roots = ["src"]`) can never match. That silent empty test set is
+/// indistinguishable from "this project has no tests", so every glob that
+/// matched nothing under any root is reported as a warning on stderr by both
+/// `smelt build` and `smelt probe`.
 fn discover_test_paths(
     config: &crate::config::Config,
     manifest_dir: &Path,
 ) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
-    if config.test_globs().is_empty() {
+    let patterns = config.test_globs();
+    if patterns.is_empty() {
         return Ok(Vec::new());
     }
     let roots = config
         .source_roots()
         .map_or_else(|| vec![PathBuf::from(".")], <[_]>::to_vec);
     let mut paths = Vec::new();
-    for root in roots {
-        let absolute_root = resolve_manifest_path(manifest_dir, &root);
+    let mut matched = vec![false; patterns.len()];
+    for root in &roots {
+        let absolute_root = resolve_manifest_path(manifest_dir, root);
         collect_matching_test_paths(
             &absolute_root,
             &absolute_root,
-            config.test_globs(),
+            patterns,
+            &mut matched,
             &mut paths,
         )?;
+    }
+    if let Some(warning) = empty_test_glob_warning(patterns, &matched, &roots) {
+        eprintln!("{warning}");
     }
     paths.sort();
     paths.dedup();
     Ok(paths)
 }
 
+/// Formats the warning for `test-prefix` globs that matched no file at all.
+///
+/// Returns `None` when every configured glob matched at least one file under
+/// some source root. The message names each dead glob and the roots the globs
+/// were matched against, so the fix is readable straight from the warning.
+fn empty_test_glob_warning(
+    patterns: &[String],
+    matched: &[bool],
+    roots: &[PathBuf],
+) -> Option<String> {
+    let dead = patterns
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| !matched.get(*index).copied().unwrap_or(false))
+        .map(|(_, pattern)| format!("`{pattern}`"))
+        .collect::<Vec<_>>();
+    if dead.is_empty() {
+        return None;
+    }
+    let root_list = roots
+        .iter()
+        .map(|root| root.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some(format!(
+        "warning: [sources] test-prefix glob{plural} {globs} matched no files under {where_}; globs are matched against paths relative to each source root, so a glob must not repeat the root's own path",
+        plural = if dead.len() == 1 { "" } else { "s" },
+        globs = dead.join(", "),
+        where_ = if root_list.is_empty() {
+            "any source root".to_owned()
+        } else {
+            format!("source root(s) {root_list}")
+        },
+    ))
+}
+
 /// Recursively collects files below `dir` whose root-relative path matches a glob.
+///
+/// `matched[i]` is set once `patterns[i]` has matched at least one file, which
+/// is what [`empty_test_glob_warning`] reports on. Every pattern is tested for
+/// each file rather than short-circuiting on the first hit, so the flags stay
+/// accurate.
 fn collect_matching_test_paths(
     root: &Path,
     dir: &Path,
     patterns: &[String],
+    matched: &mut [bool],
     paths: &mut Vec<PathBuf>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     for read_result in fs::read_dir(dir)? {
@@ -620,14 +675,22 @@ fn collect_matching_test_paths(
         let path = dir_entry.path();
         let file_type = dir_entry.file_type()?;
         if file_type.is_dir() {
-            collect_matching_test_paths(root, &path, patterns, paths)?;
+            collect_matching_test_paths(root, &path, patterns, matched, paths)?;
         } else if file_type.is_file()
             && let Ok(relative) = path.strip_prefix(root)
-            && patterns
-                .iter()
-                .any(|pattern| path_matches_glob(relative, pattern))
         {
-            paths.push(path);
+            let mut hit = false;
+            for (index, pattern) in patterns.iter().enumerate() {
+                if path_matches_glob(relative, pattern) {
+                    hit = true;
+                    if let Some(flag) = matched.get_mut(index) {
+                        *flag = true;
+                    }
+                }
+            }
+            if hit {
+                paths.push(path);
+            }
         }
     }
     Ok(())
@@ -1242,7 +1305,9 @@ fn manifest_module_names(sources: &[&ManifestSource]) -> Vec<String> {
 mod tests {
     //! Unit tests for source-file glob matching and `[sources] exclude` filtering.
 
-    use super::{is_excluded_source, path_matches_glob, retain_included_paths};
+    use super::{
+        empty_test_glob_warning, is_excluded_source, path_matches_glob, retain_included_paths,
+    };
     use std::path::{Path, PathBuf};
 
     #[test]
@@ -1340,5 +1405,45 @@ mod tests {
         let original = paths.clone();
         retain_included_paths(&mut paths, &[], manifest_dir);
         assert_eq!(paths, original);
+    }
+
+    #[test]
+    fn empty_test_glob_warning_is_silent_when_every_glob_matched() {
+        assert!(
+            empty_test_glob_warning(
+                &["**/*.test.ts".to_owned()],
+                &[true],
+                &[PathBuf::from("src")],
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn empty_test_glob_warning_names_the_dead_glob_and_the_roots() {
+        let warning = empty_test_glob_warning(
+            &["src/**/*.test.ts".to_owned(), "**/*.spec.ts".to_owned()],
+            &[false, true],
+            &[PathBuf::from("src")],
+        )
+        .expect("a glob that matched nothing must warn");
+        assert!(warning.contains("`src/**/*.test.ts`"), "{warning}");
+        assert!(!warning.contains("`**/*.spec.ts`"), "{warning}");
+        assert!(warning.contains("src"), "{warning}");
+        assert!(warning.starts_with("warning:"), "{warning}");
+    }
+
+    #[test]
+    fn empty_test_glob_warning_lists_every_dead_glob() {
+        let warning = empty_test_glob_warning(
+            &["a/**/*.test.ts".to_owned(), "b/**/*.test.ts".to_owned()],
+            &[false, false],
+            &[PathBuf::from("src"), PathBuf::from("lib")],
+        )
+        .expect("two dead globs must warn");
+        assert!(warning.contains("globs"), "{warning}");
+        assert!(warning.contains("`a/**/*.test.ts`"), "{warning}");
+        assert!(warning.contains("`b/**/*.test.ts`"), "{warning}");
+        assert!(warning.contains("src, lib"), "{warning}");
     }
 }

@@ -61,10 +61,14 @@ const MATCH_FN: &[&str] = &[
     r#"        "stringContaining" => { let (SmeltUnknown::String(text), Some(SmeltUnknown::String(part))) = (actual, sample.first()) else { return false; }; text.contains(&**part) }"#,
     r#"        "stringMatching" => { let SmeltUnknown::String(text) = actual else { return false; }; match sample.first() { Some(SmeltUnknown::String(pattern)) => SmeltRegExp::new(pattern.to_string(), String::new()).test(text), Some(SmeltUnknown::Object(map)) if map.contains_key("__smelt_regexp") => { let source = match map.get("source") { Some(SmeltUnknown::String(source)) => source.to_string(), _ => String::new() }; let flags = match map.get("flags") { Some(SmeltUnknown::String(flags)) => flags.to_string(), _ => String::new() }; SmeltRegExp::new(source, flags).test(text) } _ => false } }"#,
     r#"        "closeTo" => { let (SmeltUnknown::Number(value), Some(SmeltUnknown::Number(target))) = (actual, sample.first()) else { return false; }; let precision = match sample.get(1) { Some(SmeltUnknown::Number(precision)) => *precision, _ => 2.0 }; (value - target).abs() < 10f64.powf(-precision) / 2.0 }"#,
+    r#"        "matchObject" => { let Some(expected) = sample.first() else { return false; }; smelt_vitest_match_object(actual, expected, seen) }"#,
     r"        _ => false,",
     r"    }",
     r"}",
 ];
+
+/// `toMatchObject`: recursive subset equality.
+const MATCH_OBJECT_FN: &str = r"fn smelt_vitest_match_object(actual: &SmeltUnknown, expected: &SmeltUnknown, seen: &mut ::std::collections::HashSet<(usize, usize)>) -> bool { if smelt_asymmetric_marker(expected).is_some() { return smelt_vitest_asymmetric_equals(actual, expected, seen); } match (actual, expected) { (SmeltUnknown::Object(actual), SmeltUnknown::Object(expected)) => expected.iter().filter(|(key, _)| smelt_is_for_in_object_key(expected, key)).all(|(key, want)| actual.get(&key).is_some_and(|have| smelt_vitest_match_object(&have, &want, seen))), (SmeltUnknown::Array(actual), SmeltUnknown::Array(expected)) => actual.len() == expected.len() && actual.iter().zip(expected.iter()).all(|(have, want)| smelt_vitest_match_object(&have, &want, seen)), _ => smelt_vitest_asymmetric_equals(actual, expected, seen) } }";
 
 /// The matcher-aware deep-equality walk, one emitted line per source line.
 const EQUALS_FN: &[&str] = &[
@@ -106,6 +110,12 @@ pub(crate) fn emit(writer: &mut CodeWriter) {
     writer.line("/// the value's own class identity, through the same view");
     writer.line("/// `Object.prototype.toString` reports.");
     writer.line(ANY_FN);
+    writer.blank_line();
+    writer.blank_line();
+    writer.line("/// `toMatchObject`: the expected value's properties are a RECURSIVE SUBSET");
+    writer.line("/// of the actual value's, at every level; an array still has to have the");
+    writer.line("/// same length, and any other value compares by ordinary vitest equality.");
+    writer.line(MATCH_OBJECT_FN);
     writer.blank_line();
     writer.line("/// Whether `actual` satisfies one asymmetric matcher.");
     for line in MATCH_FN {
