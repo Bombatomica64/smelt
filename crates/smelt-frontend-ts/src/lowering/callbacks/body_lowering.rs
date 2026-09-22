@@ -2570,6 +2570,36 @@ impl ModuleBuilder<'_> {
                     }
                 }
             }
+            Statement::FunctionDeclaration(function) => {
+                // A nested `function` declaration is lowered into a closure of
+                // this frame, so every enclosing binding ITS body reads is a
+                // binding this frame must hold as well. Without this arm a name
+                // used only inside the declaration is never captured by the
+                // frame that contains it, and the declaration's own capture
+                // then resolves in a further-out frame — two different values
+                // collide on one source local id. Walked exactly like a
+                // function EXPRESSION, plus the declaration's own name, which
+                // is bound by this statement rather than captured.
+                let mut nested_params = param_names.clone();
+                if let Some(id) = &function.id {
+                    nested_params.insert(id.name.as_str().to_owned());
+                }
+                for param in &function.params.items {
+                    if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
+                        nested_params.insert(binding.name.as_str().to_owned());
+                    }
+                }
+                if let Some(rest) = &function.params.rest
+                    && let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument
+                {
+                    nested_params.insert(binding.name.as_str().to_owned());
+                }
+                if let Some(body) = &function.body {
+                    for statement in &body.statements {
+                        self.collect_statement_capture_names(statement, &nested_params, captures);
+                    }
+                }
+            }
             _ => {}
         }
     }

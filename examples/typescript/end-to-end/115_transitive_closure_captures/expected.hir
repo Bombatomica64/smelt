@@ -1,0 +1,89 @@
+module examples/typescript/end-to-end/115_transitive_closure_captures/input.ts (ModuleId(0))
+  body BodyId(11)
+  locals
+    %0 const makeWalker: fn(List<String>) -> fn(String) -> String
+    %1 const makeJoiner: fn(List<String>) -> fn(String) -> String
+    %2 const makeTagger: fn(String) -> fn(String) -> fn(String) -> String
+    %3 const makeCounter: fn(Float) -> fn(Float) -> Float
+  exprs
+    #0: fn(List<String>) -> fn(String) -> String = closure BodyId(2) captures 0 -> fn(String) -> String
+    #1: fn(List<String>) -> fn(String) -> String = closure BodyId(5) captures 0 -> fn(String) -> String
+    #2: fn(String) -> fn(String) -> fn(String) -> String = closure BodyId(8) captures 0 -> fn(String) -> fn(String) -> String
+    #3: fn(Float) -> fn(Float) -> Float = closure BodyId(10) captures 0 -> fn(Float) -> Float
+    #4: fn(List<String>) -> fn(String) -> String = %0
+    #5: String = "a"
+    #6: String = "b"
+    #7: String = "c"
+    #8: List<String> = [#5, #6, #7]
+    #9: fn(String) -> String = closure_call #4(#8)
+    #10: String = "end"
+    #11: String = closure_call #9(#10)
+    #12: None = @0(console_log)
+    #13: None = call #12(#11)
+    #14: fn(List<String>) -> fn(String) -> String = %0
+    #15: List<String> = []
+    #16: fn(String) -> String = closure_call #14(#15)
+    #17: String = "only"
+    #18: String = closure_call #16(#17)
+    #19: None = @1(console_log)
+    #20: None = call #19(#18)
+    #21: fn(List<String>) -> fn(String) -> String = %1
+    #22: String = "x"
+    #23: String = "y"
+    #24: String = "z"
+    #25: List<String> = [#22, #23, #24]
+    #26: fn(String) -> String = closure_call #21(#25)
+    #27: String = "-"
+    #28: String = closure_call #26(#27)
+    #29: None = @2(console_log)
+    #30: None = call #29(#28)
+    #31: fn(String) -> fn(String) -> fn(String) -> String = %2
+    #32: String = "<"
+    #33: fn(String) -> fn(String) -> String = closure_call #31(#32)
+    #34: String = ">"
+    #35: fn(String) -> String = closure_call #33(#34)
+    #36: String = "mid"
+    #37: String = closure_call #35(#36)
+    #38: None = @3(console_log)
+    #39: None = call #38(#37)
+    #40: fn(Float) -> fn(Float) -> Float = %3
+    #41: Float = 10.0
+    #42: fn(Float) -> Float = closure_call #40(#41)
+    #43: Float = 3.0
+    #44: Float = closure_call #42(#43)
+    #45: None = @4(console_log)
+    #46: None = call #45(#44)
+  stmts
+    s0: let %0: fn(List<String>) -> fn(String) -> String = #0
+    s1: let %1: fn(List<String>) -> fn(String) -> String = #1
+    s2: let %2: fn(String) -> fn(String) -> fn(String) -> String = #2
+    s3: let %3: fn(Float) -> fn(Float) -> Float = #3
+    s4: #13
+    s5: #20
+    s6: #30
+    s7: #39
+    s8: #46
+
+interned types
+  t0 = String
+  t1 = List<String>
+  t2 = Unknown
+  t3 = fn(List<String>) -> Unknown
+  t4 = fn(String) -> Unknown
+  t5 = Float
+  t6 = fn(Float) -> Unknown
+  t7 = fn(Float) -> String
+  t8 = fn(Float) -> String
+  t9 = Bool
+  t10 = fn(String) -> String
+  t11 = fn(List<String>) -> fn(String) -> String
+  t12 = fn(List<String>) -> fn(String) -> String
+  t13 = fn() -> String
+  t14 = fn() -> String
+  t15 = fn(String) -> fn(String) -> String
+  t16 = fn(String) -> fn(String) -> fn(String) -> String
+  t17 = fn(String) -> fn(String) -> fn(String) -> String
+  t18 = fn(Float) -> Float
+  t19 = fn(Float) -> fn(Float) -> Float
+  t20 = fn(Float) -> fn(Float) -> Float
+  t21 = None

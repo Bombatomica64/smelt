@@ -242,6 +242,26 @@ pub fn validate(krate: &Crate) -> Vec<ValidationError> {
                                 ),
                             });
                         }
+                        // Rule: a capture's `source_local` names a local of the
+                        // frame that IMMEDIATELY encloses the closure — a
+                        // parameter, a body local, or that frame's own capture
+                        // — never a local id that was resolved in a further-out
+                        // frame. Local ids are per-body, so a stale id still
+                        // indexes a local here; what gives it away is that the
+                        // local it lands on is a different NAMED binding. Only
+                        // a named-to-named mismatch is reported, so synthesized
+                        // captures over unnamed temporaries stay silent.
+                        if let Some(source) = body.locals.get(capture.source_local.0 as usize)
+                            && let Some(source_name) = source.name
+                            && source_name != capture.symbol
+                        {
+                            errors.push(ValidationError {
+                                message: format!(
+                                    "body {body_idx} expr {expr_idx} closure captures {:?} as {:?} but that local is {:?}: a capture source must name a local of the immediately enclosing body",
+                                    capture.source_local, capture.symbol, source_name
+                                ),
+                            });
+                        }
                         if krate.types.get(capture.ty).is_none() {
                             errors.push(ValidationError {
                                 message: format!(

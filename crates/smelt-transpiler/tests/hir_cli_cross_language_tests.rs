@@ -949,6 +949,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "10_unary_logical",
     "110_captured_callback_handle_is_cloned",
     "112_recursive_binding_keeps_its_type",
+    "115_transitive_closure_captures",
     "11_console_log_expressions",
     "12_while_sum",
     "13_for_of_sum",
