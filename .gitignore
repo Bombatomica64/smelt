@@ -44,6 +44,7 @@ blocker-logs/*.md
 # smelt-unknown-report.md documents the SmeltUnknown metric methodology + baseline
 !blocker-logs/smelt-unknown-report.md
 !blocker-logs/hono-round34-brief.md
+!blocker-logs/hono-phase3-survey.md
 !blocker-logs/hono-round34-hoisting.md
 !blocker-logs/hono-round34-scoping.md
 # estk-const-item-inlining.md documents the const-item-inlining blocker fix
