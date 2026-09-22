@@ -2056,6 +2056,47 @@ function offset(date: Date): number {
 }
 
 #[test]
+fn a_closure_inside_a_statement_block_does_not_inherit_its_block_id() -> Result<(), String> {
+    // A `BlockId` indexes the body that OWNS it. `promise ||= ...` lowers into
+    // an `if`-block of the outer body, and the `new Promise((r) => ...)`
+    // executor then lowers into a fresh closure body with one block — where the
+    // assignment `resolve = r` was pushed at the outer block's index. That
+    // panicked the whole lowering pass (`index out of bounds: the len is 1 but
+    // the index is 2` in `Body::push_stmt_to_block`), which is how Hono's
+    // `src/utils/concurrent.ts` and `src/jsx/dom/render.ts` took the rest of
+    // the crate's diagnostics down with them.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export const createPool = (concurrency: number) => {
+  const pool: Set<{}> = new Set()
+  const run = async <T>(
+    fn: () => T,
+    promise?: Promise<T>,
+    resolve?: (result: T) => void
+  ): Promise<T> => {
+    if (pool.size >= concurrency) {
+      promise ||= new Promise<T>((r) => (resolve = r))
+      return promise
+    }
+    const result = await fn()
+    if (resolve) {
+      resolve(result)
+      return promise as Promise<T>
+    }
+    return result
+  }
+  return { run }
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_the_extended_vitest_matcher_surface() -> Result<(), String> {
     // Every matcher added to the closed model in one lowering: truthiness,
     // definedness, `toMatch` in both argument shapes, the comparison family,
