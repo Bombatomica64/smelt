@@ -493,11 +493,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
         // instead, a function body calling an exported arrow declared further
         // down resolved the name before its item existed and bound a
         // default-returning placeholder (radash `retry` -> `tryit`).
-        let mut pending_arrows = program
+        let pending_arrows = program
             .body
             .iter()
             .filter_map(|statement| match statement {
-                Statement::VariableDeclaration(variable) => Some((variable, false)),
+                Statement::VariableDeclaration(variable) => Some((variable.as_ref(), false)),
                 Statement::ExportDeclaration(export) => match &export.declaration {
                     Declaration::VariableDeclaration(variable)
                         if Self::is_liftable_exported_arrow_const(
@@ -505,42 +505,45 @@ impl<'ctx> ModuleBuilder<'ctx> {
                             &forward_arrow_consts,
                         ) =>
                     {
-                        Some((variable, true))
+                        Some((variable.as_ref(), true))
                     }
                     _ => None,
                 },
                 _ => None,
             })
             .collect::<Vec<_>>();
-        let mut lowered_arrows = HashSet::new();
-        let mut lifted_exported_arrows = HashSet::new();
-        while !pending_arrows.is_empty() {
-            let index = pending_arrows
-                .iter()
-                .position(|(variable, _)| {
-                    self.arrow_const_dependencies_are_lowered(
-                        variable,
-                        &forward_arrow_consts,
-                        &lowered_arrows,
-                    )
-                })
-                .unwrap_or(0);
-            let (variable, exported) = pending_arrows.remove(index);
-            let lowered = if exported {
-                lifted_exported_arrows.insert(variable.span.start);
-                self.const_item_declarations(variable)
-            } else {
-                self.arrow_function_const_item_declarations(variable, &forward_arrow_consts)
-            };
-            match lowered {
-                Ok(items) => module.items.extend(items),
-                Err(error) => errors.push(error),
-            }
-            lowered_arrows.extend(Self::arrow_const_declaration_names(variable));
-        }
+        // A lifted arrow body also reads the MEMBERS of this module's classes
+        // (`req.header()`), and a class's field and method signatures exist only
+        // once its declaration is lowered. So an arrow naming a module class
+        // waits for that class instead of being hoisted above it: the queue is
+        // drained once here and again after each class declaration below. See
+        // `ForwardArrowQueue`.
+        let mut arrow_queue = ForwardArrowQueue {
+            pending: pending_arrows,
+            classes: self.module_class_source_texts(program),
+            lowered_classes: HashSet::new(),
+            forward_arrow_consts,
+            lowered_arrows: HashSet::new(),
+            lifted_exported: HashSet::new(),
+        };
+        self.drain_forward_arrow_queue(
+            &mut arrow_queue,
+            &mut module,
+            &mut errors,
+        );
         for statement in &program.body {
             if let Statement::ImportDeclaration(_) = statement {
                 continue;
+            }
+            // A queued arrow still waiting on a class is lowered no later than
+            // its own source position, where every class above it is lowered.
+            if let Some(start) = Self::variable_statement_start(statement) {
+                self.lower_queued_forward_arrow_at(
+                    &mut arrow_queue,
+                    start,
+                    &mut module,
+                    &mut errors,
+                );
             }
             if let Statement::VariableDeclaration(_) = statement {
                 if !self.is_predeclared_arrow_const_statement(statement) {
@@ -574,6 +577,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     Ok(item) => module.items.push(item),
                     Err(error) => errors.push(error),
                 }
+                if let Some(id) = &class.id {
+                    arrow_queue.lowered_classes.insert(id.name.to_string());
+                }
+                self.drain_forward_arrow_queue(
+                    &mut arrow_queue,
+                    &mut module,
+                    &mut errors,
+                );
                 continue;
             }
             if let Statement::TSInterfaceDeclaration(interface) = statement {
@@ -697,6 +708,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         Ok(item) => module.items.push(item),
                         Err(error) => errors.push(error),
                     }
+                    if let Some(id) = &class.id {
+                        arrow_queue.lowered_classes.insert(id.name.to_string());
+                    }
+                    self.drain_forward_arrow_queue(
+                        &mut arrow_queue,
+                        &mut module,
+                        &mut errors,
+                    );
                 } else if let Declaration::TSInterfaceDeclaration(interface) = decl {
                     match self.interface_declaration(interface) {
                         Ok(item) => module.items.push(item),
@@ -714,7 +733,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     }
                 } else if let Declaration::VariableDeclaration(variable) = decl {
                     // Already lowered by the forward-arrow queue above.
-                    if lifted_exported_arrows.contains(&variable.span.start) {
+                    if arrow_queue.lifted_exported.contains(&variable.span.start) {
                         continue;
                     }
                     match self.const_item_declarations(variable) {
@@ -3872,6 +3891,201 @@ impl<'ctx> ModuleBuilder<'ctx> {
             .collect()
     }
 
+    /// Source text of every class declaration in this module, by class name.
+    ///
+    /// Feeds [`ForwardArrowQueue::classes`]: a forward-lifted arrow whose body
+    /// names one of these classes waits until that class is lowered.
+    fn module_class_source_texts(&self, program: &Program<'_>) -> Vec<(String, String)> {
+        program
+            .body
+            .iter()
+            .filter_map(|statement| match statement {
+                Statement::ClassDeclaration(class) => Some(class.as_ref()),
+                Statement::ExportDeclaration(export) => match &export.declaration {
+                    Declaration::ClassDeclaration(class) => Some(class.as_ref()),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .filter_map(|class| {
+                let name = class.id.as_ref()?.name.to_string();
+                Some((name, self.span_source_text(class.span).to_owned()))
+            })
+            .collect()
+    }
+
+    /// Source text covered by `span`, or `""` when it is out of range.
+    fn span_source_text(&self, span: oxc::span::Span) -> &str {
+        self.source
+            .get(
+                usize::try_from(span.start).unwrap_or(usize::MAX)
+                    ..usize::try_from(span.end).unwrap_or(usize::MAX),
+            )
+            .unwrap_or_default()
+    }
+
+    /// Start offset of a top-level variable statement, plain or exported.
+    ///
+    /// This is the key [`ForwardArrowQueue`] entries are matched by when the
+    /// main lowering loop reaches their source position.
+    fn variable_statement_start(statement: &Statement<'_>) -> Option<u32> {
+        match statement {
+            Statement::VariableDeclaration(variable) => Some(variable.span.start),
+            Statement::ExportDeclaration(export) => match &export.declaration {
+                Declaration::VariableDeclaration(variable) => Some(variable.span.start),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// Whether `text` mentions `name` as a whole identifier (not as a
+    /// substring of a longer one, so `Request` is not found in `HonoRequest`).
+    fn mentions_identifier(text: &str, name: &str) -> bool {
+        let is_ident = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
+        text.match_indices(name).any(|(at, _)| {
+            let before = text[..at].chars().next_back();
+            let after = text[at + name.len()..].chars().next();
+            !before.is_some_and(is_ident) && !after.is_some_and(is_ident)
+        })
+    }
+
+    /// Indices of queued arrows that must not be lowered yet.
+    ///
+    /// An arrow waits when its body names a module class that is not lowered
+    /// yet, unless that class's own source names the arrow back (a cycle: the
+    /// class's method bodies need the arrow's item as much as the arrow needs
+    /// the class's members, so the arrow keeps its early lift and the class
+    /// bodies resolve the call). Waiting is transitive: an arrow that reads a
+    /// waiting arrow waits too, so it is never forced ahead of its callee and
+    /// bound to a placeholder.
+    fn waiting_forward_arrows(&self, queue: &ForwardArrowQueue<'_, '_>) -> HashSet<usize> {
+        let texts = queue
+            .pending
+            .iter()
+            .map(|(variable, _)| {
+                let names = Self::arrow_const_declaration_names(variable);
+                (self.span_source_text(variable.span), names)
+            })
+            .collect::<Vec<_>>();
+        let mut waiting = texts
+            .iter()
+            .enumerate()
+            .filter(|(_, (text, names))| {
+                queue.classes.iter().any(|(class, class_text)| {
+                    !queue.lowered_classes.contains(class)
+                        && Self::mentions_identifier(text, class)
+                        && !names
+                            .iter()
+                            .any(|name| Self::mentions_identifier(class_text, name))
+                })
+            })
+            .map(|(index, _)| index)
+            .collect::<HashSet<_>>();
+        loop {
+            let waiting_names = waiting
+                .iter()
+                .filter_map(|index| texts.get(*index))
+                .flat_map(|(_, names)| names.iter().cloned())
+                .collect::<Vec<_>>();
+            let newly = texts
+                .iter()
+                .enumerate()
+                .filter(|(index, (text, names))| {
+                    !waiting.contains(index)
+                        && waiting_names.iter().any(|waiting_name| {
+                            !names.contains(waiting_name)
+                                && Self::mentions_identifier(text, waiting_name)
+                        })
+                })
+                .map(|(index, _)| index)
+                .collect::<Vec<_>>();
+            if newly.is_empty() {
+                return waiting;
+            }
+            waiting.extend(newly);
+        }
+    }
+
+    /// Lower every queued arrow that is not waiting on an unlowered class, in
+    /// arrow-dependency order (an arrow cycle falls back to queue order).
+    fn drain_forward_arrow_queue(
+        &mut self,
+        queue: &mut ForwardArrowQueue<'_, '_>,
+        module: &mut Module,
+        errors: &mut Vec<SmeltError>,
+    ) {
+        loop {
+            let waiting = self.waiting_forward_arrows(queue);
+            let ready = (0..queue.pending.len())
+                .filter(|index| !waiting.contains(index))
+                .collect::<Vec<_>>();
+            let Some(&fallback) = ready.first() else {
+                return;
+            };
+            let index = ready
+                .iter()
+                .copied()
+                .find(|index| {
+                    queue.pending.get(*index).is_some_and(|(variable, _)| {
+                        self.arrow_const_dependencies_are_lowered(
+                            variable,
+                            &queue.forward_arrow_consts,
+                            &queue.lowered_arrows,
+                        )
+                    })
+                })
+                .unwrap_or(fallback);
+            self.lower_queued_forward_arrow(queue, index, module, errors);
+        }
+    }
+
+    /// Lower the queued arrow statement starting at `start`, if it is still
+    /// queued: the main loop has reached its source position, where every
+    /// class declared above it is already lowered.
+    fn lower_queued_forward_arrow_at(
+        &mut self,
+        queue: &mut ForwardArrowQueue<'_, '_>,
+        start: u32,
+        module: &mut Module,
+        errors: &mut Vec<SmeltError>,
+    ) {
+        if let Some(index) = queue
+            .pending
+            .iter()
+            .position(|(variable, _)| variable.span.start == start)
+        {
+            self.lower_queued_forward_arrow(queue, index, module, errors);
+        }
+    }
+
+    /// Remove queue entry `index` and lower it: an exported statement through
+    /// `const_item_declarations` (marking it lifted so the main loop skips it),
+    /// a private one as a private callable item.
+    fn lower_queued_forward_arrow(
+        &mut self,
+        queue: &mut ForwardArrowQueue<'_, '_>,
+        index: usize,
+        module: &mut Module,
+        errors: &mut Vec<SmeltError>,
+    ) {
+        if index >= queue.pending.len() {
+            return;
+        }
+        let (variable, exported) = queue.pending.remove(index);
+        let lowered = if exported {
+            queue.lifted_exported.insert(variable.span.start);
+            self.const_item_declarations(variable)
+        } else {
+            self.arrow_function_const_item_declarations(variable, &queue.forward_arrow_consts)
+        };
+        match lowered {
+            Ok(items) => module.items.extend(items),
+            Err(error) => errors.push(error),
+        }
+        queue.lowered_arrows.extend(Self::arrow_const_declaration_names(variable));
+    }
+
     /// Check whether a private arrow constant can resolve arrow values it reads.
     ///
     /// Top-level `const` arrows are lexical values rather than hoisted function
@@ -4777,4 +4991,31 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     // Continued in the next split builder file.
+}
+
+/// Forward-referenced top-level arrow consts still to be lowered as items.
+///
+/// Such an arrow is lifted ahead of source order so a body calling it reaches
+/// the real item rather than a placeholder. It cannot be lifted above a class
+/// it reads, though: a class's fields and method signatures (the overload a
+/// `req.header()` call picks, and its return type) exist only once the class
+/// declaration is lowered, so a body lowered earlier resolved member calls on
+/// that class against nothing. Entries therefore wait for the module classes
+/// their body names, and are lowered when those are, or at their own source
+/// position at the latest.
+struct ForwardArrowQueue<'a, 'src> {
+    /// Queued statements with whether each is exported.
+    pending: Vec<(&'a oxc::ast::ast::VariableDeclaration<'src>, bool)>,
+    /// `(name, source text)` of every class declaration in the module.
+    classes: Vec<(String, String)>,
+    /// Module classes whose declaration has been lowered so far.
+    lowered_classes: HashSet<String>,
+    /// Every forward-referenced arrow name (queued or not), for dependency
+    /// ordering and for `arrow_function_const_item_declarations`.
+    forward_arrow_consts: HashSet<String>,
+    /// Arrow names lowered by the queue so far.
+    lowered_arrows: HashSet<String>,
+    /// Start offsets of exported statements the queue lowered, which the main
+    /// loop then skips.
+    lifted_exported: HashSet<u32>,
 }

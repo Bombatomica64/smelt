@@ -1,0 +1,100 @@
+class Request fields [Private headers: Dict<String, String>] constructor Some(FuncId(3)) methods [FuncId(1), FuncId(2)]
+
+async fn report (FuncId(0)) -> Float
+  locals
+    %0 param req: Request
+    %1 temp: Future<Float>
+  bb0:
+    %1 = call fn4(copy %0, true) -> bb1
+  bb1:
+    return move %1
+
+fn all (FuncId(1)) -> Dict<String, String>
+  locals
+    %0 param this: Request
+    %1 temp: Dict<String, String>
+    %2 temp: Dict<String, String>
+  bb0:
+    %1 = {}
+    %2 = dict_assign move %1, [copy %0.field3]
+    return move %2
+
+fn header (FuncId(2)) -> Optional<String>
+  locals
+    %0 param this: Request
+    %1 param name: String
+    %2 temp: Dict<String, String>
+  bb0:
+    %2 = copy %0.field3
+    return copy %2[copy %1]
+
+fn new (FuncId(3)) -> Request
+  locals
+    %0 user this: Request
+    %1 temp: Dict<String, String>
+  bb0:
+    %0 = struct0 {}
+    %1 = {"content-length": "12", "accept": "json"}
+    %0.field3 = move %1
+    return move %0
+
+async fn without_length (FuncId(4)) -> Float
+  locals
+    %0 param req: Request
+    %1 param strip: Bool
+    %2 user headers: Dict<String, String>
+    %3 temp: Dict<String, String>
+    %4 temp: Bool
+    %5 temp: Optional<String>
+    %6 temp: String
+    %7 temp: None
+    %8 temp: List<String>
+    %9 temp: Float
+  bb0:
+    %3 = call fn1(copy %0) -> bb1
+  bb1:
+    %2 = move %3
+    switch copy %1 ? bb2 : bb3
+  bb2:
+    %4 = dict_remove_key copy %2, "content-length"
+    goto bb3
+  bb3:
+    %5 = call fn2(copy %0, "accept") -> bb4
+  bb4:
+    %6 = move %5 ?? "none"
+    %7 = call @console_log(move %6) -> bb5
+  bb5:
+    %8 = dict_keys move %2
+    %9 = len move %8
+    return move %9
+
+async fn main (FuncId(5)) -> None throws
+  locals
+    %0 user req: Request
+    %1 temp: Request
+    %2 temp: Future<Float>
+    %3 temp: Float
+    %4 temp: None
+    %5 temp: Future<Float>
+    %6 temp: Float
+    %7 temp: None
+    %8 temp: Future<None>
+    %9 temp: None
+  bb0:
+    %1 = call fn3() -> bb1
+  bb1:
+    %0 = move %1
+    %2 = call fn0(copy %0) -> bb2
+  bb2:
+    %3 = await move %2
+    %4 = call @console_log(move %3) -> bb3
+  bb3:
+    %5 = call fn4(move %0, false) -> bb4
+  bb4:
+    %6 = await move %5
+    %7 = call @console_log(move %6) -> bb5
+  bb5:
+    %8 = async_exit_drain()
+    %9 = await move %8
+    return none
+
