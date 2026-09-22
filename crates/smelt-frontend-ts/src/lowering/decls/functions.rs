@@ -849,7 +849,7 @@ impl ModuleBuilder<'_> {
     ///
     /// Shared by free functions, methods, and constructors so all three agree on
     /// the ABI and on when a default is applied.
-    fn apply_parameter_defaults<'src>(
+    pub(in crate::lowering) fn apply_parameter_defaults<'src>(
         &mut self,
         defaulted_params: Vec<(
             smelt_hir::LocalId,
@@ -915,7 +915,7 @@ impl ModuleBuilder<'_> {
     /// already synthesize exactly the defaulted value, so the parameter keeps
     /// its plain (non-`Optional`) ABI. This also preserves mutable-reference
     /// threading for parameters that accumulate state across recursive calls.
-    fn initializer_is_type_zero_default(initializer: &Expression<'_>) -> bool {
+    pub(in crate::lowering) fn initializer_is_type_zero_default(initializer: &Expression<'_>) -> bool {
         match initializer {
             Expression::NumericLiteral(literal) => literal.value == 0.0,
             Expression::StringLiteral(literal) => literal.value.is_empty(),

@@ -486,19 +486,38 @@ impl<'ctx> ModuleBuilder<'ctx> {
         // An arrow that reads a module binding with REFERENCE IDENTITY cannot be
         // lifted: see `identity_bearing_module_binding_names`.
         self.retain_capturable_arrow_consts(program, &mut forward_arrow_consts);
+        // Forward-referenced arrow consts are lowered BEFORE any body that may
+        // call them, in dependency order. An EXPORTED arrow const is the same
+        // lexical binding as a private one (`export` changes visibility, not
+        // evaluation), so it joins the same queue: lowered in source order
+        // instead, a function body calling an exported arrow declared further
+        // down resolved the name before its item existed and bound a
+        // default-returning placeholder (radash `retry` -> `tryit`).
         let mut pending_arrows = program
             .body
             .iter()
             .filter_map(|statement| match statement {
-                Statement::VariableDeclaration(variable) => Some(variable),
+                Statement::VariableDeclaration(variable) => Some((variable, false)),
+                Statement::ExportDeclaration(export) => match &export.declaration {
+                    Declaration::VariableDeclaration(variable)
+                        if Self::is_liftable_exported_arrow_const(
+                            variable,
+                            &forward_arrow_consts,
+                        ) =>
+                    {
+                        Some((variable, true))
+                    }
+                    _ => None,
+                },
                 _ => None,
             })
             .collect::<Vec<_>>();
         let mut lowered_arrows = HashSet::new();
+        let mut lifted_exported_arrows = HashSet::new();
         while !pending_arrows.is_empty() {
             let index = pending_arrows
                 .iter()
-                .position(|variable| {
+                .position(|(variable, _)| {
                     self.arrow_const_dependencies_are_lowered(
                         variable,
                         &forward_arrow_consts,
@@ -506,8 +525,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     )
                 })
                 .unwrap_or(0);
-            let variable = pending_arrows.remove(index);
-            match self.arrow_function_const_item_declarations(variable, &forward_arrow_consts) {
+            let (variable, exported) = pending_arrows.remove(index);
+            let lowered = if exported {
+                lifted_exported_arrows.insert(variable.span.start);
+                self.const_item_declarations(variable)
+            } else {
+                self.arrow_function_const_item_declarations(variable, &forward_arrow_consts)
+            };
+            match lowered {
                 Ok(items) => module.items.extend(items),
                 Err(error) => errors.push(error),
             }
@@ -688,6 +713,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         Err(error) => errors.push(error),
                     }
                 } else if let Declaration::VariableDeclaration(variable) = decl {
+                    // Already lowered by the forward-arrow queue above.
+                    if lifted_exported_arrows.contains(&variable.span.start) {
+                        continue;
+                    }
                     match self.const_item_declarations(variable) {
                         Ok(items) => module.items.extend(items),
                         Err(error) => errors.push(error),
@@ -3800,6 +3829,30 @@ impl<'ctx> ModuleBuilder<'ctx> {
             items.push(item);
         }
         Ok(items)
+    }
+
+    /// Whether an exported `const` statement can join the forward-arrow queue.
+    ///
+    /// Only a statement whose EVERY declarator is a plain-identifier arrow in
+    /// the forward-referenced set qualifies, so lowering the whole statement
+    /// early through `const_item_declarations` never also moves a non-arrow
+    /// initializer (an object, a call) ahead of the values it reads.
+    pub(super) fn is_liftable_exported_arrow_const(
+        decl: &oxc::ast::ast::VariableDeclaration<'_>,
+        forward_arrow_consts: &HashSet<String>,
+    ) -> bool {
+        !decl.declare
+            && decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
+            && !decl.declarations.is_empty()
+            && decl.declarations.iter().all(|declarator| {
+                matches!(
+                    (&declarator.id, &declarator.init),
+                    (
+                        BindingPattern::BindingIdentifier(binding),
+                        Some(Expression::ArrowFunctionExpression(_)),
+                    ) if forward_arrow_consts.contains(binding.name.as_str())
+                )
+            })
     }
 
     /// Return top-level arrow binding names declared by one variable statement.
