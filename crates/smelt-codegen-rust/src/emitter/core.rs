@@ -2001,8 +2001,6 @@ impl<'mir> FunctionEmitter<'mir> {
         self.context.function_return_types.get(rust_name).copied()
     }
 
-    /// Emits a method or constructor definition, naming the site of any
-    /// blocker (see [`Self::emit`]).
     /// Mark this emitter as rendering an INHERITED copy of the method.
     ///
     /// Called by the crate emitter when a base class's method is re-emitted into
@@ -2041,6 +2039,8 @@ impl<'mir> FunctionEmitter<'mir> {
         saw_return
     }
 
+    /// Emits a method or constructor definition, naming the site of any
+    /// blocker (see [`Self::emit`]).
     pub(crate) fn emit_method(&mut self, out: &mut String) -> Result<(), EmitError> {
         let emitted = self.emit_method_definition(out);
         emitted.map_err(|error| error.with_site(|| self.current_function_site()))

@@ -564,7 +564,7 @@ impl ModuleBuilder<'_> {
             .collect()
     }
 
-    /// Return whether a name resolves to a class this lowering can reproduce.
+    /// Return whether a base symbol resolves to a class this lowering can reproduce.
     ///
     /// Two kinds are excluded:
     ///
@@ -574,6 +574,7 @@ impl ModuleBuilder<'_> {
     ///   base's type parameters: a constructed `Box<string>` carries a `String`
     ///   slot where the derived struct declares the erased one, so the field
     ///   moves would not type-check.
+    ///
     /// Keyed on the base's resolved SYMBOL rather than its source spelling: a
     /// class renamed for a cross-module collision (`Store_1`) is registered by
     /// name under the source spelling it shares with the class that displaced

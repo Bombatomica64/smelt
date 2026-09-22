@@ -3597,7 +3597,7 @@ return_ty: function.return_ty,
             if self.method_returns_its_receiver(item)
                 && matches!(
                     self.ctx.krate.types.get(return_ty),
-                    Some(Type::Class { name, .. }) if *name == base
+                    Some(Type::Class { name: returned, .. }) if *returned == base
                 )
             {
                 return Ok((receiver_ty, item));

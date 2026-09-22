@@ -3126,9 +3126,9 @@ impl ModuleBuilder<'_> {
         // a locally declared or renamed base keeps the resolution above.
         if self.class_by_symbol(base).is_none()
             && let Some(item) = self.classes.item(name)
-            && let Item::Class(class) = self.item_ref(item)
+            && let Item::Class(declared) = self.item_ref(item)
         {
-            base = class.name;
+            base = declared.name;
         }
         // A modeled JavaScript host constructor (`Blob`, `File`, `ArrayBuffer`, the
         // boxed primitive wrappers, …) is a legitimate base even though it is not a
