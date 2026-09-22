@@ -3210,8 +3210,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// `const`/`let`/`var` statement (a destructuring pattern that rebinds
     /// `expect` is not a shape any suite writes, and missing it only means the
     /// global is preferred, which is what an un-shadowed file wants anyway).
-    fn program_top_level_binding_names(program: &Program<'_>) -> std::collections::HashSet<String> {
-        let mut names = std::collections::HashSet::new();
+    fn program_top_level_binding_names(program: &Program<'_>) -> HashSet<String> {
+        let mut names = HashSet::new();
         for statement in &program.body {
             match statement {
                 Statement::FunctionDeclaration(function) => {
