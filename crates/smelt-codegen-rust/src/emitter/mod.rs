@@ -1222,6 +1222,16 @@ pub(crate) struct FunctionEmitter<'mir> {
     /// scope, which is the truthful answer for a module-level item: a generic
     /// function's erased *value* is its `T = SmeltUnknown` instantiation.
     hoisted_module_item: std::cell::Cell<bool>,
+    /// Set while this method is emitted as an INHERITED copy into a subclass's
+    /// `impl` block.
+    ///
+    /// Smelt flattens inheritance, so a base method is re-emitted in every
+    /// subclass's impl. A fluent base method annotated with its own class
+    /// (`route(..): Hono<..> { return this }`) is JavaScript's polymorphic
+    /// `this`: at runtime it answers the RECEIVER, which in the subclass copy is
+    /// the subclass. With flattened structs the declaring class is a different
+    /// Rust type, so the copy has to return `Self` (was E0308).
+    emitting_inherited_copy: bool,
 }
 
 /// Wraps a list-valued expression so it reads as its backing `Vec`.
