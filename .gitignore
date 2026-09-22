@@ -43,6 +43,9 @@ blocker-logs/*.md
 !blocker-logs/library-probes.md
 # smelt-unknown-report.md documents the SmeltUnknown metric methodology + baseline
 !blocker-logs/smelt-unknown-report.md
+!blocker-logs/hono-round34-brief.md
+!blocker-logs/hono-round34-hoisting.md
+!blocker-logs/hono-round34-scoping.md
 # estk-const-item-inlining.md documents the const-item-inlining blocker fix
 !blocker-logs/estk-const-item-inlining.md
 # estk-overload-resolution.md documents the overload-resolution blocker fix
