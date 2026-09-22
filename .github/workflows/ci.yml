@@ -590,13 +590,16 @@ jobs:
         # blocker-logs/hono-phase3-brief.md) is in progress and has not yet
         # established a stable pass/fail baseline. Promote this to a hard
         # `grep`-asserted pass count, like radash's, once that baseline holds.
+        # The time limit keeps an uncompilable or slow test build (the test
+        # crate is ~90 MB of generated Rust) from holding the job for hours.
         continue-on-error: true
+        timeout-minutes: 45
         run: |
           cargo test --manifest-path target/compat-repos/hono/dist-smelt/Cargo.toml --no-fail-fast
 
       # Advisory SmeltUnknown metric, remeda-style: never blocks, and only
       # runs once blocker-logs/smelt-unknown-baseline-hono.json exists (it is
-      # committed separately once the phase-3/4 erasure baseline lands).
+      # the phase-4 advisory baseline, committed with the phase-3 test baseline).
       - name: SmeltUnknown usage report (advisory)
         if: ${{ always() }}
         run: |

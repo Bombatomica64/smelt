@@ -50,6 +50,7 @@ blocker-logs/*.md
 !blocker-logs/globals-suite-failures.md
 !blocker-logs/radash-globals-failures.md
 !blocker-logs/remeda-globals-failures.md
+!blocker-logs/hono-phase3-round2-brief.md
 !blocker-logs/hono-round34-captures.md
 !blocker-logs/hono-round34-hoisting.md
 !blocker-logs/hono-round34-scoping.md
@@ -334,6 +335,7 @@ third_party/es-toolkit-src/
 !blocker-logs/hono-phase3-brief.md
 !blocker-logs/hono-tests.md
 !blocker-logs/hono-phase3-round1.md
+!blocker-logs/hono-phase3-round2-brief.md
 
 # CI triage note for the post-merge failures on main after 7899b194.
 !blocker-logs/ci-main-7899b194-fix.md
