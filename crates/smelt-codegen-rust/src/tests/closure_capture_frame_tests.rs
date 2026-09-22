@@ -22,6 +22,7 @@
 
 use super::*;
 use smelt_mir::{Mir, MirClosure};
+use std::collections::HashMap;
 
 /// Lower TypeScript to MIR the way the pipeline does, without optimization.
 ///
@@ -57,7 +58,7 @@ fn capture_names(mir: &Mir, closure: &MirClosure) -> Vec<String> {
 /// weaker but sufficient invariant is checked: within ONE closure, no two
 /// captures of different values share a source local id.
 fn capture_sources_are_distinct(closure: &MirClosure) -> bool {
-    let mut seen = std::collections::HashMap::new();
+    let mut seen = HashMap::new();
     closure.captures.iter().all(|capture| {
         seen.insert(capture.source_local, capture.symbol)
             .is_none_or(|previous| previous == capture.symbol)
@@ -236,7 +237,7 @@ console.log(tag('<')('>')('mid'))
                 .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
-    let mut distinct = captured_reads.clone();
+    let mut distinct = captured_reads;
     distinct.sort();
     distinct.dedup();
     assert!(

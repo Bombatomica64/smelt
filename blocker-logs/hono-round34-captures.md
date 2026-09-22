@@ -122,7 +122,7 @@ absolute `--manifest-path`, `cargo clean -p hono_probe` before the measurement.
 | `cargo test --bin smelt` | 57 passed / 0 failed |
 | `cargo test -p smelt-mir` | 55 passed / 0 failed |
 | `hir_cli_cross_language_tests` | 18 passed / 0 failed (whole corpus, goldens regenerated) |
-| `cargo clippy --all-targets` | see the final report |
+| `cargo clippy --all-targets` | 0 errors; the only findings in files touched are the repo-wide pedantic `expect()`-in-tests lint that every existing test file trips |
 
 ## SmeltUnknown delta
 
