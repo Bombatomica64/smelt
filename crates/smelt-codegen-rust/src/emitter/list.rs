@@ -3,6 +3,44 @@
 use super::*;
 
 impl FunctionEmitter<'_> {
+    /// Drains a statically typed synchronous generator into a fresh `SmeltList`.
+    ///
+    /// The frontend lowers `Array.from(gen)` / `[...gen]` over a
+    /// `Generator<Y, R, N>` to a cast into `List<T>`. The generator's items are
+    /// already statically `Y`, so this collects them through the prelude's
+    /// `SmeltGenerator::collect_yields` and converts each `Y` to `T` with the
+    /// ordinary typed coercion (identity when `Y == T`), instead of erasing the
+    /// generator to its tagged iterator-protocol object. Returns `None` when the
+    /// source is not a sync generator or the target is not a list.
+    pub(super) fn generator_items_text(
+        &self,
+        value_text: &str,
+        source: TypeId,
+        target: TypeId,
+    ) -> Result<Option<String>, EmitError> {
+        let Some(Type::Generator {
+            is_async: false,
+            yield_ty,
+            ..
+        }) = self.mir.types.get(source)
+        else {
+            return Ok(None);
+        };
+        let Some(Type::List(item_ty)) = self.mir.types.get(target) else {
+            return Ok(None);
+        };
+        let (yield_ty, item_ty) = (*yield_ty, *item_ty);
+        let collected = format!("({value_text}).collect_yields()");
+        if yield_ty == item_ty {
+            return Ok(Some(format!("SmeltList::new({collected})")));
+        }
+        let item_text =
+            self.value_at_type_text("value", yield_ty, item_ty, &self.render_scope())?;
+        Ok(Some(format!(
+            "SmeltList::new({collected}.into_iter().map(|value| {item_text}).collect::<Vec<_>>())"
+        )))
+    }
+
     /// Converts a list containment operation to Rust text.
     pub(super) fn list_contains_text(
         &self,

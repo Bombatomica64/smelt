@@ -3180,6 +3180,11 @@ fn emit_source_with_free_function_router(
         writer.line("    /// Resume execution until the next suspension point or completion.");
         writer.line("    fn resume(&self, command: SmeltGeneratorCommand<N, R>) -> SmeltGeneratorResult<Y, R> { if let Some(value) = self.completed.borrow().clone() { return SmeltGeneratorResult::Complete(value); } let result = (self.resume.borrow_mut())(command); if let SmeltGeneratorResult::Complete(value) = &result { *self.completed.borrow_mut() = Some(value.clone()); } result }");
         writer.line("}");
+        writer.line("impl<Y, R: Clone, N: Default> SmeltGenerator<Y, R, N> {");
+        writer.line("    /// Drain the generator's remaining yields in order (`Array.from(gen)` / `[...gen]`).");
+        writer.line("    #[allow(dead_code)]");
+        writer.line("    fn collect_yields(&self) -> Vec<Y> { let mut items = Vec::new(); while let SmeltGeneratorResult::Yielded(value) = self.resume(SmeltGeneratorCommand::Next(N::default())) { items.push(value); } items }");
+        writer.line("}");
         writer.line("pub struct SmeltAsyncGenerator<Y, R, N> {");
         writer.line("    resume: ::std::rc::Rc<dyn Fn(SmeltGeneratorCommand<N, R>) -> SmeltFuture<SmeltGeneratorResult<Y, R>>>,");
         writer.line("    completed: ::std::rc::Rc<::std::cell::RefCell<Option<R>>>,");

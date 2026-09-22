@@ -97,7 +97,15 @@ impl FunctionEmitter<'_> {
         field_ty: TypeId,
         dest_inner: TypeId,
     ) -> Result<Option<String>, EmitError> {
-        if !matches!(self.mir.types.get(field_ty), Some(Type::Unknown)) {
+        // "Erased" means the field's VALUE is carried as a tagged
+        // `SmeltUnknown`: a `Type::Unknown` field, and equally a wide union
+        // field (`number | null | (n) => number` stored in an erased record)
+        // that renders to `SmeltUnknown`. Both can hold `Undefined` for an
+        // absent key, which must become `None`, not a `Some` of a union
+        // decoded from `undefined`.
+        if !matches!(self.mir.types.get(field_ty), Some(Type::Unknown))
+            && self.type_text_with_impl_trait(field_ty, false)? != "SmeltUnknown"
+        {
             return Ok(None);
         }
         // An erased destination keeps the raw tagged value, `Undefined` included,
