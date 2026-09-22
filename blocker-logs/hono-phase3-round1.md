@@ -177,6 +177,11 @@ a modeled matcher and the file was not a test module. **It is the first thing ro
 it is not touched here because the duplication is in the try/catch continuation lowering, which is
 the area another stream is working in this round.
 
+Measured consequence: `cargo check --tests` on the 282-test slice (95 MB of generated Rust, the
+`cookie.test.ts` module removed) had not finished after **1h43m** with rustc resident at 6.3 GB and
+was stopped; the slice WITH that module is SIGKILLed outright. The table above is therefore the
+reduced 221-test slice.
+
 ## Gates
 
 | gate | expected | measured | verdict |
