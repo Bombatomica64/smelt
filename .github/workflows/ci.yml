@@ -367,7 +367,7 @@ jobs:
   #
   # If your PR touches the frontend, HIR, MIR, specializer, or the Rust emitter,
   # add the `run-regressions` label and wait for them. A green PR without that
-  # label has NOT been checked against Remeda (1789 tests), Radash (84 tests) or
+  # label has NOT been checked against Remeda (1789 tests), Radash (387 tests) or
   # the es-toolkit ratchet, and main is not branch-protected, so nothing else
   # will stop a regression from landing.
   #
@@ -451,7 +451,12 @@ jobs:
   # .github/compat/libraries.json, then compile and run all generated Rust
   # tests. Radash declares Jest-style test globals ambiently instead of
   # importing them; the explicit Vitest import added to the disposable clone
-  # lets Smelt discover the same 84 tests without changing upstream sources.
+  # keeps `typed.test.ts` discoverable without changing upstream sources, and
+  # the globals-as-test-modules rule makes every other suite real: 387 tests
+  # (84 before that rule). Three still fail on shapes Smelt does not model yet
+  # (`as any` type-violating inputs x2, `Proxy` traps x1) -- see
+  # blocker-logs/globals-suite-failures.md -- so this gate stays red until
+  # those land; it asserts the full 387 on purpose rather than pinning them.
   radash-regression:
     # Opt-in on PRs via the `run-regressions` label; always on for main pushes.
     # See the banner above `remeda-regression`.
@@ -498,7 +503,7 @@ jobs:
           RUSTFLAGS=-Awarnings cargo test \
             --manifest-path target/compat-repos/radash/dist-smelt/Cargo.toml \
             --no-fail-fast 2>&1 | tee radash-tests.log
-          grep -F "test result: ok. 84 passed; 0 failed;" radash-tests.log
+          grep -F "test result: ok. 387 passed; 0 failed;" radash-tests.log
 
   # Regression gate for the Hono campaign (blocker-logs/hono-campaign-plan.md).
   #
