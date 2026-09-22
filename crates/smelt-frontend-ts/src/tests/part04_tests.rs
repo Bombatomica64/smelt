@@ -2056,6 +2056,73 @@ function offset(date: Date): number {
 }
 
 #[test]
+fn lowers_the_extended_vitest_matcher_surface() -> Result<(), String> {
+    // Every matcher added to the closed model in one lowering: truthiness,
+    // definedness, `toMatch` in both argument shapes, the comparison family,
+    // `toBeTypeOf`, `toMatchObject`, the bare/once call assertions and the nth
+    // call. A missing matcher reports "unsupported" at lowering time, so
+    // lowering this successfully is the model's coverage check.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import { expect, test, vi } from "vitest";
+
+test("matchers", () => {
+  expect(1).toBeTruthy();
+  expect(0).toBeFalsy();
+  const value: string | undefined = "here";
+  expect(value).toBeDefined();
+  expect("hello").toMatch("ell");
+  expect("hello").toMatch(/^hel/);
+  expect(1).toBeLessThan(2);
+  expect(1).toBeLessThanOrEqual(1);
+  expect(2).toBeGreaterThan(1);
+  expect(2).toBeGreaterThanOrEqual(2);
+  expect("hello").toBeTypeOf("string");
+  expect({ id: 1, name: "a" }).toMatchObject({ id: 1 });
+  const spy = vi.fn();
+  spy(1);
+  expect(spy).toHaveBeenCalled();
+  expect(spy).toHaveBeenCalledOnce();
+  expect(spy).toHaveBeenNthCalledWith(1, 1);
+});
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_the_jest_matcher_aliases_onto_the_canonical_matchers() -> Result<(), String> {
+    // The jest spellings are aliases, not separate matchers: they resolve
+    // through one name table and reach the same lowering, so this file must
+    // lower exactly like its `toHaveBeenCalled*` / `toThrow` twin.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import { expect, test, vi } from "vitest";
+
+test("aliases", () => {
+  const spy = vi.fn();
+  spy(1);
+  expect(spy).toBeCalled();
+  expect(spy).toBeCalledTimes(1);
+  expect(spy).toBeCalledWith(1);
+  expect(() => {
+    throw new Error("boom");
+  }).toThrowError();
+});
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_vitest_date_timezone_offset_mock_lifecycle() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

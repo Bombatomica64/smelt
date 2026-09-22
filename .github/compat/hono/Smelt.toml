@@ -6,7 +6,11 @@ description = "Hono Smelt probe"
 [sources]
 roots = ["src"]
 entries = ["src/index.ts"]
-test-prefix = ["src/**/*.test.ts"]
+# Test globs are matched against paths RELATIVE TO EACH SOURCE ROOT (`src`
+# here), so this must not repeat the root's own name; `src/**/*.test.ts`
+# silently matched nothing. `smelt build`/`probe` now warns about a glob that
+# matches no file at all.
+test-prefix = ["**/*.test.ts"]
 # Excludes are justified one line at a time: each entry names the host surface
 # or language feature Smelt's non-DOM Node profile deliberately does not model.
 # Remove an entry once Smelt models what it names — never to make a build pass.
@@ -47,6 +51,25 @@ exclude = [
   # `new Proxy` client under test; leaf test files, so droppable.
   "src/client/client.test.ts",
   "src/client/utils.test.ts",
+  # `vi.stubGlobal('caches'/'crypto', ...)` (8 call sites): replacing a host
+  # global wholesale is the monkey-patching model Smelt does not have.
+  "src/middleware/cache/index.test.ts",
+  # `vi.stubGlobal` + `vi.unstubAllGlobals` around the service-worker global
+  # scope; same monkey-patching model as above.
+  "src/adapter/service-worker/handler.test.ts",
+  # `vi.spyOn(global.crypto, 'subtle', 'get')` is an accessor spy on a host
+  # global: neither the getter form of `vi.spyOn` nor global replacement is
+  # modeled.
+  "src/middleware/jwk/index.test.ts",
+  # `vi.stubEnv` / `vi.unstubAllEnvs`: process-environment mutation is not a
+  # modeled host surface (no `vi.stubEnv` member exists in the vitest model).
+  "src/helper/dev/index.test.ts",
+  "src/middleware/logger/index.test.ts",
+  "src/utils/color.test.ts",
+  # `vi.spyOn(Date, 'now')`: the runtime models the clock as ambient state
+  # driven by `vi.setSystemTime`/`useFakeTimers`, not as a member on `Date`
+  # that a spy can replace, so the spy would silently not take effect.
+  "src/middleware/timing/index.test.ts",
 ]
 
 [output]

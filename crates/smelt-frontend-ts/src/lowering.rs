@@ -55,6 +55,18 @@ enum TestMatcher {
     HaveProperty,
     /// `expect(actual).toBeInstanceOf(Ctor)`.
     BeInstanceOf,
+    /// `expect(actual).toMatch(string | RegExp)`.
+    Match,
+    /// `expect(actual).toBeTypeOf("string")`.
+    BeTypeOf,
+    /// `expect(actual).toBeLessThan(expected)`.
+    BeLessThan,
+    /// `expect(actual).toBeLessThanOrEqual(expected)`.
+    BeLessThanOrEqual,
+    /// `expect(actual).toBeGreaterThan(expected)`.
+    BeGreaterThan,
+    /// `expect(actual).toBeGreaterThanOrEqual(expected)`.
+    BeGreaterThanOrEqual,
 }
 
 /// Constant expression exported from another TypeScript module.
@@ -309,6 +321,12 @@ impl TestMatcher {
             "toHaveLength" => Some(Self::HaveLength),
             "toHaveProperty" => Some(Self::HaveProperty),
             "toBeInstanceOf" => Some(Self::BeInstanceOf),
+            "toMatch" => Some(Self::Match),
+            "toBeTypeOf" => Some(Self::BeTypeOf),
+            "toBeLessThan" => Some(Self::BeLessThan),
+            "toBeLessThanOrEqual" => Some(Self::BeLessThanOrEqual),
+            "toBeGreaterThan" => Some(Self::BeGreaterThan),
+            "toBeGreaterThanOrEqual" => Some(Self::BeGreaterThanOrEqual),
             _ => None,
         }
     }
@@ -323,6 +341,12 @@ impl TestMatcher {
             Self::HaveLength => "toHaveLength",
             Self::HaveProperty => "toHaveProperty",
             Self::BeInstanceOf => "toBeInstanceOf",
+            Self::Match => "toMatch",
+            Self::BeTypeOf => "toBeTypeOf",
+            Self::BeLessThan => "toBeLessThan",
+            Self::BeLessThanOrEqual => "toBeLessThanOrEqual",
+            Self::BeGreaterThan => "toBeGreaterThan",
+            Self::BeGreaterThanOrEqual => "toBeGreaterThanOrEqual",
         }
     }
 }
