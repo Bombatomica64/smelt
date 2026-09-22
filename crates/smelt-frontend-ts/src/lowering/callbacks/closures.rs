@@ -562,7 +562,7 @@ impl ModuleBuilder<'_> {
                 let direct_item = match &callee.kind {
                     CallbackExprKind::Function(function) => {
                         let item = self.callback_function_item(*function, span)?;
-                        matches!(self.item_ref(item), smelt_hir::Item::Function(function) if function.rest.is_none())
+                        matches!(self.item_ref(item), smelt_hir::Item::Function(item_fn) if item_fn.rest.is_none())
                             .then_some(item)
                     }
                     _ => None,

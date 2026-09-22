@@ -199,7 +199,7 @@ impl ModuleBuilder<'_> {
     pub(in crate::lowering) fn generator_items_expr(
         generator: smelt_hir::ExprId,
         list_ty: smelt_hir::TypeId,
-        span: smelt_hir::Span,
+        span: Span,
         body: &mut Body,
     ) -> smelt_hir::ExprId {
         body.push_expr(Expr {

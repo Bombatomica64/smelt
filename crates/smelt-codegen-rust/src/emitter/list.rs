@@ -18,7 +18,7 @@ impl FunctionEmitter<'_> {
         source: TypeId,
         target: TypeId,
     ) -> Result<Option<String>, EmitError> {
-        let Some(Type::Generator {
+        let Some(&Type::Generator {
             is_async: false,
             yield_ty,
             ..
@@ -26,10 +26,9 @@ impl FunctionEmitter<'_> {
         else {
             return Ok(None);
         };
-        let Some(Type::List(item_ty)) = self.mir.types.get(target) else {
+        let Some(&Type::List(item_ty)) = self.mir.types.get(target) else {
             return Ok(None);
         };
-        let (yield_ty, item_ty) = (*yield_ty, *item_ty);
         let collected = format!("({value_text}).collect_yields()");
         if yield_ty == item_ty {
             return Ok(Some(format!("SmeltList::new({collected})")));
