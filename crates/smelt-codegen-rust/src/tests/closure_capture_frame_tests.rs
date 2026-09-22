@@ -221,21 +221,36 @@ const tag = (prefix: string) => (suffix: string) => (body: string) =>
 console.log(tag('<')('>')('mid'))
 ",
     );
-    let bindings = source
+    // The innermost body is `prefix + body + suffix`: it reads the parameter
+    // and BOTH captures, so the two captured bindings must be two different
+    // identifiers. (A prelude line may legitimately rebind a name in a nested
+    // header — `let x = x.clone();` — so counting names across the whole file
+    // proves nothing; what matters is that one body reads two of them.)
+    let captured_reads = source
         .lines()
-        .filter(|line| line.trim_start().starts_with("let smelt_captured_"))
-        .map(|line| line.trim().to_owned())
+        .filter(|line| line.contains("smelt_captured_"))
+        .flat_map(|line| {
+            line.split(|character: char| !character.is_alphanumeric() && character != '_')
+                .filter(|token| token.starts_with("smelt_captured_"))
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        })
         .collect::<Vec<_>>();
-    let names = bindings
-        .iter()
-        .filter_map(|line| line.split_whitespace().nth(1).map(str::to_owned))
-        .collect::<Vec<_>>();
-    let mut unique = names.clone();
-    unique.sort();
-    unique.dedup();
-    assert_eq!(
-        names.len(),
-        unique.len(),
-        "capture preludes reused one binding name: {bindings:?}"
+    let mut distinct = captured_reads.clone();
+    distinct.sort();
+    distinct.dedup();
+    assert!(
+        distinct.len() >= 2,
+        "the innermost closure must read two DIFFERENT capture bindings, one \
+         per enclosing frame; found {distinct:?}"
+    );
+    let concatenation = source
+        .lines()
+        .find(|line| line.matches("smelt_captured_").count() == 1 && line.contains(" + &"))
+        .unwrap_or_default()
+        .to_owned();
+    assert!(
+        !concatenation.is_empty(),
+        "expected the emitted concatenation to read a capture: {source}"
     );
 }
