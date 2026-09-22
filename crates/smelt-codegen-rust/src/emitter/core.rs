@@ -80,6 +80,7 @@ impl<'mir> FunctionEmitter<'mir> {
             suppress_type_params: RefCell::new(false),
             enclosing_type_params: HashSet::new(),
             hoisted_module_item: std::cell::Cell::new(false),
+            emitting_inherited_copy: false,
         })
     }
 
@@ -2002,6 +2003,44 @@ impl<'mir> FunctionEmitter<'mir> {
 
     /// Emits a method or constructor definition, naming the site of any
     /// blocker (see [`Self::emit`]).
+    /// Mark this emitter as rendering an INHERITED copy of the method.
+    ///
+    /// Called by the crate emitter when a base class's method is re-emitted into
+    /// a subclass's `impl` block; see `emitting_inherited_copy` for what it
+    /// changes.
+    pub(crate) fn mark_inherited_copy(&mut self) {
+        self.emitting_inherited_copy = true;
+    }
+
+    /// Whether this method's declared return type is its own declaring class and
+    /// every `return` in it answers the receiver.
+    ///
+    /// That is JavaScript's polymorphic `this` written in TypeScript's nominal
+    /// spelling, and it is the only shape whose inherited copy may be re-typed
+    /// to `Self`: a method that returns a FRESHLY BUILT base instance (a
+    /// `clone()`-style factory) genuinely answers the base type and keeps it.
+    fn returns_the_receiver_at_its_own_class(&self) -> bool {
+        let HirOrigin::ClassMethod { class, .. } = self.function.origin else {
+            return false;
+        };
+        if !matches!(
+            self.mir.types.get(self.function.return_ty),
+            Some(Type::Class { name, .. }) if *name == class
+        ) {
+            return false;
+        }
+        let mut saw_return = false;
+        for block in &self.function.blocks {
+            if let Some(Terminator::Return(operand)) = &block.terminator {
+                saw_return = true;
+                if operand_local(operand) != Some(LocalId(0)) {
+                    return false;
+                }
+            }
+        }
+        saw_return
+    }
+
     pub(crate) fn emit_method(&mut self, out: &mut String) -> Result<(), EmitError> {
         let emitted = self.emit_method_definition(out);
         emitted.map_err(|error| error.with_site(|| self.current_function_site()))
@@ -2093,9 +2132,19 @@ impl<'mir> FunctionEmitter<'mir> {
                     ));
                     return self.emit_async_method_owned_self_body(&inner_ret, out);
                 }
-                out.push_str(&format!(
-                    "    fn {name}({rendered_params}) -> {} {{\n",
+                let return_text = if self.emitting_inherited_copy
+                    && self.returns_the_receiver_at_its_own_class()
+                {
+                    if self.function.can_throw {
+                        "Result<Self, Box<dyn std::error::Error>>".to_owned()
+                    } else {
+                        "Self".to_owned()
+                    }
+                } else {
                     self.return_type_text(self.function.return_ty)?
+                };
+                out.push_str(&format!(
+                    "    fn {name}({rendered_params}) -> {return_text} {{\n"
                 ));
             }
             HirOrigin::ClassStaticMethod { method, .. } => {
@@ -2309,6 +2358,7 @@ impl<'mir> FunctionEmitter<'mir> {
             suppress_type_params: RefCell::new(false),
             enclosing_type_params: HashSet::new(),
             hoisted_module_item: std::cell::Cell::new(false),
+            emitting_inherited_copy: false,
         }
         // TODO(plan-197): this synthetic emitter's `function` is
         // `mir.functions.first()`, so the lexical scope it renders under is an
@@ -2366,6 +2416,7 @@ impl<'mir> FunctionEmitter<'mir> {
             suppress_type_params: RefCell::new(false),
             enclosing_type_params: HashSet::new(),
             hoisted_module_item: std::cell::Cell::new(false),
+            emitting_inherited_copy: false,
         }
         .rust_type(ty, false, substitution)
         .map(RustType::into_string)
@@ -2413,6 +2464,7 @@ impl<'mir> FunctionEmitter<'mir> {
             suppress_type_params: RefCell::new(false),
             enclosing_type_params: HashSet::new(),
             hoisted_module_item: std::cell::Cell::new(false),
+            emitting_inherited_copy: false,
         }
         .default_value(ty)
     }
@@ -2456,6 +2508,7 @@ impl<'mir> FunctionEmitter<'mir> {
             suppress_type_params: RefCell::new(false),
             enclosing_type_params: HashSet::new(),
             hoisted_module_item: std::cell::Cell::new(false),
+            emitting_inherited_copy: false,
         }
         .default_value_with_scoped_type_params(ty, substitution)
     }

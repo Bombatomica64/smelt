@@ -887,6 +887,29 @@ impl<'ctx> ModuleBuilder<'ctx> {
         module: &Module,
         previous_export_aliases: &HashMap<String, smelt_hir::ItemId>,
     ) {
+        // Resolve the renames the export prepass could not: `export { Store as
+        // StoreBase }` is visited before a non-exported `class Store {}` has
+        // been predeclared, so the alias found no item then and was recorded as
+        // a rename only. By the time the module is done its items exist, so the
+        // alias is published here — otherwise the importing module sees a name
+        // no declaration is bound to, and `class X extends StoreBase` recorded a
+        // base class nothing declares (silently dropping every inherited member).
+        for (exported, local) in self.export_renames.clone() {
+            if self.ctx.export_aliases.contains_key(&exported) {
+                continue;
+            }
+            // Either registry can hold the declaration at this point: a class
+            // lives in the class registry, everything else in the item map.
+            if let Some(item) = self
+                .items
+                .get(&local)
+                .copied()
+                .or_else(|| self.classes.item(&local))
+            {
+                self.items.insert(exported.clone(), item);
+                self.ctx.export_aliases.insert(exported, item);
+            }
+        }
         let mut exports = HashMap::new();
         for item_id in &module.items {
             let Some(item) = self

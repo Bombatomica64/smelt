@@ -109,6 +109,54 @@ fn run_fixture(source: &str, crate_name: &str) {
 
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_function_value_first_erased_inside_a_class_body_is_defined() {
+    // Erasing a named function to the dynamic carrier mints ONE shared per-item
+    // accessor (`__smelt_fn_value_<key>`) so every reference to that function
+    // compares equal under JavaScript reference identity. The accessor's name is
+    // minted where the value is erased and its definition is flushed once per
+    // crate; the flush used to run after the FREE functions only, while class
+    // constructors and methods are emitted afterwards. A function whose first
+    // erasure is inside a class body therefore referenced a name the crate never
+    // defined, and the generated crate did not compile at all (E0425).
+    //
+    // Both emission points are covered on purpose: `handler` is erased only from
+    // a method body and `label` only from a constructor body, so the test fails
+    // if either is left out of the flush. The identity assertions are what make
+    // the accessor load-bearing rather than incidental.
+    let source = r#"
+import { test, expect } from "vitest";
+function handler(value: string): string {
+  return "<" + value + ">";
+}
+function label(): string {
+  return "tagged";
+}
+class Slot {
+  stored: unknown;
+  constructor() {
+    this.stored = label;
+  }
+  sameHandler(): boolean {
+    const first: unknown = handler;
+    const second: unknown = handler;
+    return first === second;
+  }
+  storedIsLabel(): boolean {
+    return this.stored === label;
+  }
+}
+test("a function erased from a method body keeps one identity", () => {
+  expect(new Slot().sameHandler()).toBe(true);
+});
+test("a function erased from a constructor body keeps one identity", () => {
+  expect(new Slot().storedIsLabel()).toBe(true);
+});
+"#;
+    run_fixture(source, "smelt_function_value_erased_in_a_class_body");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn declared_class_instances_compare_by_class() {
     // Two instances of one class share a constructor identity; two classes do not.
     // A plain object keeps `undefined`, which is what lets the
