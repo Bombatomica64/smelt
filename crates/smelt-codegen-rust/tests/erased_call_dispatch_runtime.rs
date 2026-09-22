@@ -184,3 +184,62 @@ test('the applied function reports its own Function.length', () => {
 ";
     run_fixture(source, "smelt_variadic_impl_behind_fixed_overload");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_variadic_array_callback_receives_every_array_method_argument() {
+    // `(...args: any[]) => any` is a genuine dynamic boundary: its one Rust
+    // parameter is the erased rest list, and nothing narrower describes "every
+    // argument the caller happens to pass". An array method calling it
+    // supplies `(item, index, array)`; binding the ELEMENT to the rest slot
+    // instead converted an object element into an argument list and panicked
+    // "unknown is not iterable" (radash `chain(getName, upperCase)` mapped over
+    // `User[]`).
+    let source = r"
+import { test, expect } from 'vitest';
+
+function chain(...funcs: ((...args: any[]) => any)[]) {
+  return (...args: any[]) => {
+    return funcs.slice(1).reduce((acc, fn) => fn(acc), funcs[0](...args));
+  };
+}
+
+type User = { id: number; name: string };
+
+test('an erased variadic mapper sees the element first', () => {
+  const users: User[] = [
+    { id: 1, name: 'ada' },
+    { id: 2, name: 'grace' },
+  ];
+  const getName = (item: User) => item.name;
+  const upper = (text: string) => text.toUpperCase();
+  const mapper = chain(getName, upper);
+  expect(users.map(mapper)).toEqual(['ADA', 'GRACE']);
+});
+test('an erased variadic mapper also receives the index', () => {
+  const both = (...args: any[]) => `${args[0]}@${args[1]}`;
+  expect(['x', 'y'].map(both)).toEqual(['x@0', 'y@1']);
+});
+";
+    run_fixture(source, "smelt_variadic_array_callback_arguments");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_jest_global_mock_is_the_vitest_mock() {
+    // Jest exposes the mock API Vitest calls `vi` as the `jest` global. A suite
+    // written against Jest globals must get a real counting mock, not an
+    // erased read of an unmodeled `jest` object (which made every
+    // `toHaveBeenCalledTimes` see zero calls).
+    let source = r"
+import { test, expect } from 'vitest';
+
+test('jest.fn counts its calls', () => {
+  const mock = jest.fn();
+  mock();
+  mock();
+  expect(mock).toHaveBeenCalledTimes(2);
+});
+";
+    run_fixture(source, "smelt_jest_global_mock");
+}

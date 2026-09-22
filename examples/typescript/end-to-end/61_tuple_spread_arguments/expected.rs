@@ -163,13 +163,10 @@ fn main() {
     let _ = { println!("{}", _smelt_tmp_21); };
     __smelt_spread_2 = routes.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (String::new(), String::new(), 0.0));
     _smelt_tmp_23 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: String, closure_arg_2: f64| {
-    let _smelt_tmp_3 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: String, closure_arg_2: f64| {
+    let _smelt_tmp_4: String;
     let _smelt_tmp_3: String = record(closure_arg_0.clone(), closure_arg_1.clone(), closure_arg_2);
-    _smelt_tmp_3.clone()
-    });
-    let _smelt_tmp_4: String = (_smelt_tmp_3)(closure_arg_0.clone(), closure_arg_1.clone(), closure_arg_2);
-    let _smelt_tmp_5: String = "closure ".to_owned() + &_smelt_tmp_4.clone();
-    _smelt_tmp_5.clone()
+    _smelt_tmp_4 = "closure ".to_owned() + &_smelt_tmp_3.clone();
+    _smelt_tmp_4.clone()
     });
     _smelt_tmp_24 = (_smelt_tmp_23)(__smelt_spread_2.0.clone(), __smelt_spread_2.1.clone(), __smelt_spread_2.2);
     let _ = { println!("{}", _smelt_tmp_24); };

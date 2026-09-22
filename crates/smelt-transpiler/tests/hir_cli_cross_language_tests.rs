@@ -1014,6 +1014,10 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "110_captured_callback_handle_is_cloned",
     "112_recursive_binding_keeps_its_type",
     "115_transitive_closure_captures",
+    "116_generator_array_from",
+    "117_forward_exported_arrow",
+    "118_concise_callback_call_args",
+    "119_arrow_param_default",
     "11_console_log_expressions",
     "12_while_sum",
     "13_for_of_sum",
@@ -1178,6 +1182,78 @@ fn python_end_to_end_examples_match_expected_dumps() -> TestResult {
     ] {
         verify_python_end_to_end_example(name)?;
     }
+
+    Ok(())
+}
+
+#[test]
+fn build_runs_namespace_call_to_overloaded_rest_function() -> TestResult {
+    // `ns.compose(f, g)` through `import * as ns` is the same call as a named
+    // `compose(f, g)`: a rest-parameter implementation receives its trailing
+    // arguments as ONE list. The namespace path forwarded them positionally,
+    // so the one-parameter rest function bound an empty list and `reduce`
+    // panicked "reduce of empty array with no initial value" (radash's
+    // `_.compose`). The overloads make the call's declared parameters fixed
+    // while the implementation is variadic, which is the shape that broke.
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "namespace-rest-call"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "namespace_rest_call"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/lib.ts"),
+        r"export function total(a: number): number
+export function total(a: number, b: number): number
+export function total(...nums: number[]): number {
+  return nums.reduce((acc, n) => acc + n, 0)
+}
+export const glue = (sep: string, ...parts: string[]): string => parts.join(sep)
+export function compose<A, R>(f1: (next: () => R) => () => A, last: () => R): () => A
+export function compose<A, B, R>(
+  f1: (next: () => B) => () => A,
+  f2: (next: () => R) => () => B,
+  last: () => R
+): () => A
+export function compose(...funcs: ((...args: any[]) => any)[]) {
+  return funcs.reverse().reduce((acc, fn) => fn(acc))
+}
+",
+    )?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        r"import * as ns from './lib.ts'
+
+console.log(ns.total(4))
+console.log(ns.total(2, 3))
+console.log(ns.glue('-', 'a', 'b', 'c'))
+const addOne = (fn: () => number) => () => fn() + 1
+const three = () => 3
+console.log(ns.compose(addOne, three)())
+console.log(ns.compose(addOne, addOne, three)())
+",
+    )?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(&actual_stdout, &"4\n5\na-b-c\n4\n5\n".to_owned(), "unexpected stdout")?;
 
     Ok(())
 }

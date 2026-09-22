@@ -2221,6 +2221,35 @@ test("aliases", () => {
 }
 
 #[test]
+fn lowers_the_jest_global_mock_namespace_like_vi() -> Result<(), String> {
+    // A suite written against Jest globals calls `jest.fn()` where a Vitest
+    // suite calls `vi.fn()`; both are the same mock API, so both must lower to
+    // a real `VitestMockFn` rather than an erased read off an unmodeled global.
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+import { expect, test } from "vitest";
+
+test("jest global", () => {
+  const spy = jest.fn();
+  spy(1);
+  expect(spy).toHaveBeenCalledTimes(1);
+});
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure!(
+        ctx.krate.bodies.iter().any(|body| body
+            .exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::VitestMockFn { .. }))),
+        "expected `jest.fn()` to lower to the Vitest mock",
+    );
+    Ok(())
+}
+
+#[test]
 fn lowers_vitest_date_timezone_offset_mock_lifecycle() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -7859,6 +7888,16 @@ function run(routes: Array<{ path: string }>, prefix: string) {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    // The spread must SURVIVE: the compact callback IR used to evaluate and
+    // drop `...route`, building `{ path }` alone. The closure-body fallback
+    // lowers it as an ordered `DictAssign` merge.
+    ensure!(
+        ctx.krate.bodies.iter().any(|body| body
+            .exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::DictAssign { .. }))),
+        "expected the callback's object spread to lower through DictAssign",
+    );
     Ok(())
 }
 

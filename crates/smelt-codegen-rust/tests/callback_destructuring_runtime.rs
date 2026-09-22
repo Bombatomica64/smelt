@@ -229,3 +229,45 @@ fn a_nested_destructured_callback_parameter_reads_the_nested_value() {
     // not change what they already answered.
     run_fixture(CALLBACK_DESTRUCTURING_SOURCE, "smelt_callback_destructuring_nesting");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn an_object_spread_in_a_concise_callback_keeps_every_source() {
+    // The compact callback IR has no ordered record merge. It used to evaluate
+    // and DROP each spread, so `({ ...route, path })` built `{ path }` and a
+    // generic `({ ...a, ...b } as T)` built `{}` (radash `partob`). A spread
+    // now routes the callback to full closure-body lowering; a later
+    // homogeneous record spread into an erased merge is value-converted
+    // instead of skipped.
+    let source = r"
+import { test, expect } from 'vitest';
+
+type Route = { path: string; weight: number };
+
+const override = (base: Route, patch: { weight: number }): Route => ({ ...base, ...patch });
+
+const partob = <T, K, P extends Partial<T>>(fn: (args: T) => K, argobj: P) => {
+  return (restobj: Omit<T, keyof P>): K =>
+    fn({ ...(argobj as Partial<T>), ...(restobj as Partial<T>) } as T);
+};
+
+test('a map callback spread keeps the element fields', () => {
+  const routes: Route[] = [
+    { path: '/a', weight: 1 },
+    { path: '/b', weight: 2 },
+  ];
+  const prefixed = routes.map((route) => ({ ...route, path: `/v1${route.path}` }));
+  expect(prefixed.map((route) => `${route.path}:${route.weight}`)).toEqual(['/v1/a:1', '/v1/b:2']);
+});
+test('a later spread overrides an earlier one', () => {
+  const heavier = override({ path: '/a', weight: 1 }, { weight: 9 });
+  expect(heavier.path).toBe('/a');
+  expect(heavier.weight).toBe(9);
+});
+test('a generic merge keeps both halves', () => {
+  const add = ({ a, b }: { a: number; b: number }) => a + b;
+  expect(partob(add, { a: 10 })({ b: 10 })).toBe(20);
+});
+";
+    run_fixture(source, "smelt_callback_object_spread");
+}

@@ -160,23 +160,11 @@ closure ClosureId(0) -> String
     %0 param __callback_param_0: String
     %1 param __callback_param_1: String
     %2 param __callback_param_2: Float
-    %3 temp: fn(String, String, Float) -> String
-    %4 temp: String
-    %5 temp: String
-  bb0:
-    %3 = closure ClosureId(1) []
-    %4 = closure_call copy %3(copy %0, copy %1, copy %2)
-    %5 = "closure " + copy %4
-    return copy %5
-
-closure ClosureId(1) -> String
-  locals
-    %0 param arg0: String
-    %1 param arg1: String
-    %2 param arg2: Float
     %3 temp: String
+    %4 temp: String
   bb0:
     %3 = call fn0(copy %0, copy %1, copy %2) -> bb1
   bb1:
-    return copy %3
+    %4 = "closure " + copy %3
+    return copy %4
 

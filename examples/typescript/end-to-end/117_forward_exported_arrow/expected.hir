@@ -1,0 +1,46 @@
+module examples/typescript/end-to-end/117_forward_exported_arrow/input.ts (ModuleId(0))
+  body BodyId(6)
+  items
+    fn inner owner Module
+    fn later owner Module
+    fn lastly owner Module
+    fn outer owner Module
+    fn twice owner Module
+    fn via_function owner Module
+  exprs
+    #0: Float = 2.0
+    #1: fn(Float) -> Float = @4(outer)
+    #2: Float = call #1(#0)
+    #3: None = @6(console_log)
+    #4: None = call #3(#2)
+    #5: Float = 4.0
+    #6: fn(Float) -> Float = @0(via_function)
+    #7: Float = call #6(#5)
+    #8: None = @7(console_log)
+    #9: None = call #8(#7)
+    #10: Float = 1.0
+    #11: async fn(Float) -> Future<Float> = @5(twice)
+    #12: Future<Float> = call #11(#10)
+    #13: Float = await #12
+    #14: None = @8(console_log)
+    #15: None = call #14(#13)
+    #16: Future<None> = async_exit_drain()
+    #17: None = await #16
+  stmts
+    s0: #4
+    s1: #9
+    s2: #15
+    s3: #17
+  async state machine
+    states [state0, state1, state2]
+    suspend #13 on #12 -> state14
+    suspend #17 on #16 -> state18
+
+interned types
+  t0 = Float
+  t1 = fn(Float) -> Float
+  t2 = Future<Float>
+  t3 = async fn(Float) -> Future<Float>
+  t4 = fn(Float) -> Float
+  t5 = None
+  t6 = Future<None>
