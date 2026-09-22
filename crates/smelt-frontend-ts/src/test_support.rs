@@ -28,6 +28,18 @@ pub fn is_vitest_compatible_module(module: &str) -> bool {
     VITEST_COMPATIBLE_MODULES.contains(&module)
 }
 
+/// The Vitest public API names, for a module that has them in scope as globals.
+///
+/// Vitest's `globals: true` (the default in many projects, including Hono's
+/// `vitest.config.ts`) injects these names into every test file instead of
+/// requiring an import. A test file that uses `describe`/`expect` without
+/// importing them is therefore not a broken file: it is the same host module,
+/// reached through the other half of its published surface.
+#[must_use]
+pub const fn vitest_builtin_names() -> &'static [&'static str] {
+    VITEST_BUILTIN_NAMES
+}
+
 /// Return whether `name` is a supported Vitest public API builtin.
 #[must_use]
 pub fn is_vitest_builtin_name(name: &str) -> bool {

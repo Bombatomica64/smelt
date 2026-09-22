@@ -2097,6 +2097,63 @@ export const createPool = (concurrency: number) => {
 }
 
 #[test]
+fn a_test_file_has_the_vitest_globals_in_scope_without_importing_them() -> Result<(), String> {
+    // vitest's `globals: true` publishes the API as globals inside test files,
+    // and projects that enable it stop importing them (87 of Hono's 101 test
+    // files). Without the globals in scope, `describe`/`it` were ordinary
+    // unresolved calls and `expect(x).toBe(y)` lowered through the erased
+    // dynamic-call path — an assertion that cannot fail.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(
+        ts!(r#"
+describe("no imports", () => {
+  it("still asserts", () => {
+    expect(1 + 1).toBe(2);
+  });
+});
+"#),
+        "src/utils/accept.test.ts",
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    // The `it` block became a real test function rather than an erased call.
+    ensure!(
+        module.items.iter().any(|item| matches!(
+            ctx.krate.items.get(item.0 as usize),
+            Some(Item::Function(function)) if function.is_test
+        )),
+        "the suite must lower to a test function"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_test_file_keeps_its_own_binding_over_the_vitest_global() -> Result<(), String> {
+    // The global is only the fallback: a name the file declares itself wins,
+    // exactly as it does under vitest.
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(
+        ts!(r#"
+import { describe, it, expect } from "vitest";
+
+const test = (value: number): number => value + 1;
+
+describe("shadowing", () => {
+  it("uses the local", () => {
+    expect(test(1)).toBe(2);
+  });
+});
+"#),
+        "src/utils/shadow.test.ts",
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_the_extended_vitest_matcher_surface() -> Result<(), String> {
     // Every matcher added to the closed model in one lowering: truthiness,
     // definedness, `toMatch` in both argument shapes, the comparison family,
