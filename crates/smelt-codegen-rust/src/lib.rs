@@ -6270,6 +6270,13 @@ fn emit_source_with_free_function_router(
         ));
     }
 
+    // Flush the shared erased -> record-class extraction helpers
+    // (`__smelt_from_record_<Type>`), for the same reason and at the same point
+    // as the accessors above: a helper can first be minted inside any body.
+    for body in context.record_extractors.borrow().values() {
+        out.push_str(body);
+    }
+
     if !has_main_function(mir)? {
         out.push_str("\nfn main() {}\n");
     }

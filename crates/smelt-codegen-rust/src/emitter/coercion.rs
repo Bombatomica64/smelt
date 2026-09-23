@@ -224,6 +224,12 @@ impl FunctionEmitter<'_> {
         )? {
             return Ok(slot);
         }
+        if let Some(slot_ty) = self.function_into_callable_object_slot_ty(source_ty, target)
+            && let Some(_guard) = self.enter_type_expansion(source_ty, target)
+        {
+            let slot_text = self.value_at_type_in(operand, slot_ty, scope)?;
+            return self.callable_object_with_slot_text(&slot_text, target);
+        }
         if let (Some(Type::Optional(source_inner)), Some(Type::Optional(target_inner))) = (
             self.mir.types.get(self.operand_ty(operand)?),
             self.mir.types.get(target),
@@ -726,6 +732,110 @@ impl FunctionEmitter<'_> {
         Ok(Some(self.value_at_type_text(&slot_text, call_ty, target, scope)?))
     }
 
+    /// The call-slot type a function value must be coerced to before it is
+    /// stored in a callable-interface destination.
+    ///
+    /// The inverse of [`Self::callable_object_call_slot_text`]. A slot whose
+    /// declared type is a callable interface (`set: Setter = (k, v) => ..`, a
+    /// class field typed by an interface with call signatures) lowers to the
+    /// interface's record struct, while the arrow initializer is a
+    /// `Type::Function`. Without this rule the function source fell through to
+    /// the record fallbacks, which rendered `Default::default()`: the field
+    /// then held the interface's no-op default callable and every later
+    /// `obj.set(..)` silently did nothing.
+    ///
+    /// Returns the `__smelt_call` slot's own declared type when the source is a
+    /// function and the target is a callable-interface struct, else `None`.
+    /// The caller coerces the function to that slot type with the ordinary
+    /// function → function adapters (arity, the erased overload ABI) and wraps
+    /// the result with [`Self::callable_object_with_slot_text`].
+    fn function_into_callable_object_slot_ty(&self, source: TypeId, target: TypeId) -> Option<TypeId> {
+        if !matches!(self.mir.types.get(source), Some(Type::Function(_)))
+            || !matches!(self.mir.types.get(target), Some(Type::Class { .. }))
+        {
+            return None;
+        }
+        self.callable_interface_call_field_ty(target)
+    }
+
+    /// Builds a callable-interface struct whose `__smelt_call` slot holds
+    /// `slot_text` (already coerced to the slot's type).
+    ///
+    /// The struct starts from its `Default`, which fills any declared
+    /// non-call members, so the rule holds for an interface that also carries
+    /// properties.
+    fn callable_object_with_slot_text(&self, slot_text: &str, target: TypeId) -> Result<String, EmitError> {
+        let target_text = self.type_text(target)?;
+        Ok(format!(
+            "{{ let mut smelt_callable_object: {target_text} = Default::default(); smelt_callable_object.__smelt_call = {slot_text}; smelt_callable_object }}"
+        ))
+    }
+
+    /// Routes an erased → record-class extraction through ONE shared helper
+    /// function per target type instead of inlining it at every site.
+    ///
+    /// The inline extraction rebuilds the class field by field from the erased
+    /// record, and each field that is itself a record class or a function
+    /// nests its own adapter, so the text of one extraction grows with the
+    /// whole reachable type graph. Hono's `Context` class (30 fields,
+    /// several of them callable interfaces and nested classes) made every
+    /// erased middleware call site ~230 KB of Rust; `middleware/timeout`'s test
+    /// module went from 0.8 MB to 8 MB and `cargo check --tests` no longer
+    /// finished in 30 minutes. A hand-written crate would call one conversion
+    /// function; this is that function, `__smelt_from_record_<Type>`, emitted
+    /// once at the crate root and flushed after every body (see the
+    /// `record_extractors` flush in `lib.rs`).
+    ///
+    /// Semantics are unchanged by construction: the helper's body is exactly
+    /// the text the inline arm renders at an EMPTY record-conversion stack, so
+    /// only such top-level sites are routed here; a site nested inside another
+    /// extraction keeps the inline text (whose recursion guard then answers
+    /// `Default::default()` for a cycle, as before). Only targets whose Rust
+    /// spelling carries no type arguments qualify, so the body cannot depend on
+    /// the call site's type-parameter scope.
+    ///
+    /// Returns `None` when the site does not qualify or the inline arm would
+    /// produce no adapter (the caller then falls back exactly as before).
+    fn shared_record_extractor_call(
+        &self,
+        text: &str,
+        target: TypeId,
+        string_ty: TypeId,
+        unknown_ty: TypeId,
+        scope: &RenderScope,
+    ) -> Result<Option<String>, EmitError> {
+        if !self.record_conversion_stack.borrow().is_empty() {
+            return Ok(None);
+        }
+        let target_text = self.type_text_with_impl_trait(target, false)?;
+        if target_text.contains(['<', ' ', ':', '(']) {
+            return Ok(None);
+        }
+        let helper = format!("__smelt_from_record_{target_text}");
+        let known = self.context.record_extractors.borrow().contains_key(&helper);
+        if !known {
+            self.record_conversion_stack.borrow_mut().push(target);
+            let adapter_result = self.string_dict_record_adapter_text(
+                "smelt_record_map",
+                string_ty,
+                unknown_ty,
+                target,
+                scope,
+            );
+            self.record_conversion_stack.borrow_mut().pop();
+            let Some(adapter) = adapter_result? else {
+                return Ok(None);
+            };
+            self.context.record_extractors.borrow_mut().insert(
+                helper.clone(),
+                format!(
+                    "\n#[allow(dead_code, non_snake_case, unused_variables, unused_mut, unused_braces, clippy::all)]\nfn {helper}(smelt_value: SmeltUnknown) -> {target_text} {{\n    match smelt_value {{ SmeltUnknown::Object(values) => {{ let smelt_record_map = SmeltRecord::with_id_from_entries(values.id, values.into_iter()); {adapter} }}, _ => Default::default() }}\n}}\n"
+                ),
+            );
+        }
+        Ok(Some(format!("{helper}(({text}).into_smelt_unknown())")))
+    }
+
     /// Marks a `source` → `target` structural coercion as being expanded.
     ///
     /// Returns `None` when the pair is already on
@@ -963,6 +1073,12 @@ impl FunctionEmitter<'_> {
         }
         if let Some(slot) = self.callable_object_call_slot_text(value_text, source, target, scope)? {
             return Ok(slot);
+        }
+        if let Some(slot_ty) = self.function_into_callable_object_slot_ty(source, target)
+            && let Some(_guard) = self.enter_type_expansion(source, target)
+        {
+            let slot_text = self.value_at_type_text(value_text, source, slot_ty, scope)?;
+            return self.callable_object_with_slot_text(&slot_text, target);
         }
         if let Some(adapter) =
             self.rendered_function_shape_adapter_text(value_text, source, target, scope)?
@@ -3075,6 +3191,9 @@ impl FunctionEmitter<'_> {
                 ) else {
                     return Ok("Default::default()".to_owned());
                 };
+                if let Some(call) = self.shared_record_extractor_call(text, target, string_ty, unknown_ty, scope)? {
+                    return Ok(call);
+                }
                 self.record_conversion_stack.borrow_mut().push(target);
                 let adapter_result = self.string_dict_record_adapter_text(
                     "smelt_record_map",

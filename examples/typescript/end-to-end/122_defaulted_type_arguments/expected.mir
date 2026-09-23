@@ -1,0 +1,78 @@
+class Ctx fields [Public env: E, Public path: P, Public input: I] constructor Some(FuncId(3)) methods [FuncId(4)]
+
+fn none (FuncId(0)) -> String
+  locals
+    %0 param c: Ctx<String, String, Float>
+    %1 temp: String
+    %2 temp: String
+    %3 temp: String
+  bb0:
+    %1 = copy %0.field8 + ":"
+    %2 = call fn4(copy %0) -> bb1
+  bb1:
+    %3 = move %1 + move %2
+    return move %3
+
+fn one (FuncId(1)) -> Float
+  locals
+    %0 param c: Ctx<String, String, Float>
+    %1 temp: Float
+  bb0:
+    %1 = copy %0.field10 * 2.0
+    return move %1
+
+fn three (FuncId(2)) -> Float
+  locals
+    %0 param c: Ctx<String, String, Float>
+    %1 temp: Float
+  bb0:
+    %1 = copy %0.field10 + 1.0
+    return move %1
+
+fn new (FuncId(3)) -> Ctx<E, P, I>
+  locals
+    %0 user this: Ctx<E, P, I>
+    %1 param env: E
+    %2 param path: P
+    %3 param input: I
+  bb0:
+    %0 = struct0 {}
+    %0.field8 = copy %1
+    %0.field9 = copy %2
+    %0.field10 = copy %3
+    return move %0
+
+fn where (FuncId(4)) -> P
+  locals
+    %0 param this: Ctx<E, P, I>
+  bb0:
+    return copy %0.field9
+
+fn main (FuncId(5)) -> None
+  locals
+    %0 user c: Ctx<String, String, Float>
+    %1 temp: Ctx<String, String, Float>
+    %2 temp: String
+    %3 temp: None
+    %4 temp: Float
+    %5 temp: None
+    %6 temp: Float
+    %7 temp: None
+  bb0:
+    %1 = call fn3("root", "/a", 41.0) -> bb1
+  bb1:
+    %0 = move %1
+    %2 = call fn0(copy %0) -> bb2
+  bb2:
+    %3 = call @console_log(move %2) -> bb3
+  bb3:
+    %4 = call fn1(copy %0) -> bb4
+  bb4:
+    %5 = call @console_log(move %4) -> bb5
+  bb5:
+    %6 = call fn2(move %0) -> bb6
+  bb6:
+    %7 = call @console_log(move %6) -> bb7
+  bb7:
+    return none
+

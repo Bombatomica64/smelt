@@ -857,6 +857,7 @@ fn manifest_type_renames(
                 .insert(name.clone(), rendered);
         }
     }
+    propagate_type_renames_through_reexports(sources, &mut renames);
     if std::env::var_os("SMELT_DEBUG_TYPE_RENAMES").is_some() {
         for (path, map) in &renames {
             for (name, rendered) in map {
@@ -865,6 +866,120 @@ fn manifest_type_renames(
         }
     }
     renames
+}
+
+/// Extend the rename map to the modules that RE-EXPORT an ambiguous name.
+///
+/// [`manifest_type_renames`] keys each rendering by the module that DECLARES
+/// the name, and the frontend asks "which module was this imported from, and
+/// what is that module's rendering" at the reference. A consumer that imports
+/// through a barrel (`import { Context } from '../..'`, whose `index.ts` does
+/// `export * from './context'`) names the barrel, which declares nothing, so
+/// the lookup missed and the reference fell back to the bare spelling — the
+/// OTHER module's `Context`. Hono's eight `conninfo` adapters and
+/// `helper/route` did exactly that (E0107 `Context<..>` on a 0-parameter
+/// struct, E0308 `Context` vs `Context_1`).
+///
+/// A barrel inherits the rendering of every ambiguous name it re-exports, to a
+/// fixpoint so chains of barrels resolve. A module that declares the name
+/// itself keeps its own entry (a declaration shadows a star re-export, as in
+/// ECMAScript). Only re-export edges whose specifier resolves to a crate source
+/// are followed; nothing is added for a crate without ambiguous names.
+fn propagate_type_renames_through_reexports(
+    sources: &[&ManifestSource],
+    renames: &mut HashMap<String, HashMap<String, String>>,
+) {
+    if renames.is_empty() {
+        return;
+    }
+    let canonical_to_key = sources
+        .iter()
+        .filter_map(|source| {
+            let key = source.path.display().to_string();
+            fs::canonicalize(&source.path).ok().map(|canonical| (canonical, key))
+        })
+        .collect::<HashMap<_, _>>();
+    let edges = sources
+        .iter()
+        .filter_map(|source| {
+            let path = source.path.display().to_string();
+            if !SourceLang::from_path(&path).is_ok_and(SourceLang::is_typescript) {
+                return None;
+            }
+            let reexports = smelt_frontend_ts::scan_type_reexports(&source.source, &path);
+            let resolved = reexports
+                .into_iter()
+                .filter_map(|reexport| {
+                    let target =
+                        resolve_reexport_specifier(&source.path, &reexport.specifier, &canonical_to_key)?;
+                    Some((target, reexport))
+                })
+                .collect::<Vec<_>>();
+            (!resolved.is_empty()).then_some((path, resolved))
+        })
+        .collect::<Vec<_>>();
+    loop {
+        let mut additions = Vec::new();
+        for (barrel, reexports) in &edges {
+            for (target, reexport) in reexports {
+                let Some(target_renames) = renames.get(target) else {
+                    continue;
+                };
+                let pairs = match (&reexport.exported, &reexport.imported) {
+                    (Some(exported), Some(imported)) => target_renames
+                        .get(imported)
+                        .map(|rendered| vec![(exported.clone(), rendered.clone())])
+                        .unwrap_or_default(),
+                    _ => target_renames
+                        .iter()
+                        .map(|(name, rendered)| (name.clone(), rendered.clone()))
+                        .collect(),
+                };
+                for (name, rendered) in pairs {
+                    if renames.get(barrel).is_some_and(|own| own.contains_key(&name)) {
+                        continue;
+                    }
+                    additions.push((barrel.clone(), name, rendered));
+                }
+            }
+        }
+        if additions.is_empty() {
+            break;
+        }
+        for (barrel, name, rendered) in additions {
+            renames.entry(barrel).or_default().entry(name).or_insert(rendered);
+        }
+    }
+}
+
+/// The crate source a relative re-export specifier names, as its rename-map key.
+///
+/// Resolution follows the module forms the frontend accepts: the path as
+/// written, with its extension replaced by (or, for a dotted stem, extended
+/// with) `.ts`/`.tsx` — which also maps a `.js` spelling to `.ts` — or a
+/// directory's `index.ts`/`index.tsx`. Bare (package) specifiers answer
+/// `None`: a package is never a crate source.
+fn resolve_reexport_specifier(
+    from: &Path,
+    specifier: &str,
+    canonical_to_key: &HashMap<PathBuf, String>,
+) -> Option<String> {
+    if !specifier.starts_with('.') {
+        return None;
+    }
+    let base = from.parent()?.join(specifier);
+    let mut candidates = vec![
+        base.clone(),
+        base.with_extension("ts"),
+        base.with_extension("tsx"),
+        base.join("index.ts"),
+        base.join("index.tsx"),
+    ];
+    candidates.push(PathBuf::from(format!("{}.ts", base.display())));
+    candidates.into_iter().find_map(|candidate| {
+        let canonical = fs::canonicalize(&candidate).ok()?;
+        canonical.is_file().then(|| canonical_to_key.get(&canonical).cloned())?
+    })
 }
 
 /// Canonical paths of project sources the dependency closure did not reach.

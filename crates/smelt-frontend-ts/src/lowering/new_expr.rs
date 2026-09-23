@@ -365,7 +365,51 @@ impl ModuleBuilder<'_> {
                 span: self.span(new_expr.span.start, new_expr.span.end),
             }));
         }
-        let Some(item) = self.classes.item(callee.name.as_str()) else {
+        // An IMPORTED class whose spelling is ambiguous crate-wide is the
+        // exporting module's class, whatever the by-name map holds: Hono's
+        // `hono-base.ts` constructs `new Context(request, ..)` with `Context`
+        // imported from `./context` (rendered `Context_1`), while the by-name
+        // lookup answered `reg-exp-router/node.ts`'s interface or nothing at
+        // all in an import cycle, so the construction lowered to an erased
+        // external object typed as the interface (E0308 `Context` vs
+        // `Context_1`). Same rule, and same rename map, as a type reference
+        // (`imported_ambiguous_type_name`), so the value and type spellings
+        // of one import cannot name different classes.
+        let imported_class_symbol = self.imported_ambiguous_type_name(callee.name.as_str());
+        let resolved_item = match imported_class_symbol {
+            Some(symbol) => self.class_item_by_symbol(symbol),
+            None => self.classes.item(callee.name.as_str()),
+        };
+        let Some(item) = resolved_item else {
+            if let Some(class_name) = imported_class_symbol {
+                // Not lowered yet (an import cycle): construct by the resolved
+                // symbol, with the declaration's defaults filling every type
+                // argument, exactly as a type reference with no arguments.
+                let args = new_expr
+                    .arguments
+                    .iter()
+                    .map(|arg| self.argument(arg, body))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let class_args = self
+                    .ctx
+                    .class_type_params
+                    .get(&class_name)
+                    .cloned()
+                    .and_then(|params| self.type_arguments_with_defaults(&params, &[]))
+                    .unwrap_or_default();
+                let ty = self.ctx.krate.types.intern(Type::Class {
+                    name: class_name,
+                    args: class_args,
+                });
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::New {
+                        class: class_name,
+                        args,
+                    },
+                    ty,
+                    span: self.span(new_expr.span.start, new_expr.span.end),
+                }));
+            }
             if self.classes.is_pending(callee.name.as_str()) {
                 let class_name = self.intern_type_name(callee.name.as_str());
                 let args = new_expr

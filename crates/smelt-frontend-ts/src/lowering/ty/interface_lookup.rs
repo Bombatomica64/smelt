@@ -484,6 +484,20 @@ impl ModuleBuilder<'_> {
                     if required.optional {
                         continue;
                     }
+                    // An instance GETTER satisfies a property requirement just
+                    // as a stored field does: TypeScript checks the member's
+                    // read type, not how the class produces it. The getter is
+                    // lowered to an accessor descriptor, not a field, so it is
+                    // looked up there; its read type must be assignable to the
+                    // required property type.
+                    if let Some(descriptor) = class.descriptors.iter().find(|descriptor| {
+                        descriptor.name == required.name
+                            && !descriptor.is_static
+                            && descriptor.getter.is_some()
+                    }) && self.type_assignable_to(descriptor.read_ty, required.ty)
+                    {
+                        continue;
+                    }
                     let name = self
                         .ctx
                         .krate

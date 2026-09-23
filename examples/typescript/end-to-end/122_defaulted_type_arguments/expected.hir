@@ -1,0 +1,50 @@
+module examples/typescript/end-to-end/122_defaulted_type_arguments/input.ts (ModuleId(0))
+  body BodyId(5)
+  items
+    class Ctx fields [Public env: E, Public path: P, Public input: I] constructor Some(ItemId(3)) methods [ItemId(4)] implements []
+    fn none owner Module
+    fn one owner Module
+    fn three owner Module
+  locals
+    %0 const c: Ctx<String, String, Float>
+  exprs
+    #0: String = "root"
+    #1: String = "/a"
+    #2: Float = 41.0
+    #3: Ctx<String, String, Float> = new Ctx(#0, #1, #2)
+    #4: Ctx<String, String, Float> = %0
+    #5: fn(Ctx<String, String, Float>) -> String = @0(none)
+    #6: String = call #5(#4)
+    #7: None = @6(console_log)
+    #8: None = call #7(#6)
+    #9: Ctx<String, String, Float> = %0
+    #10: fn(Ctx<String, String, Float>) -> Float = @1(one)
+    #11: Float = call #10(#9)
+    #12: None = @7(console_log)
+    #13: None = call #12(#11)
+    #14: Ctx<String, String, Float> = %0
+    #15: fn(Ctx<String, String, Float>) -> Float = @2(three)
+    #16: Float = call #15(#14)
+    #17: None = @8(console_log)
+    #18: None = call #17(#16)
+  stmts
+    s0: let %0: Ctx<String, String, Float> = #3
+    s1: #8
+    s2: #13
+    s3: #18
+
+interned types
+  t0 = String
+  t1 = Float
+  t2 = Ctx
+  t3 = E
+  t4 = P
+  t5 = I
+  t6 = Ctx<String, String, Float>
+  t7 = fn(Ctx<String, String, Float>) -> String
+  t8 = fn(Ctx<String, String, Float>) -> Float
+  t9 = Ctx<E, P, I>
+  t10 = None
+  t11 = fn() -> P
+  t12 = fn(Ctx<String, String, Float>) -> String
+  t13 = fn(Ctx<String, String, Float>) -> Float

@@ -197,6 +197,15 @@ pub(crate) struct EmitContext {
     /// { .. }` factory expression. A `BTreeMap` keeps emitted order deterministic.
     pub(crate) function_item_erased_fn_accessors:
         ::std::cell::RefCell<::std::collections::BTreeMap<usize, String>>,
+    /// Shared erased → record-class extraction helpers, keyed by helper name
+    /// (`__smelt_from_record_<Type>`), each mapped to its full function text.
+    ///
+    /// Collected by `FunctionEmitter::shared_record_extractor_call` and
+    /// flushed once at the crate root after every body is emitted, exactly as
+    /// the function-item accessors above. A `BTreeMap` keeps the emitted order
+    /// deterministic for golden tests.
+    pub(crate) record_extractors:
+        ::std::cell::RefCell<::std::collections::BTreeMap<String, String>>,
     /// MIR ids of free functions that emit real Rust generics.
     ///
     /// A generic free function only keeps real generics when its signature is
@@ -317,6 +326,7 @@ impl EmitContext {
             function_item_erased_fn_accessors: ::std::cell::RefCell::new(
                 ::std::collections::BTreeMap::new(),
             ),
+            record_extractors: ::std::cell::RefCell::new(::std::collections::BTreeMap::new()),
             generic_functions: RefCell::new(HashSet::new()),
             reference_classes: crate::classify::reference_classes(mir),
             type_param_elision: crate::generic_elision::compute(mir),

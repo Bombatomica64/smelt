@@ -2897,11 +2897,43 @@ impl ModuleBuilder<'_> {
             .filter(|signature| self.signature_accepts_arg_types(signature, arg_tys))
             .cloned()
             .collect::<Vec<_>>();
-        let selected = if matching.is_empty() {
+        let mut selected = if matching.is_empty() {
             candidates
         } else {
             matching
         };
+        // Several signatures accept the call, but when every argument's type
+        // is known and exactly ONE of them is fully concrete — no parameter is
+        // `unknown` or a bare type parameter — that one is the typed ABI the
+        // call can use. Merging them instead erased every position where the
+        // signatures differ (`ambiguous_interface_call_type`), so an
+        // interface pairing a generic signature with a concrete one
+        // (`<K extends keyof V>(key: K, value: V[K]): void` next to
+        // `(key: string, value: number): void`) called its stored closure
+        // through `SmeltUnknown` arguments although the concrete signature
+        // types the call exactly. The implementation is one function either
+        // way, so the choice only decides how arguments are passed.
+        if selected.len() > 1
+            && arg_tys.len() == count
+            && arg_tys.iter().all(Option::is_some)
+        {
+            let concrete = selected
+                .iter()
+                .filter(|signature| {
+                    signature.params.iter().all(|param| {
+                        !self.type_contains_unknown(*param)
+                            && !matches!(
+                                self.ctx.krate.types.get(*param),
+                                Some(Type::TypeParam { .. })
+                            )
+                    })
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            if concrete.len() == 1 {
+                selected = concrete;
+            }
+        }
         match selected.len() {
             0 => Some(self.variadic_interface_call_type(count)),
             1 => {

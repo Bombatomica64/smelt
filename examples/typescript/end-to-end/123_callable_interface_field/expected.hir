@@ -1,0 +1,94 @@
+module examples/typescript/end-to-end/123_callable_interface_field/input.ts (ModuleId(0))
+  body BodyId(4)
+  items
+    fn local__module_examples/typescript/end-to-end/123_callable_interface_field/input.ts owner Module
+    interface Vars fields [Public count: Float] methods []
+    interface Set<V> fields [Public __smelt_call: fn(...List<Unknown>) -> Unknown] methods []
+    interface Getter fields [Public __smelt_call: fn(String) -> Float] methods []
+    class Store fields [Public values: Map<String, Float>, Public set: Set<V>, Public get: Getter] constructor Some(ItemId(4)) methods [] implements []
+  locals
+    %0 const store: Store<Vars>
+  exprs
+    #0: Store<Vars> = new Store()
+    #1: Store<Vars> = %0
+    #2: Store<Vars> = %0
+    #3: Store<Vars> = %0
+    #4: Store<Vars> = %0
+    #5: Store<Vars> = %0
+    #6: Store<Vars> = %0
+    #7: Set<Vars> = #6.set
+    #8: Store<Vars> = %0
+    #9: String = "count"
+    #10: Float = 1.0
+    #11: fn(String, Float) -> None = assert_type #7
+    #12: None = closure_call #11(#9, #10)
+    #13: Store<Vars> = %0
+    #14: Store<Vars> = %0
+    #15: Store<Vars> = %0
+    #16: Store<Vars> = %0
+    #17: Store<Vars> = %0
+    #18: Store<Vars> = %0
+    #19: Set<Vars> = #18.set
+    #20: Store<Vars> = %0
+    #21: String = "b"
+    #22: Float = 2.0
+    #23: fn(String, Float) -> None = assert_type #19
+    #24: None = closure_call #23(#21, #22)
+    #25: Store<Vars> = %0
+    #26: Store<Vars> = %0
+    #27: Store<Vars> = %0
+    #28: Store<Vars> = %0
+    #29: Store<Vars> = %0
+    #30: Getter = #29.get
+    #31: Store<Vars> = %0
+    #32: String = "count"
+    #33: fn(String) -> Float = assert_type #30
+    #34: Float = closure_call #33(#32)
+    #35: Store<Vars> = %0
+    #36: Store<Vars> = %0
+    #37: Store<Vars> = %0
+    #38: Store<Vars> = %0
+    #39: Store<Vars> = %0
+    #40: Getter = #39.get
+    #41: Store<Vars> = %0
+    #42: String = "b"
+    #43: fn(String) -> Float = assert_type #40
+    #44: Float = closure_call #43(#42)
+    #45: Float = Add #34, #44
+    #46: None = @6(console_log)
+    #47: None = call #46(#45)
+    #48: String = "four"
+    #49: fn(String) -> Float = @0(local__module_examples/typescript/end-to-end/123_callable_interface_field/input.ts)
+    #50: Float = call #49(#48)
+    #51: None = @7(console_log)
+    #52: None = call #51(#50)
+  stmts
+    s0: let %0: Store<Vars> = #0
+    s1: #12
+    s2: #24
+    s3: #47
+    s4: #52
+
+interned types
+  t0 = Store
+  t1 = Getter
+  t2 = V
+  t3 = String
+  t4 = Float
+  t5 = None
+  t6 = K
+  t7 = Unknown
+  t8 = List<Unknown>
+  t9 = fn(...List<Unknown>) -> Unknown
+  t10 = fn(String) -> Float
+  t11 = Store<V>
+  t12 = Map<String, Float>
+  t13 = Set<V>
+  t14 = fn(K, Unknown) -> None
+  t15 = fn(String, Float) -> None
+  t16 = Optional<Float>
+  t17 = fn(String) -> Float
+  t18 = Vars
+  t19 = Store<Vars>
+  t20 = Set<Vars>
+  t21 = fn(String, Float) -> None
