@@ -323,6 +323,15 @@ impl LocalScope {
         self.function_items.insert(name, item);
     }
 
+    /// Drop the function item slot reserved for `name`, returning it.
+    ///
+    /// Used to end a binding whose scope is narrower than the module, such as
+    /// a named function expression's own name, which is visible only inside
+    /// that function's body.
+    pub(in crate::lowering) fn unregister_function_item(&mut self, name: &str) -> Option<ItemId> {
+        self.function_items.remove(name)
+    }
+
     /// Return the function item reserved for the hoisted local named `name`.
     pub(in crate::lowering) fn function_item(&self, name: &str) -> Option<ItemId> {
         self.function_items.get(name).copied()

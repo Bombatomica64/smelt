@@ -218,6 +218,58 @@ impl ModuleBuilder<'_> {
         self.function_declaration_named(function, id.name.as_str())
     }
 
+    /// Lower a module-level `const binding = function inner(..) { .. }` into the
+    /// function item named `binding`.
+    ///
+    /// A named function expression binds `inner` inside its own body (so it
+    /// can recurse) and nowhere else: it declares nothing at module level. The
+    /// item is predeclared under `binding` with its annotated signature, the
+    /// inner name is aliased to that same item for the duration of the body,
+    /// and the alias (and any binding it shadowed) is restored afterwards.
+    pub(in crate::lowering) fn named_function_expression_item(
+        &mut self,
+        function: &oxc::ast::ast::Function<'_>,
+        binding: &str,
+    ) -> Result<smelt_hir::ItemId, SmeltError> {
+        let inner = function
+            .id
+            .as_ref()
+            .map(|id| id.name.to_string())
+            .filter(|inner| inner != binding);
+        let Some(inner) = inner else {
+            return self.function_declaration_named(function, binding);
+        };
+        if !self.scope.has_function_item(binding) {
+            let type_params =
+                self.push_type_parameter_scope(function.type_parameters.as_deref())?;
+            let predeclared = self.predeclared_function(function, binding, type_params);
+            self.pop_type_parameter_scope();
+            let item = self.ctx.krate.push_item(Item::Function(predeclared?));
+            self.items.insert(binding.to_owned(), item);
+            self.scope.register_function_item(binding.to_owned(), item);
+        }
+        let Some(item) = self.scope.function_item(binding) else {
+            return self.function_declaration_named(function, binding);
+        };
+        let shadowed_item = self.items.insert(inner.clone(), item);
+        let shadowed_slot = self.scope.unregister_function_item(&inner);
+        self.scope.register_function_item(inner.clone(), item);
+        let lowered = self.function_declaration_named(function, binding);
+        self.scope.unregister_function_item(&inner);
+        if let Some(slot) = shadowed_slot {
+            self.scope.register_function_item(inner.clone(), slot);
+        }
+        match shadowed_item {
+            Some(previous) => {
+                self.items.insert(inner, previous);
+            }
+            None => {
+                self.items.remove(&inner);
+            }
+        }
+        lowered
+    }
+
     /// Lower a TypeScript `Function` AST node into a HIR function item under an
     /// externally supplied name.
     ///

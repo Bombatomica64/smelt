@@ -999,6 +999,13 @@ impl FunctionEmitter<'_> {
                                     Some(&class_type_params),
                                 );
                             }
+                            if let Some(erased_ty) = self.receiver_erased_type_argument(
+                                function,
+                                receiver,
+                                target_ty,
+                            )? {
+                                return self.value_at_type(arg, erased_ty);
+                            }
                             self.callee_generic_argument_text(
                                 arg,
                                 function,
@@ -1733,6 +1740,66 @@ impl FunctionEmitter<'_> {
     /// [`Self::callee_class_type_params`] answers the membership question and
     /// returns a set; binding needs the order, because the receiver type's class
     /// arguments correspond to the declaration positionally.
+    /// The `Unknown` type a method parameter takes when the receiver
+    /// instantiates the class's type parameter at the runtime unknown.
+    ///
+    /// `class Node<T> { insert(.., handler: T) }` called on a `Node<unknown>`
+    /// receiver — spelled `new Node<unknown>()`, or `new Node()` where
+    /// TypeScript infers `unknown` because no constructor argument mentions `T`
+    /// (MIR then carries a `TypeParam` that is not in scope at the call site,
+    /// which renders as `SmeltUnknown` exactly like `Unknown`) — has an
+    /// `insert` whose Rust parameter is `SmeltUnknown`. The argument's own type
+    /// (a `String`) is not the parameter's, so it must cross the
+    /// `IntoSmeltUnknown` boundary adapter at the call; binding `T` from the
+    /// argument (what `callee_generic_argument_text` does for a concrete
+    /// receiver) asked Rust for `String` where the receiver fixed
+    /// `SmeltUnknown` (hono `trie-router/node.test.ts`, 238 E0308).
+    ///
+    /// This is a genuine dynamic boundary: the SOURCE type of the receiver is
+    /// `Node<unknown>`, so the slot holds tagged values by the program's own
+    /// declaration. Returns `None` for a receiver whose argument is concrete or
+    /// an in-scope generic, where the existing inference rule is right, and
+    /// when the parameter is not the bare class type parameter.
+    fn receiver_erased_type_argument(
+        &self,
+        function: &MirFunction,
+        receiver: &Operand,
+        target_ty: TypeId,
+    ) -> Result<Option<TypeId>, EmitError> {
+        let Some(Type::TypeParam { name }) = self.mir.types.get(target_ty) else {
+            return Ok(None);
+        };
+        let Some(position) = self
+            .callee_class_type_param_names(function)
+            .iter()
+            .position(|param| param == name)
+        else {
+            return Ok(None);
+        };
+        let Some(Type::Class { args, .. }) = self.mir.types.get(self.operand_ty(receiver)?) else {
+            return Ok(None);
+        };
+        let Some(argument_ty) = args.get(position).copied() else {
+            return Ok(None);
+        };
+        let erased = match self.mir.types.get(argument_ty) {
+            Some(Type::Unknown) => true,
+            Some(Type::TypeParam { name }) => !self.current_function_has_type_param(*name),
+            _ => false,
+        };
+        if !erased {
+            return Ok(None);
+        }
+        Ok(self
+            .mir
+            .types
+            .all()
+            .iter()
+            .position(|ty| *ty == Type::Unknown)
+            .and_then(|index| u32::try_from(index).ok())
+            .map(TypeId))
+    }
+
     fn callee_class_type_param_names(&self, function: &MirFunction) -> Vec<Symbol> {
         let class_name = match function.origin {
             HirOrigin::ClassConstructor { class, .. } | HirOrigin::ClassMethod { class, .. } => {

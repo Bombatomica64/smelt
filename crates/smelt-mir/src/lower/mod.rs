@@ -599,7 +599,7 @@ fn lower_module_bodies(
         ) else {
             continue;
         };
-        let name = mir.symbols.intern(&module.name);
+        let name = module_body_function_name(mir, &module.name);
         let function_id = mir.next_function_id();
         let shared = LoweringShared {
             krate,
@@ -639,6 +639,40 @@ fn lower_module_bodies(
             }
             Err(error) => errors.push(error),
         }
+    }
+}
+
+/// Picks the symbol for a module body's synthetic function.
+///
+/// A module body is named after its module (`request-id.ts` -> `request-id`),
+/// and the emitter renders that as the Rust identifier `request_id`. A module
+/// that exports a function of the same spelling (`export const requestId =
+/// ..`, lowered as the item `request_id`) would then define two Rust `fn
+/// request_id` items (E0428). The body is synthetic and never referenced by
+/// source code, so when its rendered name matches an already-lowered function
+/// it takes a `__module_body` suffix instead; the item keeps the source name
+/// every caller spells. `main` is exempt: it is the crate entry point.
+fn module_body_function_name(mir: &mut Mir, module_name: &str) -> smelt_hir::Symbol {
+    /// The identifier shape the emitter renders a symbol as (non-identifier
+    /// characters become `_`), which is the namespace the collision lives in.
+    fn rendered(name: &str) -> String {
+        name.chars()
+            .map(|ch| if ch == '_' || ch.is_ascii_alphanumeric() { ch } else { '_' })
+            .collect()
+    }
+    let body = rendered(module_name);
+    let collides = module_name != "main"
+        && mir.functions.iter().any(|function| {
+            matches!(function.origin, crate::HirOrigin::Body(_))
+                && mir
+                    .symbols
+                    .get(function.name)
+                    .is_some_and(|name| rendered(name) == body)
+        });
+    if collides {
+        mir.symbols.intern(&format!("{module_name}__module_body"))
+    } else {
+        mir.symbols.intern(module_name)
     }
 }
 

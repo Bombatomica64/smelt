@@ -3560,7 +3560,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 // same as `function stub() { ... }`, so lower it through the
                 // shared named-function path rather than the literal folder.
                 let item =
-                    self.function_declaration_named(function, binding.name.as_str())?;
+                    self.named_function_expression_item(function, binding.name.as_str())?;
                 items.push(item);
                 continue;
             }
@@ -3864,12 +3864,23 @@ impl<'ctx> ModuleBuilder<'ctx> {
             let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
                 continue;
             };
-            let Some(Expression::ArrowFunctionExpression(arrow)) = &declarator.init else {
-                continue;
-            };
             if !forward_arrow_consts.contains(binding.name.as_str()) {
                 continue;
             }
+            // `const name = function inner() { .. }` is the same lexical
+            // binding as an arrow const: lift it through the named-function
+            // path the exported form already uses, so a function body that
+            // calls `name` reaches the item instead of a placeholder. The
+            // inner name `inner` binds only inside its own body.
+            if let Some(Expression::FunctionExpression(function)) = &declarator.init
+                && function.body.is_some()
+            {
+                items.push(self.named_function_expression_item(function, binding.name.as_str())?);
+                continue;
+            }
+            let Some(Expression::ArrowFunctionExpression(arrow)) = &declarator.init else {
+                continue;
+            };
             let type_hint = declarator
                 .type_annotation
                 .as_ref()
@@ -3901,12 +3912,30 @@ impl<'ctx> ModuleBuilder<'ctx> {
             && decl.declarations.iter().all(|declarator| {
                 matches!(
                     (&declarator.id, &declarator.init),
-                    (
-                        BindingPattern::BindingIdentifier(binding),
-                        Some(Expression::ArrowFunctionExpression(_)),
-                    ) if forward_arrow_consts.contains(binding.name.as_str())
+                    (BindingPattern::BindingIdentifier(binding), Some(init))
+                        if Self::liftable_function_initializer_span(init).is_some()
+                            && forward_arrow_consts.contains(binding.name.as_str())
                 )
             })
+    }
+
+    /// The source span of a `const` initializer the forward-arrow queue may lift
+    /// into a module-level callable item, or `None` for any other initializer.
+    ///
+    /// Both an arrow and a function expression with a body qualify: `const f =
+    /// function g() { .. }` is the same lexical binding as `const f = () =>
+    /// ..`, and the name `g` is scoped to the function's own body. A generator
+    /// function expression is not a plain callable item, so it stays a value.
+    pub(super) fn liftable_function_initializer_span(init: &Expression<'_>) -> Option<oxc::span::Span> {
+        match init {
+            Expression::ArrowFunctionExpression(arrow) => Some(arrow.span),
+            Expression::FunctionExpression(function)
+                if function.body.is_some() && !function.generator =>
+            {
+                Some(function.span)
+            }
+            _ => None,
+        }
     }
 
     /// Return top-level arrow binding names declared by one variable statement.
@@ -3917,11 +3946,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
                     return None;
                 };
-                matches!(
-                    declarator.init,
-                    Some(Expression::ArrowFunctionExpression(_))
-                )
-                .then(|| binding.name.to_string())
+                declarator
+                    .init
+                    .as_ref()
+                    .and_then(Self::liftable_function_initializer_span)
+                    .map(|_| binding.name.to_string())
             })
             .collect()
     }
@@ -4137,14 +4166,18 @@ impl<'ctx> ModuleBuilder<'ctx> {
             .into_iter()
             .collect::<HashSet<_>>();
         decl.declarations.iter().all(|declarator| {
-            let Some(Expression::ArrowFunctionExpression(arrow)) = &declarator.init else {
+            let Some(span) = declarator
+                .init
+                .as_ref()
+                .and_then(Self::liftable_function_initializer_span)
+            else {
                 return true;
             };
             let text = self
                 .source
                 .get(
-                    usize::try_from(arrow.span.start).unwrap_or(usize::MAX)
-                        ..usize::try_from(arrow.span.end).unwrap_or(usize::MAX),
+                    usize::try_from(span.start).unwrap_or(usize::MAX)
+                        ..usize::try_from(span.end).unwrap_or(usize::MAX),
                 )
                 .unwrap_or_default();
             candidates.iter().all(|candidate| {
@@ -4167,10 +4200,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     }
                     for declarator in &variable.declarations {
                         if let BindingPattern::BindingIdentifier(binding) = &declarator.id
-                            && matches!(
-                                declarator.init,
-                                Some(Expression::ArrowFunctionExpression(_))
-                            )
+                            && declarator
+                                .init
+                                .as_ref()
+                                .is_some_and(|init| Self::liftable_function_initializer_span(init).is_some())
                         {
                             arrow_consts
                                 .push((binding.name.as_str().to_owned(), binding.span.start));
@@ -4191,10 +4224,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         }
                         for declarator in &variable.declarations {
                             if let BindingPattern::BindingIdentifier(binding) = &declarator.id
-                                && matches!(
-                                    declarator.init,
-                                    Some(Expression::ArrowFunctionExpression(_))
-                                )
+                                && declarator.init.as_ref().is_some_and(|init| {
+                                    Self::liftable_function_initializer_span(init).is_some()
+                                })
                             {
                                 arrow_consts
                                     .push((binding.name.as_str().to_owned(), binding.span.start));
@@ -4288,7 +4320,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
                     continue;
                 };
-                let Some(Expression::ArrowFunctionExpression(arrow)) = &declarator.init else {
+                let Some(span) = declarator
+                    .init
+                    .as_ref()
+                    .and_then(Self::liftable_function_initializer_span)
+                else {
                     continue;
                 };
                 if !candidates.contains(binding.name.as_str()) {
@@ -4297,8 +4333,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 let text = self
                     .source
                     .get(
-                        usize::try_from(arrow.span.start).unwrap_or(usize::MAX)
-                            ..usize::try_from(arrow.span.end).unwrap_or(usize::MAX),
+                        usize::try_from(span.start).unwrap_or(usize::MAX)
+                            ..usize::try_from(span.end).unwrap_or(usize::MAX),
                     )
                     .unwrap_or_default();
                 if identity_bindings.iter().any(|name| text.contains(name)) {
