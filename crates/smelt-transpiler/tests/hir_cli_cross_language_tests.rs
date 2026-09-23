@@ -1022,6 +1022,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "121_sequential_try_catch_join",
     "124_closure_short_circuit_join",
     "125_interface_receiver_dispatch",
+    "126_subclass_into_base_parameter",
     "11_console_log_expressions",
     "12_while_sum",
     "13_for_of_sum",

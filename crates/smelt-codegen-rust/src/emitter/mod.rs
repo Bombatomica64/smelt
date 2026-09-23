@@ -139,6 +139,7 @@ mod rendered_value;
 mod seam_assertions;
 mod static_call_args;
 mod throwing_join;
+mod virtual_slot_binding;
 mod set;
 mod strings;
 mod strings_io;

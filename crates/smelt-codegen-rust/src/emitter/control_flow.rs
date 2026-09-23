@@ -974,6 +974,12 @@ impl FunctionEmitter<'_> {
                     return Ok(());
                 }
                 if matches!(self.function.origin, HirOrigin::ClassConstructor { .. }) {
+                    // Fill the constructed object's virtual method slots with its
+                    // own implementations (`emitter::virtual_slot_binding`).
+                    let this_text = self.operand_text(operand)?;
+                    out.push_str(
+                        &self.constructor_virtual_slot_bindings(&this_text, self.operand_ty(operand)?)?,
+                    );
                     if self.function.can_throw {
                         out.push_str(&format!(
                             "    return Ok({});\n",

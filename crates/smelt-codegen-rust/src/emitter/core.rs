@@ -1038,8 +1038,8 @@ impl<'mir> FunctionEmitter<'mir> {
         // literal (that fails with E0560). When the source already has the
         // target's reference-class type, cloning the handle is the correct
         // adaptation: it shares the same underlying cell, matching JavaScript
-        // reference identity. (Cross-type adaptation into a reference class is
-        // not modeled here and falls through to `None`.)
+        // reference identity. (Cross-type adaptation into a reference class
+        // builds a view handle at the end of this function.)
         if self.is_reference_class_type(target)
             && matches!(
                 (self.mir.types.get(source), self.mir.types.get(target)),
@@ -1135,6 +1135,21 @@ impl<'mir> FunctionEmitter<'mir> {
             .emits_phantom(*name, args.len())
         {
             field_text.push("_smelt_phantom: ::std::marker::PhantomData".to_owned());
+        }
+        // A subclass (or any structurally compatible class) viewed through a
+        // REFERENCE base class: the base is a `Rc<RefCell<Inner>>` handle
+        // newtype, so the view is a fresh cell around the base's inner record
+        // (a bare `Base { .. }` literal against the tuple struct was E0560,
+        // Hono's `handle(app: Hono)` receiving the `hono.ts` subclass). Same
+        // contract as the value-class and interface views above: data fields
+        // are read when the view is built (fields that are themselves handles
+        // stay shared), while overridden methods and callable slots dispatch
+        // live to the source object through the captured source handle.
+        if self.context.is_reference_class(*name) {
+            return Ok(Some(format!(
+                "{{ let smelt_struct_value = {value_text}.clone(); {target_name}(::std::rc::Rc::new(::std::cell::RefCell::new({target_name}Inner {{ {} }}))) }}",
+                field_text.join(", ")
+            )));
         }
         Ok(Some(format!(
             "{{ let smelt_struct_value = {value_text}.clone(); {target_name} {{ {} }} }}",
@@ -1296,7 +1311,7 @@ impl<'mir> FunctionEmitter<'mir> {
     /// Abstract/base classes store virtual method members as function fields so
     /// structurally adapted subclass values can keep overriding behavior after
     /// they are viewed through the base class type.
-    fn is_virtual_method_storage_field(&self, ty: TypeId, field: Symbol) -> bool {
+    pub(super) fn is_virtual_method_storage_field(&self, ty: TypeId, field: Symbol) -> bool {
         let Some(Type::Class { name, .. }) = self.mir.types.get(ty) else {
             return false;
         };
@@ -1595,7 +1610,7 @@ impl<'mir> FunctionEmitter<'mir> {
     }
 
     /// Return the MIR class described by a class type.
-    fn class_for_type(&self, ty: TypeId) -> Option<&MirClass> {
+    pub(super) fn class_for_type(&self, ty: TypeId) -> Option<&MirClass> {
         let Some(Type::Class { name, .. }) = self.mir.types.get(ty) else {
             return None;
         };
@@ -1603,7 +1618,7 @@ impl<'mir> FunctionEmitter<'mir> {
     }
 
     /// Find a concrete method implementation on a class or its base chain.
-    fn find_class_method_function(
+    pub(super) fn find_class_method_function(
         &self,
         class_name: Symbol,
         method: Symbol,
