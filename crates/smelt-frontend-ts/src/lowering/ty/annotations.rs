@@ -1919,17 +1919,25 @@ return_ty: function.return_ty,
         {
             return Ok(init_ty);
         }
-        // A module that DECLARES a type named like an ECMAScript/DOM library
-        // global (`interface Set<E> { (key, value): void }` in Hono's
-        // `context.ts`) shadows the global for every reference in that module,
-        // exactly as TypeScript's own scoping does. The builtin table below
-        // must then not fire: it would lower `Set<E>` to the JS `Set`
-        // collection, so a field typed by the callable interface became a
-        // `Type::Set` and `c.set(k, v)` could not be called. A shadowed name
-        // skips straight to the user-declaration arm, which resolves it
-        // through the module's own symbol.
+        // A module that declares a NOMINAL type (interface, class or enum)
+        // named like an ECMAScript/DOM library global (`interface Set<E> {
+        // (key, value): void }` in Hono's `context.ts`) shadows the global for
+        // every reference in that module, as TypeScript's scoping does. The
+        // builtin table below must then not fire: it would lower `Set<E>` to
+        // the JS `Set` collection, so a field typed by the callable interface
+        // became a `Type::Set` and `c.set(k, v)` could not be called. A
+        // shadowed name skips straight to the user-declaration arm, which
+        // resolves it through the module's own symbol.
+        //
+        // A same-named TYPE ALIAS keeps the table: such an alias restates the
+        // library utility structurally (es-toolkit's own
+        // `type Capitalize<T extends string> = T extends `${infer F}${infer R}`
+        // ? `${Uppercase<F>}${Lowercase<R>}` : T`), and the table's model
+        // (`string`) is that alias's meaning, whereas lowering the conditional
+        // template body erases it. A nominal declaration, by contrast, is a
+        // new type the builtin can never be.
         let table_name = if LIB_GLOBAL_TYPE_NAMES.contains(&name_text.as_str())
-            && self.source_declares_type(&name_text)
+            && self.source_declares_nominal_type(&name_text)
         {
             ""
         } else {
@@ -4371,8 +4379,21 @@ return_ty: function.return_ty,
     /// The match must sit on identifier boundaries, so `type SetOptions` does
     /// not count as declaring `Set`.
     fn source_declares_type(&self, name: &str) -> bool {
+        self.source_declares_type_with(&["interface", "type", "class", "enum"], name)
+    }
+
+    /// Whether the source text declares an interface, class or enum of this
+    /// name (not a type alias); see the shadowing rule in
+    /// `type_reference_to_hir`.
+    fn source_declares_nominal_type(&self, name: &str) -> bool {
+        self.source_declares_type_with(&["interface", "class", "enum"], name)
+    }
+
+    /// The textual declaration probe behind [`Self::source_declares_type`]:
+    /// `<keyword> <name>` on identifier boundaries, for any of `keywords`.
+    fn source_declares_type_with(&self, keywords: &[&str], name: &str) -> bool {
         let is_ident = |ch: char| ch.is_alphanumeric() || ch == '_' || ch == '$';
-        ["interface", "type", "class", "enum"].iter().any(|keyword| {
+        keywords.iter().any(|keyword| {
             let needle = format!("{keyword} {name}");
             self.source.match_indices(needle.as_str()).any(|(start, _)| {
                 let before_ok = self.source[..start]

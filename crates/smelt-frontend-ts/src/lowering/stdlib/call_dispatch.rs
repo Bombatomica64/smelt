@@ -2633,8 +2633,14 @@ impl<'builder> ModuleBuilder<'builder> {
         for argument in expanded {
             args.push(self.lower_call_arg(argument, None, body)?);
         }
-        let (function_ty, function) =
-            if let Some(function_ty) = self.function_member_type(callee_ty) {
+        // The call's own arity and argument types select among a callable
+        // interface's overloaded call signatures (`Set<E>`'s generic and
+        // concrete signatures), as they do for a callable local; without them
+        // the FIRST declared signature stood in for every call.
+        let probed_arg_tys = self.probe_argument_types(&call.arguments, body);
+        let (function_ty, function) = if let Some(function_ty) = self
+            .function_member_type_for_args(callee_ty, Some(call.arguments.len()), &probed_arg_tys)
+            {
                 let Some(Type::Function(function)) = self.ctx.krate.types.get(function_ty).cloned()
                 else {
                     return Ok(None);

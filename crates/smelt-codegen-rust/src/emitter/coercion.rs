@@ -816,7 +816,7 @@ impl FunctionEmitter<'_> {
             self.context.record_extractors.borrow_mut().insert(
                 helper.clone(),
                 format!(
-                    "\n#[allow(dead_code, unused_variables, unused_mut, unused_braces, clippy::all)]\nfn {helper}(smelt_value: SmeltUnknown) -> {target_text} {{\n    match smelt_value {{ SmeltUnknown::Object(values) => {{ let smelt_record_map = SmeltRecord::with_id_from_entries(values.id, values.into_iter()); {adapter} }}, _ => Default::default() }}\n}}\n"
+                    "\n#[allow(dead_code, non_snake_case, unused_variables, unused_mut, unused_braces, clippy::all)]\nfn {helper}(smelt_value: SmeltUnknown) -> {target_text} {{\n    match smelt_value {{ SmeltUnknown::Object(values) => {{ let smelt_record_map = SmeltRecord::with_id_from_entries(values.id, values.into_iter()); {adapter} }}, _ => Default::default() }}\n}}\n"
                 ),
             );
         }

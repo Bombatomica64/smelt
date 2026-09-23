@@ -3668,7 +3668,7 @@ impl IntoSmeltUnknown for SmeltUnion2 {
 impl SmeltUnion2 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
         if matches!(value, SmeltUnknown::String(_)) { return Self::M0(match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }); }
-        Self::M1(match (value).into_smelt_unknown() { SmeltUnknown::Object(values) => { let smelt_record_map = SmeltRecord::with_id_from_entries(values.id, values.into_iter()); { let smelt_record_map = smelt_record_map.clone(); Doc { name: smelt_record_map.get("name").or_else(|| smelt_record_map.get("__smelt_proto:name")).or_else(|| smelt_record_map.get("__smelt_method:name")).cloned().map_or(String::new(), |value| match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) } } }, _ => Default::default() })
+        Self::M1(__smelt_from_record_Doc((value).into_smelt_unknown()))
     }
 }
 impl PartialEq for SmeltUnion2 {
@@ -3854,6 +3854,11 @@ impl Doc {
     this.name = name.clone();
     return this;
     }
+}
+
+#[allow(dead_code, non_snake_case, unused_variables, unused_mut, unused_braces, clippy::all)]
+fn __smelt_from_record_Doc(smelt_value: SmeltUnknown) -> Doc {
+    match smelt_value { SmeltUnknown::Object(values) => { let smelt_record_map = SmeltRecord::with_id_from_entries(values.id, values.into_iter()); { let smelt_record_map = smelt_record_map.clone(); Doc { name: smelt_record_map.get("name").or_else(|| smelt_record_map.get("__smelt_proto:name")).or_else(|| smelt_record_map.get("__smelt_method:name")).cloned().map_or(String::new(), |value| match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.to_string(), SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) } } }, _ => Default::default() }
 }
 
 // ==== source_main.rs

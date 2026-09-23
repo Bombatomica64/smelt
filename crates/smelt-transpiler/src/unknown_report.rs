@@ -595,7 +595,7 @@ fn classify_line(line: &str, in_prelude_helper: bool) -> Category {
 ///
 /// See [`classify_line`] rule 2 for the rationale behind each marker.
 fn is_legitimate_boundary_line(line: &str) -> bool {
-    const BOUNDARY_MARKERS: [&str; 26] = [
+    const BOUNDARY_MARKERS: [&str; 27] = [
         "SmeltUnknown::Function",
         "SmeltUnknown::Promise",
         // A JavaScript SYMBOL value. `Symbol()` mints a value whose whole
@@ -676,6 +676,19 @@ fn is_legitimate_boundary_line(line: &str) -> bool {
         // concrete type is unavailable precisely because the receiver is erased,
         // so this is a boundary adapter, not avoidable program-storage erasure.
         "smelt_slice_value",
+        // The shared erased -> record-class extraction helper
+        // (`FunctionEmitter::shared_record_extractor_call`). Its body is, by
+        // construction, the inline `match (value).into_smelt_unknown() {
+        // SmeltUnknown::Object(values) => .. }` extraction that every such site
+        // used to spell out -- already classified here through
+        // `into_smelt_unknown` -- factored into one function per target class
+        // so that a class reachable through many fields (Hono's `Context`) is
+        // not re-inlined at every erased call site. Only the helper's own
+        // SIGNATURE line names `SmeltUnknown` without the marker; the value it
+        // takes is the erased value the extraction narrows, exactly the
+        // runtime-narrowing boundary the inline form had. Proven in
+        // `shared_record_extractor_is_a_boundary` below.
+        "fn __smelt_from_record_",
         // The erased callable-object ABI. A TypeScript interface with call
         // signatures lowers to a record whose synthetic `__smelt_call` slot
         // holds the underlying callable; when the interface declares several
@@ -1288,6 +1301,26 @@ mod tests {
             Category::AvoidableErasure,
             "an ordinary erased entry list is not the prototype slot"
         );
+    }
+
+    #[test]
+    fn shared_record_extractor_is_a_boundary() {
+        // The helper's signature takes the erased value its body narrows; the
+        // inline extraction it replaced classified as a boundary through
+        // `into_smelt_unknown`, so factoring it out must not read as a new
+        // avoidable erasure.
+        let signature = "fn __smelt_from_record_Doc(smelt_value: SmeltUnknown) -> Doc {";
+        assert_eq!(
+            classify_line(signature, false),
+            Category::LegitimateBoundary,
+            "the shared extraction helper is the inline extraction's boundary"
+        );
+        // The call site keeps the classification it had inline.
+        let call = "        Self::M1(__smelt_from_record_Doc((value).into_smelt_unknown()))";
+        assert_eq!(classify_line(call, false), Category::LegitimateBoundary);
+        // A program function that merely takes an erased value stays avoidable.
+        let storage = "fn from_record(smelt_value: SmeltUnknown) -> Doc {";
+        assert_eq!(classify_line(storage, false), Category::AvoidableErasure);
     }
 
     #[test]

@@ -1,0 +1,87 @@
+class Store fields [Public values: Map<String, Float>, Public set: Set<V>, Public get: Getter] constructor Some(FuncId(1)) methods []
+interface Vars
+interface Set
+interface Getter
+
+fn local__module_examples/typescript/end-to-end/123_callable_interface_field/input.ts (FuncId(0)) -> Float
+  locals
+    %0 param key: String
+    %1 temp: Float
+  bb0:
+    %1 = len copy %0
+    return move %1
+
+fn new (FuncId(1)) -> Store<V>
+  locals
+    %0 user this: Store<V>
+    %1 temp: Map<String, Float>
+    %2 temp: fn(String, Float) -> None
+    %3 temp: fn(String) -> Float
+  bb0:
+    %0 = struct0 {}
+    %1 = {}
+    %0.field11 = move %1
+    %2 = closure ClosureId(0) [copy %0]
+    %0.field12 = move %2
+    %3 = closure ClosureId(1) [copy %0]
+    %0.field13 = move %3
+    return move %0
+
+fn main (FuncId(2)) -> None
+  locals
+    %0 user store: Store<Vars>
+    %1 temp: Store<Vars>
+    %2 temp: fn(String, Float) -> None
+    %3 temp: None
+    %4 temp: fn(String, Float) -> None
+    %5 temp: None
+    %6 temp: fn(String) -> Float
+    %7 temp: Float
+    %8 temp: fn(String) -> Float
+    %9 temp: Float
+    %10 temp: Float
+    %11 temp: None
+    %12 temp: Float
+    %13 temp: None
+  bb0:
+    %1 = call fn1() -> bb1
+  bb1:
+    %0 = move %1
+    %2 = copy %0.field12
+    %3 = closure_call move %2("count", 1.0)
+    %4 = copy %0.field12
+    %5 = closure_call move %4("b", 2.0)
+    %6 = copy %0.field13
+    %7 = closure_call move %6("count")
+    %8 = copy %0.field13
+    %9 = closure_call move %8("b")
+    %10 = move %7 + move %9
+    %11 = call @console_log(move %10) -> bb2
+  bb2:
+    %12 = call fn0("four") -> bb3
+  bb3:
+    %13 = call @console_log(move %12) -> bb4
+  bb4:
+    return none
+
+closure ClosureId(0) -> None
+  locals
+    %0 param key: String
+    %1 param value: Float
+    %2 user this: Store<V>
+    %3 temp: Map<String, Float>
+  bb0:
+    %3 = dict_set copy %2.field11, copy %0, copy %1
+    return none
+
+closure ClosureId(1) -> Float
+  locals
+    %0 param key: String
+    %1 user this: Store<V>
+    %2 temp: Optional<Float>
+    %3 temp: Float
+  bb0:
+    %2 = dict_get copy %1.field11, copy %0, _
+    %3 = copy %2 ?? 0.0
+    return copy %3
+
