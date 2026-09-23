@@ -1019,6 +1019,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "118_concise_callback_call_args",
     "119_arrow_param_default",
     "120_forward_arrow_after_class",
+    "121_sequential_try_catch_join",
     "11_console_log_expressions",
     "12_while_sum",
     "13_for_of_sum",

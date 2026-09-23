@@ -6,6 +6,23 @@
 - CI: `.github/workflows/ci.yml`'s `hono` job now hard-gates `smelt build` + `cargo check` on `dist-smelt` (mirroring radash); `cargo test` and the SmeltUnknown erasure report stay advisory until the phase-3 test baseline is stable.
 
 
+## Phase 3 round 2, rows 1 + 4 (`worktree-agent-a3a9afb6b46a223e1`)
+
+Throwing-terminator arms now join one shared continuation (`emitter/throwing_join.rs`), and a
+branch inside a forward region stays inside it; `toContain`/`toMatch` narrow a nullable actual
+and dispatch an erased one at runtime (`SmeltUnknown::to_contain`). Details:
+`hono-phase3-round2-continuations.md`.
+
+| gate | result |
+| --- | --- |
+| `utils/cookie.test.ts` module | 616 MB → **114 KB / 1562 lines** (still excluded: `utils/cookie.ts` E0425 + E0605) |
+| `middleware/trailing-slash/index.ts` | unchanged, 3.0 MB / 11 357 lines — a different construct (closure-body `&&`/`\|\|` joins), rule proposed |
+| overlay lines removed | 0 — none of the 4 files' ONLY blocker was these families (next blockers named in the overlay) |
+| `smelt build` | passes — 63 modules, **211 `#[test]`** in 10 test modules |
+| `cargo check` (no tests) | **0 errors**, 438 warnings |
+| `cargo build` | links (`hono_probe`) |
+| `cargo check --tests` (limit 30 min) | 2 min 12 s: **402 errors** — E0308 285, E0609 69, E0615 26, E0560 22 (= baseline) |
+
 ## Phase 3 overlay pass — the gated build passes again (`worktree-agent-a027ada4a0cd01ce8`)
 
 With the test glob fixed the committed overlay selected 84 test files and `smelt build` aborted

@@ -336,6 +336,7 @@ third_party/es-toolkit-src/
 !blocker-logs/hono-tests.md
 !blocker-logs/hono-phase3-round1.md
 !blocker-logs/hono-phase3-round2-brief.md
+!blocker-logs/hono-phase3-round2-continuations.md
 
 # CI triage note for the post-merge failures on main after 7899b194.
 !blocker-logs/ci-main-7899b194-fix.md

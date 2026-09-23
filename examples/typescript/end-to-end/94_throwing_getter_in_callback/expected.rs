@@ -2103,6 +2103,20 @@ impl SmeltUnknown {
             _ => false,
         }
     }
+    /// Return vitest `toContain` membership for an erased actual, by its runtime kind:
+    /// a substring of a string, or a SameValueZero member of an array, set, or map's entries.
+    pub fn to_contain<T: IntoSmeltUnknown>(&self, needle: T) -> bool {
+        let needle = needle.into_smelt_unknown();
+        match self {
+            Self::String(haystack) => matches!(&needle, Self::String(needle) if haystack.contains(&**needle)),
+            Self::Array(values) => values.iter().any(|value| value.same_js_key(&needle)),
+            Self::Object(object) => match (object.get("__smelt_set"), object.get("__smelt_map")) {
+                (Some(Self::Array(members)), _) | (_, Some(Self::Array(members))) => members.iter().any(|member| member.same_js_key(&needle)),
+                _ => false,
+            },
+            _ => false,
+        }
+    }
     /// Return JavaScript-like RegExp.test behavior for erased regex-like values.
     pub fn test<T: IntoSmeltUnknown>(&self, haystack: T) -> bool {
         let SmeltUnknown::String(haystack) = haystack.into_smelt_unknown() else { return false; };
@@ -2897,21 +2911,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok(Ok(__smelt_value)) => {
             let _smelt_tmp_16: String = __smelt_value;
     caught = "no throw".to_owned();
-    let _ = { println!("{}", caught); };
-    return Ok(());
         }
         Ok(Err(__smelt_error)) => {
     caught = "threw".to_owned();
-    let _ = { println!("{}", caught); };
-    return Ok(());
         }
         Err(__smelt_panic) => {
             let __smelt_error = smelt_panic_message(&*__smelt_panic);
     caught = "threw".to_owned();
-    let _ = { println!("{}", caught); };
-    return Ok(());
         }
     }
+    let _ = { println!("{}", caught); };
+    return Ok(());
 }
 
 impl Registry {

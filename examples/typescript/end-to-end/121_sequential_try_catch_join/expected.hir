@@ -1,0 +1,44 @@
+module examples/typescript/end-to-end/121_sequential_try_catch_join/input.ts (ModuleId(0))
+  body BodyId(6)
+  items
+    fn parse owner Module
+    fn parse_later owner Module
+    fn first_parsed owner Module
+    fn sequential owner Module
+    fn sequential_awaited owner Module
+    fn run owner Module
+  exprs
+    #0: async fn() -> Future<None> = @5(run)
+    #1: Future<None> = call #0()
+    #2: None = async_spawn_local(#1)
+    #3: Future<None> = async_exit_drain()
+    #4: None = await #3
+  stmts
+    s0: #2
+    s1: #4
+  async state machine
+    states [state0, state1]
+    suspend #4 on #3 -> state5
+
+interned types
+  t0 = String
+  t1 = Float
+  t2 = fn(String) -> Float
+  t3 = Future<Float>
+  t4 = async fn(String) -> Future<Float>
+  t5 = List<String>
+  t6 = fn(List<String>) -> Float
+  t7 = fn() -> Float
+  t8 = async fn() -> Future<Float>
+  t9 = None
+  t10 = Future<None>
+  t11 = async fn() -> Future<None>
+  t12 = Bool
+  t13 = Unknown
+  t14 = Dict<String, Unknown>
+  t15 = fn(String) -> Float
+  t16 = async fn(String) -> Future<Float>
+  t17 = fn(List<String>) -> Float
+  t18 = fn() -> Float
+  t19 = async fn() -> Future<Float>
+  t20 = async fn() -> Future<None>

@@ -1,0 +1,357 @@
+fn parse (FuncId(0)) -> Float throws
+  locals
+    %0 param input: String
+    %1 temp: Float
+    %2 temp: Bool
+    %3 temp: Dict<String, Unknown>
+    %4 temp: Unknown
+    %5 temp: Float
+  bb0:
+    %1 = len copy %0
+    %2 = move %1 == 0.0
+    switch move %2 ? bb1 : bb2
+  bb1:
+    %3 = {"__smelt_error": "Error", "message": "empty input", "stack": undefined, "cause": undefined}
+    %4 = unknown_cast move %3 as t13
+    throw move %4
+  bb2:
+    %5 = len copy %0
+    return move %5
+
+async fn parse_later (FuncId(1)) -> Float throws
+  locals
+    %0 param input: String
+    %1 temp: Float
+  bb0:
+    %1 = call fn0(copy %0) -> bb1
+  bb1:
+    return move %1
+
+fn first_parsed (FuncId(2)) -> Float
+  locals
+    %0 param inputs: List<String>
+    %1 user input: String
+    %2 user error: Unknown
+    %3 temp: Float
+    %4 temp: Float
+    %5 temp: Bool
+    %6 temp: Float
+    %7 temp: Bool
+    %8 temp: None
+    %9 temp: Float
+  bb0:
+    %3 = 0.0
+    goto bb1
+  bb1:
+    %4 = len copy %0
+    %5 = copy %3 < move %4
+    switch move %5 ? bb2 : bb4
+  bb2:
+    %1 = copy %0[copy %3]
+    goto bb5
+  bb3:
+    %3 = copy %3 + 1.0
+    goto bb1
+  bb4:
+    %9 = -1.0
+    return move %9
+  bb5:
+    %6 = call fn0(move %1) -> bb8 unwind bb7
+  bb6:
+    goto bb3
+  bb7:
+    %7 = instanceof copy %2, class10
+    switch move %7 ? bb9 : bb10
+  bb8:
+    return move %6
+  bb9:
+    %8 = call @console_log("skip:", copy %2.field11) -> bb11
+  bb10:
+    goto bb6
+  bb11:
+    goto bb10
+
+fn sequential (FuncId(3)) -> Float
+  locals
+    %0 user caught: Float
+    %1 user total: Float
+    %2 user error: Unknown
+    %3 user error: Unknown
+    %4 user error: Unknown
+    %5 user error: Unknown
+    %6 user error: Unknown
+    %7 user error: Unknown
+    %8 user error: Unknown
+    %9 user error: Unknown
+    %10 temp: Float
+    %11 temp: Float
+    %12 temp: Float
+    %13 temp: Float
+    %14 temp: Float
+    %15 temp: Bool
+    %16 temp: Float
+    %17 temp: Float
+    %18 temp: Float
+    %19 temp: Float
+    %20 temp: Float
+    %21 temp: Float
+    %22 temp: Bool
+    %23 temp: Float
+    %24 temp: Float
+    %25 temp: Float
+    %26 temp: Float
+    %27 temp: Float
+    %28 temp: Float
+    %29 temp: Float
+    %30 temp: Float
+    %31 temp: Float
+    %32 temp: Float
+    %33 temp: Float
+    %34 temp: Float
+    %35 temp: Float
+    %36 temp: Bool
+    %37 temp: Float
+    %38 temp: None
+  bb0:
+    %0 = 0.0
+    %1 = 0.0
+    goto bb1
+  bb1:
+    %10 = call fn0("a") -> bb4 unwind bb3
+  bb2:
+    goto bb5
+  bb3:
+    %12 = move %0 + 1.0
+    %0 = move %12
+    goto bb2
+  bb4:
+    %11 = move %1 + move %10
+    %1 = move %11
+    goto bb2
+  bb5:
+    %13 = call fn0("") -> bb8 unwind bb7
+  bb6:
+    goto bb11
+  bb7:
+    %15 = instanceof move %3, class10
+    switch move %15 ? bb9 : bb10
+  bb8:
+    %14 = move %1 + move %13
+    %1 = move %14
+    goto bb6
+  bb9:
+    %16 = move %0 + 1.0
+    %0 = move %16
+    goto bb10
+  bb10:
+    goto bb6
+  bb11:
+    %17 = call fn0("bb") -> bb14 unwind bb13
+  bb12:
+    goto bb15
+  bb13:
+    %19 = move %0 + 1.0
+    %0 = move %19
+    goto bb12
+  bb14:
+    %18 = move %1 + move %17
+    %1 = move %18
+    goto bb12
+  bb15:
+    %20 = call fn0("") -> bb18 unwind bb17
+  bb16:
+    goto bb22
+  bb17:
+    %22 = instanceof move %5, class10
+    switch move %22 ? bb19 : bb20
+  bb18:
+    %21 = move %1 + move %20
+    %1 = move %21
+    goto bb16
+  bb19:
+    %23 = move %0 + 1.0
+    %0 = move %23
+    goto bb21
+  bb20:
+    %24 = move %0 + 100.0
+    %0 = move %24
+    goto bb21
+  bb21:
+    goto bb16
+  bb22:
+    %25 = call fn0("ccc") -> bb25 unwind bb24
+  bb23:
+    goto bb26
+  bb24:
+    %27 = move %0 + 1.0
+    %0 = move %27
+    goto bb23
+  bb25:
+    %26 = move %1 + move %25
+    %1 = move %26
+    goto bb23
+  bb26:
+    %28 = call fn0("") -> bb29 unwind bb28
+  bb27:
+    goto bb30
+  bb28:
+    %30 = move %0 + 1.0
+    %0 = move %30
+    goto bb27
+  bb29:
+    %29 = move %1 + move %28
+    %1 = move %29
+    goto bb27
+  bb30:
+    %31 = call fn0("dddd") -> bb33 unwind bb32
+  bb31:
+    goto bb34
+  bb32:
+    %33 = move %0 + 1.0
+    %0 = move %33
+    goto bb31
+  bb33:
+    %32 = move %1 + move %31
+    %1 = move %32
+    goto bb31
+  bb34:
+    %34 = call fn0("") -> bb37 unwind bb36
+  bb35:
+    %38 = call @console_log("total", move %1, "caught", copy %0) -> bb40
+  bb36:
+    %36 = instanceof move %9, class10
+    switch move %36 ? bb38 : bb39
+  bb37:
+    %35 = move %1 + move %34
+    %1 = move %35
+    goto bb35
+  bb38:
+    %37 = move %0 + 1.0
+    %0 = move %37
+    goto bb39
+  bb39:
+    goto bb35
+  bb40:
+    return move %0
+
+async fn sequential_awaited (FuncId(4)) -> Float
+  locals
+    %0 user caught: Float
+    %1 user error: Unknown
+    %2 user error: Unknown
+    %3 user error: Unknown
+    %4 user error: Unknown
+    %5 temp: Future<Float>
+    %6 temp: Float
+    %7 temp: Float
+    %8 temp: Future<Float>
+    %9 temp: Float
+    %10 temp: Float
+    %11 temp: Future<Float>
+    %12 temp: Float
+    %13 temp: Bool
+    %14 temp: Float
+    %15 temp: Future<Float>
+    %16 temp: Float
+    %17 temp: Float
+    %18 temp: None
+  bb0:
+    %0 = 0.0
+    goto bb1
+  bb1:
+    %5 = call fn1("") -> bb4 unwind bb3
+  bb2:
+    goto bb6
+  bb3:
+    %7 = move %0 + 1.0
+    %0 = move %7
+    goto bb2
+  bb4:
+    %6 = await move %5 -> bb5 unwind bb3
+  bb5:
+    goto bb2
+  bb6:
+    %8 = call fn1("x") -> bb9 unwind bb8
+  bb7:
+    goto bb11
+  bb8:
+    %10 = move %0 + 1.0
+    %0 = move %10
+    goto bb7
+  bb9:
+    %9 = await move %8 -> bb10 unwind bb8
+  bb10:
+    goto bb7
+  bb11:
+    %11 = call fn1("") -> bb14 unwind bb13
+  bb12:
+    goto bb18
+  bb13:
+    %13 = instanceof move %3, class10
+    switch move %13 ? bb16 : bb17
+  bb14:
+    %12 = await move %11 -> bb15 unwind bb13
+  bb15:
+    goto bb12
+  bb16:
+    %14 = move %0 + 1.0
+    %0 = move %14
+    goto bb17
+  bb17:
+    goto bb12
+  bb18:
+    %15 = call fn1("") -> bb21 unwind bb20
+  bb19:
+    %18 = call @console_log("awaited caught", copy %0) -> bb23
+  bb20:
+    %17 = move %0 + 1.0
+    %0 = move %17
+    goto bb19
+  bb21:
+    %16 = await move %15 -> bb22 unwind bb20
+  bb22:
+    goto bb19
+  bb23:
+    return move %0
+
+async fn run (FuncId(5)) -> None
+  locals
+    %0 temp: List<String>
+    %1 temp: Float
+    %2 temp: None
+    %3 temp: Float
+    %4 temp: None
+    %5 temp: Future<Float>
+    %6 temp: Float
+    %7 temp: None
+  bb0:
+    %0 = ["", "", "abc", "z"]
+    %1 = call fn2(move %0) -> bb1
+  bb1:
+    %2 = call @console_log("first", move %1) -> bb2
+  bb2:
+    %3 = call fn3() -> bb3
+  bb3:
+    %4 = call @console_log("sequential", move %3) -> bb4
+  bb4:
+    %5 = call fn4() -> bb5
+  bb5:
+    %6 = await move %5
+    %7 = call @console_log("awaited", move %6) -> bb6
+  bb6:
+    return none
+
+async fn main (FuncId(6)) -> None throws
+  locals
+    %0 temp: Future<None>
+    %1 temp: None
+    %2 temp: Future<None>
+    %3 temp: None
+  bb0:
+    %0 = call fn5() -> bb1
+  bb1:
+    %1 = async_spawn_local(move %0)
+    %2 = async_exit_drain()
+    %3 = await move %2
+    return none
+
