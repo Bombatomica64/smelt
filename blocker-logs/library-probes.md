@@ -1,6 +1,6 @@
 # Bug-library transpile probes (TypeScript + Python)
 
-_Generated 2026-09-22 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
+_Generated 2026-09-23 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
 
 Each library is checked out at a pinned ref (see `.github/compat/libraries.json`), given its `.github/compat/<name>/Smelt.toml`, and run through `smelt build`. If a crate is emitted, its generated `cargo test` suite is run and counted. Otherwise every source/test file is scanned individually with `smelt dump-hir` to enumerate the full set of distinct blocker classes (single-file mode cannot resolve cross-file imports, so bare `unresolved name/identifier` errors are excluded as scan noise).
 
@@ -12,10 +12,10 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 
 | Library | Lang | Transpile | Tests (pass/fail) | First abort | Blocker classes | Dominant |
 | --- | --- | --- | --- | --- | ---: | --- |
-| [es-toolkit](https://github.com/toss/es-toolkit) | TS | **yes** | 1055 / 4 | — | — | — |
+| [es-toolkit](https://github.com/toss/es-toolkit) | TS | **yes** | 1053 / 6 | — | — | — |
 | [hono](https://github.com/honojs/hono) | TS | **yes** | transpiled (counts unparsed) | — | — | — |
-| [radash](https://github.com/sodiray/radash) | TS | **yes** | transpiled (counts unparsed) | — | — | — |
-| [ts-pattern](https://github.com/gvergnaud/ts-pattern) | TS | **no** | n/a | `src/internals/helpers.ts` | 9 | non-working Rust (9r/0s) |
+| [radash](https://github.com/sodiray/radash) | TS | **yes** | 384 / 3 | — | — | — |
+| [ts-pattern](https://github.com/gvergnaud/ts-pattern) | TS | **no** | n/a | `src/internals/helpers.ts` | 8 | non-working Rust (8r/0s) |
 | [valibot](https://github.com/fabian-hiller/valibot) | TS | **no** | n/a | `library/src/storages/globalConfig/globalConfig.ts` | 19 | non-working Rust (18r/1s) |
 | [neverthrow](https://github.com/supermacro/neverthrow) | TS | **no** | n/a | `src/result.ts` | 5 | non-working Rust (4r/1s) |
 | [immer](https://github.com/immerjs/immer) | TS | **no** | n/a | `__tests__/spec_ts.ts` | 7 | non-working Rust (7r/0s) |
@@ -30,7 +30,7 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 
 - Source: `toss/es-toolkit` @ `e008a2818cd8`
 - Transpile: **yes** — Rust crate emitted
-- Generated `cargo test`: **1055 passed / 4 failed**
+- Generated `cargo test`: **1053 passed / 6 failed**
 
 ## hono
 
@@ -42,14 +42,14 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 
 - Source: `sodiray/radash` @ `4cab1900d08e`
 - Transpile: **yes** — Rust crate emitted
-- Generated `cargo test`: transpiled, but pass/fail counts could not be parsed
+- Generated `cargo test`: **384 passed / 3 failed**
 
 ## ts-pattern
 
 - Source: `gvergnaud/ts-pattern` @ `c92ca435c7e1`
 - Transpile: **no** — `smelt build` aborts at `src/internals/helpers.ts`
 - Tests passing: **n/a** (no Rust crate emitted)
-- Files scanned: 68 · with blockers: 17
+- Files scanned: 68 · with blockers: 15
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
@@ -61,7 +61,6 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 | 1 | 1 | non-working Rust | string prefix/suffix methods require string receiver and argument |
 | 1 | 1 | non-working Rust | property names must be static identifiers or string literals |
 | 1 | 1 | non-working Rust | statement kind is not lowered yet: TSEnumDeclaration(TSEnumDeclaration { span: Span { star |
-| 1 | 1 | non-working Rust | Symbol(...) description must be a string |
 
 ## valibot
 
@@ -284,4 +283,12 @@ Lowering gaps blocking more than one probed library; fixing these unlocks the mo
 | 2 (more-itertools, returns) | 3 | class 'X': unsupported class body statement 'X' |
 | 2 (immer, rxjs) | 2 | asserted call callee must be a function |
 | 2 (more-itertools, toolz) | 2 | binary operator 'X' is not supported |
+
+## Missing stdlib builtins observed
+
+Builtins referenced in `new`/`extends`/callback position that Smelt does not resolve.
+
+| Library | Builtins (occurrences) |
+| --- | --- |
+| immer | `Iterator`×1 |
 
