@@ -581,3 +581,68 @@ export function guarded(value: number): number {
 
     assert_panic_route_helpers_are_defined(&source);
 }
+
+/// Builds a program whose `run` holds `count` sequential `try`/`catch`
+/// statements, each catch arm branching on the caught value.
+///
+/// With `awaited`, `run` is async and each `try` awaits a rejecting call, so
+/// the throwing-`await` terminator is exercised instead of the throwing call.
+fn sequential_try_catch_program(count: usize, awaited: bool) -> String {
+    let (header, call) = if awaited {
+        ("async function run(): Promise<void> {\n", "await parseLater('')")
+    } else {
+        ("function run(): void {\n", "parse('')")
+    };
+    let mut program = String::from(
+        "function parse(s: string): number {\n  if (s.length === 0) { throw new Error('empty'); }\n  return s.length;\n}\n\
+         async function parseLater(s: string): Promise<number> {\n  return parse(s);\n}\n",
+    );
+    program.push_str(header);
+    program.push_str("  let caught = 0;\n");
+    for _ in 0..count {
+        program.push_str(&format!(
+            "  try {{ {call}; }} catch (e) {{ if (e instanceof Error) {{ caught += 1; }} }}\n"
+        ));
+    }
+    program.push_str("  console.log(caught);\n}\nrun();\n");
+    program
+}
+
+/// Returns the number of lines the emitted `run` function spans.
+fn run_body_lines(count: usize, awaited: bool) -> usize {
+    let source = source_for(&sequential_try_catch_program(count, awaited));
+    let signature = if awaited { "async fn run(" } else { "fn run(" };
+    emitted_function_body(&source, signature).lines().count()
+}
+
+/// Sequential `try`/`catch` statements must emit Rust linear in their count.
+///
+/// Each throwing call is a three-arm `match`; the arms used to carry the whole
+/// rest of the body, so N statements emitted 3^N tails (Hono's
+/// `utils/cookie.test.ts`, 12 `expect(..).toThrow()` assertions, reached a
+/// 616 MB module). The arms now end at the shared join and the join is emitted
+/// once (`emitter::throwing_join`), so doubling N at most doubles the body.
+#[test]
+fn sequential_try_catch_emits_linear_rust() {
+    for awaited in [false, true] {
+        let four = run_body_lines(4, awaited);
+        let eight = run_body_lines(8, awaited);
+        assert!(
+            eight < four * 2,
+            "8 sequential try/catch (awaited: {awaited}) emitted {eight} lines vs {four} for 4: \
+             the continuation is being cloned into each arm"
+        );
+    }
+}
+
+/// The join after a `try`/`catch` is emitted exactly once, after the `match`.
+#[test]
+fn try_catch_tail_is_emitted_once() {
+    let source = source_for(&sequential_try_catch_program(2, false));
+    let body = emitted_function_body(&source, "fn run(");
+    assert_eq!(
+        body.matches("smelt_console_number(caught)").count(),
+        1,
+        "the statement after the last try/catch must be emitted once:\n{body}"
+    );
+}

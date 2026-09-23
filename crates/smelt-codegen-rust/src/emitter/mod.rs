@@ -138,6 +138,7 @@ mod rendered_value;
 #[cfg(debug_assertions)]
 mod seam_assertions;
 mod static_call_args;
+mod throwing_join;
 mod set;
 mod strings;
 mod strings_io;

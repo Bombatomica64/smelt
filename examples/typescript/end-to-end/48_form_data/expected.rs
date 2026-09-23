@@ -2344,6 +2344,20 @@ impl SmeltUnknown {
             _ => false,
         }
     }
+    /// Return vitest `toContain` membership for an erased actual, by its runtime kind:
+    /// a substring of a string, or a SameValueZero member of an array, set, or map's entries.
+    pub fn to_contain<T: IntoSmeltUnknown>(&self, needle: T) -> bool {
+        let needle = needle.into_smelt_unknown();
+        match self {
+            Self::String(haystack) => matches!(&needle, Self::String(needle) if haystack.contains(&**needle)),
+            Self::Array(values) => values.iter().any(|value| value.same_js_key(&needle)),
+            Self::Object(object) => match (object.get("__smelt_set"), object.get("__smelt_map")) {
+                (Some(Self::Array(members)), _) | (_, Some(Self::Array(members))) => members.iter().any(|member| member.same_js_key(&needle)),
+                _ => false,
+            },
+            _ => false,
+        }
+    }
     /// Return JavaScript-like RegExp.test behavior for erased regex-like values.
     pub fn test<T: IntoSmeltUnknown>(&self, haystack: T) -> bool {
         let SmeltUnknown::String(haystack) = haystack.into_smelt_unknown() else { return false; };
@@ -4686,20 +4700,18 @@ pub(crate) async fn read_or_report(response: SmeltResponse, label: String) -> Re
     match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| { println!("{} {}", label.clone(), "read".to_owned()); })) {
         Ok(__smelt_value) => {
             let _smelt_tmp_5: () = __smelt_value;
-    return Ok(());
         }
         Err(__smelt_panic) => {
             let __smelt_error = smelt_panic_message(&*__smelt_panic);
             let error = smelt_panic_error_value(&*__smelt_panic);
     let _ = { println!("{} {}", label.clone(), "threw".to_owned()); };
-    return Ok(());
         }
     }
         }
         Err(__smelt_error) => {
             let error = smelt_thrown_value(&*__smelt_error);
     let _ = { println!("{} {}", label.clone(), "threw".to_owned()); };
-    return Ok(());
         }
     }
+    return Ok(());
 }

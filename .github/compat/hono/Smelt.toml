@@ -80,9 +80,6 @@ exclude = [
   # still pull a module into the closure, which is why e.g.
   # `lambda-edge/conninfo.test.ts` is here.
   #
-  # Sequential `expect(..).toThrow()` duplicates the continuation: 616 MB
-  # module, rustc OOM (round 2 item). phase 3 pending.
-  "src/utils/cookie.test.ts",
   # (The `unknown class method set` family — `Context.set: Set<E>`, a
   # callable interface named like the library `Set` — landed in phase-3
   # round 2; `compose.test.ts` is re-admitted. Its other six files sit behind
@@ -97,9 +94,14 @@ exclude = [
   # is also emitted as an empty module-level `fn request_id()` — E0428
   # `request_id` defined twice. phase 3 pending.
   "src/middleware/request-id/index.test.ts",
-  # `expect(..).toContain(..)` on an erased actual. phase 3 pending.
+  # (re-measured after merge)
   "src/middleware/language/index.test.ts",
   "src/middleware/secure-headers/index.test.ts",
+  # `toContain`/`toMatch` on a nullable actual now lowers (round 2); what
+  # remains: `new URL(path, base)` (two-argument form) in the test, and the
+  # array/string builtin family below in `middleware/basic-auth/index.ts`
+  # (`unshift` item type) and `middleware/bearer-auth/index.ts` (string case
+  # on a non-string receiver). phase 3 pending.
   "src/context.test.ts",
   "src/middleware/basic-auth/index.test.ts",
   "src/middleware/bearer-auth/index.test.ts",
@@ -192,13 +194,21 @@ exclude = [
   # `SmeltMatch`), `utils/concurrent.ts` (E0425 capture name, E0605, E0308
   # future nesting), `helper/cookie` + `utils/cookie.ts` (E0425 temp,
   # E0605, E0308 record value type). phase 3 pending.
+  # `utils/cookie.test.ts` joined this group in round 2: its 12 sequential
+  # `toThrow` assertions now emit a 114 KB module (was 616 MB), but the
+  # `utils/cookie.ts` it tests still has E0425 `_smelt_tmp_37` + E0605.
   "src/utils/accept.test.ts",
   "src/utils/basic-auth.test.ts",
   "src/utils/concurrent.test.ts",
   "src/helper/cookie/index.test.ts",
+  "src/utils/cookie.test.ts",
   # Pulls in `middleware/trailing-slash/index.ts`, which emits a 3 MB /
   # 11k-line module from a 158-line source; plain `cargo check` (no tests)
-  # is SIGKILLed at >11 GB RSS within 40 s. phase 3 pending.
+  # is SIGKILLed at >11 GB RSS within 40 s. Measured in round 2: NOT the
+  # try/catch class (that join landed and did not shrink it) — the
+  # short-circuit `&&`/`||` chains in the returned `async function`'s
+  # CLOSURE body each re-emit the whole rest of the body in both arms
+  # (2^k over the chained conditions; see hono-current.md). phase 3 pending.
   "src/middleware/trailing-slash/index.test.ts",
 ]
 

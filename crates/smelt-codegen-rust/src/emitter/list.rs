@@ -46,6 +46,18 @@ impl FunctionEmitter<'_> {
         list: &Operand,
         item: &Operand,
     ) -> Result<String, EmitError> {
+        // An ERASED collection (the frontend's `toContain` on a `SmeltUnknown`
+        // actual, see `contains_expr`) answers by its runtime kind through the
+        // prelude's boundary adapter `SmeltUnknown::to_contain`; the static
+        // surface below would have nothing to read and answer `false`.
+        if self.mir.types.get(self.operand_ty(list)?) == Some(&Type::Unknown) {
+            let needle_ty = self.operand_ty(item)?;
+            let needle = self.erase_value_text(
+                &format!("{}.clone()", self.operand_text(item)?),
+                needle_ty,
+            )?;
+            return Ok(format!("{}.to_contain({needle})", self.operand_text(list)?));
+        }
         let Some((receiver_text, item_ty)) = self.list_receiver_surface(list)? else {
             return Ok("false".to_owned());
         };

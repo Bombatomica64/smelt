@@ -1866,19 +1866,26 @@ impl ModuleBuilder<'_> {
             // The actual may itself be erased (`Unknown`/leaked type param) when
             // it comes from a cross-module helper whose return type does not
             // resolve in this lowering unit (`expect(keysIn(buffer)).toContain(k)`).
-            // JavaScript containment inspects the live value, so project the
-            // erased actual to an erased list and erase the needle; the emitted
-            // runtime projection panics if the value is not an array, matching
-            // how other matchers treat erased actuals.
+            // This is a genuine dynamic boundary — the value is already
+            // `SmeltUnknown` before the matcher sees it — so which containment
+            // rule applies (substring of a string, member of an array/set/map)
+            // is only known from its runtime tag. A `ListContains` over the
+            // ERASED actual is emitted as the prelude adapter
+            // `SmeltUnknown::to_contain`, which dispatches on that tag. (It used
+            // to project the actual to an erased list, which panicked on a
+            // string actual.)
             Some(Type::Unknown | Type::TypeParam { .. }) => {
                 let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
-                let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
                 let matcher_span = self.span(span.start, span.end);
-                let list = body.push_expr(Expr {
-                    kind: ExprKind::TypeAssert { value: actual },
-                    ty: list_ty,
-                    span: matcher_span,
-                });
+                let list = if Self::expr_ty(body, actual) == unknown_ty {
+                    actual
+                } else {
+                    body.push_expr(Expr {
+                        kind: ExprKind::TypeAssert { value: actual },
+                        ty: unknown_ty,
+                        span: matcher_span,
+                    })
+                };
                 let item = if expected_ty == unknown_ty {
                     expected
                 } else {
@@ -1889,6 +1896,20 @@ impl ModuleBuilder<'_> {
                     })
                 };
                 ExprKind::ListContains { list, item }
+            }
+            // A nullable actual (`headers.get(..)` is `string | null`) is
+            // narrowed, not erased: vitest fails `toContain`/`toMatch` on a
+            // `null` actual, so the assertion holds only when the value is
+            // present AND its non-null type contains the needle. The present
+            // value keeps its static type and takes the typed path above.
+            Some(Type::Optional(inner))
+                if matches!(
+                    self.ctx.krate.types.get(*inner),
+                    Some(Type::String | Type::List(_) | Type::Set(_) | Type::Tuple(_))
+                ) =>
+            {
+                let present_ty = *inner;
+                return self.optional_contains_expr(actual, present_ty, expected, span, body);
             }
             _ => {
                 return Err(SmeltError::unsupported(
@@ -1901,6 +1922,81 @@ impl ModuleBuilder<'_> {
             kind,
             ty: bool_ty,
             span: self.span(span.start, span.end),
+        }))
+    }
+
+    /// Containment on a nullable actual: `actual != null && contains(actual!, expected)`.
+    ///
+    /// The actual is bound to a fresh local first so it is evaluated once,
+    /// then the present branch narrows it to `inner` (a non-null assertion,
+    /// exactly as `actual!` lowers) and reuses [`Self::contains_expr`], so the
+    /// typed string/array/set/tuple rules apply unchanged. An absent actual
+    /// does not contain anything — the same failure vitest reports for a
+    /// `null`/`undefined` received value.
+    fn optional_contains_expr(
+        &mut self,
+        actual: smelt_hir::ExprId,
+        inner: smelt_hir::TypeId,
+        expected: smelt_hir::ExprId,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let none_ty = self.ctx.krate.types.intern(Type::None);
+        let actual_ty = Self::expr_ty(body, actual);
+        let hir_span = self.span(span.start, span.end);
+        let name = self.intern_source_name("contain_actual");
+        let local = body.push_local(LocalDecl {
+            name: Some(name),
+            ty: actual_ty,
+            mutable: false,
+            span: hir_span,
+        });
+        let pat = body.push_pattern(Pattern::Binding(local));
+        let bind = Stmt::Let {
+            pat,
+            ty: actual_ty,
+            value: Some(actual),
+        };
+        if let Some(block) = self.current_statement_block {
+            body.push_stmt_to_block(block, bind);
+        } else {
+            body.push_stmt(bind);
+        }
+        let read = |target: &mut Body| {
+            target.push_expr(Expr {
+                kind: ExprKind::Local(local),
+                ty: actual_ty,
+                span: hir_span,
+            })
+        };
+        let present_operand = read(body);
+        let none = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::None),
+            ty: none_ty,
+            span: hir_span,
+        });
+        let present = self.comparison_expr(BinOp::NotEq, present_operand, none, span, body);
+        let value = read(body);
+        let narrowed = body.push_expr(Expr {
+            kind: ExprKind::TypeAssert { value },
+            ty: inner,
+            span: hir_span,
+        });
+        let contains = self.contains_expr(narrowed, expected, span, body)?;
+        let absent = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(false)),
+            ty: bool_ty,
+            span: hir_span,
+        });
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::Conditional {
+                cond: present,
+                then_expr: contains,
+                else_expr: absent,
+            },
+            ty: bool_ty,
+            span: hir_span,
         }))
     }
 
