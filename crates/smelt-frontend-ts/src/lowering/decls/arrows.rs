@@ -116,6 +116,7 @@ impl ModuleBuilder<'_> {
         let arrow_body_span = arrow.body.span();
         let mut body = Body::new(None, self.span(arrow_body_span.start, arrow_body_span.end));
         let mut params = Vec::new();
+        let mut defaulted_params = Vec::new();
         for (param_index, param) in arrow.params.items.iter().enumerate() {
             let param_annotation_ty = match param
                 .type_annotation
@@ -144,6 +145,31 @@ impl ModuleBuilder<'_> {
             if param.optional && !matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_))) {
                 ty = self.ctx.krate.types.intern(Type::Optional(ty));
             }
+            // A default initializer (`size: number = 2`) gets the same ABI a
+            // function declaration's does: an `Optional<T>` parameter and a
+            // body prelude applying the default (see
+            // `apply_parameter_defaults`). Without it the default was dropped
+            // and an omitted argument arrived as the type's zero value.
+            // A CALLBACK-typed default (`toKey: (x: T) => string = x => ..`)
+            // is left to the callback-default machinery that call sites
+            // already use (`LocalCallbackDefault`), which inlines it where the
+            // argument is omitted.
+            let default_initializer = match &param.pattern {
+                BindingPattern::BindingIdentifier(_)
+                    if !matches!(self.ctx.krate.types.get(ty), Some(Type::Function(_))) =>
+                {
+                    param
+                    .initializer
+                    .as_deref()
+                    .filter(|initializer| !Self::initializer_is_type_zero_default(initializer))
+                }
+                _ => None,
+            };
+            if default_initializer.is_some()
+                && !matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_)))
+            {
+                ty = self.ctx.krate.types.intern(Type::Optional(ty));
+            }
             let (param_name, param_span) = match &param.pattern {
                 BindingPattern::BindingIdentifier(binding) => (
                     self.intern_source_name(binding.name.as_str()),
@@ -170,6 +196,16 @@ impl ModuleBuilder<'_> {
             match &param.pattern {
                 BindingPattern::BindingIdentifier(binding) => {
                     self.scope.bind(binding.name.to_string(), local);
+                    if let Some(initializer) = default_initializer {
+                        defaulted_params.push((
+                            local,
+                            ty,
+                            initializer,
+                            param_name,
+                            binding.name.to_string(),
+                            param_span,
+                        ));
+                    }
                 }
                 pattern => {
                     let value = body.push_expr(Expr {
@@ -261,6 +297,9 @@ impl ModuleBuilder<'_> {
         };
 
         let mut errors = Vec::new();
+        if let Err(error) = self.apply_parameter_defaults(defaulted_params, &mut body) {
+            errors.push(error);
+        }
         let mut inferred_return_ty = None;
         // Since oxc 0.147 an arrow's body is an `ArrowFunctionBody` enum rather
         // than a `FunctionBody` plus a separate `expression` flag, so a concise
@@ -290,7 +329,7 @@ impl ModuleBuilder<'_> {
             if let Err(error) = self.predeclare_forward_referenced_locals(statements, &mut body) {
                 errors.push(error);
             }
-            for statement in statements {
+            for statement in crate::lowering::hoisting::hoisted_statements(statements) {
                 if let Err(error) = self.statement(statement, &mut body) {
                     errors.push(error);
                 }

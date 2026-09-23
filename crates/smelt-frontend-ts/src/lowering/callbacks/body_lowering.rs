@@ -1550,6 +1550,17 @@ impl ModuleBuilder<'_> {
         // belongs here, not the outer declaration's pending deferral list (see
         // the matching reset in `function_expression_value`).
         let saved_deferred_updates = self.deferred_postfix_updates.take();
+        // A `BlockId` indexes the body that owns it, so the block the ENCLOSING
+        // statement is filling names nothing in this fresh closure body. Any
+        // assertion or deferred store synthesized while lowering the closure's
+        // own statements would be pushed at that stale index — which panicked
+        // (`index out of bounds` in `Body::push_stmt_to_block`) as soon as the
+        // outer block index was past this body's block count, and would have
+        // silently landed in the wrong block otherwise. Clearing it here makes
+        // the synthesized statement fall back to this body's root until the
+        // closure's own statement lowering sets it, exactly like the async flag
+        // and the return type above.
+        let saved_statement_block = self.current_statement_block.take();
         let infer_expression_return = is_expression_body
             && matches!(self.ctx.krate.types.get(return_ty), Some(Type::Unknown));
         // The same inference for a BLOCK-bodied callback.
@@ -1669,7 +1680,7 @@ impl ModuleBuilder<'_> {
                 }
                 ClosureBodyKind::Statements(statements) => {
                     let mut result = Ok(());
-                    for statement in statements {
+                    for statement in crate::lowering::hoisting::hoisted_statements(statements) {
                         if let Err(error) = self.statement(statement, &mut closure_body) {
                             result = Err(error);
                             break;
@@ -1693,6 +1704,7 @@ impl ModuleBuilder<'_> {
         self.current_return_ty = saved_return_ty;
         self.scope.restore_narrowings(saved_narrowed_locals);
         self.deferred_postfix_updates = saved_deferred_updates;
+        self.current_statement_block = saved_statement_block;
         for (name, prior) in saved_locals.into_iter().rev() {
             if let Some(local) = prior {
                 self.scope.bind(name, local);
@@ -2567,6 +2579,36 @@ impl ModuleBuilder<'_> {
                     }
                     for child in &case.consequent {
                         self.collect_statement_capture_names(child, param_names, captures);
+                    }
+                }
+            }
+            Statement::FunctionDeclaration(function) => {
+                // A nested `function` declaration is lowered into a closure of
+                // this frame, so every enclosing binding ITS body reads is a
+                // binding this frame must hold as well. Without this arm a name
+                // used only inside the declaration is never captured by the
+                // frame that contains it, and the declaration's own capture
+                // then resolves in a further-out frame — two different values
+                // collide on one source local id. Walked exactly like a
+                // function EXPRESSION, plus the declaration's own name, which
+                // is bound by this statement rather than captured.
+                let mut nested_params = param_names.clone();
+                if let Some(id) = &function.id {
+                    nested_params.insert(id.name.as_str().to_owned());
+                }
+                for param in &function.params.items {
+                    if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
+                        nested_params.insert(binding.name.as_str().to_owned());
+                    }
+                }
+                if let Some(rest) = &function.params.rest
+                    && let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument
+                {
+                    nested_params.insert(binding.name.as_str().to_owned());
+                }
+                if let Some(body) = &function.body {
+                    for statement in &body.statements {
+                        self.collect_statement_capture_names(statement, &nested_params, captures);
                     }
                 }
             }

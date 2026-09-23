@@ -1129,7 +1129,10 @@ impl ModuleBuilder<'_> {
                 Ok(())
             }
             Statement::BlockStatement(block_stmt) => {
-                for child in &block_stmt.body {
+                // A nested `function` declaration is bound for its whole BLOCK,
+                // not just from its textual position, so it lowers before the
+                // first sibling that mentions it (`lowering::hoisting`).
+                for child in crate::lowering::hoisting::hoisted_statements(&block_stmt.body) {
                     self.statement_in_block(child, body, block)?;
                 }
                 Ok(())
@@ -2462,7 +2465,7 @@ impl ModuleBuilder<'_> {
             return false;
         };
         member.property.name == "mock"
-            && matches!(&member.object, Expression::Identifier(object) if object.name == "vi")
+            && matches!(&member.object, Expression::Identifier(object) if crate::lowering::stdlib::is_test_mock_namespace(&object.name))
     }
 
     /// Return whether this is a top-level `await import("...")` side-effect load.

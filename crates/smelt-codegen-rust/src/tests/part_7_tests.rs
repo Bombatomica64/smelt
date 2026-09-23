@@ -4264,7 +4264,7 @@ function sample<T>(data: readonly T[]): T[] {
     );
 
     assert!(source.contains("closure_arg_0 as i64"), "{source}");
-    assert!(source.contains("usize::try_from(normalized)"), "{source}");
+    assert!(source.contains("usize::try_from(smelt_normalized)"), "{source}");
 }
 
 #[test]
@@ -8497,7 +8497,7 @@ export function makeFormatter(): Formatter {
 ",
     );
     assert!(
-        source.contains("__smelt_call: SmeltErasedFunction {"),
+        source.contains("__smelt_call: SmeltErasedFunction::default()"),
         "callable-interface `__smelt_call` default must be a SmeltErasedFunction, \
          not an Rc<dyn Fn> closure: {source}"
     );
@@ -12137,7 +12137,7 @@ export function pick(arr: number[], index: number): number {
         "an element READ must not panic on an out-of-range index:\n{source}"
     );
     assert!(
-        source.contains("usize::try_from(normalized).unwrap_or(usize::MAX)"),
+        source.contains("usize::try_from(smelt_normalized).unwrap_or(usize::MAX)"),
         "the normalized index must degrade to a miss:\n{source}"
     );
 }
@@ -12164,7 +12164,7 @@ export function pick(arr: number[], index: number): number {
         "a TypeScript element read must not count a negative index from the end:\n{source}"
     );
     assert!(
-        source.contains("let normalized = index as i64;"),
+        source.contains("let smelt_normalized = index as i64;"),
         "the index must reach the out-of-range machinery unchanged:\n{source}"
     );
 }
@@ -12184,7 +12184,7 @@ last_value: int = values[-1]
     );
 
     assert!(
-        source.contains("let normalized = if index < 0 { len + index } else { index }"),
+        source.contains("let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }"),
         "a Python element read must still count a negative index from the end:\n{source}"
     );
 }
@@ -12204,7 +12204,7 @@ export function put(arr: number[], index: number, value: number): void {
     );
 
     assert!(
-        source.contains("usize::try_from(normalized).expect(\"negative index out of bounds\")"),
+        source.contains("usize::try_from(smelt_normalized).expect(\"negative index out of bounds\")"),
         "a write to a negative normalized index must still fail loudly:\n{source}"
     );
 }

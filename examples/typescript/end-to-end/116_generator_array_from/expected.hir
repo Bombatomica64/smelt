@@ -1,0 +1,87 @@
+module examples/typescript/end-to-end/116_generator_array_from/input.ts (ModuleId(0))
+  body BodyId(2)
+  items
+    fn range owner Module
+    fn labels owner Module
+  locals
+    %0 const fromRange: List<Float>
+    %1 const spreadRange: List<Float>
+    %2 const names: List<String>
+    %3 const again: List<Float>
+  exprs
+    #0: Float = 1.0
+    #1: Float = 5.0
+    #2: fn(Float, Float, Optional<Float>) -> Generator<Float, None, None> = @0(range)
+    #3: Generator<Float, None, None> = call #2(#0, #1)
+    #4: List<Float> = unknown_cast #3 as List<Float>
+    #5: List<Float> = %0
+    #6: Float = len #5
+    #7: List<Float> = %0
+    #8: Float = 0.0
+    #9: Float = #7[#8]
+    #10: List<Float> = %0
+    #11: Float = 4.0
+    #12: Float = #10[#11]
+    #13: None = @2(console_log)
+    #14: None = call #13(#6, #9, #12)
+    #15: Float = 0.0
+    #16: Float = 10.0
+    #17: Float = 5.0
+    #18: fn(Float, Float, Optional<Float>) -> Generator<Float, None, None> = @0(range)
+    #19: Generator<Float, None, None> = call #18(#15, #16, #17)
+    #20: List<Float> = unknown_cast #19 as List<Float>
+    #21: List<Float> = %1
+    #22: String = ","
+    #23: String = string_join #21, #22
+    #24: None = @3(console_log)
+    #25: None = call #24(#23)
+    #26: Float = 3.0
+    #27: fn(Float) -> Generator<String, None, None> = @1(labels)
+    #28: Generator<String, None, None> = call #27(#26)
+    #29: List<String> = unknown_cast #28 as List<String>
+    #30: List<String> = %2
+    #31: String = " "
+    #32: String = string_join #30, #31
+    #33: None = @4(console_log)
+    #34: None = call #33(#32)
+    #35: Float = 2.0
+    #36: Float = 3.0
+    #37: fn(Float, Float, Optional<Float>) -> Generator<Float, None, None> = @0(range)
+    #38: Generator<Float, None, None> = call #37(#35, #36)
+    #39: List<Float> = unknown_cast #38 as List<Float>
+    #40: List<Float> = %3
+    #41: Float = len #40
+    #42: List<Float> = %3
+    #43: Float = 0.0
+    #44: Float = #42[#43]
+    #45: List<Float> = %3
+    #46: Float = 1.0
+    #47: Float = #45[#46]
+    #48: Float = Add #44, #47
+    #49: None = @5(console_log)
+    #50: None = call #49(#41, #48)
+  stmts
+    s0: let %0: List<Float> = #4
+    s1: #14
+    s2: let %1: List<Float> = #20
+    s3: #25
+    s4: let %2: List<String> = #29
+    s5: #34
+    s6: let %3: List<Float> = #39
+    s7: #50
+
+interned types
+  t0 = Unknown
+  t1 = Float
+  t2 = None
+  t3 = Generator<Float, None, None>
+  t4 = fn(Float, Float, Float) -> Generator<Float, None, None>
+  t5 = String
+  t6 = Generator<String, None, None>
+  t7 = fn(Float) -> Generator<String, None, None>
+  t8 = Optional<Float>
+  t9 = Bool
+  t10 = fn(Float, Float, Optional<Float>) -> Generator<Float, None, None>
+  t11 = List<Float>
+  t12 = fn(Float) -> Generator<String, None, None>
+  t13 = List<String>

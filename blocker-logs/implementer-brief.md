@@ -47,10 +47,13 @@ cargo check --lib --no-default-features && cargo clippy --lib --no-default-featu
      `smelt smelt-unknown-report <checkout>/dist-smelt/src --baseline blocker-logs/smelt-unknown-baseline-es-toolkit.json --fail-on-regression`.
      A fall re-snapshots in the same commit; a rise blocks.
    - remeda: `remeda/remeda` at `3c80f28bb394edbf89f1fc9978571dec8ed20edc` + `.github/compat/remeda/.`,
-     build, `cargo test` the generated crate: 1789 passed / 0 failed.
+     build, `cargo test` the generated crate: 1789 tests; 1787 passed / 2 failed (the two
+     `randomBigInt` "huge numbers" tests: bigint wider than i64, see
+     `blocker-logs/globals-suite-failures.md`).
    - radash: `sodiray/radash` at `4cab1900d08e0997abc4f17aec3cbfe18958d766` + `.github/compat/radash/.`,
      `sed -i "/import { assert } from 'chai'/a import { describe, test } from 'vitest'" src/tests/typed.test.ts`,
-     build, 84 / 84.
+     build, 387 tests (84 before the vitest-globals rule); 384 passed / 3 failed (`as any`
+     type-violating inputs x2, `Proxy` traps x1, see `blocker-logs/globals-suite-failures.md`).
    - Before attributing any gate failure to another stream: regenerate the corpus from a clean
      `dist-smelt` with a freshly built `smelt`, or report it as unverified.
 4. `cargo clippy --all-targets` must introduce no NEW findings in files you touched (pre-existing

@@ -374,15 +374,44 @@ impl ModuleBuilder<'_> {
     /// `toThrow` is excluded because its actual is a callback to invoke, not a
     /// value to compare, so an awaited actual cannot stand in for it.
     pub(in crate::lowering) fn matcher_accepts_lowered_actual(name: &str) -> bool {
+        let name = Self::canonical_matcher_name(name);
         matches!(
             name,
             "toBeUndefined"
                 | "toBeNull"
+                | "toBeDefined"
+                | "toBeTruthy"
+                | "toBeFalsy"
+                | "toHaveBeenCalled"
+                | "toHaveBeenCalledOnce"
                 | "toHaveBeenCalledTimes"
                 | "toHaveBeenCalledWith"
+                | "toHaveBeenNthCalledWith"
                 | "toHaveBeenLastCalledWith"
                 | "toHaveLastResolvedWith"
+                | "toMatchObject"
         ) || TestMatcher::from_name(name).is_some()
+    }
+
+    /// Resolve a matcher spelling to the canonical one the lowering implements.
+    ///
+    /// vitest exposes the jest spellings as aliases of its own matchers: they
+    /// are the SAME assertion under a second name. Resolving the name in one
+    /// table — rather than growing a second implementation per alias — is what
+    /// keeps the alias a vocabulary entry instead of a special case. An unknown
+    /// name is returned unchanged, so a matcher the model does not have still
+    /// reports itself by the spelling the source used.
+    pub(in crate::lowering) fn canonical_matcher_name(name: &str) -> &str {
+        match name {
+            "toThrowError" => "toThrow",
+            "toBeCalled" => "toHaveBeenCalled",
+            "toBeCalledWith" => "toHaveBeenCalledWith",
+            "toBeCalledTimes" => "toHaveBeenCalledTimes",
+            "toBeCalledOnce" => "toHaveBeenCalledOnce",
+            "lastCalledWith" => "toHaveBeenLastCalledWith",
+            "nthCalledWith" => "toHaveBeenNthCalledWith",
+            other => other,
+        }
     }
 
     /// Lower a Vitest `expect(...).matcher(...)` call to HIR assertion statements.
@@ -400,8 +429,11 @@ impl ModuleBuilder<'_> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return Ok(false);
         };
+        // Every branch below asks about the CANONICAL spelling, so a jest alias
+        // reaches the same implementation as the vitest name it aliases.
+        let canonical = Self::canonical_matcher_name(member.property.name.as_str());
         if matches!(
-            member.property.name.as_str(),
+            canonical,
             "toThrow" | "toThrowErrorMatchingInlineSnapshot"
         ) {
             // `toThrow` asserts on a callback, so a pre-lowered value cannot
@@ -412,26 +444,28 @@ impl ModuleBuilder<'_> {
             }
             return self.expect_to_throw_statement(call, member, body);
         }
-        if member.property.name == "toBeUndefined" {
-            return self.expect_to_be_none_statement(
-                call,
-                member,
-                actual_override,
-                body,
-                "toBeUndefined",
-            );
+        if matches!(canonical, "toBeUndefined" | "toBeNull" | "toBeDefined") {
+            return self.expect_to_be_none_statement(call, member, actual_override, body, canonical);
         }
-        if member.property.name == "toBeNull" {
-            return self.expect_to_be_none_statement(call, member, actual_override, body, "toBeNull");
+        if matches!(canonical, "toBeTruthy" | "toBeFalsy") {
+            return self.expect_truthiness_statement(call, member, actual_override, body, canonical);
+        }
+        if canonical == "toMatchObject" {
+            return self.expect_match_object_statement(call, member, actual_override, body);
+        }
+        if canonical == "toHaveBeenNthCalledWith" {
+            return self.expect_mock_nth_called_with_statement(call, member, actual_override, body);
         }
         if matches!(
-            member.property.name.as_str(),
-            "toHaveBeenCalledTimes"
+            canonical,
+            "toHaveBeenCalled"
+                | "toHaveBeenCalledOnce"
+                | "toHaveBeenCalledTimes"
                 | "toHaveBeenCalledWith"
                 | "toHaveBeenLastCalledWith"
                 | "toHaveLastResolvedWith"
         ) {
-            let matcher_name = member.property.name.as_str();
+            let matcher_name = canonical;
             let (actual, inverted) = if let Some(actual) = actual_override {
                 (actual.value, actual.inverted)
             } else {
@@ -459,7 +493,38 @@ impl ModuleBuilder<'_> {
             // recorded no calls, so the runtime helpers answer FALSE for it —
             // `vi.spyOn` produces a real mock now, and the vacuous pass the
             // placeholder era needed would only hide a broken assertion.
-            let matched = if matcher_name == "toHaveBeenCalledTimes" {
+            let matched = if matches!(matcher_name, "toHaveBeenCalled" | "toHaveBeenCalledOnce") {
+                // Both are call-count assertions: "called at least once" is the
+                // negation of "called exactly zero times", and `toHaveBeenCalledOnce`
+                // is `toHaveBeenCalledTimes(1)`. Reusing the one runtime helper
+                // keeps a single definition of what a recorded call is.
+                if !call.arguments.is_empty() {
+                    return Err(SmeltError::unsupported(
+                        self.span(call.span.start, call.span.end),
+                        format!("expect(...).{matcher_name}() does not take arguments"),
+                    ));
+                }
+                let float_ty = self.ctx.krate.types.intern(Type::Float);
+                let once = matcher_name == "toHaveBeenCalledOnce";
+                let count = body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::Float(if once { 1.0 } else { 0.0 })),
+                    ty: float_ty,
+                    span: self.span(call.span.start, call.span.end),
+                });
+                let called_times = body.push_expr(Expr {
+                    kind: ExprKind::VitestMockCalledTimes {
+                        mock: actual,
+                        count,
+                    },
+                    ty: bool_ty,
+                    span: self.span(call.span.start, call.span.end),
+                });
+                if once {
+                    called_times
+                } else {
+                    self.unary_bool_expr(UnaryOp::Not, called_times, call.span, body)
+                }
+            } else if matcher_name == "toHaveBeenCalledTimes" {
                 let count_arg = call.arguments.first().ok_or_else(|| {
                     SmeltError::unsupported(
                         self.span(call.span.start, call.span.end),
@@ -521,7 +586,7 @@ impl ModuleBuilder<'_> {
             );
             return Ok(true);
         }
-        let Some(matcher) = TestMatcher::from_name(member.property.name.as_str()) else {
+        let Some(matcher) = TestMatcher::from_name(canonical) else {
             return Ok(false);
         };
         let mut pending_actual_arg = None;
@@ -789,24 +854,314 @@ impl ModuleBuilder<'_> {
             });
         }
         let none_ty = self.ctx.krate.types.intern(Type::None);
-        let literal = if matcher_name == "toBeUndefined" {
-            Literal::Undefined
-        } else {
+        let literal = if matcher_name == "toBeNull" {
             Literal::None
+        } else {
+            Literal::Undefined
         };
         let expected = body.push_expr(Expr {
             kind: ExprKind::Literal(literal),
             ty: none_ty,
             span: self.span(call.span.start, call.span.end),
         });
-        let mut failed =
-            self.comparison_expr(BinOp::JsStrictNotEq, actual, expected, call.span, body);
+        // `toBeDefined` is `toBeUndefined` read the other way round: the same
+        // comparison against `undefined`, with the failure condition flipped.
+        let comparison = if matcher_name == "toBeDefined" {
+            BinOp::JsStrictEq
+        } else {
+            BinOp::JsStrictNotEq
+        };
+        let mut failed = self.comparison_expr(comparison, actual, expected, call.span, body);
         if inverted {
             failed = self.unary_bool_expr(UnaryOp::Not, failed, call.span, body);
         }
         self.push_test_failure_if(
             failed,
             &format!("expect(...).{matcher_name}() failed"),
+            call.span,
+            body,
+        );
+        Ok(true)
+    }
+
+    /// Resolve the actual value (and `.not` inversion) a matcher asserts on.
+    ///
+    /// Either it was already lowered by a `.resolves` / `.rejects` chain (see
+    /// [`LoweredActual`]), or it is the first argument of the syntactic
+    /// `expect(...)` call behind the matcher. `Ok(None)` means the receiver is
+    /// not an `expect(...)` call at all, so the caller falls through to the
+    /// ordinary call path.
+    fn matcher_actual(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        actual_override: Option<LoweredActual>,
+        body: &mut Body,
+        matcher_name: &str,
+    ) -> Result<Option<(smelt_hir::ExprId, bool)>, SmeltError> {
+        if let Some(actual) = actual_override {
+            return Ok(Some((actual.value, actual.inverted)));
+        }
+        let (expect_call, inverted) = self.expect_call_from_matcher_object(&member.object)?;
+        let Expression::Identifier(expect_ident) = &expect_call.callee else {
+            return Ok(None);
+        };
+        if !self.imports.is_test_builtin(expect_ident.name.as_str())
+            || expect_ident.name.as_str() != "expect"
+        {
+            return Ok(None);
+        }
+        let actual_arg = expect_call.arguments.first().ok_or_else(|| {
+            SmeltError::unsupported(
+                self.span(expect_call.span.start, expect_call.span.end),
+                format!("expect(...).{matcher_name}() requires an actual value"),
+            )
+        })?;
+        Ok(Some((self.argument(actual_arg, body)?, inverted)))
+    }
+
+    /// Lower `toBeTruthy` / `toBeFalsy` through JavaScript truthiness.
+    ///
+    /// The coercion is the SAME one an `if (value)` condition uses
+    /// ([`Self::lowered_condition_expression`]), so a matcher cannot disagree
+    /// with the language about what is truthy — `0`, `""`, `NaN`, `null` and
+    /// `undefined` are falsy, everything else is truthy, whatever static type
+    /// the actual value has.
+    fn expect_truthiness_statement(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        actual_override: Option<LoweredActual>,
+        body: &mut Body,
+        matcher_name: &str,
+    ) -> Result<bool, SmeltError> {
+        if !call.arguments.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                format!("expect(...).{matcher_name}() does not take arguments"),
+            ));
+        }
+        let Some((actual, inverted)) =
+            self.matcher_actual(member, actual_override, body, matcher_name)?
+        else {
+            return Ok(false);
+        };
+        let span = self.span(call.span.start, call.span.end);
+        let truthy = self.lowered_condition_expression(actual, span, body)?;
+        // `toBeFalsy` asserts the negation, and `.not` inverts whichever of the
+        // two was written; the two inversions compose with `!=`.
+        let wants_truthy = (matcher_name == "toBeTruthy") != inverted;
+        let failed = if wants_truthy {
+            self.unary_bool_expr(UnaryOp::Not, truthy, call.span, body)
+        } else {
+            truthy
+        };
+        self.push_test_failure_if(
+            failed,
+            &format!("expect(...).{matcher_name}() failed"),
+            call.span,
+            body,
+        );
+        Ok(true)
+    }
+
+    /// Lower `toMatchObject(expected)` as a recursive-subset matcher value.
+    ///
+    /// `toMatchObject` is the subset form of `toEqual`: the actual value may
+    /// carry properties the expected object does not mention, at every level.
+    /// That is a property of the COMPARISON, not of either operand, so it
+    /// lowers to the same branded matcher record the `expect.*` factories use
+    /// (kind `matchObject`) and is answered by the matcher-aware deep-equality
+    /// walk — which means a nested `expect.any(...)` inside the expected object
+    /// keeps working with no extra machinery.
+    fn expect_match_object_statement(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        actual_override: Option<LoweredActual>,
+        body: &mut Body,
+    ) -> Result<bool, SmeltError> {
+        let Some((actual, inverted)) =
+            self.matcher_actual(member, actual_override, body, "toMatchObject")?
+        else {
+            return Ok(false);
+        };
+        let expected_arg = call.arguments.first().ok_or_else(|| {
+            SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "expect(...).toMatchObject(...) requires an expected value",
+            )
+        })?;
+        let span = self.span(call.span.start, call.span.end);
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let expected = self.argument_with_hint(expected_arg, body, Some(unknown_ty))?;
+        let expected = Self::erase_to_unknown(expected, unknown_ty, span, body);
+        let matcher = self.vitest_matcher_record_expr("matchObject", vec![expected], span, body);
+        let holds = self.vitest_asymmetric_equal_expr(actual, matcher, call.span, body);
+        let failed = if inverted {
+            holds
+        } else {
+            self.unary_bool_expr(UnaryOp::Not, holds, call.span, body)
+        };
+        self.push_test_failure_if(
+            failed,
+            "expect(...).toMatchObject(...) failed",
+            call.span,
+            body,
+        );
+        Ok(true)
+    }
+
+    /// Build a branded asymmetric-matcher record from already-lowered samples.
+    ///
+    /// Same shape as [`Self::vitest_asymmetric_matcher_call`] emits for the
+    /// `expect.*` factories — `{ __smelt_asymmetric: <kind>, sample: [..],
+    /// inverted: false }` — so a matcher the lowering synthesizes is read by the
+    /// runtime exactly like one the source wrote. Inversion is not carried here:
+    /// a synthesized matcher's `.not` is applied to the assertion's own failure
+    /// condition, where the source `.not` modifier is.
+    fn vitest_matcher_record_expr(
+        &mut self,
+        kind: &str,
+        samples: Vec<smelt_hir::ExprId>,
+        span: Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
+        let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
+        let sample = body.push_expr(Expr {
+            kind: ExprKind::ListLit(samples),
+            ty: list_ty,
+            span,
+        });
+        let sample = Self::erase_to_unknown(sample, unknown_ty, span, body);
+        let kind_value = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String(kind.to_owned())),
+            ty: string_ty,
+            span,
+        });
+        let kind_value = Self::erase_to_unknown(kind_value, unknown_ty, span, body);
+        let inverted_value = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(false)),
+            ty: bool_ty,
+            span,
+        });
+        let inverted_value = Self::erase_to_unknown(inverted_value, unknown_ty, span, body);
+        let string_key = |target: &mut Body, key: &str| {
+            target.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String(key.to_owned())),
+                ty: string_ty,
+                span,
+            })
+        };
+        let marker_key = string_key(body, ASYMMETRIC_MARKER_KEY);
+        let sample_key = string_key(body, "sample");
+        let inverted_key = string_key(body, "inverted");
+        let record = body.push_expr(Expr {
+            kind: ExprKind::DictLit(vec![
+                (marker_key, kind_value),
+                (sample_key, sample),
+                (inverted_key, inverted_value),
+            ]),
+            ty: dict_ty,
+            span,
+        });
+        Self::erase_to_unknown(record, unknown_ty, span, body)
+    }
+
+    /// Lower `toHaveBeenNthCalledWith(n, ...args)` over a mock's recorded calls.
+    ///
+    /// The mock's own `mock.calls` view is the recorded-call list every other
+    /// call assertion reads, so the nth call is that list indexed at `n - 1`
+    /// (vitest numbers calls from one). The comparison is the matcher-aware deep
+    /// equality, which is what makes an asymmetric matcher usable as one of the
+    /// expected arguments, exactly as in `toHaveBeenCalledWith`.
+    fn expect_mock_nth_called_with_statement(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        actual_override: Option<LoweredActual>,
+        body: &mut Body,
+    ) -> Result<bool, SmeltError> {
+        let Some((actual, inverted)) =
+            self.matcher_actual(member, actual_override, body, "toHaveBeenNthCalledWith")?
+        else {
+            return Ok(false);
+        };
+        let Some(nth_arg) = call.arguments.first() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "expect(...).toHaveBeenNthCalledWith(...) requires a call number",
+            ));
+        };
+        let span = self.span(call.span.start, call.span.end);
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let float_ty = self.ctx.krate.types.intern(Type::Float);
+        let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
+        let nth = self.argument(nth_arg, body)?;
+        let one = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Float(1.0)),
+            ty: float_ty,
+            span,
+        });
+        let index = body.push_expr(Expr {
+            kind: ExprKind::BinOp {
+                op: BinOp::Sub,
+                lhs: nth,
+                rhs: one,
+            },
+            ty: float_ty,
+            span,
+        });
+        let mock_value = Self::erase_to_unknown(actual, unknown_ty, span, body);
+        let mock_field = self.ctx.krate.symbols.intern("mock");
+        let calls_field = self.ctx.krate.symbols.intern("calls");
+        let mock_view = body.push_expr(Expr {
+            kind: ExprKind::Field {
+                receiver: mock_value,
+                field: mock_field,
+            },
+            ty: unknown_ty,
+            span,
+        });
+        let calls = body.push_expr(Expr {
+            kind: ExprKind::Field {
+                receiver: mock_view,
+                field: calls_field,
+            },
+            ty: unknown_ty,
+            span,
+        });
+        let nth_call = body.push_expr(Expr {
+            kind: ExprKind::Index {
+                receiver: calls,
+                index,
+            },
+            ty: unknown_ty,
+            span,
+        });
+        let mut expected_items = Vec::new();
+        for argument in call.arguments.iter().skip(1) {
+            let lowered = self.argument_with_hint(argument, body, Some(unknown_ty))?;
+            expected_items.push(Self::erase_to_unknown(lowered, unknown_ty, span, body));
+        }
+        let expected = body.push_expr(Expr {
+            kind: ExprKind::ListLit(expected_items),
+            ty: list_ty,
+            span,
+        });
+        let expected = Self::erase_to_unknown(expected, unknown_ty, span, body);
+        let holds = self.vitest_asymmetric_equal_expr(nth_call, expected, call.span, body);
+        let failed = if inverted {
+            holds
+        } else {
+            self.unary_bool_expr(UnaryOp::Not, holds, call.span, body)
+        };
+        self.push_test_failure_if(
+            failed,
+            "expect(...).toHaveBeenNthCalledWith(...) failed",
             call.span,
             body,
         );
@@ -1137,6 +1492,63 @@ impl ModuleBuilder<'_> {
             TestMatcher::HaveProperty => {
                 let contains = self.dict_contains_key_expr(actual, expected, span, body)?;
                 Ok(self.unary_bool_expr(UnaryOp::Not, contains, span, body))
+            }
+            // A comparison matcher FAILS when the opposite comparison holds, so
+            // the inverse operator is the failure condition directly — no
+            // separate negation step, and no assumption about the operands
+            // beyond the ordering the source already asked for.
+            TestMatcher::BeLessThan => {
+                Ok(self.comparison_expr(BinOp::Gte, actual, expected, span, body))
+            }
+            TestMatcher::BeLessThanOrEqual => {
+                Ok(self.comparison_expr(BinOp::Gt, actual, expected, span, body))
+            }
+            TestMatcher::BeGreaterThan => {
+                Ok(self.comparison_expr(BinOp::Lte, actual, expected, span, body))
+            }
+            TestMatcher::BeGreaterThanOrEqual => {
+                Ok(self.comparison_expr(BinOp::Lt, actual, expected, span, body))
+            }
+            // `toBeTypeOf` asks the JavaScript `typeof` question, so it goes
+            // through the same runtime tag read a `typeof value` expression
+            // lowers to rather than a static answer: the matcher is written
+            // precisely where the static type is not trusted.
+            TestMatcher::BeTypeOf => {
+                let span_hir = self.span(span.start, span.end);
+                let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                let value = Self::erase_to_unknown(actual, unknown_ty, span_hir, body);
+                let type_name = body.push_expr(Expr {
+                    kind: ExprKind::TypeofValue { value },
+                    ty: string_ty,
+                    span: span_hir,
+                });
+                Ok(self.comparison_expr(BinOp::NotEq, type_name, expected, span, body))
+            }
+            // `toMatch` takes either a substring or a RegExp; vitest picks by
+            // the ARGUMENT's kind, and so does this, from the lowered expected
+            // value's type rather than its spelling.
+            TestMatcher::Match => {
+                let expected_ty = Self::expr_ty(body, expected);
+                let is_regexp = matches!(
+                    self.ctx.krate.types.get(expected_ty),
+                    Some(Type::Class { name, .. })
+                        if self.ctx.krate.symbols.get(*name).is_some_and(|name| name == "RegExp")
+                );
+                let holds = if is_regexp {
+                    let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+                    body.push_expr(Expr {
+                        kind: ExprKind::RegexTest {
+                            regex: expected,
+                            haystack: actual,
+                        },
+                        ty: bool_ty,
+                        span: self.span(span.start, span.end),
+                    })
+                } else {
+                    self.contains_expr(actual, expected, span, body)?
+                };
+                Ok(self.unary_bool_expr(UnaryOp::Not, holds, span, body))
             }
             TestMatcher::BeInstanceOf => {
                 let _ = expected;
@@ -1569,7 +1981,10 @@ impl ModuleBuilder<'_> {
         let span = self.statement_span(statement);
         let block = body.push_block(span);
         if let Statement::BlockStatement(block_stmt) = statement {
-            for nested_statement in &block_stmt.body {
+            // A nested `function` declaration is bound for its whole BLOCK, not
+            // just from its textual position (`lowering::hoisting`).
+            for nested_statement in crate::lowering::hoisting::hoisted_statements(&block_stmt.body)
+            {
                 self.statement_in_block(nested_statement, body, block)?;
             }
         } else {
@@ -1585,7 +2000,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::BlockId, SmeltError> {
         let block = body.push_block(self.span(block_stmt.span.start, block_stmt.span.end));
-        for statement in &block_stmt.body {
+        for statement in crate::lowering::hoisting::hoisted_statements(&block_stmt.body) {
             self.statement_in_block(statement, body, block)?;
         }
         Ok(block)
@@ -4012,6 +4427,46 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Reserve the enclosing body's local that a nested function declaration is
+    /// bound to, before its own body is lowered.
+    ///
+    /// [`Self::predeclare_local_function_declarations`] already reserves one for
+    /// every declaration at the top of a function body, which is what makes an
+    /// earlier sibling able to call a later declaration. A declaration in a
+    /// NESTED block (inside an `if`, a loop or a `try`) has no such prepass, so
+    /// the local is minted here instead. Either way the local exists before the
+    /// declaration's body is lowered, so the body can capture it and recurse.
+    ///
+    /// The type is provisional: the real function type is only known once the
+    /// body has been lowered, and the caller overwrites it there.
+    fn reserve_local_function_local(
+        &self,
+        function_symbol: smelt_hir::Symbol,
+        id: &oxc::ast::ast::BindingIdentifier<'_>,
+        provisional_fn_ty: smelt_hir::TypeId,
+        outer_body: &mut Body,
+    ) -> smelt_hir::LocalId {
+        // A binding already in scope is this declaration's predeclared local
+        // only when it is a local OF THE BODY BEING LOWERED carrying this
+        // declaration's name; anything else is an enclosing scope's binding,
+        // which this declaration SHADOWS rather than reuses.
+        if let Some(existing) = self.scope.lookup(id.name.as_str())
+            && let Ok(index) = usize::try_from(existing.0)
+            && outer_body
+                .locals
+                .get(index)
+                .is_some_and(|decl| decl.name == Some(function_symbol))
+        {
+            return existing;
+        }
+        outer_body.push_local(LocalDecl {
+            name: Some(function_symbol),
+            ty: provisional_fn_ty,
+            mutable: false,
+            span: self.span(id.span.start, id.span.end),
+        })
+    }
+
     /// Lower a nested `function name(...) { ... }` declaration as a local closure.
     pub(in crate::lowering) fn local_function_declaration(
         &mut self,
@@ -4190,17 +4645,20 @@ impl ModuleBuilder<'_> {
                 may_throw: false,
             }));
             let function_symbol = self.intern_source_name(id.name.as_str());
-            let self_local = closure_body.push_local(LocalDecl {
-                name: Some(function_symbol),
-                ty: provisional_fn_ty,
-                mutable: false,
-                span: self.span(id.span.start, id.span.end),
-            });
-            param_names.insert(id.name.as_str().to_owned());
-            saved_locals.push((
-                id.name.as_str().to_owned(),
-                self.scope.bind(id.name.as_str().to_owned(), self_local),
-            ));
+            // A function declaration binds its OWN name for the whole scope it
+            // is declared in, its own body included, so `function walk(i) { …
+            // walk(i + 1) … }` is ordinary recursion. The name therefore has to
+            // denote the ENCLOSING body's local that this declaration is
+            // assigned to — the same shape as the self-recursive arrow
+            // `const walk = (i) => … walk(i + 1) …`, which already lowers to a
+            // genuine capture of that local and which codegen already ties with
+            // a weak `Rc<RefCell<…>>` knot. Binding the name to a fresh,
+            // never-assigned local inside the closure body instead (what this
+            // did before) emitted a reference to a name Rust has never seen.
+            let outer_local =
+                self.reserve_local_function_local(function_symbol, id, provisional_fn_ty, outer_body);
+            saved_locals.push((id.name.as_str().to_owned(), Some(outer_local)));
+            self.scope.bind(id.name.as_str().to_owned(), outer_local);
 
             let mut capture_names = Vec::new();
             for statement in &function_body.statements {
@@ -4264,7 +4722,7 @@ impl ModuleBuilder<'_> {
                 function.params.items.len()
             });
             let mut lowering_result = Ok(());
-            for statement in &function_body.statements {
+            for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
                 if let Err(error) = self.statement(statement, &mut closure_body) {
                     lowering_result = Err(error);
                     break;
@@ -4309,28 +4767,14 @@ impl ModuleBuilder<'_> {
                 is_async: function.r#async,
                 may_throw: false,
             }));
-            let local = if let Some(existing) = self.scope.lookup(id.name.as_str()) {
-                if let Ok(index) = usize::try_from(existing.0)
-                    && let Some(decl) = outer_body.locals.get_mut(index)
-                {
-                    decl.ty = fn_ty;
-                    existing
-                } else {
-                    outer_body.push_local(LocalDecl {
-                        name: Some(function_symbol),
-                        ty: fn_ty,
-                        mutable: false,
-                        span: self.span(id.span.start, id.span.end),
-                    })
-                }
-            } else {
-                outer_body.push_local(LocalDecl {
-                    name: Some(function_symbol),
-                    ty: fn_ty,
-                    mutable: false,
-                    span: self.span(id.span.start, id.span.end),
-                })
-            };
+            // The local was reserved before the body was lowered (the body may
+            // reference it), so only its TYPE is still provisional here.
+            let local = outer_local;
+            if let Ok(index) = usize::try_from(local.0)
+                && let Some(decl) = outer_body.locals.get_mut(index)
+            {
+                decl.ty = fn_ty;
+            }
             self.scope.bind(id.name.as_str().to_owned(), local);
             let value = outer_body.push_expr(Expr {
                 kind: ExprKind::Closure(smelt_hir::ClosureExpr {

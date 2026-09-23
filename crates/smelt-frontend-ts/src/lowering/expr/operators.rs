@@ -67,6 +67,12 @@ impl ModuleBuilder<'_> {
             {
                 return Ok(Some(elements));
             }
+            if mapper_arg.is_none()
+                && let Some(list_ty) = self.sync_generator_list_ty(source_ty)
+            {
+                let span = self.span(call.span.start, call.span.end);
+                return Ok(Some(Self::generator_items_expr(source, list_ty, span, body)));
+            }
             let list_ty = match self.ctx.krate.types.get(source_ty).cloned() {
                 Some(Type::List(_)) if mapper_arg.is_none() => return Ok(Some(source)),
                 Some(Type::List(item_ty)) => self.ctx.krate.types.intern(Type::List(item_ty)),
@@ -162,6 +168,48 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// The `List<yield>` type an iteration of a SYNCHRONOUS generator produces.
+    ///
+    /// `Array.from(gen)` and `[...gen]` drain the generator's iterator protocol,
+    /// so their element type is the generator's own `yield` type; `None` for
+    /// every other source (an async generator is not sync-iterable).
+    pub(in crate::lowering) fn sync_generator_list_ty(
+        &mut self,
+        source_ty: smelt_hir::TypeId,
+    ) -> Option<smelt_hir::TypeId> {
+        let Some(Type::Generator {
+            is_async: false,
+            yield_ty,
+            ..
+        }) = self.ctx.krate.types.get(source_ty).cloned()
+        else {
+            return None;
+        };
+        Some(self.ctx.krate.types.intern(Type::List(yield_ty)))
+    }
+
+    /// Drain a synchronous generator into a fresh list of its yielded values.
+    ///
+    /// Lowered as a checked `UnknownCast` from `Generator<Y, ..>` to `List<Y>`:
+    /// the emitter recognises the typed generator source and collects it through
+    /// the prelude's `SmeltGenerator::collect_yields`, so the items keep their
+    /// static `Y` and never cross the erased iterator protocol.
+    pub(in crate::lowering) fn generator_items_expr(
+        generator: smelt_hir::ExprId,
+        list_ty: smelt_hir::TypeId,
+        span: Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        body.push_expr(Expr {
+            kind: ExprKind::UnknownCast {
+                value: generator,
+                target: list_ty,
+            },
+            ty: list_ty,
+            span,
+        })
     }
 
     /// Extract the numeric `length` expression from `Array.from`'s source argument.
@@ -3028,6 +3076,11 @@ impl ModuleBuilder<'_> {
             let item_ty = match self.ctx.krate.types.get(value_ty) {
                 Some(Type::List(item_ty) | Type::Set(item_ty)) => *item_ty,
                 Some(Type::String) => self.ctx.krate.types.intern(Type::String),
+                Some(Type::Generator {
+                    is_async: false,
+                    yield_ty,
+                    ..
+                }) => *yield_ty,
                 Some(
                     Type::Unknown
                     | Type::TypeParam { .. }
@@ -3170,6 +3223,11 @@ impl ModuleBuilder<'_> {
                 match self.ctx.krate.types.get(value_ty) {
                     Some(Type::List(item_ty) | Type::Set(item_ty)) => *item_ty,
                     Some(Type::String) => self.ctx.krate.types.intern(Type::String),
+                    Some(Type::Generator {
+                        is_async: false,
+                        yield_ty,
+                        ..
+                    }) => *yield_ty,
                     _ => unknown,
                 }
             } else {
@@ -3238,6 +3296,12 @@ impl ModuleBuilder<'_> {
                 ty: list_ty,
                 span: self.span(span.start, span.end),
             })),
+            Some(Type::Generator { is_async: false, .. }) => Ok(Self::generator_items_expr(
+                value,
+                list_ty,
+                self.span(span.start, span.end),
+                body,
+            )),
             Some(Type::String) => Ok(body.push_expr(Expr {
                 kind: ExprKind::StringChars { haystack: value },
                 ty: list_ty,
@@ -3438,6 +3502,7 @@ impl ModuleBuilder<'_> {
                     )? {
                         let source_ty = Self::expr_ty(body, source);
                         if record_ty.is_none()
+                            && !erased_spread_requires_unknown_record
                             && matches!(self.ctx.krate.types.get(source_ty), Some(Type::Dict(_, _)))
                         {
                             record_ty = Some(source_ty);
@@ -3475,7 +3540,12 @@ impl ModuleBuilder<'_> {
                         });
                     }
                     let final_source_ty = Self::expr_ty(body, source);
+                    // An EARLIER erased source (`...route` of an erased
+                    // object) already carries heterogeneous values; adopting a
+                    // later homogeneous source's `Dict<String, f64>` would
+                    // coerce the earlier `path: string` to `NaN`.
                     if record_ty.is_none()
+                        && !erased_spread_requires_unknown_record
                         && matches!(
                             self.ctx.krate.types.get(final_source_ty),
                             Some(Type::Dict(_, _))
@@ -4036,7 +4106,7 @@ impl ModuleBuilder<'_> {
             } else {
                 function.params.items.len()
             });
-        for statement in &function_body.statements {
+        for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
             if let Err(error) = self.statement(statement, &mut body) {
                 errors.push(error);
             }

@@ -112,6 +112,6 @@ fn main() {
     let values: SmeltList<f64> = Into::<SmeltList<_>>::into(_smelt_tmp_2);
     let _smelt_tmp_3: ::std::collections::HashMap<String, String> = ::std::collections::HashMap::from([("first".to_owned(), "Ada".to_owned()), ("second".to_owned(), "Grace".to_owned())]);
     let names: ::std::collections::HashMap<String, String> = _smelt_tmp_3;
-    let _ = { println!("{} {}", smelt_console_number(values.borrow().get({ let normalized = 1.0 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0)), names.get(&"second".to_owned().clone()).cloned().unwrap_or(String::new())); };
+    let _ = { println!("{} {}", smelt_console_number(values.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0)), names.get(&"second".to_owned().clone()).cloned().unwrap_or(String::new())); };
     return;
 }

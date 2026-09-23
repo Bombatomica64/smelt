@@ -1,0 +1,40 @@
+module examples/typescript/end-to-end/112_recursive_binding_keeps_its_type/input.ts (ModuleId(0))
+  body BodyId(6)
+  items
+    fn total_down owner Module
+    fn banner owner Module
+    fn trim owner Module
+  exprs
+    #0: Float = 4.0
+    #1: fn(Float) -> Float = @0(total_down)
+    #2: Float = call #1(#0)
+    #3: None = @3(console_log)
+    #4: None = call #3(#2)
+    #5: String = "ab"
+    #6: Float = 3.0
+    #7: fn(String, Float) -> String = @1(banner)
+    #8: String = call #7(#5, #6)
+    #9: None = @4(console_log)
+    #10: None = call #9(#8)
+    #11: String = "done!!!"
+    #12: fn(String) -> String = @2(trim)
+    #13: String = call #12(#11)
+    #14: None = @5(console_log)
+    #15: None = call #14(#13)
+  stmts
+    s0: #4
+    s1: #10
+    s2: #15
+
+interned types
+  t0 = Float
+  t1 = fn(Float) -> Float
+  t2 = String
+  t3 = fn(String, Float) -> String
+  t4 = fn(String) -> String
+  t5 = fn(Float) -> Float
+  t6 = Bool
+  t7 = fn(Float, String) -> String
+  t8 = fn(String) -> String
+  t9 = None
+  t10 = fn(String, Float) -> String

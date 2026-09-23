@@ -1,5 +1,5 @@
 module examples/typescript/end-to-end/61_tuple_spread_arguments/input.ts (ModuleId(0))
-  body BodyId(6)
+  body BodyId(5)
   items
     global mut evaluations: Float
     type Route = (String, String, Float)
@@ -68,7 +68,7 @@ module examples/typescript/end-to-end/61_tuple_spread_arguments/input.ts (Module
     #45: String = call #44(#43, #39, #42)
     #46: None = @10(console_log)
     #47: None = call #46(#45)
-    #48: fn(String, String, Float) -> String = closure BodyId(5) captures 0 -> String
+    #48: fn(String, String, Float) -> String = closure BodyId(4) captures 0 -> String
     #49: List<(String, String, Float)> = %0
     #50: Float = 0.0
     #51: (String, String, Float) = #49[#50]

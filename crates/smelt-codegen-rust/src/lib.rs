@@ -3180,6 +3180,11 @@ fn emit_source_with_free_function_router(
         writer.line("    /// Resume execution until the next suspension point or completion.");
         writer.line("    fn resume(&self, command: SmeltGeneratorCommand<N, R>) -> SmeltGeneratorResult<Y, R> { if let Some(value) = self.completed.borrow().clone() { return SmeltGeneratorResult::Complete(value); } let result = (self.resume.borrow_mut())(command); if let SmeltGeneratorResult::Complete(value) = &result { *self.completed.borrow_mut() = Some(value.clone()); } result }");
         writer.line("}");
+        writer.line("impl<Y, R: Clone, N: Default> SmeltGenerator<Y, R, N> {");
+        writer.line("    /// Drain the generator's remaining yields in order (`Array.from(gen)` / `[...gen]`).");
+        writer.line("    #[allow(dead_code)]");
+        writer.line("    fn collect_yields(&self) -> Vec<Y> { let mut items = Vec::new(); while let SmeltGeneratorResult::Yielded(value) = self.resume(SmeltGeneratorCommand::Next(N::default())) { items.push(value); } items }");
+        writer.line("}");
         writer.line("pub struct SmeltAsyncGenerator<Y, R, N> {");
         writer.line("    resume: ::std::rc::Rc<dyn Fn(SmeltGeneratorCommand<N, R>) -> SmeltFuture<SmeltGeneratorResult<Y, R>>>,");
         writer.line("    completed: ::std::rc::Rc<::std::cell::RefCell<Option<R>>>,");
@@ -3454,6 +3459,18 @@ fn emit_source_with_free_function_router(
             writer.line("    callback: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> SmeltUnknown>,");
             writer.line("    length: f64,");
             writer.line("    object: Option<SmeltObject>,");
+            writer.line("}");
+            writer.blank_line();
+            // The placeholder an erased callable takes before the real one is
+            // built (a predeclared function-typed local, a callable-interface
+            // `__smelt_call` slot, or the self-recursive closure knot, whose
+            // cell exists before the closure that fills it). It is runtime
+            // machinery rather than program data, so it lives here instead of
+            // being inlined at every emit site. See `ERASED_FUNCTION_DEFAULT`.
+            writer.line("impl Default for SmeltErasedFunction {");
+            writer.line("    fn default() -> Self {");
+            writer.line("        Self { callback: ::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| SmeltUnknown::Null), length: 0.0, object: None }");
+            writer.line("    }");
             writer.line("}");
             writer.blank_line();
             writer.line("impl SmeltErasedFunction {");
@@ -6115,30 +6132,6 @@ fn emit_source_with_free_function_router(
         has_emitted_root_function = true;
     }
 
-    // Flush the per-function-item value accessors collected while erasing
-    // function-item-as-value wrappers to `SmeltUnknown`. Each accessor lazily
-    // builds and caches ONE erased `SmeltUnknown::Function` so that every
-    // reference to the same named function value shares one inner `Rc`, keeping
-    // JavaScript reference identity (`===`) stable across references. Sorted by
-    // item key via the `BTreeMap` for deterministic golden output.
-    for (key, body) in context.function_item_accessors.borrow().iter() {
-        out.push_str(&format!(
-            "\nfn __smelt_fn_value_{key}() -> SmeltUnknown {{\n    thread_local! {{ static SMELT_FN_VALUE: ::std::cell::OnceCell<SmeltUnknown> = ::std::cell::OnceCell::new(); }}\n    SMELT_FN_VALUE.with(|cell| cell.get_or_init(|| {body}).clone())\n}}\n"
-        ));
-    }
-
-    // Flush the per-function-item accessors for the CONCRETE `SmeltErasedFunction`
-    // type. Each caches ONE `SmeltErasedFunction` so repeated calls of a nullary
-    // function-item constant (`doNothing()`/`constant()`) return clones sharing
-    // one inner callback `Rc`, keeping JavaScript function-singleton identity.
-    // A non-empty collector means a closure was lowered to `SmeltErasedFunction`,
-    // so `needs_erased_function` is necessarily true and the struct is emitted.
-    for (key, body) in context.function_item_erased_fn_accessors.borrow().iter() {
-        out.push_str(&format!(
-            "\nfn __smelt_fn_erased_{key}() -> SmeltErasedFunction {{\n    thread_local! {{ static SMELT_FN_ERASED: ::std::cell::OnceCell<SmeltErasedFunction> = ::std::cell::OnceCell::new(); }}\n    SMELT_FN_ERASED.with(|cell| cell.get_or_init(|| {body}).clone())\n}}\n"
-        ));
-    }
-
     let mut emitted_impl_names = HashSet::new();
     for class in &mir.classes {
         let name = class_name_text(mir, class)?;
@@ -6167,6 +6160,15 @@ fn emit_source_with_free_function_router(
                 .get(id_index(method.0, "method index does not fit usize")?)
             {
                 let mut emitter = FunctionEmitter::new(mir, &context, function)?;
+                // A method whose declaring class is not this impl's class is an
+                // INHERITED copy: its polymorphic-`this` return type belongs to
+                // the impl, not to the class that declared it.
+                if !matches!(
+                    function.origin,
+                    HirOrigin::ClassMethod { class: owner, .. } if owner == class.name
+                ) {
+                    emitter.mark_inherited_copy();
+                }
                 emitter.emit_method(&mut out)?;
             }
         }
@@ -6211,6 +6213,37 @@ fn emit_source_with_free_function_router(
                 }
             }
         }
+    }
+
+    // Flushed HERE, after every free function AND every class impl body has been
+    // emitted: a function-item value can first be erased inside a constructor or
+    // method body, which the free-function loop above skips and the class loop
+    // below emits. Minting the accessor's name and emitting its definition are
+    // one decision, so the flush has to sit after the last place that can mint
+    // one (was `E0425: __smelt_fn_value_<key> not in scope` for a named function
+    // used as a value only from a method body).
+    // Flush the per-function-item value accessors collected while erasing
+    // function-item-as-value wrappers to `SmeltUnknown`. Each accessor lazily
+    // builds and caches ONE erased `SmeltUnknown::Function` so that every
+    // reference to the same named function value shares one inner `Rc`, keeping
+    // JavaScript reference identity (`===`) stable across references. Sorted by
+    // item key via the `BTreeMap` for deterministic golden output.
+    for (key, body) in context.function_item_accessors.borrow().iter() {
+        out.push_str(&format!(
+            "\nfn __smelt_fn_value_{key}() -> SmeltUnknown {{\n    thread_local! {{ static SMELT_FN_VALUE: ::std::cell::OnceCell<SmeltUnknown> = ::std::cell::OnceCell::new(); }}\n    SMELT_FN_VALUE.with(|cell| cell.get_or_init(|| {body}).clone())\n}}\n"
+        ));
+    }
+
+    // Flush the per-function-item accessors for the CONCRETE `SmeltErasedFunction`
+    // type. Each caches ONE `SmeltErasedFunction` so repeated calls of a nullary
+    // function-item constant (`doNothing()`/`constant()`) return clones sharing
+    // one inner callback `Rc`, keeping JavaScript function-singleton identity.
+    // A non-empty collector means a closure was lowered to `SmeltErasedFunction`,
+    // so `needs_erased_function` is necessarily true and the struct is emitted.
+    for (key, body) in context.function_item_erased_fn_accessors.borrow().iter() {
+        out.push_str(&format!(
+            "\nfn __smelt_fn_erased_{key}() -> SmeltErasedFunction {{\n    thread_local! {{ static SMELT_FN_ERASED: ::std::cell::OnceCell<SmeltErasedFunction> = ::std::cell::OnceCell::new(); }}\n    SMELT_FN_ERASED.with(|cell| cell.get_or_init(|| {body}).clone())\n}}\n"
+        ));
     }
 
     if !has_main_function(mir)? {

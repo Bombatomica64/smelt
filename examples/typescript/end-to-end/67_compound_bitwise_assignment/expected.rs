@@ -174,7 +174,7 @@ fn main() {
     _smelt_tmp_29 = values.len() as f64;
     _smelt_tmp_30 = _smelt_tmp_28 < _smelt_tmp_29;
     if !(_smelt_tmp_30) { break; }
-    value = values.borrow().get({ let normalized = _smelt_tmp_28 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0);
+    value = values.borrow().get({ let smelt_normalized = _smelt_tmp_28 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0);
     _smelt_tmp_31 = ({ let smelt_bit_lhs = { let smelt_bit_v = (hash as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (value as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs | smelt_bit_rhs) as f64 });
     hash = _smelt_tmp_31;
     _smelt_tmp_28 = _smelt_tmp_28 + 1.0;

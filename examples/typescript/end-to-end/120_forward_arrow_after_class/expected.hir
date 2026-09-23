@@ -1,0 +1,53 @@
+module examples/typescript/end-to-end/120_forward_arrow_after_class/input.ts (ModuleId(0))
+  body BodyId(5)
+  items
+    class Request fields [Private headers: Dict<String, String>] constructor Some(ItemId(3)) methods [ItemId(1), ItemId(2)] implements []
+    fn without_length owner Module
+    fn report owner Module
+  locals
+    %0 const req: Request
+  exprs
+    #0: Request = new Request()
+    #1: Request = %0
+    #2: async fn(Request) -> Future<Float> = @0(report)
+    #3: Future<Float> = call #2(#1)
+    #4: Float = await #3
+    #5: None = @7(console_log)
+    #6: None = call #5(#4)
+    #7: Request = %0
+    #8: Bool = false
+    #9: async fn(Request, Bool) -> Future<Float> = @6(without_length)
+    #10: Future<Float> = call #9(#7, #8)
+    #11: Float = await #10
+    #12: None = @8(console_log)
+    #13: None = call #12(#11)
+    #14: Future<None> = async_exit_drain()
+    #15: None = await #14
+  stmts
+    s0: let %0: Request = #0
+    s1: #6
+    s2: #13
+    s3: #15
+  async state machine
+    states [state0, state1, state2, state3]
+    suspend #4 on #3 -> state5
+    suspend #11 on #10 -> state12
+    suspend #15 on #14 -> state16
+
+interned types
+  t0 = Request
+  t1 = Bool
+  t2 = Float
+  t3 = Future<Float>
+  t4 = async fn(Request, Bool) -> Future<Float>
+  t5 = Unknown
+  t6 = async fn(Request) -> Future<Float>
+  t7 = String
+  t8 = Dict<String, String>
+  t9 = None
+  t10 = Optional<String>
+  t11 = fn() -> Dict<String, String>
+  t12 = fn(String) -> Optional<String>
+  t13 = List<String>
+  t14 = async fn(Request) -> Future<Float>
+  t15 = Future<None>

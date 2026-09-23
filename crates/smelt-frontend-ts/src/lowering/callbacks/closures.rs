@@ -551,7 +551,31 @@ impl ModuleBuilder<'_> {
                 args: call_args,
             } => {
                 let callee_ty = callee.ty;
-                let callee = self.callback_expr_to_body_expr(callee, args, body, span)?;
+                // A CALLED function item is the item itself, not a closure over
+                // it. Wrapping it (the value form below, right for a function
+                // passed or stored as a value) re-declared the call through the
+                // item's own parameter list: a variadic host item such as
+                // `console.log` declares none, so the wrapper took no arguments
+                // and `v => console.log('a', v)` printed an empty line.
+                // A rest-parameter item keeps the value form: its wrapper is
+                // what packs the positional arguments into the rest list.
+                let direct_item = match &callee.kind {
+                    CallbackExprKind::Function(function) => {
+                        let item = self.callback_function_item(*function, span)?;
+                        matches!(self.item_ref(item), smelt_hir::Item::Function(item_fn) if item_fn.rest.is_none())
+                            .then_some(item)
+                    }
+                    _ => None,
+                };
+                let callee = if let Some(item) = direct_item {
+                    body.push_expr(Expr {
+                        kind: ExprKind::Item(item),
+                        ty: callee_ty,
+                        span,
+                    })
+                } else {
+                    self.callback_expr_to_body_expr(callee, args, body, span)?
+                };
                 let callee_index = usize::try_from(callee.0).map_err(|_error| {
                     SmeltError::unsupported(
                         span,

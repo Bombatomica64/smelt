@@ -1839,7 +1839,7 @@ fn smelt_object_prototype_member(field: &str) -> Option<SmeltUnknown> {
 }
 
 /// Every modeled builtin member: `(class, kind, member, length, key)`.
-const SMELT_BUILTIN_MEMBERS: [(&str, &str, &str, f64, &'static str); 7] = [("Array", "prototype", "slice", 2.0, "Array.prototype.slice"), ("Array", "prototype", "concat", 1.0, "Array.prototype.concat"), ("Array", "prototype", "indexOf", 1.0, "Array.prototype.indexOf"), ("Array", "prototype", "lastIndexOf", 1.0, "Array.prototype.lastIndexOf"), ("Array", "prototype", "includes", 1.0, "Array.prototype.includes"), ("Array", "prototype", "join", 1.0, "Array.prototype.join"), ("Array", "static", "isArray", 1.0, "Array.isArray")];
+const SMELT_BUILTIN_MEMBERS: [(&str, &str, &str, f64, &'static str); 17] = [("Array", "prototype", "slice", 2.0, "Array.prototype.slice"), ("Array", "prototype", "concat", 1.0, "Array.prototype.concat"), ("Array", "prototype", "indexOf", 1.0, "Array.prototype.indexOf"), ("Array", "prototype", "lastIndexOf", 1.0, "Array.prototype.lastIndexOf"), ("Array", "prototype", "includes", 1.0, "Array.prototype.includes"), ("Array", "prototype", "join", 1.0, "Array.prototype.join"), ("Array", "static", "isArray", 1.0, "Array.isArray"), ("Math", "static", "random", 0.0, "Math.random"), ("Math", "static", "abs", 1.0, "Math.abs"), ("Math", "static", "floor", 1.0, "Math.floor"), ("Math", "static", "ceil", 1.0, "Math.ceil"), ("Math", "static", "round", 1.0, "Math.round"), ("Math", "static", "trunc", 1.0, "Math.trunc"), ("Math", "static", "sign", 1.0, "Math.sign"), ("Math", "static", "sqrt", 1.0, "Math.sqrt"), ("Math", "static", "max", 2.0, "Math.max"), ("Math", "static", "min", 2.0, "Math.min")];
 /// Look one modeled builtin member up, returning its `length` and dispatch key.
 fn smelt_builtin_member_entry(class: &str, kind: &str, member: &str) -> Option<(f64, &'static str)> { SMELT_BUILTIN_MEMBERS.into_iter().find(|(entry_class, entry_kind, entry_member, _, _)| *entry_class == class && *entry_kind == kind && *entry_member == member).map(|(_, _, _, length, key)| (length, key)) }
 
@@ -1905,6 +1905,15 @@ fn smelt_builtin_member_apply(key: &str, args: Vec<SmeltUnknown>) -> SmeltUnknow
         "Array.prototype.includes" => match smelt_builtin_receiver_elements(&receiver) { Some(values) => SmeltUnknown::Bool(values.iter().any(|item| item.same_js_key(&first))), None => SmeltUnknown::Undefined }
         "Array.prototype.join" => match smelt_builtin_receiver_elements(&receiver) { Some(values) => { let separator = match &first { SmeltUnknown::Undefined => ",".to_owned(), other => smelt_builtin_receiver_text(other) }; SmeltUnknown::String(values.into_iter().map(|item| match item { SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), other => smelt_builtin_receiver_text(&other) }).collect::<Vec<_>>().join(&separator).into()) } None => SmeltUnknown::Undefined }
         "Array.isArray" => SmeltUnknown::Bool(matches!(receiver, SmeltUnknown::Array(_))),
+        "Math.random" => { use ::std::hash::BuildHasher; let bits = ::std::collections::hash_map::RandomState::new().hash_one(0_u64); SmeltUnknown::Number((bits >> 11) as f64 / (1_u64 << 53) as f64) }
+        "Math.abs" => SmeltUnknown::Number(smelt_unknown_to_number(&receiver).abs()),
+        "Math.floor" => SmeltUnknown::Number(smelt_unknown_to_number(&receiver).floor()),
+        "Math.ceil" => SmeltUnknown::Number(smelt_unknown_to_number(&receiver).ceil()),
+        "Math.round" => SmeltUnknown::Number((smelt_unknown_to_number(&receiver) + 0.5).floor()),
+        "Math.trunc" => SmeltUnknown::Number(smelt_unknown_to_number(&receiver).trunc()),
+        "Math.sign" => { let value = smelt_unknown_to_number(&receiver); SmeltUnknown::Number(if value.is_nan() || value == 0.0 { value } else { value.signum() }) }
+        "Math.sqrt" => SmeltUnknown::Number(smelt_unknown_to_number(&receiver).sqrt()),
+        "Math.max" | "Math.min" => { let is_max = key == "Math.max"; let mut result = if is_max { f64::NEG_INFINITY } else { f64::INFINITY }; for argument in &args { let value = smelt_unknown_to_number(argument); if value.is_nan() { result = f64::NAN; break; } if (is_max && value > result) || (!is_max && value < result) { result = value; } } SmeltUnknown::Number(result) }
         _ => SmeltUnknown::Undefined,
     }
 }
@@ -2870,74 +2879,42 @@ fn main() {
     let _smelt_tmp_3: SmeltList<String> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<String> = vec!["a".to_owned(), "abc".to_owned(), "ab".to_owned(), "abcd".to_owned()]; smelt_list_items }));
     let words: SmeltList<String> = Into::<SmeltList<_>>::into(_smelt_tmp_3);
     let _smelt_tmp_4 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: i64, closure_arg_2: &SmeltList<String>| {
-    let _smelt_tmp_3 = ::std::rc::Rc::new(|closure_arg_0: String| {
-    let _smelt_tmp_1: bool = is_long(closure_arg_0.clone());
-    _smelt_tmp_1
-    });
-    let _smelt_tmp_4: bool = (_smelt_tmp_3)(closure_arg_0.clone());
-    _smelt_tmp_4
+    let _smelt_tmp_3: bool = is_long(closure_arg_0.clone());
+    _smelt_tmp_3
     });
     let _smelt_tmp_5: SmeltList<String> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: i64, closure_arg_2: &SmeltList<String>| {
-    let _smelt_tmp_3 = ::std::rc::Rc::new(|closure_arg_0: String| {
-    let _smelt_tmp_1: bool = is_long(closure_arg_0.clone());
-    _smelt_tmp_1
-    });
-    let _smelt_tmp_4: bool = (_smelt_tmp_3)(closure_arg_0.clone());
-    _smelt_tmp_4
+    let _smelt_tmp_3: bool = is_long(closure_arg_0.clone());
+    _smelt_tmp_3
     }); let smelt_array = words.clone(); smelt_array.borrow().iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone(), index as i64, &smelt_array) { Some(item.clone()) } else { None }).collect::<Vec<_>>() });
     let _smelt_tmp_6: String = _smelt_tmp_5.borrow().join(&",".to_owned());
     let _ = { println!("{}", _smelt_tmp_6); };
     _smelt_tmp_8 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: i64, closure_arg_2: &SmeltList<String>| {
-    let _smelt_tmp_3 = ::std::rc::Rc::new(|closure_arg_0: String| {
-    let _smelt_tmp_1: bool = is_long(closure_arg_0.clone());
-    _smelt_tmp_1
-    });
-    let _smelt_tmp_4: bool = (_smelt_tmp_3)(closure_arg_0.clone());
-    _smelt_tmp_4
+    let _smelt_tmp_3: bool = is_long(closure_arg_0.clone());
+    _smelt_tmp_3
     });
     _smelt_tmp_9 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: i64, closure_arg_2: &SmeltList<String>| {
-    let _smelt_tmp_3 = ::std::rc::Rc::new(|closure_arg_0: String| {
-    let _smelt_tmp_1: bool = is_long(closure_arg_0.clone());
-    _smelt_tmp_1
-    });
-    let _smelt_tmp_4: bool = (_smelt_tmp_3)(closure_arg_0.clone());
-    _smelt_tmp_4
+    let _smelt_tmp_3: bool = is_long(closure_arg_0.clone());
+    _smelt_tmp_3
     }); let smelt_array = words.clone(); smelt_array.borrow().iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone(), index as i64, &smelt_array) { Some(item.clone()) } else { None }).collect::<Vec<_>>() });
     _smelt_tmp_10 = _smelt_tmp_9.borrow().join(&",".to_owned());
     let _ = { println!("{}", _smelt_tmp_10); };
     _smelt_tmp_12 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: i64, closure_arg_2: &SmeltList<String>| {
-    let _smelt_tmp_3 = ::std::rc::Rc::new(|closure_arg_0: String| {
-    let _smelt_tmp_1: bool = is_long(closure_arg_0.clone());
-    _smelt_tmp_1
-    });
-    let _smelt_tmp_4: bool = (_smelt_tmp_3)(closure_arg_0.clone());
-    _smelt_tmp_4
+    let _smelt_tmp_3: bool = is_long(closure_arg_0.clone());
+    _smelt_tmp_3
     });
     _smelt_tmp_13 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: i64, closure_arg_2: &SmeltList<String>| {
-    let _smelt_tmp_3 = ::std::rc::Rc::new(|closure_arg_0: String| {
-    let _smelt_tmp_1: bool = is_long(closure_arg_0.clone());
-    _smelt_tmp_1
-    });
-    let _smelt_tmp_4: bool = (_smelt_tmp_3)(closure_arg_0.clone());
-    _smelt_tmp_4
+    let _smelt_tmp_3: bool = is_long(closure_arg_0.clone());
+    _smelt_tmp_3
     }); let smelt_array = words.clone(); smelt_array.borrow().iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone(), index as i64, &smelt_array) { Some(item.clone()) } else { None }).collect::<Vec<_>>() });
     _smelt_tmp_14 = _smelt_tmp_13.borrow().join(&",".to_owned());
     let _ = { println!("{}", _smelt_tmp_14); };
     _smelt_tmp_16 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: i64, closure_arg_2: &SmeltList<String>| {
-    let _smelt_tmp_3 = ::std::rc::Rc::new(|closure_arg_0: String| {
-    let _smelt_tmp_1: bool = is_long(closure_arg_0.clone());
-    _smelt_tmp_1
-    });
-    let _smelt_tmp_4: bool = (_smelt_tmp_3)(closure_arg_0.clone());
-    _smelt_tmp_4
+    let _smelt_tmp_3: bool = is_long(closure_arg_0.clone());
+    _smelt_tmp_3
     });
     _smelt_tmp_17 = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: i64, closure_arg_2: &SmeltList<String>| {
-    let _smelt_tmp_3 = ::std::rc::Rc::new(|closure_arg_0: String| {
-    let _smelt_tmp_1: bool = is_long(closure_arg_0.clone());
-    _smelt_tmp_1
-    });
-    let _smelt_tmp_4: bool = (_smelt_tmp_3)(closure_arg_0.clone());
-    _smelt_tmp_4
+    let _smelt_tmp_3: bool = is_long(closure_arg_0.clone());
+    _smelt_tmp_3
     }); let smelt_array = words.clone(); smelt_array.borrow().iter().enumerate().filter_map(|(index, item)| if (smelt_callback)(item.clone(), index as i64, &smelt_array) { Some(item.clone()) } else { None }).collect::<Vec<_>>() });
     _smelt_tmp_18 = _smelt_tmp_17.borrow().join(&",".to_owned());
     let _ = { println!("{}", _smelt_tmp_18); };

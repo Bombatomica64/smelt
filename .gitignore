@@ -43,6 +43,17 @@ blocker-logs/*.md
 !blocker-logs/library-probes.md
 # smelt-unknown-report.md documents the SmeltUnknown metric methodology + baseline
 !blocker-logs/smelt-unknown-report.md
+!blocker-logs/hono-round34-brief.md
+!blocker-logs/hono-phase3-survey.md
+!blocker-logs/hono-phase3-round1-brief.md
+!blocker-logs/hono-phase3-round1.md
+!blocker-logs/globals-suite-failures.md
+!blocker-logs/radash-globals-failures.md
+!blocker-logs/remeda-globals-failures.md
+!blocker-logs/hono-phase3-round2-brief.md
+!blocker-logs/hono-round34-captures.md
+!blocker-logs/hono-round34-hoisting.md
+!blocker-logs/hono-round34-scoping.md
 # estk-const-item-inlining.md documents the const-item-inlining blocker fix
 !blocker-logs/estk-const-item-inlining.md
 # estk-overload-resolution.md documents the overload-resolution blocker fix
@@ -187,6 +198,7 @@ third_party/hono/
 
 # private cargo target dir for generated-crate gates run locally
 /target-gen-priv/
+/target-gen-priv2/
 # saved smelt binary used while a target dir is cleaned
 /smelt-bin
 # Hono probe checkout is cloned by CI and locally, never tracked
@@ -323,6 +335,10 @@ third_party/es-toolkit-src/
 !blocker-logs/hono-phase3-brief.md
 !blocker-logs/hono-tests.md
 !blocker-logs/hono-phase3-round1.md
+!blocker-logs/hono-phase3-round2-brief.md
 
 # CI triage note for the post-merge failures on main after 7899b194.
 !blocker-logs/ci-main-7899b194-fix.md
+target-*/
+!blocker-logs/hono-phase3-round1-families.md
+!blocker-logs/hono-phase3-round1-measure-excludes.txt

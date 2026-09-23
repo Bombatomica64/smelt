@@ -67,3 +67,25 @@ parallel.
 Gates for every commit: the implementer-brief set (examples invariant 0, es-toolkit ratchet,
 remeda 1789/0, radash 84/0, suites, clippy). Notes: `blocker-logs/hono-tests.md` and
 `blocker-logs/hono-phase3-round1.md`, allowlisted.
+
+## Corrections from the pre-round survey (`hono-phase3-survey.md`, 2026-09-22)
+
+- In-scope test files after the committed excludes are **91**, not 44 (1809 `it`/`test` cases,
+  589 `describe` blocks; `.each` rows expand further). The 44 was stale. Keep 91: adapter tests
+  (bun/deno/cloudflare/lambda/vercel/netlify) are in scope until a real blocker says otherwise.
+- The glob fix is exactly remeda's spelling: `test-prefix = ["**/*.test.ts"]`.
+- The matcher model (`smelt-frontend-ts/src/lowering/testing/matchers.rs`, closed `TestMatcher`
+  enum) is missing, by occurrence: `toBeTruthy` 94, `toBeFalsy` 81, `toMatch` 78, `toThrowError`
+  42, `toHaveBeenCalledOnce` 15, `toHaveBeenCalled` 13, `toMatchObject` 11, `toBeDefined` 5,
+  `toHaveBeenNthCalledWith` 3, comparison matchers 4, `toBeTypeOf` 1, `toBeFunction` 2, and the
+  jest aliases `toBeCalled`/`toBeCalledWith`/`toBeCalledTimes` (19/12/6). Aliases lower to the
+  same enum arm as their canonical spelling; that is a table entry, not a special case.
+- Present and needed: `expect.any`/`anything`/`stringContaining`/`arrayContaining`,
+  `expectTypeOf` (580 uses), `.rejects`, `.each`, all four lifecycle hooks, `vi.fn`/`vi.spyOn`.
+- Monkey-patching exclusions (add to the overlay with a reason): `src/middleware/cache/index.test.ts`
+  (`vi.stubGlobal` ×8), `src/adapter/service-worker/handler.test.ts` (`vi.stubGlobal`),
+  `src/middleware/jwk/index.test.ts` (`vi.spyOn(global.crypto.subtle)`). `vi.stubEnv` (3 files)
+  and `vi.spyOn(console.*)`/`vi.spyOn(Date, 'now')` (4 files) are a scoped-model decision for the
+  round owner: model `vi.stubEnv` as a process-env host member and console/Date spies as spies on
+  host-module members if the spy model already covers module members; otherwise exclude with a
+  reason and count them.

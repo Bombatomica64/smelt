@@ -1,0 +1,90 @@
+fn via_function (FuncId(0)) -> Float
+  locals
+    %0 param n: Float
+    %1 temp: Float
+    %2 temp: Float
+  bb0:
+    %1 = call fn3(copy %0) -> bb1
+  bb1:
+    %2 = move %1 - 1.0
+    return move %2
+
+fn inner (FuncId(1)) -> Float
+  locals
+    %0 param n: Float
+    %1 temp: Float
+  bb0:
+    %1 = copy %0 * 10.0
+    return move %1
+
+async fn later (FuncId(2)) -> Float
+  locals
+    %0 param n: Float
+    %1 temp: Float
+  bb0:
+    %1 = copy %0 + 1.0
+    return move %1
+
+fn lastly (FuncId(3)) -> Float
+  locals
+    %0 param n: Float
+    %1 temp: Float
+  bb0:
+    %1 = copy %0 * copy %0
+    return move %1
+
+fn outer (FuncId(4)) -> Float
+  locals
+    %0 param n: Float
+    %1 temp: Float
+    %2 temp: Float
+  bb0:
+    %1 = call fn1(copy %0) -> bb1
+  bb1:
+    %2 = move %1 + 1.0
+    return move %2
+
+async fn twice (FuncId(5)) -> Float
+  locals
+    %0 param n: Float
+    %1 user r: Float
+    %2 temp: Future<Float>
+    %3 temp: Float
+    %4 temp: Float
+  bb0:
+    %2 = call fn2(copy %0) -> bb1
+  bb1:
+    %3 = await move %2
+    %1 = move %3
+    %4 = move %1 * 2.0
+    return move %4
+
+async fn main (FuncId(6)) -> None throws
+  locals
+    %0 temp: Float
+    %1 temp: None
+    %2 temp: Float
+    %3 temp: None
+    %4 temp: Future<Float>
+    %5 temp: Float
+    %6 temp: None
+    %7 temp: Future<None>
+    %8 temp: None
+  bb0:
+    %0 = call fn4(2.0) -> bb1
+  bb1:
+    %1 = call @console_log(move %0) -> bb2
+  bb2:
+    %2 = call fn0(4.0) -> bb3
+  bb3:
+    %3 = call @console_log(move %2) -> bb4
+  bb4:
+    %4 = call fn5(1.0) -> bb5
+  bb5:
+    %5 = await move %4
+    %6 = call @console_log(move %5) -> bb6
+  bb6:
+    %7 = async_exit_drain()
+    %8 = await move %7
+    return none
+

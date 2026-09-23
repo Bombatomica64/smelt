@@ -97,7 +97,15 @@ impl FunctionEmitter<'_> {
         field_ty: TypeId,
         dest_inner: TypeId,
     ) -> Result<Option<String>, EmitError> {
-        if !matches!(self.mir.types.get(field_ty), Some(Type::Unknown)) {
+        // "Erased" means the field's VALUE is carried as a tagged
+        // `SmeltUnknown`: a `Type::Unknown` field, and equally a wide union
+        // field (`number | null | (n) => number` stored in an erased record)
+        // that renders to `SmeltUnknown`. Both can hold `Undefined` for an
+        // absent key, which must become `None`, not a `Some` of a union
+        // decoded from `undefined`.
+        if !matches!(self.mir.types.get(field_ty), Some(Type::Unknown))
+            && self.type_text_with_impl_trait(field_ty, false)? != "SmeltUnknown"
+        {
             return Ok(None);
         }
         // An erased destination keeps the raw tagged value, `Undefined` included,
@@ -627,16 +635,16 @@ impl FunctionEmitter<'_> {
                 Ok(format!(
                     r"match {scrutinee} {{
                         SmeltUnknown::String(value) => {{
-                            let len = value.chars().count() as i64;
-                            let index = {numeric_index_text} as i64;
-                            let normalized = if index < 0 {{ len + index }} else {{ index }};
-                            usize::try_from(normalized).ok().and_then(|index| {string_some})
+                            let smelt_len = value.chars().count() as i64;
+                            let smelt_index = {numeric_index_text} as i64;
+                            let smelt_normalized = if smelt_index < 0 {{ smelt_len + smelt_index }} else {{ smelt_index }};
+                            usize::try_from(smelt_normalized).ok().and_then(|index| {string_some})
                         }}
                         SmeltUnknown::Array(values) => {{
-                            let len = values.len() as i64;
-                            let index = {numeric_index_text} as i64;
-                            let normalized = if index < 0 {{ len + index }} else {{ index }};
-                            usize::try_from(normalized).ok().and_then(|index| {array_some})
+                            let smelt_len = values.len() as i64;
+                            let smelt_index = {numeric_index_text} as i64;
+                            let smelt_normalized = if smelt_index < 0 {{ smelt_len + smelt_index }} else {{ smelt_index }};
+                            usize::try_from(smelt_normalized).ok().and_then(|index| {array_some})
                         }}
                         SmeltUnknown::Object(values) => {object_some},
                         {primitive_none},
@@ -664,7 +672,7 @@ impl FunctionEmitter<'_> {
             self.value_at_type(index, self.type_id(Type::Float)?)?
         };
         Ok(format!(
-            "{{ let len = {len_expr} as i64; let index = {index_text} as i64; let normalized = if index < 0 {{ len + index }} else {{ index }}; usize::try_from(normalized).ok() }}"
+            "{{ let smelt_len = {len_expr} as i64; let smelt_index = {index_text} as i64; let smelt_normalized = if smelt_index < 0 {{ smelt_len + smelt_index }} else {{ smelt_index }}; usize::try_from(smelt_normalized).ok() }}"
         ))
     }
 }

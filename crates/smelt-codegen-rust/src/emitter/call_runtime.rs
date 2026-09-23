@@ -1193,6 +1193,11 @@ impl FunctionEmitter<'_> {
             } => {
                 let source = self.operand_ty(unknown_value)?;
                 let value_text = self.operand_text(unknown_value)?;
+                if let Some(collected) =
+                    self.generator_items_text(&value_text, source, *target)?
+                {
+                    return self.value_at_type_text(&collected, *target, dest_ty, &self.render_scope());
+                }
                 if let Some(projected) =
                     self.project_union_value_text(&value_text, source, *target)?
                 {
@@ -2582,6 +2587,18 @@ impl FunctionEmitter<'_> {
                 }
                 return Ok(format!(
                     "{receiver_text}.get({field_name:?}).cloned().flatten()"
+                ));
+            }
+            // Same rule as the plain place read (`emitter::place`): a record
+            // whose values are erased reads a key it does not hold as
+            // `undefined`. An optional-chained read (`options?.times`) of an
+            // optional property reaches here, and must not panic on the absent
+            // key the source type explicitly allows.
+            if self.type_text_with_impl_trait(*value, false)? == "SmeltUnknown" {
+                let cloned = if self.dict_uses_smelt_record(*key) { "" } else { ".cloned()" };
+                return Ok(format!(
+                    "{receiver_text}.get({field_name:?}){cloned}.unwrap_or({})",
+                    self.absent_value_text()
                 ));
             }
             if self.dict_uses_smelt_record(*key) {

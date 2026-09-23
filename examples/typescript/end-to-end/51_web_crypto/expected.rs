@@ -1875,7 +1875,7 @@ fn smelt_object_prototype_member(field: &str) -> Option<SmeltUnknown> {
 }
 
 /// Every modeled builtin member: `(class, kind, member, length, key)`.
-const SMELT_BUILTIN_MEMBERS: [(&str, &str, &str, f64, &'static str); 7] = [("Array", "prototype", "slice", 2.0, "Array.prototype.slice"), ("Array", "prototype", "concat", 1.0, "Array.prototype.concat"), ("Array", "prototype", "indexOf", 1.0, "Array.prototype.indexOf"), ("Array", "prototype", "lastIndexOf", 1.0, "Array.prototype.lastIndexOf"), ("Array", "prototype", "includes", 1.0, "Array.prototype.includes"), ("Array", "prototype", "join", 1.0, "Array.prototype.join"), ("Array", "static", "isArray", 1.0, "Array.isArray")];
+const SMELT_BUILTIN_MEMBERS: [(&str, &str, &str, f64, &'static str); 17] = [("Array", "prototype", "slice", 2.0, "Array.prototype.slice"), ("Array", "prototype", "concat", 1.0, "Array.prototype.concat"), ("Array", "prototype", "indexOf", 1.0, "Array.prototype.indexOf"), ("Array", "prototype", "lastIndexOf", 1.0, "Array.prototype.lastIndexOf"), ("Array", "prototype", "includes", 1.0, "Array.prototype.includes"), ("Array", "prototype", "join", 1.0, "Array.prototype.join"), ("Array", "static", "isArray", 1.0, "Array.isArray"), ("Math", "static", "random", 0.0, "Math.random"), ("Math", "static", "abs", 1.0, "Math.abs"), ("Math", "static", "floor", 1.0, "Math.floor"), ("Math", "static", "ceil", 1.0, "Math.ceil"), ("Math", "static", "round", 1.0, "Math.round"), ("Math", "static", "trunc", 1.0, "Math.trunc"), ("Math", "static", "sign", 1.0, "Math.sign"), ("Math", "static", "sqrt", 1.0, "Math.sqrt"), ("Math", "static", "max", 2.0, "Math.max"), ("Math", "static", "min", 2.0, "Math.min")];
 /// Look one modeled builtin member up, returning its `length` and dispatch key.
 fn smelt_builtin_member_entry(class: &str, kind: &str, member: &str) -> Option<(f64, &'static str)> { SMELT_BUILTIN_MEMBERS.into_iter().find(|(entry_class, entry_kind, entry_member, _, _)| *entry_class == class && *entry_kind == kind && *entry_member == member).map(|(_, _, _, length, key)| (length, key)) }
 
@@ -1941,6 +1941,15 @@ fn smelt_builtin_member_apply(key: &str, args: Vec<SmeltUnknown>) -> SmeltUnknow
         "Array.prototype.includes" => match smelt_builtin_receiver_elements(&receiver) { Some(values) => SmeltUnknown::Bool(values.iter().any(|item| item.same_js_key(&first))), None => SmeltUnknown::Undefined }
         "Array.prototype.join" => match smelt_builtin_receiver_elements(&receiver) { Some(values) => { let separator = match &first { SmeltUnknown::Undefined => ",".to_owned(), other => smelt_builtin_receiver_text(other) }; SmeltUnknown::String(values.into_iter().map(|item| match item { SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), other => smelt_builtin_receiver_text(&other) }).collect::<Vec<_>>().join(&separator).into()) } None => SmeltUnknown::Undefined }
         "Array.isArray" => SmeltUnknown::Bool(matches!(receiver, SmeltUnknown::Array(_))),
+        "Math.random" => { use ::std::hash::BuildHasher; let bits = ::std::collections::hash_map::RandomState::new().hash_one(0_u64); SmeltUnknown::Number((bits >> 11) as f64 / (1_u64 << 53) as f64) }
+        "Math.abs" => SmeltUnknown::Number(smelt_unknown_to_number(&receiver).abs()),
+        "Math.floor" => SmeltUnknown::Number(smelt_unknown_to_number(&receiver).floor()),
+        "Math.ceil" => SmeltUnknown::Number(smelt_unknown_to_number(&receiver).ceil()),
+        "Math.round" => SmeltUnknown::Number((smelt_unknown_to_number(&receiver) + 0.5).floor()),
+        "Math.trunc" => SmeltUnknown::Number(smelt_unknown_to_number(&receiver).trunc()),
+        "Math.sign" => { let value = smelt_unknown_to_number(&receiver); SmeltUnknown::Number(if value.is_nan() || value == 0.0 { value } else { value.signum() }) }
+        "Math.sqrt" => SmeltUnknown::Number(smelt_unknown_to_number(&receiver).sqrt()),
+        "Math.max" | "Math.min" => { let is_max = key == "Math.max"; let mut result = if is_max { f64::NEG_INFINITY } else { f64::INFINITY }; for argument in &args { let value = smelt_unknown_to_number(argument); if value.is_nan() { result = f64::NAN; break; } if (is_max && value > result) || (!is_max && value < result) { result = value; } } SmeltUnknown::Number(result) }
         _ => SmeltUnknown::Undefined,
     }
 }
@@ -3566,9 +3575,9 @@ smelt_local.block_on(&smelt_runtime, async move {
     let id: String = _smelt_tmp_4;
     let _smelt_tmp_5: f64 = id.chars().count() as f64;
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_5)); };
-    let _ = { println!("{} {} {} {}", id.chars().nth({ let normalized = 8.0 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).expect("index out of bounds"), id.chars().nth({ let normalized = 13.0 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).expect("index out of bounds"), id.chars().nth({ let normalized = 18.0 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).expect("index out of bounds"), id.chars().nth({ let normalized = 23.0 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).expect("index out of bounds")); };
-    let _ = { println!("{}", id.chars().nth({ let normalized = 14.0 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).expect("index out of bounds")); };
-    _smelt_tmp_9 = "89ab".to_owned().contains(&id.chars().nth({ let normalized = 19.0 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).expect("index out of bounds"));
+    let _ = { println!("{} {} {} {}", id.chars().nth({ let smelt_normalized = 8.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).expect("index out of bounds"), id.chars().nth({ let smelt_normalized = 13.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).expect("index out of bounds"), id.chars().nth({ let smelt_normalized = 18.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).expect("index out of bounds"), id.chars().nth({ let smelt_normalized = 23.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).expect("index out of bounds")); };
+    let _ = { println!("{}", id.chars().nth({ let smelt_normalized = 14.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).expect("index out of bounds")); };
+    _smelt_tmp_9 = "89ab".to_owned().contains(&id.chars().nth({ let smelt_normalized = 19.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).map(|ch| ch.to_string()).expect("index out of bounds"));
     let _ = { println!("{}", _smelt_tmp_9); };
     _smelt_tmp_11 = uuid::Uuid::new_v4().to_string();
     _smelt_tmp_12 = id.clone() == _smelt_tmp_11;
@@ -3580,12 +3589,12 @@ smelt_local.block_on(&smelt_runtime, async move {
     groups = Into::<SmeltList<_>>::into(_smelt_tmp_17);
     _smelt_tmp_18 = groups.len() as f64;
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_18)); };
-    _smelt_tmp_20 = groups.borrow().get({ let normalized = 0.0 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()).chars().count() as f64;
-    _smelt_tmp_21 = groups.borrow().get({ let normalized = 1.0 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()).chars().count() as f64;
-    _smelt_tmp_22 = groups.borrow().get({ let normalized = 2.0 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()).chars().count() as f64;
+    _smelt_tmp_20 = groups.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()).chars().count() as f64;
+    _smelt_tmp_21 = groups.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()).chars().count() as f64;
+    _smelt_tmp_22 = groups.borrow().get({ let smelt_normalized = 2.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()).chars().count() as f64;
     let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_20), smelt_console_number(_smelt_tmp_21), smelt_console_number(_smelt_tmp_22)); };
-    _smelt_tmp_24 = groups.borrow().get({ let normalized = 3.0 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()).chars().count() as f64;
-    _smelt_tmp_25 = groups.borrow().get({ let normalized = 4.0 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()).chars().count() as f64;
+    _smelt_tmp_24 = groups.borrow().get({ let smelt_normalized = 3.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()).chars().count() as f64;
+    _smelt_tmp_25 = groups.borrow().get({ let smelt_normalized = 4.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| String::new()).chars().count() as f64;
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_24), smelt_console_number(_smelt_tmp_25)); };
     _smelt_tmp_27 = regex::Regex::new(&"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$".to_owned()).expect("regex compile failed").is_match(&id);
     let _ = { println!("{}", _smelt_tmp_27); };

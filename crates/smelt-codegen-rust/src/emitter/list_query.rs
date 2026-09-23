@@ -386,7 +386,20 @@ impl FunctionEmitter<'_> {
     /// concrete closure and uses direct call syntax.
     pub(super) fn callback_invocation_text(&self, function_ty: &FunctionType, args: &str) -> String {
         if self.is_erased_unknown_rest_function(function_ty) {
-            format!("smelt_callback.call({args})")
+            // `SmeltErasedFunction::call` answers `SmeltUnknown` whatever the
+            // callback's DECLARED return type is, while every caller here
+            // treats the text as that declared type. Read it back out through
+            // the checked extraction so a `(...args: any[]) => string` mapper
+            // yields `String`s.
+            let call = format!("smelt_callback.call({args})");
+            let returns_erased = self
+                .type_text_with_impl_trait(function_ty.return_ty, false)
+                .is_ok_and(|text| text == "SmeltUnknown");
+            if returns_erased {
+                return call;
+            }
+            self.extract_value_text(&call, function_ty.return_ty, &self.render_scope())
+                .unwrap_or(call)
         } else {
             format!("(smelt_callback)({args})")
         }
@@ -422,6 +435,24 @@ impl FunctionEmitter<'_> {
         // callback that WRITES the array it is iterating — legal in JavaScript —
         // panics "already borrowed" instead of the compile error it used to be.
         let borrowed_list_text = self.operand_borrow_text(list)?;
+        // A variadic erased callback (`(...args: any[]) => any`, a
+        // `SmeltErasedFunction`) has ONE Rust parameter, its rest list, and
+        // JavaScript fills that list with every argument the array method
+        // supplies: `(item, index, array)`. Binding the element to the rest
+        // slot converted the element itself into the argument list (an object
+        // element panicked "unknown is not iterable"). Pack the arguments
+        // instead, erased at the boundary the callee already declares.
+        if self.is_erased_unknown_rest_function(function_ty) {
+            let item = self.erase_value_text("item.clone()", element_ty)?;
+            let array = self.erase_value_text("smelt_array.clone()", list_ty)?;
+            return Ok(ListCallbackIterationParts {
+                prefix: format!("let smelt_array = {owned_list_text}; "),
+                iter_text: list_read_text("smelt_array"),
+                call_args: vec![format!(
+                    "SmeltList::from(vec![{item}, SmeltUnknown::Number(index as f64), {array}])"
+                )],
+            });
+        }
         // A zero-parameter callback (`values.map(stubTrue)`) ignores every
         // supplied argument, so it is called with no arguments at all.
         let mut call_args = Vec::new();

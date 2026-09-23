@@ -1,0 +1,76 @@
+module examples/typescript/end-to-end/119_arrow_param_default/input.ts (ModuleId(0))
+  body BodyId(5)
+  items
+    fn cluster owner Module
+  locals
+    %0 const greet: fn(String, String) -> String
+    %1 const scaled: fn(Float, Float) -> Float
+  exprs
+    #0: Float = 1.0
+    #1: Float = 2.0
+    #2: Float = 3.0
+    #3: Float = 4.0
+    #4: Float = 5.0
+    #5: List<Float> = [#0, #1, #2, #3, #4]
+    #6: fn(List<Float>, Optional<Float>) -> List<List<Float>> = @0(cluster)
+    #7: List<List<Float>> = call #6(#5)
+    #8: Float = len #7
+    #9: None = @1(console_log)
+    #10: None = call #9(#8)
+    #11: Float = 1.0
+    #12: Float = 2.0
+    #13: Float = 3.0
+    #14: Float = 4.0
+    #15: Float = 5.0
+    #16: List<Float> = [#11, #12, #13, #14, #15]
+    #17: Float = 5.0
+    #18: fn(List<Float>, Optional<Float>) -> List<List<Float>> = @0(cluster)
+    #19: List<List<Float>> = call #18(#16, #17)
+    #20: Float = len #19
+    #21: None = @2(console_log)
+    #22: None = call #21(#20)
+    #23: fn(String, String) -> String = closure BodyId(1) captures 0 -> String
+    #24: String = "ada"
+    #25: String = "hello"
+    #26: String = closure_call #23(#24, #25)
+    #27: None = @3(console_log)
+    #28: None = call #27(#26)
+    #29: fn(String, String) -> String = closure BodyId(2) captures 0 -> String
+    #30: String = "ada"
+    #31: String = "hi"
+    #32: String = closure_call #29(#30, #31)
+    #33: None = @4(console_log)
+    #34: None = call #33(#32)
+    #35: fn(Float, Float) -> Float = closure BodyId(3) captures 0 -> Float
+    #36: Float = 3.0
+    #37: Float = 2.0
+    #38: Float = Mul #36, #37
+    #39: Float = closure_call #35(#36, #38)
+    #40: None = @5(console_log)
+    #41: None = call #40(#39)
+    #42: fn(Float, Float) -> Float = closure BodyId(4) captures 0 -> Float
+    #43: Float = 3.0
+    #44: Float = 1.0
+    #45: Float = closure_call #42(#43, #44)
+    #46: None = @6(console_log)
+    #47: None = call #46(#45)
+  stmts
+    s0: #10
+    s1: #22
+    s2: #28
+    s3: #34
+    s4: #41
+    s5: #47
+
+interned types
+  t0 = Float
+  t1 = List<Float>
+  t2 = List<List<Float>>
+  t3 = fn(List<Float>, Float) -> List<List<Float>>
+  t4 = String
+  t5 = fn(String, String) -> String
+  t6 = fn(Float, Float) -> Float
+  t7 = Optional<Float>
+  t8 = Bool
+  t9 = fn(List<Float>, Optional<Float>) -> List<List<Float>>
+  t10 = None

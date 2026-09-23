@@ -98,3 +98,4 @@ mod object_model_tests;
 mod stdlib_boundary_tests;
 mod function_semantics_tests;
 mod blocker_site_tests;
+mod closure_capture_frame_tests;

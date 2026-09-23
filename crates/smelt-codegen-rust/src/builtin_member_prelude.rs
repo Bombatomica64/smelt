@@ -135,6 +135,20 @@ fn emit_apply(writer: &mut CodeWriter) {
     writer.line("        \"Array.prototype.join\" => match smelt_builtin_receiver_elements(&receiver) { Some(values) => { let separator = match &first { SmeltUnknown::Undefined => \",\".to_owned(), other => smelt_builtin_receiver_text(other) }; SmeltUnknown::String(values.into_iter().map(|item| match item { SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), other => smelt_builtin_receiver_text(&other) }).collect::<Vec<_>>().join(&separator).into()) } None => SmeltUnknown::Undefined }");
     // Statics
     writer.line("        \"Array.isArray\" => SmeltUnknown::Bool(matches!(receiver, SmeltUnknown::Array(_))),");
+    // `Math` statics: no receiver, so `receiver` is the first argument. Each
+    // argument goes through JS `ToNumber` (`smelt_unknown_to_number`).
+    // `Math.random` draws from std's per-instance randomly keyed `RandomState`
+    // rather than the `rand` crate, so the erased runtime (always emitted)
+    // does not pull a dependency into every generated crate.
+    writer.line("        \"Math.random\" => { use ::std::hash::BuildHasher; let bits = ::std::collections::hash_map::RandomState::new().hash_one(0_u64); SmeltUnknown::Number((bits >> 11) as f64 / (1_u64 << 53) as f64) }");
+    writer.line("        \"Math.abs\" => SmeltUnknown::Number(smelt_unknown_to_number(&receiver).abs()),");
+    writer.line("        \"Math.floor\" => SmeltUnknown::Number(smelt_unknown_to_number(&receiver).floor()),");
+    writer.line("        \"Math.ceil\" => SmeltUnknown::Number(smelt_unknown_to_number(&receiver).ceil()),");
+    writer.line("        \"Math.round\" => SmeltUnknown::Number((smelt_unknown_to_number(&receiver) + 0.5).floor()),");
+    writer.line("        \"Math.trunc\" => SmeltUnknown::Number(smelt_unknown_to_number(&receiver).trunc()),");
+    writer.line("        \"Math.sign\" => { let value = smelt_unknown_to_number(&receiver); SmeltUnknown::Number(if value.is_nan() || value == 0.0 { value } else { value.signum() }) }");
+    writer.line("        \"Math.sqrt\" => SmeltUnknown::Number(smelt_unknown_to_number(&receiver).sqrt()),");
+    writer.line("        \"Math.max\" | \"Math.min\" => { let is_max = key == \"Math.max\"; let mut result = if is_max { f64::NEG_INFINITY } else { f64::INFINITY }; for argument in &args { let value = smelt_unknown_to_number(argument); if value.is_nan() { result = f64::NAN; break; } if (is_max && value > result) || (!is_max && value < result) { result = value; } } SmeltUnknown::Number(result) }");
     writer.line("        _ => SmeltUnknown::Undefined,");
     writer.line("    }");
     writer.line("}");

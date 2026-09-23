@@ -94,6 +94,19 @@ pub const BUILTIN_MEMBER_FUNCTIONS: &[BuiltinMember] = &[
     proto("Array", "includes", 1),
     proto("Array", "join", 1),
     statics("Array", "isArray", 1),
+    // `Math`'s numeric functions are handed around as values
+    // (`times(n, Math.random)`, `xs.map(Math.abs)`) as often as they are
+    // called directly.
+    statics("Math", "random", 0),
+    statics("Math", "abs", 1),
+    statics("Math", "floor", 1),
+    statics("Math", "ceil", 1),
+    statics("Math", "round", 1),
+    statics("Math", "trunc", 1),
+    statics("Math", "sign", 1),
+    statics("Math", "sqrt", 1),
+    statics("Math", "max", 2),
+    statics("Math", "min", 2),
 ];
 
 /// Return the modeled member for a `(class, kind, member)` triple.

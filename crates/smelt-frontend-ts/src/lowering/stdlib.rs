@@ -32,6 +32,17 @@ type CallableAssignSources = (
     Vec<smelt_hir::ExprId>,
 );
 
+/// Whether an identifier names a test framework's mock/timer namespace.
+///
+/// Vitest exposes its mock API as `vi` and Jest exposes the SAME API
+/// (`fn`, `spyOn`, `mock`, `restoreAllMocks`, `useFakeTimers`, ...) as the
+/// `jest` global; Vitest's own docs describe `vi` as the Jest-compatible
+/// replacement. A suite written against Jest globals (`jest.fn()` with
+/// ambient `describe`/`test`) therefore lowers through the same rules.
+pub(in crate::lowering) fn is_test_mock_namespace(name: &str) -> bool {
+    matches!(name, "vi" | "jest")
+}
+
 impl ModuleBuilder<'_> {
     /// Lower TypeScript `Object.assign(target, ...sources)` for homogeneous record values.
     pub(super) fn object_assign_call(
@@ -326,7 +337,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if object.name != "vi" || member.property.name != "fn" {
+        if !is_test_mock_namespace(&object.name) || member.property.name != "fn" {
             return Ok(None);
         }
         if let Some(type_args) = &call.type_arguments {
@@ -373,7 +384,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if object.name != "vi" || member.property.name != "spyOn" {
+        if !is_test_mock_namespace(&object.name) || member.property.name != "spyOn" {
             return Ok(None);
         }
         let [target, method] = call.arguments.as_slice() else {
@@ -450,7 +461,7 @@ impl ModuleBuilder<'_> {
                         if chain_member.property.name == "spyOn"
                             && matches!(
                                 &chain_member.object,
-                                Expression::Identifier(chain_object) if chain_object.name == "vi"
+                                Expression::Identifier(chain_object) if is_test_mock_namespace(&chain_object.name)
                             )
                 )
         );
@@ -583,7 +594,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if object.name != "vi" {
+        if !is_test_mock_namespace(&object.name) {
             return Ok(None);
         }
         let ty = self.ctx.krate.types.intern(Type::None);

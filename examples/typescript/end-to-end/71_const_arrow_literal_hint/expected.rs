@@ -247,7 +247,7 @@ fn main() {
     _smelt_tmp_4 = closure_arg_0.len() as f64;
     _smelt_tmp_5 = _smelt_tmp_3 < _smelt_tmp_4;
     if _smelt_tmp_5 {
-    item = closure_arg_0.borrow().get({ let normalized = _smelt_tmp_3 as i64; usize::try_from(normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| Default::default());
+    item = closure_arg_0.borrow().get({ let smelt_normalized = _smelt_tmp_3 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| Default::default());
     _smelt_tmp_6 = item.status.clone().clone().unwrap_or(0.0);
     _smelt_tmp_7 = sum + _smelt_tmp_6;
     sum = _smelt_tmp_7;

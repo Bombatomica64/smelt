@@ -636,6 +636,13 @@ impl FunctionEmitter<'_> {
                 self.operand_text(source)?
             } else if !matches!(self.mir.types.get(source_ty), Some(Type::Dict(_, _))) {
                 self.object_spread_unknown_source_text(source, target_ty)?
+            } else if let Some(converted) = self.dict_spread_value_conversion_text(source, target_ty)? {
+                // A record whose VALUE type differs from the target's (a
+                // `{ weight: number }` spread into an erased merge) is still
+                // copied, each value converted to the target value type. It
+                // used to be skipped, silently losing every field it carried.
+                steps.push(format!("{accumulator}.extend({converted});"));
+                continue;
             } else {
                 continue;
             };
@@ -645,6 +652,36 @@ impl FunctionEmitter<'_> {
         }
         steps.push(final_value);
         Ok(format!("{{ {} }}", steps.join(" ")))
+    }
+
+    /// Converts a string-keyed record source into `(key, value)` pairs of the
+    /// target record's value type, for an object spread whose source and
+    /// target records differ only in value type.
+    ///
+    /// Returns `None` when either side is not a string-keyed `Dict`, leaving
+    /// the caller's other arms to decide.
+    fn dict_spread_value_conversion_text(
+        &self,
+        source: &Operand,
+        target_ty: TypeId,
+    ) -> Result<Option<String>, EmitError> {
+        let source_ty = self.operand_ty(source)?;
+        let (Some(Type::Dict(source_key, source_value)), Some(Type::Dict(target_key, target_value))) =
+            (self.mir.types.get(source_ty), self.mir.types.get(target_ty))
+        else {
+            return Ok(None);
+        };
+        if self.mir.types.get(*source_key) != Some(&Type::String)
+            || self.mir.types.get(*target_key) != Some(&Type::String)
+        {
+            return Ok(None);
+        }
+        let value_text =
+            self.value_at_type_text("value.clone()", *source_value, *target_value, &self.render_scope())?;
+        Ok(Some(format!(
+            "{}.iter().map(|(key, value)| (key.clone(), {value_text}))",
+            self.operand_text(source)?
+        )))
     }
 
     /// Converts an unknown object-spread source into the typed record target.

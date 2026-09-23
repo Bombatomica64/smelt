@@ -360,7 +360,10 @@ impl FunctionEmitter<'_> {
             smelt_hir::NumericUnaryFuncOp::Exp => "exp",
         };
         let operand_text = self.float_operand_text(operand)?;
-        Ok(format!("{operand_text}.{method_name}()"))
+        // A literal operand (`Math.sqrt(2)` renders `2.0`) has no inferred
+        // float width, and a method call on `{float}` does not compile; pin it
+        // with the same `as f64` the binary helpers use.
+        Ok(format!("({operand_text} as f64).{method_name}()"))
     }
 
     /// Converts a numeric power operation to Rust text.

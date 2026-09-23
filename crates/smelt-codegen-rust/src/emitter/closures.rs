@@ -342,6 +342,75 @@ impl FunctionEmitter<'_> {
         Ok(closure)
     }
 
+    /// Choose one distinct Rust binding name per captured source local.
+    ///
+    /// A capture normally keeps the name its source binding already has in the
+    /// enclosing frame, so the nested body reads the same identifier. Two things
+    /// can make that name unusable, and BOTH are ordinary consequences of
+    /// nesting rather than anything library-specific:
+    ///
+    /// * the name is one this closure's own parameters take (`closure_arg_{i}`,
+    ///   the name every closure parameter is emitted under), so the capture
+    ///   would be shadowed by the parameter; and
+    /// * two DIFFERENT captured locals render under the same name. Closure
+    ///   parameters are all named by position, so a closure nested three deep
+    ///   captures its parent's `closure_arg_0` *and* its grandparent's
+    ///   `closure_arg_0` — distinct values, one identifier. The capture prelude
+    ///   dedupes by name, so the second binding was dropped and both reads
+    ///   resolved to whichever value was bound first.
+    ///
+    /// Either case takes an alias: `smelt_captured_<name>`, and when that too is
+    /// already claimed, the captured local's id is appended — a name no source
+    /// identifier can reach, unique within the frame and stable across runs
+    /// because MIR local ids are. Captures that already render as an enclosing
+    /// shared cell (`(*smelt_capture_x.borrow_mut())`) are left alone: their
+    /// rendered form is an expression, not an identifier, and the shared-cell
+    /// path binds them by cell name instead.
+    fn capture_aliases(
+        &self,
+        closure: &smelt_mir::MirClosure,
+        closure_param_names: &HashSet<String>,
+    ) -> Result<HashMap<LocalId, String>, EmitError> {
+        // Every captured local's name is spoken for before any alias is chosen:
+        // the capture prelude binds the aliases IN ORDER in the enclosing
+        // scope, so an alias that reuses another capture's source name shadows
+        // the very binding that later line clones from.
+        let mut sources = Vec::new();
+        let mut seen = HashSet::new();
+        for capture in &closure.captures {
+            if !seen.insert(capture.source_local) {
+                continue;
+            }
+            let source_name = self.local_name(capture.source_local)?.to_owned();
+            if shared_capture_cell_name(&source_name).is_some() {
+                continue;
+            }
+            sources.push((capture.source_local, source_name));
+        }
+        let mut claimed = closure_param_names.clone();
+        let mut shared_source_names = HashSet::new();
+        for (_, source_name) in &sources {
+            if !claimed.insert(source_name.clone()) {
+                shared_source_names.insert(source_name.clone());
+            }
+        }
+        let mut aliases = HashMap::new();
+        for (source_local, source_name) in sources {
+            if !closure_param_names.contains(&source_name)
+                && !shared_source_names.contains(&source_name)
+            {
+                continue;
+            }
+            let mut alias = format!("smelt_captured_{source_name}");
+            if claimed.contains(&alias) {
+                alias = format!("smelt_captured_{source_name}_{}", source_local.0);
+            }
+            claimed.insert(alias.clone());
+            aliases.insert(source_local, alias);
+        }
+        Ok(aliases)
+    }
+
     /// Emits ignored trailing parameters when a JS callback accepts fewer
     /// arguments than the contextual function type provides.
     ///
@@ -435,7 +504,7 @@ impl FunctionEmitter<'_> {
             .enumerate()
             .map(|(index, _)| format!("closure_arg_{index}"))
             .collect::<HashSet<_>>();
-        let mut capture_aliases = HashMap::new();
+        let capture_aliases = self.capture_aliases(closure, &closure_param_names)?;
         let body = {
             let mut closure_locals = closure.locals.clone();
             let fallback_span = closure_locals.first().map_or(
@@ -516,14 +585,10 @@ impl FunctionEmitter<'_> {
                 if let Some(target) = capture.target_local {
                     let source = self.local_decl(capture.source_local)?;
                     let source_name = self.local_name(capture.source_local)?.to_owned();
-                    let alias_name = if closure_param_names.contains(&source_name) {
-                        capture_aliases
-                            .entry(capture.source_local)
-                            .or_insert_with(|| format!("smelt_captured_{source_name}"))
-                            .clone()
-                    } else {
-                        source_name.clone()
-                    };
+                    let alias_name = capture_aliases
+                        .get(&capture.source_local)
+                        .cloned()
+                        .unwrap_or_else(|| source_name.clone());
                     if matches!(self.mir.types.get(source.ty), Some(Type::Function(_)))
                         && matches!(source.kind, LocalKind::Param { .. })
                         && !self.function_parameter_requires_owned(capture.source_local)?
@@ -876,6 +941,28 @@ impl FunctionEmitter<'_> {
                             .get(&capture.source_local)
                             .cloned()
                             .unwrap_or_else(|| source_name.clone());
+                        // The SOURCE binding may itself already render as an
+                        // enclosing closure's shared cell
+                        // (`(*smelt_capture_x.borrow_mut())`, possibly through
+                        // the self-recursive `Weak` upgrade). Its own local is
+                        // not flagged as shared storage -- the flag sits on the
+                        // local one level out -- so neither check below sees it,
+                        // and the plain branch emitted `let x = x.clone();`,
+                        // which the enclosing wrapper's
+                        // `replace_shared_capture_uses` turned into `let
+                        // (*smelt_capture_x.borrow_mut()) = ..`: a place
+                        // expression in a binding position, which is not a
+                        // pattern. Clone the CELL instead, exactly as the
+                        // sibling wrapper prelude does for the same shape.
+                        // Hono's `compose` reaches it: `() => dispatch(i + 1)`
+                        // is an async closure nested inside the body that holds
+                        // the `dispatch` knot.
+                        if let Some(cell) = shared_capture_cell_name(&source_name) {
+                            let cell = cell.to_owned();
+                            return cloned_async_captures
+                                .insert(cell.clone())
+                                .then(|| format!("let {cell} = {cell}.clone();"));
+                        }
                         // A capture that lives in shared `Rc<RefCell>` storage is
                         // read through `(*smelt_capture_x.borrow_mut())` in the
                         // body. The `async move` block must own its own `Rc` clone

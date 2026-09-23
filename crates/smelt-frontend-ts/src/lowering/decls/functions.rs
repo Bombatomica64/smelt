@@ -32,8 +32,6 @@ use smelt_hir::{
 struct ForwardedBaseConstructor {
     /// The base class's interned name.
     base: smelt_hir::Symbol,
-    /// The base class's source spelling, as the `super(...)` lowering wants it.
-    base_name: String,
     /// The type arguments the `extends` clause applied to the base.
     base_args: Vec<smelt_hir::TypeId>,
     /// The base constructor's parameters, in order, as (name, type).
@@ -563,7 +561,7 @@ impl ModuleBuilder<'_> {
             } else {
                 function.params.items.len()
             });
-        for statement in &function_body.statements {
+        for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
             if self.is_super_call_statement(statement) {
                 continue;
             }
@@ -851,7 +849,7 @@ impl ModuleBuilder<'_> {
     ///
     /// Shared by free functions, methods, and constructors so all three agree on
     /// the ABI and on when a default is applied.
-    fn apply_parameter_defaults<'src>(
+    pub(in crate::lowering) fn apply_parameter_defaults<'src>(
         &mut self,
         defaulted_params: Vec<(
             smelt_hir::LocalId,
@@ -917,7 +915,7 @@ impl ModuleBuilder<'_> {
     /// already synthesize exactly the defaulted value, so the parameter keeps
     /// its plain (non-`Optional`) ABI. This also preserves mutable-reference
     /// threading for parameters that accumulate state across recursive calls.
-    fn initializer_is_type_zero_default(initializer: &Expression<'_>) -> bool {
+    pub(in crate::lowering) fn initializer_is_type_zero_default(initializer: &Expression<'_>) -> bool {
         match initializer {
             Expression::NumericLiteral(literal) => literal.value == 0.0,
             Expression::StringLiteral(literal) => literal.value.is_empty(),
@@ -1168,7 +1166,7 @@ impl ModuleBuilder<'_> {
             .generator
             .then(|| self.initialize_generator_yield_accumulator(function, &mut body));
         self.current_generator_yields = generator_yields;
-        for statement in &function_body.statements {
+        for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
             if let Err(error) = self.statement(statement, &mut body) {
                 errors.push(error);
             }
@@ -1628,7 +1626,7 @@ impl ModuleBuilder<'_> {
         let (base, base_args) = self.class_extends_clause(class)?;
         if let Some(base_name) = base {
             self.classes
-                .set_base(class_text.to_owned(), base_name, base_args.clone());
+                .set_base(class_text.to_owned(), class_name, base_name, base_args.clone());
         }
         let mut fields = Vec::new();
         // Methods this class reassigns through `this`, which are carried as
@@ -2809,7 +2807,6 @@ impl ModuleBuilder<'_> {
             // initializers, exactly as JavaScript orders them.
             self.lower_declared_base_super_call(
                 forwarded.base,
-                &forwarded.base_name,
                 forwarded.base_args,
                 &arguments,
                 this_local,
@@ -2885,16 +2882,13 @@ impl ModuleBuilder<'_> {
     ) -> Option<ForwardedBaseConstructor> {
         let (base, base_args) = self.classes.base(class_text).cloned()?;
         let base_name = self.ctx.krate.symbols.get(base).map(ToOwned::to_owned)?;
-        if super_call::is_error_like_base(&base_name) || !self.class_is_reproducible_base(&base_name)
-        {
+        if super_call::is_error_like_base(&base_name) || !self.class_is_reproducible_base(base) {
             return None;
         }
-        let base_item = self.classes.item(&base_name)?;
-        let index = usize::try_from(base_item.0).unwrap_or(usize::MAX);
-        let Some(Item::Class(class)) = self.ctx.krate.items.get(index) else {
-            return None;
-        };
-        let constructor = class.constructor?;
+        // Resolved by symbol for the same reason `class_is_reproducible_base` is:
+        // the base's source spelling may belong to another class entirely once a
+        // cross-module collision has been renamed apart.
+        let constructor = self.class_by_symbol(base)?.constructor?;
         let constructor_index = usize::try_from(constructor.0).unwrap_or(usize::MAX);
         let Some(Item::Function(function)) = self.ctx.krate.items.get(constructor_index) else {
             return None;
@@ -2907,7 +2901,6 @@ impl ModuleBuilder<'_> {
         }
         Some(ForwardedBaseConstructor {
             base,
-            base_name,
             base_args,
             parameters: function
                 .params
@@ -3113,7 +3106,30 @@ impl ModuleBuilder<'_> {
         {
             return Ok((None, Vec::new()));
         }
-        let base = self.intern_type_name(name);
+        // An `extends` clause names a TYPE, so it resolves like every other type
+        // reference in this module: through the module's import aliases and
+        // through the crate rename map for a name two modules both declare.
+        // Interning the LOCAL spelling instead recorded a base class that no
+        // module declares (`import { Hono as HonoBase }` recorded `HonoBase`),
+        // so every inherited field and method was silently dropped (`E0609`).
+        // The resolution is the identity for a local, unambiguous name, which is
+        // why this stays a general rule rather than an alias special case.
+        let mut base = self.resolve_type_reference_symbol(name);
+        // …and when the name is bound to a class DECLARED UNDER ANOTHER SPELLING,
+        // the declaration is what the base chain has to record. An export alias
+        // (`class Hono {..}; export { Hono as HonoBase }`) is exactly that: the
+        // importing module sees `HonoBase`, no module declares a class of that
+        // name, and the type-reference resolution above answers with the bare
+        // alias spelling. The class registry knows which declaration the alias
+        // is bound to, so the alias resolves to that class's own symbol. This
+        // only fires when the resolved symbol is not itself a declared class, so
+        // a locally declared or renamed base keeps the resolution above.
+        if self.class_by_symbol(base).is_none()
+            && let Some(item) = self.classes.item(name)
+            && let Item::Class(declared) = self.item_ref(item)
+        {
+            base = declared.name;
+        }
         // A modeled JavaScript host constructor (`Blob`, `File`, `ArrayBuffer`, the
         // boxed primitive wrappers, …) is a legitimate base even though it is not a
         // source-declared class: `smelt_stdlib::host_object` gives it a concrete
@@ -3621,7 +3637,7 @@ impl ModuleBuilder<'_> {
             .generator
             .then(|| self.initialize_generator_yield_accumulator(&method.value, &mut body));
         self.current_generator_yields = generator_yields;
-        for statement in &function_body.statements {
+        for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
             // `super(...)` has no callee to defer to once inheritance is flattened
             // into the derived struct, so it lowers to the base's initialization
             // applied to `this` instead of running as an ordinary call.

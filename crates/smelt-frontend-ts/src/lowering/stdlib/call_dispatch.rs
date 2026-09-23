@@ -3067,11 +3067,10 @@ impl<'builder> ModuleBuilder<'builder> {
         let Some((base, base_args)) = self
             .class_by_symbol(name)
             .and_then(|class| class.base.map(|base| (base, class.base_args.clone())))
-            .or_else(|| {
-                class_name
-                    .as_deref()
-                    .and_then(|base_name| self.classes.base(base_name).cloned())
-            })
+            // Symbol-keyed, not name-keyed: see `class_field_type`. A renamed
+            // class shares its source spelling with the class that displaced it,
+            // so a by-name base fallback can answer with the receiver itself.
+            .or_else(|| self.classes.base_of_symbol(name).cloned())
         else {
             return false;
         };

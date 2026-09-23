@@ -1,0 +1,76 @@
+fn main (FuncId(0)) -> None
+  locals
+    %0 user apply: fn(fn(Float) -> None) -> None
+    %1 user each: fn(List<String>, fn(String, Float) -> None) -> None
+    %2 temp: fn(fn(Float) -> None) -> None
+    %3 temp: fn(Float) -> None
+    %4 temp: None
+    %5 temp: fn(List<String>, fn(String, Float) -> None) -> None
+    %6 temp: List<String>
+    %7 temp: fn(String, Float) -> None
+    %8 temp: None
+  bb0:
+    %2 = closure ClosureId(0) []
+    %0 = move %2
+    %3 = closure ClosureId(1) []
+    %4 = closure_call move %0(move %3)
+    %5 = closure ClosureId(2) []
+    %1 = move %5
+    %6 = ["a", "b"]
+    %7 = closure ClosureId(3) []
+    %8 = closure_call move %1(move %6, move %7)
+    return none
+
+closure ClosureId(0) -> None
+  locals
+    %0 param cb: fn(Float) -> None
+    %1 temp: None
+  bb0:
+    %1 = closure_call copy %0(5.0)
+    return copy %1
+
+closure ClosureId(1) -> None
+  locals
+    %0 param __callback_param_0: Float
+    %1 temp: None
+  bb0:
+    %1 = call @console_log("value", copy %0) -> bb1
+  bb1:
+    return copy %1
+
+closure ClosureId(2) -> None
+  locals
+    %0 param items: List<String>
+    %1 param cb: fn(String, Float) -> None
+    %2 user i: Float
+    %3 temp: Float
+    %4 temp: Bool
+    %5 temp: None
+    %6 temp: Float
+  bb0:
+    %2 = 0.0
+    goto bb1
+  bb1:
+    %3 = len copy %0
+    %4 = copy %2 < copy %3
+    switch copy %4 ? bb2 : bb4
+  bb2:
+    %5 = closure_call copy %1(copy %0[copy %2], copy %2)
+    goto bb3
+  bb3:
+    %6 = copy %2 + 1.0
+    %2 = copy %6
+    goto bb1
+  bb4:
+    return none
+
+closure ClosureId(3) -> None
+  locals
+    %0 param __callback_param_0: String
+    %1 param __callback_param_1: Float
+    %2 temp: None
+  bb0:
+    %2 = call @console_log(copy %1, copy %0) -> bb1
+  bb1:
+    return copy %2
+

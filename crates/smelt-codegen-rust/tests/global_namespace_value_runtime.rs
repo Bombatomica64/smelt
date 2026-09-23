@@ -174,3 +174,37 @@ test("the member calls and local shadowing are unchanged", () => {
 "#;
     run_fixture(source, "smelt_namespace_calls_unchanged");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_math_function_read_as_a_value_computes() {
+    // `Math.random` handed to a helper is a VALUE read off the `Math`
+    // namespace. It answered `undefined` because no `Math` member was in the
+    // builtin-member registry, so every call through it produced `NaN`
+    // (remeda's `times(100, Math.random)` built an array of `NaN`s).
+    let source = r"
+import { test, expect } from 'vitest';
+
+const times = <T,>(count: number, fn: (index: number) => T): T[] => {
+  const out: T[] = [];
+  for (let i = 0; i < count; i++) {
+    out.push(fn(i));
+  }
+  return out;
+};
+
+test('Math.random as a value draws in [0, 1)', () => {
+  const draws: number[] = times(20, Math.random);
+  expect(draws.length).toBe(20);
+  expect(draws.every((x) => x >= 0 && x < 1)).toBe(true);
+  expect(new Set(draws).size > 1).toBe(true);
+});
+test('unary Math functions as values', () => {
+  const roots: number[] = times(3, Math.sqrt);
+  expect(roots).toEqual([0, 1, Math.sqrt(2)]);
+  const floors: number[] = times(2, Math.floor);
+  expect(floors).toEqual([0, 1]);
+});
+";
+    run_fixture(source, "smelt_math_function_values");
+}

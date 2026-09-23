@@ -172,3 +172,39 @@ test("optional scalars and nested objects survive the projection", () => {
 "#;
     run_fixture(source, "smelt_optional_record_field_scalars");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn an_absent_optional_field_of_a_wide_union_record_reads_undefined() {
+    // An inline options type mixing `number`, `number | null` and a callback
+    // lowers to a record whose values are erased; the source type still says
+    // every key is optional. An optional-chained read of an ABSENT key must
+    // reach the `??` fallback: it used to `.expect("missing field")` and, once
+    // past that, decode `undefined` as `Some(<union>)` (radash `retry`).
+    let source = r"
+import { test, expect } from 'vitest';
+
+const plan = (options: {
+  times?: number
+  delay?: number | null
+  backoff?: (count: number) => number
+}): string => {
+  const times = options?.times ?? 3
+  const delay = options?.delay
+  const backoff = options?.backoff ?? null
+  const wait = backoff ? backoff(times) : 0
+  return `${times} ${wait}` + (delay === undefined ? ' no-delay' : ' delay')
+}
+
+test('every key absent', () => {
+  expect(plan({})).toBe('3 0 no-delay');
+});
+test('some keys present', () => {
+  expect(plan({ times: 2, delay: 5 })).toBe('2 0 delay');
+});
+test('the callback key present', () => {
+  expect(plan({ backoff: (count: number) => count * 10 })).toBe('3 30 no-delay');
+});
+";
+    run_fixture(source, "smelt_optional_wide_union_record_field");
+}

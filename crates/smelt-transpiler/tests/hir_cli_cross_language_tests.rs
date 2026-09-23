@@ -920,6 +920,70 @@ tag:shape
     Ok(())
 }
 
+/// A class extending a base reached under ANOTHER SPELLING inherits the base's
+/// fields, methods, and constructor.
+///
+/// `class Store {}; export { Store as StoreBase }` in one module and
+/// `class Store extends StoreBase` in another is the shape Hono's
+/// `class Hono extends HonoBase` has, and three rules had to key on the RESOLVED
+/// declaration for it to work — the test fails if any of them regresses:
+///
+/// * the export alias is published once the exporting module's items exist, so
+///   the importing module can bind `StoreBase` to a declaration at all;
+/// * the `extends` clause records that declaration's own symbol rather than the
+///   local spelling, without which the subclass struct had NO inherited fields
+///   (`E0609`) and its `super(..)` was dropped;
+/// * every base-chain walk keys on that symbol rather than the source spelling
+///   the two classes share once the collision is renamed apart — a by-name walk
+///   answers with the subclass itself and never terminates (the frontend
+///   overflowed its stack).
+///
+/// `rename` also pins the inherited fluent method: it is declared `(): Store` on
+/// the base and returns `this`, so the copy emitted into the subclass's `impl`
+/// returns `Self` — the subclass — rather than the base struct it is annotated
+/// with, which under flattened inheritance is a different Rust type.
+#[test]
+fn build_inherits_through_a_base_class_exported_under_another_name() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "aliased-base"
+version = "0.1.0"
+
+[sources]
+entries = ["src/base.ts", "src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "aliased_base"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(project_path.join("src/base.ts"), "class Store {\n  label: string;\n  constructor(label: string) {\n    this.label = label;\n  }\n  describe(): string {\n    return 'store:' + this.label;\n  }\n  rename(label: string): Store {\n    this.label = label;\n    return this;\n  }\n}\n\nexport { Store as StoreBase };\n")?;
+    fs::write(project_path.join("src/main.ts"), "import { StoreBase } from './base';\n\nexport class Store extends StoreBase {\n  extra: number;\n  constructor(label: string, extra: number) {\n    super(label);\n    this.extra = extra;\n  }\n  report(): string {\n    return this.describe() + '/' + this.extra;\n  }\n}\n\nconst store = new Store('a', 2);\nconsole.log(store.report());\nconsole.log(store.rename('b').describe());\n")?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    // Node 22's output: the inherited `label` slot exists, the forwarded
+    // `super(label)` filled it, and the inherited fluent method answers the
+    // receiver, so the chained call reads the label it just wrote.
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(
+        &actual_stdout,
+        &"store:a/2\nstore:b\n".to_owned(),
+        "unexpected stdout",
+    )?;
+
+    Ok(())
+}
+
 /// Every TypeScript end-to-end example the golden suite checks.
 ///
 /// A list rather than a directory scan: an example is only checked once it
@@ -945,8 +1009,16 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "106_host_value_at_a_record_type",
     "107_never_branch_at_a_string_return",
     "108_headers_init_at_a_headers_slot",
+    "109_nested_function_declaration_hoists",
     "10_unary_logical",
     "110_captured_callback_handle_is_cloned",
+    "112_recursive_binding_keeps_its_type",
+    "115_transitive_closure_captures",
+    "116_generator_array_from",
+    "117_forward_exported_arrow",
+    "118_concise_callback_call_args",
+    "119_arrow_param_default",
+    "120_forward_arrow_after_class",
     "11_console_log_expressions",
     "12_while_sum",
     "13_for_of_sum",
@@ -1111,6 +1183,78 @@ fn python_end_to_end_examples_match_expected_dumps() -> TestResult {
     ] {
         verify_python_end_to_end_example(name)?;
     }
+
+    Ok(())
+}
+
+#[test]
+fn build_runs_namespace_call_to_overloaded_rest_function() -> TestResult {
+    // `ns.compose(f, g)` through `import * as ns` is the same call as a named
+    // `compose(f, g)`: a rest-parameter implementation receives its trailing
+    // arguments as ONE list. The namespace path forwarded them positionally,
+    // so the one-parameter rest function bound an empty list and `reduce`
+    // panicked "reduce of empty array with no initial value" (radash's
+    // `_.compose`). The overloads make the call's declared parameters fixed
+    // while the implementation is variadic, which is the shape that broke.
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "namespace-rest-call"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "namespace_rest_call"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/lib.ts"),
+        r"export function total(a: number): number
+export function total(a: number, b: number): number
+export function total(...nums: number[]): number {
+  return nums.reduce((acc, n) => acc + n, 0)
+}
+export const glue = (sep: string, ...parts: string[]): string => parts.join(sep)
+export function compose<A, R>(f1: (next: () => R) => () => A, last: () => R): () => A
+export function compose<A, B, R>(
+  f1: (next: () => B) => () => A,
+  f2: (next: () => R) => () => B,
+  last: () => R
+): () => A
+export function compose(...funcs: ((...args: any[]) => any)[]) {
+  return funcs.reverse().reduce((acc, fn) => fn(acc))
+}
+",
+    )?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        r"import * as ns from './lib.ts'
+
+console.log(ns.total(4))
+console.log(ns.total(2, 3))
+console.log(ns.glue('-', 'a', 'b', 'c'))
+const addOne = (fn: () => number) => () => fn() + 1
+const three = () => 3
+console.log(ns.compose(addOne, three)())
+console.log(ns.compose(addOne, addOne, three)())
+",
+    )?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(&actual_stdout, &"4\n5\na-b-c\n4\n5\n".to_owned(), "unexpected stdout")?;
 
     Ok(())
 }

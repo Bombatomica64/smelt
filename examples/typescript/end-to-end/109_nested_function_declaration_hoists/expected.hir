@@ -1,0 +1,50 @@
+module examples/typescript/end-to-end/109_nested_function_declaration_hoists/input.ts (ModuleId(0))
+  body BodyId(8)
+  items
+    fn scaled owner Module
+    fn count_up owner Module
+    fn count_up_hoisted owner Module
+    fn pick_label owner Module
+  exprs
+    #0: Float = 2.0
+    #1: fn(Float) -> Float = @0(scaled)
+    #2: Float = call #1(#0)
+    #3: None = @4(console_log)
+    #4: None = call #3(#2)
+    #5: Float = 0.0
+    #6: fn(Float) -> Float = @1(count_up)
+    #7: Float = call #6(#5)
+    #8: None = @5(console_log)
+    #9: None = call #8(#7)
+    #10: Float = 1.0
+    #11: fn(Float) -> Float = @2(count_up_hoisted)
+    #12: Float = call #11(#10)
+    #13: None = @6(console_log)
+    #14: None = call #13(#12)
+    #15: Bool = true
+    #16: fn(Bool) -> String = @3(pick_label)
+    #17: String = call #16(#15)
+    #18: None = @7(console_log)
+    #19: None = call #18(#17)
+    #20: Bool = false
+    #21: fn(Bool) -> String = @3(pick_label)
+    #22: String = call #21(#20)
+    #23: None = @8(console_log)
+    #24: None = call #23(#22)
+  stmts
+    s0: #4
+    s1: #9
+    s2: #14
+    s3: #19
+    s4: #24
+
+interned types
+  t0 = Float
+  t1 = fn(Float) -> Float
+  t2 = Bool
+  t3 = String
+  t4 = fn(Bool) -> String
+  t5 = fn(Float) -> Float
+  t6 = fn(String) -> String
+  t7 = None
+  t8 = fn(Bool) -> String

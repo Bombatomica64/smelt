@@ -1,0 +1,38 @@
+module examples/typescript/end-to-end/118_concise_callback_call_args/input.ts (ModuleId(0))
+  body BodyId(4)
+  locals
+    %0 const apply: fn(fn(Float) -> None) -> None
+    %1 const each: fn(List<String>, fn(String, Float) -> None) -> None
+  exprs
+    #0: fn(fn(Float) -> None) -> None = closure BodyId(0) captures 0 -> None
+    #1: fn(fn(Float) -> None) -> None = %0
+    #2: fn(Float) -> None = closure BodyId(1) captures 0 -> None
+    #3: None = closure_call #1(#2)
+    #4: fn(List<String>, fn(String, Float) -> None) -> None = closure BodyId(2) captures 0 -> None
+    #5: fn(List<String>, fn(String, Float) -> None) -> None = %1
+    #6: String = "a"
+    #7: String = "b"
+    #8: List<String> = [#6, #7]
+    #9: fn(String, Float) -> None = closure BodyId(3) captures 0 -> None
+    #10: None = closure_call #5(#8, #9)
+  stmts
+    s0: let %0: fn(fn(Float) -> None) -> None = #0
+    s1: #3
+    s2: let %1: fn(List<String>, fn(String, Float) -> None) -> None = #4
+    s3: #10
+
+interned types
+  t0 = Float
+  t1 = None
+  t2 = fn(Float) -> None
+  t3 = Unknown
+  t4 = fn(fn(Float) -> None) -> Unknown
+  t5 = String
+  t6 = List<String>
+  t7 = fn(String, Float) -> None
+  t8 = fn(List<String>, fn(String, Float) -> None) -> None
+  t9 = fn(fn(Float) -> None) -> None
+  t10 = fn(fn(Float) -> None) -> None
+  t11 = fn() -> None
+  t12 = Bool
+  t13 = fn(List<String>, fn(String, Float) -> None) -> None

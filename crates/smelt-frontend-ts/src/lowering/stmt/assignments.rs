@@ -121,7 +121,7 @@ impl ModuleBuilder<'_> {
                     format!("namespace member `{member_name}` is not callable"),
                 ));
             };
-        let args = call
+        let mut args = call
             .arguments
             .iter()
             .enumerate()
@@ -130,6 +130,27 @@ impl ModuleBuilder<'_> {
                 self.argument_with_hint(arg, body, hint)
             })
             .collect::<Result<Vec<_>, _>>()?;
+        // A rest-parameter callee receives its trailing arguments as ONE list,
+        // exactly as a direct identifier call packs them (`_.compose(f, g)` is
+        // `compose(f, g)` through a namespace). Without the pack the emitter saw
+        // two positional arguments for a one-parameter rest function and bound
+        // an empty list. A spread argument is left to the emitter's spread path.
+        if let Some(rest_index) = rest
+            && let Some(&rest_ty) = params.get(rest_index)
+            && matches!(self.ctx.krate.types.get(rest_ty), Some(Type::List(_)))
+            && !call
+                .arguments
+                .iter()
+                .any(|arg| matches!(arg, oxc::ast::ast::Argument::SpreadElement(_)))
+            && args.len() >= rest_index
+        {
+            let rest_items = args.split_off(rest_index);
+            args.push(body.push_expr(Expr {
+                kind: ExprKind::ListLit(rest_items),
+                ty: rest_ty,
+                span: self.span(call.span.start, call.span.end),
+            }));
+        }
         let callee = body.push_expr(Expr {
             kind: ExprKind::Item(item),
             ty: self.ctx.krate.types.intern(Type::Function(FunctionType {

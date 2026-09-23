@@ -50,6 +50,18 @@ pub(in crate::lowering) struct ClassRegistry {
     methods: HashMap<String, Vec<MethodSig>>,
     /// Base-class metadata for classes lowered so far.
     bases: HashMap<String, BaseClass>,
+    /// Base-class metadata keyed by the SYMBOL of the class the current module
+    /// declares.
+    ///
+    /// The by-name map above cannot answer a base-chain question safely: a class
+    /// renamed for a cross-module collision (`Store_1`) keeps its SOURCE
+    /// spelling as its recorded name, so asking the by-name map about another
+    /// module's `Store_1` hands back THIS module's `Store` — and for
+    /// `import { Store as StoreBase }; class Store extends StoreBase` that is the
+    /// class itself, which walks its own base chain forever. Keyed by symbol the
+    /// map answers only for the classes the module being lowered declared, which
+    /// is exactly the set whose bases it recorded.
+    bases_by_symbol: HashMap<Symbol, BaseClass>,
     /// Value types declared by class string index signatures (`[k: string]: T`),
     /// keyed by the class name symbol.
     ///
@@ -183,8 +195,28 @@ impl ClassRegistry {
     }
 
     /// Record the base class of the class named `name`.
-    pub(in crate::lowering) fn set_base(&mut self, name: String, base: Symbol, args: Vec<TypeId>) {
-        self.bases.insert(name, (base, args));
+    ///
+    /// `symbol` is the declaring class's own type symbol, so the same base is
+    /// reachable by symbol through [`Self::base_of_symbol`] without going
+    /// through the ambiguous source spelling.
+    pub(in crate::lowering) fn set_base(
+        &mut self,
+        name: String,
+        symbol: Symbol,
+        base: Symbol,
+        args: Vec<TypeId>,
+    ) {
+        self.bases.insert(name, (base, args.clone()));
+        self.bases_by_symbol.insert(symbol, (base, args));
+    }
+
+    /// Return the base class recorded for the class SYMBOL `symbol`.
+    ///
+    /// Answers `None` for every symbol the current module did not declare, which
+    /// is what keeps an imported class's base chain out of this module's
+    /// in-progress registry.
+    pub(in crate::lowering) fn base_of_symbol(&self, symbol: Symbol) -> Option<&BaseClass> {
+        self.bases_by_symbol.get(&symbol)
     }
 
     /// Return the index-signature value type of the class symbol `name`.
@@ -223,6 +255,7 @@ impl ClassRegistry {
             fields: self.fields.clone(),
             methods: self.methods.clone(),
             bases: self.bases.clone(),
+            bases_by_symbol: self.bases_by_symbol.clone(),
             scoped_type_names: self.scoped_type_names.clone(),
             index_values: self.index_values.clone(),
         }
@@ -237,6 +270,7 @@ impl ClassRegistry {
         self.fields = scope.fields;
         self.methods = scope.methods;
         self.bases = scope.bases;
+        self.bases_by_symbol = scope.bases_by_symbol;
         self.scoped_type_names = scope.scoped_type_names;
         self.index_values = scope.index_values;
     }
@@ -275,6 +309,8 @@ pub(in crate::lowering) struct ClassScopeSnapshot {
     methods: HashMap<String, Vec<MethodSig>>,
     /// Base classes visible before the suite body.
     bases: HashMap<String, BaseClass>,
+    /// Symbol-keyed base classes visible before the suite body.
+    bases_by_symbol: HashMap<Symbol, BaseClass>,
     /// Lexically scoped class type symbols visible before the suite body.
     scoped_type_names: HashMap<String, Symbol>,
     /// Class index-signature value types visible before the suite body.
