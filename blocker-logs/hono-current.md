@@ -6,6 +6,25 @@
 - CI: `.github/workflows/ci.yml`'s `hono` job now hard-gates `smelt build` + `cargo check` on `dist-smelt` (mirroring radash); `cargo test` and the SmeltUnknown erasure report stay advisory until the phase-3 test baseline is stable.
 
 
+## Phase 3 round 2, defaults / callable-interface fields / `Context` collision (Agent S, `worktree-agent-aa7111d6443760ca8`)
+
+Merged head `80c6545c` + this branch. The E0107 family was the `Context`/`Context_1` symbol
+problem, not missing defaults: an ambiguous imported name now resolves through its declaring
+module in the predeclaration pass, through barrel re-exports and at `new`. `Context.set: Set<E>`
+is callable (a module-declared interface/class/enum shadows the library `Set`), arrows stored into
+callable-interface fields keep their body (was a silent no-op default), and erased → record-class
+extractions are one shared `__smelt_from_record_<Type>` helper per class (the correctly typed
+`Context` otherwise inlined ~230 KB per erased middleware site). Details:
+`hono-phase3-round2-generics.md`.
+
+| gate | result |
+| --- | --- |
+| overlay | 9 test files re-admitted (`compose`, six `conninfo`, `bun/server`, `helper/route`); 7 moved to their next family |
+| `smelt build` | passes — **82 modules, 234 `#[test]`** in 19 test modules |
+| `cargo check` (no tests) | **0 errors**, 376 warnings, 98 s |
+| `cargo build` | links (`hono_probe`) |
+| `cargo check --tests` (limit 30 min) | 94 s: **421 errors** — E0308 259, E0560 154, E0282 4, E0609 2, E0605 1, E0369 1; 141 of them in the re-admitted `helper/route` (138) and `compose` (3) tests; pre-existing modules 308 → **280** |
+
 ## Phase 3 round 2, closure joins + interface receivers (Agent T)
 
 Closure-body forks (`&&`/`||`, `if`, throwing terminators) now rejoin once through
