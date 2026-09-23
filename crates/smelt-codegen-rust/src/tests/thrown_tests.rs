@@ -655,7 +655,7 @@ fn closure_short_circuit_program(count: usize) -> String {
         .collect::<Vec<_>>()
         .join(" && ");
     let or_chain = (0..count.max(1))
-        .map(|index| format!("n === {}", index * 3))
+        .map(|index| format!("n === {}", index.saturating_mul(3)))
         .collect::<Vec<_>>()
         .join(" || ");
     format!(

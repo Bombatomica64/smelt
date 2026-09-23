@@ -6,6 +6,20 @@
 - CI: `.github/workflows/ci.yml`'s `hono` job now hard-gates `smelt build` + `cargo check` on `dist-smelt` (mirroring radash); `cargo test` and the SmeltUnknown erasure report stay advisory until the phase-3 test baseline is stable.
 
 
+## Phase 3 round 2, closure joins + interface receivers (Agent T)
+
+Closure-body forks (`&&`/`||`, `if`, throwing terminators) now rejoin once through
+`forked_region_join`; a class instance viewed through an interface fills its method slots with
+closures dispatching to the class's own methods. Details: `hono-phase3-round2-closures.md`.
+
+| gate | result |
+| --- | --- |
+| `middleware/trailing-slash/index.ts` | 3.0 MB / 11 357 lines → **60 KB / 367 lines** (4 `redirect`, as in the source) |
+| overlay lines removed | 0 — `trailing-slash/index.test.ts` still adds 48 E0308 (variadic handlers / literal union); comment updated |
+| `cargo check` (no tests) | **0 errors** (also with the trailing-slash test admitted) |
+| `cargo build` | links (`hono_probe`) |
+| `cargo check --tests` | **308 errors** (was 402) — E0308 285, E0560 22, E0609 1, E0615 0 |
+
 ## Phase 3 round 2, rows 1 + 4 (`worktree-agent-a3a9afb6b46a223e1`)
 
 Throwing-terminator arms now join one shared continuation (`emitter/throwing_join.rs`), and a

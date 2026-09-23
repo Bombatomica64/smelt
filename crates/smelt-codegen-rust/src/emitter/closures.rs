@@ -1597,7 +1597,6 @@ impl FunctionEmitter<'_> {
     /// explicit `return` (the `in_loop` flag), exactly as inside a generated
     /// `loop`. Without a join the arms keep carrying their own tails, so a
     /// fully-diverging `if`/`else` can still be the closure's tail value.
-    #[allow(clippy::too_many_arguments)]
     fn emit_closure_switch(
         &self,
         cond: &Operand,
@@ -1611,7 +1610,7 @@ impl FunctionEmitter<'_> {
         let exits = Self::closure_region_exits(active, stop);
         let join = self.forked_region_join(&[then_block, else_block], &[], &exits)?;
         let (arm_stop, arm_in_loop) = match join {
-            Some(join) => (Some(join), true),
+            Some(join_block) => (Some(join_block), true),
             None => (stop, in_loop),
         };
         let branch_declared = self.declared_locals_snapshot();
@@ -1622,8 +1621,8 @@ impl FunctionEmitter<'_> {
         self.emit_closure_block_inner(self.block(else_block)?, out, active, arm_stop, arm_in_loop)?;
         out.push_str("    }\n");
         self.restore_declared_locals(branch_declared);
-        if let Some(join) = join {
-            self.emit_closure_block_inner(self.block(join)?, out, active, stop, in_loop)?;
+        if let Some(join_block) = join {
+            self.emit_closure_block_inner(self.block(join_block)?, out, active, stop, in_loop)?;
         }
         Ok(())
     }
