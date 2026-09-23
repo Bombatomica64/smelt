@@ -4877,6 +4877,30 @@ fn emit_source_with_free_function_router(
                     });
                 },
             );
+            // `expect(actual).toContain(needle)` on an ERASED actual: the value
+            // reached the assertion as `SmeltUnknown` upstream, so which
+            // containment rule applies is only known from its runtime tag. This
+            // is the matcher's boundary adapter (vitest's own rule: a string
+            // checks for a substring, anything iterable for a strict-equal
+            // member), not a way to erase a statically typed actual — those keep
+            // the typed `StringContains`/`ListContains`/`SetContains` paths.
+            impl_writer.line("/// Return vitest `toContain` membership for an erased actual, by its runtime kind:");
+            impl_writer.line("/// a substring of a string, or a SameValueZero member of an array, set, or map's entries.");
+            impl_writer.block(
+                "pub fn to_contain<T: IntoSmeltUnknown>(&self, needle: T) -> bool",
+                |fn_writer| {
+                    fn_writer.line("let needle = needle.into_smelt_unknown();");
+                    fn_writer.block("match self", |match_writer| {
+                        match_writer.line("Self::String(haystack) => matches!(&needle, Self::String(needle) if haystack.contains(&**needle)),");
+                        match_writer.line("Self::Array(values) => values.iter().any(|value| value.same_js_key(&needle)),");
+                        match_writer.line("Self::Object(object) => match (object.get(\"__smelt_set\"), object.get(\"__smelt_map\")) {");
+                        match_writer.line("    (Some(Self::Array(members)), _) | (_, Some(Self::Array(members))) => members.iter().any(|member| member.same_js_key(&needle)),");
+                        match_writer.line("    _ => false,");
+                        match_writer.line("},");
+                        match_writer.line("_ => false,");
+                    });
+                },
+            );
             impl_writer.line("/// Return JavaScript-like RegExp.test behavior for erased regex-like values.");
             impl_writer.block(
                 "pub fn test<T: IntoSmeltUnknown>(&self, haystack: T) -> bool",

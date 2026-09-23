@@ -456,3 +456,130 @@ test("a wrong nth call fails", () => {
 "#;
     expect_generated_tests_fail(source, "smelt_vitest_nth_call_wrong");
 }
+
+/// Source of a function returning its argument as an erased `unknown`.
+///
+/// The actual reaches `expect(..)` already erased, which is the dynamic
+/// boundary the erased `toContain` path exists for.
+const ERASE_HELPER: &str = r"
+function erase(value: unknown): unknown {
+  return value;
+}
+";
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn to_contain_on_an_erased_actual_dispatches_on_its_runtime_kind() {
+    // Before the runtime dispatch, an erased actual was projected to an erased
+    // LIST, so a string actual panicked and a set never matched.
+    let source = format!(
+        r#"
+import {{ test, expect }} from "vitest";
+{ERASE_HELPER}
+test("erased toContain", () => {{
+  expect(erase("hello world")).toContain("world");
+  expect(erase([1, 2, 3])).toContain(2);
+  expect(erase(new Set(["a", "b"]))).toContain("b");
+  expect(erase("hello")).not.toContain("bye");
+  expect(erase([1, 2])).not.toContain(5);
+}});
+"#
+    );
+    expect_generated_tests_pass(&source, "smelt_vitest_erased_contain");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_wrong_to_contain_on_an_erased_actual_fails() {
+    let source = format!(
+        r#"
+import {{ test, expect }} from "vitest";
+{ERASE_HELPER}
+test("erased toContain miss", () => {{
+  expect(erase("hello")).toContain("world");
+}});
+"#
+    );
+    expect_generated_tests_fail(&source, "smelt_vitest_erased_contain_wrong");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn to_contain_and_to_match_on_a_nullable_string_narrow_it() {
+    // `headers.get(..)` is `string | null`: the matcher narrows the actual and
+    // takes the typed substring path (Hono's `toMatch('application/json')`).
+    let source = r#"
+import { test, expect } from "vitest";
+function header(present: boolean): string | null {
+  return present ? "application/json; charset=UTF-8" : null;
+}
+test("nullable toContain", () => {
+  expect(header(true)).toContain("json");
+  expect(header(true)).toMatch("application/json");
+  expect(header(true)).not.toContain("xml");
+});
+"#;
+    expect_generated_tests_pass(source, "smelt_vitest_nullable_contain");
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn to_contain_on_a_null_actual_fails() {
+    let source = r#"
+import { test, expect } from "vitest";
+function header(present: boolean): string | null {
+  return present ? "application/json" : null;
+}
+test("null toContain", () => {
+  expect(header(false)).toContain("json");
+});
+"#;
+    expect_generated_tests_fail(source, "smelt_vitest_null_contain");
+}
+
+/// A test body with `count` sequential `toThrow` assertions, all satisfied
+/// except the last when `last_throws` is false.
+fn sequential_to_throw_source(count: usize, last_throws: bool) -> String {
+    use std::fmt::Write as _;
+    let mut assertions = String::new();
+    for position in 1..=count {
+        let input = if position == count && !last_throws { "ok" } else { "" };
+        writeln!(assertions, "  expect(() => parse(\"{input}\")).toThrow();")
+            .expect("writing to a String cannot fail");
+    }
+    format!(
+        r#"
+import {{ test, expect }} from "vitest";
+function parse(value: string): number {{
+  if (value.length === 0) {{
+    throw new Error("empty");
+  }}
+  return value.length;
+}}
+test("sequential toThrow", () => {{
+{assertions}}});
+"#
+    )
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn twelve_sequential_to_throw_assertions_compile_and_run() {
+    // 12 is Hono's `utils/cookie.test.ts` count, which used to emit a 616 MB
+    // module (each `toThrow` cloned the rest of the test into its 3 arms).
+    expect_generated_tests_pass(
+        &sequential_to_throw_source(12, true),
+        "smelt_vitest_sequential_to_throw",
+    );
+}
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_later_to_throw_that_does_not_throw_still_fails() {
+    // The shared join must still run every later assertion: the last one is
+    // false on purpose.
+    expect_generated_tests_fail(
+        &sequential_to_throw_source(12, false),
+        "smelt_vitest_sequential_to_throw_wrong",
+    );
+}
