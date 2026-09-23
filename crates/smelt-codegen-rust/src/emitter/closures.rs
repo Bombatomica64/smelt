@@ -888,15 +888,21 @@ impl FunctionEmitter<'_> {
                 // `smelt_async_value`, so the block is a `Result<Ok, Box<dyn Error>>`
                 // whose `Ok` type equals the erased `SmeltUnknown` or the concrete
                 // `output_text` the `Ok::<..>` returns already use.
+                // A fallible, non-awaited body's tail is an `Ok::<..>(..)` value,
+                // so its block is a `Result` even when it also contains explicit
+                // `return Ok(..)` statements (a closure `if` whose arms end at a
+                // shared join renders its `Return`s that way): those leave the
+                // `async` block, not the inner one, and say nothing about its type.
+                let fallible_block = closure.can_throw && !async_value_needs_await;
                 let async_value_annotation: Option<String> =
-                    if body_text.contains("return Ok") {
+                    if body_text.contains("return Ok") && !fallible_block {
                         // Explicit returns diverge from the inner block, so pin
                         // its otherwise-unconstrained binding for Rust inference.
                         // Reaching this branch already proves the wrapper is
                         // async; contextual function types can lose their
                         // `is_async` flag while retaining a future return.
                         Some(format!(": {output_text}"))
-                    } else if closure.can_throw && !async_value_needs_await {
+                    } else if fallible_block {
                         let ok_ty_text = if matches!(
                             emitter.mir.types.get(output_ty),
                             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
@@ -1535,29 +1541,15 @@ impl FunctionEmitter<'_> {
                 cond,
                 then_block,
                 else_block,
-            } => {
-                let branch_declared = self.declared_locals_snapshot();
-                out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
-                self.emit_closure_block_inner(
-                    self.block(*then_block)?,
-                    out,
-                    active,
-                    stop,
-                    in_loop,
-                )?;
-                out.push_str("    } else {\n");
-                self.restore_declared_locals(branch_declared.clone());
-                self.emit_closure_block_inner(
-                    self.block(*else_block)?,
-                    out,
-                    active,
-                    stop,
-                    in_loop,
-                )?;
-                out.push_str("    }\n");
-                self.restore_declared_locals(branch_declared);
-                Ok(())
-            }
+            } => self.emit_closure_switch(
+                cond,
+                *then_block,
+                *else_block,
+                out,
+                active,
+                stop,
+                in_loop,
+            ),
             Terminator::Match {
                 scrutinee,
                 arms,
@@ -1575,6 +1567,64 @@ impl FunctionEmitter<'_> {
         };
         active.pop();
         result
+    }
+
+    /// Blocks that end the closure region currently being emitted.
+    ///
+    /// Used as the `exits` of [`Self::forked_region_join`]: the region's `stop`
+    /// (an enclosing loop header or join) and every block on the emission stack
+    /// (enclosing loop headers and the fork itself). A path reaching one of them
+    /// before a candidate join leaves the region, so that candidate is rejected.
+    pub(super) fn closure_region_exits(
+        active: &[smelt_mir::BlockId],
+        stop: Option<smelt_mir::BlockId>,
+    ) -> Vec<smelt_mir::BlockId> {
+        stop.into_iter().chain(active.iter().copied()).collect()
+    }
+
+    /// Emits a two-way MIR `Switch` inside a Rust closure body.
+    ///
+    /// When the arms rejoin (see [`Self::forked_region_join`]), each arm is
+    /// emitted as a region ending at the join and the join is emitted ONCE after
+    /// the `if`. Emitting the join inside both arms (the old tree walk) doubled
+    /// the tail at every fork, so a k-long `&&`/`||` chain (each operator is a
+    /// `Switch` whose arms rejoin at the next test) emitted 2^k copies of
+    /// everything after it (Hono's `trailing-slash` middleware: 3 MB from 158
+    /// source lines).
+    ///
+    /// Because the join follows the `if`, the arms are statements, not the
+    /// closure's tail expression: a `Return` inside an arm renders as an
+    /// explicit `return` (the `in_loop` flag), exactly as inside a generated
+    /// `loop`. Without a join the arms keep carrying their own tails, so a
+    /// fully-diverging `if`/`else` can still be the closure's tail value.
+    fn emit_closure_switch(
+        &self,
+        cond: &Operand,
+        then_block: smelt_mir::BlockId,
+        else_block: smelt_mir::BlockId,
+        out: &mut String,
+        active: &mut Vec<smelt_mir::BlockId>,
+        stop: Option<smelt_mir::BlockId>,
+        in_loop: bool,
+    ) -> Result<(), EmitError> {
+        let exits = Self::closure_region_exits(active, stop);
+        let join = self.forked_region_join(&[then_block, else_block], &[], &exits)?;
+        let (arm_stop, arm_in_loop) = match join {
+            Some(join_block) => (Some(join_block), true),
+            None => (stop, in_loop),
+        };
+        let branch_declared = self.declared_locals_snapshot();
+        out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+        self.emit_closure_block_inner(self.block(then_block)?, out, active, arm_stop, arm_in_loop)?;
+        out.push_str("    } else {\n");
+        self.restore_declared_locals(branch_declared.clone());
+        self.emit_closure_block_inner(self.block(else_block)?, out, active, arm_stop, arm_in_loop)?;
+        out.push_str("    }\n");
+        self.restore_declared_locals(branch_declared);
+        if let Some(join_block) = join {
+            self.emit_closure_block_inner(self.block(join_block)?, out, active, stop, in_loop)?;
+        }
+        Ok(())
     }
 
     /// Emits a MIR match inside a Rust closure body.

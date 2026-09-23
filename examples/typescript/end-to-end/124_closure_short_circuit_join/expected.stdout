@@ -1,0 +1,6 @@
+/api/users score=1 parsed=10
+reject /api/users/
+/api score=11 parsed=4
+/api/a score=11 parsed=6
+reject relative
+1 1 101 0 100

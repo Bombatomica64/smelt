@@ -161,33 +161,19 @@ fn main() {
     let _smelt_tmp_1: bool = !(closure_arg_0.status.clone().is_none());
     if _smelt_tmp_1 {
     _smelt_tmp_2 = closure_arg_0.status.clone();
-    _smelt_tmp_3 = "required ".to_owned() + &_smelt_tmp_2.clone().map_or_else(|| "undefined".to_owned(), |value| value.to_string());
-    _smelt_tmp_4 = _smelt_tmp_3.clone() + &" ".to_owned();
-    _smelt_tmp_5 = !(closure_arg_0.label.clone().is_none());
-    if _smelt_tmp_5 {
-    _smelt_tmp_6 = closure_arg_0.label.clone();
-    _smelt_tmp_7 = _smelt_tmp_4.clone() + &_smelt_tmp_6.clone().unwrap_or_else(|| "undefined".to_owned());
-    _smelt_tmp_7.clone()
-    } else {
-    _smelt_tmp_6 = Some("-".to_owned());
-    _smelt_tmp_7 = _smelt_tmp_4.clone() + &_smelt_tmp_6.clone().unwrap_or_else(|| "undefined".to_owned());
-    _smelt_tmp_7.clone()
-    }
     } else {
     _smelt_tmp_2 = Some(0.0);
+    }
     _smelt_tmp_3 = "required ".to_owned() + &_smelt_tmp_2.clone().map_or_else(|| "undefined".to_owned(), |value| value.to_string());
     _smelt_tmp_4 = _smelt_tmp_3.clone() + &" ".to_owned();
     _smelt_tmp_5 = !(closure_arg_0.label.clone().is_none());
     if _smelt_tmp_5 {
     _smelt_tmp_6 = closure_arg_0.label.clone();
-    _smelt_tmp_7 = _smelt_tmp_4.clone() + &_smelt_tmp_6.clone().unwrap_or_else(|| "undefined".to_owned());
-    _smelt_tmp_7.clone()
     } else {
     _smelt_tmp_6 = Some("-".to_owned());
+    }
     _smelt_tmp_7 = _smelt_tmp_4.clone() + &_smelt_tmp_6.clone().unwrap_or_else(|| "undefined".to_owned());
     _smelt_tmp_7.clone()
-    }
-    }
     });
     _smelt_tmp_11 = Opts { status: Some(9.0), label: Some("req".to_owned()) };
     _smelt_tmp_12 = (_smelt_tmp_10)(_smelt_tmp_11);
@@ -202,33 +188,19 @@ fn main() {
     let _smelt_tmp_1: bool = !(closure_arg_0.status.clone().is_none());
     if _smelt_tmp_1 {
     _smelt_tmp_2 = closure_arg_0.status.clone();
-    _smelt_tmp_3 = "required ".to_owned() + &_smelt_tmp_2.clone().map_or_else(|| "undefined".to_owned(), |value| value.to_string());
-    _smelt_tmp_4 = _smelt_tmp_3.clone() + &" ".to_owned();
-    _smelt_tmp_5 = !(closure_arg_0.label.clone().is_none());
-    if _smelt_tmp_5 {
-    _smelt_tmp_6 = closure_arg_0.label.clone();
-    _smelt_tmp_7 = _smelt_tmp_4.clone() + &_smelt_tmp_6.clone().unwrap_or_else(|| "undefined".to_owned());
-    _smelt_tmp_7.clone()
-    } else {
-    _smelt_tmp_6 = Some("-".to_owned());
-    _smelt_tmp_7 = _smelt_tmp_4.clone() + &_smelt_tmp_6.clone().unwrap_or_else(|| "undefined".to_owned());
-    _smelt_tmp_7.clone()
-    }
     } else {
     _smelt_tmp_2 = Some(0.0);
+    }
     _smelt_tmp_3 = "required ".to_owned() + &_smelt_tmp_2.clone().map_or_else(|| "undefined".to_owned(), |value| value.to_string());
     _smelt_tmp_4 = _smelt_tmp_3.clone() + &" ".to_owned();
     _smelt_tmp_5 = !(closure_arg_0.label.clone().is_none());
     if _smelt_tmp_5 {
     _smelt_tmp_6 = closure_arg_0.label.clone();
-    _smelt_tmp_7 = _smelt_tmp_4.clone() + &_smelt_tmp_6.clone().unwrap_or_else(|| "undefined".to_owned());
-    _smelt_tmp_7.clone()
     } else {
     _smelt_tmp_6 = Some("-".to_owned());
+    }
     _smelt_tmp_7 = _smelt_tmp_4.clone() + &_smelt_tmp_6.clone().unwrap_or_else(|| "undefined".to_owned());
     _smelt_tmp_7.clone()
-    }
-    }
     });
     _smelt_tmp_15 = Opts { status: None::<f64>, label: Some("partial".to_owned()) };
     _smelt_tmp_16 = (_smelt_tmp_14)(_smelt_tmp_15);

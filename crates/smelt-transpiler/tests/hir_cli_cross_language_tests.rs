@@ -1085,6 +1085,8 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "121_sequential_try_catch_join",
     "122_defaulted_type_arguments",
     "123_callable_interface_field",
+    "124_closure_short_circuit_join",
+    "125_interface_receiver_dispatch",
     "11_console_log_expressions",
     "12_while_sum",
     "13_for_of_sum",

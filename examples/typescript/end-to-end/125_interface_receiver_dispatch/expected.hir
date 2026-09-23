@@ -1,0 +1,75 @@
+module examples/typescript/end-to-end/125_interface_receiver_dispatch/input.ts (ModuleId(0))
+  body BodyId(10)
+  items
+    interface Shape fields [Public name: String, Public area: fn() -> Float, Public tag: fn(String) -> String] methods [Public area() -> Float, Public tag(label: String) -> String]
+    class Square fields [Public name: String, Public tagged: Float, Private side: Float] constructor Some(ItemId(3)) methods [ItemId(4), ItemId(5)] implements [Shape]
+    class Circle fields [Private radius: Float, Public name: String, Public tagged: Float] constructor Some(ItemId(7)) methods [ItemId(8), ItemId(9)] implements [Shape]
+    fn describe owner Module
+    fn run_suite owner Module
+  locals
+    %0 const square: Square
+    %1 const shapes: List<Shape>
+    %2 let shape: Shape
+  exprs
+    #0: Float = 3.0
+    #1: Square = new Square(#0)
+    #2: Square = %0
+    #3: Float = 2.0
+    #4: Circle = new Circle(#3)
+    #5: List<Shape> = [#2, #4]
+    #6: List<Shape> = %1
+    #7: Shape = %2
+    #8: fn(Shape) -> String = @0(describe)
+    #9: String = call #8(#7)
+    #10: None = @12(console_log)
+    #11: None = call #10(#9)
+    #12: Float = 5.0
+    #13: Square = new Square(#12)
+    #14: fn(Shape) -> String = @0(describe)
+    #15: String = call #14(#13)
+    #16: None = @13(console_log)
+    #17: None = call #16(#15)
+    #18: String = "square tagged"
+    #19: Square = %0
+    #20: Float = #19.tagged
+    #21: None = @14(console_log)
+    #22: None = call #21(#18, #20)
+    #23: String = "make"
+    #24: fn() -> Shape = closure BodyId(8) captures 0 -> Shape
+    #25: Dict<String, fn() -> Shape> = {#23: #24}
+    #26: fn(Dict<String, fn() -> Shape>) -> None = @1(run_suite)
+    #27: None = call #26(#25)
+    #28: String = "make"
+    #29: fn() -> Shape = closure BodyId(9) captures 0 -> Shape
+    #30: Dict<String, fn() -> Shape> = {#28: #29}
+    #31: fn(Dict<String, fn() -> Shape>) -> None = @1(run_suite)
+    #32: None = call #31(#30)
+  stmts
+    s0: let %0: Square = #1
+    s1: let %1: List<Shape> = #5
+    s2: #11
+    s3: for %2 in #6 BlockId(1)
+    s4: #17
+    s5: #22
+    s6: #27
+    s7: #32
+
+interned types
+  t0 = Float
+  t1 = Square
+  t2 = Shape
+  t3 = List<Shape>
+  t4 = String
+  t5 = fn(Shape) -> String
+  t6 = fn() -> Shape
+  t7 = Dict<String, fn() -> Shape>
+  t8 = None
+  t9 = fn(Dict<String, fn() -> Shape>) -> None
+  t10 = fn() -> Float
+  t11 = fn(String) -> String
+  t12 = Circle
+  t13 = fn() -> Float
+  t14 = fn(String) -> String
+  t15 = fn(Shape) -> String
+  t16 = fn() -> Shape
+  t17 = fn(Dict<String, fn() -> Shape>) -> None

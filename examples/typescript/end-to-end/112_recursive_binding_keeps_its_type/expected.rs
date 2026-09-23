@@ -121,14 +121,13 @@ pub(crate) fn banner(text: String, times: f64) -> String {
     let _smelt_tmp_4: bool = closure_arg_0 <= 0.0;
     if _smelt_tmp_4 {
     _smelt_tmp_5 = closure_arg_1.clone();
-    _smelt_tmp_5.clone()
     } else {
     _smelt_tmp_6 = closure_arg_0 - 1.0;
     _smelt_tmp_7 = closure_arg_1.clone() + &text.clone();
     _smelt_tmp_8 = ((*smelt_capture_repeat.upgrade().expect("self-recursive closure called after its defining scope returned").borrow()))(_smelt_tmp_6, _smelt_tmp_7.clone());
     _smelt_tmp_5 = _smelt_tmp_8.clone();
-    _smelt_tmp_5.clone()
     }
+    _smelt_tmp_5.clone()
     }
 });
     (*smelt_capture_repeat.borrow_mut()) = _smelt_tmp_3.clone();

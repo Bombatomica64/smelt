@@ -1,0 +1,43 @@
+module examples/typescript/end-to-end/124_closure_short_circuit_join/input.ts (ModuleId(0))
+  body BodyId(6)
+  items
+    type Handler = fn(String, Bool) -> Future<String>
+    fn make_handler owner Module
+    fn check owner Module
+    fn counter owner Module
+    fn run owner Module
+  exprs
+    #0: async fn() -> Future<None> = @5(run)
+    #1: Future<None> = call #0()
+    #2: None = async_spawn_local(#1)
+    #3: Future<None> = async_exit_drain()
+    #4: None = await #3
+  stmts
+    s0: #2
+    s1: #4
+  async state machine
+    states [state0, state1]
+    suspend #4 on #3 -> state5
+
+interned types
+  t0 = String
+  t1 = Bool
+  t2 = Future<String>
+  t3 = fn(String, Bool) -> Future<String>
+  t4 = fn(String) -> fn(String, Bool) -> Future<String>
+  t5 = Float
+  t6 = fn(String) -> Float
+  t7 = fn(Float) -> Float
+  t8 = fn() -> fn(Float) -> Float
+  t9 = None
+  t10 = Future<None>
+  t11 = async fn() -> Future<None>
+  t12 = Future<Float>
+  t13 = fn(String) -> Float
+  t14 = Unknown
+  t15 = async fn(String, Bool) -> Future<String>
+  t16 = Dict<String, Unknown>
+  t17 = fn(Float) -> Float
+  t18 = fn(String) -> fn(String, Bool) -> Future<String>
+  t19 = fn() -> fn(Float) -> Float
+  t20 = async fn() -> Future<None>
