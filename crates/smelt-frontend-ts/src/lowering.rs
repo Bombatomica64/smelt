@@ -721,12 +721,12 @@ pub fn scan_type_reexports(source: &str, path: &str) -> Vec<TypeReexport> {
             Statement::ExportNamedDeclaration(export) => {
                 for specifier in &export.specifiers {
                     let local = support::module_export_name(&specifier.local);
-                    let Some((source, imported)) = imports.get(&local) else {
+                    let Some((import_source, imported)) = imports.get(&local) else {
                         continue;
                     };
                     reexports.push(TypeReexport {
                         exported: Some(support::module_export_name(&specifier.exported)),
-                        specifier: source.clone(),
+                        specifier: import_source.clone(),
                         imported: Some(imported.clone()),
                     });
                 }

@@ -1749,7 +1749,10 @@ function store(holder: Holder): void {
     )?;
     let args = class_field_type_args(&ctx, "Holder")?;
     ensure_eq!(args.len(), 1);
-    ensure!(matches!(ctx.krate.types.get(args[0]), Some(Type::Float)));
+    ensure!(matches!(
+        args.first().and_then(|arg| ctx.krate.types.get(*arg)),
+        Some(Type::Float)
+    ));
     Ok(())
 }
 
@@ -1786,5 +1789,34 @@ class Holder {
         .ok_or("no Holder class")?;
     let field = class.fields.first().ok_or("Holder has no field")?;
     ensure!(matches!(ctx.krate.types.get(field.ty), Some(Type::Set(_))));
+    Ok(())
+}
+
+#[test]
+fn an_instance_getter_satisfies_an_implemented_interface_property() -> Result<(), String> {
+    // TypeScript checks an implemented property's READ type, not whether the
+    // class stores it: a `get label(): string` satisfies `label: string`. The
+    // getter lowers to an accessor descriptor, and `validate_implements` looked
+    // only at stored fields, so the class was rejected as "missing implemented
+    // interface field `label`".
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r"
+interface Labelled {
+  label: string;
+}
+
+class Tag implements Labelled {
+  raw: string;
+  constructor(raw: string) {
+    this.raw = raw;
+  }
+  get label(): string {
+    return '#' + this.raw;
+  }
+}
+"),
+        &mut ctx,
+    )?;
     Ok(())
 }

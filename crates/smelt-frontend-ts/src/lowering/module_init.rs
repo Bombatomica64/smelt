@@ -3060,7 +3060,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// (`compose.rs`'s `Context<SmeltUnknown>`, E0107). Only the two
     /// provenance maps are written; no item is aliased and no value import is
     /// classified, so the full pass later is unaffected.
-    pub(super) fn record_import_provenance(&mut self, program: &oxc::ast::ast::Program<'_>) {
+    pub(super) fn record_import_provenance(&mut self, program: &Program<'_>) {
         for statement in &program.body {
             let Statement::ImportDeclaration(import) = statement else {
                 continue;

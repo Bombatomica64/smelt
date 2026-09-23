@@ -962,7 +962,7 @@ fn propagate_type_renames_through_reexports(
 fn resolve_reexport_specifier(
     from: &Path,
     specifier: &str,
-    canonical_to_key: &HashMap<std::path::PathBuf, String>,
+    canonical_to_key: &HashMap<PathBuf, String>,
 ) -> Option<String> {
     if !specifier.starts_with('.') {
         return None;
@@ -975,7 +975,7 @@ fn resolve_reexport_specifier(
         base.join("index.ts"),
         base.join("index.tsx"),
     ];
-    candidates.push(std::path::PathBuf::from(format!("{}.ts", base.display())));
+    candidates.push(PathBuf::from(format!("{}.ts", base.display())));
     candidates.into_iter().find_map(|candidate| {
         let canonical = fs::canonicalize(&candidate).ok()?;
         canonical.is_file().then(|| canonical_to_key.get(&canonical).cloned())?
